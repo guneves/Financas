@@ -1,0 +1,51 @@
+# ==========================================
+# BACKEND (Python / Flask)
+# ==========================================
+# Ambientes Virtuais
+venv/
+env/
+.venv/
+
+# Arquivos compilados do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================================
+# FRONTEND (Node.js / React / Vite)
+# ==========================================
+# Dependências do Node
+node_modules/
+/frontend/node_modules/
+
+# Pastas de build de produção do Vite
+dist/
+dist-ssr/
+build/
+
+# Logs de erro do NPM
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==========================================
+# SEGURANÇA E VARIÁVEIS DE AMBIENTE
+# ==========================================
+# NUNCA suba suas chaves do Supabase para o GitHub!
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# SISTEMA OPERACIONAL E IDE (VS Code)
+# ==========================================
+# Arquivos do Windows
+Thumbs.db
+Desktop.ini
+
+# Arquivos do macOS (caso alguém da equipe use Mac)
+.DS_Store
+
+# Configurações locais do VS Code
+.vscode/
+.idea/
