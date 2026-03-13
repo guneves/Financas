@@ -218,11 +218,27 @@ export default function Transactions() {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <form onSubmit={handleBankSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-6 gap-4">
             <select value={transForm.type} onChange={e => setTransForm({...transForm, type: e.target.value})} className="p-2 border rounded-lg bg-white">
-              <option value="EXPENSE">Saída Bancária (-)</option><option value="INCOME">Entrada Bancária (+)</option>
+              <option value="EXPENSE">Saída Bancária (-)</option>
+              <option value="INCOME">Entrada Bancária (+)</option>
             </select>
             <input type="number" step="0.01" placeholder="Valor (R$)" value={transForm.amount} onChange={e => setTransForm({...transForm, amount: e.target.value})} className="p-2 border rounded-lg" required />
             <input type="date" value={transForm.date} onChange={e => setTransForm({...transForm, date: e.target.value})} className="p-2 border rounded-lg" required />
-            <input type="text" placeholder="Categoria / Descrição" value={transForm.category} onChange={e => setTransForm({...transForm, category: e.target.value})} className="col-span-2 p-2 border rounded-lg" required />
+            
+            {/* NOVO: Categoria Pré-definida (Select) */}
+            <select value={transForm.category} onChange={e => setTransForm({...transForm, category: e.target.value})} className="p-2 border rounded-lg bg-white" required>
+              <option value="">Selecione a Categoria...</option>
+              <option value="Alimentação">Alimentação</option>
+              <option value="Moradia">Moradia</option>
+              <option value="Transporte">Transporte</option>
+              <option value="Saúde">Saúde</option>
+              <option value="Educação">Educação</option>
+              <option value="Lazer">Lazer</option>
+              <option value="Serviços">Serviços</option>
+              <option value="Outros">Outros</option>
+            </select>
+            
+            {/* NOVO: Descrição Isolada */}
+            <input type="text" placeholder="Descrição (Ex: Mercado)" value={transForm.description} onChange={e => setTransForm({...transForm, description: e.target.value})} className="p-2 border rounded-lg" required />
             <button type="submit" className="bg-blue-600 text-white rounded-lg py-2 hover:bg-blue-700">Lançar</button>
           </form>
 
