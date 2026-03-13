@@ -117,6 +117,18 @@ export default function Transactions() {
     fetchData()
   }
 
+  const handleDeleteTransaction = async (id) => {
+    if(!window.confirm("Deseja realmente eliminar esta transação? O saldo será recalculado.")) return
+    const { error } = await supabase.from('transactions').delete().eq('id', id)
+    if (!error) fetchData()
+  }
+
+  const handleDeleteCCExpense = async (id) => {
+    if(!window.confirm("Deseja eliminar este lançamento do cartão de crédito?")) return
+    const { error } = await supabase.from('cc_expenses').delete().eq('id', id)
+    if (!error) fetchData()
+  }
+
   // Helpers Visuais
   const getInvoiceStatus = (year, month, dueDay) => {
     const today = new Date()
@@ -171,7 +183,11 @@ export default function Transactions() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b text-slate-600 text-sm">
-                  <th className="p-4">Data</th><th className="p-4">Descrição</th><th className="p-4">Movimentação</th><th className="p-4">Valor</th>
+                  <th className="p-4">Data</th>
+                  <th className="p-4">Descrição</th>
+                  <th className="p-4">Movimentação</th>
+                  <th className="p-4">Valor</th>
+                  <th className="p-4 text-right">Ação</th> {/* Nova Coluna */}
                 </tr>
               </thead>
               <tbody>
@@ -181,6 +197,12 @@ export default function Transactions() {
                     <td className="p-4 font-medium">{t.category}</td>
                     <td className="p-4">{t.type === 'INCOME' ? <span className="text-green-600">Entrada</span> : <span className="text-red-600">Saída</span>}</td>
                     <td className={`p-4 font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-slate-800'}`}>{t.type === 'INCOME' ? '+' : '-'} R$ {parseFloat(t.amount).toFixed(2)}</td>
+                    {/* Eliminar */}
+                    <td className="p-4 text-right">
+                      <button onClick={() => handleDeleteTransaction(t.id)} className="text-slate-400 hover:text-red-500 transition">
+                        <Trash2 size={18}/>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -250,9 +272,13 @@ export default function Transactions() {
                     <td className="p-4 text-slate-600">{exp.installment_info}</td>
                     <td className="p-4 font-bold text-red-500">R$ {parseFloat(exp.amount).toFixed(2)}</td>
                     <td className="p-4">{getInvoiceStatus(exp.invoice_year, exp.invoice_month, exp.credit_cards.due_day)}</td>
-                    <td className="p-4 text-right">
-                      <button onClick={() => handlePayInvoice(exp)} className="text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1 ml-auto">
+                    <td className="p-4 text-right flex justify-end items-center gap-3">
+                      <button onClick={() => handlePayInvoice(exp)} className="text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">
                         <CheckCircle size={16}/> Pagar e Baixar
+                      </button>
+                      {/* Novo Botão de Eliminar Fatura */}
+                      <button onClick={() => handleDeleteCCExpense(exp.id)} className="text-slate-400 hover:text-red-500 transition" title="Eliminar lançamento">
+                        <Trash2 size={20}/>
                       </button>
                     </td>
                   </tr>

@@ -21,8 +21,8 @@ export default function Auth() {
       if (error) {
         alert("Erro ao cadastrar: " + error.message)
       } else {
-        // Como desativamos a confirmação de email no Supabase, 
-        // o signUp já faz o login automático e o App.jsx vai te redirecionar pro Dashboard!
+        // Como desativamos a confirmação de email no Supabase
+        // o signUp já faz o login automático e o App.jsx vai te redirecionar pro Dashboard
         console.log("Cadastro realizado com sucesso!")
       }
     }
