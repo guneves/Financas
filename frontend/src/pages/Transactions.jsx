@@ -15,7 +15,8 @@ export default function Transactions() {
   const [ccExpenses, setCcExpenses] = useState([])
   const [cardForm, setCardForm] = useState({ name: '', due_day: '' })
   const [expenseForm, setExpenseForm] = useState({ card_id: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
-  const [projectedBalance, setProjectedBalance] = useState(0)
+  const [projectedBalanceGlobal, setProjectedBalanceGlobal] = useState(0)
+  const [projectedBalanceNextMonth, setProjectedBalanceNextMonth] = useState(0)
 
   useEffect(() => {
     fetchData()
@@ -38,13 +39,37 @@ export default function Transactions() {
     const { data: cData } = await supabase.from('credit_cards').select('*')
     if (cData) setCards(cData)
 
-    // 3. Busca Despesas de Cartão (Faturas Abertas)
+    // 3. Busca Despesas de Cartão e Calcula Projeções
     const { data: ccData } = await supabase.from('cc_expenses').select(`*, credit_cards(name, due_day)`).eq('status', 'OPEN').order('invoice_year', { ascending: true }).order('invoice_month', { ascending: true })
+    
     if (ccData) {
       setCcExpenses(ccData)
-      // Calcula o Saldo Projetado (Saldo atual menos a soma de todas as faturas abertas)
+
+      // Descobre as datas dinamicamente
+      const today = new Date()
+      const currentMonth = today.getMonth() + 1
+      const currentYear = today.getFullYear()
+
+      let nextMonth = currentMonth + 1
+      let nextYear = currentYear
+      if (nextMonth > 12) { nextMonth = 1; nextYear++ }
+
+      // Projeção Global (Desconta TODAS as faturas)
       const totalOpenCredit = ccData.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
-      setProjectedBalance(currentBalance - totalOpenCredit)
+      setProjectedBalanceGlobal(currentBalance - totalOpenCredit)
+
+      // Projeção Próximo Mês (Desconta faturas atrasadas, deste mês e do próximo)
+      const creditUpToNextMonth = ccData.reduce((acc, curr) => {
+        const isPastOrCurrent = curr.invoice_year < currentYear || (curr.invoice_year === currentYear && curr.invoice_month <= currentMonth)
+        const isNextMonth = curr.invoice_year === nextYear && curr.invoice_month === nextMonth
+
+        if (isPastOrCurrent || isNextMonth) {
+          return acc + parseFloat(curr.amount)
+        }
+        return acc
+      }, 0)
+
+      setProjectedBalanceNextMonth(currentBalance - creditUpToNextMonth)
     }
   }
 
@@ -150,15 +175,23 @@ export default function Transactions() {
           </div>
         </div>
 
-        <div className="flex gap-4">
+        <div className="flex gap-4 overflow-x-auto pb-4">
           <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-lg min-w-[200px]">
             <p className="text-sm font-medium text-slate-400">Saldo Atual (Real)</p>
             <p className={`text-2xl font-bold ${balance >= 0 ? 'text-white' : 'text-red-400'}`}>R$ {balance.toFixed(2)}</p>
           </div>
-          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm min-w-[200px]">
-            <p className="text-sm font-medium text-slate-500">Saldo Projetado</p>
-            <p className={`text-2xl font-bold ${projectedBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`} title="Seu saldo atual descontando todas as faturas em aberto.">
-              R$ {projectedBalance.toFixed(2)}
+          
+          <div className="bg-white border border-blue-200 p-5 rounded-2xl shadow-sm min-w-[220px]">
+            <p className="text-sm font-medium text-blue-600">Proj. (Até Próx. Mês)</p>
+            <p className={`text-2xl font-bold ${projectedBalanceNextMonth >= 0 ? 'text-blue-600' : 'text-red-500'}`} title="Desconta faturas deste mês e do próximo.">
+              R$ {projectedBalanceNextMonth.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl shadow-sm min-w-[220px]">
+            <p className="text-sm font-medium text-slate-500">Proj. (Global)</p>
+            <p className={`text-2xl font-bold ${projectedBalanceGlobal >= 0 ? 'text-slate-800' : 'text-red-500'}`} title="Desconta todas as faturas futuras (incluindo parcelas longas).">
+              R$ {projectedBalanceGlobal.toFixed(2)}
             </p>
           </div>
         </div>
