@@ -154,6 +154,20 @@ export default function Transactions() {
     if (!error) fetchData()
   }
 
+  const handleDeleteCard = async (id, name) => {
+    if(!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas (abertas e pagas) vinculadas a ele. Esta ação não pode ser desfeita.`)) return
+    
+    await supabase.from('cc_expenses').delete().eq('card_id', id)
+    
+    const { error } = await supabase.from('credit_cards').delete().eq('id', id)
+    
+    if (error) {
+      alert("Erro ao excluir cartão: " + error.message)
+    } else {
+      fetchData()
+    }
+  }
+
   // Helpers Visuais
   const getInvoiceStatus = (year, month, dueDay) => {
     const today = new Date()
@@ -251,14 +265,35 @@ export default function Transactions() {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Cadastro de Cartão */}
+            {/* Cadastro e Lista de Cartões */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 col-span-1 h-fit">
-              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CreditCard size={20}/> Cadastrar Cartão</h3>
-              <form onSubmit={handleCreateCard} className="space-y-4">
+              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CreditCard size={20}/> Gerenciar Cartões</h3>
+              
+              <form onSubmit={handleCreateCard} className="space-y-4 mb-6">
                 <input type="text" placeholder="Nome do Cartão (ex: Nubank)" value={cardForm.name} onChange={e => setCardForm({...cardForm, name: e.target.value})} className="w-full p-2 border rounded-lg" required />
                 <input type="number" min="1" max="31" placeholder="Dia do Vencimento" value={cardForm.due_day} onChange={e => setCardForm({...cardForm, due_day: e.target.value})} className="w-full p-2 border rounded-lg" required />
-                <button type="submit" className="w-full bg-slate-800 text-white rounded-lg py-2 hover:bg-slate-900">Salvar Cartão</button>
+                <button type="submit" className="w-full bg-slate-800 text-white rounded-lg py-2 hover:bg-slate-900 transition">Salvar Cartão</button>
               </form>
+
+              {/* Lista de Cartões Cadastrados */}
+              {cards.length > 0 && (
+                <div className="pt-4 border-t border-slate-100 space-y-3">
+                  <h4 className="text-sm font-semibold text-slate-500">Meus Cartões</h4>
+                  <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                    {cards.map(c => (
+                      <div key={c.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100 hover:border-slate-200 transition">
+                        <div>
+                          <p className="text-sm font-bold text-slate-700">{c.name}</p>
+                          <p className="text-xs text-slate-500">Vence dia {c.due_day}</p>
+                        </div>
+                        <button onClick={() => handleDeleteCard(c.id, c.name)} className="text-slate-400 hover:text-red-500 p-1 transition" title="Excluir Cartão">
+                          <Trash2 size={18}/>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Lançamento de Compra no Crédito */}
