@@ -132,7 +132,7 @@ export default function Transactions() {
     
     // Calcula o mês da primeira fatura baseado na data da compra
     const purchaseDate = new Date(expenseForm.purchase_date + 'T00:00:00') // Força o fuso horário local
-    let currentMonth = purchaseDate.getMonth() + 1
+    let currentMonth = purchaseDate.getMonth() + 2
     let currentYear = purchaseDate.getFullYear()
 
     const inserts = []
