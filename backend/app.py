@@ -5,6 +5,7 @@ import jwt
 import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
+import yfinance as yf
 
 load_dotenv()
 
@@ -12,7 +13,7 @@ app = Flask(__name__)
 CORS(app)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") # Usado para bypass de RLS no backend se necessário, mas preferimos atuar em nome do user
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -28,7 +29,6 @@ def token_required(f):
         
         token = token.split(" ")[1]
         try:
-            # Jeito nativo e seguro: Pergunta direto ao Supabase se o token é válido
             user_response = supabase.auth.get_user(token)
             current_user_id = user_response.user.id
             print(f"✅ Backend: Usuário {current_user_id} autenticado com sucesso!")
@@ -130,6 +130,45 @@ def get_portfolio(current_user_id):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/investments/update-prices', methods=['POST'])
+@token_required
+def update_stock_prices(current_user_id):
+    try:
+        response = supabase.table('investments').select('*').eq('user_id', current_user_id).eq('asset_class', 'STOCKS').execute()
+        investments = response.data
+
+        updated_count = 0
+        
+        for inv in investments:
+            ticker_symbol = inv['ticker_or_name'].strip().upper()
+
+            yf_symbol = ticker_symbol
+
+            if not yf_symbol.endswith('.SA') and any(char.isdigit() for char in yf_symbol):
+                yf_symbol = f"{yf_symbol}.SA"
+            
+            try:
+                ticker = yf.Ticker(yf_symbol)
+                current_price = ticker.fast_info['last_price']
+                
+                supabase.table('investments').update({
+                    'current_price': round(current_price, 2)
+                }).eq('id', inv['id']).execute()
+                
+                updated_count += 1
+            except Exception as e:
+                print(f"Erro ao buscar cotação para {yf_symbol}: {e}")
+                continue 
+
+        return jsonify({
+            "message": "Cotações atualizadas com sucesso", 
+            "updated_count": updated_count
+        }), 200
+
+    except Exception as e:
+        print(f"ERRO FATAL NA ROTA UPDATE-PRICES: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

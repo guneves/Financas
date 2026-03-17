@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { RefreshCw } from 'lucide-react'
 
 export default function Investments() {
   const [assets, setAssets] = useState([])
@@ -11,6 +12,37 @@ export default function Investments() {
     average_price: '',
     mortality_rate: '' // Específico para pecuária
   })
+
+  const [isUpdatingPrices, setIsUpdatingPrices] = useState(false)
+
+  const handleUpdateStockPrices = async () => {
+    setIsUpdatingPrices(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return;
+      
+      const response = await fetch('http://localhost:5000/api/investments/update-prices', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        alert(`Sucesso! ${data.updated_count} cotações foram atualizadas.`)
+        fetchPortfolio() // Recarrega a tabela
+      } else {
+        alert("Erro ao atualizar cotações. Verifique o terminal do backend.")
+      }
+    } catch (error) {
+      console.error("Erro ao atualizar preços:", error)
+      alert("Erro de conexão ao tentar atualizar os preços.")
+    } finally {
+      setIsUpdatingPrices(false)
+    }
+  }
 
   useEffect(() => {
     fetchPortfolio()
@@ -43,7 +75,7 @@ const handleSubmit = async (e) => {
     // 2. Procura se você já tem esse ativo na carteira
     const existingAsset = assets.find(a => a.ticker === tickerName);
     
-    // 3. O pulo do gato: Se já existir, a nova compra herda a cotação de mercado atual.
+    // 3. Se já existir, a nova compra herda a cotação de mercado atual.
     // Se for um ativo novo, a cotação atual começa igual ao preço da compra.
     const marketPrice = existingAsset ? existingAsset.current_price : parseFloat(form.average_price);
 
@@ -60,7 +92,7 @@ const handleSubmit = async (e) => {
         ticker_or_name: tickerName,
         quantity: parseFloat(form.quantity),
         average_price: parseFloat(form.average_price),
-        current_price: marketPrice, // <-- Mantém a cotação intacta!
+        current_price: marketPrice, // <-- Mantém a cotação intacta
         metadata: metadata
       }
     ])
@@ -92,9 +124,28 @@ const handleSubmit = async (e) => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Meus Investimentos</h1>
-        <p className="text-slate-500 mt-1">Adicione novos ativos e acompanhe o preço médio.</p>
+      
+      {/* === CABEÇALHO MODIFICADO AQUI === */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800">Meus Investimentos</h1>
+          <p className="text-slate-500 mt-1">Adicione novos ativos e acompanhe o preço médio.</p>
+        </div>
+        
+        <button
+          onClick={handleUpdateStockPrices}
+          disabled={isUpdatingPrices}
+          className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 transition"
+        >
+          {isUpdatingPrices ? (
+            <span>Atualizando...</span>
+          ) : (
+            <>
+              <RefreshCw size={18} />
+              <span>Sincronizar Cotações</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Formulário de Cadastro */}
