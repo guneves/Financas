@@ -6,17 +6,36 @@ export default function Transactions() {
   const [activeTab, setActiveTab] = useState('CONTA') // 'CONTA' ou 'CARTOES'
   
   // Estados da Conta Corrente
-  const [transactions, setTransactions] = useState([])
-  const [balance, setBalance] = useState(0)
-  const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
+  const [transactions, setTransactions] = useState(() => {
+    const saved = localStorage.getItem('@financeMVP:transactions');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [balance, setBalance] = useState(() => {
+    const saved = localStorage.getItem('@financeMVP:balance');
+    return saved ? parseFloat(saved) : 0;
+  });
   
   // Estados do Cartão de Crédito
-  const [cards, setCards] = useState([])
-  const [ccExpenses, setCcExpenses] = useState([])
+  const [cards, setCards] = useState(() => {
+    const saved = localStorage.getItem('@financeMVP:cards');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [ccExpenses, setCcExpenses] = useState(() => {
+    const saved = localStorage.getItem('@financeMVP:ccExpenses');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [projectedBalanceGlobal, setProjectedBalanceGlobal] = useState(() => {
+    const saved = localStorage.getItem('@financeMVP:projectedBalanceGlobal');
+    return saved ? parseFloat(saved) : 0;
+  });
+  const [projectedBalanceNextMonth, setProjectedBalanceNextMonth] = useState(() => {
+    const saved = localStorage.getItem('@financeMVP:projectedBalanceNextMonth');
+    return saved ? parseFloat(saved) : 0;
+  });
+
+  const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
   const [cardForm, setCardForm] = useState({ name: '', due_day: '' })
   const [expenseForm, setExpenseForm] = useState({ card_id: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
-  const [projectedBalanceGlobal, setProjectedBalanceGlobal] = useState(0)
-  const [projectedBalanceNextMonth, setProjectedBalanceNextMonth] = useState(0)
 
   useEffect(() => {
     fetchData()
@@ -31,19 +50,26 @@ export default function Transactions() {
     let currentBalance = 0
     if (tData) {
       setTransactions(tData)
+      localStorage.setItem('@financeMVP:transactions', JSON.stringify(tData)) // Guarda na memória
+      
       currentBalance = tData.reduce((acc, curr) => curr.type === 'INCOME' ? acc + parseFloat(curr.amount) : acc - parseFloat(curr.amount), 0)
       setBalance(currentBalance)
+      localStorage.setItem('@financeMVP:balance', currentBalance.toString()) // Guarda na memória
     }
 
     // 2. Busca Cartões
     const { data: cData } = await supabase.from('credit_cards').select('*')
-    if (cData) setCards(cData)
+    if (cData) {
+      setCards(cData)
+      localStorage.setItem('@financeMVP:cards', JSON.stringify(cData)) // Guarda na memória
+    }
 
     // 3. Busca Despesas de Cartão e Calcula Projeções
     const { data: ccData } = await supabase.from('cc_expenses').select(`*, credit_cards(name, due_day)`).eq('status', 'OPEN').order('invoice_year', { ascending: true }).order('invoice_month', { ascending: true })
     
     if (ccData) {
       setCcExpenses(ccData)
+      localStorage.setItem('@financeMVP:ccExpenses', JSON.stringify(ccData)) // Guarda na memória
 
       // Descobre as datas dinamicamente
       const today = new Date()
@@ -56,7 +82,9 @@ export default function Transactions() {
 
       // Projeção Global (Desconta TODAS as faturas)
       const totalOpenCredit = ccData.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
-      setProjectedBalanceGlobal(currentBalance - totalOpenCredit)
+      const projGlobal = currentBalance - totalOpenCredit
+      setProjectedBalanceGlobal(projGlobal)
+      localStorage.setItem('@financeMVP:projectedBalanceGlobal', projGlobal.toString()) // Guarda na memória
 
       // Projeção Próximo Mês (Desconta faturas atrasadas, deste mês e do próximo)
       const creditUpToNextMonth = ccData.reduce((acc, curr) => {
@@ -69,7 +97,9 @@ export default function Transactions() {
         return acc
       }, 0)
 
-      setProjectedBalanceNextMonth(currentBalance - creditUpToNextMonth)
+      const projNextMonth = currentBalance - creditUpToNextMonth
+      setProjectedBalanceNextMonth(projNextMonth)
+      localStorage.setItem('@financeMVP:projectedBalanceNextMonth', projNextMonth.toString()) // Guarda na memória
     }
   }
 
@@ -227,6 +257,8 @@ export default function Transactions() {
             {/* NOVO: Categoria Pré-definida (Select) */}
             <select value={transForm.category} onChange={e => setTransForm({...transForm, category: e.target.value})} className="p-2 border rounded-lg bg-white" required>
               <option value="">Selecione a Categoria...</option>
+              <option value="Receita">Receita</option>
+              <option value="Investimento">Investimento</option>
               <option value="Alimentação">Alimentação</option>
               <option value="Moradia">Moradia</option>
               <option value="Transporte">Transporte</option>

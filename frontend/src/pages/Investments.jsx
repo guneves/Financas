@@ -3,7 +3,10 @@ import { supabase } from '../lib/supabaseClient'
 import { RefreshCw } from 'lucide-react'
 
 export default function Investments() {
-  const [assets, setAssets] = useState([])
+  const [assets, setAssets] = useState(() => {
+    const savedAssets = localStorage.getItem('@financeMVP:assets');
+    return savedAssets ? JSON.parse(savedAssets) : [];
+  });
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({ 
     asset_class: 'STOCKS', 
@@ -53,12 +56,17 @@ export default function Investments() {
     if (!session) return
 
     try {
-      // Busca os dados já calculados pelo nosso backend em Python (Flask)
       const response = await fetch('http://localhost:5000/api/investments/portfolio', {
         headers: { 'Authorization': `Bearer ${session.access_token}` }
       })
       const data = await response.json()
-      setAssets(data.assets || [])
+      
+      const fetchedAssets = data.assets || [];
+      
+      setAssets(fetchedAssets)
+      
+      localStorage.setItem('@financeMVP:assets', JSON.stringify(fetchedAssets));
+      
     } catch (error) {
       console.error("Erro ao buscar portfólio:", error)
     }
