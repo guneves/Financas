@@ -377,7 +377,7 @@ export default function Investments() {
           className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 transition"
         >
           {isUpdatingPrices ? (
-            <span>A atualizar...</span>
+            <span>Atualizando...</span>
           ) : (
             <>
               <RefreshCw size={18} />
@@ -700,7 +700,7 @@ export default function Investments() {
                   Cancelar
                 </button>
                 <button type="submit" disabled={loading} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
-                  {loading ? 'A guardar...' : 'Guardar Alterações'}
+                  {loading ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
               </div>
             </form>

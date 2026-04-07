@@ -1,41 +1,41 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { Wallet, ArrowDownCircle, ArrowUpCircle, Trash2, CreditCard, Calendar, CheckCircle } from 'lucide-react'
+import { Wallet, Trash2, CreditCard, Calendar, CheckCircle } from 'lucide-react'
+
+const CATEGORY_OPTIONS = ['Receita', 'Investimento', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 
 export default function Transactions() {
-  const [activeTab, setActiveTab] = useState('CONTA') // 'CONTA' ou 'CARTOES'
-  
-  // Estados da Conta Corrente
+  const [activeTab, setActiveTab] = useState('CONTA')
+
   const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:transactions');
-    return saved ? JSON.parse(saved) : [];
-  });
+    const saved = localStorage.getItem('@financeMVP:transactions')
+    return saved ? JSON.parse(saved) : []
+  })
   const [balance, setBalance] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:balance');
-    return saved ? parseFloat(saved) : 0;
-  });
-  
-  // Estados do Cartão de Crédito
+    const saved = localStorage.getItem('@financeMVP:balance')
+    return saved ? parseFloat(saved) : 0
+  })
+
   const [cards, setCards] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:cards');
-    return saved ? JSON.parse(saved) : [];
-  });
+    const saved = localStorage.getItem('@financeMVP:cards')
+    return saved ? JSON.parse(saved) : []
+  })
   const [ccExpenses, setCcExpenses] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:ccExpenses');
-    return saved ? JSON.parse(saved) : [];
-  });
+    const saved = localStorage.getItem('@financeMVP:ccExpenses')
+    return saved ? JSON.parse(saved) : []
+  })
   const [projectedBalanceGlobal, setProjectedBalanceGlobal] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:projectedBalanceGlobal');
-    return saved ? parseFloat(saved) : 0;
-  });
+    const saved = localStorage.getItem('@financeMVP:projectedBalanceGlobal')
+    return saved ? parseFloat(saved) : 0
+  })
   const [projectedBalanceNextMonth, setProjectedBalanceNextMonth] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:projectedBalanceNextMonth');
-    return saved ? parseFloat(saved) : 0;
-  });
+    const saved = localStorage.getItem('@financeMVP:projectedBalanceNextMonth')
+    return saved ? parseFloat(saved) : 0
+  })
 
   const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
   const [cardForm, setCardForm] = useState({ name: '', due_day: '' })
-  const [expenseForm, setExpenseForm] = useState({ card_id: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
+  const [expenseForm, setExpenseForm] = useState({ card_id: '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
 
   useEffect(() => {
     fetchData()
@@ -45,48 +45,45 @@ export default function Transactions() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // 1. Busca Transações Bancárias
     const { data: tData } = await supabase.from('transactions').select('*').order('date', { ascending: false })
     let currentBalance = 0
     if (tData) {
       setTransactions(tData)
-      localStorage.setItem('@financeMVP:transactions', JSON.stringify(tData)) // Guarda na memória
-      
+      localStorage.setItem('@financeMVP:transactions', JSON.stringify(tData))
+
       currentBalance = tData.reduce((acc, curr) => curr.type === 'INCOME' ? acc + parseFloat(curr.amount) : acc - parseFloat(curr.amount), 0)
       setBalance(currentBalance)
-      localStorage.setItem('@financeMVP:balance', currentBalance.toString()) // Guarda na memória
+      localStorage.setItem('@financeMVP:balance', currentBalance.toString())
     }
 
-    // 2. Busca Cartões
     const { data: cData } = await supabase.from('credit_cards').select('*')
     if (cData) {
       setCards(cData)
-      localStorage.setItem('@financeMVP:cards', JSON.stringify(cData)) // Guarda na memória
+      localStorage.setItem('@financeMVP:cards', JSON.stringify(cData))
     }
 
-    // 3. Busca Despesas de Cartão e Calcula Projeções
     const { data: ccData } = await supabase.from('cc_expenses').select(`*, credit_cards(name, due_day)`).eq('status', 'OPEN').order('invoice_year', { ascending: true }).order('invoice_month', { ascending: true })
-    
+
     if (ccData) {
       setCcExpenses(ccData)
-      localStorage.setItem('@financeMVP:ccExpenses', JSON.stringify(ccData)) // Guarda na memória
+      localStorage.setItem('@financeMVP:ccExpenses', JSON.stringify(ccData))
 
-      // Descobre as datas dinamicamente
       const today = new Date()
       const currentMonth = today.getMonth() + 1
       const currentYear = today.getFullYear()
 
       let nextMonth = currentMonth + 1
       let nextYear = currentYear
-      if (nextMonth > 12) { nextMonth = 1; nextYear++ }
+      if (nextMonth > 12) {
+        nextMonth = 1
+        nextYear++
+      }
 
-      // Projeção Global (Desconta TODAS as faturas)
       const totalOpenCredit = ccData.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
       const projGlobal = currentBalance - totalOpenCredit
       setProjectedBalanceGlobal(projGlobal)
-      localStorage.setItem('@financeMVP:projectedBalanceGlobal', projGlobal.toString()) // Guarda na memória
+      localStorage.setItem('@financeMVP:projectedBalanceGlobal', projGlobal.toString())
 
-      // Projeção Próximo Mês (Desconta faturas atrasadas, deste mês e do próximo)
       const creditUpToNextMonth = ccData.reduce((acc, curr) => {
         const isPastOrCurrent = curr.invoice_year < currentYear || (curr.invoice_year === currentYear && curr.invoice_month <= currentMonth)
         const isNextMonth = curr.invoice_year === nextYear && curr.invoice_month === nextMonth
@@ -99,22 +96,25 @@ export default function Transactions() {
 
       const projNextMonth = currentBalance - creditUpToNextMonth
       setProjectedBalanceNextMonth(projNextMonth)
-      localStorage.setItem('@financeMVP:projectedBalanceNextMonth', projNextMonth.toString()) // Guarda na memória
+      localStorage.setItem('@financeMVP:projectedBalanceNextMonth', projNextMonth.toString())
     }
   }
 
-  // ---- LÓGICA CONTA CORRENTE ----
   const handleBankSubmit = async (e) => {
     e.preventDefault()
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('transactions').insert([{ 
-      user_id: user.id, amount: parseFloat(transForm.amount), date: transForm.date, category: transForm.category, description: transForm.description, type: transForm.type 
+    await supabase.from('transactions').insert([{
+      user_id: user.id,
+      amount: parseFloat(transForm.amount),
+      date: transForm.date,
+      category: transForm.category,
+      description: transForm.description,
+      type: transForm.type
     }])
     setTransForm({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
     fetchData()
   }
 
-  // ---- LÓGICA CARTÕES DE CRÉDITO ----
   const handleCreateCard = async (e) => {
     e.preventDefault()
     const { data: { user } } = await supabase.auth.getUser()
@@ -129,9 +129,8 @@ export default function Transactions() {
     const totalAmount = parseFloat(expenseForm.total_amount)
     const installmentsCount = parseInt(expenseForm.installments)
     const amountPerInstallment = totalAmount / installmentsCount
-    
-    // Calcula o mês da primeira fatura baseado na data da compra
-    const purchaseDate = new Date(expenseForm.purchase_date + 'T00:00:00') // Força o fuso horário local
+
+    const purchaseDate = new Date(expenseForm.purchase_date + 'T00:00:00')
     let currentMonth = purchaseDate.getMonth() + 2
     let currentYear = purchaseDate.getFullYear()
 
@@ -140,6 +139,7 @@ export default function Transactions() {
       inserts.push({
         user_id: user.id,
         card_id: expenseForm.card_id,
+        category: expenseForm.category,
         description: expenseForm.description,
         amount: amountPerInstallment.toFixed(2),
         purchase_date: expenseForm.purchase_date,
@@ -148,57 +148,60 @@ export default function Transactions() {
         installment_info: `${i}/${installmentsCount}`,
         status: 'OPEN'
       })
-      // Avança o mês da fatura para as próximas parcelas
       currentMonth++
-      if (currentMonth > 12) { currentMonth = 1; currentYear++ }
+      if (currentMonth > 12) {
+        currentMonth = 1
+        currentYear++
+      }
     }
 
     await supabase.from('cc_expenses').insert(inserts)
-    setExpenseForm({ card_id: cards[0]?.id || '', description: '', total_amount: '', purchase_date: '', installments: '1' })
+    setExpenseForm({ card_id: cards[0]?.id || '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
     fetchData()
   }
 
   const handlePayInvoice = async (expense) => {
-    if(!window.confirm(`Deseja pagar e descontar R$ ${expense.amount} do saldo da conta corrente?`)) return
+    if (!window.confirm(`Deseja pagar e descontar R$ ${expense.amount} do saldo da conta corrente?`)) return
     const { data: { user } } = await supabase.auth.getUser()
-    
-    // 1. Desconta o dinheiro da conta bancária real
+
     await supabase.from('transactions').insert([{
-      user_id: user.id, type: 'EXPENSE', amount: expense.amount, date: new Date().toISOString().split('T')[0], category: `Pagamento Fatura ${expense.credit_cards.name}`, description: expense.description
+      user_id: user.id,
+      type: 'EXPENSE',
+      amount: expense.amount,
+      date: new Date().toISOString().split('T')[0],
+      category: `Pagamento Fatura ${expense.credit_cards.name}`,
+      description: expense.description
     }])
-    
-    // 2. Muda o status da despesa do cartão para PAGA
+
     await supabase.from('cc_expenses').update({ status: 'PAID' }).eq('id', expense.id)
     fetchData()
   }
 
   const handleDeleteTransaction = async (id) => {
-    if(!window.confirm("Deseja realmente eliminar esta transação? O saldo será recalculado.")) return
+    if (!window.confirm('Deseja realmente eliminar esta transação? O saldo será recalculado.')) return
     const { error } = await supabase.from('transactions').delete().eq('id', id)
     if (!error) fetchData()
   }
 
   const handleDeleteCCExpense = async (id) => {
-    if(!window.confirm("Deseja eliminar este lançamento do cartão de crédito?")) return
+    if (!window.confirm('Deseja eliminar este lançamento do cartão de crédito?')) return
     const { error } = await supabase.from('cc_expenses').delete().eq('id', id)
     if (!error) fetchData()
   }
 
   const handleDeleteCard = async (id, name) => {
-    if(!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas (abertas e pagas) vinculadas a ele. Esta ação não pode ser desfeita.`)) return
-    
+    if (!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas (abertas e pagas) vinculadas a ele. Esta ação não pode ser desfeita.`)) return
+
     await supabase.from('cc_expenses').delete().eq('card_id', id)
-    
     const { error } = await supabase.from('credit_cards').delete().eq('id', id)
-    
+
     if (error) {
-      alert("Erro ao excluir cartão: " + error.message)
+      alert('Erro ao excluir cartão: ' + error.message)
     } else {
       fetchData()
     }
   }
 
-  // Helpers Visuais
   const getInvoiceStatus = (year, month, dueDay) => {
     const today = new Date()
     const dueDate = new Date(year, month - 1, dueDay)
@@ -208,8 +211,6 @@ export default function Transactions() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      
-      {/* Cabeçalho e Painéis de Saldo */}
       <div className="flex flex-col md:flex-row gap-6">
         <div className="flex-1 space-y-4">
           <h1 className="text-3xl font-bold text-slate-800">Movimentações</h1>
@@ -224,7 +225,7 @@ export default function Transactions() {
             <p className="text-sm font-medium text-slate-400">Saldo Atual (Real)</p>
             <p className={`text-2xl font-bold ${balance >= 0 ? 'text-white' : 'text-red-400'}`}>R$ {balance.toFixed(2)}</p>
           </div>
-          
+
           <div className="bg-white border border-blue-200 p-5 rounded-2xl shadow-sm min-w-[220px]">
             <p className="text-sm font-medium text-blue-600">Proj. (Até Próx. Mês)</p>
             <p className={`text-2xl font-bold ${projectedBalanceNextMonth >= 0 ? 'text-blue-600' : 'text-red-500'}`} title="Desconta faturas deste mês e do próximo.">
@@ -241,36 +242,24 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* =========================================
-          ABA: CONTA CORRENTE (Débito/Dinheiro)
-          ========================================= */}
       {activeTab === 'CONTA' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <form onSubmit={handleBankSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-6 gap-4">
-            <select value={transForm.type} onChange={e => setTransForm({...transForm, type: e.target.value})} className="p-2 border rounded-lg bg-white">
+            <select value={transForm.type} onChange={e => setTransForm({ ...transForm, type: e.target.value })} className="p-2 border rounded-lg bg-white">
               <option value="EXPENSE">Saída Bancária (-)</option>
               <option value="INCOME">Entrada Bancária (+)</option>
             </select>
-            <input type="number" step="0.01" placeholder="Valor (R$)" value={transForm.amount} onChange={e => setTransForm({...transForm, amount: e.target.value})} className="p-2 border rounded-lg" required />
-            <input type="date" value={transForm.date} onChange={e => setTransForm({...transForm, date: e.target.value})} className="p-2 border rounded-lg" required />
-            
-            {/* NOVO: Categoria Pré-definida (Select) */}
-            <select value={transForm.category} onChange={e => setTransForm({...transForm, category: e.target.value})} className="p-2 border rounded-lg bg-white" required>
+            <input type="number" step="0.01" placeholder="Valor (R$)" value={transForm.amount} onChange={e => setTransForm({ ...transForm, amount: e.target.value })} className="p-2 border rounded-lg" required />
+            <input type="date" value={transForm.date} onChange={e => setTransForm({ ...transForm, date: e.target.value })} className="p-2 border rounded-lg" required />
+
+            <select value={transForm.category} onChange={e => setTransForm({ ...transForm, category: e.target.value })} className="p-2 border rounded-lg bg-white" required>
               <option value="">Selecione a Categoria...</option>
-              <option value="Receita">Receita</option>
-              <option value="Investimento">Investimento</option>
-              <option value="Alimentação">Alimentação</option>
-              <option value="Moradia">Moradia</option>
-              <option value="Transporte">Transporte</option>
-              <option value="Saúde">Saúde</option>
-              <option value="Educação">Educação</option>
-              <option value="Lazer">Lazer</option>
-              <option value="Serviços">Serviços</option>
-              <option value="Outros">Outros</option>
+              {CATEGORY_OPTIONS.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
             </select>
-            
-            {/* NOVO: Descrição Isolada */}
-            <input type="text" placeholder="Descrição (Ex: Mercado)" value={transForm.description} onChange={e => setTransForm({...transForm, description: e.target.value})} className="p-2 border rounded-lg" required />
+
+            <input type="text" placeholder="Descrição (Ex: Mercado)" value={transForm.description} onChange={e => setTransForm({ ...transForm, description: e.target.value })} className="p-2 border rounded-lg" required />
             <button type="submit" className="bg-blue-600 text-white rounded-lg py-2 hover:bg-blue-700">Lançar</button>
           </form>
 
@@ -282,7 +271,7 @@ export default function Transactions() {
                   <th className="p-4">Descrição</th>
                   <th className="p-4">Movimentação</th>
                   <th className="p-4">Valor</th>
-                  <th className="p-4 text-right">Ação</th> {/* Nova Coluna */}
+                  <th className="p-4 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody>
@@ -292,10 +281,9 @@ export default function Transactions() {
                     <td className="p-4 font-medium">{t.category}</td>
                     <td className="p-4">{t.type === 'INCOME' ? <span className="text-green-600">Entrada</span> : <span className="text-red-600">Saída</span>}</td>
                     <td className={`p-4 font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-slate-800'}`}>{t.type === 'INCOME' ? '+' : '-'} R$ {parseFloat(t.amount).toFixed(2)}</td>
-                    {/* Eliminar */}
                     <td className="p-4 text-right">
                       <button onClick={() => handleDeleteTransaction(t.id)} className="text-slate-400 hover:text-red-500 transition">
-                        <Trash2 size={18}/>
+                        <Trash2 size={18} />
                       </button>
                     </td>
                   </tr>
@@ -306,24 +294,18 @@ export default function Transactions() {
         </div>
       )}
 
-      {/* =========================================
-          ABA: CARTÕES DE CRÉDITO
-          ========================================= */}
       {activeTab === 'CARTOES' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Cadastro e Lista de Cartões */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 col-span-1 h-fit">
-              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CreditCard size={20}/> Gerenciar Cartões</h3>
-              
+              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CreditCard size={20} /> Gerenciar Cartões</h3>
+
               <form onSubmit={handleCreateCard} className="space-y-4 mb-6">
-                <input type="text" placeholder="Nome do Cartão (ex: Nubank)" value={cardForm.name} onChange={e => setCardForm({...cardForm, name: e.target.value})} className="w-full p-2 border rounded-lg" required />
-                <input type="number" min="1" max="31" placeholder="Dia do Vencimento" value={cardForm.due_day} onChange={e => setCardForm({...cardForm, due_day: e.target.value})} className="w-full p-2 border rounded-lg" required />
+                <input type="text" placeholder="Nome do Cartão (ex: Nubank)" value={cardForm.name} onChange={e => setCardForm({ ...cardForm, name: e.target.value })} className="w-full p-2 border rounded-lg" required />
+                <input type="number" min="1" max="31" placeholder="Dia do Vencimento" value={cardForm.due_day} onChange={e => setCardForm({ ...cardForm, due_day: e.target.value })} className="w-full p-2 border rounded-lg" required />
                 <button type="submit" className="w-full bg-slate-800 text-white rounded-lg py-2 hover:bg-slate-900 transition">Salvar Cartão</button>
               </form>
 
-              {/* Lista de Cartões Cadastrados */}
               {cards.length > 0 && (
                 <div className="pt-4 border-t border-slate-100 space-y-3">
                   <h4 className="text-sm font-semibold text-slate-500">Meus Cartões</h4>
@@ -335,7 +317,7 @@ export default function Transactions() {
                           <p className="text-xs text-slate-500">Vence dia {c.due_day}</p>
                         </div>
                         <button onClick={() => handleDeleteCard(c.id, c.name)} className="text-slate-400 hover:text-red-500 p-1 transition" title="Excluir Cartão">
-                          <Trash2 size={18}/>
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     ))}
@@ -344,22 +326,27 @@ export default function Transactions() {
               )}
             </div>
 
-            {/* Lançamento de Compra no Crédito */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-200 col-span-2">
-              <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><Wallet size={20}/> Lançar Compra no Crédito</h3>
+              <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><Wallet size={20} /> Lançar Compra no Crédito</h3>
               {cards.length === 0 ? (
                 <div className="text-slate-500 bg-slate-50 p-4 rounded-lg">Cadastre um cartão primeiro para lançar compras.</div>
               ) : (
                 <form onSubmit={handleCCExpenseSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <select value={expenseForm.card_id} onChange={e => setExpenseForm({...expenseForm, card_id: e.target.value})} className="p-2 border rounded-lg" required>
+                  <select value={expenseForm.card_id} onChange={e => setExpenseForm({ ...expenseForm, card_id: e.target.value })} className="p-2 border rounded-lg" required>
                     <option value="">Selecione o Cartão...</option>
                     {cards.map(c => <option key={c.id} value={c.id}>{c.name} (Vence dia {c.due_day})</option>)}
                   </select>
-                  <input type="text" placeholder="O que você comprou?" value={expenseForm.description} onChange={e => setExpenseForm({...expenseForm, description: e.target.value})} className="p-2 border rounded-lg" required />
-                  <input type="number" step="0.01" placeholder="Valor TOTAL da Compra" value={expenseForm.total_amount} onChange={e => setExpenseForm({...expenseForm, total_amount: e.target.value})} className="p-2 border rounded-lg" required />
+                  <select value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })} className="p-2 border rounded-lg bg-white" required>
+                    <option value="">Selecione a Categoria...</option>
+                    {CATEGORY_OPTIONS.filter(category => category !== 'Receita').map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  <input type="text" placeholder="O que você comprou?" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} className="p-2 border rounded-lg" required />
+                  <input type="number" step="0.01" placeholder="Valor TOTAL da Compra" value={expenseForm.total_amount} onChange={e => setExpenseForm({ ...expenseForm, total_amount: e.target.value })} className="p-2 border rounded-lg" required />
                   <div className="flex gap-2">
-                    <input type="date" title="Data da Compra" value={expenseForm.purchase_date} onChange={e => setExpenseForm({...expenseForm, purchase_date: e.target.value})} className="flex-1 p-2 border rounded-lg" required />
-                    <input type="number" min="1" max="48" title="Qtd de Parcelas" placeholder="Parcelas" value={expenseForm.installments} onChange={e => setExpenseForm({...expenseForm, installments: e.target.value})} className="w-24 p-2 border rounded-lg" required />
+                    <input type="date" title="Data da Compra" value={expenseForm.purchase_date} onChange={e => setExpenseForm({ ...expenseForm, purchase_date: e.target.value })} className="flex-1 p-2 border rounded-lg" required />
+                    <input type="number" min="1" max="48" title="Qtd de Parcelas" placeholder="Parcelas" value={expenseForm.installments} onChange={e => setExpenseForm({ ...expenseForm, installments: e.target.value })} className="w-24 p-2 border rounded-lg" required />
                   </div>
                   <button type="submit" className="col-span-1 md:col-span-2 bg-blue-600 text-white rounded-lg py-2 hover:bg-blue-700">Registrar Compra Parcelada</button>
                 </form>
@@ -367,7 +354,6 @@ export default function Transactions() {
             </div>
           </div>
 
-          {/* Faturas em Aberto */}
           <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">Faturas em Aberto</h3>
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <table className="w-full text-left border-collapse">
@@ -382,19 +368,21 @@ export default function Transactions() {
                   <tr key={exp.id} className="border-b border-slate-50 hover:bg-slate-50">
                     <td className="p-4">
                       <p className="font-bold text-slate-800">{exp.credit_cards.name}</p>
-                      <p className="text-xs text-slate-500"><Calendar className="inline w-3 h-3 mr-1"/>{exp.credit_cards.due_day}/{exp.invoice_month}/{exp.invoice_year}</p>
+                      <p className="text-xs text-slate-500"><Calendar className="inline w-3 h-3 mr-1" />{exp.credit_cards.due_day}/{exp.invoice_month}/{exp.invoice_year}</p>
                     </td>
-                    <td className="p-4 font-medium text-slate-700">{exp.description}</td>
+                    <td className="p-4 font-medium text-slate-700">
+                      <p>{exp.description}</p>
+                      <span className="inline-flex mt-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">{exp.category || 'Outros'}</span>
+                    </td>
                     <td className="p-4 text-slate-600">{exp.installment_info}</td>
                     <td className="p-4 font-bold text-red-500">R$ {parseFloat(exp.amount).toFixed(2)}</td>
                     <td className="p-4">{getInvoiceStatus(exp.invoice_year, exp.invoice_month, exp.credit_cards.due_day)}</td>
                     <td className="p-4 text-right flex justify-end items-center gap-3">
                       <button onClick={() => handlePayInvoice(exp)} className="text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">
-                        <CheckCircle size={16}/> Pagar e Baixar
+                        <CheckCircle size={16} /> Pagar e Baixar
                       </button>
-                      {/* Novo Botão de Eliminar Fatura */}
                       <button onClick={() => handleDeleteCCExpense(exp.id)} className="text-slate-400 hover:text-red-500 transition" title="Eliminar lançamento">
-                        <Trash2 size={20}/>
+                        <Trash2 size={20} />
                       </button>
                     </td>
                   </tr>
