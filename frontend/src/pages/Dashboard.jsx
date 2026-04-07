@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { BarChart, Bar, CartesianGrid, Tooltip, ResponsiveContainer, Legend, XAxis, YAxis } from 'recharts'
-import { Landmark, Wallet, PiggyBank, CalendarDays } from 'lucide-react'
+import { Landmark, Wallet, PiggyBank, CalendarDays, CheckCircle2 } from 'lucide-react'
 
 const CATEGORIES = ['Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 const PAYMENT_METHOD_COLORS = {
@@ -20,6 +20,13 @@ const getDaysRemainingInMonth = () => {
   return Math.max(lastDay - today.getDate() + 1, 1)
 }
 
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const parseInstallmentInfo = (value) => {
   if (!value || typeof value !== 'string' || !value.includes('/')) {
     return { current: 1, total: 1 }
@@ -31,7 +38,6 @@ const parseInstallmentInfo = (value) => {
     total: Number.isFinite(total) ? total : 1
   }
 }
-
 
 const getPurchaseGroupKey = (expense) => {
   const installment = parseInstallmentInfo(expense.installment_info)
@@ -49,8 +55,10 @@ export default function Dashboard() {
   const [portfolio, setPortfolio] = useState(null)
   const [bankBalance, setBankBalance] = useState(0)
   const [currentMonthInvoice, setCurrentMonthInvoice] = useState(0)
+  const [currentMonthInvoiceItems, setCurrentMonthInvoiceItems] = useState([])
   const [expensesByCategory, setExpensesByCategory] = useState([])
   const [installmentExpenses, setInstallmentExpenses] = useState([])
+  const [isPayingCurrentInvoice, setIsPayingCurrentInvoice] = useState(false)
 
   useEffect(() => {
     fetchAllData()
@@ -108,7 +116,7 @@ export default function Dashboard() {
         categoryTotals[category].cash += parseFloat(transaction.amount)
       })
     }
-    
+
     if (ccData) {
       const currentMonthPurchases = ccData
         .filter((expense) => {
@@ -132,9 +140,8 @@ export default function Dashboard() {
         categoryTotals[purchase.category].credit += purchase.totalPurchaseAmount
       })
 
-      const currentMonthTotal = ccData
-        .filter((expense) => expense.invoice_month === currentMonth && expense.invoice_year === currentYear)
-        .reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
+      const currentMonthItems = ccData.filter((expense) => expense.invoice_month === currentMonth && expense.invoice_year === currentYear)
+      const currentMonthTotal = currentMonthItems.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
 
       const openInstallments = ccData
         .map((expense) => {
@@ -147,6 +154,7 @@ export default function Dashboard() {
         })
         .filter((expense) => expense.installmentTotal > 1)
 
+      setCurrentMonthInvoiceItems(currentMonthItems)
       setCurrentMonthInvoice(currentMonthTotal)
       setInstallmentExpenses(openInstallments)
     }
@@ -162,6 +170,45 @@ export default function Dashboard() {
       .sort((a, b) => b.value - a.value)
 
     setExpensesByCategory(chartDataExpenses)
+  }
+
+  const handlePayCurrentMonthInvoice = async () => {
+    if (currentMonthInvoiceItems.length === 0 || currentMonthInvoice <= 0) return
+
+    const confirmed = window.confirm(`Deseja pagar a fatura total deste mês no valor de ${formatCurrency(currentMonthInvoice)}?`)
+    if (!confirmed) return
+
+    setIsPayingCurrentInvoice(true)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      await supabase.from('transactions').insert([{
+        user_id: user.id,
+        type: 'EXPENSE',
+        amount: Number(currentMonthInvoice.toFixed(2)),
+        date: getLocalDateString(),
+        category: 'Pagamento Fatura do Mês',
+        description: 'Baixa da fatura total do mês pela dashboard'
+      }])
+
+      const idsToUpdate = currentMonthInvoiceItems.map((item) => item.id)
+
+      if (idsToUpdate.length > 0) {
+        await supabase
+          .from('cc_expenses')
+          .update({ status: 'PAID' })
+          .in('id', idsToUpdate)
+      }
+
+      await fetchAllData()
+    } catch (error) {
+      console.error('Erro ao pagar a fatura do mês:', error)
+      alert('Não foi possível pagar a fatura do mês.')
+    } finally {
+      setIsPayingCurrentInvoice(false)
+    }
   }
 
   const totalWealth = (bankBalance || 0) + (portfolio?.current_balance || 0)
@@ -349,44 +396,84 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <div className="flex items-start justify-between gap-4 mb-6">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Gastos Parcelados no Cartão</h2>
-              <p className="text-sm text-slate-500 mt-1">Compras unificadas com a quantidade de parcelas restantes.</p>
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">Gastos Parcelados no Cartão</h2>
+                <p className="text-sm text-slate-500 mt-1">Compras unificadas com a quantidade de parcelas restantes.</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-500">Parcelado em aberto</p>
+                <p className="text-lg font-bold text-slate-800">{formatCurrency(installmentSummary.total)}</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-slate-500">Parcelado em aberto</p>
-              <p className="text-lg font-bold text-slate-800">{formatCurrency(installmentSummary.total)}</p>
-            </div>
+
+            {groupedInstallmentExpenses.length > 0 ? (
+              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                {groupedInstallmentExpenses.map((expense) => (
+                  <div key={expense.key} className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-slate-800">{expense.description}</p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                            {expense.cardName}
+                          </span>
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                            {expense.remainingInstallments} parcela(s) restante(s)
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(expense.installmentAmount)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-center">
+                <p>Você não tem compras parceladas abertas no cartão.</p>
+              </div>
+            )}
           </div>
 
-          {groupedInstallmentExpenses.length > 0 ? (
-            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-              {groupedInstallmentExpenses.map((expense) => (
-                <div key={expense.key} className="rounded-xl border border-slate-200 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-semibold text-slate-800">{expense.description}</p>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                          {expense.cardName}
-                        </span>
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          {expense.remainingInstallments} parcela(s) restante(s)
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(expense.installmentAmount)}</p>
-                  </div>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">Fatura deste Mês</h2>
+                <p className="text-sm text-slate-500 mt-1">Total em aberto no mês atual com opção de pagamento direto.</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-500">Em aberto agora</p>
+                <p className={`text-2xl font-bold mt-1 ${currentMonthInvoice > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                  {formatCurrency(currentMonthInvoice)}
+                </p>
+              </div>
+            </div>
+
+            {currentMonthInvoice > 0 ? (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
+                  <p className="text-sm text-red-700">A fatura do mês considera todas as despesas abertas cujo vencimento está no mês atual.</p>
+                  <p className="text-xs text-red-600 mt-2">{currentMonthInvoiceItems.length} lançamento(s) compõem essa fatura.</p>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-center">
-              <p>Você não tem compras parceladas abertas no cartão.</p>
-            </div>
-          )}
+
+                <button
+                  onClick={handlePayCurrentMonthInvoice}
+                  disabled={isPayingCurrentInvoice}
+                  className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl py-3 font-medium transition flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 size={18} />
+                  {isPayingCurrentInvoice ? 'Pagando fatura...' : 'Pagar fatura deste mês'}
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-center">
+                <p className="font-semibold text-emerald-700">Nenhuma fatura aberta neste mês.</p>
+                <p className="text-sm text-emerald-600 mt-1">Tudo certo por aqui.</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
