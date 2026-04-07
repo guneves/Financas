@@ -483,7 +483,6 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
-                {/* -------------------------------------------------- */}
 
                 <button
                   onClick={handlePayCurrentMonthInvoice}
