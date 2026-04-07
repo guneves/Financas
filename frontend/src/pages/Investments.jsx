@@ -1,21 +1,27 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, TrendingUp, Landmark } from 'lucide-react'
 
 export default function Investments() {
+  // Estado para controlar a aba atual
+  const [activeTab, setActiveTab] = useState('VARIAVEL')
+
   const [assets, setAssets] = useState(() => {
     const savedAssets = localStorage.getItem('@financeMVP:assets');
     return savedAssets ? JSON.parse(savedAssets) : [];
   });
   const [loading, setLoading] = useState(false)
+
+  //formulario
   const [form, setForm] = useState({ 
     asset_class: 'STOCKS', 
     ticker_or_name: '', 
     quantity: '', 
     average_price: '',
-    mortality_rate: '' // Específico para pecuária
+    cdi_percentage: '',
+    purchase_date: ''
   })
-
+  
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false)
 
   const handleUpdateStockPrices = async () => {
@@ -87,10 +93,13 @@ const handleSubmit = async (e) => {
     // Se for um ativo novo, a cotação atual começa igual ao preço da compra.
     const marketPrice = existingAsset ? existingAsset.current_price : parseFloat(form.average_price);
 
-    // Prepara as métricas específicas para gado de corte (se houver)
+    // Prepara as métricas específicas
     let metadata = null;
-    if (form.asset_class === 'CATTLE' && form.mortality_rate) {
-        metadata = { mortality_rate: (parseFloat(form.mortality_rate) / 100) };
+    if (form.asset_class === 'FIXED_INCOME' && form.cdi_percentage && form.purchase_date) {
+        metadata = { 
+          cdi_percentage: (parseFloat(form.cdi_percentage) / 100),
+          purchase_date: form.purchase_date
+        };
     }
 
     const { error } = await supabase.from('investments').insert([
@@ -100,14 +109,19 @@ const handleSubmit = async (e) => {
         ticker_or_name: tickerName,
         quantity: parseFloat(form.quantity),
         average_price: parseFloat(form.average_price),
-        current_price: marketPrice, // <-- Mantém a cotação intacta
+        current_price: marketPrice, //Mantém a cotação
         metadata: metadata
       }
     ])
 
     if (!error) {
-      setForm({ asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: '', mortality_rate: '' })
-      fetchPortfolio() // Atualiza a tabela chamando o Flask para recalcular o Preço Médio
+      // Limpa os campos mantendo a classe do ativo atual
+      if (activeTab === 'VARIAVEL') {
+        setForm({ asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: '', purchase_date: '' })
+      } else {
+        setForm({ asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '', average_price: '', mortality_rate: '', cdi_percentage: '', purchase_date: '' })
+      }
+      fetchPortfolio() 
     } else {
       alert("Erro ao adicionar aporte: " + error.message)
     }
@@ -124,7 +138,7 @@ const handleSubmit = async (e) => {
       'STOCKS': 'Ações',
       'FIXED_INCOME': 'Renda Fixa',
       'REIT': 'Fundos Imobiliários',
-      'CATTLE': 'Gado de Corte',
+      'ETF': 'ETFs',
       'OTHER': 'Outros'
     }
     return labels[assetClass] || assetClass
@@ -133,11 +147,11 @@ const handleSubmit = async (e) => {
   return (
     <div className="max-w-5xl mx-auto space-y-8">
       
-      {/* === CABEÇALHO MODIFICADO AQUI === */}
+      {/* CABEÇALHO */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Meus Investimentos</h1>
-          <p className="text-slate-500 mt-1">Adicione novos ativos e acompanhe o preço médio.</p>
+          <p className="text-slate-500 mt-1">Adicione novos ativos e acompanhe sua rentabilidade.</p>
         </div>
         
         <button
@@ -156,50 +170,92 @@ const handleSubmit = async (e) => {
         </button>
       </div>
 
-      {/* Formulário de Cadastro */}
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-        
-        <div className="flex flex-col space-y-1 md:col-span-1">
-          <label className="text-sm text-slate-500 font-medium">Classe do Ativo</label>
-          <select value={form.asset_class} onChange={e => setForm({...form, asset_class: e.target.value})} className="p-2 border border-slate-300 rounded-lg bg-white" required>
-            <option value="STOCKS">Ações</option>
-            <option value="REIT">Fundos Imobiliários</option>
-            <option value="FIXED_INCOME">Renda Fixa</option>
-            <option value="CATTLE">Gado de Corte</option>
-            <option value="OTHER">Outros</option>
-          </select>
-        </div>
-
-        <div className="flex flex-col space-y-1 md:col-span-1">
-          <label className="text-sm text-slate-500 font-medium">Nome / Ticker</label>
-          <input type="text" placeholder="Ex: PETR4, Lote Nelore..." value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
-        </div>
-
-        <div className="flex flex-col space-y-1 md:col-span-1">
-          <label className="text-sm text-slate-500 font-medium">Quantidade</label>
-          <input type="number" step="0.0001" placeholder="Ex: 100" value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
-        </div>
-
-        <div className="flex flex-col space-y-1 md:col-span-1">
-          <label className="text-sm text-slate-500 font-medium">Preço Médio (R$)</label>
-          <input type="number" step="0.01" placeholder="Ex: 35.50" value={form.average_price} onChange={e => setForm({...form, average_price: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
-        </div>
-
-        {form.asset_class === 'CATTLE' ? (
-          <div className="flex flex-col space-y-1 md:col-span-1">
-            <label className="text-sm text-slate-500 font-medium">Tx. Mortalidade (%)</label>
-            <input type="number" step="0.1" placeholder="Ex: 2.5" value={form.mortality_rate} onChange={e => setForm({...form, mortality_rate: e.target.value})} className="p-2 border border-slate-300 rounded-lg" />
-          </div>
-        ) : (
-          <div className="md:col-span-1"></div> // Espaçador
-        )}
-
-        <button type="submit" disabled={loading} className="md:col-span-5 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
-          {loading ? 'Adicionando...' : 'Adicionar Ativo ao Portfólio'}
+      {/* Seletor de Abas */}
+      <div className="flex bg-slate-200 p-1 rounded-lg w-fit">
+        <button 
+          onClick={() => {
+            setActiveTab('VARIAVEL');
+            setForm({...form, asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: ''});
+          }} 
+          className={`px-4 py-2 rounded-md font-medium transition flex items-center gap-2 ${activeTab === 'VARIAVEL' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-slate-300'}`}
+        >
+          <TrendingUp size={18}/> Variável & Outros
         </button>
-      </form>
+        <button 
+          onClick={() => {
+            setActiveTab('FIXA');
+            setForm({...form, asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '1', average_price: ''});
+          }} 
+          className={`px-4 py-2 rounded-md font-medium transition flex items-center gap-2 ${activeTab === 'FIXA' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-slate-300'}`}
+        >
+          <Landmark size={18}/> Renda Fixa (CDI)
+        </button>
+      </div>
+      
+      {/* Renda Variavel */}
+      {activeTab === 'VARIAVEL' && (
+        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-5 gap-4 items-end animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">Classe do Ativo</label>
+            <select value={form.asset_class} onChange={e => setForm({...form, asset_class: e.target.value})} className="p-2 border border-slate-300 rounded-lg bg-white" required>
+              <option value="STOCKS">Ações</option>
+              <option value="REIT">Fundos Imobiliários</option>
+              <option value="ETF">ETFs</option>
+              <option value="OTHER">Outros</option>
+            </select>
+          </div>
 
-      {/* Tabela de Posições (Dados calculados pelo Flask) */}
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">Nome / Ticker</label>
+            <input type="text" placeholder="Ex: PETR4, Lote Nelore" value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+          </div>
+
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">Quantidade</label>
+            <input type="number" step="0.0001" placeholder="Ex: 100" value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+          </div>
+
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">Preço de Compra (R$)</label>
+            <input type="number" step="0.01" placeholder="Ex: 35.50" value={form.average_price} onChange={e => setForm({...form, average_price: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+          </div>
+
+          <button type="submit" disabled={loading} className="md:col-span-5 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
+            {loading ? 'Adicionando...' : 'Adicionar Ativo'}
+          </button>
+        </form>
+      )}
+
+      {/* Renda Fixa */}
+      {activeTab === 'FIXA' && (
+        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-4 items-end animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">Nome do Ativo</label>
+            <input type="text" placeholder="Ex: CDB Banco Inter" value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+          </div>
+
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">Valor Aplicado (R$)</label>
+            <input type="number" step="0.01" placeholder="Ex: 1000.00" value={form.average_price} onChange={e => setForm({...form, average_price: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+          </div>
+
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">% do CDI</label>
+            <input type="number" step="0.1" placeholder="Ex: 110" value={form.cdi_percentage} onChange={e => setForm({...form, cdi_percentage: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+          </div>
+
+          <div className="flex flex-col space-y-1">
+            <label className="text-sm text-slate-500 font-medium">Data da Aplicação</label>
+            <input type="date" value={form.purchase_date} onChange={e => setForm({...form, purchase_date: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+          </div>
+
+          <button type="submit" disabled={loading} className="md:col-span-4 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
+            {loading ? 'Adicionando...' : 'Adicionar à Renda Fixa'}
+          </button>
+        </form>
+      )}
+
+      {/* Tabela de Posições */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-max">
           <thead>
@@ -220,18 +276,19 @@ const handleSubmit = async (e) => {
                   <p className="font-bold text-slate-800">{asset.name}</p>
                   <p className="text-xs text-slate-500">{getClassLabel(asset.class)}</p>
                 </td>
-                <td className="p-4 text-slate-800">{asset.quantity}</td>
+                <td className="p-4 text-slate-800">
+                  {asset.class === 'FIXED_INCOME' ? '-' : asset.quantity}
+                </td>
                 <td className="p-4 text-slate-800">R$ {asset.average_price.toFixed(2)}</td>
                 <td className="p-4">
                   <div className="flex items-center gap-1">
                     <span className="text-slate-500">R$</span>
-                    {/* Campo Interativo para atualizar o preço */}
                     <input 
                       type="number" 
                       step="0.01"
                       defaultValue={asset.current_price} 
+                      disabled={asset.class === 'FIXED_INCOME'} // Desabilita edição manual se for CDI
                       onBlur={async (e) => {
-                        // Quando o usuário clica fora do campo, atualiza no banco automaticamente!
                         const newPrice = e.target.value;
                         if(newPrice && newPrice !== asset.current_price.toString()){
                           const { data: { user } } = await supabase.auth.getUser()
@@ -239,11 +296,11 @@ const handleSubmit = async (e) => {
                             .update({ current_price: parseFloat(newPrice) })
                             .eq('ticker_or_name', asset.ticker)
                             .eq('user_id', user.id)
-                          fetchPortfolio(); // Recalcula tudo
+                          fetchPortfolio(); 
                         }
                       }}
-                      className="w-24 p-1.5 border border-blue-200 rounded-md bg-blue-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                      title="Digite o novo preço e clique fora para salvar"
+                      className={`w-28 p-1.5 border border-blue-200 rounded-md transition ${asset.class === 'FIXED_INCOME' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200' : 'bg-blue-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'}`}
+                      title={asset.class === 'FIXED_INCOME' ? "Cotação calculada automaticamente pelo CDI" : "Digite o novo preço e clique fora para salvar"}
                     />
                   </div>
                 </td>
@@ -260,7 +317,7 @@ const handleSubmit = async (e) => {
                       await supabase.from('investments').delete().eq('ticker_or_name', asset.ticker).eq('user_id', user.id)
                       fetchPortfolio();
                     }
-                  }} className="text-red-400 hover:text-red-600 text-sm font-medium transition">Excluir Posição</button>
+                  }} className="text-red-400 hover:text-red-600 text-sm font-medium transition">Excluir</button>
                 </td>
               </tr>
             ))}
