@@ -267,28 +267,53 @@ export default function Investments() {
       return;
     }
 
-    if (amount === asset.current_value) {
-      handleDeleteFullPosition(asset); 
-      return;
-    }
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
 
-    const ratio = amount / asset.current_value;
-    const newAvgPrice = asset.average_price * (1 - ratio);
-    const newCurrentPrice = asset.current_price * (1 - ratio);
+      // 1. Calcula a proporção do resgate em relação ao valor bruto atual
+      const ratio = amount / asset.current_value;
+      
+      // 2. O valor de custo (average_price) proporcional ao que está sendo sacado
+      const costBasisSold = asset.average_price * ratio;
 
-    const { data: { user } } = await supabase.auth.getUser();
+      // 3. Registra a MOVIMENTAÇÃO de resgate (valor negativo)
+      // Usamos quantidade -1 para sinalizar resgate de Renda Fixa
+      const { error: moveError } = await supabase.from('investments').insert([
+        { 
+          user_id: user.id, 
+          asset_class: asset.class,
+          ticker_or_name: asset.name,
+          quantity: -1, 
+          average_price: costBasisSold, 
+          current_price: amount, // O "preço" de venda é o valor bruto resgatado
+          metadata: { 
+            is_redemption: True,
+            related_id: asset.id // Vincula ao aporte original
+          }
+        }
+      ]);
 
-    const { error } = await supabase.from('investments')
-      .update({ average_price: newAvgPrice, current_price: newCurrentPrice })
-      .eq('id', asset.id)
-      .eq('user_id', user.id);
+      if (moveError) throw moveError;
 
-    if (!error) {
+      // 4. Atualiza o aporte original subtraindo o que foi sacado
+      // Isso mantém o rendimento do que sobrou correto
+      const { error: updateError } = await supabase.from('investments')
+        .update({ 
+          average_price: asset.average_price - costBasisSold, 
+          current_price: asset.current_price - amount 
+        })
+        .eq('id', asset.id);
+
+      if (updateError) throw updateError;
+
+      alert("Resgate realizado e registrado nas movimentações!");
       fetchPortfolio();
       fetchMovements();
-      alert("Resgate parcial realizado com sucesso!");
-    } else {
+    } catch (error) {
       alert("Erro ao realizar resgate: " + error.message);
+    } finally {
+      setLoading(false);
     }
   }
 
