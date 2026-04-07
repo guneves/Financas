@@ -47,18 +47,16 @@ def token_required(f):
 @token_required
 def get_portfolio(current_user_id):
     try:
-        # Busca TODOS os aportes do usuário
         response = supabase.table('investments').select('*').eq('user_id', current_user_id).execute()
         investments = response.data
 
-        # 1. Agrupar ativos com o mesmo nome/ticker
+        # 1. Agrupar ativos
         grouped_assets = {}
         for asset in investments:
-            asset_class = asset['asset_class']
             ticker = asset['ticker_or_name']
+            asset_class = asset['asset_class']
             qty = float(asset['quantity'])
             avg_price_buy = float(asset['average_price'])
-            # Se não tiver preço atual salvo, usa o preço de compra
             curr_price = float(asset['current_price']) if asset['current_price'] else avg_price_buy
             invested_value = qty * avg_price_buy
 
@@ -75,42 +73,71 @@ def get_portfolio(current_user_id):
                     "metadata": asset.get('metadata')
                 }
             else:
-                grouped_assets[ticker]['total_quantity'] += qty
-                grouped_assets[ticker]['total_invested'] += invested_value
+                grouped_assets[group_key]['total_quantity'] += qty
+                grouped_assets[group_key]['total_invested'] += invested_value
                 if asset['current_price']:
-                    grouped_assets[ticker]['current_price'] = curr_price
+                    grouped_assets[group_key]['current_price'] = curr_price
 
-        # 2. Calcular rentabilidade da posição agrupada
+        # 2. Calcular rentabilidade e IMPOSTO DE RENDA
         processed_assets = []
         total_invested_all = 0
         current_total_value = 0
+        current_net_value_all = 0
         distribution = {}
 
-        for ticker, data in grouped_assets.items():
-            # Cálculo matemático do Preço Médio
+        for group_key, data in grouped_assets.items():
             avg_price_calculated = data['total_invested'] / data['total_quantity'] if data['total_quantity'] > 0 else 0
             
-            # Ajuste de quantidade para Gado (descontando mortalidade)
             adjusted_quantity = data['total_quantity']
             if data['class'] == 'CATTLE' and data.get('metadata'):
                 mortality_rate = float(data['metadata'].get('mortality_rate', 0))
                 adjusted_quantity = data['total_quantity'] * (1 - mortality_rate)
 
-            # Valorização Atual
             current_value = adjusted_quantity * data['current_price']
             
             profitability = 0
             if data['total_invested'] > 0:
                 profitability = ((current_value - data['total_invested']) / data['total_invested']) * 100
 
+            # LÓGICA DE IMPOSTO DE RENDA
+            net_value = current_value
+            taxes = 0
+            is_tax_free = False
+            
+            if data['class'] == 'FIXED_INCOME' and data.get('metadata'):
+                meta = data['metadata']
+                is_tax_free = meta.get('is_tax_free', False)
+                purchase_date_str = meta.get('purchase_date')
+                
+                # O IR só incide sobre o LUCRO
+                profit = current_value - data['total_invested']
+                
+                if profit > 0 and not is_tax_free and purchase_date_str:
+                    purchase_date = datetime.strptime(purchase_date_str, '%Y-%m-%d')
+                    days_invested = (datetime.now() - purchase_date).days
+                    
+                    # Tabela Regressiva da Renda Fixa
+                    if days_invested <= 180:
+                        tax_rate = 0.225 # 22,5%
+                    elif days_invested <= 360:
+                        tax_rate = 0.200 # 20%
+                    elif days_invested <= 720:
+                        tax_rate = 0.175 # 17,5%
+                    else:
+                        tax_rate = 0.150 # 15%
+                        
+                    taxes = profit * tax_rate
+                    net_value = current_value - taxes
+
             total_invested_all += data['total_invested']
             current_total_value += current_value
+            current_net_value_all += net_value
 
             asset_class = data['class']
             distribution[asset_class] = distribution.get(asset_class, 0) + current_value
 
             processed_assets.append({
-                "id": data["id"], 
+                "id": data["id"],
                 "ticker": data["original_ticker"],
                 "name": data["original_ticker"],
                 "class": data['class'],
@@ -118,16 +145,19 @@ def get_portfolio(current_user_id):
                 "average_price": round(avg_price_calculated, 2),
                 "current_price": round(data['current_price'], 2),
                 "current_value": round(current_value, 2),
+                "net_value": round(net_value, 2),
+                "taxes": round(taxes, 2),
+                "is_tax_free": is_tax_free,
                 "profitability_percent": round(profitability, 2)
             })
             
-        # Calcular porcentagens do Gráfico de Pizza
         for k, v in distribution.items():
             distribution[k] = round((v / current_total_value) * 100, 2) if current_total_value > 0 else 0
 
         return jsonify({
             "total_invested": round(total_invested_all, 2),
             "current_balance": round(current_total_value, 2),
+            "current_net_balance": round(current_net_value_all, 2),
             "portfolio_profitability": round(((current_total_value - total_invested_all) / total_invested_all * 100), 2) if total_invested_all > 0 else 0,
             "distribution": distribution,
             "assets": processed_assets
