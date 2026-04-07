@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { BarChart, Bar, CartesianGrid, Tooltip, ResponsiveContainer, Legend, XAxis, YAxis } from 'recharts'
-import { Landmark, Wallet, PiggyBank, CreditCard, CalendarDays } from 'lucide-react'
+import { Landmark, Wallet, PiggyBank, CalendarDays } from 'lucide-react'
 
 const CATEGORIES = ['Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 const PAYMENT_METHOD_COLORS = {
@@ -30,6 +30,19 @@ const parseInstallmentInfo = (value) => {
     current: Number.isFinite(current) ? current : 1,
     total: Number.isFinite(total) ? total : 1
   }
+}
+
+
+const getPurchaseGroupKey = (expense) => {
+  const installment = parseInstallmentInfo(expense.installment_info)
+  return [
+    expense.card_id || 'sem-cartao',
+    expense.description || 'sem-descricao',
+    expense.purchase_date || 'sem-data',
+    expense.category || 'sem-categoria',
+    Number(parseFloat(expense.amount || 0).toFixed(2)),
+    installment.total
+  ].join('|')
 }
 
 export default function Dashboard() {
@@ -95,15 +108,28 @@ export default function Dashboard() {
         categoryTotals[category].cash += parseFloat(transaction.amount)
       })
     }
-
+    
     if (ccData) {
-      const currentMonthCreditExpenses = ccData.filter((expense) => {
-        return expense.invoice_month === currentMonth && expense.invoice_year === currentYear
-      })
+      const currentMonthPurchases = ccData
+        .filter((expense) => {
+          if (!expense.purchase_date) return false
+          const [year, month] = expense.purchase_date.split('-')
+          return parseInt(month) === currentMonth && parseInt(year) === currentYear
+        })
+        .reduce((acc, expense) => {
+          const key = getPurchaseGroupKey(expense)
+          if (!acc[key]) {
+            acc[key] = {
+              category: CATEGORIES.includes(expense.category) ? expense.category : 'Outros',
+              totalPurchaseAmount: 0
+            }
+          }
+          acc[key].totalPurchaseAmount += parseFloat(expense.amount)
+          return acc
+        }, {})
 
-      currentMonthCreditExpenses.forEach((expense) => {
-        const category = CATEGORIES.includes(expense.category) ? expense.category : 'Outros'
-        categoryTotals[category].credit += parseFloat(expense.amount)
+      Object.values(currentMonthPurchases).forEach((purchase) => {
+        categoryTotals[purchase.category].credit += purchase.totalPurchaseAmount
       })
 
       const currentMonthTotal = ccData
@@ -253,7 +279,7 @@ export default function Dashboard() {
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
               <h2 className="text-lg font-bold text-slate-800">Despesas do Mês por Categoria</h2>
-              <p className="text-sm text-slate-500 mt-1">Separadas entre dinheiro/conta e cartão de crédito.</p>
+              <p className="text-sm text-slate-500 mt-1">Dinheiro/conta e compras feitas no cartão no mês atual.</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500">Total do mês</p>
@@ -269,7 +295,7 @@ export default function Dashboard() {
                   <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(expenseTotals.cash)}</p>
                 </div>
                 <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                  <p className="text-sm text-blue-700">No cartão de crédito</p>
+                  <p className="text-sm text-blue-700">Compras no cartão no mês</p>
                   <p className="text-2xl font-bold text-blue-700 mt-1">{formatCurrency(expenseTotals.credit)}</p>
                 </div>
               </div>
