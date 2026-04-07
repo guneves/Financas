@@ -13,7 +13,6 @@ export default function Investments() {
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(false)
 
-  // Estado para o formulário principal
   const [form, setForm] = useState({ 
     asset_class: 'STOCKS', 
     ticker_or_name: '', 
@@ -24,9 +23,7 @@ export default function Investments() {
     is_tax_free: false
   })
 
-  // Novo estado para o Modal de Edição
   const [editModal, setEditModal] = useState(null)
-  
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false)
 
   const handleUpdateStockPrices = async (silent = false, investmentId = null) => {
@@ -159,7 +156,6 @@ export default function Investments() {
     }
   };
 
-  // ---- FUNÇÕES DE EDIÇÃO DE MOVIMENTAÇÃO ----
   const openEditModal = (mov) => {
     setEditModal({
       id: mov.id,
@@ -203,7 +199,6 @@ export default function Investments() {
       fetchPortfolio(); 
       fetchMovements();
       
-      // Atualiza o preço/CDI específico deste ativo silenciosamente após a edição
       await handleUpdateStockPrices(true, editModal.id);
 
     } catch (error) {
@@ -212,7 +207,52 @@ export default function Investments() {
       setLoading(false);
     }
   }
-  // -------------------------------------------
+
+  // ---- FUNÇÃO DE VENDA PARCIAL DE AÇÕES/FIIs ----
+  const handleSellVariable = async (asset) => {
+    const qtyStr = window.prompt(`VENDA DE ATIVO\nAtivo: ${asset.name}\nQuantidade Disponível: ${asset.quantity}\n\nQuantas cotas/ações você deseja vender?`);
+    if (!qtyStr) return;
+    
+    const qtyToSell = parseFloat(qtyStr.replace(',', '.'));
+    
+    if (isNaN(qtyToSell) || qtyToSell <= 0 || qtyToSell > asset.quantity) {
+      alert("Quantidade inválida. Digite um valor entre 0 e a quantidade total que você possui.");
+      return;
+    }
+
+    if (qtyToSell === asset.quantity) {
+      handleDeleteFullPosition(asset); 
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Registra uma nova movimentação com quantidade NEGATIVA.
+      // Isso abate a quantidade e mantém o preço médio perfeitamente.
+      const { error } = await supabase.from('investments').insert([
+        { 
+          user_id: user.id, 
+          asset_class: asset.class,
+          ticker_or_name: asset.ticker,
+          quantity: -qtyToSell, 
+          average_price: asset.average_price, 
+          current_price: asset.current_price 
+        }
+      ]);
+
+      if (error) throw new Error(error.message);
+
+      alert("Venda registrada com sucesso!");
+      fetchPortfolio();
+      fetchMovements();
+    } catch (error) {
+      alert("Erro ao registrar venda: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const handlePartialSale = async (asset) => {
     if (asset.class !== 'FIXED_INCOME') return;
@@ -227,28 +267,53 @@ export default function Investments() {
       return;
     }
 
-    if (amount === asset.current_value) {
-      handleDeleteFullPosition(asset); 
-      return;
-    }
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
 
-    const ratio = amount / asset.current_value;
-    const newAvgPrice = asset.average_price * (1 - ratio);
-    const newCurrentPrice = asset.current_price * (1 - ratio);
+      // 1. Calcula a proporção do resgate em relação ao valor bruto atual
+      const ratio = amount / asset.current_value;
+      
+      // 2. O valor de custo (average_price) proporcional ao que está sendo sacado
+      const costBasisSold = asset.average_price * ratio;
 
-    const { data: { user } } = await supabase.auth.getUser();
+      // 3. Registra a MOVIMENTAÇÃO de resgate (valor negativo)
+      // Usamos quantidade -1 para sinalizar resgate de Renda Fixa
+      const { error: moveError } = await supabase.from('investments').insert([
+        { 
+          user_id: user.id, 
+          asset_class: asset.class,
+          ticker_or_name: asset.name,
+          quantity: -1, 
+          average_price: costBasisSold, 
+          current_price: amount, // O "preço" de venda é o valor bruto resgatado
+          metadata: { 
+            is_redemption: True,
+            related_id: asset.id // Vincula ao aporte original
+          }
+        }
+      ]);
 
-    const { error } = await supabase.from('investments')
-      .update({ average_price: newAvgPrice, current_price: newCurrentPrice })
-      .eq('id', asset.id)
-      .eq('user_id', user.id);
+      if (moveError) throw moveError;
 
-    if (!error) {
+      // 4. Atualiza o aporte original subtraindo o que foi sacado
+      // Isso mantém o rendimento do que sobrou correto
+      const { error: updateError } = await supabase.from('investments')
+        .update({ 
+          average_price: asset.average_price - costBasisSold, 
+          current_price: asset.current_price - amount 
+        })
+        .eq('id', asset.id);
+
+      if (updateError) throw updateError;
+
+      alert("Resgate realizado e registrado nas movimentações!");
       fetchPortfolio();
       fetchMovements();
-      alert("Resgate parcial realizado com sucesso! O capital foi ajustado.");
-    } else {
+    } catch (error) {
       alert("Erro ao realizar resgate: " + error.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -288,6 +353,13 @@ export default function Investments() {
     }
     return labels[assetClass] || assetClass
   }
+
+  // Lógica para filtrar a Tabela baseada na aba ativa
+  const filteredAssets = assets.filter(asset => {
+    if (activeTab === 'VARIAVEL') return asset.class !== 'FIXED_INCOME';
+    if (activeTab === 'FIXA') return asset.class === 'FIXED_INCOME';
+    return true;
+  });
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 relative">
@@ -359,7 +431,7 @@ export default function Investments() {
 
               <div className="flex flex-col space-y-1">
                 <label className="text-sm text-slate-500 font-medium">Nome / Ticker</label>
-                <input type="text" placeholder="Ex: PETR4, Lote Nelore" value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+                <input type="text" placeholder="Ex: PETR4" value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
               </div>
 
               <div className="flex flex-col space-y-1">
@@ -373,7 +445,7 @@ export default function Investments() {
               </div>
 
               <button type="submit" disabled={loading} className="md:col-span-5 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
-                {loading ? 'Adicionando...' : 'Adicionar Ativo'}
+                {loading ? 'A adicionar...' : 'Adicionar Ativo'}
               </button>
             </form>
           )}
@@ -410,7 +482,7 @@ export default function Investments() {
               </div>
 
               <button type="submit" disabled={loading} className="md:col-span-6 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
-                {loading ? 'Adicionando...' : 'Adicionar à Renda Fixa'}
+                {loading ? 'A adicionar...' : 'Adicionar à Renda Fixa'}
               </button>
             </form>
           )}
@@ -430,7 +502,7 @@ export default function Investments() {
                 </tr>
               </thead>
               <tbody>
-                {assets.map(asset => (
+                {filteredAssets.map(asset => (
                   <tr key={asset.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
                     <td className="p-4">
                       <p className="font-bold text-slate-800">{asset.name}</p>
@@ -482,9 +554,13 @@ export default function Investments() {
                       </span>
                     </td>
                     <td className="p-4 text-right space-x-3">
-                      {asset.class === 'FIXED_INCOME' && (
+                      {asset.class === 'FIXED_INCOME' ? (
                         <button onClick={() => handlePartialSale(asset)} className="text-blue-600 hover:text-blue-800 text-sm font-medium transition">
                           Resgatar
+                        </button>
+                      ) : (
+                        <button onClick={() => handleSellVariable(asset)} className="text-blue-600 hover:text-blue-800 text-sm font-medium transition">
+                          Vender
                         </button>
                       )}
                       <button onClick={() => handleDeleteFullPosition(asset)} className="text-red-400 hover:text-red-600 text-sm font-medium transition">
@@ -493,8 +569,8 @@ export default function Investments() {
                     </td>
                   </tr>
                 ))}
-                {assets.length === 0 && (
-                  <tr><td colSpan="7" className="p-8 text-center text-slate-500">Nenhum ativo cadastrado.</td></tr>
+                {filteredAssets.length === 0 && (
+                  <tr><td colSpan="7" className="p-8 text-center text-slate-500">Nenhum ativo cadastrado nesta categoria.</td></tr>
                 )}
               </tbody>
             </table>
@@ -506,17 +582,17 @@ export default function Investments() {
       {activeTab === 'MOVIMENTACOES' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-            <h2 className="font-bold text-slate-700">Histórico de Aportes</h2>
-            <p className="text-xs text-slate-500">Lista cronológica de todas as suas adições.</p>
+            <h2 className="font-bold text-slate-700">Histórico de Movimentações</h2>
+            <p className="text-xs text-slate-500">Lista de compras e vendas na sua carteira.</p>
           </div>
           <table className="w-full text-left border-collapse min-w-max">
             <thead>
               <tr className="bg-white border-b border-slate-100 text-slate-600 text-sm">
                 <th className="p-4 font-medium">Data / Hora</th>
                 <th className="p-4 font-medium">Ativo</th>
-                <th className="p-4 font-medium">Qtd do Aporte</th>
-                <th className="p-4 font-medium">Valor Un. / Aplicado</th>
-                <th className="p-4 font-medium">Total do Aporte</th>
+                <th className="p-4 font-medium">Movimentação</th>
+                <th className="p-4 font-medium">Preço Registrado</th>
+                <th className="p-4 font-medium">Total</th>
                 <th className="p-4 font-medium text-right">Ação</th>
               </tr>
             </thead>
@@ -524,6 +600,7 @@ export default function Investments() {
               {movements.map(mov => {
                 const isFixed = mov.asset_class === 'FIXED_INCOME';
                 const dateObj = new Date(mov.created_at);
+                const isSale = mov.quantity < 0;
                 
                 return (
                   <tr key={mov.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
@@ -534,14 +611,16 @@ export default function Investments() {
                       <p className="font-bold text-slate-800">{mov.ticker_or_name}</p>
                       <p className="text-xs text-slate-500">{getClassLabel(mov.asset_class)}</p>
                     </td>
-                    <td className="p-4 text-slate-800">
-                      {isFixed ? '-' : mov.quantity}
+                    <td className="p-4">
+                      <span className={`px-2 py-1 rounded-md text-xs font-bold ${isSale ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        {isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')} de {Math.abs(mov.quantity)}
+                      </span>
                     </td>
                     <td className="p-4 text-slate-800">
                       R$ {mov.average_price.toFixed(2)}
                     </td>
                     <td className="p-4 font-medium text-slate-800">
-                      R$ {(mov.quantity * mov.average_price).toFixed(2)}
+                      R$ {Math.abs(mov.quantity * mov.average_price).toFixed(2)}
                     </td>
                     <td className="p-4 text-right space-x-3">
                       <button 
@@ -578,7 +657,7 @@ export default function Investments() {
               <X size={20} />
             </button>
 
-            <h3 className="text-xl font-bold text-slate-800 mb-1">Editar Aporte</h3>
+            <h3 className="text-xl font-bold text-slate-800 mb-1">Editar Movimentação</h3>
             <p className="text-sm text-slate-500 mb-6">Ativo: <span className="font-bold text-slate-700">{editModal.ticker_or_name}</span></p>
             
             <form onSubmit={handleSaveEdit} className="space-y-4">
@@ -592,7 +671,7 @@ export default function Investments() {
 
               <div className="flex flex-col space-y-1">
                 <label className="text-sm text-slate-500 font-medium">
-                  {editModal.asset_class === 'FIXED_INCOME' ? 'Valor Aplicado (R$)' : 'Preço Médio (R$)'}
+                  {editModal.asset_class === 'FIXED_INCOME' ? 'Valor Aplicado (R$)' : 'Preço de Compra/Venda (R$)'}
                 </label>
                 <input type="number" step="0.01" value={editModal.average_price} onChange={e => setEditModal({...editModal, average_price: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
               </div>
