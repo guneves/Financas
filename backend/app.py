@@ -6,6 +6,10 @@ import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import yfinance as yf
+# --- NOVAS IMPORTAÇÕES PARA A RENDA FIXA ---
+import json
+import urllib.request
+from datetime import datetime
 
 load_dotenv()
 
@@ -128,41 +132,82 @@ def get_portfolio(current_user_id):
         print(f"Erro no calculo: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
 @app.route('/api/investments/update-prices', methods=['POST'])
 @token_required
 def update_stock_prices(current_user_id):
     try:
-        response = supabase.table('investments').select('*').eq('user_id', current_user_id).eq('asset_class', 'STOCKS').execute()
+        response = supabase.table('investments').select('*').eq('user_id', current_user_id).execute()
         investments = response.data
 
         updated_count = 0
         
         for inv in investments:
-            ticker_symbol = inv['ticker_or_name'].strip().upper()
+            # ATUALIZAÇÃO DE AÇÕES (YFINANCE)
+            if inv['asset_class'] == 'STOCKS':
+                ticker_symbol = inv['ticker_or_name'].strip().upper()
+                yf_symbol = ticker_symbol
 
-            yf_symbol = ticker_symbol
-
-            if not yf_symbol.endswith('.SA') and any(char.isdigit() for char in yf_symbol):
-                yf_symbol = f"{yf_symbol}.SA"
+                if not yf_symbol.endswith('.SA') and any(char.isdigit() for char in yf_symbol):
+                    yf_symbol = f"{yf_symbol}.SA"
+                
+                try:
+                    ticker = yf.Ticker(yf_symbol)
+                    current_price = ticker.fast_info['last_price']
+                    
+                    supabase.table('investments').update({
+                        'current_price': round(current_price, 2)
+                    }).eq('id', inv['id']).execute()
+                    
+                    updated_count += 1
+                except Exception as e:
+                    print(f"Erro ao buscar cotação para {yf_symbol}: {e}")
+                    continue 
             
-            try:
-                ticker = yf.Ticker(yf_symbol)
-                current_price = ticker.fast_info['last_price']
-                
-                supabase.table('investments').update({
-                    'current_price': round(current_price, 2)
-                }).eq('id', inv['id']).execute()
-                
-                updated_count += 1
-            except Exception as e:
-                print(f"Erro ao buscar cotação para {yf_symbol}: {e}")
-                continue 
+            # ATUALIZAÇÃO DE RENDA FIXA (CDI - BANCO CENTRAL)
+            elif inv['asset_class'] == 'FIXED_INCOME':
+                meta = inv.get('metadata')
+                if meta and 'cdi_percentage' in meta:
+                    cdi_pct = float(meta['cdi_percentage'])
+                    
+                    # Usa a data de aplicação
+                    date_str = meta.get('purchase_date')
+                    if date_str:
+                        dt_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                    else:
+                        dt_obj = datetime.strptime(inv['created_at'][:10], '%Y-%m-%d')
+                    
+                    start_date_bcb = dt_obj.strftime('%d/%m/%Y')
+                    end_date_bcb = datetime.now().strftime('%d/%m/%Y')
+                    
+                    # API do Banco Central (Série 12: Taxa de juros - CDI)
+                    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial={start_date_bcb}&dataFinal={end_date_bcb}"
+                    
+                    try:
+                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req) as response_bcb:
+                            if response_bcb.status == 200:
+                                cdi_data = json.loads(response_bcb.read().decode())
+                                accumulated = 1.0
+                                
+                                # Acumula os juros compostos diários
+                                for day in cdi_data:
+                                    daily_rate = float(day['valor']) / 100
+                                    # Rentabilidade diária multiplicada pela % do CDI contratada
+                                    accumulated *= (1 + (daily_rate * cdi_pct))
+                                
+                                # O novo "preço" (valor total do título)
+                                new_price = float(inv['average_price']) * accumulated
+                                
+                                supabase.table('investments').update({
+                                    'current_price': round(new_price, 2)
+                                }).eq('id', inv['id']).execute()
+                                
+                                updated_count += 1
+                    except Exception as e:
+                        print(f"Erro ao buscar CDI para {inv['ticker_or_name']}: {e}")
 
         return jsonify({
-            "message": "Cotações atualizadas com sucesso", 
+            "message": "Cotações e CDI atualizados com sucesso", 
             "updated_count": updated_count
         }), 200
 
