@@ -90,7 +90,7 @@ export default function Transactions() {
   })
 
   const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
-  const [cardForm, setCardForm] = useState({ name: '', due_day: '' })
+  const [cardForm, setCardForm] = useState({ name: '', due_day: '', closing_day: '' })
   const [expenseForm, setExpenseForm] = useState({ card_id: '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
 
   useEffect(() => {
@@ -234,11 +234,26 @@ export default function Transactions() {
     fetchData()
   }
 
+  const handleDueDayChange = (e) => {
+    const due = parseInt(e.target.value)
+    let closing = ''
+    if (!isNaN(due)) {
+      closing = due - 7
+      if (closing <= 0) closing += 30 
+    }
+    setCardForm({ ...cardForm, due_day: e.target.value, closing_day: closing.toString() })
+  }
+
   const handleCreateCard = async (e) => {
     e.preventDefault()
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('credit_cards').insert([{ user_id: user.id, name: cardForm.name, due_day: parseInt(cardForm.due_day) }])
-    setCardForm({ name: '', due_day: '' })
+    await supabase.from('credit_cards').insert([{ 
+      user_id: user.id, 
+      name: cardForm.name, 
+      due_day: parseInt(cardForm.due_day),
+      closing_day: parseInt(cardForm.closing_day)
+    }])
+    setCardForm({ name: '', due_day: '', closing_day: '' })
     fetchData()
   }
 
@@ -249,9 +264,33 @@ export default function Transactions() {
     const installmentsCount = parseInt(expenseForm.installments)
     const amountPerInstallment = totalAmount / installmentsCount
 
-    const purchaseDate = parseLocalDate(expenseForm.purchase_date)
-    let currentMonth = purchaseDate.getMonth() + 2
-    let currentYear = purchaseDate.getFullYear()
+    const selectedCard = cards.find(c => c.id === expenseForm.card_id);
+    const dueDay = selectedCard.due_day;
+    const closingDay = selectedCard.closing_day || (dueDay - 7 > 0 ? dueDay - 7 : 30 + (dueDay - 7)); 
+
+    const purchaseDate = parseLocalDate(expenseForm.purchase_date);
+    const purchaseDay = purchaseDate.getDate();
+    
+    let invoiceMonth = purchaseDate.getMonth() + 1; // 1 a 12
+    let invoiceYear = purchaseDate.getFullYear();
+
+    if (closingDay < dueDay) {
+      if (purchaseDay >= closingDay) invoiceMonth += 1;
+    } else {
+      if (purchaseDay < closingDay) {
+        invoiceMonth += 1;
+      } else {
+        invoiceMonth += 2;
+      }
+    }
+
+    while (invoiceMonth > 12) {
+      invoiceMonth -= 12;
+      invoiceYear += 1;
+    }
+
+    let currentMonth = invoiceMonth;
+    let currentYear = invoiceYear;
 
     const inserts = []
     for (let i = 1; i <= installmentsCount; i++) {
@@ -464,7 +503,12 @@ export default function Transactions() {
 
               <form onSubmit={handleCreateCard} className="space-y-4 mb-6">
                 <input type="text" placeholder="Nome do Cartão (ex: Nubank)" value={cardForm.name} onChange={e => setCardForm({ ...cardForm, name: e.target.value })} className="w-full p-2 border rounded-lg" required />
-                <input type="number" min="1" max="31" placeholder="Dia do Vencimento" value={cardForm.due_day} onChange={e => setCardForm({ ...cardForm, due_day: e.target.value })} className="w-full p-2 border rounded-lg" required />
+                
+                <div className="flex gap-2">
+                  <input type="number" min="1" max="31" placeholder="Vencimento" title="Dia do Vencimento" value={cardForm.due_day} onChange={handleDueDayChange} className="w-1/2 p-2 border rounded-lg" required />
+                  <input type="number" min="1" max="31" placeholder="Fechamento" title="Dia do Fechamento" value={cardForm.closing_day} onChange={e => setCardForm({ ...cardForm, closing_day: e.target.value })} className="w-1/2 p-2 border rounded-lg" required />
+                </div>
+                
                 <button type="submit" className="w-full bg-slate-800 text-white rounded-lg py-2 hover:bg-slate-900 transition">Salvar Cartão</button>
               </form>
 
