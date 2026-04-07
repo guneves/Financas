@@ -114,11 +114,15 @@ export default function Investments() {
 
       let metadata = null;
       if (form.asset_class === 'FIXED_INCOME' && form.cdi_percentage && form.purchase_date) {
-          metadata = { 
-            cdi_percentage: (parseFloat(form.cdi_percentage) / 100),
-            purchase_date: form.purchase_date,
-            is_tax_free: form.is_tax_free
-          };
+        metadata = { 
+          cdi_percentage: (parseFloat(form.cdi_percentage) / 100),
+          purchase_date: form.purchase_date,
+          is_tax_free: form.is_tax_free
+        };
+      } else if (form.purchase_date) {
+        metadata = {
+          purchase_date: form.purchase_date
+        };
       }
 
       const { data: insertedData, error: insertError } = await supabase.from('investments').insert([
@@ -138,7 +142,7 @@ export default function Investments() {
       if (activeTab === 'VARIAVEL') {
         setForm({ asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: '', cdi_percentage: '', purchase_date: '', is_tax_free: false });
       } else {
-        setForm({ asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '', average_price: '', cdi_percentage: '', purchase_date: '', is_tax_free: false });
+        setForm({ asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '1', average_price: '', cdi_percentage: '', purchase_date: '', is_tax_free: false });
       }
       
       fetchPortfolio(); 
@@ -176,11 +180,15 @@ export default function Investments() {
     try {
       let metadata = null;
       if (editModal.asset_class === 'FIXED_INCOME') {
-          metadata = { 
-            cdi_percentage: (parseFloat(editModal.cdi_percentage) / 100),
-            purchase_date: editModal.purchase_date,
-            is_tax_free: editModal.is_tax_free
-          };
+        metadata = { 
+          cdi_percentage: (parseFloat(editModal.cdi_percentage) / 100),
+          purchase_date: editModal.purchase_date,
+          is_tax_free: editModal.is_tax_free
+        };
+      } else if (editModal.purchase_date) {
+        metadata = {
+          purchase_date: editModal.purchase_date
+        };
       }
 
       const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : parseFloat(editModal.quantity);
@@ -208,7 +216,6 @@ export default function Investments() {
     }
   }
 
-  // ---- FUNÇÃO DE VENDA PARCIAL DE AÇÕES/FIIs ----
   const handleSellVariable = async (asset) => {
     const qtyStr = window.prompt(`VENDA DE ATIVO\nAtivo: ${asset.name}\nQuantidade Disponível: ${asset.quantity}\n\nQuantas cotas/ações você deseja vender?`);
     if (!qtyStr) return;
@@ -229,8 +236,6 @@ export default function Investments() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Registra uma nova movimentação com quantidade NEGATIVA.
-      // Isso abate a quantidade e mantém o preço médio perfeitamente.
       const { error } = await supabase.from('investments').insert([
         { 
           user_id: user.id, 
@@ -271,14 +276,9 @@ export default function Investments() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // 1. Calcula a proporção do resgate em relação ao valor bruto atual
       const ratio = amount / asset.current_value;
-      
-      // 2. O valor de custo (average_price) proporcional ao que está sendo sacado
       const costBasisSold = asset.average_price * ratio;
 
-      // 3. Registra a MOVIMENTAÇÃO de resgate (valor negativo)
-      // Usamos quantidade -1 para sinalizar resgate de Renda Fixa
       const { error: moveError } = await supabase.from('investments').insert([
         { 
           user_id: user.id, 
@@ -286,18 +286,16 @@ export default function Investments() {
           ticker_or_name: asset.name,
           quantity: -1, 
           average_price: costBasisSold, 
-          current_price: amount, // O "preço" de venda é o valor bruto resgatado
+          current_price: amount,
           metadata: { 
-            is_redemption: True,
-            related_id: asset.id // Vincula ao aporte original
+            is_redemption: true,
+            related_id: asset.id
           }
         }
       ]);
 
       if (moveError) throw moveError;
 
-      // 4. Atualiza o aporte original subtraindo o que foi sacado
-      // Isso mantém o rendimento do que sobrou correto
       const { error: updateError } = await supabase.from('investments')
         .update({ 
           average_price: asset.average_price - costBasisSold, 
@@ -354,7 +352,6 @@ export default function Investments() {
     return labels[assetClass] || assetClass
   }
 
-  // Lógica para filtrar a Tabela baseada na aba ativa
   const filteredAssets = assets.filter(asset => {
     if (activeTab === 'VARIAVEL') return asset.class !== 'FIXED_INCOME';
     if (activeTab === 'FIXA') return asset.class === 'FIXED_INCOME';
@@ -363,8 +360,6 @@ export default function Investments() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 relative">
-      
-      {/* CABEÇALHO */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Meus Investimentos</h1>
@@ -387,12 +382,11 @@ export default function Investments() {
         </button>
       </div>
 
-      {/* SELETOR DE ABAS */}
       <div className="flex flex-wrap bg-slate-200 p-1 rounded-lg w-fit gap-1">
         <button 
           onClick={() => {
             setActiveTab('VARIAVEL');
-            setForm({...form, asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: ''});
+            setForm({...form, asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: '', purchase_date: ''});
           }} 
           className={`px-4 py-2 rounded-md font-medium transition flex items-center gap-2 ${activeTab === 'VARIAVEL' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-slate-300'}`}
         >
@@ -401,7 +395,7 @@ export default function Investments() {
         <button 
           onClick={() => {
             setActiveTab('FIXA');
-            setForm({...form, asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '1', average_price: ''});
+            setForm({...form, asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '1', average_price: '', cdi_percentage: '', purchase_date: '', is_tax_free: false});
           }} 
           className={`px-4 py-2 rounded-md font-medium transition flex items-center gap-2 ${activeTab === 'FIXA' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-slate-300'}`}
         >
@@ -417,7 +411,6 @@ export default function Investments() {
       
       {activeTab !== 'MOVIMENTACOES' && (
         <>
-          {/* RENDA VARIÁVEL */}
           {activeTab === 'VARIAVEL' && (
             <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-5 gap-4 items-end animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="flex flex-col space-y-1">
@@ -444,16 +437,19 @@ export default function Investments() {
                 <input type="number" step="0.01" placeholder="Ex: 35.50" value={form.average_price} onChange={e => setForm({...form, average_price: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
               </div>
 
+              <div className="flex flex-col space-y-1">
+                <label className="text-sm text-slate-500 font-medium">Data da Compra</label>
+                <input type="date" value={form.purchase_date} onChange={e => setForm({...form, purchase_date: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+              </div>
+
               <button type="submit" disabled={loading} className="md:col-span-5 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
                 {loading ? 'A adicionar...' : 'Adicionar Ativo'}
               </button>
             </form>
           )}
 
-          {/* RENDA FIXA */}
           {activeTab === 'FIXA' && (
             <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-6 gap-4 items-end animate-in fade-in slide-in-from-bottom-4 duration-500">
-              
               <div className="flex flex-col space-y-1 md:col-span-2">
                 <label className="text-sm text-slate-500 font-medium">Nome do Ativo</label>
                 <input type="text" placeholder="Ex: LCI Banco Inter" value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
@@ -487,7 +483,6 @@ export default function Investments() {
             </form>
           )}
 
-          {/* TABELA DE POSIÇÕES (CARTEIRA) */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
             <table className="w-full text-left border-collapse min-w-max">
               <thead>
@@ -578,7 +573,6 @@ export default function Investments() {
         </>
       )}
 
-      {/* ABA DE MOVIMENTAÇÕES (Histórico Cru) */}
       {activeTab === 'MOVIMENTACOES' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
@@ -648,11 +642,9 @@ export default function Investments() {
         </div>
       )}
 
-      {/* MODAL DE EDIÇÃO */}
       {editModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl relative">
-            
             <button onClick={() => setEditModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition">
               <X size={20} />
             </button>
@@ -661,7 +653,6 @@ export default function Investments() {
             <p className="text-sm text-slate-500 mb-6">Ativo: <span className="font-bold text-slate-700">{editModal.ticker_or_name}</span></p>
             
             <form onSubmit={handleSaveEdit} className="space-y-4">
-              
               {editModal.asset_class !== 'FIXED_INCOME' && (
                 <div className="flex flex-col space-y-1">
                   <label className="text-sm text-slate-500 font-medium">Quantidade</label>
@@ -676,16 +667,16 @@ export default function Investments() {
                 <input type="number" step="0.01" value={editModal.average_price} onChange={e => setEditModal({...editModal, average_price: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
               </div>
 
+              <div className="flex flex-col space-y-1">
+                <label className="text-sm text-slate-500 font-medium">Data da Compra</label>
+                <input type="date" value={editModal.purchase_date} onChange={e => setEditModal({...editModal, purchase_date: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
+              </div>
+
               {editModal.asset_class === 'FIXED_INCOME' && (
                 <>
                   <div className="flex flex-col space-y-1">
                     <label className="text-sm text-slate-500 font-medium">% do CDI</label>
                     <input type="number" step="0.1" value={editModal.cdi_percentage} onChange={e => setEditModal({...editModal, cdi_percentage: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
-                  </div>
-                  
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-sm text-slate-500 font-medium">Data Aplicação</label>
-                    <input type="date" value={editModal.purchase_date} onChange={e => setEditModal({...editModal, purchase_date: e.target.value})} className="p-2 border border-slate-300 rounded-lg" required />
                   </div>
 
                   <div className="flex items-center space-x-2 pt-2 cursor-pointer">
@@ -704,11 +695,9 @@ export default function Investments() {
                 </button>
               </div>
             </form>
-
           </div>
         </div>
       )}
-
     </div>
   )
 }

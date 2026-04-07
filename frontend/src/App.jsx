@@ -5,6 +5,7 @@ import Auth from './pages/Auth'
 import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
 import Layout from './components/Layout'
+import Carteira from './pages/Carteira'
 import Investments from './pages/Investments'
 
 export default function App() {
@@ -30,16 +31,16 @@ export default function App() {
     <Router>
       <Routes>
         <Route path="/" element={!session ? <Auth /> : <Navigate to="/dashboard" />} />
-        
-        {/* Rotas Protegidas com o Layout */}
+
         {session && (
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/transactions" element={<Transactions />} />
+            <Route path="/carteira" element={<Carteira />} />
             <Route path="/investments" element={<Investments />} />
           </Route>
         )}
-        
+
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>
