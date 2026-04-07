@@ -315,7 +315,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-
           {installmentExpenses.length > 0 ? (
             <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
               {installmentExpenses.map((expense) => (
