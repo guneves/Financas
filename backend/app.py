@@ -54,6 +54,7 @@ def get_portfolio(current_user_id):
         # 1. Agrupar ativos com o mesmo nome/ticker
         grouped_assets = {}
         for asset in investments:
+            asset_class = asset['asset_class']
             ticker = asset['ticker_or_name']
             qty = float(asset['quantity'])
             avg_price_buy = float(asset['average_price'])
@@ -61,9 +62,13 @@ def get_portfolio(current_user_id):
             curr_price = float(asset['current_price']) if asset['current_price'] else avg_price_buy
             invested_value = qty * avg_price_buy
 
-            if ticker not in grouped_assets:
-                grouped_assets[ticker] = {
-                    "class": asset['asset_class'],
+            group_key = str(asset['id']) if asset_class == 'FIXED_INCOME' else ticker
+
+            if group_key not in grouped_assets:
+                grouped_assets[group_key] = {
+                    "id": group_key,
+                    "original_ticker": ticker,
+                    "class": asset_class,
                     "total_quantity": qty,
                     "total_invested": invested_value,
                     "current_price": curr_price,
@@ -72,7 +77,6 @@ def get_portfolio(current_user_id):
             else:
                 grouped_assets[ticker]['total_quantity'] += qty
                 grouped_assets[ticker]['total_invested'] += invested_value
-                # Assume a cotação atualizada mais recente que encontrar nos registros
                 if asset['current_price']:
                     grouped_assets[ticker]['current_price'] = curr_price
 
@@ -106,8 +110,9 @@ def get_portfolio(current_user_id):
             distribution[asset_class] = distribution.get(asset_class, 0) + current_value
 
             processed_assets.append({
-                "ticker": ticker,
-                "name": ticker,
+                "id": data["id"], 
+                "ticker": data["original_ticker"],
+                "name": data["original_ticker"],
                 "class": data['class'],
                 "quantity": round(data['total_quantity'], 4),
                 "average_price": round(avg_price_calculated, 2),
