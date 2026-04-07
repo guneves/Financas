@@ -82,6 +82,13 @@ export default function Dashboard() {
     const currentMonth = today.getMonth() + 1
     const currentYear = today.getFullYear()
 
+    let nextMonth = currentMonth + 1
+    let nextYear = currentYear
+    if (nextMonth > 12) {
+      nextMonth = 1
+      nextYear++
+    }
+
     const [{ data: transData }, { data: ccData }] = await Promise.all([
       supabase.from('transactions').select('*'),
       supabase.from('cc_expenses').select('*, credit_cards(name)').eq('status', 'OPEN')
@@ -140,7 +147,7 @@ export default function Dashboard() {
         categoryTotals[purchase.category].credit += purchase.totalPurchaseAmount
       })
 
-      const currentMonthItems = ccData.filter((expense) => expense.invoice_month === currentMonth && expense.invoice_year === currentYear)
+      const currentMonthItems = ccData.filter((expense) => expense.invoice_month === nextMonth && expense.invoice_year === nextYear)
       const currentMonthTotal = currentMonthItems.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
 
       const openInstallments = ccData
@@ -454,9 +461,29 @@ export default function Dashboard() {
             {currentMonthInvoice > 0 ? (
               <div className="space-y-4">
                 <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
-                  <p className="text-sm text-red-700">A fatura do mês considera todas as despesas abertas cujo vencimento está no mês atual.</p>
+                  {/* Se já aplicaste a alteração anterior, mantém o teu texto atualizado aqui */}
+                  <p className="text-sm text-red-700">A fatura do mês considera todas as despesas abertas cujo vencimento está programado para o mês seguinte.</p>
                   <p className="text-xs text-red-600 mt-2">{currentMonthInvoiceItems.length} lançamento(s) compõem essa fatura.</p>
                 </div>
+
+                {/* --- NOVO: Lista de Resumo dos Gastos da Fatura --- */}
+                <div className="max-h-48 overflow-y-auto pr-2 space-y-2">
+                  {currentMonthInvoiceItems.map((item) => (
+                    <div key={item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      <div className="overflow-hidden">
+                        <p className="text-sm font-medium text-slate-800 truncate">{item.description}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {item.credit_cards?.name || 'Cartão'} 
+                          {item.installment_info && item.installment_info !== '1/1' ? ` • ${item.installment_info}` : ''}
+                        </p>
+                      </div>
+                      <span className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">
+                        {formatCurrency(item.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {/* -------------------------------------------------- */}
 
                 <button
                   onClick={handlePayCurrentMonthInvoice}
