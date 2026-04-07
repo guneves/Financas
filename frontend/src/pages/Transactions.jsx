@@ -4,6 +4,29 @@ import { Wallet, Trash2, CreditCard, Calendar, CheckCircle } from 'lucide-react'
 
 const CATEGORY_OPTIONS = ['Receita', 'Investimento', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 
+function getNow() {
+  return new Date()
+}
+
+function getLocalDateString(date = getNow()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatDateBR(dateString) {
+  if (!dateString) return ''
+  const [year, month, day] = dateString.split('-')
+  return `${day}/${month}/${year}`
+}
+
+function parseLocalDate(dateString) {
+  if (!dateString) return null
+  const [year, month, day] = dateString.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
 export default function Transactions() {
   const [activeTab, setActiveTab] = useState('CONTA')
 
@@ -68,7 +91,7 @@ export default function Transactions() {
       setCcExpenses(ccData)
       localStorage.setItem('@financeMVP:ccExpenses', JSON.stringify(ccData))
 
-      const today = new Date()
+      const today = getNow()
       const currentMonth = today.getMonth() + 1
       const currentYear = today.getFullYear()
 
@@ -130,7 +153,7 @@ export default function Transactions() {
     const installmentsCount = parseInt(expenseForm.installments)
     const amountPerInstallment = totalAmount / installmentsCount
 
-    const purchaseDate = new Date(expenseForm.purchase_date + 'T00:00:00')
+    const purchaseDate = parseLocalDate(expenseForm.purchase_date)
     let currentMonth = purchaseDate.getMonth() + 2
     let currentYear = purchaseDate.getFullYear()
 
@@ -168,7 +191,7 @@ export default function Transactions() {
       user_id: user.id,
       type: 'EXPENSE',
       amount: expense.amount,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       category: `Pagamento Fatura ${expense.credit_cards.name}`,
       description: expense.description
     }])
@@ -203,7 +226,7 @@ export default function Transactions() {
   }
 
   const getInvoiceStatus = (year, month, dueDay) => {
-    const today = new Date()
+    const today = getNow()
     const dueDate = new Date(year, month - 1, dueDay)
     if (today > dueDate) return <span className="text-red-600 font-bold text-xs bg-red-100 px-2 py-1 rounded-md">Em Atraso</span>
     return <span className="text-yellow-600 font-bold text-xs bg-yellow-100 px-2 py-1 rounded-md">Aberta</span>
@@ -277,7 +300,7 @@ export default function Transactions() {
               <tbody>
                 {transactions.map(t => (
                   <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="p-4 text-slate-600">{new Date(t.date).toLocaleDateString('pt-BR')}</td>
+                    <td className="p-4 text-slate-600">{formatDateBR(t.date)}</td>
                     <td className="p-4 font-medium">{t.category}</td>
                     <td className="p-4">{t.type === 'INCOME' ? <span className="text-green-600">Entrada</span> : <span className="text-red-600">Saída</span>}</td>
                     <td className={`p-4 font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-slate-800'}`}>{t.type === 'INCOME' ? '+' : '-'} R$ {parseFloat(t.amount).toFixed(2)}</td>

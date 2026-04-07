@@ -32,14 +32,9 @@ const parseInstallmentInfo = (value) => {
   }
 }
 
-const formatInvoiceLabel = (month, year) => {
-  return `${String(month).padStart(2, '0')}/${year}`
-}
-
 export default function Dashboard() {
   const [portfolio, setPortfolio] = useState(null)
   const [bankBalance, setBankBalance] = useState(0)
-  const [nextMonthInvoice, setNextMonthInvoice] = useState(0)
   const [currentMonthInvoice, setCurrentMonthInvoice] = useState(0)
   const [expensesByCategory, setExpensesByCategory] = useState([])
   const [installmentExpenses, setInstallmentExpenses] = useState([])
@@ -65,13 +60,6 @@ export default function Dashboard() {
     const today = new Date()
     const currentMonth = today.getMonth() + 1
     const currentYear = today.getFullYear()
-    let nextMonth = currentMonth + 1
-    let nextYear = currentYear
-
-    if (nextMonth > 12) {
-      nextMonth = 1
-      nextYear++
-    }
 
     const [{ data: transData }, { data: ccData }] = await Promise.all([
       supabase.from('transactions').select('*'),
@@ -118,10 +106,6 @@ export default function Dashboard() {
         categoryTotals[category].credit += parseFloat(expense.amount)
       })
 
-      const nextMonthTotal = ccData
-        .filter((expense) => expense.invoice_month === nextMonth && expense.invoice_year === nextYear)
-        .reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
-
       const currentMonthTotal = ccData
         .filter((expense) => expense.invoice_month === currentMonth && expense.invoice_year === currentYear)
         .reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
@@ -136,14 +120,8 @@ export default function Dashboard() {
           }
         })
         .filter((expense) => expense.installmentTotal > 1)
-        .sort((a, b) => {
-          if (a.invoice_year !== b.invoice_year) return a.invoice_year - b.invoice_year
-          if (a.invoice_month !== b.invoice_month) return a.invoice_month - b.invoice_month
-          return a.installmentCurrent - b.installmentCurrent
-        })
 
       setCurrentMonthInvoice(currentMonthTotal)
-      setNextMonthInvoice(nextMonthTotal)
       setInstallmentExpenses(openInstallments)
     }
 
@@ -173,12 +151,56 @@ export default function Dashboard() {
     }, { cash: 0, credit: 0, total: 0 })
   }, [expensesByCategory])
 
+  const groupedInstallmentExpenses = useMemo(() => {
+    const grouped = installmentExpenses.reduce((acc, item) => {
+      const key = [
+        item.card_id || 'sem-cartao',
+        item.description || 'sem-descricao',
+        item.purchase_date || 'sem-data',
+        item.category || 'sem-categoria'
+      ].join('|')
+
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          description: item.description,
+          cardName: item.credit_cards?.name || 'Cartão',
+          purchaseDate: item.purchase_date,
+          category: item.category || 'Outros',
+          installmentAmount: parseFloat(item.amount),
+          remainingInstallments: 0,
+          totalInstallments: item.installmentTotal,
+          nextInvoiceMonth: item.invoice_month,
+          nextInvoiceYear: item.invoice_year
+        }
+      }
+
+      acc[key].remainingInstallments += 1
+
+      if (
+        item.invoice_year < acc[key].nextInvoiceYear ||
+        (item.invoice_year === acc[key].nextInvoiceYear && item.invoice_month < acc[key].nextInvoiceMonth)
+      ) {
+        acc[key].nextInvoiceMonth = item.invoice_month
+        acc[key].nextInvoiceYear = item.invoice_year
+      }
+
+      return acc
+    }, {})
+
+    return Object.values(grouped).sort((a, b) => {
+      if (a.nextInvoiceYear !== b.nextInvoiceYear) return a.nextInvoiceYear - b.nextInvoiceYear
+      if (a.nextInvoiceMonth !== b.nextInvoiceMonth) return a.nextInvoiceMonth - b.nextInvoiceMonth
+      return a.description.localeCompare(b.description)
+    })
+  }, [installmentExpenses])
+
   const installmentSummary = useMemo(() => {
-    return installmentExpenses.reduce((acc, item) => {
-      acc.total += parseFloat(item.amount)
+    return groupedInstallmentExpenses.reduce((acc, item) => {
+      acc.total += item.installmentAmount * item.remainingInstallments
       return acc
     }, { total: 0 })
-  }, [installmentExpenses])
+  }, [groupedInstallmentExpenses])
 
   if (!portfolio) return <div className="text-slate-500 animate-pulse p-8">Calculando painel financeiro...</div>
 
@@ -213,8 +235,6 @@ export default function Dashboard() {
             <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(portfolio.current_balance)}</p>
           </div>
         </div>
-
-        
 
         <div className="lg:col-span-3 flex flex-col gap-4">
           <div className="bg-emerald-50 p-9 rounded-2xl shadow-sm border border-emerald-100 flex items-center gap-3 min-h-[84px]">
@@ -307,7 +327,7 @@ export default function Dashboard() {
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
               <h2 className="text-lg font-bold text-slate-800">Gastos Parcelados no Cartão</h2>
-              <p className="text-sm text-slate-500 mt-1">Parcelas abertas das compras feitas no crédito.</p>
+              <p className="text-sm text-slate-500 mt-1">Compras unificadas com a quantidade de parcelas restantes.</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500">Parcelado em aberto</p>
@@ -315,26 +335,23 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {installmentExpenses.length > 0 ? (
+          {groupedInstallmentExpenses.length > 0 ? (
             <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-              {installmentExpenses.map((expense) => (
-                <div key={expense.id} className="rounded-xl border border-slate-200 p-4">
+              {groupedInstallmentExpenses.map((expense) => (
+                <div key={expense.key} className="rounded-xl border border-slate-200 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="font-semibold text-slate-800">{expense.description}</p>
                       <div className="flex flex-wrap gap-2 mt-2">
                         <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                          {expense.credit_cards?.name || 'Cartão'}
+                          {expense.cardName}
                         </span>
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          Parcela {expense.installmentCurrent}/{expense.installmentTotal}
-                        </span>
-                        <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                          Fatura {formatInvoiceLabel(expense.invoice_month, expense.invoice_year)}
+                          {expense.remainingInstallments} parcela(s) restante(s)
                         </span>
                       </div>
                     </div>
-                    <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(expense.amount)}</p>
+                    <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(expense.installmentAmount)}</p>
                   </div>
                 </div>
               ))}
