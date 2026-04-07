@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { Wallet, Trash2, CreditCard, Calendar, CheckCircle } from 'lucide-react'
 
@@ -25,6 +25,39 @@ function parseLocalDate(dateString) {
   if (!dateString) return null
   const [year, month, day] = dateString.split('-').map(Number)
   return new Date(year, month - 1, day)
+}
+
+function parseInstallmentInfo(value) {
+  if (!value || typeof value !== 'string' || !value.includes('/')) {
+    return { current: 1, total: 1 }
+  }
+
+  const [current, total] = value.split('/').map(Number)
+
+  return {
+    current: Number.isFinite(current) ? current : 1,
+    total: Number.isFinite(total) ? total : 1
+  }
+}
+
+function getPurchaseGroupKey(expense) {
+  const installment = parseInstallmentInfo(expense.installment_info)
+  return [
+    expense.card_id || 'sem-cartao',
+    expense.description || 'sem-descricao',
+    expense.purchase_date || 'sem-data',
+    expense.category || 'sem-categoria',
+    Number(parseFloat(expense.amount || 0).toFixed(2)),
+    installment.total
+  ].join('|')
+}
+
+function formatInvoiceLabel(month, year) {
+  return `${String(month).padStart(2, '0')}/${year}`
+}
+
+function formatCurrency(value) {
+  return `R$ ${Number(value || 0).toFixed(2)}`
 }
 
 export default function Transactions() {
@@ -85,7 +118,12 @@ export default function Transactions() {
       localStorage.setItem('@financeMVP:cards', JSON.stringify(cData))
     }
 
-    const { data: ccData } = await supabase.from('cc_expenses').select(`*, credit_cards(name, due_day)`).eq('status', 'OPEN').order('invoice_year', { ascending: true }).order('invoice_month', { ascending: true })
+    const { data: ccData } = await supabase
+      .from('cc_expenses')
+      .select(`*, credit_cards(name, due_day)`)
+      .eq('status', 'OPEN')
+      .order('invoice_year', { ascending: true })
+      .order('invoice_month', { ascending: true })
 
     if (ccData) {
       setCcExpenses(ccData)
@@ -122,6 +160,64 @@ export default function Transactions() {
       localStorage.setItem('@financeMVP:projectedBalanceNextMonth', projNextMonth.toString())
     }
   }
+
+  const openInvoicesByCard = useMemo(() => {
+    const groupedByCard = ccExpenses.reduce((acc, expense) => {
+      const cardKey = expense.card_id || 'sem-cartao'
+      const invoiceKey = `${expense.invoice_year}-${String(expense.invoice_month).padStart(2, '0')}`
+
+      if (!acc[cardKey]) {
+        acc[cardKey] = {
+          cardId: expense.card_id,
+          cardName: expense.credit_cards?.name || 'Cartão',
+          dueDay: expense.credit_cards?.due_day,
+          invoices: {}
+        }
+      }
+
+      if (!acc[cardKey].invoices[invoiceKey]) {
+        acc[cardKey].invoices[invoiceKey] = {
+          invoiceKey,
+          invoiceMonth: expense.invoice_month,
+          invoiceYear: expense.invoice_year,
+          total: 0,
+          purchases: {}
+        }
+      }
+
+      acc[cardKey].invoices[invoiceKey].total += parseFloat(expense.amount)
+
+      const purchaseKey = getPurchaseGroupKey(expense)
+      const installment = parseInstallmentInfo(expense.installment_info)
+
+      if (!acc[cardKey].invoices[invoiceKey].purchases[purchaseKey]) {
+        acc[cardKey].invoices[invoiceKey].purchases[purchaseKey] = {
+          purchaseKey,
+          card_id: expense.card_id,
+          description: expense.description,
+          category: expense.category || 'Outros',
+          purchase_date: expense.purchase_date,
+          amount: parseFloat(expense.amount),
+          installmentCurrent: installment.current,
+          installmentTotal: installment.total
+        }
+      }
+    return acc
+    }, {})
+
+    return Object.values(groupedByCard)
+      .map((cardGroup) => ({
+        ...cardGroup,
+        invoices: Object.values(cardGroup.invoices).sort((a, b) => {
+          if (a.invoiceYear !== b.invoiceYear) return a.invoiceYear - b.invoiceYear
+          return a.invoiceMonth - b.invoiceMonth
+        }).map((invoice) => ({
+          ...invoice,
+          purchases: Object.values(invoice.purchases).sort((a, b) => a.description.localeCompare(b.description))
+        }))
+      }))
+      .sort((a, b) => a.cardName.localeCompare(b.cardName))
+  }, [ccExpenses])
 
   const handleBankSubmit = async (e) => {
     e.preventDefault()
@@ -183,20 +279,27 @@ export default function Transactions() {
     fetchData()
   }
 
-  const handlePayInvoice = async (expense) => {
-    if (!window.confirm(`Deseja pagar e descontar R$ ${expense.amount} do saldo da conta corrente?`)) return
+  const handlePayInvoice = async (invoice, cardGroup) => {
+    if (!window.confirm(`Deseja pagar a fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} do cartão ${cardGroup.cardName} no valor de ${formatCurrency(invoice.total)}?`)) return
     const { data: { user } } = await supabase.auth.getUser()
 
     await supabase.from('transactions').insert([{
       user_id: user.id,
       type: 'EXPENSE',
-      amount: expense.amount,
+      amount: Number(invoice.total.toFixed(2)),
       date: getLocalDateString(),
-      category: `Pagamento Fatura ${expense.credit_cards.name}`,
-      description: expense.description
+      category: `Pagamento Fatura ${cardGroup.cardName}`,
+      description: `Fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}`
     }])
 
-    await supabase.from('cc_expenses').update({ status: 'PAID' }).eq('id', expense.id)
+    await supabase
+      .from('cc_expenses')
+      .update({ status: 'PAID' })
+      .eq('card_id', cardGroup.cardId)
+      .eq('invoice_month', invoice.invoiceMonth)
+      .eq('invoice_year', invoice.invoiceYear)
+      .eq('status', 'OPEN')
+
     fetchData()
   }
 
@@ -206,10 +309,46 @@ export default function Transactions() {
     if (!error) fetchData()
   }
 
-  const handleDeleteCCExpense = async (id) => {
-    if (!window.confirm('Deseja eliminar este lançamento do cartão de crédito?')) return
-    const { error } = await supabase.from('cc_expenses').delete().eq('id', id)
-    if (!error) fetchData()
+  const handleDeleteCCPurchase = async (purchase) => {
+    if (!window.confirm(`Deseja excluir a compra "${purchase.description}" e eliminar todas as faturas vinculadas a ela?`)) return
+
+    const { data: candidates, error: selectError } = await supabase
+      .from('cc_expenses')
+      .select('id, amount, installment_info')
+      .eq('card_id', purchase.card_id)
+      .eq('description', purchase.description)
+      .eq('purchase_date', purchase.purchase_date)
+      .eq('category', purchase.category)
+
+    if (selectError) {
+      alert('Erro ao localizar a compra: ' + selectError.message)
+      return
+    }
+
+    const idsToDelete = (candidates || [])
+      .filter((item) => {
+        const installment = parseInstallmentInfo(item.installment_info)
+        return Number(parseFloat(item.amount).toFixed(2)) === Number(parseFloat(purchase.amount).toFixed(2))
+          && installment.total === purchase.installmentTotal
+      })
+      .map((item) => item.id)
+
+    if (idsToDelete.length === 0) {
+      alert('Nenhuma fatura vinculada foi encontrada para essa compra.')
+      return
+    }
+
+    const { error: deleteError } = await supabase
+      .from('cc_expenses')
+      .delete()
+      .in('id', idsToDelete)
+
+    if (deleteError) {
+      alert('Erro ao excluir a compra parcelada: ' + deleteError.message)
+      return
+    }
+
+    fetchData()
   }
 
   const handleDeleteCard = async (id, name) => {
@@ -378,40 +517,88 @@ export default function Transactions() {
           </div>
 
           <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">Faturas em Aberto</h3>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b text-slate-600 text-sm">
-                  <th className="p-4">Cartão / Vencimento</th><th className="p-4">Descrição</th><th className="p-4">Parcela</th><th className="p-4">Valor</th><th className="p-4">Status</th><th className="p-4 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ccExpenses.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-slate-500">Você não tem nenhuma fatura em aberto. Que paz!</td></tr>}
-                {ccExpenses.map(exp => (
-                  <tr key={exp.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="p-4">
-                      <p className="font-bold text-slate-800">{exp.credit_cards.name}</p>
-                      <p className="text-xs text-slate-500"><Calendar className="inline w-3 h-3 mr-1" />{exp.credit_cards.due_day}/{exp.invoice_month}/{exp.invoice_year}</p>
-                    </td>
-                    <td className="p-4 font-medium text-slate-700">
-                      <p>{exp.description}</p>
-                      <span className="inline-flex mt-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">{exp.category || 'Outros'}</span>
-                    </td>
-                    <td className="p-4 text-slate-600">{exp.installment_info}</td>
-                    <td className="p-4 font-bold text-red-500">R$ {parseFloat(exp.amount).toFixed(2)}</td>
-                    <td className="p-4">{getInvoiceStatus(exp.invoice_year, exp.invoice_month, exp.credit_cards.due_day)}</td>
-                    <td className="p-4 text-right flex justify-end items-center gap-3">
-                      <button onClick={() => handlePayInvoice(exp)} className="text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1">
-                        <CheckCircle size={16} /> Pagar e Baixar
-                      </button>
-                      <button onClick={() => handleDeleteCCExpense(exp.id)} className="text-slate-400 hover:text-red-500 transition" title="Eliminar lançamento">
-                        <Trash2 size={20} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-6">
+            {openInvoicesByCard.length === 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center text-slate-500">
+                Você não tem nenhuma fatura em aberto. Que paz!
+              </div>
+            )}
+
+            {openInvoicesByCard.map((cardGroup) => (
+              <div key={cardGroup.cardId} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-slate-800">{cardGroup.cardName}</h4>
+                    <p className="text-sm text-slate-500">Vence dia {cardGroup.dueDay}</p>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                    {cardGroup.invoices.length} fatura(s) aberta(s)
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {cardGroup.invoices.map((invoice) => (
+                    <div key={invoice.invoiceKey} className="p-6 space-y-4">
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div>
+                          <p className="text-lg font-bold text-slate-800">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
+                          <div className="mt-2">
+                            {getInvoiceStatus(invoice.invoiceYear, invoice.invoiceMonth, cardGroup.dueDay)}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-sm text-slate-500">Total da fatura</p>
+                            <p className="text-xl font-bold text-red-500">{formatCurrency(invoice.total)}</p>
+                          </div>
+                          <button
+                            onClick={() => handlePayInvoice(invoice, cardGroup)}
+                            className="text-white bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+                          >
+                            <CheckCircle size={16} /> Pagar fatura
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {invoice.purchases.map((purchase) => (
+                          <div key={purchase.purchaseKey} className="rounded-xl border border-slate-200 p-4">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                              <div>
+                                <p className="font-semibold text-slate-800">{purchase.description}</p>
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                                    {purchase.category}
+                                  </span>
+                                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                                    Compra em {formatDateBR(purchase.purchase_date)}
+                                  </span>
+                                  <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
+                                    Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-4">
+                                <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(purchase.amount)}</p>
+                                <button
+                                  onClick={() => handleDeleteCCPurchase(purchase)}
+                                  className="text-slate-400 hover:text-red-500 transition"
+                                  title="Excluir compra parcelada inteira"
+                                >
+                                  <Trash2 size={20} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
