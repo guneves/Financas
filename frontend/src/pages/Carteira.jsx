@@ -1,26 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import {
-  TrendingUp,
-  Wallet,
-  Landmark,
-  BarChart3,
-  PieChart as PieChartIcon,
-  ChevronDown,
-  CircleDollarSign,
-  ChevronUp,
+import {TrendingUp, Wallet, Landmark, BarChart3, PieChart as PieChartIcon, ChevronDown, CircleDollarSign, ChevronUp,
 } from 'lucide-react'
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell,
 } from 'recharts'
 
 const TYPE_OPTIONS = ['TODOS', 'STOCKS', 'FIXED_INCOME', 'REIT', 'OTHER']
@@ -36,17 +18,24 @@ const monthLabel = (date) =>
   new Intl.DateTimeFormat('pt-BR', { month: '2-digit', year: '2-digit' }).format(date)
 
 const movementDate = (movement) => {
-  const purchaseDate = movement?.metadata?.purchase_date
-  if (purchaseDate) return new Date(`${purchaseDate}T00:00:00`)
-  return new Date(movement.created_at)
+  let meta = movement.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+  }
+
+  const purchaseDate = meta?.purchase_date;
+  if (purchaseDate) {
+    return new Date(`${purchaseDate}T00:00:00`);
+  }
+  return new Date(movement.created_at);
 }
 
 const classLabel = (assetClass) => {
   const labels = {
     STOCKS: 'Ações',
     FIXED_INCOME: 'Renda Fixa',
-    REIT: 'Tesouro Direto',
-    OTHER: 'ETFs',
+    REIT: 'Fundos Imobiliários',
+    OTHER: 'Outros',
     TODOS: 'Todos os tipos',
   }
   return labels[assetClass] || assetClass
@@ -173,13 +162,27 @@ export default function Carteira() {
       months.push(new Date(start.getFullYear(), start.getMonth() + i, 1))
     }
 
+    let investedAccumulated = 0
+    movements.forEach(mov => {
+      const movDate = movementDate(mov)
+      if (movDate < start) {
+        if (typeFilter !== 'TODOS' && mov.asset_class !== typeFilter) return
+        
+        const quantity = Number(mov.quantity || 0)
+        const average = Number(mov.average_price || 0)
+        const amount = Math.abs(quantity * average)
+        
+        if (quantity > 0) investedAccumulated += amount
+        if (quantity < 0 && mov.asset_class !== 'FIXED_INCOME') investedAccumulated -= amount
+      }
+    })
+
     const relevantMovements = movements.filter(mov => {
       const movDate = movementDate(mov)
       if (typeFilter !== 'TODOS' && mov.asset_class !== typeFilter) return false
-      return movDate >= start
+      return movDate >= start // Movimentos dentro da janela do gráfico
     })
 
-    let investedAccumulated = 0
     const totalInvested = summary.invested
     const totalProfit = summary.profit
 

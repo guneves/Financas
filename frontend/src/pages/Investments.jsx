@@ -593,13 +593,18 @@ export default function Investments() {
             <tbody>
               {movements.map(mov => {
                 const isFixed = mov.asset_class === 'FIXED_INCOME';
-                const dateObj = new Date(mov.created_at);
                 const isSale = mov.quantity < 0;
                 
+                const hasCustomDate = mov.metadata && mov.metadata.purchase_date;
+                const dateObj = hasCustomDate 
+                  ? new Date(`${mov.metadata.purchase_date}T00:00:00`) 
+                  : new Date(mov.created_at);
                 return (
                   <tr key={mov.id} className="border-b border-slate-50 hover:bg-slate-50 transition">
                     <td className="p-4 text-slate-600 text-sm">
-                      {dateObj.toLocaleDateString('pt-BR')} às {dateObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
+                      {dateObj.toLocaleDateString('pt-BR')}
+                      {/* Mostra a hora apenas se for uma venda/registo em tempo real (sem data preenchida manualmente) */}
+                      {!hasCustomDate && ` às ${dateObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}`}
                     </td>
                     <td className="p-4">
                       <p className="font-bold text-slate-800">{mov.ticker_or_name}</p>
