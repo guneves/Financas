@@ -427,12 +427,19 @@ export default function Dashboard() {
                           <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
                             {expense.cardName}
                           </span>
+                          {/* Mostra a quantidade de parcelas e o valor unitário da parcela */}
                           <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                            {expense.remainingInstallments} parcela(s) restante(s)
+                            {expense.remainingInstallments} parcela(s) restante(s) de {formatCurrency(expense.installmentAmount)}
                           </span>
                         </div>
                       </div>
-                      <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(expense.installmentAmount)}</p>
+                      {/* Exibe o valor total restante daquela compra específica ao lado */}
+                      <div className="text-right">
+                        <p className="text-base font-bold text-slate-900 whitespace-nowrap">
+                          {formatCurrency(expense.installmentAmount * expense.remainingInstallments)}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Total Restante</p>
+                      </div>
                     </div>
                   </div>
                 ))}

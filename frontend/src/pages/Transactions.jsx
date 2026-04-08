@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { Wallet, Trash2, CreditCard, Calendar, CheckCircle } from 'lucide-react'
+import { Wallet, Trash2, CreditCard, Calendar, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 
 const CATEGORY_OPTIONS = ['Receita', 'Investimento', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 
@@ -92,6 +92,13 @@ export default function Transactions() {
   const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
   const [cardForm, setCardForm] = useState({ name: '', due_day: '', closing_day: '' })
   const [expenseForm, setExpenseForm] = useState({ card_id: '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
+  const [expandedCards, setExpandedCards] = useState([])
+
+  const toggleCardExpenses = (cardId) => {
+    setExpandedCards((prev) =>
+      prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId]
+    )
+  }
 
   useEffect(() => {
     fetchData()
@@ -562,91 +569,100 @@ export default function Transactions() {
             </div>
           </div>
 
-          <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">Faturas em Aberto</h3>
-          <div className="space-y-6">
-            {openInvoicesByCard.length === 0 && (
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center text-slate-500">
-                Você não tem nenhuma fatura em aberto. Que paz!
-              </div>
-            )}
+          {openInvoicesByCard.map((cardGroup) => {
+              const isExpanded = expandedCards.includes(cardGroup.cardId)
 
-            {openInvoicesByCard.map((cardGroup) => (
+              return (
               <div key={cardGroup.cardId} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                   <div>
                     <h4 className="font-bold text-slate-800">{cardGroup.cardName}</h4>
                     <p className="text-sm text-slate-500">Vence dia {cardGroup.dueDay}</p>
                   </div>
-                  <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                    {cardGroup.invoices.length} fatura(s) aberta(s)
-                  </span>
+                  
+                  <div className="flex items-center gap-3">
+                    <span className="hidden sm:inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                      {cardGroup.invoices.length} fatura(s) aberta(s)
+                    </span>
+                    <button
+                      onClick={() => toggleCardExpenses(cardGroup.cardId)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-200 hover:bg-slate-300 rounded-lg transition"
+                    >
+                      {isExpanded ? (
+                        <>Ocultar gastos <ChevronUp size={16} /></>
+                      ) : (
+                        <>Ver gastos <ChevronDown size={16} /></>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="divide-y divide-slate-100">
-                  {cardGroup.invoices.map((invoice) => (
-                    <div key={invoice.invoiceKey} className="p-6 space-y-4">
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                        <div>
-                          <p className="text-lg font-bold text-slate-800">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
-                          <div className="mt-2">
-                            {getInvoiceStatus(invoice.invoiceYear, invoice.invoiceMonth, cardGroup.dueDay)}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="text-sm text-slate-500">Total da fatura</p>
-                            <p className="text-xl font-bold text-red-500">{formatCurrency(invoice.total)}</p>
-                          </div>
-                          <button
-                            onClick={() => handlePayInvoice(invoice, cardGroup)}
-                            className="text-white bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
-                          >
-                            <CheckCircle size={16} /> Pagar fatura
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {invoice.purchases.map((purchase) => (
-                          <div key={purchase.purchaseKey} className="rounded-xl border border-slate-200 p-4">
-                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                              <div>
-                                <p className="font-semibold text-slate-800">{purchase.description}</p>
-                                <div className="flex flex-wrap gap-2 mt-2">
-                                  <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                                    {purchase.category}
-                                  </span>
-                                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                                    Compra em {formatDateBR(purchase.purchase_date)}
-                                  </span>
-                                  <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                                    Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-4">
-                                <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(purchase.amount)}</p>
-                                <button
-                                  onClick={() => handleDeleteCCPurchase(purchase)}
-                                  className="text-slate-400 hover:text-red-500 transition"
-                                  title="Excluir compra parcelada inteira"
-                                >
-                                  <Trash2 size={20} />
-                                </button>
-                              </div>
+                {isExpanded && (
+                  <div className="divide-y divide-slate-100">
+                    {cardGroup.invoices.map((invoice) => (
+                      <div key={invoice.invoiceKey} className="p-6 space-y-4">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                          <div>
+                            <p className="text-lg font-bold text-slate-800">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
+                            <div className="mt-2">
+                              {getInvoiceStatus(invoice.invoiceYear, invoice.invoiceMonth, cardGroup.dueDay)}
                             </div>
                           </div>
-                        ))}
+
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="text-sm text-slate-500">Total da fatura</p>
+                              <p className="text-xl font-bold text-red-500">{formatCurrency(invoice.total)}</p>
+                            </div>
+                            <button
+                              onClick={() => handlePayInvoice(invoice, cardGroup)}
+                              className="text-white bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+                            >
+                              <CheckCircle size={16} /> Pagar fatura
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {invoice.purchases.map((purchase) => (
+                            <div key={purchase.purchaseKey} className="rounded-xl border border-slate-200 p-4">
+                              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                                <div>
+                                  <p className="font-semibold text-slate-800">{purchase.description}</p>
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                                      {purchase.category}
+                                    </span>
+                                    <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                                      Compra em {formatDateBR(purchase.purchase_date)}
+                                    </span>
+                                    <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
+                                      Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-4">
+                                  <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(purchase.amount)}</p>
+                                  <button
+                                    onClick={() => handleDeleteCCPurchase(purchase)}
+                                    className="text-slate-400 hover:text-red-500 transition"
+                                    title="Excluir compra parcelada inteira"
+                                  >
+                                    <Trash2 size={20} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            ))}
+            )})}
           </div>
-        </div>
       )}
     </div>
   )
