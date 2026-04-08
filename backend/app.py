@@ -6,10 +6,13 @@ import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import yfinance as yf
-# --- NOVAS IMPORTAÇÕES PARA A RENDA FIXA ---
+# Novos imports para renda fixa e imposto de renda
 import json
 import urllib.request
 from datetime import datetime
+# Novos imports para historico da carteira
+import pandas as pd
+from dateutil.relativedelta import relativedelta
 
 load_dotenv()
 
@@ -249,6 +252,46 @@ def update_stock_prices(current_user_id):
     except Exception as e:
         print(f"ERRO FATAL NA ROTA UPDATE-PRICES: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/investments/history', methods=['GET'])
+@token_required
+def get_historical_portfolio(current_user_id):
+    try:
+        # Pega as transações do usuário
+        response = supabase.table('investments').select('*').eq('user_id', current_user_id).execute()
+        investments = response.data
+
+        # Pega o parâmetro de meses (padrão 12)
+        months_back = int(request.args.get('months', 12))
+        start_date = (datetime.now() - relativedelta(months=months_back)).strftime('%Y-%m-%d')
+        
+        historical_prices = {}
+        
+        # Filtra apenas ações para buscar no yfinance
+        stocks = [inv for inv in investments if inv['asset_class'] == 'STOCKS']
+        unique_tickers = list(set([s['ticker_or_name'].strip().upper() for s in stocks]))
+
+        for ticker in unique_tickers:
+            yf_symbol = f"{ticker}.SA" if not ticker.endswith('.SA') and any(c.isdigit() for c in ticker) else ticker
+            try:
+                stock_data = yf.Ticker(yf_symbol)
+                # Baixa o histórico com intervalo mensal
+                hist = stock_data.history(start=start_date, interval="1mo")
+                
+                # Converte os dados para um dicionário: {'YYYY-MM': preco_fechamento}
+                prices_by_month = {}
+                for date, row in hist.iterrows():
+                    month_key = date.strftime('%Y-%m')
+                    prices_by_month[month_key] = round(row['Close'], 2)
+                    
+                historical_prices[ticker] = prices_by_month
+            except Exception as e:
+                print(f"Erro ao buscar histórico de {yf_symbol}: {e}")
+
+        return jsonify({"historical_prices": historical_prices}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

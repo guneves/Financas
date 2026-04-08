@@ -48,11 +48,13 @@ export default function Carteira() {
   const [monthsFilter, setMonthsFilter] = useState(12)
   const [typeFilter, setTypeFilter] = useState('TODOS')
   const [openGroups, setOpenGroups] = useState({})
+  const [historicalPrices, setHistoricalPrices] = useState({})
 
   useEffect(() => {
-    fetchPortfolio()
-    fetchMovements()
-  }, [])
+  fetchPortfolio()
+  fetchMovements()
+  fetchHistoricalPrices() // Nova chamada
+}, [monthsFilter]) // Re-buscar histórico se o usuário mudar de 12 para 24 meses
 
   const fetchPortfolio = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -84,6 +86,21 @@ export default function Carteira() {
       setMovements(data)
     }
   }
+
+const fetchHistoricalPrices = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return
+
+  try {
+    const response = await fetch(`http://localhost:5000/api/investments/history?months=${monthsFilter}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+    const data = await response.json()
+    setHistoricalPrices(data.historical_prices || {})
+  } catch (error) {
+    console.error('Erro ao buscar histórico de preços:', error)
+  }
+}
 
   const filteredAssets = useMemo(() => {
     if (typeFilter === 'TODOS') return assets
@@ -154,62 +171,73 @@ export default function Carteira() {
   }, [filteredAssets, summary.current])
 
   const evolutionData = useMemo(() => {
-    const months = []
-    const now = new Date()
-    const start = new Date(now.getFullYear(), now.getMonth() - (monthsFilter - 1), 1)
+  const months = []
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth() - (monthsFilter - 1), 1)
 
-    for (let i = 0; i < monthsFilter; i++) {
-      months.push(new Date(start.getFullYear(), start.getMonth() + i, 1))
-    }
+  for (let i = 0; i < monthsFilter; i++) {
+    months.push(new Date(start.getFullYear(), start.getMonth() + i, 1))
+  }
 
-    let investedAccumulated = 0
+  return months.map((month) => {
+    let valorAplicadoMes = 0
+    let valorMercadoMes = 0
+    const monthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`
+
+    // Para cada movimento feito até aquele mês, acumulamos as quantidades
+    const assetsAtMonth = {}
+
     movements.forEach(mov => {
       const movDate = movementDate(mov)
-      if (movDate < start) {
+      if (movDate <= new Date(month.getFullYear(), month.getMonth() + 1, 0)) { // Último dia do mês alvo
         if (typeFilter !== 'TODOS' && mov.asset_class !== typeFilter) return
         
+        const ticker = mov.ticker_or_name.toUpperCase()
         const quantity = Number(mov.quantity || 0)
         const average = Number(mov.average_price || 0)
-        const amount = Math.abs(quantity * average)
         
-        if (quantity > 0) investedAccumulated += amount
-        if (quantity < 0 && mov.asset_class !== 'FIXED_INCOME') investedAccumulated -= amount
-      }
-    })
-
-    const relevantMovements = movements.filter(mov => {
-      const movDate = movementDate(mov)
-      if (typeFilter !== 'TODOS' && mov.asset_class !== typeFilter) return false
-      return movDate >= start // Movimentos dentro da janela do gráfico
-    })
-
-    const totalInvested = summary.invested
-    const totalProfit = summary.profit
-
-    return months.map((month) => {
-      relevantMovements.forEach(mov => {
-        const movDate = movementDate(mov)
-        if (
-          movDate.getFullYear() === month.getFullYear() &&
-          movDate.getMonth() === month.getMonth()
-        ) {
-          const quantity = Number(mov.quantity || 0)
-          const average = Number(mov.average_price || 0)
-          const amount = Math.abs(quantity * average)
-          if (quantity > 0) investedAccumulated += amount
-          if (quantity < 0 && mov.asset_class !== 'FIXED_INCOME') investedAccumulated -= amount
+        if (!assetsAtMonth[ticker]) {
+           assetsAtMonth[ticker] = { qte: 0, investido: 0, class: mov.asset_class }
         }
-      })
-
-      const allocatedProfit = totalInvested > 0 ? (Math.max(investedAccumulated, 0) / totalInvested) * totalProfit : 0
-
-      return {
-        month: monthLabel(month),
-        valorAplicado: Math.max(investedAccumulated, 0),
-        ganhoCapital: Math.max(allocatedProfit, 0),
+        
+        assetsAtMonth[ticker].qte += quantity
+        assetsAtMonth[ticker].investido += (quantity * average)
       }
     })
-  }, [movements, monthsFilter, typeFilter, summary.invested, summary.profit])
+
+    // Calcular o valor de mercado usando os preços históricos
+    Object.keys(assetsAtMonth).forEach(ticker => {
+      const asset = assetsAtMonth[ticker]
+      if (asset.qte <= 0) return
+
+      valorAplicadoMes += asset.investido
+
+      // Se for ação, tentamos pegar o preço histórico daquele mês.
+      if (asset.class === 'STOCKS') {
+        const histPrice = historicalPrices[ticker]?.[monthKey]
+        
+        // Se achou preço histórico, usa. Se não, usa o average price (fallback)
+        if (histPrice) {
+          valorMercadoMes += (asset.qte * histPrice)
+        } else {
+          valorMercadoMes += asset.investido
+        }
+      } else {
+        // Renda fixa e outros (simplificação: valor de mercado = valor investido no mês)
+        // Para ficar perfeito na Renda Fixa, precisaria aplicar a mesma lógica do CDI retroativo que você tem no update-prices.
+        valorMercadoMes += asset.investido 
+      }
+    })
+
+    const ganhoCapital = Math.max(0, valorMercadoMes - valorAplicadoMes)
+
+    return {
+      month: monthLabel(month),
+      valorAplicado: Math.max(valorAplicadoMes, 0),
+      ganhoCapital: ganhoCapital,
+    }
+  })
+}, [movements, monthsFilter, typeFilter, historicalPrices])
 
   const toggleGroup = (groupName) => {
     setOpenGroups((prev) => ({
