@@ -385,6 +385,7 @@ export default function Carteira() {
                         <tr className="text-sm text-slate-500 border-b border-slate-100">
                           <th className="pb-3 font-medium">Ativo</th>
                           <th className="pb-3 font-medium">Quantidade</th>
+                          <th className="pb-3 font-medium">Cotação Atual</th> {/* Nova coluna adicionada */}
                           <th className="pb-3 font-medium">Preço médio</th>
                           <th className="pb-3 font-medium">Valor atual</th>
                           <th className="pb-3 font-medium">Rentabilidade</th>
@@ -394,7 +395,13 @@ export default function Carteira() {
                         {group.items.map((asset) => (
                           <tr key={asset.id} className="border-b border-slate-50 last:border-0">
                             <td className="py-3 font-medium text-slate-800">{asset.name}</td>
+                            
+                            {/* Retira a exibição da quantidade para Renda Fixa e mostra o valor para os demais */}
                             <td className="py-3 text-slate-600">{asset.class === 'FIXED_INCOME' ? '-' : asset.quantity}</td>
+                            
+                            {/* Adiciona a Cotação Atual apenas se for Ação (STOCKS), caso contrário exibe '-' */}
+                            <td className="py-3 text-slate-600">{asset.class === 'STOCKS' ? currency(asset.current_price) : '-'}</td>
+                            
                             <td className="py-3 text-slate-600">{currency(asset.average_price)}</td>
                             <td className="py-3 text-slate-800 font-medium">{currency(asset.current_value)}</td>
                             <td className="py-3">

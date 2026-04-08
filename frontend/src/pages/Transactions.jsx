@@ -127,7 +127,7 @@ export default function Transactions() {
 
     const { data: ccData } = await supabase
       .from('cc_expenses')
-      .select(`*, credit_cards(name, due_day)`)
+      .select(`*, credit_cards(name, due_day, closing_day)`)
       .eq('status', 'OPEN')
       .order('invoice_year', { ascending: true })
       .order('invoice_month', { ascending: true })
@@ -178,6 +178,7 @@ export default function Transactions() {
           cardId: expense.card_id,
           cardName: expense.credit_cards?.name || 'Cartão',
           dueDay: expense.credit_cards?.due_day,
+          closingDay: expense.credit_cards?.closing_day,
           invoices: {}
         }
       }
@@ -529,7 +530,7 @@ export default function Transactions() {
                       <div key={c.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100 hover:border-slate-200 transition">
                         <div>
                           <p className="text-sm font-bold text-slate-700">{c.name}</p>
-                          <p className="text-xs text-slate-500">Vence dia {c.due_day}</p>
+                          <p className="text-xs text-slate-500">Vence dia {c.due_day} • Fecha dia {c.closing_day}</p>
                         </div>
                         <button onClick={() => handleDeleteCard(c.id, c.name)} className="text-slate-400 hover:text-red-500 p-1 transition" title="Excluir Cartão">
                           <Trash2 size={18} />
@@ -577,7 +578,7 @@ export default function Transactions() {
                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                   <div>
                     <h4 className="font-bold text-slate-800">{cardGroup.cardName}</h4>
-                    <p className="text-sm text-slate-500">Vence dia {cardGroup.dueDay}</p>
+                    <p className="text-sm text-slate-500">Vence dia {cardGroup.dueDay} • Fecha dia {cardGroup.closingDay}</p>
                   </div>
                   
                   <div className="flex items-center gap-3">
