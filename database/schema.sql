@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_type ON transactions(user_id, t
 CREATE TABLE IF NOT EXISTS investments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    asset_class TEXT NOT NULL CHECK (asset_class IN ('STOCKS', 'FIXED_INCOME', 'REIT', 'CATTLE', 'OTHER')),
+    asset_class TEXT NOT NULL CHECK (asset_class IN ('STOCKS', 'FIXED_INCOME', 'REIT', 'OTHER')),
     ticker_or_name TEXT NOT NULL,
     quantity NUMERIC(14, 4) NOT NULL,
     average_price NUMERIC(12, 2) NOT NULL CHECK (average_price >= 0),
@@ -217,7 +217,7 @@ COMMENT ON TABLE investments IS
 'Usada pelo app tanto para registrar movimentações (compra/venda/resgate) quanto para consolidar posições em carteira.';
 
 COMMENT ON COLUMN investments.metadata IS
-'Campo flexível para dados específicos como purchase_date, cdi_percentage, is_tax_free, mortality_rate, is_redemption e related_id.';
+'Campo flexível para dados específicos como purchase_date, cdi_percentage, is_tax_free, is_redemption e related_id.';
 
 COMMENT ON TABLE cc_expenses IS
 'Cada registro representa uma parcela/fração de compra lançada em uma fatura específica.';
