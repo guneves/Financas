@@ -469,6 +469,7 @@ export default function Transactions() {
               <thead>
                 <tr className="bg-slate-50 border-b text-slate-600 text-sm">
                   <th className="p-4">Data</th>
+                  <th className="p-4">Categoria</th>
                   <th className="p-4">Descrição</th>
                   <th className="p-4">Movimentação</th>
                   <th className="p-4">Valor</th>
@@ -480,6 +481,7 @@ export default function Transactions() {
                   <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50">
                     <td className="p-4 text-slate-600">{formatDateBR(t.date)}</td>
                     <td className="p-4 font-medium">{t.category}</td>
+                    <td className="p-4">{t.description}</td>
                     <td className="p-4">{t.type === 'INCOME' ? <span className="text-green-600">Entrada</span> : <span className="text-red-600">Saída</span>}</td>
                     <td className={`p-4 font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-slate-800'}`}>{t.type === 'INCOME' ? '+' : '-'} R$ {parseFloat(t.amount).toFixed(2)}</td>
                     <td className="p-4 text-right">
