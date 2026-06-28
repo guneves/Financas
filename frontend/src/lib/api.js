@@ -40,6 +40,7 @@ export async function apiFetch(path, options = {}) {
   if (auth) {
     const authData = getStoredAuth()
     if (!authData?.access_token) {
+      clearStoredAuth()
       throw new Error('Sessao expirada. Entre novamente para continuar.')
     }
     headers.set('Authorization', `Bearer ${authData.access_token}`)
@@ -65,6 +66,10 @@ export async function apiFetch(path, options = {}) {
     : await response.text()
 
   if (!response.ok) {
+    if (auth && response.status === 401) {
+      clearStoredAuth()
+    }
+
     const message = typeof payload === 'object' && payload !== null
       ? payload.error || payload.message
       : payload

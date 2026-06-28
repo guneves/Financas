@@ -226,8 +226,8 @@ export default function Dashboard() {
 
       await fetchAllData()
     } catch (error) {
-      console.error('Erro ao pagar a fatura do mês:', error)
-      alert('Não foi possível pagar a fatura do mês.')
+      console.warn('Erro ao pagar a fatura do mês:', error)
+      setDataError(error.message || 'Não foi possível pagar a fatura do mês.')
     } finally {
       setIsPayingCurrentInvoice(false)
     }

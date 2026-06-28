@@ -1,30 +1,32 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../lib/api'
 import { investmentsApi } from '../lib/dataApi'
-import { RefreshCw, TrendingUp, Landmark, History, X } from 'lucide-react'
+import { RefreshCw, TrendingUp, Landmark, History, Plus, X } from 'lucide-react'
+import InvestmentLaunchModal from '../components/InvestmentLaunchModal'
+
+function readStoredJson(key, fallback) {
+  try {
+    const saved = localStorage.getItem(key)
+    return saved ? JSON.parse(saved) : fallback
+  } catch {
+    localStorage.removeItem(key)
+    return fallback
+  }
+}
 
 export default function Investments() {
   const [activeTab, setActiveTab] = useState('VARIAVEL')
 
   const [assets, setAssets] = useState(() => {
-    const savedAssets = localStorage.getItem('@financeMVP:assets');
-    return savedAssets ? JSON.parse(savedAssets) : [];
+    return readStoredJson('@financeMVP:assets', []);
   });
-  
+
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(false)
-
-  const [form, setForm] = useState({ 
-    asset_class: 'STOCKS', 
-    ticker_or_name: '', 
-    quantity: '', 
-    average_price: '',
-    cdi_percentage: '',
-    purchase_date: '',
-    is_tax_free: false
-  })
+  const [dataError, setDataError] = useState('')
 
   const [editModal, setEditModal] = useState(null)
+  const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false)
 
   const handleUpdateStockPrices = async (silent = false, investmentId = null) => {
@@ -40,10 +42,10 @@ export default function Investments() {
       if (!silent) {
         alert(`Sucesso! ${data.updated_count} cotações foram atualizadas.`)
       }
-      fetchPortfolio()
+      await fetchPortfolio()
     } catch (error) {
-      console.error("Erro ao atualizar preços:", error)
-      if (!silent) alert("Erro de conexão ao tentar atualizar os preços.")
+      console.warn("Erro ao atualizar preços:", error)
+      if (!silent) setDataError(error.message || "Erro de conexão ao tentar atualizar os preços.")
     } finally {
       setIsUpdatingPrices(false)
     }
@@ -56,76 +58,33 @@ export default function Investments() {
 
   const fetchPortfolio = async () => {
     try {
+      setDataError('')
       const data = await apiFetch('/api/investments/portfolio')
       const fetchedAssets = data.assets || [];
-      
+
       setAssets(fetchedAssets)
       localStorage.setItem('@financeMVP:assets', JSON.stringify(fetchedAssets));
     } catch (error) {
-      console.error("Erro ao buscar portfólio:", error)
+      console.warn("Erro ao buscar portfólio:", error)
+      setDataError(error.message || 'Não foi possível carregar os investimentos.')
     }
   }
 
   const fetchMovements = async () => {
-    const data = await investmentsApi.list({ order: 'created_at', ascending: false })
-    setMovements(data)
+    try {
+      const data = await investmentsApi.list({ order: 'created_at', ascending: false })
+      setMovements(data || [])
+    } catch (error) {
+      console.warn("Erro ao buscar movimentações:", error)
+      setMovements([])
+      setDataError(error.message || 'Não foi possível carregar o histórico de movimentações.')
+    }
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      const tickerName = form.ticker_or_name.trim().toUpperCase();
-      const existingAsset = assets.find(a => a.ticker === tickerName);
-      const marketPrice = existingAsset ? existingAsset.current_price : parseFloat(form.average_price);
-      
-      const finalQuantity = form.asset_class === 'FIXED_INCOME' ? 1 : parseFloat(form.quantity);
-
-      let metadata = null;
-      if (form.asset_class === 'FIXED_INCOME' && form.cdi_percentage && form.purchase_date) {
-        metadata = { 
-          cdi_percentage: (parseFloat(form.cdi_percentage) / 100),
-          purchase_date: form.purchase_date,
-          is_tax_free: form.is_tax_free
-        };
-      } else if (form.purchase_date) {
-        metadata = {
-          purchase_date: form.purchase_date
-        };
-      }
-
-      const insertedData = await investmentsApi.create([
-        { 
-          asset_class: form.asset_class,
-          ticker_or_name: tickerName,
-          quantity: finalQuantity,
-          average_price: parseFloat(form.average_price),
-          current_price: marketPrice,
-          metadata: metadata
-        }
-      ]);
-
-      if (activeTab === 'VARIAVEL') {
-        setForm({ asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: '', cdi_percentage: '', purchase_date: '', is_tax_free: false });
-      } else {
-        setForm({ asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '1', average_price: '', cdi_percentage: '', purchase_date: '', is_tax_free: false });
-      }
-      
-      fetchPortfolio(); 
-      fetchMovements(); 
-
-      if (insertedData && insertedData.length > 0) {
-        await handleUpdateStockPrices(true, insertedData[0].id); 
-      }
-
-    } catch (error) {
-      console.error("Erro crítico no envio:", error);
-      alert("Falha ao adicionar: " + error.message);
-    } finally {
-      setLoading(false); 
-    }
-  };
+  const handleLaunchSaved = async () => {
+    await fetchPortfolio()
+    await fetchMovements()
+  }
 
   const openEditModal = (mov) => {
     setEditModal({
@@ -143,12 +102,27 @@ export default function Investments() {
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setDataError('');
 
     try {
+      const averagePrice = Number(editModal.average_price)
+      const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : Number(editModal.quantity);
+      const cdiPercentage = Number(editModal.cdi_percentage)
+
+      if (!Number.isFinite(averagePrice) || averagePrice < 0) {
+        throw new Error('Informe um preço/valor válido.')
+      }
+      if (!Number.isFinite(finalQuantity) || finalQuantity <= 0) {
+        throw new Error('Informe uma quantidade válida.')
+      }
+
       let metadata = null;
       if (editModal.asset_class === 'FIXED_INCOME') {
+        if (!Number.isFinite(cdiPercentage) || cdiPercentage <= 0) {
+          throw new Error('Informe um percentual de CDI válido.')
+        }
         metadata = { 
-          cdi_percentage: (parseFloat(editModal.cdi_percentage) / 100),
+          cdi_percentage: (cdiPercentage / 100),
           purchase_date: editModal.purchase_date,
           is_tax_free: editModal.is_tax_free
         };
@@ -158,22 +132,20 @@ export default function Investments() {
         };
       }
 
-      const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : parseFloat(editModal.quantity);
-
       await investmentsApi.update(editModal.id, {
         quantity: finalQuantity,
-        average_price: parseFloat(editModal.average_price),
+        average_price: averagePrice,
         metadata: metadata
       });
 
       setEditModal(null);
-      fetchPortfolio(); 
-      fetchMovements();
+      await fetchPortfolio();
+      await fetchMovements();
       
       await handleUpdateStockPrices(true, editModal.id);
 
     } catch (error) {
-      alert("Erro ao guardar edição: " + error.message);
+      setDataError("Erro ao guardar edição: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -191,7 +163,7 @@ export default function Investments() {
     }
 
     if (qtyToSell === asset.quantity) {
-      handleDeleteFullPosition(asset); 
+      await handleDeleteFullPosition(asset);
       return;
     }
 
@@ -208,8 +180,8 @@ export default function Investments() {
       ]);
 
       alert("Venda registrada com sucesso!");
-      fetchPortfolio();
-      fetchMovements();
+      await fetchPortfolio();
+      await fetchMovements();
     } catch (error) {
       alert("Erro ao registrar venda: " + error.message);
     } finally {
@@ -255,8 +227,8 @@ export default function Investments() {
       });
 
       alert("Resgate realizado e registrado nas movimentações!");
-      fetchPortfolio();
-      fetchMovements();
+      await fetchPortfolio();
+      await fetchMovements();
     } catch (error) {
       alert("Erro ao realizar resgate: " + error.message);
     } finally {
@@ -268,8 +240,8 @@ export default function Investments() {
     if (window.confirm("Tem certeza que deseja excluir APENAS essa movimentação do histórico?")) {
       try {
         await investmentsApi.remove(id)
-        fetchPortfolio()
-        fetchMovements()
+        await fetchPortfolio()
+        await fetchMovements()
       } catch (error) {
         alert("Erro ao excluir movimentação: " + error.message)
       }
@@ -278,14 +250,18 @@ export default function Investments() {
 
   const handleDeleteFullPosition = async (asset) => {
     if(window.confirm(`Tem certeza que deseja excluir ${asset.class === 'FIXED_INCOME' ? 'este aporte de' : 'TODA a posição de'} ${asset.name}?`)){
-      if (asset.class === 'FIXED_INCOME') {
-        await investmentsApi.remove(asset.id)
-      } else {
-        await investmentsApi.removeByTicker(asset.ticker)
+      try {
+        if (asset.class === 'FIXED_INCOME') {
+          await investmentsApi.remove(asset.id)
+        } else {
+          await investmentsApi.removeByTicker(asset.ticker)
+        }
+
+        await fetchPortfolio();
+        await fetchMovements();
+      } catch (error) {
+        setDataError(error.message || 'Não foi possível excluir a posição.')
       }
-      
-      fetchPortfolio();
-      fetchMovements();
     }
   }
 
@@ -294,6 +270,7 @@ export default function Investments() {
       'STOCKS': 'Ações',
       'FIXED_INCOME': 'Renda Fixa',
       'REIT': 'Fundos Imobiliários',
+      'CATTLE': 'Gado',
       'OTHER': 'Outros'
     }
     return labels[assetClass] || assetClass
@@ -313,37 +290,46 @@ export default function Investments() {
           <p className="text-zinc-500 mt-1">Adicione novos ativos e acompanhe sua rentabilidade.</p>
         </div>
         
-        <button
-          onClick={() => handleUpdateStockPrices(false)}
-          disabled={isUpdatingPrices}
-          className="bg-zinc-800 hover:bg-zinc-900 text-white px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 transition"
-        >
-          {isUpdatingPrices ? (
-            <span>Atualizando...</span>
-          ) : (
-            <>
-              <RefreshCw size={18} />
-              <span>Sincronizar Cotações</span>
-            </>
-          )}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => handleUpdateStockPrices(false)}
+            disabled={isUpdatingPrices}
+            className="bg-white hover:bg-zinc-50 text-zinc-800 px-4 py-2.5 rounded-lg shadow-sm border border-zinc-200 flex items-center justify-center gap-2 disabled:opacity-50 transition"
+          >
+            {isUpdatingPrices ? (
+              <span>Atualizando...</span>
+            ) : (
+              <>
+                <RefreshCw size={18} />
+                <span>Sincronizar Cotações</span>
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setIsLaunchModalOpen(true)}
+            className="bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-2 transition"
+          >
+            <Plus size={18} />
+            <span>Adicionar Lançamento</span>
+          </button>
+        </div>
       </div>
+
+      {dataError ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          {dataError}
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap bg-zinc-200 p-1 rounded-lg w-fit gap-1">
         <button 
-          onClick={() => {
-            setActiveTab('VARIAVEL');
-            setForm({...form, asset_class: 'STOCKS', ticker_or_name: '', quantity: '', average_price: '', purchase_date: ''});
-          }} 
+          onClick={() => setActiveTab('VARIAVEL')}
           className={`px-4 py-2 rounded-md font-medium transition flex items-center gap-2 ${activeTab === 'VARIAVEL' ? 'bg-white shadow-sm text-blue-600' : 'text-zinc-600 hover:bg-zinc-300'}`}
         >
           <TrendingUp size={18}/> Variável & Outros
         </button>
         <button 
-          onClick={() => {
-            setActiveTab('FIXA');
-            setForm({...form, asset_class: 'FIXED_INCOME', ticker_or_name: '', quantity: '1', average_price: '', cdi_percentage: '', purchase_date: '', is_tax_free: false});
-          }} 
+          onClick={() => setActiveTab('FIXA')}
           className={`px-4 py-2 rounded-md font-medium transition flex items-center gap-2 ${activeTab === 'FIXA' ? 'bg-white shadow-sm text-blue-600' : 'text-zinc-600 hover:bg-zinc-300'}`}
         >
           <Landmark size={18}/> Renda Fixa (CDI)
@@ -358,78 +344,6 @@ export default function Investments() {
       
       {activeTab !== 'MOVIMENTACOES' && (
         <>
-          {activeTab === 'VARIAVEL' && (
-            <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm border border-zinc-100 grid grid-cols-1 md:grid-cols-5 gap-4 items-end animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex flex-col space-y-1">
-                <label className="text-sm text-zinc-500 font-medium">Classe do Ativo</label>
-                <select value={form.asset_class} onChange={e => setForm({...form, asset_class: e.target.value})} className="p-2 border border-zinc-300 rounded-lg bg-white" required>
-                  <option value="STOCKS">Ações</option>
-                  <option value="REIT">Fundos Imobiliários</option>
-                  <option value="OTHER">Outros</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col space-y-1">
-                <label className="text-sm text-zinc-500 font-medium">Nome / Ticker</label>
-                <input type="text" placeholder="Ex: PETR4" value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <div className="flex flex-col space-y-1">
-                <label className="text-sm text-zinc-500 font-medium">Quantidade</label>
-                <input type="number" step="0.0001" placeholder="Ex: 100" value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <div className="flex flex-col space-y-1">
-                <label className="text-sm text-zinc-500 font-medium">Preço de Compra (R$)</label>
-                <input type="number" step="0.01" placeholder="Ex: 35.50" value={form.average_price} onChange={e => setForm({...form, average_price: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <div className="flex flex-col space-y-1">
-                <label className="text-sm text-zinc-500 font-medium">Data da Compra</label>
-                <input type="date" value={form.purchase_date} onChange={e => setForm({...form, purchase_date: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <button type="submit" disabled={loading} className="md:col-span-5 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
-                {loading ? 'A adicionar...' : 'Adicionar Ativo'}
-              </button>
-            </form>
-          )}
-
-          {activeTab === 'FIXA' && (
-            <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm border border-zinc-100 grid grid-cols-1 md:grid-cols-6 gap-4 items-end animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex flex-col space-y-1 md:col-span-2">
-                <label className="text-sm text-zinc-500 font-medium">Nome do Ativo</label>
-                <input type="text" placeholder="Ex: LCI Banco Inter" value={form.ticker_or_name} onChange={e => setForm({...form, ticker_or_name: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <div className="flex flex-col space-y-1 md:col-span-1">
-                <label className="text-sm text-zinc-500 font-medium">Valor Aplicado (R$)</label>
-                <input type="number" step="0.01" placeholder="Ex: 1000.00" value={form.average_price} onChange={e => setForm({...form, average_price: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <div className="flex flex-col space-y-1 md:col-span-1">
-                <label className="text-sm text-zinc-500 font-medium">% do CDI</label>
-                <input type="number" step="0.1" placeholder="Ex: 110" value={form.cdi_percentage} onChange={e => setForm({...form, cdi_percentage: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <div className="flex flex-col space-y-1 md:col-span-1">
-                <label className="text-sm text-zinc-500 font-medium">Data Aplicação</label>
-                <input type="date" value={form.purchase_date} onChange={e => setForm({...form, purchase_date: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
-              </div>
-
-              <div className="flex flex-col space-y-1 md:col-span-1 justify-center pb-2 pl-2">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input type="checkbox" checked={form.is_tax_free} onChange={e => setForm({...form, is_tax_free: e.target.checked})} className="w-4 h-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500" />
-                  <span className="text-sm text-zinc-600 font-medium">Isento (LCI/A)</span>
-                </label>
-              </div>
-
-              <button type="submit" disabled={loading} className="md:col-span-6 bg-blue-600 text-white rounded-lg py-2.5 font-medium hover:bg-blue-700 transition">
-                {loading ? 'A adicionar...' : 'Adicionar à Renda Fixa'}
-              </button>
-            </form>
-          )}
-
           <div className="bg-white rounded-lg shadow-sm border border-zinc-100 overflow-x-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
             <table className="w-full text-left border-collapse min-w-max">
               <thead>
@@ -465,12 +379,25 @@ export default function Investments() {
                           onBlur={async (e) => {
                             const newPrice = e.target.value;
                             if(newPrice && newPrice !== asset.current_price.toString()){
-                              if (asset.class === 'FIXED_INCOME') {
-                                await investmentsApi.update(asset.id, { current_price: parseFloat(newPrice) })
-                              } else {
-                                await investmentsApi.updatePriceByTicker(asset.ticker, parseFloat(newPrice))
+                              const parsedPrice = Number(newPrice)
+                              if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+                                setDataError('Informe uma cotação válida.')
+                                e.target.value = asset.current_price
+                                return
                               }
-                              fetchPortfolio(); 
+
+                              try {
+                                setDataError('')
+                                if (asset.class === 'FIXED_INCOME') {
+                                  await investmentsApi.update(asset.id, { current_price: parsedPrice })
+                                } else {
+                                  await investmentsApi.updatePriceByTicker(asset.ticker, parsedPrice)
+                                }
+                                await fetchPortfolio();
+                              } catch (error) {
+                                setDataError(error.message || 'Não foi possível atualizar a cotação.')
+                                e.target.value = asset.current_price
+                              }
                             }
                           }}
                           className={`w-28 p-1.5 border border-blue-200 rounded-md transition ${asset.class === 'FIXED_INCOME' ? 'bg-zinc-100 text-zinc-500 cursor-not-allowed border-zinc-200' : 'bg-blue-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'}`}
@@ -589,6 +516,13 @@ export default function Investments() {
           </table>
         </div>
       )}
+
+      <InvestmentLaunchModal
+        open={isLaunchModalOpen}
+        onClose={() => setIsLaunchModalOpen(false)}
+        assets={assets}
+        onSaved={handleLaunchSaved}
+      />
 
       {editModal && (
         <div className="fixed inset-0 bg-zinc-900/40 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">

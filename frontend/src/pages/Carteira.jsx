@@ -2,17 +2,37 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { investmentsApi } from '../lib/dataApi'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
-import {TrendingUp, Wallet, Landmark, BarChart3, PieChart as PieChartIcon, ChevronDown, CircleDollarSign, ChevronUp,
+import {TrendingUp, Wallet, Landmark, CalendarDays, PieChart as PieChartIcon, ChevronDown, CircleDollarSign, ChevronUp, Plus,
 } from 'lucide-react'
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell,
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend, ReferenceLine,
 } from 'recharts'
+import InvestmentLaunchModal from '../components/InvestmentLaunchModal'
 
-const TYPE_OPTIONS = ['TODOS', 'STOCKS', 'FIXED_INCOME', 'REIT', 'OTHER']
+const TYPE_OPTIONS = ['TODOS', 'STOCKS', 'FIXED_INCOME', 'REIT', 'CATTLE', 'OTHER']
 const MONTH_OPTIONS = [6, 12, 24]
 const CHART_COLORS = ['#3b82f6', '#67e8f9', '#facc15', '#fb923c', '#a78bfa']
+const EVOLUTION_COLORS = {
+  patrimonio: '#5b6fc5',
+  valorAplicado: '#2fb879',
+  ganhoCapital: '#98e7c1',
+}
 
 const currency = (value) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))
+
+const compactCurrency = (value) => {
+  const numeric = Number(value || 0)
+  const absolute = Math.abs(numeric)
+
+  if (absolute >= 1000) {
+    const formatted = (absolute / 1000).toLocaleString('pt-BR', {
+      maximumFractionDigits: absolute >= 10000 ? 0 : 1,
+    })
+    return `R$ ${numeric < 0 ? '-' : ''}${formatted}K`
+  }
+
+  return currency(numeric)
+}
 
 const percent = (value) => `${Number(value || 0).toFixed(2).replace('.', ',')}%`
 
@@ -37,6 +57,7 @@ const classLabel = (assetClass) => {
     STOCKS: 'Ações',
     FIXED_INCOME: 'Renda Fixa',
     REIT: 'Fundos Imobiliários',
+    CATTLE: 'Gado',
     OTHER: 'Outros',
     TODOS: 'Todos os tipos',
   }
@@ -52,6 +73,7 @@ export default function Carteira() {
   const [typeFilter, setTypeFilter] = useState('TODOS')
   const [openGroups, setOpenGroups] = useState({})
   const [historicalPrices, setHistoricalPrices] = useState({})
+  const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
 
   useEffect(() => {
   fetchPortfolio()
@@ -66,7 +88,7 @@ export default function Carteira() {
       setPortfolio(data)
       setAssets(data.assets || [])
     } catch (error) {
-      console.error('Erro ao buscar carteira:', error)
+      console.warn('Erro ao buscar carteira:', error)
       setPortfolioError(error.message || 'Não foi possível carregar a carteira.')
       setPortfolio(EMPTY_PORTFOLIO)
       setAssets([])
@@ -74,8 +96,13 @@ export default function Carteira() {
   }
 
   const fetchMovements = async () => {
-    const data = await investmentsApi.list({ order: 'created_at', ascending: true })
-    setMovements(data)
+    try {
+      const data = await investmentsApi.list({ order: 'created_at', ascending: true })
+      setMovements(data)
+    } catch (error) {
+      console.warn('Erro ao buscar movimentações:', error)
+      setMovements([])
+    }
   }
 
 const fetchHistoricalPrices = async () => {
@@ -83,9 +110,16 @@ const fetchHistoricalPrices = async () => {
     const data = await apiFetch(`/api/investments/history?months=${monthsFilter}`)
     setHistoricalPrices(data.historical_prices || {})
   } catch (error) {
-    console.error('Erro ao buscar histórico de preços:', error)
+    console.warn('Erro ao buscar histórico de preços:', error)
+    setHistoricalPrices({})
   }
 }
+
+  const handleLaunchSaved = async () => {
+    await fetchPortfolio()
+    await fetchMovements()
+    await fetchHistoricalPrices()
+  }
 
   const filteredAssets = useMemo(() => {
     if (typeFilter === 'TODOS') return assets
@@ -214,12 +248,14 @@ const fetchHistoricalPrices = async () => {
       }
     })
 
-    const ganhoCapital = Math.max(0, valorMercadoMes - valorAplicadoMes)
+    const ganhoCapital = valorMercadoMes - valorAplicadoMes
 
     return {
       month: monthLabel(month),
+      patrimonio: Math.max(valorMercadoMes, 0),
       valorAplicado: Math.max(valorAplicadoMes, 0),
-      ganhoCapital: ganhoCapital,
+      ganhoCapital: Math.max(ganhoCapital, 0),
+      ganhoCapitalReal: ganhoCapital,
     }
   })
 }, [movements, monthsFilter, typeFilter, historicalPrices])
@@ -237,9 +273,19 @@ const fetchHistoricalPrices = async () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-zinc-800">Carteira</h1>
-        <p className="text-zinc-500 mt-1">Acompanhe a evolução do patrimônio e a composição atual dos seus ativos.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-zinc-800">Carteira</h1>
+          <p className="text-zinc-500 mt-1">Acompanhe a evolução do patrimônio e a composição atual dos seus ativos.</p>
+        </div>
+
+        <button
+          onClick={() => setIsLaunchModalOpen(true)}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+        >
+          <Plus size={18} />
+          Adicionar Lançamento
+        </button>
       </div>
 
       {portfolioError && (
@@ -285,40 +331,81 @@ const fetchHistoricalPrices = async () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border border-zinc-100 p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-            <h2 className="text-lg font-bold text-zinc-800">Evolução do Patrimônio</h2>
+        <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm xl:col-span-3">
+          <div className="flex flex-col gap-4 border-b border-zinc-100 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
+            <h2 className="text-xl font-semibold text-zinc-950">Evolução do Patrimônio</h2>
             <div className="flex gap-3 flex-wrap">
               <SelectBox
-                icon={BarChart3}
+                icon={CalendarDays}
                 value={monthsFilter}
                 onChange={(e) => setMonthsFilter(Number(e.target.value))}
                 options={MONTH_OPTIONS.map(value => ({ value, label: `${value} meses` }))}
+                className="min-w-[180px]"
               />
               <SelectBox
                 icon={CircleDollarSign}
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
                 options={TYPE_OPTIONS.map(value => ({ value, label: classLabel(value) }))}
+                className="min-w-[220px]"
               />
             </div>
           </div>
 
-          <div className="h-80">
+          <div className="h-[350px] min-h-[1px] min-w-0 px-4 pb-4 pt-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={evolutionData} barGap={6}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 12 }} />
-                <YAxis tickFormatter={(value) => value.toLocaleString('pt-BR')} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <Tooltip formatter={(value) => currency(value)} />
-                <Bar dataKey="valorAplicado" name="Valor aplicado" radius={[8, 8, 0, 0]} fill="#38b86e" />
-                <Bar dataKey="ganhoCapital" name="Ganho capital" radius={[8, 8, 0, 0]} fill="#9ae6b4" />
+              <BarChart
+                data={evolutionData}
+                barCategoryGap="24%"
+                margin={{ top: 18, right: 8, left: 8, bottom: 4 }}
+              >
+                <CartesianGrid vertical={false} stroke="#e4e7ec" />
+                <XAxis
+                  dataKey="month"
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={14}
+                  angle={-45}
+                  textAnchor="end"
+                  height={64}
+                  tick={{ fill: '#697586', fontSize: 12, fontWeight: 500 }}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={10}
+                  width={78}
+                  tickFormatter={compactCurrency}
+                  tick={{ fill: '#697586', fontSize: 12 }}
+                />
+                <Tooltip
+                  content={<EvolutionTooltip />}
+                  cursor={<EvolutionCursor />}
+                  wrapperStyle={{ outline: 'none' }}
+                />
+                <Legend verticalAlign="top" align="center" height={42} content={<EvolutionLegend />} />
+                <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1.2} />
+                <Bar
+                  dataKey="valorAplicado"
+                  name="Valor aplicado"
+                  stackId="patrimonio"
+                  fill={EVOLUTION_COLORS.valorAplicado}
+                  maxBarSize={54}
+                />
+                <Bar
+                  dataKey="ganhoCapital"
+                  name="Ganho de Capital"
+                  stackId="patrimonio"
+                  fill={EVOLUTION_COLORS.ganhoCapital}
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={54}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="xl:col-span-2 bg-white rounded-lg shadow-sm border border-zinc-100 p-6">
+        <div className="min-w-0 rounded-lg border border-zinc-100 bg-white p-6 shadow-sm xl:col-span-2">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <h2 className="text-lg font-bold text-zinc-800">Ativos na Carteira</h2>
             <SelectBox
@@ -445,6 +532,77 @@ const fetchHistoricalPrices = async () => {
           )}
         </div>
       </div>
+
+      <InvestmentLaunchModal
+        open={isLaunchModalOpen}
+        onClose={() => setIsLaunchModalOpen(false)}
+        assets={assets}
+        onSaved={handleLaunchSaved}
+      />
+    </div>
+  )
+}
+
+function EvolutionLegend() {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-5 pt-1 text-sm font-medium text-zinc-600">
+      <LegendItem color={EVOLUTION_COLORS.valorAplicado} label="Valor aplicado" />
+      <LegendItem color={EVOLUTION_COLORS.ganhoCapital} label="Ganho de Capital" />
+    </div>
+  )
+}
+
+function LegendItem({ color, label }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="h-4 w-8 rounded" style={{ backgroundColor: color }} />
+      {label}
+    </span>
+  )
+}
+
+function EvolutionCursor({ x, y, width, height }) {
+  if ([x, y, width, height].some(value => value === undefined)) return null
+
+  const centerX = Number(x) + Number(width) / 2
+  return (
+    <line
+      x1={centerX}
+      x2={centerX}
+      y1={y}
+      y2={Number(y) + Number(height)}
+      stroke="#cbd5e1"
+      strokeDasharray="4 4"
+      strokeWidth={1.5}
+    />
+  )
+}
+
+function EvolutionTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+
+  const data = payload[0]?.payload || {}
+  const ganhoCapitalReal = Number(data.ganhoCapitalReal ?? data.ganhoCapital ?? 0)
+  const ganhoColor = ganhoCapitalReal < 0 ? '#ef4444' : EVOLUTION_COLORS.ganhoCapital
+
+  return (
+    <div className="min-w-[186px] rounded-lg border border-zinc-100 bg-white px-5 py-4 shadow-xl shadow-zinc-900/15">
+      <p className="mb-4 text-lg font-semibold text-zinc-700">{label}</p>
+      <TooltipMetric color={EVOLUTION_COLORS.patrimonio} label="Patrimônio" value={currency(data.patrimonio)} />
+      <TooltipMetric color={EVOLUTION_COLORS.valorAplicado} label="Valor aplicado" value={currency(data.valorAplicado)} />
+      <TooltipMetric color={ganhoColor} label="Ganho de Capital" value={currency(ganhoCapitalReal)} />
+    </div>
+  )
+}
+
+function TooltipMetric({ color, label, value }) {
+  return (
+    <div className="mt-3 first:mt-0">
+      <div className="flex items-center gap-2 text-sm font-medium text-zinc-500">
+        <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: color }} />
+        {label}
+      </div>
+      <p className="mt-1 pl-5 text-base font-medium text-zinc-700">{value}</p>
     </div>
   )
 }
@@ -478,16 +636,16 @@ function MetricCard({ icon: Icon, title, value, footLabel, footValue, badge, pos
   )
 }
 
-function SelectBox({ icon: Icon, value, onChange, options }) {
+function SelectBox({ icon: Icon, value, onChange, options, className = '' }) {
   return (
-    <div className="relative">
+    <div className={`relative ${className}`}>
       <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none">
         <Icon size={16} />
       </div>
       <select
         value={value}
         onChange={onChange}
-        className="appearance-none bg-white border border-zinc-200 rounded-lg pl-10 pr-10 py-2.5 text-sm font-medium text-zinc-700 shadow-sm"
+        className="w-full appearance-none rounded-lg border border-zinc-200 bg-white py-2.5 pl-10 pr-10 text-sm font-medium text-zinc-700 shadow-sm transition hover:border-zinc-300 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
       >
         {options.map(option => (
           <option key={option.value} value={option.value}>{option.label}</option>

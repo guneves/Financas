@@ -87,33 +87,44 @@ function formatCurrency(value) {
   }).format(Number(value || 0))
 }
 
+function readStoredJson(key, fallback) {
+  try {
+    const saved = localStorage.getItem(key)
+    return saved ? JSON.parse(saved) : fallback
+  } catch {
+    localStorage.removeItem(key)
+    return fallback
+  }
+}
+
+function readStoredNumber(key, fallback = 0) {
+  const parsed = Number(localStorage.getItem(key))
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 export default function Transactions() {
   const [activeTab, setActiveTab] = useState('CONTA')
+  const [dataError, setDataError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:transactions')
-    return saved ? JSON.parse(saved) : []
+    return readStoredJson('@financeMVP:transactions', [])
   })
   const [balance, setBalance] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:balance')
-    return saved ? parseFloat(saved) : 0
+    return readStoredNumber('@financeMVP:balance')
   })
 
   const [cards, setCards] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:cards')
-    return saved ? JSON.parse(saved) : []
+    return readStoredJson('@financeMVP:cards', [])
   })
   const [ccExpenses, setCcExpenses] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:ccExpenses')
-    return saved ? JSON.parse(saved) : []
+    return readStoredJson('@financeMVP:ccExpenses', [])
   })
   const [projectedBalanceGlobal, setProjectedBalanceGlobal] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:projectedBalanceGlobal')
-    return saved ? parseFloat(saved) : 0
+    return readStoredNumber('@financeMVP:projectedBalanceGlobal')
   })
   const [projectedBalanceNextMonth, setProjectedBalanceNextMonth] = useState(() => {
-    const saved = localStorage.getItem('@financeMVP:projectedBalanceNextMonth')
-    return saved ? parseFloat(saved) : 0
+    return readStoredNumber('@financeMVP:projectedBalanceNextMonth')
   })
 
   const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
@@ -132,28 +143,34 @@ export default function Transactions() {
   }, [])
 
   const fetchData = async () => {
-    const tData = await transactionsApi.list()
-    let currentBalance = 0
-    if (tData) {
-      setTransactions(tData)
-      localStorage.setItem('@financeMVP:transactions', JSON.stringify(tData))
+    setDataError('')
 
-      currentBalance = tData.reduce((acc, curr) => curr.type === 'INCOME' ? acc + parseFloat(curr.amount) : acc - parseFloat(curr.amount), 0)
+    try {
+      const [tData, cData, ccData] = await Promise.all([
+        transactionsApi.list(),
+        creditCardsApi.list(),
+        ccExpensesApi.list({ status: 'OPEN' }),
+      ])
+
+      const safeTransactions = tData || []
+      const safeCards = cData || []
+      const safeCreditExpenses = ccData || []
+
+      setTransactions(safeTransactions)
+      localStorage.setItem('@financeMVP:transactions', JSON.stringify(safeTransactions))
+
+      const currentBalance = safeTransactions.reduce((acc, curr) => {
+        const amount = Number(curr.amount || 0)
+        return curr.type === 'INCOME' ? acc + amount : acc - amount
+      }, 0)
       setBalance(currentBalance)
       localStorage.setItem('@financeMVP:balance', currentBalance.toString())
-    }
 
-    const cData = await creditCardsApi.list()
-    if (cData) {
-      setCards(cData)
-      localStorage.setItem('@financeMVP:cards', JSON.stringify(cData))
-    }
+      setCards(safeCards)
+      localStorage.setItem('@financeMVP:cards', JSON.stringify(safeCards))
 
-    const ccData = await ccExpensesApi.list({ status: 'OPEN' })
-
-    if (ccData) {
-      setCcExpenses(ccData)
-      localStorage.setItem('@financeMVP:ccExpenses', JSON.stringify(ccData))
+      setCcExpenses(safeCreditExpenses)
+      localStorage.setItem('@financeMVP:ccExpenses', JSON.stringify(safeCreditExpenses))
 
       const today = getNow()
       const currentMonth = today.getMonth() + 1
@@ -166,17 +183,17 @@ export default function Transactions() {
         nextYear += 1
       }
 
-      const totalOpenCredit = ccData.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
+      const totalOpenCredit = safeCreditExpenses.reduce((acc, curr) => acc + Number(curr.amount || 0), 0)
       const projGlobal = currentBalance - totalOpenCredit
       setProjectedBalanceGlobal(projGlobal)
       localStorage.setItem('@financeMVP:projectedBalanceGlobal', projGlobal.toString())
 
-      const creditUpToNextMonth = ccData.reduce((acc, curr) => {
+      const creditUpToNextMonth = safeCreditExpenses.reduce((acc, curr) => {
         const isPastOrCurrent = curr.invoice_year < currentYear || (curr.invoice_year === currentYear && curr.invoice_month <= currentMonth)
         const isNextMonth = curr.invoice_year === nextYear && curr.invoice_month === nextMonth
 
         if (isPastOrCurrent || isNextMonth) {
-          return acc + parseFloat(curr.amount)
+          return acc + Number(curr.amount || 0)
         }
         return acc
       }, 0)
@@ -184,6 +201,9 @@ export default function Transactions() {
       const projNextMonth = currentBalance - creditUpToNextMonth
       setProjectedBalanceNextMonth(projNextMonth)
       localStorage.setItem('@financeMVP:projectedBalanceNextMonth', projNextMonth.toString())
+    } catch (error) {
+      console.warn('Erro ao carregar movimentacoes:', error)
+      setDataError(error.message || 'Nao foi possivel carregar os dados financeiros.')
     }
   }
 
@@ -248,15 +268,29 @@ export default function Transactions() {
 
   const handleBankSubmit = async (event) => {
     event.preventDefault()
-    await transactionsApi.create({
-      amount: parseFloat(transForm.amount),
-      date: transForm.date,
-      category: transForm.category,
-      description: transForm.description,
-      type: transForm.type,
-    })
-    setTransForm({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
-    fetchData()
+    const amount = Number(transForm.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setDataError('Informe um valor bancario valido.')
+      return
+    }
+
+    setSaving(true)
+    setDataError('')
+    try {
+      await transactionsApi.create({
+        amount,
+        date: transForm.date,
+        category: transForm.category,
+        description: transForm.description,
+        type: transForm.type,
+      })
+      setTransForm({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel criar o lancamento.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleDueDayChange = (event) => {
@@ -271,26 +305,47 @@ export default function Transactions() {
 
   const handleCreateCard = async (event) => {
     event.preventDefault()
-    await creditCardsApi.create({
-      name: cardForm.name,
-      due_day: parseInt(cardForm.due_day),
-      closing_day: parseInt(cardForm.closing_day),
-    })
-    setCardForm({ name: '', due_day: '', closing_day: '' })
-    fetchData()
+    const dueDay = Number(cardForm.due_day)
+    const closingDay = Number(cardForm.closing_day)
+    if (!cardForm.name.trim() || !Number.isInteger(dueDay) || !Number.isInteger(closingDay)) {
+      setDataError('Preencha os dados do cartao corretamente.')
+      return
+    }
+
+    setSaving(true)
+    setDataError('')
+    try {
+      await creditCardsApi.create({
+        name: cardForm.name,
+        due_day: dueDay,
+        closing_day: closingDay,
+      })
+      setCardForm({ name: '', due_day: '', closing_day: '' })
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel criar o cartao.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleCCExpenseSubmit = async (event) => {
     event.preventDefault()
-    const totalAmount = parseFloat(expenseForm.total_amount)
-    const installmentsCount = parseInt(expenseForm.installments)
+    const totalAmount = Number(expenseForm.total_amount)
+    const installmentsCount = Number(expenseForm.installments)
+    const purchaseDate = parseLocalDate(expenseForm.purchase_date)
+    const selectedCard = cards.find((card) => card.id === expenseForm.card_id)
+
+    if (!selectedCard || !purchaseDate || Number.isNaN(purchaseDate.getTime()) || !Number.isFinite(totalAmount) || totalAmount <= 0 || !Number.isInteger(installmentsCount) || installmentsCount <= 0) {
+      setDataError('Preencha a compra no cartao com valores validos.')
+      return
+    }
+
     const amountPerInstallment = totalAmount / installmentsCount
 
-    const selectedCard = cards.find((card) => card.id === expenseForm.card_id)
     const dueDay = selectedCard.due_day
     const closingDay = selectedCard.closing_day || (dueDay - 7 > 0 ? dueDay - 7 : 30 + (dueDay - 7))
 
-    const purchaseDate = parseLocalDate(expenseForm.purchase_date)
     const purchaseDay = purchaseDate.getDate()
 
     let invoiceMonth = purchaseDate.getMonth() + 1
@@ -332,48 +387,74 @@ export default function Transactions() {
       }
     }
 
-    await ccExpensesApi.create(inserts)
-    setExpenseForm({ card_id: cards[0]?.id || '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
-    fetchData()
+    setSaving(true)
+    setDataError('')
+    try {
+      await ccExpensesApi.create(inserts)
+      setExpenseForm({ card_id: cards[0]?.id || '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel criar a compra no cartao.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handlePayInvoice = async (invoice, cardGroup) => {
     if (!window.confirm(`Deseja pagar a fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} do cartão ${cardGroup.cardName} no valor de ${formatCurrency(invoice.total)}?`)) return
 
-    await transactionsApi.create({
-      type: 'EXPENSE',
-      amount: Number(invoice.total.toFixed(2)),
-      date: getLocalDateString(),
-      category: `Pagamento Fatura ${cardGroup.cardName}`,
-      description: `Fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}`,
-    })
+    setSaving(true)
+    setDataError('')
+    try {
+      await transactionsApi.create({
+        type: 'EXPENSE',
+        amount: Number(invoice.total.toFixed(2)),
+        date: getLocalDateString(),
+        category: `Pagamento Fatura ${cardGroup.cardName}`,
+        description: `Fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}`,
+      })
 
-    await ccExpensesApi.updateInvoiceStatus({
-      card_id: cardGroup.cardId,
-      invoice_month: invoice.invoiceMonth,
-      invoice_year: invoice.invoiceYear,
-      status: 'PAID',
-      current_status: 'OPEN',
-    })
+      await ccExpensesApi.updateInvoiceStatus({
+        card_id: cardGroup.cardId,
+        invoice_month: invoice.invoiceMonth,
+        invoice_year: invoice.invoiceYear,
+        status: 'PAID',
+        current_status: 'OPEN',
+      })
 
-    fetchData()
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel pagar a fatura.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleDeleteTransaction = async (id) => {
     if (!window.confirm('Deseja realmente excluir esta transação? O saldo será recalculado.')) return
-    await transactionsApi.remove(id)
-    fetchData()
+    try {
+      await transactionsApi.remove(id)
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel excluir a transacao.')
+    }
   }
 
   const handleDeleteCCPurchase = async (purchase) => {
     if (!window.confirm(`Deseja excluir a compra "${purchase.description}" e eliminar todas as faturas vinculadas a ela?`)) return
 
-    const candidates = await ccExpensesApi.candidates({
-      card_id: purchase.card_id,
-      description: purchase.description,
-      purchase_date: purchase.purchase_date,
-      category: purchase.category,
-    })
+    let candidates = []
+    try {
+      candidates = await ccExpensesApi.candidates({
+        card_id: purchase.card_id,
+        description: purchase.description,
+        purchase_date: purchase.purchase_date,
+        category: purchase.category,
+      })
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel localizar as faturas da compra.')
+      return
+    }
 
     const idsToDelete = (candidates || [])
       .filter((item) => {
@@ -388,8 +469,12 @@ export default function Transactions() {
       return
     }
 
-    await ccExpensesApi.removeMany(idsToDelete)
-    fetchData()
+    try {
+      await ccExpensesApi.removeMany(idsToDelete)
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel excluir a compra.')
+    }
   }
 
   const handleDeleteCard = async (id, name) => {
@@ -397,9 +482,9 @@ export default function Transactions() {
 
     try {
       await creditCardsApi.remove(id)
-      fetchData()
+      await fetchData()
     } catch (error) {
-      alert('Erro ao excluir cartão: ' + error.message)
+      setDataError(error.message || 'Nao foi possivel excluir o cartao.')
     }
   }
 
@@ -427,6 +512,12 @@ export default function Transactions() {
           />
         )}
       />
+
+      {dataError ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          {dataError}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard
@@ -484,7 +575,7 @@ export default function Transactions() {
                 <input type="text" placeholder="Ex: Mercado" value={transForm.description} onChange={(event) => setTransForm({ ...transForm, description: event.target.value })} className="app-input" required />
               </Field>
               <div className="flex items-end">
-                <Button type="submit" icon={Plus} className="w-full">Lançar</Button>
+                <Button type="submit" icon={Plus} loading={saving} className="w-full">Lançar</Button>
               </div>
             </form>
           </Panel>
@@ -557,7 +648,7 @@ export default function Transactions() {
                   </Field>
                 </div>
 
-                <Button type="submit" variant="dark" icon={Plus} className="w-full">Salvar cartão</Button>
+                <Button type="submit" variant="dark" icon={Plus} loading={saving} className="w-full">Salvar cartão</Button>
               </form>
 
               <div className="border-t border-zinc-100 p-5">
@@ -613,7 +704,7 @@ export default function Transactions() {
                     <Field label="Parcelas">
                       <input type="number" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className="app-input" required />
                     </Field>
-                    <Button type="submit" icon={Plus} className="md:col-span-2">Registrar compra</Button>
+                    <Button type="submit" icon={Plus} loading={saving} className="md:col-span-2">Registrar compra</Button>
                   </form>
                 )}
               </div>
@@ -661,7 +752,7 @@ export default function Transactions() {
                                   <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total</p>
                                   <p className="text-xl font-bold text-rose-600">{formatCurrency(invoice.total)}</p>
                                 </div>
-                                <Button type="button" icon={CheckCircle} onClick={() => handlePayInvoice(invoice, cardGroup)}>
+                                <Button type="button" icon={CheckCircle} loading={saving} onClick={() => handlePayInvoice(invoice, cardGroup)}>
                                   Pagar
                                 </Button>
                               </div>

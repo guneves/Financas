@@ -7,6 +7,7 @@ import base64
 import calendar
 import hashlib
 import hmac
+import math
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
@@ -28,10 +29,23 @@ except ImportError:
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_PATH = os.getenv("DATABASE_PATH", os.path.join(BASE_DIR, "finance.db"))
+RAW_DATABASE_PATH = os.getenv("DATABASE_PATH", os.path.join(BASE_DIR, "finance.db"))
+DATABASE_PATH = (
+    RAW_DATABASE_PATH
+    if os.path.isabs(RAW_DATABASE_PATH)
+    else os.path.join(BASE_DIR, RAW_DATABASE_PATH)
+)
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
-JWT_EXP_DAYS = int(os.getenv("JWT_EXP_DAYS", "30"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+
+try:
+    JWT_EXP_DAYS = max(1, int(os.getenv("JWT_EXP_DAYS", "30")))
+except ValueError:
+    JWT_EXP_DAYS = 30
+
+ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE"}
+ALLOWED_ASSET_CLASSES = {"STOCKS", "FIXED_INCOME", "REIT", "CATTLE", "OTHER"}
+ALLOWED_CC_STATUS = {"OPEN", "PAID"}
 
 app = Flask(__name__)
 cors_origins = "*" if CORS_ORIGINS == "*" else [
@@ -117,7 +131,9 @@ ON cc_expenses(user_id, status);
 
 
 def get_db():
-    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+    database_dir = os.path.dirname(os.path.abspath(DATABASE_PATH))
+    if database_dir:
+        os.makedirs(database_dir, exist_ok=True)
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -142,6 +158,99 @@ def safe_float(value, default=0):
         return float(value) if value is not None else default
     except (TypeError, ValueError):
         return default
+
+
+class ValidationError(ValueError):
+    pass
+
+
+def validation_error(message, status=400):
+    return jsonify({"error": message}), status
+
+
+def require_string(payload, key, label, max_length=255):
+    value = str(payload.get(key, "") or "").strip()
+    if not value:
+        raise ValidationError(f"{label} e obrigatorio.")
+    if len(value) > max_length:
+        raise ValidationError(f"{label} deve ter no maximo {max_length} caracteres.")
+    return value
+
+
+def optional_string(payload, key, max_length=500):
+    value = payload.get(key)
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if len(value) > max_length:
+        raise ValidationError(f"{key} deve ter no maximo {max_length} caracteres.")
+    return value
+
+
+def require_choice(payload, key, label, choices):
+    value = str(payload.get(key, "") or "").strip().upper()
+    if value not in choices:
+        raise ValidationError(f"{label} invalido.")
+    return value
+
+
+def parse_number(payload, key, label, *, minimum=None, maximum=None, allow_zero=True):
+    try:
+        value = float(payload.get(key))
+    except (TypeError, ValueError):
+        raise ValidationError(f"{label} deve ser um numero valido.")
+
+    if not math.isfinite(value):
+        raise ValidationError(f"{label} deve ser um numero valido.")
+    if minimum is not None and value < minimum:
+        raise ValidationError(f"{label} deve ser maior ou igual a {minimum}.")
+    if not allow_zero and value == 0:
+        raise ValidationError(f"{label} deve ser maior que zero.")
+    if maximum is not None and value > maximum:
+        raise ValidationError(f"{label} deve ser menor ou igual a {maximum}.")
+    return value
+
+
+def parse_optional_number(payload, key, label, *, minimum=None, maximum=None):
+    if key not in payload or payload.get(key) in (None, ""):
+        return None
+    return parse_number(payload, key, label, minimum=minimum, maximum=maximum)
+
+
+def parse_int_number(payload, key, label, *, minimum=None, maximum=None):
+    value = parse_number(payload, key, label, minimum=minimum, maximum=maximum)
+    if not float(value).is_integer():
+        raise ValidationError(f"{label} deve ser um numero inteiro.")
+    return int(value)
+
+
+def require_date(payload, key, label):
+    value = require_string(payload, key, label, max_length=10)
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        raise ValidationError(f"{label} deve estar no formato AAAA-MM-DD.")
+    return value
+
+
+def require_id_list(payload, key="ids"):
+    raw_ids = payload.get(key)
+    if not isinstance(raw_ids, list):
+        raise ValidationError("Informe uma lista de ids.")
+
+    ids = [str(item).strip() for item in raw_ids if str(item).strip()]
+    if not ids:
+        raise ValidationError("Informe ao menos um id.")
+    return ids
+
+
+def ensure_credit_card_owner(conn, current_user_id, card_id):
+    card = conn.execute(
+        "SELECT id FROM credit_cards WHERE id = ? AND user_id = ?",
+        (card_id, current_user_id),
+    ).fetchone()
+    if not card:
+        raise ValidationError("Cartao nao encontrado.")
 
 
 def parse_metadata_value(value):
@@ -290,8 +399,8 @@ def signup():
     email = str(payload.get("email", "")).strip().lower()
     password = str(payload.get("password", ""))
 
-    if not email or len(password) < 6:
-        return jsonify({"error": "Informe email e senha com pelo menos 6 caracteres."}), 400
+    if not email or "@" not in email or len(password) < 6:
+        return jsonify({"error": "Informe email valido e senha com pelo menos 6 caracteres."}), 400
 
     user_id = new_id()
     try:
@@ -348,6 +457,15 @@ def transactions(current_user_id):
         return jsonify([row_to_dict(row) for row in rows]), 200
 
     payload = parse_json_body()
+    try:
+        amount = parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
+        date_value = require_date(payload, "date", "Data")
+        category = require_string(payload, "category", "Categoria")
+        description = optional_string(payload, "description")
+        transaction_type = require_choice(payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
     item_id = new_id()
     with get_db() as conn:
         conn.execute(
@@ -359,11 +477,11 @@ def transactions(current_user_id):
             (
                 item_id,
                 current_user_id,
-                safe_float(payload.get("amount")),
-                payload.get("date"),
-                payload.get("category"),
-                payload.get("description"),
-                payload.get("type"),
+                amount,
+                date_value,
+                category,
+                description,
+                transaction_type,
             ),
         )
         item = conn.execute("SELECT * FROM transactions WHERE id = ?", (item_id,)).fetchone()
@@ -374,10 +492,12 @@ def transactions(current_user_id):
 @token_required
 def delete_transaction(current_user_id, item_id):
     with get_db() as conn:
-        conn.execute(
+        cursor = conn.execute(
             "DELETE FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),
         )
+    if cursor.rowcount == 0:
+        return jsonify({"deleted": False}), 404
     return jsonify({"deleted": True}), 200
 
 
@@ -393,6 +513,13 @@ def credit_cards(current_user_id):
         return jsonify([row_to_dict(row) for row in rows]), 200
 
     payload = parse_json_body()
+    try:
+        name = require_string(payload, "name", "Nome do cartao")
+        due_day = parse_int_number(payload, "due_day", "Dia de vencimento", minimum=1, maximum=31)
+        closing_day = parse_int_number(payload, "closing_day", "Dia de fechamento", minimum=1, maximum=31)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
     item_id = new_id()
     try:
         with get_db() as conn:
@@ -404,14 +531,16 @@ def credit_cards(current_user_id):
                 (
                     item_id,
                     current_user_id,
-                    payload.get("name"),
-                    int(payload.get("due_day")),
-                    int(payload.get("closing_day")),
+                    name,
+                    due_day,
+                    closing_day,
                 ),
             )
             item = conn.execute("SELECT * FROM credit_cards WHERE id = ?", (item_id,)).fetchone()
     except sqlite3.IntegrityError as exc:
-        return jsonify({"error": str(exc)}), 400
+        if "UNIQUE" in str(exc).upper():
+            return jsonify({"error": "Ja existe um cartao com este nome."}), 409
+        return jsonify({"error": "Nao foi possivel criar o cartao."}), 400
     return jsonify(row_to_dict(item)), 201
 
 
@@ -419,10 +548,12 @@ def credit_cards(current_user_id):
 @token_required
 def delete_credit_card(current_user_id, card_id):
     with get_db() as conn:
-        conn.execute(
+        cursor = conn.execute(
             "DELETE FROM credit_cards WHERE id = ? AND user_id = ?",
             (card_id, current_user_id),
         )
+    if cursor.rowcount == 0:
+        return jsonify({"deleted": False}), 404
     return jsonify({"deleted": True}), 200
 
 
@@ -434,6 +565,9 @@ def cc_expenses(current_user_id):
         params = [current_user_id]
         status_filter = ""
         if status:
+            status = str(status).strip().upper()
+            if status not in ALLOWED_CC_STATUS:
+                return validation_error("Status invalido.")
             status_filter = "AND cce.status = ?"
             params.append(status)
 
@@ -457,9 +591,11 @@ def cc_expenses(current_user_id):
 
     if request.method == "DELETE":
         payload = parse_json_body()
-        ids = payload.get("ids") or []
-        if not ids:
-            return jsonify({"deleted": 0}), 200
+        try:
+            ids = require_id_list(payload)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
         placeholders = ",".join("?" for _ in ids)
         with get_db() as conn:
             cursor = conn.execute(
@@ -470,38 +606,63 @@ def cc_expenses(current_user_id):
 
     payload = parse_json_body()
     items = payload if isinstance(payload, list) else [payload]
-    inserted = []
-    with get_db() as conn:
-        for item in items:
-            item_id = new_id()
-            conn.execute(
-                """
-                INSERT INTO cc_expenses
-                (id, user_id, card_id, category, description, amount, purchase_date,
-                 invoice_month, invoice_year, installment_info, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    item_id,
-                    current_user_id,
-                    item.get("card_id"),
-                    item.get("category"),
-                    item.get("description"),
-                    safe_float(item.get("amount")),
-                    item.get("purchase_date"),
-                    int(item.get("invoice_month")),
-                    int(item.get("invoice_year")),
-                    item.get("installment_info"),
-                    item.get("status", "OPEN"),
-                ),
-            )
-            inserted.append(item_id)
+    if not items:
+        return validation_error("Informe ao menos uma fatura.")
 
-        placeholders = ",".join("?" for _ in inserted)
-        rows = conn.execute(
-            f"SELECT * FROM cc_expenses WHERE id IN ({placeholders})",
-            inserted,
-        ).fetchall()
+    inserted = []
+    try:
+        with get_db() as conn:
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValidationError("Cada fatura deve ser um objeto valido.")
+
+                card_id = require_string(item, "card_id", "Cartao")
+                ensure_credit_card_owner(conn, current_user_id, card_id)
+                category = require_string(item, "category", "Categoria")
+                description = require_string(item, "description", "Descricao", max_length=500)
+                amount = parse_number(item, "amount", "Valor", minimum=0, allow_zero=False)
+                purchase_date = require_date(item, "purchase_date", "Data da compra")
+                invoice_month = parse_int_number(item, "invoice_month", "Mes da fatura", minimum=1, maximum=12)
+                invoice_year = parse_int_number(item, "invoice_year", "Ano da fatura", minimum=2000)
+                installment_info = require_string(item, "installment_info", "Parcela", max_length=20)
+                status_value = str(item.get("status", "OPEN") or "OPEN").strip().upper()
+                if status_value not in ALLOWED_CC_STATUS:
+                    raise ValidationError("Status invalido.")
+
+                item_id = new_id()
+                conn.execute(
+                    """
+                    INSERT INTO cc_expenses
+                    (id, user_id, card_id, category, description, amount, purchase_date,
+                     invoice_month, invoice_year, installment_info, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item_id,
+                        current_user_id,
+                        card_id,
+                        category,
+                        description,
+                        amount,
+                        purchase_date,
+                        invoice_month,
+                        invoice_year,
+                        installment_info,
+                        status_value,
+                    ),
+                )
+                inserted.append(item_id)
+
+            placeholders = ",".join("?" for _ in inserted)
+            rows = conn.execute(
+                f"SELECT * FROM cc_expenses WHERE id IN ({placeholders})",
+                inserted,
+            ).fetchall()
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Nao foi possivel criar a fatura."}), 400
+
     return jsonify([row_to_dict(row) for row in rows]), 201
 
 
@@ -534,10 +695,13 @@ def cc_expense_candidates(current_user_id):
 @token_required
 def update_cc_expense_status(current_user_id):
     payload = parse_json_body()
-    ids = payload.get("ids") or []
-    status = payload.get("status", "PAID")
-    if not ids:
-        return jsonify({"updated": 0}), 200
+    try:
+        ids = require_id_list(payload)
+        status = str(payload.get("status", "PAID") or "PAID").strip().upper()
+        if status not in ALLOWED_CC_STATUS:
+            raise ValidationError("Status invalido.")
+    except ValidationError as exc:
+        return validation_error(str(exc))
 
     placeholders = ",".join("?" for _ in ids)
     with get_db() as conn:
@@ -556,7 +720,23 @@ def update_cc_expense_status(current_user_id):
 @token_required
 def update_invoice_status(current_user_id):
     payload = parse_json_body()
+    try:
+        card_id = require_string(payload, "card_id", "Cartao")
+        invoice_month = parse_int_number(payload, "invoice_month", "Mes da fatura", minimum=1, maximum=12)
+        invoice_year = parse_int_number(payload, "invoice_year", "Ano da fatura", minimum=2000)
+        status = str(payload.get("status", "PAID") or "PAID").strip().upper()
+        current_status = str(payload.get("current_status", "OPEN") or "OPEN").strip().upper()
+        if status not in ALLOWED_CC_STATUS or current_status not in ALLOWED_CC_STATUS:
+            raise ValidationError("Status invalido.")
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
     with get_db() as conn:
+        try:
+            ensure_credit_card_owner(conn, current_user_id, card_id)
+        except ValidationError as exc:
+            return validation_error(str(exc), 404)
+
         cursor = conn.execute(
             """
             UPDATE cc_expenses
@@ -568,12 +748,12 @@ def update_invoice_status(current_user_id):
               AND status = ?
             """,
             (
-                payload.get("status", "PAID"),
+                status,
                 current_user_id,
-                payload.get("card_id"),
-                int(payload.get("invoice_month")),
-                int(payload.get("invoice_year")),
-                payload.get("current_status", "OPEN"),
+                card_id,
+                invoice_month,
+                invoice_year,
+                current_status,
             ),
         )
     return jsonify({"updated": cursor.rowcount}), 200
@@ -601,35 +781,58 @@ def investments(current_user_id):
 
     payload = parse_json_body()
     items = payload if isinstance(payload, list) else [payload]
-    inserted = []
-    with get_db() as conn:
-        for item in items:
-            item_id = new_id()
-            conn.execute(
-                """
-                INSERT INTO investments
-                (id, user_id, asset_class, ticker_or_name, quantity,
-                 average_price, current_price, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    item_id,
-                    current_user_id,
-                    item.get("asset_class"),
-                    item.get("ticker_or_name"),
-                    safe_float(item.get("quantity")),
-                    safe_float(item.get("average_price")),
-                    safe_float(item.get("current_price")) if item.get("current_price") is not None else None,
-                    encode_metadata(item.get("metadata")),
-                ),
-            )
-            inserted.append(item_id)
+    if not items:
+        return validation_error("Informe ao menos um investimento.")
 
-        placeholders = ",".join("?" for _ in inserted)
-        rows = conn.execute(
-            f"SELECT * FROM investments WHERE id IN ({placeholders})",
-            inserted,
-        ).fetchall()
+    inserted = []
+    try:
+        with get_db() as conn:
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValidationError("Cada investimento deve ser um objeto valido.")
+
+                asset_class = require_choice(item, "asset_class", "Tipo de ativo", ALLOWED_ASSET_CLASSES)
+                ticker_or_name = require_string(item, "ticker_or_name", "Ativo")
+                quantity = parse_number(item, "quantity", "Quantidade")
+                if quantity == 0:
+                    raise ValidationError("Quantidade deve ser diferente de zero.")
+                average_price = parse_number(item, "average_price", "Preco medio", minimum=0)
+                current_price = parse_optional_number(item, "current_price", "Preco atual", minimum=0)
+                metadata = item.get("metadata")
+                if metadata not in (None, "") and not isinstance(metadata, (dict, str)):
+                    raise ValidationError("Metadata deve ser um objeto valido.")
+
+                item_id = new_id()
+                conn.execute(
+                    """
+                    INSERT INTO investments
+                    (id, user_id, asset_class, ticker_or_name, quantity,
+                     average_price, current_price, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item_id,
+                        current_user_id,
+                        asset_class,
+                        ticker_or_name,
+                        quantity,
+                        average_price,
+                        current_price,
+                        encode_metadata(metadata),
+                    ),
+                )
+                inserted.append(item_id)
+
+            placeholders = ",".join("?" for _ in inserted)
+            rows = conn.execute(
+                f"SELECT * FROM investments WHERE id IN ({placeholders})",
+                inserted,
+            ).fetchall()
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Nao foi possivel criar o investimento."}), 400
+
     return jsonify([serialize_investment(row) for row in rows]), 201
 
 
@@ -638,20 +841,41 @@ def investments(current_user_id):
 def investment_detail(current_user_id, investment_id):
     if request.method == "DELETE":
         with get_db() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "DELETE FROM investments WHERE id = ? AND user_id = ?",
                 (investment_id, current_user_id),
             )
+        if cursor.rowcount == 0:
+            return jsonify({"deleted": False}), 404
         return jsonify({"deleted": True}), 200
 
     payload = parse_json_body()
     allowed = {"quantity", "average_price", "current_price", "metadata"}
     assignments = []
     values = []
-    for key in allowed:
-        if key in payload:
+    try:
+        for key in allowed:
+            if key not in payload:
+                continue
+
+            if key == "quantity":
+                value = parse_number(payload, key, "Quantidade")
+                if value == 0:
+                    raise ValidationError("Quantidade deve ser diferente de zero.")
+            elif key == "average_price":
+                value = parse_number(payload, key, "Preco medio", minimum=0)
+            elif key == "current_price":
+                value = parse_optional_number(payload, key, "Preco atual", minimum=0)
+            else:
+                value = payload[key]
+                if value not in (None, "") and not isinstance(value, (dict, str)):
+                    raise ValidationError("Metadata deve ser um objeto valido.")
+                value = encode_metadata(value)
+
             assignments.append(f"{key} = ?")
-            values.append(encode_metadata(payload[key]) if key == "metadata" else payload[key])
+            values.append(value)
+    except ValidationError as exc:
+        return validation_error(str(exc))
 
     if not assignments:
         return jsonify({"updated": False}), 400
@@ -669,6 +893,8 @@ def investment_detail(current_user_id, investment_id):
             "SELECT * FROM investments WHERE id = ? AND user_id = ?",
             (investment_id, current_user_id),
         ).fetchone()
+    if not row:
+        return jsonify({"error": "Investimento nao encontrado."}), 404
     return jsonify(serialize_investment(row)), 200
 
 
@@ -687,6 +913,12 @@ def delete_investments_by_ticker(current_user_id, ticker):
 @token_required
 def update_price_by_ticker(current_user_id):
     payload = parse_json_body()
+    try:
+        ticker = require_string(payload, "ticker", "Ativo")
+        current_price = parse_number(payload, "current_price", "Preco atual", minimum=0)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
     with get_db() as conn:
         cursor = conn.execute(
             """
@@ -695,11 +927,13 @@ def update_price_by_ticker(current_user_id):
             WHERE user_id = ? AND ticker_or_name = ?
             """,
             (
-                safe_float(payload.get("current_price")),
+                current_price,
                 current_user_id,
-                payload.get("ticker"),
+                ticker,
             ),
         )
+    if cursor.rowcount == 0:
+        return jsonify({"updated": 0, "error": "Ativo nao encontrado."}), 404
     return jsonify({"updated": cursor.rowcount}), 200
 
 
@@ -722,6 +956,10 @@ def get_portfolio(current_user_id):
 
         grouped_assets = {}
         for asset in all_investments:
+            metadata = asset.get("metadata") or {}
+            if asset["asset_class"] == "FIXED_INCOME" and metadata.get("is_redemption"):
+                continue
+
             ticker = asset["ticker_or_name"]
             asset_class = asset["asset_class"]
             qty = safe_float(asset.get("quantity"))
@@ -738,7 +976,7 @@ def get_portfolio(current_user_id):
                     "total_quantity": qty,
                     "total_invested": invested_value,
                     "current_price": curr_price,
-                    "metadata": asset.get("metadata") or {},
+                    "metadata": metadata,
                 }
             else:
                 grouped_assets[group_key]["total_quantity"] += qty
@@ -753,6 +991,9 @@ def get_portfolio(current_user_id):
         distribution = {}
 
         for data in grouped_assets.values():
+            if data["total_quantity"] <= 0:
+                continue
+
             avg_price_calculated = (
                 data["total_invested"] / data["total_quantity"]
                 if data["total_quantity"] > 0 else 0
@@ -835,7 +1076,7 @@ def get_portfolio(current_user_id):
         }), 200
     except Exception as exc:
         print(f"Erro no calculo: {exc}")
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": "Nao foi possivel calcular a carteira."}), 500
 
 
 @app.route("/api/investments/update-prices", methods=["POST"])
@@ -874,10 +1115,14 @@ def update_stock_prices(current_user_id):
                 if meta and "cdi_percentage" in meta:
                     cdi_pct = safe_float(meta["cdi_percentage"])
                     date_str = meta.get("purchase_date")
-                    if date_str:
-                        dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                    else:
-                        dt_obj = datetime.strptime(inv["created_at"][:10], "%Y-%m-%d")
+                    try:
+                        if date_str:
+                            dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                        else:
+                            dt_obj = datetime.strptime(inv["created_at"][:10], "%Y-%m-%d")
+                    except ValueError:
+                        print(f"Data invalida para {inv['ticker_or_name']}; pulando CDI.")
+                        continue
 
                     url = (
                         "https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados"
@@ -915,7 +1160,7 @@ def update_stock_prices(current_user_id):
         }), 200
     except Exception as exc:
         print(f"ERRO FATAL NA ROTA UPDATE-PRICES: {exc}")
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": "Nao foi possivel atualizar os precos."}), 500
 
 
 @app.route("/api/investments/history", methods=["GET"])
@@ -952,10 +1197,11 @@ def get_historical_portfolio(current_user_id):
 
         return jsonify({"historical_prices": historical_prices}), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        print(f"Erro no historico de investimentos: {exc}")
+        return jsonify({"error": "Nao foi possivel carregar o historico de investimentos."}), 500
 
 
 init_db()
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=os.getenv("FLASK_DEBUG") == "1", port=5000)

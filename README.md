@@ -63,6 +63,7 @@ DATABASE_PATH=finance.db
 JWT_SECRET=troque-esta-chave-em-producao
 JWT_EXP_DAYS=30
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+FLASK_DEBUG=0
 ```
 
 Instale dependencias e rode:
@@ -115,6 +116,7 @@ Todos os registros financeiros possuem `user_id` e sao filtrados pelo backend co
 - `JWT_SECRET`: chave de assinatura dos tokens.
 - `JWT_EXP_DAYS`: validade do token em dias.
 - `CORS_ORIGINS`: origens liberadas para acessar a API.
+- `FLASK_DEBUG`: use `1` apenas em desenvolvimento local quando precisar do modo debug.
 
 ### Frontend
 
