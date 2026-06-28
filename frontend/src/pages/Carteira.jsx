@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { apiFetch } from '../lib/api'
+import { investmentsApi } from '../lib/dataApi'
+import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import {TrendingUp, Wallet, Landmark, BarChart3, PieChart as PieChartIcon, ChevronDown, CircleDollarSign, ChevronUp,
 } from 'lucide-react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell,
@@ -43,6 +45,7 @@ const classLabel = (assetClass) => {
 
 export default function Carteira() {
   const [portfolio, setPortfolio] = useState(null)
+  const [portfolioError, setPortfolioError] = useState('')
   const [assets, setAssets] = useState([])
   const [movements, setMovements] = useState([])
   const [monthsFilter, setMonthsFilter] = useState(12)
@@ -57,45 +60,27 @@ export default function Carteira() {
 }, [monthsFilter]) // Re-buscar histórico se o usuário mudar de 12 para 24 meses
 
   const fetchPortfolio = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
-
     try {
-      const response = await fetch('http://localhost:5000/api/investments/portfolio', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      const data = await response.json()
+      setPortfolioError('')
+      const data = await apiFetch('/api/investments/portfolio')
       setPortfolio(data)
       setAssets(data.assets || [])
     } catch (error) {
       console.error('Erro ao buscar carteira:', error)
+      setPortfolioError(error.message || 'Não foi possível carregar a carteira.')
+      setPortfolio(EMPTY_PORTFOLIO)
+      setAssets([])
     }
   }
 
   const fetchMovements = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data, error } = await supabase
-      .from('investments')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true })
-
-    if (!error && data) {
-      setMovements(data)
-    }
+    const data = await investmentsApi.list({ order: 'created_at', ascending: true })
+    setMovements(data)
   }
 
 const fetchHistoricalPrices = async () => {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return
-
   try {
-    const response = await fetch(`http://localhost:5000/api/investments/history?months=${monthsFilter}`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    })
-    const data = await response.json()
+    const data = await apiFetch(`/api/investments/history?months=${monthsFilter}`)
     setHistoricalPrices(data.historical_prices || {})
   } catch (error) {
     console.error('Erro ao buscar histórico de preços:', error)
@@ -247,15 +232,21 @@ const fetchHistoricalPrices = async () => {
   }
 
   if (!portfolio) {
-    return <div className="text-slate-500 animate-pulse p-8">Carregando carteira...</div>
+    return <div className="text-zinc-500 animate-pulse p-8">Carregando carteira...</div>
   }
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       <div>
-        <h1 className="text-3xl font-bold text-slate-800">Carteira</h1>
-        <p className="text-slate-500 mt-1">Acompanhe a evolução do patrimônio e a composição atual dos seus ativos.</p>
+        <h1 className="text-3xl font-bold text-zinc-800">Carteira</h1>
+        <p className="text-zinc-500 mt-1">Acompanhe a evolução do patrimônio e a composição atual dos seus ativos.</p>
       </div>
+
+      {portfolioError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Não foi possível carregar a carteira agora. A página foi aberta sem ativos para evitar carregamento infinito. Detalhe: {portfolioError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <MetricCard
@@ -294,9 +285,9 @@ const fetchHistoricalPrices = async () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        <div className="xl:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div className="xl:col-span-3 bg-white rounded-lg shadow-sm border border-zinc-100 p-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-            <h2 className="text-lg font-bold text-slate-800">Evolução do Patrimônio</h2>
+            <h2 className="text-lg font-bold text-zinc-800">Evolução do Patrimônio</h2>
             <div className="flex gap-3 flex-wrap">
               <SelectBox
                 icon={BarChart3}
@@ -327,9 +318,9 @@ const fetchHistoricalPrices = async () => {
           </div>
         </div>
 
-        <div className="xl:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div className="xl:col-span-2 bg-white rounded-lg shadow-sm border border-zinc-100 p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-lg font-bold text-slate-800">Ativos na Carteira</h2>
+            <h2 className="text-lg font-bold text-zinc-800">Ativos na Carteira</h2>
             <SelectBox
               icon={PieChartIcon}
               value={typeFilter}
@@ -358,40 +349,40 @@ const fetchHistoricalPrices = async () => {
                   const itemPercent = summary.current > 0 ? (item.value / summary.current) * 100 : 0
                   return (
                     <div key={item.name} className="flex items-center justify-between gap-4 text-sm">
-                      <div className="flex items-center gap-3 text-slate-700 font-medium">
+                      <div className="flex items-center gap-3 text-zinc-700 font-medium">
                         <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }} />
                         {item.name}
                       </div>
-                      <span className="text-slate-500">{percent(itemPercent)}</span>
+                      <span className="text-zinc-500">{percent(itemPercent)}</span>
                     </div>
                   )
                 })}
               </div>
             </div>
           ) : (
-            <div className="h-64 flex items-center justify-center text-slate-400">Nenhum ativo cadastrado.</div>
+            <div className="h-64 flex items-center justify-center text-zinc-400">Nenhum ativo cadastrado.</div>
           )}
         </div>
       </div>
 
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-bold text-slate-800">Meus Ativos</h2>
-          <span className="text-slate-400 font-semibold">({groupedRows.length})</span>
+          <h2 className="text-2xl font-bold text-zinc-800">Meus Ativos</h2>
+          <span className="text-zinc-400 font-semibold">({groupedRows.length})</span>
         </div>
 
         <div className="space-y-4">
           {groupedRows.map((group) => {
             const isOpen = !!openGroups[group.name]
             return (
-              <div key={group.name} className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-5">
+              <div key={group.name} className="bg-white rounded-lg border border-zinc-100 shadow-sm px-6 py-5">
                 <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_repeat(5,1fr)_40px] gap-4 items-center">
                   <div className="flex items-center gap-4 min-w-0">
-                    <div className="w-10 h-10 rounded-full border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-700 font-bold">
+                    <div className="w-10 h-10 rounded-full border border-zinc-200 bg-zinc-50 flex items-center justify-center text-zinc-700 font-bold">
                       {group.name[0]}
                     </div>
                     <div>
-                      <h3 className="text-2xl font-semibold text-slate-800 leading-none">{group.name}</h3>
+                      <h3 className="text-2xl font-semibold text-zinc-800 leading-none">{group.name}</h3>
                     </div>
                   </div>
 
@@ -401,16 +392,16 @@ const fetchHistoricalPrices = async () => {
                   <InfoColumn label="Rentabilidade" value={percent(group.profitability)} positive={group.profitability >= 0} />
                   <InfoColumn label="% na carteira" value={percent(group.share)} mutedSecondary={currency(group.profit)} />
 
-                  <button onClick={() => toggleGroup(group.name)} className="w-9 h-9 rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200 transition flex items-center justify-center">
+                  <button onClick={() => toggleGroup(group.name)} className="w-9 h-9 rounded-full bg-zinc-100 text-zinc-400 hover:bg-zinc-200 transition flex items-center justify-center">
                     {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                   </button>
                 </div>
 
                 {isOpen && (
-                  <div className="mt-5 border-t border-slate-100 pt-4 overflow-x-auto">
+                  <div className="mt-5 border-t border-zinc-100 pt-4 overflow-x-auto">
                     <table className="w-full min-w-[720px] text-left">
                       <thead>
-                        <tr className="text-sm text-slate-500 border-b border-slate-100">
+                        <tr className="text-sm text-zinc-500 border-b border-zinc-100">
                           <th className="pb-3 font-medium">Ativo</th>
                           <th className="pb-3 font-medium">Quantidade</th>
                           <th className="pb-3 font-medium">Cotação Atual</th> {/* Nova coluna adicionada */}
@@ -421,17 +412,17 @@ const fetchHistoricalPrices = async () => {
                       </thead>
                       <tbody>
                         {group.items.map((asset) => (
-                          <tr key={asset.id} className="border-b border-slate-50 last:border-0">
-                            <td className="py-3 font-medium text-slate-800">{asset.name}</td>
+                          <tr key={asset.id} className="border-b border-zinc-50 last:border-0">
+                            <td className="py-3 font-medium text-zinc-800">{asset.name}</td>
                             
                             {/* Retira a exibição da quantidade para Renda Fixa e mostra o valor para os demais */}
-                            <td className="py-3 text-slate-600">{asset.class === 'FIXED_INCOME' ? '-' : asset.quantity}</td>
+                            <td className="py-3 text-zinc-600">{asset.class === 'FIXED_INCOME' ? '-' : asset.quantity}</td>
                             
                             {/* Adiciona a Cotação Atual apenas se for Ação (STOCKS), caso contrário exibe '-' */}
-                            <td className="py-3 text-slate-600">{asset.class === 'STOCKS' ? currency(asset.current_price) : '-'}</td>
+                            <td className="py-3 text-zinc-600">{asset.class === 'STOCKS' ? currency(asset.current_price) : '-'}</td>
                             
-                            <td className="py-3 text-slate-600">{currency(asset.average_price)}</td>
-                            <td className="py-3 text-slate-800 font-medium">{currency(asset.current_value)}</td>
+                            <td className="py-3 text-zinc-600">{currency(asset.average_price)}</td>
+                            <td className="py-3 text-zinc-800 font-medium">{currency(asset.current_value)}</td>
                             <td className="py-3">
                               <span className={`px-2 py-1 rounded-full text-xs font-bold ${asset.profitability_percent >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                 {asset.profitability_percent > 0 ? '+' : ''}{asset.profitability_percent}%
@@ -448,7 +439,7 @@ const fetchHistoricalPrices = async () => {
           })}
 
           {groupedRows.length === 0 && (
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-10 text-center text-slate-500">
+            <div className="bg-white rounded-lg border border-zinc-100 shadow-sm p-10 text-center text-zinc-500">
               Nenhum ativo encontrado para este filtro.
             </div>
           )}
@@ -460,14 +451,14 @@ const fetchHistoricalPrices = async () => {
 
 function MetricCard({ icon: Icon, title, value, footLabel, footValue, badge, positive = true }) {
   return (
-    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-5">
+    <div className="bg-white border border-zinc-100 rounded-lg shadow-sm p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-500 border border-slate-100">
+          <div className="w-10 h-10 rounded-lg bg-zinc-50 flex items-center justify-center text-zinc-500 border border-zinc-100">
             <Icon size={18} />
           </div>
           <div>
-            <p className="text-sm text-slate-600 font-medium">{title}</p>
+            <p className="text-sm text-zinc-600 font-medium">{title}</p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <p className={`text-2xl font-bold ${positive ? 'text-emerald-600' : 'text-rose-500'}`}>{value}</p>
               {badge && (
@@ -479,9 +470,9 @@ function MetricCard({ icon: Icon, title, value, footLabel, footValue, badge, pos
           </div>
         </div>
       </div>
-      <div className="mt-3 text-sm text-slate-500">
+      <div className="mt-3 text-sm text-zinc-500">
         <p>{footLabel}</p>
-        <p className="font-semibold text-slate-700">{footValue}</p>
+        <p className="font-semibold text-zinc-700">{footValue}</p>
       </div>
     </div>
   )
@@ -490,19 +481,19 @@ function MetricCard({ icon: Icon, title, value, footLabel, footValue, badge, pos
 function SelectBox({ icon: Icon, value, onChange, options }) {
   return (
     <div className="relative">
-      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none">
         <Icon size={16} />
       </div>
       <select
         value={value}
         onChange={onChange}
-        className="appearance-none bg-white border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-sm font-medium text-slate-700 shadow-sm"
+        className="appearance-none bg-white border border-zinc-200 rounded-lg pl-10 pr-10 py-2.5 text-sm font-medium text-zinc-700 shadow-sm"
       >
         {options.map(option => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
       </select>
-      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none">
         <ChevronDown size={16} />
       </div>
     </div>
@@ -510,13 +501,13 @@ function SelectBox({ icon: Icon, value, onChange, options }) {
 }
 
 function InfoColumn({ label, value, positive, mutedSecondary }) {
-  const colorClass = positive === undefined ? 'text-slate-800' : positive ? 'text-emerald-600' : 'text-rose-500'
+  const colorClass = positive === undefined ? 'text-zinc-800' : positive ? 'text-emerald-600' : 'text-rose-500'
 
   return (
     <div>
-      <p className="text-sm text-slate-500">{label}</p>
+      <p className="text-sm text-zinc-500">{label}</p>
       <p className={`text-xl font-semibold ${colorClass}`}>{value}</p>
-      {mutedSecondary && <p className="text-sm text-slate-400 mt-1">{mutedSecondary}</p>}
+      {mutedSecondary && <p className="text-sm text-zinc-400 mt-1">{mutedSecondary}</p>}
     </div>
   )
 }

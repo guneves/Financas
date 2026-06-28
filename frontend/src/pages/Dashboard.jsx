@@ -1,17 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
-import { BarChart, Bar, CartesianGrid, Tooltip, ResponsiveContainer, Legend, XAxis, YAxis } from 'recharts'
-import { Landmark, Wallet, PiggyBank, CalendarDays, CheckCircle2 } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import {
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  CreditCard,
+  Landmark,
+  ListChecks,
+  PiggyBank,
+  Receipt,
+  Wallet,
+} from 'lucide-react'
+import { apiFetch } from '../lib/api'
+import { ccExpensesApi, transactionsApi } from '../lib/dataApi'
+import { EMPTY_PORTFOLIO } from '../lib/portfolio'
+import { Badge, Button, EmptyState, MetricCard, PageHeader, Panel, PanelHeader, cx } from '../components/ui'
 
 const CATEGORIES = ['Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 const PAYMENT_METHOD_COLORS = {
-  cash: '#0f172a',
-  credit: '#2563eb'
+  cash: '#18181b',
+  credit: '#0284c7',
 }
 
 const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', {
   style: 'currency',
-  currency: 'BRL'
+  currency: 'BRL',
 }).format(Number(value || 0))
 
 const getDaysRemainingInMonth = () => {
@@ -35,7 +48,7 @@ const parseInstallmentInfo = (value) => {
   const [current, total] = value.split('/').map(Number)
   return {
     current: Number.isFinite(current) ? current : 1,
-    total: Number.isFinite(total) ? total : 1
+    total: Number.isFinite(total) ? total : 1,
   }
 }
 
@@ -47,12 +60,14 @@ const getPurchaseGroupKey = (expense) => {
     expense.purchase_date || 'sem-data',
     expense.category || 'sem-categoria',
     Number(parseFloat(expense.amount || 0).toFixed(2)),
-    installment.total
+    installment.total,
   ].join('|')
 }
 
 export default function Dashboard() {
   const [portfolio, setPortfolio] = useState(null)
+  const [portfolioError, setPortfolioError] = useState('')
+  const [dataError, setDataError] = useState('')
   const [bankBalance, setBankBalance] = useState(0)
   const [currentMonthInvoice, setCurrentMonthInvoice] = useState(0)
   const [currentMonthInvoiceItems, setCurrentMonthInvoiceItems] = useState([])
@@ -65,17 +80,16 @@ export default function Dashboard() {
   }, [])
 
   const fetchAllData = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
+    setDataError('')
 
     try {
-      const response = await fetch('http://localhost:5000/api/investments/portfolio', {
-        headers: { Authorization: `Bearer ${session.access_token}` }
-      })
-      const data = await response.json()
+      setPortfolioError('')
+      const data = await apiFetch('/api/investments/portfolio')
       setPortfolio(data)
     } catch (error) {
-      console.error('Erro ao buscar portfólio:', error)
+      console.warn('Erro ao buscar portfólio:', error)
+      setPortfolioError(error.message || 'Não foi possível carregar a carteira.')
+      setPortfolio(EMPTY_PORTFOLIO)
     }
 
     const today = new Date()
@@ -86,92 +100,100 @@ export default function Dashboard() {
     let nextYear = currentYear
     if (nextMonth > 12) {
       nextMonth = 1
-      nextYear++
+      nextYear += 1
     }
 
-    const [{ data: transData }, { data: ccData }] = await Promise.all([
-      supabase.from('transactions').select('*'),
-      supabase.from('cc_expenses').select('*, credit_cards(name)').eq('status', 'OPEN')
-    ])
+    let transData = []
+    let ccData = []
+
+    try {
+      const [transactions, creditExpenses] = await Promise.all([
+        transactionsApi.list(),
+        ccExpensesApi.list({ status: 'OPEN' }),
+      ])
+      transData = transactions || []
+      ccData = creditExpenses || []
+    } catch (error) {
+      console.warn('Erro ao buscar movimentações:', error)
+      setDataError(error.message || 'Não foi possível carregar movimentações e faturas.')
+      setExpensesByCategory([])
+      setCurrentMonthInvoiceItems([])
+      setCurrentMonthInvoice(0)
+      setInstallmentExpenses([])
+      return
+    }
 
     const categoryTotals = {}
     CATEGORIES.forEach((category) => {
       categoryTotals[category] = { cash: 0, credit: 0 }
     })
 
-    let calculatedBalance = 0
+    const calculatedBalance = transData.reduce((acc, curr) => {
+      return curr.type === 'INCOME'
+        ? acc + parseFloat(curr.amount)
+        : acc - parseFloat(curr.amount)
+    }, 0)
+    setBankBalance(calculatedBalance)
 
-    if (transData) {
-      calculatedBalance = transData.reduce((acc, curr) => {
-        return curr.type === 'INCOME'
-          ? acc + parseFloat(curr.amount)
-          : acc - parseFloat(curr.amount)
-      }, 0)
+    const currentMonthCashExpenses = transData.filter((transaction) => {
+      if (transaction.type !== 'EXPENSE') return false
+      if (transaction.category?.startsWith('Pagamento Fatura ')) return false
 
-      setBankBalance(calculatedBalance)
+      const [year, month] = transaction.date.split('-')
+      return parseInt(month) === currentMonth && parseInt(year) === currentYear
+    })
 
-      const currentMonthCashExpenses = transData.filter((transaction) => {
-        if (transaction.type !== 'EXPENSE') return false
-        if (transaction.category?.startsWith('Pagamento Fatura ')) return false
+    currentMonthCashExpenses.forEach((transaction) => {
+      const category = CATEGORIES.includes(transaction.category) ? transaction.category : 'Outros'
+      categoryTotals[category].cash += parseFloat(transaction.amount)
+    })
 
-        const [year, month] = transaction.date.split('-')
+    const currentMonthPurchases = ccData
+      .filter((expense) => {
+        if (!expense.purchase_date) return false
+        const [year, month] = expense.purchase_date.split('-')
         return parseInt(month) === currentMonth && parseInt(year) === currentYear
       })
-
-      currentMonthCashExpenses.forEach((transaction) => {
-        const category = CATEGORIES.includes(transaction.category) ? transaction.category : 'Outros'
-        categoryTotals[category].cash += parseFloat(transaction.amount)
-      })
-    }
-
-    if (ccData) {
-      const currentMonthPurchases = ccData
-        .filter((expense) => {
-          if (!expense.purchase_date) return false
-          const [year, month] = expense.purchase_date.split('-')
-          return parseInt(month) === currentMonth && parseInt(year) === currentYear
-        })
-        .reduce((acc, expense) => {
-          const key = getPurchaseGroupKey(expense)
-          if (!acc[key]) {
-            acc[key] = {
-              category: CATEGORIES.includes(expense.category) ? expense.category : 'Outros',
-              totalPurchaseAmount: 0
-            }
+      .reduce((acc, expense) => {
+        const key = getPurchaseGroupKey(expense)
+        if (!acc[key]) {
+          acc[key] = {
+            category: CATEGORIES.includes(expense.category) ? expense.category : 'Outros',
+            totalPurchaseAmount: 0,
           }
-          acc[key].totalPurchaseAmount += parseFloat(expense.amount)
-          return acc
-        }, {})
+        }
+        acc[key].totalPurchaseAmount += parseFloat(expense.amount)
+        return acc
+      }, {})
 
-      Object.values(currentMonthPurchases).forEach((purchase) => {
-        categoryTotals[purchase.category].credit += purchase.totalPurchaseAmount
+    Object.values(currentMonthPurchases).forEach((purchase) => {
+      categoryTotals[purchase.category].credit += purchase.totalPurchaseAmount
+    })
+
+    const currentMonthItems = ccData.filter((expense) => expense.invoice_month === nextMonth && expense.invoice_year === nextYear)
+    const currentMonthTotal = currentMonthItems.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
+
+    const openInstallments = ccData
+      .map((expense) => {
+        const installment = parseInstallmentInfo(expense.installment_info)
+        return {
+          ...expense,
+          installmentCurrent: installment.current,
+          installmentTotal: installment.total,
+        }
       })
+      .filter((expense) => expense.installmentTotal > 1)
 
-      const currentMonthItems = ccData.filter((expense) => expense.invoice_month === nextMonth && expense.invoice_year === nextYear)
-      const currentMonthTotal = currentMonthItems.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
-
-      const openInstallments = ccData
-        .map((expense) => {
-          const installment = parseInstallmentInfo(expense.installment_info)
-          return {
-            ...expense,
-            installmentCurrent: installment.current,
-            installmentTotal: installment.total
-          }
-        })
-        .filter((expense) => expense.installmentTotal > 1)
-
-      setCurrentMonthInvoiceItems(currentMonthItems)
-      setCurrentMonthInvoice(currentMonthTotal)
-      setInstallmentExpenses(openInstallments)
-    }
+    setCurrentMonthInvoiceItems(currentMonthItems)
+    setCurrentMonthInvoice(currentMonthTotal)
+    setInstallmentExpenses(openInstallments)
 
     const chartDataExpenses = Object.keys(categoryTotals)
       .map((category) => ({
         name: category,
         cash: Number(categoryTotals[category].cash.toFixed(2)),
         credit: Number(categoryTotals[category].credit.toFixed(2)),
-        value: Number((categoryTotals[category].cash + categoryTotals[category].credit).toFixed(2))
+        value: Number((categoryTotals[category].cash + categoryTotals[category].credit).toFixed(2)),
       }))
       .filter((item) => item.value > 0)
       .sort((a, b) => b.value - a.value)
@@ -188,25 +210,18 @@ export default function Dashboard() {
     setIsPayingCurrentInvoice(true)
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      await supabase.from('transactions').insert([{
-        user_id: user.id,
+      await transactionsApi.create({
         type: 'EXPENSE',
         amount: Number(currentMonthInvoice.toFixed(2)),
         date: getLocalDateString(),
         category: 'Pagamento Fatura do Mês',
-        description: 'Baixa da fatura total do mês pela dashboard'
-      }])
+        description: 'Baixa da fatura total do mês pela dashboard',
+      })
 
       const idsToUpdate = currentMonthInvoiceItems.map((item) => item.id)
 
       if (idsToUpdate.length > 0) {
-        await supabase
-          .from('cc_expenses')
-          .update({ status: 'PAID' })
-          .in('id', idsToUpdate)
+        await ccExpensesApi.updateStatus(idsToUpdate, 'PAID')
       }
 
       await fetchAllData()
@@ -237,7 +252,7 @@ export default function Dashboard() {
         item.card_id || 'sem-cartao',
         item.description || 'sem-descricao',
         item.purchase_date || 'sem-data',
-        item.category || 'sem-categoria'
+        item.category || 'sem-categoria',
       ].join('|')
 
       if (!acc[key]) {
@@ -251,7 +266,7 @@ export default function Dashboard() {
           remainingInstallments: 0,
           totalInstallments: item.installmentTotal,
           nextInvoiceMonth: item.invoice_month,
-          nextInvoiceYear: item.invoice_year
+          nextInvoiceYear: item.invoice_year,
         }
       }
 
@@ -282,233 +297,262 @@ export default function Dashboard() {
     }, { total: 0 })
   }, [groupedInstallmentExpenses])
 
-  if (!portfolio) return <div className="text-slate-500 animate-pulse p-8">Calculando painel financeiro...</div>
+  if (!portfolio) {
+    return (
+      <Panel className="p-6">
+        <div className="h-28 animate-pulse rounded-lg bg-zinc-100" />
+      </Panel>
+    )
+  }
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Visão Geral</h1>
-        <p className="text-slate-500 mt-1">Seu patrimônio, despesas por categoria e acompanhamento das parcelas abertas no cartão.</p>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Painel"
+        title="Visão geral"
+        description="Patrimônio, saldo disponível, despesas do mês e compromissos em aberto."
+      />
+
+      {portfolioError ? (
+        <AlertMessage tone="warning" message={`Não foi possível carregar os investimentos agora. Detalhe: ${portfolioError}`} />
+      ) : null}
+
+      {dataError ? (
+        <AlertMessage tone="danger" message={`Movimentações indisponíveis no momento. Detalhe: ${dataError}`} />
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          icon={Landmark}
+          tone="dark"
+          title="Patrimônio total"
+          value={formatCurrency(totalWealth)}
+          subtitle="Conta corrente + investimentos"
+        />
+        <MetricCard
+          icon={Wallet}
+          tone={bankBalance >= 0 ? 'success' : 'danger'}
+          title="Saldo em conta"
+          value={formatCurrency(bankBalance)}
+          valueClassName={bankBalance >= 0 ? 'text-zinc-950' : 'text-rose-600'}
+          subtitle="Saldo real calculado"
+        />
+        <MetricCard
+          icon={PiggyBank}
+          tone="info"
+          title="Investimentos"
+          value={formatCurrency(portfolio.current_balance)}
+          valueClassName="text-sky-700"
+          subtitle="Valor atual da carteira"
+        />
+        <MetricCard
+          icon={CalendarDays}
+          tone={dailyAvailable >= 0 ? 'success' : 'danger'}
+          title="Disponível por dia"
+          value={formatCurrency(dailyAvailable)}
+          valueClassName={dailyAvailable >= 0 ? 'text-emerald-700' : 'text-rose-600'}
+          subtitle={`${daysRemainingInMonth} dia(s) restantes no mês`}
+        />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 flex items-center gap-4 min-h-[132px] lg:col-span-3">
-          <div className="bg-blue-500 p-3 rounded-xl text-white"><Landmark size={24} /></div>
-          <div className="w-full">
-            <h3 className="text-xs font-medium text-slate-300">Patrimônio Total</h3>
-            <p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalWealth)}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 min-h-[132px] lg:col-span-3">
-          <div className="bg-slate-100 p-3 rounded-xl text-slate-600"><Wallet size={24} /></div>
-          <div className="w-full">
-            <h3 className="text-xs font-medium text-slate-500">Saldo em Conta</h3>
-            <p className={`text-2xl font-bold mt-1 ${bankBalance >= 0 ? 'text-slate-900' : 'text-red-500'}`}>{formatCurrency(bankBalance)}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 min-h-[132px] lg:col-span-3">
-          <div className="bg-blue-50 p-3 rounded-xl text-blue-600"><PiggyBank size={24} /></div>
-          <div className="w-full">
-            <h3 className="text-xs font-medium text-slate-500">Investimentos</h3>
-            <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(portfolio.current_balance)}</p>
-          </div>
-        </div>
-
-        <div className="lg:col-span-3 flex flex-col gap-4">
-          <div className="bg-emerald-50 p-9 rounded-2xl shadow-sm border border-emerald-100 flex items-center gap-3 min-h-[84px]">
-            <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-700"><CalendarDays size={20} /></div>
-            <div className="w-full">
-              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Disponível por dia</h3>
-              <p className={`text-base font-bold mt-0.5 ${dailyAvailable >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(dailyAvailable)}</p>
-              <p className="text-[10px] text-emerald-900/70 mt-1">{daysRemainingInMonth} dia(s) restantes no mês.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <div className="flex items-start justify-between gap-4 mb-6">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Despesas do Mês por Categoria</h2>
-              <p className="text-sm text-slate-500 mt-1">Dinheiro/conta e compras feitas no cartão no mês atual.</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-slate-500">Total do mês</p>
-              <p className="text-lg font-bold text-slate-800">{formatCurrency(expenseTotals.total)}</p>
-            </div>
-          </div>
-
-          {expensesByCategory.length > 0 ? (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Em dinheiro / conta</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(expenseTotals.cash)}</p>
-                </div>
-                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                  <p className="text-sm text-blue-700">Compras no cartão no mês</p>
-                  <p className="text-2xl font-bold text-blue-700 mt-1">{formatCurrency(expenseTotals.credit)}</p>
-                </div>
-              </div>
-
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={expensesByCategory} layout="vertical" margin={{ top: 8, right: 16, left: 16, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tickFormatter={(value) => `${Math.round(value)}`} />
-                    <YAxis dataKey="name" type="category" width={90} />
-                    <Tooltip
-                      formatter={(value, name) => [formatCurrency(value), name === 'cash' ? 'Dinheiro / Conta' : 'Cartão de Crédito']}
-                      labelFormatter={(label) => `Categoria: ${label}`}
-                    />
-                    <Legend formatter={(value) => value === 'cash' ? 'Dinheiro / Conta' : 'Cartão de Crédito'} />
-                    <Bar dataKey="cash" stackId="expenses" fill={PAYMENT_METHOD_COLORS.cash} radius={[4, 0, 0, 4]} />
-                    <Bar dataKey="credit" stackId="expenses" fill={PAYMENT_METHOD_COLORS.credit} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="space-y-3">
-                {expensesByCategory.map((item) => (
-                  <div key={item.name} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-semibold text-slate-800">{item.name}</p>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {item.cash > 0 && (
-                            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                              Dinheiro / Conta: {formatCurrency(item.cash)}
-                            </span>
-                          )}
-                          {item.credit > 0 && (
-                            <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                              Cartão: {formatCurrency(item.credit)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-base font-bold text-slate-900">{formatCurrency(item.value)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="h-72 flex flex-col items-center justify-center text-slate-400">
-              <p>Nenhuma despesa lançada neste mês.</p>
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-lg font-bold text-slate-800">Gastos Parcelados no Cartão</h2>
-                <p className="text-sm text-slate-500 mt-1">Compras unificadas com a quantidade de parcelas restantes.</p>
-              </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+        <Panel className="xl:col-span-3">
+          <PanelHeader
+            title="Despesas por categoria"
+            description="Comparativo entre conta corrente e cartão no mês atual."
+            actions={(
               <div className="text-right">
-                <p className="text-xs text-slate-500">Parcelado em aberto</p>
-                <p className="text-lg font-bold text-slate-800">{formatCurrency(installmentSummary.total)}</p>
-              </div>
-            </div>
-
-            {groupedInstallmentExpenses.length > 0 ? (
-              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-                {groupedInstallmentExpenses.map((expense) => (
-                  <div key={expense.key} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-semibold text-slate-800">{expense.description}</p>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                            {expense.cardName}
-                          </span>
-                          {/* Mostra a quantidade de parcelas e o valor unitário da parcela */}
-                          <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                            {expense.remainingInstallments} parcela(s) restante(s) de {formatCurrency(expense.installmentAmount)}
-                          </span>
-                        </div>
-                      </div>
-                      {/* Exibe o valor total restante daquela compra específica ao lado */}
-                      <div className="text-right">
-                        <p className="text-base font-bold text-slate-900 whitespace-nowrap">
-                          {formatCurrency(expense.installmentAmount * expense.remainingInstallments)}
-                        </p>
-                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Total Restante</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-center">
-                <p>Você não tem compras parceladas abertas no cartão.</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total</p>
+                <p className="text-lg font-bold text-zinc-950">{formatCurrency(expenseTotals.total)}</p>
               </div>
             )}
-          </div>
+          />
 
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <div className="flex items-start justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-lg font-bold text-slate-800">Fatura deste Mês</h2>
-                <p className="text-sm text-slate-500 mt-1">Total em aberto no mês atual com opção de pagamento direto.</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-slate-500">Em aberto agora</p>
-                <p className={`text-2xl font-bold mt-1 ${currentMonthInvoice > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                  {formatCurrency(currentMonthInvoice)}
-                </p>
-              </div>
-            </div>
-
-            {currentMonthInvoice > 0 ? (
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
-                  {/* Se já aplicaste a alteração anterior, mantém o teu texto atualizado aqui */}
-                  <p className="text-sm text-red-700">A fatura do mês considera todas as despesas abertas cujo vencimento está programado para o mês seguinte.</p>
-                  <p className="text-xs text-red-600 mt-2">{currentMonthInvoiceItems.length} lançamento(s) compõem essa fatura.</p>
+          <div className="p-5">
+            {expensesByCategory.length > 0 ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <InlineStat label="Conta corrente" value={formatCurrency(expenseTotals.cash)} tone="neutral" />
+                  <InlineStat label="Cartão de crédito" value={formatCurrency(expenseTotals.credit)} tone="info" />
                 </div>
 
-                {/* --- NOVO: Lista de Resumo dos Gastos da Fatura --- */}
-                <div className="max-h-48 overflow-y-auto pr-2 space-y-2">
-                  {currentMonthInvoiceItems.map((item) => (
-                    <div key={item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
-                      <div className="overflow-hidden">
-                        <p className="text-sm font-medium text-slate-800 truncate">{item.description}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {item.credit_cards?.name || 'Cartão'} 
-                          {item.installment_info && item.installment_info !== '1/1' ? ` • ${item.installment_info}` : ''}
-                        </p>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={expensesByCategory} layout="vertical" margin={{ top: 8, right: 18, left: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e4e4e7" />
+                      <XAxis type="number" tickFormatter={(value) => `${Math.round(value)}`} tick={{ fill: '#71717a', fontSize: 12 }} />
+                      <YAxis dataKey="name" type="category" width={96} tick={{ fill: '#52525b', fontSize: 12 }} />
+                      <Tooltip
+                        formatter={(value, name) => [formatCurrency(value), name === 'cash' ? 'Conta corrente' : 'Cartão']}
+                        labelFormatter={(label) => `Categoria: ${label}`}
+                        contentStyle={{ borderRadius: 8, borderColor: '#d4d4d8' }}
+                      />
+                      <Legend formatter={(value) => value === 'cash' ? 'Conta corrente' : 'Cartão'} />
+                      <Bar dataKey="cash" stackId="expenses" fill={PAYMENT_METHOD_COLORS.cash} radius={[4, 0, 0, 4]} />
+                      <Bar dataKey="credit" stackId="expenses" fill={PAYMENT_METHOD_COLORS.credit} radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="space-y-3">
+                  {expensesByCategory.map((item) => {
+                    const percentage = expenseTotals.total > 0 ? (item.value / expenseTotals.total) * 100 : 0
+                    return (
+                      <div key={item.name} className="rounded-lg border border-zinc-200 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-zinc-900">{item.name}</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {item.cash > 0 ? <Badge>Conta: {formatCurrency(item.cash)}</Badge> : null}
+                              {item.credit > 0 ? <Badge tone="info">Cartão: {formatCurrency(item.credit)}</Badge> : null}
+                            </div>
+                          </div>
+                          <p className="whitespace-nowrap text-base font-bold text-zinc-950">{formatCurrency(item.value)}</p>
+                        </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
+                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(percentage, 100)}%` }} />
+                        </div>
                       </div>
-                      <span className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">
-                        {formatCurrency(item.amount)}
-                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                icon={Receipt}
+                title="Nenhuma despesa no mês"
+                message="As categorias aparecem assim que houver movimentações ou compras abertas."
+              />
+            )}
+          </div>
+        </Panel>
+
+        <div className="space-y-6 xl:col-span-2">
+          <Panel>
+            <PanelHeader
+              title="Parcelamentos abertos"
+              description="Compras agrupadas por cartão e compra original."
+              actions={<Badge tone="warning">{formatCurrency(installmentSummary.total)}</Badge>}
+            />
+
+            <div className="p-5">
+              {groupedInstallmentExpenses.length > 0 ? (
+                <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
+                  {groupedInstallmentExpenses.map((expense) => (
+                    <div key={expense.key} className="rounded-lg border border-zinc-200 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-zinc-900">{expense.description}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Badge tone="info">{expense.cardName}</Badge>
+                            <Badge>{expense.remainingInstallments}x de {formatCurrency(expense.installmentAmount)}</Badge>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="whitespace-nowrap font-bold text-zinc-950">
+                            {formatCurrency(expense.installmentAmount * expense.remainingInstallments)}
+                          </p>
+                          <p className="mt-1 text-xs font-medium uppercase tracking-wide text-zinc-400">Restante</p>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <EmptyState
+                  icon={ListChecks}
+                  title="Sem parcelamentos"
+                  message="Compras parceladas abertas aparecerão neste painel."
+                />
+              )}
+            </div>
+          </Panel>
 
-                <button
-                  onClick={handlePayCurrentMonthInvoice}
-                  disabled={isPayingCurrentInvoice}
-                  className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl py-3 font-medium transition flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 size={18} />
-                  {isPayingCurrentInvoice ? 'Pagando fatura...' : 'Pagar fatura deste mês'}
-                </button>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-center">
-                <p className="font-semibold text-emerald-700">Nenhuma fatura aberta neste mês.</p>
-                <p className="text-sm text-emerald-600 mt-1">Tudo certo por aqui.</p>
-              </div>
-            )}
-          </div>
+          <Panel>
+            <PanelHeader
+              title="Próxima fatura"
+              description="Total aberto com vencimento no próximo ciclo."
+              actions={(
+                <p className={cx('text-xl font-bold', currentMonthInvoice > 0 ? 'text-rose-600' : 'text-emerald-700')}>
+                  {formatCurrency(currentMonthInvoice)}
+                </p>
+              )}
+            />
+
+            <div className="p-5">
+              {currentMonthInvoice > 0 ? (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                    <CreditCard className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-semibold">{currentMonthInvoiceItems.length} lançamento(s) em aberto</p>
+                      <p className="mt-1 text-rose-600">O pagamento cria uma saída bancária e baixa os itens da fatura.</p>
+                    </div>
+                  </div>
+
+                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                    {currentMonthInvoiceItems.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-zinc-900">{item.description}</p>
+                          <p className="mt-0.5 text-xs text-zinc-500">
+                            {item.credit_cards?.name || 'Cartão'}
+                            {item.installment_info && item.installment_info !== '1/1' ? ` • ${item.installment_info}` : ''}
+                          </p>
+                        </div>
+                        <span className="whitespace-nowrap text-sm font-bold text-zinc-950">
+                          {formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Button
+                    type="button"
+                    onClick={handlePayCurrentMonthInvoice}
+                    loading={isPayingCurrentInvoice}
+                    icon={CheckCircle2}
+                    className="w-full"
+                  >
+                    Pagar fatura
+                  </Button>
+                </div>
+              ) : (
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Nenhuma fatura aberta"
+                  message="Não há lançamentos previstos para o próximo ciclo."
+                  className="min-h-40"
+                />
+              )}
+            </div>
+          </Panel>
         </div>
       </div>
+    </div>
+  )
+}
+
+function AlertMessage({ tone, message }) {
+  const classes = tone === 'danger'
+    ? 'border-rose-200 bg-rose-50 text-rose-700'
+    : 'border-amber-200 bg-amber-50 text-amber-800'
+
+  return (
+    <div className={cx('flex items-start gap-3 rounded-lg border px-4 py-3 text-sm font-medium', classes)}>
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{message}</span>
+    </div>
+  )
+}
+
+function InlineStat({ label, value, tone }) {
+  const toneClass = tone === 'info' ? 'text-sky-700' : 'text-zinc-950'
+
+  return (
+    <div className="rounded-lg border border-zinc-200 px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={cx('mt-1 text-xl font-bold', toneClass)}>{value}</p>
     </div>
   )
 }

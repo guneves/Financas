@@ -1,6 +1,30 @@
-import { useMemo, useState, useEffect } from 'react'
-import { supabase } from '../lib/supabaseClient'
-import { Wallet, Trash2, CreditCard, Calendar, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  Banknote,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
+  Landmark,
+  Plus,
+  Receipt,
+  Trash2,
+  Wallet,
+} from 'lucide-react'
+import { ccExpensesApi, creditCardsApi, transactionsApi } from '../lib/dataApi'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  MetricCard,
+  PageHeader,
+  Panel,
+  PanelHeader,
+  SegmentedControl,
+  cx,
+} from '../components/ui'
 
 const CATEGORY_OPTIONS = ['Receita', 'Investimento', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 
@@ -36,7 +60,7 @@ function parseInstallmentInfo(value) {
 
   return {
     current: Number.isFinite(current) ? current : 1,
-    total: Number.isFinite(total) ? total : 1
+    total: Number.isFinite(total) ? total : 1,
   }
 }
 
@@ -48,7 +72,7 @@ function getPurchaseGroupKey(expense) {
     expense.purchase_date || 'sem-data',
     expense.category || 'sem-categoria',
     Number(parseFloat(expense.amount || 0).toFixed(2)),
-    installment.total
+    installment.total,
   ].join('|')
 }
 
@@ -57,7 +81,10 @@ function formatInvoiceLabel(month, year) {
 }
 
 function formatCurrency(value) {
-  return `R$ ${Number(value || 0).toFixed(2)}`
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(Number(value || 0))
 }
 
 export default function Transactions() {
@@ -105,10 +132,7 @@ export default function Transactions() {
   }, [])
 
   const fetchData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: tData } = await supabase.from('transactions').select('*').order('date', { ascending: false })
+    const tData = await transactionsApi.list()
     let currentBalance = 0
     if (tData) {
       setTransactions(tData)
@@ -119,18 +143,13 @@ export default function Transactions() {
       localStorage.setItem('@financeMVP:balance', currentBalance.toString())
     }
 
-    const { data: cData } = await supabase.from('credit_cards').select('*')
+    const cData = await creditCardsApi.list()
     if (cData) {
       setCards(cData)
       localStorage.setItem('@financeMVP:cards', JSON.stringify(cData))
     }
 
-    const { data: ccData } = await supabase
-      .from('cc_expenses')
-      .select(`*, credit_cards(name, due_day, closing_day)`)
-      .eq('status', 'OPEN')
-      .order('invoice_year', { ascending: true })
-      .order('invoice_month', { ascending: true })
+    const ccData = await ccExpensesApi.list({ status: 'OPEN' })
 
     if (ccData) {
       setCcExpenses(ccData)
@@ -144,7 +163,7 @@ export default function Transactions() {
       let nextYear = currentYear
       if (nextMonth > 12) {
         nextMonth = 1
-        nextYear++
+        nextYear += 1
       }
 
       const totalOpenCredit = ccData.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
@@ -179,7 +198,7 @@ export default function Transactions() {
           cardName: expense.credit_cards?.name || 'Cartão',
           dueDay: expense.credit_cards?.due_day,
           closingDay: expense.credit_cards?.closing_day,
-          invoices: {}
+          invoices: {},
         }
       }
 
@@ -189,7 +208,7 @@ export default function Transactions() {
           invoiceMonth: expense.invoice_month,
           invoiceYear: expense.invoice_year,
           total: 0,
-          purchases: {}
+          purchases: {},
         }
       }
 
@@ -207,10 +226,10 @@ export default function Transactions() {
           purchase_date: expense.purchase_date,
           amount: parseFloat(expense.amount),
           installmentCurrent: installment.current,
-          installmentTotal: installment.total
+          installmentTotal: installment.total,
         }
       }
-    return acc
+      return acc
     }, {})
 
     return Object.values(groupedByCard)
@@ -221,89 +240,81 @@ export default function Transactions() {
           return a.invoiceMonth - b.invoiceMonth
         }).map((invoice) => ({
           ...invoice,
-          purchases: Object.values(invoice.purchases).sort((a, b) => a.description.localeCompare(b.description))
-        }))
+          purchases: Object.values(invoice.purchases).sort((a, b) => a.description.localeCompare(b.description)),
+        })),
       }))
       .sort((a, b) => a.cardName.localeCompare(b.cardName))
   }, [ccExpenses])
 
-  const handleBankSubmit = async (e) => {
-    e.preventDefault()
-    const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('transactions').insert([{
-      user_id: user.id,
+  const handleBankSubmit = async (event) => {
+    event.preventDefault()
+    await transactionsApi.create({
       amount: parseFloat(transForm.amount),
       date: transForm.date,
       category: transForm.category,
       description: transForm.description,
-      type: transForm.type
-    }])
+      type: transForm.type,
+    })
     setTransForm({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
     fetchData()
   }
 
-  const handleDueDayChange = (e) => {
-    const due = parseInt(e.target.value)
+  const handleDueDayChange = (event) => {
+    const due = parseInt(event.target.value)
     let closing = ''
-    if (!isNaN(due)) {
+    if (!Number.isNaN(due)) {
       closing = due - 7
-      if (closing <= 0) closing += 30 
+      if (closing <= 0) closing += 30
     }
-    setCardForm({ ...cardForm, due_day: e.target.value, closing_day: closing.toString() })
+    setCardForm({ ...cardForm, due_day: event.target.value, closing_day: closing.toString() })
   }
 
-  const handleCreateCard = async (e) => {
-    e.preventDefault()
-    const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('credit_cards').insert([{ 
-      user_id: user.id, 
-      name: cardForm.name, 
+  const handleCreateCard = async (event) => {
+    event.preventDefault()
+    await creditCardsApi.create({
+      name: cardForm.name,
       due_day: parseInt(cardForm.due_day),
-      closing_day: parseInt(cardForm.closing_day)
-    }])
+      closing_day: parseInt(cardForm.closing_day),
+    })
     setCardForm({ name: '', due_day: '', closing_day: '' })
     fetchData()
   }
 
-  const handleCCExpenseSubmit = async (e) => {
-    e.preventDefault()
-    const { data: { user } } = await supabase.auth.getUser()
+  const handleCCExpenseSubmit = async (event) => {
+    event.preventDefault()
     const totalAmount = parseFloat(expenseForm.total_amount)
     const installmentsCount = parseInt(expenseForm.installments)
     const amountPerInstallment = totalAmount / installmentsCount
 
-    const selectedCard = cards.find(c => c.id === expenseForm.card_id);
-    const dueDay = selectedCard.due_day;
-    const closingDay = selectedCard.closing_day || (dueDay - 7 > 0 ? dueDay - 7 : 30 + (dueDay - 7)); 
+    const selectedCard = cards.find((card) => card.id === expenseForm.card_id)
+    const dueDay = selectedCard.due_day
+    const closingDay = selectedCard.closing_day || (dueDay - 7 > 0 ? dueDay - 7 : 30 + (dueDay - 7))
 
-    const purchaseDate = parseLocalDate(expenseForm.purchase_date);
-    const purchaseDay = purchaseDate.getDate();
-    
-    let invoiceMonth = purchaseDate.getMonth() + 1; // 1 a 12
-    let invoiceYear = purchaseDate.getFullYear();
+    const purchaseDate = parseLocalDate(expenseForm.purchase_date)
+    const purchaseDay = purchaseDate.getDate()
+
+    let invoiceMonth = purchaseDate.getMonth() + 1
+    let invoiceYear = purchaseDate.getFullYear()
 
     if (closingDay < dueDay) {
-      if (purchaseDay >= closingDay) invoiceMonth += 1;
+      if (purchaseDay >= closingDay) invoiceMonth += 1
+    } else if (purchaseDay < closingDay) {
+      invoiceMonth += 1
     } else {
-      if (purchaseDay < closingDay) {
-        invoiceMonth += 1;
-      } else {
-        invoiceMonth += 2;
-      }
+      invoiceMonth += 2
     }
 
     while (invoiceMonth > 12) {
-      invoiceMonth -= 12;
-      invoiceYear += 1;
+      invoiceMonth -= 12
+      invoiceYear += 1
     }
 
-    let currentMonth = invoiceMonth;
-    let currentYear = invoiceYear;
+    let currentMonth = invoiceMonth
+    let currentYear = invoiceYear
 
     const inserts = []
-    for (let i = 1; i <= installmentsCount; i++) {
+    for (let i = 1; i <= installmentsCount; i += 1) {
       inserts.push({
-        user_id: user.id,
         card_id: expenseForm.card_id,
         category: expenseForm.category,
         description: expenseForm.description,
@@ -312,65 +323,57 @@ export default function Transactions() {
         invoice_month: currentMonth,
         invoice_year: currentYear,
         installment_info: `${i}/${installmentsCount}`,
-        status: 'OPEN'
+        status: 'OPEN',
       })
-      currentMonth++
+      currentMonth += 1
       if (currentMonth > 12) {
         currentMonth = 1
-        currentYear++
+        currentYear += 1
       }
     }
 
-    await supabase.from('cc_expenses').insert(inserts)
+    await ccExpensesApi.create(inserts)
     setExpenseForm({ card_id: cards[0]?.id || '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
     fetchData()
   }
 
   const handlePayInvoice = async (invoice, cardGroup) => {
     if (!window.confirm(`Deseja pagar a fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} do cartão ${cardGroup.cardName} no valor de ${formatCurrency(invoice.total)}?`)) return
-    const { data: { user } } = await supabase.auth.getUser()
 
-    await supabase.from('transactions').insert([{
-      user_id: user.id,
+    await transactionsApi.create({
       type: 'EXPENSE',
       amount: Number(invoice.total.toFixed(2)),
       date: getLocalDateString(),
       category: `Pagamento Fatura ${cardGroup.cardName}`,
-      description: `Fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}`
-    }])
+      description: `Fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}`,
+    })
 
-    await supabase
-      .from('cc_expenses')
-      .update({ status: 'PAID' })
-      .eq('card_id', cardGroup.cardId)
-      .eq('invoice_month', invoice.invoiceMonth)
-      .eq('invoice_year', invoice.invoiceYear)
-      .eq('status', 'OPEN')
+    await ccExpensesApi.updateInvoiceStatus({
+      card_id: cardGroup.cardId,
+      invoice_month: invoice.invoiceMonth,
+      invoice_year: invoice.invoiceYear,
+      status: 'PAID',
+      current_status: 'OPEN',
+    })
 
     fetchData()
   }
 
   const handleDeleteTransaction = async (id) => {
-    if (!window.confirm('Deseja realmente eliminar esta transação? O saldo será recalculado.')) return
-    const { error } = await supabase.from('transactions').delete().eq('id', id)
-    if (!error) fetchData()
+    if (!window.confirm('Deseja realmente excluir esta transação? O saldo será recalculado.')) return
+    await transactionsApi.remove(id)
+    fetchData()
   }
 
   const handleDeleteCCPurchase = async (purchase) => {
     if (!window.confirm(`Deseja excluir a compra "${purchase.description}" e eliminar todas as faturas vinculadas a ela?`)) return
 
-    const { data: candidates, error: selectError } = await supabase
-      .from('cc_expenses')
-      .select('id, amount, installment_info')
-      .eq('card_id', purchase.card_id)
-      .eq('description', purchase.description)
-      .eq('purchase_date', purchase.purchase_date)
-      .eq('category', purchase.category)
-
-    if (selectError) {
-      alert('Erro ao localizar a compra: ' + selectError.message)
-      return
-    }
+    const candidates = await ccExpensesApi.candidates({
+      card_id: purchase.card_id,
+      description: purchase.description,
+      purchase_date: purchase.purchase_date,
+      category: purchase.category,
+    })
 
     const idsToDelete = (candidates || [])
       .filter((item) => {
@@ -385,286 +388,319 @@ export default function Transactions() {
       return
     }
 
-    const { error: deleteError } = await supabase
-      .from('cc_expenses')
-      .delete()
-      .in('id', idsToDelete)
-
-    if (deleteError) {
-      alert('Erro ao excluir a compra parcelada: ' + deleteError.message)
-      return
-    }
-
+    await ccExpensesApi.removeMany(idsToDelete)
     fetchData()
   }
 
   const handleDeleteCard = async (id, name) => {
-    if (!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas (abertas e pagas) vinculadas a ele. Esta ação não pode ser desfeita.`)) return
+    if (!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas vinculadas a ele. Esta ação não pode ser desfeita.`)) return
 
-    await supabase.from('cc_expenses').delete().eq('card_id', id)
-    const { error } = await supabase.from('credit_cards').delete().eq('id', id)
-
-    if (error) {
-      alert('Erro ao excluir cartão: ' + error.message)
-    } else {
+    try {
+      await creditCardsApi.remove(id)
       fetchData()
+    } catch (error) {
+      alert('Erro ao excluir cartão: ' + error.message)
     }
   }
 
   const getInvoiceStatus = (year, month, dueDay) => {
     const today = getNow()
     const dueDate = new Date(year, month - 1, dueDay)
-    if (today > dueDate) return <span className="text-red-600 font-bold text-xs bg-red-100 px-2 py-1 rounded-md">Em Atraso</span>
-    return <span className="text-yellow-600 font-bold text-xs bg-yellow-100 px-2 py-1 rounded-md">Aberta</span>
+    if (today > dueDate) return <Badge tone="danger">Em atraso</Badge>
+    return <Badge tone="warning">Aberta</Badge>
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row gap-6">
-        <div className="flex-1 space-y-4">
-          <h1 className="text-3xl font-bold text-slate-800">Movimentações</h1>
-          <div className="flex bg-slate-200 p-1 rounded-lg w-fit">
-            <button onClick={() => setActiveTab('CONTA')} className={`px-4 py-2 rounded-md font-medium transition ${activeTab === 'CONTA' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-slate-300'}`}>Conta Corrente</button>
-            <button onClick={() => setActiveTab('CARTOES')} className={`px-4 py-2 rounded-md font-medium transition ${activeTab === 'CARTOES' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:bg-slate-300'}`}>Cartões de Crédito</button>
-          </div>
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Operação"
+        title="Movimentações"
+        description="Lançamentos bancários, cartões e faturas em aberto."
+        actions={(
+          <SegmentedControl
+            value={activeTab}
+            onChange={setActiveTab}
+            items={[
+              { value: 'CONTA', label: 'Conta corrente', icon: Wallet },
+              { value: 'CARTOES', label: 'Cartões', icon: CreditCard },
+            ]}
+          />
+        )}
+      />
 
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-lg min-w-[200px]">
-            <p className="text-sm font-medium text-slate-400">Saldo Atual (Real)</p>
-            <p className={`text-2xl font-bold ${balance >= 0 ? 'text-white' : 'text-red-400'}`}>R$ {balance.toFixed(2)}</p>
-          </div>
-
-          <div className="bg-white border border-blue-200 p-5 rounded-2xl shadow-sm min-w-[220px]">
-            <p className="text-sm font-medium text-blue-600">Proj. (Até Próx. Mês)</p>
-            <p className={`text-2xl font-bold ${projectedBalanceNextMonth >= 0 ? 'text-blue-600' : 'text-red-500'}`} title="Desconta faturas deste mês e do próximo.">
-              R$ {projectedBalanceNextMonth.toFixed(2)}
-            </p>
-          </div>
-
-          <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl shadow-sm min-w-[220px]">
-            <p className="text-sm font-medium text-slate-500">Proj. (Global)</p>
-            <p className={`text-2xl font-bold ${projectedBalanceGlobal >= 0 ? 'text-slate-800' : 'text-red-500'}`} title="Desconta todas as faturas futuras (incluindo parcelas longas).">
-              R$ {projectedBalanceGlobal.toFixed(2)}
-            </p>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <MetricCard
+          icon={Landmark}
+          tone={balance >= 0 ? 'success' : 'danger'}
+          title="Saldo atual"
+          value={formatCurrency(balance)}
+          valueClassName={balance >= 0 ? 'text-zinc-950' : 'text-rose-600'}
+          subtitle="Movimentações confirmadas"
+        />
+        <MetricCard
+          icon={Banknote}
+          tone={projectedBalanceNextMonth >= 0 ? 'info' : 'danger'}
+          title="Projeção próximo mês"
+          value={formatCurrency(projectedBalanceNextMonth)}
+          valueClassName={projectedBalanceNextMonth >= 0 ? 'text-sky-700' : 'text-rose-600'}
+          subtitle="Inclui faturas próximas"
+        />
+        <MetricCard
+          icon={Receipt}
+          tone={projectedBalanceGlobal >= 0 ? 'neutral' : 'danger'}
+          title="Projeção global"
+          value={formatCurrency(projectedBalanceGlobal)}
+          valueClassName={projectedBalanceGlobal >= 0 ? 'text-zinc-950' : 'text-rose-600'}
+          subtitle="Inclui parcelamentos futuros"
+        />
       </div>
 
-      {activeTab === 'CONTA' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <form onSubmit={handleBankSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-6 gap-4">
-            <select value={transForm.type} onChange={e => setTransForm({ ...transForm, type: e.target.value })} className="p-2 border rounded-lg bg-white">
-              <option value="EXPENSE">Saída Bancária (-)</option>
-              <option value="INCOME">Entrada Bancária (+)</option>
-            </select>
-            <input type="number" step="0.01" placeholder="Valor (R$)" value={transForm.amount} onChange={e => setTransForm({ ...transForm, amount: e.target.value })} className="p-2 border rounded-lg" required />
-            <input type="date" value={transForm.date} onChange={e => setTransForm({ ...transForm, date: e.target.value })} className="p-2 border rounded-lg" required />
+      {activeTab === 'CONTA' ? (
+        <div className="space-y-6">
+          <Panel>
+            <PanelHeader title="Lançamento bancário" description="Registre entradas e saídas da conta corrente." />
+            <form onSubmit={handleBankSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-6">
+              <Field label="Tipo">
+                <select value={transForm.type} onChange={(event) => setTransForm({ ...transForm, type: event.target.value })} className="app-select">
+                  <option value="EXPENSE">Saída bancária</option>
+                  <option value="INCOME">Entrada bancária</option>
+                </select>
+              </Field>
+              <Field label="Valor">
+                <input type="number" step="0.01" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className="app-input" required />
+              </Field>
+              <Field label="Data">
+                <input type="date" value={transForm.date} onChange={(event) => setTransForm({ ...transForm, date: event.target.value })} className="app-input" required />
+              </Field>
+              <Field label="Categoria">
+                <select value={transForm.category} onChange={(event) => setTransForm({ ...transForm, category: event.target.value })} className="app-select" required>
+                  <option value="">Selecione...</option>
+                  {CATEGORY_OPTIONS.map((category) => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Descrição" className="md:col-span-1">
+                <input type="text" placeholder="Ex: Mercado" value={transForm.description} onChange={(event) => setTransForm({ ...transForm, description: event.target.value })} className="app-input" required />
+              </Field>
+              <div className="flex items-end">
+                <Button type="submit" icon={Plus} className="w-full">Lançar</Button>
+              </div>
+            </form>
+          </Panel>
 
-            <select value={transForm.category} onChange={e => setTransForm({ ...transForm, category: e.target.value })} className="p-2 border rounded-lg bg-white" required>
-              <option value="">Selecione a Categoria...</option>
-              {CATEGORY_OPTIONS.map((category) => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
-
-            <input type="text" placeholder="Descrição (Ex: Mercado)" value={transForm.description} onChange={e => setTransForm({ ...transForm, description: e.target.value })} className="p-2 border rounded-lg" required />
-            <button type="submit" className="bg-blue-600 text-white rounded-lg py-2 hover:bg-blue-700">Lançar</button>
-          </form>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b text-slate-600 text-sm">
-                  <th className="p-4">Data</th>
-                  <th className="p-4">Categoria</th>
-                  <th className="p-4">Descrição</th>
-                  <th className="p-4">Movimentação</th>
-                  <th className="p-4">Valor</th>
-                  <th className="p-4 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map(t => (
-                  <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="p-4 text-slate-600">{formatDateBR(t.date)}</td>
-                    <td className="p-4 font-medium">{t.category}</td>
-                    <td className="p-4">{t.description}</td>
-                    <td className="p-4">{t.type === 'INCOME' ? <span className="text-green-600">Entrada</span> : <span className="text-red-600">Saída</span>}</td>
-                    <td className={`p-4 font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-slate-800'}`}>{t.type === 'INCOME' ? '+' : '-'} R$ {parseFloat(t.amount).toFixed(2)}</td>
-                    <td className="p-4 text-right">
-                      <button onClick={() => handleDeleteTransaction(t.id)} className="text-slate-400 hover:text-red-500 transition">
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Panel>
+            <PanelHeader
+              title="Extrato da conta"
+              description="Últimas movimentações registradas."
+              actions={<Badge>{transactions.length} registro(s)</Badge>}
+            />
+            {transactions.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="app-table min-w-[760px]">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Categoria</th>
+                      <th>Descrição</th>
+                      <th>Tipo</th>
+                      <th>Valor</th>
+                      <th className="text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.map((transaction) => (
+                      <tr key={transaction.id}>
+                        <td className="text-zinc-600">{formatDateBR(transaction.date)}</td>
+                        <td className="font-medium text-zinc-800">{transaction.category}</td>
+                        <td className="text-zinc-700">{transaction.description}</td>
+                        <td>
+                          {transaction.type === 'INCOME' ? <Badge tone="success">Entrada</Badge> : <Badge tone="danger">Saída</Badge>}
+                        </td>
+                        <td className={cx('font-bold', transaction.type === 'INCOME' ? 'text-emerald-700' : 'text-zinc-950')}>
+                          {transaction.type === 'INCOME' ? '+' : '-'} {formatCurrency(transaction.amount)}
+                        </td>
+                        <td className="text-right">
+                          <IconButton label="Excluir transação" icon={Trash2} variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-5">
+                <EmptyState icon={Receipt} title="Nenhuma movimentação" message="Os lançamentos bancários aparecerão no extrato." />
+              </div>
+            )}
+          </Panel>
         </div>
-      )}
+      ) : null}
 
-      {activeTab === 'CARTOES' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 col-span-1 h-fit">
-              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CreditCard size={20} /> Gerenciar Cartões</h3>
+      {activeTab === 'CARTOES' ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <Panel className="h-fit">
+              <PanelHeader title="Cartões" description="Vencimento e fechamento de cada cartão." />
 
-              <form onSubmit={handleCreateCard} className="space-y-4 mb-6">
-                <input type="text" placeholder="Nome do Cartão (ex: Nubank)" value={cardForm.name} onChange={e => setCardForm({ ...cardForm, name: e.target.value })} className="w-full p-2 border rounded-lg" required />
-                
-                <div className="flex gap-2">
-                  <input type="number" min="1" max="31" placeholder="Vencimento" title="Dia do Vencimento" value={cardForm.due_day} onChange={handleDueDayChange} className="w-1/2 p-2 border rounded-lg" required />
-                  <input type="number" min="1" max="31" placeholder="Fechamento" title="Dia do Fechamento" value={cardForm.closing_day} onChange={e => setCardForm({ ...cardForm, closing_day: e.target.value })} className="w-1/2 p-2 border rounded-lg" required />
+              <form onSubmit={handleCreateCard} className="space-y-4 p-5">
+                <Field label="Nome do cartão">
+                  <input type="text" placeholder="Ex: Nubank" value={cardForm.name} onChange={(event) => setCardForm({ ...cardForm, name: event.target.value })} className="app-input" required />
+                </Field>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Vencimento">
+                    <input type="number" min="1" max="31" placeholder="Dia" value={cardForm.due_day} onChange={handleDueDayChange} className="app-input" required />
+                  </Field>
+                  <Field label="Fechamento">
+                    <input type="number" min="1" max="31" placeholder="Dia" value={cardForm.closing_day} onChange={(event) => setCardForm({ ...cardForm, closing_day: event.target.value })} className="app-input" required />
+                  </Field>
                 </div>
-                
-                <button type="submit" className="w-full bg-slate-800 text-white rounded-lg py-2 hover:bg-slate-900 transition">Salvar Cartão</button>
+
+                <Button type="submit" variant="dark" icon={Plus} className="w-full">Salvar cartão</Button>
               </form>
 
-              {cards.length > 0 && (
-                <div className="pt-4 border-t border-slate-100 space-y-3">
-                  <h4 className="text-sm font-semibold text-slate-500">Meus Cartões</h4>
-                  <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                    {cards.map(c => (
-                      <div key={c.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100 hover:border-slate-200 transition">
-                        <div>
-                          <p className="text-sm font-bold text-slate-700">{c.name}</p>
-                          <p className="text-xs text-slate-500">Vence dia {c.due_day} • Fecha dia {c.closing_day}</p>
+              <div className="border-t border-zinc-100 p-5">
+                {cards.length > 0 ? (
+                  <div className="space-y-2">
+                    {cards.map((card) => (
+                      <div key={card.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-zinc-800">{card.name}</p>
+                          <p className="mt-0.5 text-xs text-zinc-500">Vence dia {card.due_day} • Fecha dia {card.closing_day}</p>
                         </div>
-                        <button onClick={() => handleDeleteCard(c.id, c.name)} className="text-slate-400 hover:text-red-500 p-1 transition" title="Excluir Cartão">
-                          <Trash2 size={18} />
-                        </button>
+                        <IconButton label="Excluir cartão" icon={Trash2} variant="danger" onClick={() => handleDeleteCard(card.id, card.name)} />
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-200 col-span-2">
-              <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><Wallet size={20} /> Lançar Compra no Crédito</h3>
-              {cards.length === 0 ? (
-                <div className="text-slate-500 bg-slate-50 p-4 rounded-lg">Cadastre um cartão primeiro para lançar compras.</div>
-              ) : (
-                <form onSubmit={handleCCExpenseSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <select value={expenseForm.card_id} onChange={e => setExpenseForm({ ...expenseForm, card_id: e.target.value })} className="p-2 border rounded-lg" required>
-                    <option value="">Selecione o Cartão...</option>
-                    {cards.map(c => <option key={c.id} value={c.id}>{c.name} (Vence dia {c.due_day})</option>)}
-                  </select>
-                  <select value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })} className="p-2 border rounded-lg bg-white" required>
-                    <option value="">Selecione a Categoria...</option>
-                    {CATEGORY_OPTIONS.filter(category => category !== 'Receita').map((category) => (
-                      <option key={category} value={category}>{category}</option>
-                    ))}
-                  </select>
-                  <input type="text" placeholder="O que você comprou?" value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} className="p-2 border rounded-lg" required />
-                  <input type="number" step="0.01" placeholder="Valor TOTAL da Compra" value={expenseForm.total_amount} onChange={e => setExpenseForm({ ...expenseForm, total_amount: e.target.value })} className="p-2 border rounded-lg" required />
-                  <div className="flex gap-2">
-                    <input type="date" title="Data da Compra" value={expenseForm.purchase_date} onChange={e => setExpenseForm({ ...expenseForm, purchase_date: e.target.value })} className="flex-1 p-2 border rounded-lg" required />
-                    <input type="number" min="1" max="48" title="Qtd de Parcelas" placeholder="Parcelas" value={expenseForm.installments} onChange={e => setExpenseForm({ ...expenseForm, installments: e.target.value })} className="w-24 p-2 border rounded-lg" required />
-                  </div>
-                  <button type="submit" className="col-span-1 md:col-span-2 bg-blue-600 text-white rounded-lg py-2 hover:bg-blue-700">Registrar Compra Parcelada</button>
-                </form>
-              )}
-            </div>
-          </div>
-
-          {openInvoicesByCard.map((cardGroup) => {
-              const isExpanded = expandedCards.includes(cardGroup.cardId)
-
-              return (
-              <div key={cardGroup.cardId} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                  <div>
-                    <h4 className="font-bold text-slate-800">{cardGroup.cardName}</h4>
-                    <p className="text-sm text-slate-500">Vence dia {cardGroup.dueDay} • Fecha dia {cardGroup.closingDay}</p>
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <span className="hidden sm:inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                      {cardGroup.invoices.length} fatura(s) aberta(s)
-                    </span>
-                    <button
-                      onClick={() => toggleCardExpenses(cardGroup.cardId)}
-                      className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-200 hover:bg-slate-300 rounded-lg transition"
-                    >
-                      {isExpanded ? (
-                        <>Ocultar gastos <ChevronUp size={16} /></>
-                      ) : (
-                        <>Ver gastos <ChevronDown size={16} /></>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="divide-y divide-slate-100">
-                    {cardGroup.invoices.map((invoice) => (
-                      <div key={invoice.invoiceKey} className="p-6 space-y-4">
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                          <div>
-                            <p className="text-lg font-bold text-slate-800">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
-                            <div className="mt-2">
-                              {getInvoiceStatus(invoice.invoiceYear, invoice.invoiceMonth, cardGroup.dueDay)}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-4">
-                            <div className="text-right">
-                              <p className="text-sm text-slate-500">Total da fatura</p>
-                              <p className="text-xl font-bold text-red-500">{formatCurrency(invoice.total)}</p>
-                            </div>
-                            <button
-                              onClick={() => handlePayInvoice(invoice, cardGroup)}
-                              className="text-white bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
-                            >
-                              <CheckCircle size={16} /> Pagar fatura
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          {invoice.purchases.map((purchase) => (
-                            <div key={purchase.purchaseKey} className="rounded-xl border border-slate-200 p-4">
-                              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                                <div>
-                                  <p className="font-semibold text-slate-800">{purchase.description}</p>
-                                  <div className="flex flex-wrap gap-2 mt-2">
-                                    <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                                      {purchase.category}
-                                    </span>
-                                    <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                                      Compra em {formatDateBR(purchase.purchase_date)}
-                                    </span>
-                                    <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                                      Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-4">
-                                  <p className="text-base font-bold text-slate-900 whitespace-nowrap">{formatCurrency(purchase.amount)}</p>
-                                  <button
-                                    onClick={() => handleDeleteCCPurchase(purchase)}
-                                    className="text-slate-400 hover:text-red-500 transition"
-                                    title="Excluir compra parcelada inteira"
-                                  >
-                                    <Trash2 size={20} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                ) : (
+                  <EmptyState icon={CreditCard} title="Nenhum cartão" message="Cadastre um cartão para lançar compras no crédito." className="min-h-40" />
                 )}
               </div>
-            )})}
+            </Panel>
+
+            <Panel className="xl:col-span-2">
+              <PanelHeader title="Compra no crédito" description="Lançamento parcelado por cartão e categoria." />
+
+              <div className="p-5">
+                {cards.length === 0 ? (
+                  <EmptyState icon={CreditCard} title="Cadastre um cartão primeiro" message="Depois disso, o formulário de compras fica disponível." />
+                ) : (
+                  <form onSubmit={handleCCExpenseSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <Field label="Cartão">
+                      <select value={expenseForm.card_id} onChange={(event) => setExpenseForm({ ...expenseForm, card_id: event.target.value })} className="app-select" required>
+                        <option value="">Selecione...</option>
+                        {cards.map((card) => <option key={card.id} value={card.id}>{card.name} (vence dia {card.due_day})</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Categoria">
+                      <select value={expenseForm.category} onChange={(event) => setExpenseForm({ ...expenseForm, category: event.target.value })} className="app-select" required>
+                        <option value="">Selecione...</option>
+                        {CATEGORY_OPTIONS.filter((category) => category !== 'Receita').map((category) => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Descrição">
+                      <input type="text" placeholder="O que você comprou?" value={expenseForm.description} onChange={(event) => setExpenseForm({ ...expenseForm, description: event.target.value })} className="app-input" required />
+                    </Field>
+                    <Field label="Valor total">
+                      <input type="number" step="0.01" placeholder="0,00" value={expenseForm.total_amount} onChange={(event) => setExpenseForm({ ...expenseForm, total_amount: event.target.value })} className="app-input" required />
+                    </Field>
+                    <Field label="Data da compra">
+                      <input type="date" value={expenseForm.purchase_date} onChange={(event) => setExpenseForm({ ...expenseForm, purchase_date: event.target.value })} className="app-input" required />
+                    </Field>
+                    <Field label="Parcelas">
+                      <input type="number" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className="app-input" required />
+                    </Field>
+                    <Button type="submit" icon={Plus} className="md:col-span-2">Registrar compra</Button>
+                  </form>
+                )}
+              </div>
+            </Panel>
           </div>
-      )}
+
+          {openInvoicesByCard.length > 0 ? (
+            <div className="space-y-4">
+              {openInvoicesByCard.map((cardGroup) => {
+                const isExpanded = expandedCards.includes(cardGroup.cardId)
+
+                return (
+                  <Panel key={cardGroup.cardId} className="overflow-hidden">
+                    <div className="flex flex-col gap-4 border-b border-zinc-100 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-bold text-zinc-950">{cardGroup.cardName}</h3>
+                          <Badge tone="info">{cardGroup.invoices.length} fatura(s)</Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-zinc-500">Vence dia {cardGroup.dueDay} • Fecha dia {cardGroup.closingDay}</p>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        icon={isExpanded ? ChevronUp : ChevronDown}
+                        onClick={() => toggleCardExpenses(cardGroup.cardId)}
+                      >
+                        {isExpanded ? 'Ocultar' : 'Ver gastos'}
+                      </Button>
+                    </div>
+
+                    {isExpanded ? (
+                      <div className="divide-y divide-zinc-100">
+                        {cardGroup.invoices.map((invoice) => (
+                          <div key={invoice.invoiceKey} className="space-y-4 p-5">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="text-lg font-bold text-zinc-950">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
+                                <div className="mt-2">{getInvoiceStatus(invoice.invoiceYear, invoice.invoiceMonth, cardGroup.dueDay)}</div>
+                              </div>
+
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                <div className="sm:text-right">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total</p>
+                                  <p className="text-xl font-bold text-rose-600">{formatCurrency(invoice.total)}</p>
+                                </div>
+                                <Button type="button" icon={CheckCircle} onClick={() => handlePayInvoice(invoice, cardGroup)}>
+                                  Pagar
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              {invoice.purchases.map((purchase) => (
+                                <div key={purchase.purchaseKey} className="flex flex-col gap-3 rounded-lg border border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                                  <div className="min-w-0">
+                                    <p className="font-semibold text-zinc-900">{purchase.description}</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      <Badge tone="info">{purchase.category}</Badge>
+                                      <Badge>Compra em {formatDateBR(purchase.purchase_date)}</Badge>
+                                      <Badge tone="warning">Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}</Badge>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-4 md:justify-end">
+                                    <p className="whitespace-nowrap font-bold text-zinc-950">{formatCurrency(purchase.amount)}</p>
+                                    <IconButton label="Excluir compra parcelada" icon={Trash2} variant="danger" onClick={() => handleDeleteCCPurchase(purchase)} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </Panel>
+                )
+              })}
+            </div>
+          ) : (
+            <Panel className="p-5">
+              <EmptyState icon={CreditCard} title="Nenhuma fatura aberta" message="As compras no crédito aparecerão agrupadas por cartão." />
+            </Panel>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }

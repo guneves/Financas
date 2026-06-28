@@ -10,6 +10,9 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+*.db
+*.sqlite
+*.sqlite3
 
 # ==========================================
 # FRONTEND (Node.js / React / Vite)
@@ -31,7 +34,7 @@ yarn-error.log*
 # ==========================================
 # SEGURANÇA E VARIÁVEIS DE AMBIENTE
 # ==========================================
-# NUNCA suba suas chaves do Supabase para o GitHub!
+# NUNCA suba segredos locais para o GitHub!
 .env
 .env.*
 !.env.example

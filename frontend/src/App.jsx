@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { supabase } from './lib/supabaseClient'
+import { getSession, onAuthStateChange } from './lib/auth'
 import Auth from './pages/Auth'
 import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
@@ -13,19 +13,17 @@ export default function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-    })
+    setSession(getSession())
+    setLoading(false)
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const unsubscribe = onAuthStateChange((session) => {
       setSession(session)
     })
 
-    return () => subscription.unsubscribe()
+    return unsubscribe
   }, [])
 
-  if (loading) return <div className="flex h-screen items-center justify-center text-slate-500">Carregando...</div>
+  if (loading) return <div className="flex h-screen items-center justify-center text-zinc-500">Carregando...</div>
 
   return (
     <Router>
