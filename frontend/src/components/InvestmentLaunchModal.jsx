@@ -51,7 +51,14 @@ function normalizeAssetName(value) {
   return String(value || '').trim().toUpperCase()
 }
 
-export default function InvestmentLaunchModal({ open, onClose, assets = [], onSaved }) {
+export default function InvestmentLaunchModal({
+  open,
+  onClose,
+  assets = [],
+  onSaved,
+  initialMode = 'BUY',
+  initialAssetId = '',
+}) {
   const [mode, setMode] = useState('BUY')
   const [form, setForm] = useState(() => initialForm())
   const [saving, setSaving] = useState(false)
@@ -59,11 +66,19 @@ export default function InvestmentLaunchModal({ open, onClose, assets = [], onSa
 
   useEffect(() => {
     if (open) {
-      setMode('BUY')
-      setForm(initialForm())
+      const nextMode = initialMode === 'SELL' ? 'SELL' : 'BUY'
+      const selectedAsset = assets.find((asset) => String(asset.id) === String(initialAssetId))
+      setMode(nextMode)
+      setForm({
+        ...initialForm(),
+        asset_id: nextMode === 'SELL' && selectedAsset ? String(selectedAsset.id) : '',
+        asset_class: nextMode === 'SELL' ? selectedAsset?.class || 'STOCKS' : 'STOCKS',
+        ticker_or_name: nextMode === 'SELL' && selectedAsset ? selectedAsset.ticker || selectedAsset.name || '' : '',
+        price: nextMode === 'SELL' && selectedAsset?.current_price ? String(selectedAsset.current_price) : '',
+      })
       setError('')
     }
-  }, [open])
+  }, [open, initialMode, initialAssetId, assets])
 
   const saleAssets = useMemo(() => {
     return assets

@@ -52,6 +52,10 @@ export const ccExpensesApi = {
 
 export const investmentsApi = {
   list: (params = {}) => apiFetch(`/api/investments${queryString(params)}`),
+  assets: () => apiFetch('/api/assets'),
+  transactions: () => apiFetch('/api/investment-transactions'),
+  positions: () => apiFetch('/api/investment-positions'),
+  realizedResults: () => apiFetch('/api/investment-realized-results'),
   create: (payload) => apiFetch('/api/investments', {
     method: 'POST',
     body: JSON.stringify(payload)
@@ -61,9 +65,24 @@ export const investmentsApi = {
     body: JSON.stringify(payload)
   }),
   remove: (id) => apiFetch(`/api/investments/${id}`, { method: 'DELETE' }),
-  removeByTicker: (ticker) => apiFetch(`/api/investments/by-ticker/${encodeURIComponent(ticker)}`, { method: 'DELETE' }),
-  updatePriceByTicker: (ticker, currentPrice) => apiFetch('/api/investments/price-by-ticker', {
+  removeByAsset: (assetId, assetClass) => apiFetch(`/api/investments/by-asset/${encodeURIComponent(assetId)}${queryString({ asset_class: assetClass })}`, { method: 'DELETE' }),
+  updatePriceByAsset: (assetId, assetClass, currentPrice) => apiFetch(`/api/investments/price-by-asset/${encodeURIComponent(assetId)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ ticker, current_price: currentPrice })
+    body: JSON.stringify({ asset_class: assetClass, current_price: currentPrice })
   })
+}
+
+export const investmentProceedsApi = {
+  list: (params = {}) => apiFetch(`/api/investment-proceeds${queryString(params)}`),
+  summary: (params = {}) => apiFetch(`/api/investment-proceeds/summary${queryString(params)}`),
+  calendar: (params = {}) => apiFetch(`/api/investment-proceeds/calendar${queryString(params)}`),
+  create: (payload) => apiFetch('/api/investment-proceeds', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  update: (id, payload) => apiFetch(`/api/investment-proceeds/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  remove: (id) => apiFetch(`/api/investment-proceeds/${id}`, { method: 'DELETE' })
 }

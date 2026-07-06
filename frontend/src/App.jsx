@@ -7,6 +7,7 @@ import Transactions from './pages/Transactions'
 import Layout from './components/Layout'
 import Carteira from './pages/Carteira'
 import Investments from './pages/Investments'
+import Proventos from './pages/Proventos'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/carteira" element={<Carteira />} />
             <Route path="/investments" element={<Investments />} />
+            <Route path="/proventos" element={<Proventos />} />
           </Route>
         )}
 

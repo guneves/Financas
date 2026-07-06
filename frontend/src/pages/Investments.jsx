@@ -14,6 +14,100 @@ function readStoredJson(key, fallback) {
   }
 }
 
+function formatCurrency(value) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(Number(value || 0))
+}
+
+function formatPercent(value) {
+  return `${Number(value || 0).toFixed(2)}%`
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Sem atualização'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Data inválida'
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function quoteSourceLabel(source) {
+  const labels = {
+    market: 'Mercado',
+    manual: 'Manual',
+    cdi: 'CDI',
+    legacy: 'Legado',
+    cache: 'Cache',
+    cache_stale: 'Cache antigo',
+    fallback: 'Sem fonte',
+  }
+  return labels[source] || source || 'Sem fonte'
+}
+
+function quoteStatusLabel(status) {
+  const labels = {
+    fresh: 'Atual',
+    stale: 'Stale',
+    missing: 'Sem cotação',
+  }
+  return labels[status] || 'Sem cotação'
+}
+
+function parseNumberInput(value) {
+  const rawValue = String(value || '').trim()
+  const normalized = rawValue.includes(',')
+    ? rawValue.replace(/\./g, '').replace(',', '.')
+    : rawValue
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : NaN
+}
+
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function movementDateValue(movement) {
+  return movement.metadata?.redemption_date
+    || movement.metadata?.sale_date
+    || movement.metadata?.purchase_date
+    || movement.created_at
+}
+
+function movementUnitPrice(movement) {
+  if (movement.metadata?.is_redemption) return Number(movement.current_price || 0)
+  if (movement.quantity < 0 && movement.metadata?.sale_price) return Number(movement.metadata.sale_price || 0)
+  return Number(movement.average_price || 0)
+}
+
+function movementTotalValue(movement) {
+  return Math.abs(Number(movement.quantity || 0) * movementUnitPrice(movement))
+}
+
+function movementFees(movement) {
+  return Number(
+    movement.realized_fee_amount
+    ?? movement.fee_amount
+    ?? movement.metadata?.other_costs
+    ?? 0
+  )
+}
+
+function hasRealizedResult(movement) {
+  return movement.realized_profit !== null
+    && movement.realized_profit !== undefined
+    && Number.isFinite(Number(movement.realized_profit))
+}
+
 export default function Investments() {
   const [activeTab, setActiveTab] = useState('VARIAVEL')
 
@@ -27,12 +121,21 @@ export default function Investments() {
 
   const [editModal, setEditModal] = useState(null)
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
+  const [launchIntent, setLaunchIntent] = useState({ mode: 'BUY', assetId: '' })
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false)
+  const [updatingAssetId, setUpdatingAssetId] = useState('')
+  const [quoteUpdateResult, setQuoteUpdateResult] = useState(null)
 
-  const handleUpdateStockPrices = async (silent = false, investmentId = null) => {
+  const handleUpdateStockPrices = async (silent = false, investmentId = null, asset = null) => {
     setIsUpdatingPrices(true)
+    const scopedAssetId = asset ? String(asset.asset_id || asset.id) : ''
+    if (scopedAssetId) setUpdatingAssetId(scopedAssetId)
     try {
-      const payload = investmentId ? { investment_id: investmentId } : {};
+      const payload = asset
+        ? { asset_id: scopedAssetId, asset_class: asset.class }
+        : investmentId
+          ? { investment_id: investmentId }
+          : {};
 
       const data = await apiFetch('/api/investments/update-prices', {
         method: 'POST',
@@ -40,7 +143,7 @@ export default function Investments() {
       })
 
       if (!silent) {
-        alert(`Sucesso! ${data.updated_count} cotações foram atualizadas.`)
+        setQuoteUpdateResult(data)
       }
       await fetchPortfolio()
     } catch (error) {
@@ -48,6 +151,7 @@ export default function Investments() {
       if (!silent) setDataError(error.message || "Erro de conexão ao tentar atualizar os preços.")
     } finally {
       setIsUpdatingPrices(false)
+      setUpdatingAssetId('')
     }
   }
 
@@ -59,7 +163,7 @@ export default function Investments() {
   const fetchPortfolio = async () => {
     try {
       setDataError('')
-      const data = await apiFetch('/api/investments/portfolio')
+      const data = await apiFetch('/api/investments/portfolio?refresh_prices=false')
       const fetchedAssets = data.assets || [];
 
       setAssets(fetchedAssets)
@@ -86,15 +190,32 @@ export default function Investments() {
     await fetchMovements()
   }
 
+  const openBuyModal = () => {
+    setLaunchIntent({ mode: 'BUY', assetId: '' })
+    setIsLaunchModalOpen(true)
+  }
+
+  const openSellModal = (asset) => {
+    setLaunchIntent({ mode: 'SELL', assetId: String(asset.id) })
+    setIsLaunchModalOpen(true)
+  }
+
   const openEditModal = (mov) => {
+    const movementDate = movementDateValue(mov)
     setEditModal({
       id: mov.id,
       asset_class: mov.asset_class,
       ticker_or_name: mov.ticker_or_name,
       quantity: mov.quantity,
       average_price: mov.average_price,
+      current_price: mov.current_price,
+      metadata: mov.metadata || {},
+      is_sale: mov.quantity < 0 && mov.asset_class !== 'FIXED_INCOME',
+      is_redemption: !!mov.metadata?.is_redemption,
+      sale_price: mov.metadata?.sale_price || '',
+      other_costs: mov.metadata?.other_costs ?? mov.fee_amount ?? '',
       cdi_percentage: mov.metadata?.cdi_percentage ? (mov.metadata.cdi_percentage * 100).toFixed(1) : '',
-      purchase_date: mov.metadata?.purchase_date || '',
+      movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
       is_tax_free: mov.metadata?.is_tax_free || false
     });
   }
@@ -108,32 +229,56 @@ export default function Investments() {
       const averagePrice = Number(editModal.average_price)
       const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : Number(editModal.quantity);
       const cdiPercentage = Number(editModal.cdi_percentage)
+      const otherCosts = editModal.other_costs === '' ? 0 : parseNumberInput(editModal.other_costs)
+      const metadata = { ...(editModal.metadata || {}) }
 
       if (!Number.isFinite(averagePrice) || averagePrice < 0) {
         throw new Error('Informe um preço/valor válido.')
       }
-      if (!Number.isFinite(finalQuantity) || finalQuantity <= 0) {
+      if (!Number.isFinite(otherCosts) || otherCosts < 0) {
+        throw new Error('Informe custos validos.')
+      }
+      if (editModal.is_sale) {
+        const salePrice = Number(editModal.sale_price || 0)
+        if (!Number.isFinite(salePrice) || salePrice <= 0) {
+          throw new Error('Informe um preço de venda válido.')
+        }
+      }
+      if (
+        !editModal.is_redemption
+        && (
+          !Number.isFinite(finalQuantity)
+          || (editModal.is_sale ? finalQuantity >= 0 : finalQuantity <= 0)
+        )
+      ) {
         throw new Error('Informe uma quantidade válida.')
       }
 
-      let metadata = null;
-      if (editModal.asset_class === 'FIXED_INCOME') {
+      delete metadata.purchase_date
+      delete metadata.sale_date
+      delete metadata.redemption_date
+      metadata.other_costs = otherCosts
+
+      if (editModal.is_redemption) {
+        metadata.redemption_date = editModal.movement_date
+        metadata.is_redemption = true
+      } else if (editModal.is_sale) {
+        metadata.sale_date = editModal.movement_date
+        metadata.sale_price = Number(editModal.sale_price || editModal.current_price || averagePrice)
+      } else {
+        metadata.purchase_date = editModal.movement_date
+      }
+
+      if (editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption) {
         if (!Number.isFinite(cdiPercentage) || cdiPercentage <= 0) {
           throw new Error('Informe um percentual de CDI válido.')
         }
-        metadata = { 
-          cdi_percentage: (cdiPercentage / 100),
-          purchase_date: editModal.purchase_date,
-          is_tax_free: editModal.is_tax_free
-        };
-      } else if (editModal.purchase_date) {
-        metadata = {
-          purchase_date: editModal.purchase_date
-        };
+        metadata.cdi_percentage = cdiPercentage / 100
+        metadata.is_tax_free = editModal.is_tax_free
       }
 
       await investmentsApi.update(editModal.id, {
-        quantity: finalQuantity,
+        quantity: editModal.is_redemption ? Number(editModal.quantity) : finalQuantity,
         average_price: averagePrice,
         metadata: metadata
       });
@@ -152,41 +297,7 @@ export default function Investments() {
   }
 
   const handleSellVariable = async (asset) => {
-    const qtyStr = window.prompt(`VENDA DE ATIVO\nAtivo: ${asset.name}\nQuantidade Disponível: ${asset.quantity}\n\nQuantas cotas/ações você deseja vender?`);
-    if (!qtyStr) return;
-    
-    const qtyToSell = parseFloat(qtyStr.replace(',', '.'));
-    
-    if (isNaN(qtyToSell) || qtyToSell <= 0 || qtyToSell > asset.quantity) {
-      alert("Quantidade inválida. Digite um valor entre 0 e a quantidade total que você possui.");
-      return;
-    }
-
-    if (qtyToSell === asset.quantity) {
-      await handleDeleteFullPosition(asset);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await investmentsApi.create([
-        { 
-          asset_class: asset.class,
-          ticker_or_name: asset.ticker,
-          quantity: -qtyToSell, 
-          average_price: asset.average_price, 
-          current_price: asset.current_price 
-        }
-      ]);
-
-      alert("Venda registrada com sucesso!");
-      await fetchPortfolio();
-      await fetchMovements();
-    } catch (error) {
-      alert("Erro ao registrar venda: " + error.message);
-    } finally {
-      setLoading(false);
-    }
+    openSellModal(asset)
   }
 
   const handlePartialSale = async (asset) => {
@@ -195,11 +306,19 @@ export default function Investments() {
     const amountStr = window.prompt(`RESGATE PARCIAL\nAtivo: ${asset.name}\nValor Bruto Atual: R$ ${asset.current_value.toFixed(2)}\n\nQuanto você deseja resgatar (em R$)?`);
     if (!amountStr) return;
     
-    const amount = parseFloat(amountStr.replace(',', '.'));
+    const amount = parseNumberInput(amountStr);
     
     if (isNaN(amount) || amount <= 0 || amount > asset.current_value) {
       alert("Valor inválido. Digite um valor entre R$ 0.01 e o valor total bruto.");
       return;
+    }
+
+    const defaultDate = getLocalDateString()
+    const dateStr = window.prompt('Data do resgate (AAAA-MM-DD):', defaultDate)
+    if (!dateStr) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      alert('Data inválida. Use o formato AAAA-MM-DD.')
+      return
     }
 
     setLoading(true);
@@ -216,15 +335,12 @@ export default function Investments() {
           current_price: amount,
           metadata: { 
             is_redemption: true,
-            related_id: asset.id
+            affects_position: true,
+            related_id: asset.id,
+            redemption_date: dateStr
           }
         }
       ]);
-
-      await investmentsApi.update(asset.id, {
-        average_price: asset.average_price - costBasisSold,
-        current_price: asset.current_price - amount
-      });
 
       alert("Resgate realizado e registrado nas movimentações!");
       await fetchPortfolio();
@@ -254,7 +370,8 @@ export default function Investments() {
         if (asset.class === 'FIXED_INCOME') {
           await investmentsApi.remove(asset.id)
         } else {
-          await investmentsApi.removeByTicker(asset.ticker)
+          const assetId = asset.asset_id || asset.id
+          await investmentsApi.removeByAsset(assetId, asset.class)
         }
 
         await fetchPortfolio();
@@ -282,6 +399,22 @@ export default function Investments() {
     return true;
   });
 
+  const realizedMovements = movements.filter(hasRealizedResult)
+  const realizedSummary = realizedMovements.reduce((acc, movement) => {
+    acc.realizedProfit += Number(movement.realized_profit || 0)
+    acc.taxAmount += Number(movement.realized_tax_amount || 0)
+    acc.netProfitAfterTax += Number(movement.realized_net_profit_after_tax || 0)
+    acc.netProceeds += Number(movement.realized_net_proceeds || 0)
+    acc.costBasis += Number(movement.realized_cost_basis || 0)
+    return acc
+  }, {
+    realizedProfit: 0,
+    taxAmount: 0,
+    netProfitAfterTax: 0,
+    netProceeds: 0,
+    costBasis: 0,
+  });
+
   return (
     <div className="max-w-5xl mx-auto space-y-8 relative">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -306,7 +439,7 @@ export default function Investments() {
             )}
           </button>
           <button
-            onClick={() => setIsLaunchModalOpen(true)}
+            onClick={openBuyModal}
             className="bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-2 transition"
           >
             <Plus size={18} />
@@ -318,6 +451,44 @@ export default function Investments() {
       {dataError ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
           {dataError}
+        </div>
+      ) : null}
+
+      {quoteUpdateResult ? (
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="font-semibold text-zinc-900">Atualização de cotações</p>
+              <p className="text-zinc-600">
+                {quoteUpdateResult.updated_assets?.length || 0} atualizada(s),
+                {' '}{quoteUpdateResult.failed_assets?.length || 0} falha(s),
+                {' '}{quoteUpdateResult.stale_assets?.length || 0} stale/sem cotação.
+              </p>
+            </div>
+            <button type="button" onClick={() => setQuoteUpdateResult(null)} className="text-sm font-medium text-zinc-500 hover:text-zinc-900">
+              Fechar
+            </button>
+          </div>
+          {quoteUpdateResult.updated_assets?.length ? (
+            <p className="mt-3 text-emerald-700">
+              Atualizados: {quoteUpdateResult.updated_assets.map((item) => item.ticker || item.name).join(', ')}
+            </p>
+          ) : null}
+          {quoteUpdateResult.cached_assets?.length ? (
+            <p className="mt-2 text-amber-700">
+              Usando cache: {quoteUpdateResult.cached_assets.map((item) => item.ticker || item.name).join(', ')}
+            </p>
+          ) : null}
+          {quoteUpdateResult.failed_assets?.length ? (
+            <p className="mt-2 text-rose-700">
+              Falharam: {quoteUpdateResult.failed_assets.map((item) => `${item.ticker || item.name} (${item.error || 'sem detalhe'})`).join(', ')}
+            </p>
+          ) : null}
+          {quoteUpdateResult.stale_assets?.length ? (
+            <p className="mt-2 text-zinc-600">
+              Stale/sem cotação: {quoteUpdateResult.stale_assets.map((item) => item.ticker || item.name).join(', ')}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -358,7 +529,13 @@ export default function Investments() {
                 </tr>
               </thead>
               <tbody>
-                {filteredAssets.map(asset => (
+                {filteredAssets.map(asset => {
+                  const quote = asset.quote || {}
+                  const quoteStatus = quote.status || 'missing'
+                  const quoteIsFresh = quoteStatus === 'fresh'
+                  const assetUpdateId = String(asset.asset_id || asset.id)
+                  const isUpdatingThisAsset = updatingAssetId === assetUpdateId
+                  return (
                   <tr key={asset.id} className="border-b border-zinc-50 hover:bg-zinc-50 transition">
                     <td className="p-4">
                       <p className="font-bold text-zinc-800">{asset.name}</p>
@@ -367,11 +544,12 @@ export default function Investments() {
                     <td className="p-4 text-zinc-800">
                       {asset.class === 'FIXED_INCOME' ? '-' : asset.quantity}
                     </td>
-                    <td className="p-4 text-zinc-800">R$ {asset.average_price.toFixed(2)}</td>
+                    <td className="p-4 text-zinc-800">{formatCurrency(asset.average_price)}</td>
                     <td className="p-4">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         <span className="text-zinc-500">R$</span>
                         <input 
+                          key={`${asset.id}-${asset.current_price}`}
                           type="number" 
                           step="0.01"
                           defaultValue={asset.current_price} 
@@ -391,7 +569,8 @@ export default function Investments() {
                                 if (asset.class === 'FIXED_INCOME') {
                                   await investmentsApi.update(asset.id, { current_price: parsedPrice })
                                 } else {
-                                  await investmentsApi.updatePriceByTicker(asset.ticker, parsedPrice)
+                                  const assetId = asset.asset_id || asset.id
+                                  await investmentsApi.updatePriceByAsset(assetId, asset.class, parsedPrice)
                                 }
                                 await fetchPortfolio();
                               } catch (error) {
@@ -403,14 +582,31 @@ export default function Investments() {
                           className={`w-28 p-1.5 border border-blue-200 rounded-md transition ${asset.class === 'FIXED_INCOME' ? 'bg-zinc-100 text-zinc-500 cursor-not-allowed border-zinc-200' : 'bg-blue-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'}`}
                           title={asset.class === 'FIXED_INCOME' ? "Cotação calculada automaticamente pelo CDI" : "Digite o novo preço e clique fora para salvar"}
                         />
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateStockPrices(false, null, asset)}
+                          disabled={isUpdatingPrices}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50"
+                          title="Atualizar cotação deste ativo"
+                        >
+                          <RefreshCw size={15} className={isUpdatingThisAsset ? 'animate-spin' : ''} />
+                        </button>
+                      </div>
+                      <div className="mt-2 space-y-1 text-xs text-zinc-500">
+                        <p>
+                          {quoteSourceLabel(quote.source)} · {formatDateTime(quote.quoted_at)}
+                        </p>
+                        <span className={`inline-flex rounded-full px-2 py-0.5 font-semibold ${quoteIsFresh ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
+                          {quoteStatusLabel(quoteStatus)}
+                        </span>
                       </div>
                     </td>
                     <td className="p-4">
-                      <p className="font-medium text-zinc-800">Bruto: R$ {asset.current_value.toFixed(2)}</p>
+                      <p className="font-medium text-zinc-800">Bruto: {formatCurrency(asset.current_value)}</p>
                       {asset.class === 'FIXED_INCOME' && (
                          asset.is_tax_free 
-                           ? <p className="text-xs text-green-600 font-medium">Líquido: R$ {asset.current_value.toFixed(2)} (Isento)</p> 
-                           : <p className="text-xs text-zinc-500">Líquido: R$ {asset.net_value?.toFixed(2)}</p>
+                           ? <p className="text-xs text-green-600 font-medium">Líquido: {formatCurrency(asset.current_value)} (Isento)</p>
+                           : <p className="text-xs text-zinc-500">Líquido: {formatCurrency(asset.net_value)}</p>
                       )}
                     </td>
                     <td className="p-4">
@@ -433,7 +629,8 @@ export default function Investments() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
                 {filteredAssets.length === 0 && (
                   <tr><td colSpan="7" className="p-8 text-center text-zinc-500">Nenhum ativo cadastrado nesta categoria.</td></tr>
                 )}
@@ -444,6 +641,30 @@ export default function Investments() {
       )}
 
       {activeTab === 'MOVIMENTACOES' && (
+        <>
+        <div className="grid gap-4 md:grid-cols-4">
+          <div className="rounded-lg border border-zinc-100 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase text-zinc-500">Operacoes realizadas</p>
+            <p className="mt-2 text-2xl font-bold text-zinc-900">{realizedMovements.length}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-100 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase text-zinc-500">Lucro/prejuizo realizado</p>
+            <p className={`mt-2 text-2xl font-bold ${realizedSummary.realizedProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+              {formatCurrency(realizedSummary.realizedProfit)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-zinc-100 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase text-zinc-500">IR estimado</p>
+            <p className="mt-2 text-2xl font-bold text-zinc-900">{formatCurrency(realizedSummary.taxAmount)}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-100 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium uppercase text-zinc-500">Resultado pos-IR</p>
+            <p className={`mt-2 text-2xl font-bold ${realizedSummary.netProfitAfterTax >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+              {formatCurrency(realizedSummary.netProfitAfterTax)}
+            </p>
+          </div>
+        </div>
+
         <div className="bg-white rounded-lg shadow-sm border border-zinc-100 overflow-x-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="p-4 border-b border-zinc-100 bg-zinc-50 flex justify-between items-center">
             <h2 className="font-bold text-zinc-700">Histórico de Movimentações</h2>
@@ -457,6 +678,8 @@ export default function Investments() {
                 <th className="p-4 font-medium">Movimentação</th>
                 <th className="p-4 font-medium">Preço Registrado</th>
                 <th className="p-4 font-medium">Total</th>
+                <th className="p-4 font-medium">Resultado realizado</th>
+                <th className="p-4 font-medium">IR estimado</th>
                 <th className="p-4 font-medium text-right">Ação</th>
               </tr>
             </thead>
@@ -464,16 +687,31 @@ export default function Investments() {
               {movements.map(mov => {
                 const isFixed = mov.asset_class === 'FIXED_INCOME';
                 const isSale = mov.quantity < 0;
+                const isRedemption = !!mov.metadata?.is_redemption
+                const unitPrice = movementUnitPrice(mov)
+                const totalValue = movementTotalValue(mov)
+                const fees = movementFees(mov)
+                const hasResult = hasRealizedResult(mov)
+                const netProceeds = hasResult
+                  ? Number(mov.realized_net_proceeds || 0)
+                  : Math.max(totalValue - fees, 0)
+                const realizedProfit = Number(mov.realized_profit || 0)
+                const realizedTax = Number(mov.realized_tax_amount || 0)
+                const afterTax = Number(mov.realized_net_profit_after_tax || 0)
+                const realizedMetadata = mov.realized_metadata || {}
+                const allocationCount = Array.isArray(realizedMetadata.allocations)
+                  ? realizedMetadata.allocations.length
+                  : 0
                 
-                const hasCustomDate = mov.metadata && mov.metadata.purchase_date;
-                const dateObj = hasCustomDate 
-                  ? new Date(`${mov.metadata.purchase_date}T00:00:00`) 
-                  : new Date(mov.created_at);
+                const dateValue = movementDateValue(mov)
+                const hasCustomDate = dateValue && dateValue !== mov.created_at
+                const dateObj = hasCustomDate
+                  ? new Date(`${String(dateValue).slice(0, 10)}T00:00:00`)
+                  : new Date(mov.created_at)
                 return (
                   <tr key={mov.id} className="border-b border-zinc-50 hover:bg-zinc-50 transition">
                     <td className="p-4 text-zinc-600 text-sm">
                       {dateObj.toLocaleDateString('pt-BR')}
-                      {/* Mostra a hora apenas se for uma venda/registo em tempo real (sem data preenchida manualmente) */}
                       {!hasCustomDate && ` às ${dateObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}`}
                     </td>
                     <td className="p-4">
@@ -482,14 +720,51 @@ export default function Investments() {
                     </td>
                     <td className="p-4">
                       <span className={`px-2 py-1 rounded-md text-xs font-bold ${isSale ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                        {isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')} de {Math.abs(mov.quantity)}
+                        {isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')} de {isRedemption ? formatCurrency(totalValue) : Math.abs(mov.quantity)}
                       </span>
                     </td>
                     <td className="p-4 text-zinc-800">
-                      R$ {mov.average_price.toFixed(2)}
+                      {formatCurrency(unitPrice)}
                     </td>
                     <td className="p-4 font-medium text-zinc-800">
-                      R$ {Math.abs(mov.quantity * mov.average_price).toFixed(2)}
+                      <p>{formatCurrency(totalValue)}</p>
+                      {fees > 0 ? (
+                        <p className="text-xs text-zinc-500">Custos: {formatCurrency(fees)}</p>
+                      ) : null}
+                      {isSale ? (
+                        <p className="text-xs text-zinc-500">Liquido: {formatCurrency(netProceeds)}</p>
+                      ) : null}
+                    </td>
+                    <td className="p-4">
+                      {hasResult ? (
+                        <div>
+                          <p className={`font-bold ${realizedProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                            {realizedProfit > 0 ? '+' : ''}{formatCurrency(realizedProfit)}
+                          </p>
+                          <p className="text-xs text-zinc-500">Base: {formatCurrency(mov.realized_cost_basis)}</p>
+                          <p className="text-xs text-zinc-500">
+                            {formatPercent(mov.realized_profitability_percent)} via {realizedMetadata.cost_method || 'FIFO'}
+                            {allocationCount ? ` (${allocationCount} lote${allocationCount > 1 ? 's' : ''})` : ''}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-zinc-400">-</span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      {hasResult ? (
+                        <div>
+                          <p className="font-medium text-zinc-800">{formatCurrency(realizedTax)}</p>
+                          <p className={`text-xs font-medium ${afterTax >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                            Pos-IR: {formatCurrency(afterTax)}
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            Aliq.: {formatPercent(Number(mov.realized_tax_rate || 0) * 100)}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-zinc-400">-</span>
+                      )}
                     </td>
                     <td className="p-4 text-right space-x-3">
                       <button 
@@ -510,11 +785,12 @@ export default function Investments() {
                 )
               })}
               {movements.length === 0 && (
-                <tr><td colSpan="6" className="p-8 text-center text-zinc-500">Nenhum histórico encontrado.</td></tr>
+                <tr><td colSpan="8" className="p-8 text-center text-zinc-500">Nenhum histórico encontrado.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <InvestmentLaunchModal
@@ -522,11 +798,13 @@ export default function Investments() {
         onClose={() => setIsLaunchModalOpen(false)}
         assets={assets}
         onSaved={handleLaunchSaved}
+        initialMode={launchIntent.mode}
+        initialAssetId={launchIntent.assetId}
       />
 
       {editModal && (
         <div className="fixed inset-0 bg-zinc-900/40 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl relative">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-xl relative">
             <button onClick={() => setEditModal(null)} className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-600 transition">
               <X size={20} />
             </button>
@@ -544,17 +822,29 @@ export default function Investments() {
 
               <div className="flex flex-col space-y-1">
                 <label className="text-sm text-zinc-500 font-medium">
-                  {editModal.asset_class === 'FIXED_INCOME' ? 'Valor Aplicado (R$)' : 'Preço de Compra/Venda (R$)'}
+                  {editModal.is_redemption ? 'Base de custo resgatada (R$)' : editModal.asset_class === 'FIXED_INCOME' ? 'Valor Aplicado (R$)' : 'Preço médio/base de custo (R$)'}
                 </label>
                 <input type="number" step="0.01" value={editModal.average_price} onChange={e => setEditModal({...editModal, average_price: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
               </div>
 
+              {editModal.is_sale && (
+                <div className="flex flex-col space-y-1">
+                  <label className="text-sm text-zinc-500 font-medium">Preço de venda (R$)</label>
+                  <input type="number" step="0.01" value={editModal.sale_price} onChange={e => setEditModal({...editModal, sale_price: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
+                </div>
+              )}
+
               <div className="flex flex-col space-y-1">
-                <label className="text-sm text-zinc-500 font-medium">Data da Compra</label>
-                <input type="date" value={editModal.purchase_date} onChange={e => setEditModal({...editModal, purchase_date: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
+                <label className="text-sm text-zinc-500 font-medium">Outros custos (R$)</label>
+                <input type="number" min="0" step="0.01" value={editModal.other_costs} onChange={e => setEditModal({...editModal, other_costs: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" />
               </div>
 
-              {editModal.asset_class === 'FIXED_INCOME' && (
+              <div className="flex flex-col space-y-1">
+                <label className="text-sm text-zinc-500 font-medium">Data da movimentação</label>
+                <input type="date" value={editModal.movement_date} onChange={e => setEditModal({...editModal, movement_date: e.target.value})} className="p-2 border border-zinc-300 rounded-lg" required />
+              </div>
+
+              {editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption && (
                 <>
                   <div className="flex flex-col space-y-1">
                     <label className="text-sm text-zinc-500 font-medium">% do CDI</label>

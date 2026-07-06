@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Briefcase,
+  CalendarDays,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -17,6 +18,7 @@ const navItems = [
   { name: 'Movimentações', path: '/transactions', icon: Receipt },
   { name: 'Carteira', path: '/carteira', icon: PieChart },
   { name: 'Investimentos', path: '/investments', icon: Briefcase },
+  { name: 'Proventos', path: '/proventos', icon: CalendarDays },
 ]
 
 function BrandMark() {

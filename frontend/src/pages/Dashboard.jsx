@@ -84,7 +84,7 @@ export default function Dashboard() {
 
     try {
       setPortfolioError('')
-      const data = await apiFetch('/api/investments/portfolio')
+      const data = await apiFetch('/api/investments/portfolio?refresh_prices=false')
       setPortfolio(data)
     } catch (error) {
       console.warn('Erro ao buscar portfólio:', error)
@@ -233,7 +233,8 @@ export default function Dashboard() {
     }
   }
 
-  const totalWealth = (bankBalance || 0) + (portfolio?.current_balance || 0)
+  const investmentsNetBalance = portfolio?.current_net_balance ?? portfolio?.current_balance ?? 0
+  const totalWealth = (bankBalance || 0) + investmentsNetBalance
   const daysRemainingInMonth = getDaysRemainingInMonth()
   const dailyAvailable = (bankBalance - currentMonthInvoice) / daysRemainingInMonth
 
@@ -341,9 +342,9 @@ export default function Dashboard() {
           icon={PiggyBank}
           tone="info"
           title="Investimentos"
-          value={formatCurrency(portfolio.current_balance)}
+          value={formatCurrency(investmentsNetBalance)}
           valueClassName="text-sky-700"
-          subtitle="Valor atual da carteira"
+          subtitle="Saldo líquido estimado"
         />
         <MetricCard
           icon={CalendarDays}
