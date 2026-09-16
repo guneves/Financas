@@ -1,54 +1,56 @@
-# Roadmap de melhorias
+# Improvement roadmap
 
-## Inspecao rapida
+> For the current, prioritized work plan, see `docs/next-steps.md`. This file is kept as a record of what has been built and of the original direction.
 
-O projeto agora usa React/Vite no frontend, Flask como API unica, SQLite local como persistencia e autenticacao propria com JWT. Os pontos mais fortes sao a reducao de dependencia externa, a centralizacao das regras de dados no backend e uma cobertura funcional ampla para transacoes, cartoes e investimentos.
+## Quick assessment
 
-Os principais riscos encontrados estao em manutencao e configuracao:
+The project now uses React/Vite on the frontend, Flask as the single API, local SQLite for persistence, and its own JWT authentication. Its strongest points are reduced external dependency, centralization of data rules in the backend, and broad functional coverage for transactions, credit cards, and investments.
 
-- O backend ainda concentra rotas, persistencia, autenticacao, calculo de carteira e integracoes externas em um unico arquivo.
-- Ainda nao ha testes automatizados para regras financeiras criticas.
-- O SQLite e excelente para uso local/MVP, mas um deploy multiusuario deve migrar para PostgreSQL proprio.
-- A documentacao de migracao de dados antigos ainda pode ser detalhada com exemplos operacionais.
+The main risks found are in maintenance and configuration:
 
-## Curto prazo
+- The backend still concentrates routes, persistence, authentication, portfolio computation, and external integrations in a single file.
+- There are still no automated tests for critical financial rules.
+- SQLite is excellent for local/MVP use, but a multi-user deployment should move to a self-hosted PostgreSQL.
+- Documentation for migrating legacy data could still be fleshed out with operational examples.
 
-- Separar o backend em modulos (`auth`, `database`, `routes`, `services`).
-- Extrair formatadores e helpers compartilhados de data, moeda e parcelas no frontend.
-- Padronizar mensagens de erro visiveis ao usuario.
-- Adicionar interface visual para status e backup/exportacao do SQLite.
+## Short term
 
-## Medio prazo
+- Split the backend into modules (`auth`, `database`, `routes`, `services`).
+- Extract shared date, currency, and installment formatters and helpers on the frontend.
+- Standardize user-facing error messages.
+- Add a visual interface for SQLite status and backup/export.
 
-- Criar testes unitarios para calculo de carteira, IR regressivo, CDI e faturas.
-- Adicionar validacao de payloads no backend.
-- Criar uma camada de dominio para transacoes de cartao e consolidacao de investimentos.
-- Adicionar CI com build do frontend e testes do backend.
+## Medium term
 
-## Longo prazo
+- Write unit tests for portfolio computation, regressive income tax, CDI, and credit card invoices.
+- Add payload validation in the backend.
+- Create a domain layer for credit card transactions and investment consolidation.
+- Add CI with a frontend build and backend tests.
 
-- Adicionar logs estruturados e rastreamento de falhas de integracoes externas.
-- Containerizar frontend/backend para deploy reproduzivel.
-- Adicionar suporte a proventos, dividendos, juros sobre capital proprio e eventos corporativos.
-- Implementar importacao de extratos, metas financeiras e alertas.
+## Long term
 
-## Implementado agora
+- Add structured logging and failure tracing for external integrations.
+- Containerize frontend/backend for reproducible deployment.
+- Add support for proceeds, dividends, interest on own capital, and corporate actions.
+- Implement statement import, financial goals, and alerts.
 
-- Cliente HTTP compartilhado em `frontend/src/lib/api.js`.
-- Autenticacao local em `frontend/src/lib/auth.js` e `/api/auth/*`.
-- CRUD local em `frontend/src/lib/dataApi.js` e endpoints Flask.
-- SQLite local inicializado automaticamente pelo backend.
-- Migrations SQL versionadas em `database/migrations`.
-- SQLite local com foreign keys, WAL, synchronous normal e busy timeout.
-- Endpoints autenticados de status e backup do banco local.
-- Modelo de investimentos normalizado com `assets`, `investment_transactions`, `price_quotes` e `investment_positions`.
-- Migracao automatica dos dados antigos de `investments` para o modelo novo.
-- Endpoints diretos para ativos, transacoes de investimento e posicoes materializadas.
-- Compra, venda e resgate de investimento integrados ao caixa por `transactions.source_type/source_id`.
-- Resultado realizado de vendas/resgates com custo FIFO, custos, preco liquido, IR estimado e historico fiscal por operacao.
-- Operacoes destrutivas e atualizacao manual de cotacao protegidas por `asset_id`/classe, com bloqueio de edicoes/exclusoes que deixariam venda ou resgate sem lastro.
-- Cotacoes com fonte, ultima atualizacao, status stale/missing, falhas por ativo e atualizacao individual por ativo.
-- `VITE_API_BASE_URL`, `DATABASE_PATH`, `JWT_SECRET` e `CORS_ORIGINS` documentados.
-- Chamadas do frontend para portfolio, historico e atualizacao de precos usando o cliente compartilhado.
-- Healthcheck `/api/health`.
-- Atualizacao de precos filtrada por `investment_id` quando informado.
+## Implemented so far
+
+- Shared HTTP client in `frontend/src/lib/api.js`.
+- Local authentication in `frontend/src/lib/auth.js` and `/api/auth/*`.
+- Local CRUD in `frontend/src/lib/dataApi.js` and the Flask endpoints.
+- Local SQLite initialized automatically by the backend.
+- Versioned SQL migrations in `database/migrations`.
+- Local SQLite with foreign keys, WAL, synchronous normal, and busy timeout.
+- Authenticated status and backup endpoints for the local database.
+- Normalized investment model with `assets`, `investment_transactions`, `price_quotes`, and `investment_positions`.
+- Automatic migration of legacy `investments` data into the new model.
+- Direct endpoints for assets, investment transactions, and materialized positions.
+- Investment buys, sells, and redemptions integrated with cash via `transactions.source_type/source_id`.
+- Realized results for sales/redemptions with FIFO cost basis, costs, net price, estimated tax, and per-operation tax history.
+- Destructive operations and manual quote updates protected by `asset_id`/class, blocking edits/deletions that would leave a sale or redemption unbacked.
+- Quotes carrying source, last update, stale/missing status, per-asset failures, and individual per-asset refresh.
+- `VITE_API_BASE_URL`, `DATABASE_PATH`, `JWT_SECRET`, and `CORS_ORIGINS` documented.
+- Frontend calls for portfolio, history, and price updates using the shared client.
+- `/api/health` healthcheck.
+- Price updates filtered by `investment_id` when provided.
