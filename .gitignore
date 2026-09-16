@@ -20,6 +20,10 @@ __pycache__/
 *.sqlite3-shm
 *.sqlite3-wal
 backend/backups/
+# Bancos de teste temporarios e logs de servidor
+tmp_*.db
+*.log
+
 
 # ==========================================
 # FRONTEND (Node.js / React / Vite)
