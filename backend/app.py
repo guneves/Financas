@@ -13,6 +13,7 @@ import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from functools import wraps
 
 from flask import Flask, jsonify, request
@@ -523,7 +524,7 @@ def investment_cash_amount(investment):
 
     if not math.isfinite(amount) or amount <= 0:
         return None
-    return round(amount, 2)
+    return rounded_money(amount)
 
 
 def investment_cash_type(investment):
@@ -710,7 +711,20 @@ def investment_operation_date(investment):
 
 
 def rounded_money(value):
-    return round(safe_float(value), 2)
+    """Arredonda valores monetarios para centavos com ROUND_HALF_UP.
+
+    O round() do Python usa banker's rounding (metade para o par), entao
+    0.125 virava 0.12 e 0.135 virava 0.14 — comportamento inconsistente para
+    dinheiro. A conversao via str() recupera a intencao decimal do float
+    antes de quantizar, evitando herdar o erro de representacao binaria.
+    """
+    numeric = safe_float(value)
+    if not math.isfinite(numeric):
+        return 0.0
+    try:
+        return float(Decimal(str(numeric)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, ValueError):
+        return 0.0
 
 
 def quote_transaction_id(asset_class, transaction_id):
@@ -1686,10 +1700,10 @@ def build_portfolio_evolution(investments_data, historical_prices, months_back):
         evolution.append({
             "month": month_label(month_start),
             "month_key": target_key,
-            "patrimonio": round(max(net_total, 0), 2),
-            "valorAplicado": round(max(applied_total, 0), 2),
-            "ganhoCapital": round(max(gain, 0), 2),
-            "ganhoCapitalReal": round(gain, 2),
+            "patrimonio": rounded_money(max(net_total, 0)),
+            "valorAplicado": rounded_money(max(applied_total, 0)),
+            "ganhoCapital": rounded_money(max(gain, 0)),
+            "ganhoCapitalReal": rounded_money(gain),
         })
 
     return evolution
@@ -3833,11 +3847,11 @@ def build_portfolio_snapshot(current_user_id):
             "name": data["original_ticker"],
             "class": data["class"],
             "quantity": round(data["total_quantity"], 4),
-            "average_price": round(avg_price_calculated, 2),
-            "current_price": round(display_price, 2),
-            "current_value": round(current_value, 2),
-            "net_value": round(net_value, 2),
-            "taxes": round(taxes, 2),
+            "average_price": rounded_money(avg_price_calculated),
+            "current_price": rounded_money(display_price),
+            "current_value": rounded_money(current_value),
+            "net_value": rounded_money(net_value),
+            "taxes": rounded_money(taxes),
             "is_tax_free": is_tax_free,
             "profitability_percent": round(profitability, 2),
             "quote": data.get("quote") or {},
