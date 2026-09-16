@@ -10,7 +10,7 @@
 
 **Stack:** React 18 + Vite + Tailwind (frontend) · Flask 3 (backend, single file) · local SQLite with versioned migrations · hand-rolled HS256 JWT auth · yfinance for quotes.
 
-**Size:** `backend/app.py` = 4,063 lines · frontend = ~5,300 lines across 6 pages · 6 migrations · 0 tests.
+**Size:** `backend/app.py` = 4,063 lines · frontend = ~5,300 lines across 6 pages · 6 migrations · 88 backend tests (as of 2026-09-15; was 0).
 
 **What already works well:**
 
@@ -31,19 +31,32 @@ The **investments** core is considerably more mature than the **everyday finance
 
 ---
 
-## 2. Immediate housekeeping (do this before any feature work)
+## 2. Immediate housekeeping — DONE (2026-09-15)
 
 Low cost, high payoff. All of it is cleanup the sweep turned up.
 
-- [ ] **Delete the 19 forgotten test databases.** At the root: `tmp_quote_status_test.db`, `tmp_quote_status_test_final.db`, `tmp_realized_fixed_test.db`, `tmp_realized_result_test.db`, `tmp_safe_asset_ops_test.db`, `tmp_safe_fixed_delete_test.db`. In `backend/`: 13 more `tmp_*.db` files. They total ~4 MB and serve no purpose — they are already covered by `.gitignore` (nothing leaked into Git), but they clutter the tree.
-- [ ] **Add `tmp_*.db` and `*.log` to `.gitignore`** so the pattern doesn't come back. The `backend/server.{out,err}.log` and `frontend/vite.{out,err}.log` files are also sitting loose.
-- [ ] **Remove the `venv/` directory** (it exists alongside `.venv/` — two virtualenvs, one orphaned).
-- [ ] **Remove `frontend/dist/`** from the working tree; it's a build artifact and already gitignored.
-- [ ] **Check the `JWT_SECRET` in `backend/.env`.** The code default is `dev-secret-change-me` (`backend/app.py:56`). Even for personal use, generate a random value — `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
-- [ ] **Decide what happens to `seed_true_portfolio.py` and `seed_wallet_mock.py`.** If they still serve a purpose, move them to `backend/scripts/` with a one-line README. If not, delete them.
-- [ ] **Drop `CATTLE` from the `asset_class` enum** or document why it stayed. Commit `7f9de03 retirar cattle` removed the feature, but the CHECK constraint in `schema.sql` and in the migrations still accepts the value.
+- [x] **Delete the 19 forgotten test databases.** Already gone (commit `7e17371`).
+- [x] **Add `tmp_*.db` and `*.log` to `.gitignore`.** Done in `7e17371`; the loose `server.*.log` / `vite.*.log` files are gone too.
+- [x] **Remove the `venv/` directory.** No longer present — only `.venv/` remains.
+- [x] **Remove `frontend/dist/`.** Not present in the working tree.
+- [x] **Check the `JWT_SECRET` in `backend/.env`.** `backend/.env` had **no** `JWT_SECRET` at all, so the app was running on the `dev-secret-change-me` default. It now carries a 48-byte random secret. The file also still held three dead `SUPABASE_*` keys from the pre-Flask stack; those were removed. *Existing sessions were invalidated by the change — log in again.*
+- [x] **Decide what happens to the seed scripts.** Moved to `backend/scripts/` with a `README.md` describing what each one does and warning that both write directly to the database. Their `BASE_DIR` was adjusted so `DATABASE_PATH` still resolves to `backend/`.
+- [x] **Drop `CATTLE` from the `asset_class` enum** — **decided: it stays.** See below.
 
----
+### Why `CATTLE` stayed
+
+Commit `7f9de03 retirar cattle` removed the dedicated *screen*, not the asset class. The class is still wired end to end and working:
+
+- `ALLOWED_ASSET_CLASSES` and `DEFAULT_REALIZED_TAX_RATES` (15%) — `backend/app.py:66,76`
+- A mortality-rate adjustment applied to the position quantity — `backend/app.py:1660,3812`
+- A selectable option in the launch modal — `frontend/src/components/InvestmentLaunchModal.jsx:10`
+- Display labels — `Investments.jsx:390`, `Proventos.jsx:44`
+
+Removing it would mean a migration rewriting the `CHECK` constraint on two tables plus deleting live logic, with no benefit. The CHECK constraints in `schema.sql` and the migrations are therefore **correct as they stand**, not stale.
+
+### Also fixed while here
+
+- **`backend/.env.example` shipped a broken `DATABASE_MIGRATIONS_DIR=../database/migrations`.** That value is resolved against the *project* root, not `backend/`, so it pointed one level above the repo and the backend refused to boot with `RuntimeError: Diretorio de migrations nao encontrado`. The built-in default was right, which is why nobody hit it — but anyone copying `.env.example` to `.env` would have. Corrected to `database/migrations` in both files.
 
 ## 3. Functional gaps — what's missing for this to be a "finance manager"
 
@@ -132,19 +145,27 @@ backend/
 
 Do this **incrementally**, one blueprint at a time, with the app running between each step. Don't attempt it in one pass.
 
-### 4.2 Zero automated tests
+### 4.2 Automated tests — 88 in place (2026-09-15)
 
-There isn't a single test in the project. The `tmp_*.db` files are residue from manual testing, which confirms the critical rules were validated by hand.
+Was zero. There are now **88 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
 
-Start with what hurts most when it breaks (pytest + in-memory SQLite):
+```powershell
+.\start.ps1 -Tests          # or:  cd backend; ..\.venv\Scripts\python.exe -m pytest
+```
 
-1. **Sale FIFO** — lot consumption, partial quantity, full exit.
-2. **Regressive fixed-income tax** — the holding-period brackets.
-3. **Credit card invoice** — closing day, month rollover, which invoice an installment lands in.
-4. **Investment ↔ cash linkage** — a buy creates an outflow; deleting the movement removes the linked transaction.
-5. **`user_id` isolation** — no endpoint returns another user's data.
+Coverage against the five axes this document named:
 
-Realistic target: ~30 tests covering those five axes. This is what lets you refactor `app.py` without fear — **do it before section 4.1**.
+| # | Axis | File | Tests | Status |
+|---|---|---|---|---|
+| 1 | Sale FIFO — lot consumption, partial, full exit | `test_fifo.py` | 14 | Covered |
+| 2 | Regressive fixed-income tax + money rounding | `test_tax_rules.py` | 27 | Covered |
+| 3 | Credit card invoice | `test_credit_card_invoices.py` | 16 | **Partially** — see below |
+| 4 | Investment ↔ cash linkage | `test_investment_cash_link.py` | 9 | Covered |
+| 5 | `user_id` isolation | `test_user_isolation.py` | 22 | Covered |
+
+**The gap in axis 3.** The original plan asked for "closing day, month rollover, which invoice an installment lands in". That computation is **not in the backend** — it lives in `frontend/src/pages/Carteira.jsx:190`, which derives the closing day and picks the invoice before POSTing. The backend simply stores the `invoice_month`/`invoice_year` it receives. So the tests cover the settlement state machine, installment separation, and payload validation; the rollover rule itself is still untested and will stay that way until either a frontend test runner is added or that computation moves server-side. **Moving it server-side is the better fix** — it is a financial rule, and it currently cannot be tested or reused.
+
+Fixture notes for whoever extends this: `app.py` reads its config and calls `init_db()` at import time, so `backend/tests/conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* importing the module. `load_dotenv()` does not override already-set variables, which is why the real `backend/finance.db` is never touched. Fixtures available: `client`, `user`, `other_user`, `auth`.
 
 ### 4.3 Frontend
 
@@ -159,7 +180,7 @@ Realistic target: ~30 tests covering those five axes. This is what lets you refa
 - **Backup is manual** (`POST /api/database/backups`). For personal use, an automatic backup on boot and every N hours with 7-day retention is cheap, and prevents the kind of loss you only discover too late.
 - **No integration healthcheck** — if yfinance goes down or changes, you find out visually, by noticing a stale quote.
 - **No structured logging.** `server.err.log` is empty; external integration errors vanish.
-- **No single start script.** Right now it's two manual terminals. A `docker-compose.yml` or a `start.ps1` removes that daily friction.
+- [x] **~~No single start script.~~ Done (2026-09-15):** `start.ps1` at the repo root starts backend and frontend together, waits for `/api/health` and for Vite, opens the browser, and stops both on Ctrl+C. `.\start.ps1 -Tests` runs the test suite instead; `-NoBrowser` skips opening the browser.
 
 ---
 
@@ -167,12 +188,16 @@ Realistic target: ~30 tests covering those five axes. This is what lets you refa
 
 A sequence aimed at real personal use, not at a code portfolio. Each phase ships something usable.
 
-### Phase 0 — Cleanup (a few hours)
+### Phase 0 — Cleanup — DONE (2026-09-15)
 All of section 2. Nothing depends on it, but everything gets lighter.
 
-### Phase 1 — Safety net (1 week)
+### Phase 1 — Safety net (1 week) — MOSTLY DONE (2026-09-15)
 The tests from section 4.2 + automatic backup + single start script.
 *Without this, every refactor that follows is a gamble.*
+
+- [x] Tests — 88 of them, in `backend/tests/`. See section 4.2.
+- [x] Single start script — `start.ps1` (`.\start.ps1`, or `.\start.ps1 -Tests`).
+- [ ] **Automatic backup on boot with 7-day retention — still open.** This is the one Phase 1 item left.
 
 ### Phase 2 — Data foundation (1–2 weeks)
 Bank accounts (3.1) → categories as a table (3.2) → edit transaction (3.7).

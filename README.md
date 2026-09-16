@@ -56,13 +56,25 @@ Financas/
 
 ## Running locally
 
+### Quick start
+
+```powershell
+.\start.ps1
+```
+
+Starts backend (`:5000`) and frontend (`:5173`) together, waits for both, opens the browser, and
+stops both on Ctrl+C. It creates `backend/.env` from the example and runs `npm install` if either is
+missing. Use `-NoBrowser` to skip opening the browser.
+
+The manual, two-terminal route is below.
+
 ### 1. Backend
 
 Create `backend/.env` from `backend/.env.example`:
 
 ```env
 DATABASE_PATH=finance.db
-DATABASE_MIGRATIONS_DIR=../database/migrations
+DATABASE_MIGRATIONS_DIR=database/migrations
 DATABASE_BACKUP_DIR=backups
 SQLITE_BUSY_TIMEOUT_MS=5000
 JWT_SECRET=change-this-key-in-production
@@ -103,6 +115,24 @@ npm run dev
 ```
 
 The frontend normally comes up at `http://localhost:5173`.
+
+## Tests
+
+```powershell
+.\start.ps1 -Tests
+```
+
+or directly:
+
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest
+```
+
+88 tests covering FIFO cost basis, regressive fixed-income tax, credit card invoice settlement, the
+investment-to-cash link, and `user_id` isolation. They run against a temporary database built by the
+real migrations — your `backend/finance.db` is not touched.
 
 ## Database
 

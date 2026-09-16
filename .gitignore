@@ -63,3 +63,6 @@ Desktop.ini
 # Configurações locais do VS Code
 .vscode/
 .idea/
+
+# Cache do pytest
+.pytest_cache/

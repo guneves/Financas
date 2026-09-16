@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATABASE_PATH = os.getenv("DATABASE_PATH", os.path.join(BASE_DIR, "finance.db"))
 if not os.path.isabs(DATABASE_PATH):
     DATABASE_PATH = os.path.join(BASE_DIR, DATABASE_PATH)
