@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 import urllib.request
 import uuid
@@ -120,6 +121,18 @@ PRICE_FETCH_WORKERS = read_int_env("PRICE_FETCH_WORKERS", 2, minimum=1, maximum=
 HISTORY_CACHE_TTL_SECONDS = read_int_env("HISTORY_CACHE_TTL_SECONDS", 900, minimum=60)
 SQLITE_BUSY_TIMEOUT_MS = read_int_env("SQLITE_BUSY_TIMEOUT_MS", 5000, minimum=1000, maximum=60000)
 PRICE_QUOTE_STALE_HOURS = read_int_env("PRICE_QUOTE_STALE_HOURS", 36, minimum=1, maximum=720)
+BACKUP_RETENTION_DAYS = read_int_env("BACKUP_RETENTION_DAYS", 7, minimum=1, maximum=365)
+AUTO_BACKUP_ON_BOOT = str(os.getenv("AUTO_BACKUP_ON_BOOT", "1")).strip().lower() not in {"0", "false", "no"}
+AUTO_BACKUP_MIN_INTERVAL_HOURS = read_int_env(
+    "AUTO_BACKUP_MIN_INTERVAL_HOURS",
+    12,
+    minimum=0,
+    maximum=720,
+)
+# So os arquivos gerados automaticamente entram na rotacao. Backups com nome
+# proprio (ex.: "finance-before-normalized-investments-*.db") sao marcos feitos
+# a mao e nunca sao apagados pela retencao.
+BACKUP_FILE_PATTERN = re.compile(r"^finance-\d{8}-\d{6}\.(db|sql|zip)$")
 
 _price_cache = {}
 _history_cache = {}
@@ -276,6 +289,86 @@ def create_database_backup():
         "zip_path": zip_path,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+def backup_files():
+    """Backups automaticos (finance-AAAAMMDD-HHMMSS.*), do mais novo ao mais antigo."""
+    if not os.path.isdir(DATABASE_BACKUP_DIR):
+        return []
+
+    entries = []
+    for filename in os.listdir(DATABASE_BACKUP_DIR):
+        if not BACKUP_FILE_PATTERN.match(filename):
+            continue
+        path = os.path.join(DATABASE_BACKUP_DIR, filename)
+        if not os.path.isfile(path):
+            continue
+        try:
+            entries.append((path, os.path.getmtime(path)))
+        except OSError:
+            continue
+
+    entries.sort(key=lambda entry: entry[1], reverse=True)
+    return entries
+
+
+def last_backup_age_hours():
+    """Hours since the most recent backup, or None when there is none."""
+    entries = backup_files()
+    if not entries:
+        return None
+    return max(0.0, (time.time() - entries[0][1]) / 3600)
+
+
+def prune_database_backups(retention_days=None):
+    """Delete backup artifacts older than the retention window."""
+    retention_days = BACKUP_RETENTION_DAYS if retention_days is None else retention_days
+    cutoff = time.time() - retention_days * 86400
+
+    removed = []
+    for path, modified_at in backup_files():
+        if modified_at >= cutoff:
+            continue
+        try:
+            os.remove(path)
+            removed.append(os.path.basename(path))
+        except OSError as exc:
+            print(f"Nao foi possivel remover o backup antigo {path}: {exc}")
+
+    return removed
+
+
+def run_startup_backup():
+    """Back up the database on boot, then prune anything past retention.
+
+    Skipped when AUTO_BACKUP_ON_BOOT is off, when there is no database file yet,
+    or when a backup already ran inside AUTO_BACKUP_MIN_INTERVAL_HOURS - restarting
+    the app repeatedly should not fill the backup directory.
+    """
+    if not AUTO_BACKUP_ON_BOOT:
+        return None
+
+    if not os.path.isfile(DATABASE_PATH) or os.path.getsize(DATABASE_PATH) == 0:
+        return None
+
+    age_hours = last_backup_age_hours()
+    if age_hours is not None and age_hours < AUTO_BACKUP_MIN_INTERVAL_HOURS:
+        prune_database_backups()
+        return None
+
+    try:
+        backup = create_database_backup()
+    except Exception as exc:
+        print(f"Backup automatico de boot falhou: {exc}")
+        return None
+
+    removed = prune_database_backups()
+    print(
+        f"Backup automatico criado em {backup['zip_path']}"
+        + (f" ({len(removed)} arquivo(s) antigo(s) removido(s))" if removed else "")
+    )
+    backup["pruned"] = removed
+    return backup
 
 
 def new_id():
@@ -1325,6 +1418,89 @@ def parse_investment_proceeds_filters(args):
     return filters
 
 
+def default_closing_day(due_day):
+    """Fechamento presumido quando o cartao nao tem dia de fechamento gravado."""
+    candidate = int(due_day) - 7
+    return candidate if candidate > 0 else 30 + candidate
+
+
+def add_invoice_months(month, year, months):
+    """Avanca (mes, ano) em `months` meses, normalizando a virada de ano."""
+    zero_based = (int(month) - 1) + int(months)
+    return zero_based % 12 + 1, int(year) + zero_based // 12
+
+
+def compute_invoice_start(purchase_date, due_day, closing_day=None):
+    """Fatura em que uma compra cai, dados o dia de fechamento e o de vencimento.
+
+    Regra: uma compra feita antes do fechamento entra na fatura que fecha neste
+    ciclo; a partir do fechamento (inclusive) ela escorrega para a proxima. Quando
+    o fechamento cai depois do vencimento no mes, o ciclo ja esta deslocado e a
+    compra vai um mes adiante do que essa contagem sugeriria.
+
+    Esta regra vivia em `frontend/src/pages/Carteira.jsx` e foi trazida para ca em
+    2026-09-15 para poder ser testada e reusada — o comportamento e o mesmo.
+    """
+    if isinstance(purchase_date, str):
+        purchase_date = datetime.strptime(purchase_date, "%Y-%m-%d").date()
+
+    due_day = int(due_day)
+    closing_day = int(closing_day) if closing_day else default_closing_day(due_day)
+
+    purchase_day = purchase_date.day
+    offset = 0
+    if closing_day < due_day:
+        if purchase_day >= closing_day:
+            offset = 1
+    elif purchase_day < closing_day:
+        offset = 1
+    else:
+        offset = 2
+
+    month, year = add_invoice_months(purchase_date.month, purchase_date.year, offset)
+    return {"invoice_month": month, "invoice_year": year}
+
+
+def split_installments(total_amount, installments_count):
+    """Divide um total em parcelas de centavos inteiros, sem perder centavo.
+
+    O resto e distribuido nas primeiras parcelas, entao a soma das parcelas e
+    sempre igual ao total informado.
+    """
+    total_cents = int(Decimal(str(rounded_money(total_amount))).scaleb(2).to_integral_value(rounding=ROUND_HALF_UP))
+    base_cents, remainder = divmod(total_cents, installments_count)
+    return [
+        rounded_money((base_cents + (1 if index < remainder else 0)) / 100)
+        for index in range(installments_count)
+    ]
+
+
+def build_installment_rows(purchase, card):
+    """Linhas de cc_expenses para uma compra parcelada, ja com a fatura de cada uma."""
+    start = compute_invoice_start(
+        purchase["purchase_date"],
+        card["due_day"],
+        card["closing_day"],
+    )
+    amounts = split_installments(purchase["total_amount"], purchase["installments"])
+
+    rows = []
+    for index, amount in enumerate(amounts):
+        month, year = add_invoice_months(start["invoice_month"], start["invoice_year"], index)
+        rows.append({
+            "card_id": purchase["card_id"],
+            "category": purchase["category"],
+            "description": purchase["description"],
+            "amount": amount,
+            "purchase_date": purchase["purchase_date"],
+            "invoice_month": month,
+            "invoice_year": year,
+            "installment_info": f"{index + 1}/{purchase['installments']}",
+            "status": "OPEN",
+        })
+    return rows
+
+
 def serialize_cc_expense(row):
     item = row_to_dict(row)
     if not item:
@@ -1732,7 +1908,9 @@ def get_database_status(current_user_id):
 @token_required
 def backup_database(current_user_id):
     try:
-        return jsonify(create_database_backup()), 201
+        backup = create_database_backup()
+        backup["pruned"] = prune_database_backups()
+        return jsonify(backup), 201
     except Exception as exc:
         print(f"Erro ao criar backup SQLite: {exc}")
         return jsonify({"error": "Nao foi possivel criar o backup do banco."}), 500
@@ -2019,6 +2197,79 @@ def cc_expenses(current_user_id):
         return jsonify({"error": "Nao foi possivel criar a fatura."}), 400
 
     return jsonify([row_to_dict(row) for row in rows]), 201
+
+
+@app.route("/api/cc-expenses/purchases", methods=["POST"])
+@token_required
+def create_cc_purchase(current_user_id):
+    """Registra uma compra no cartao, parcelando e escolhendo a fatura no servidor.
+
+    O cliente manda a compra (valor total e numero de parcelas); a regra de qual
+    fatura cada parcela ocupa fica aqui, junto do cartao que a define.
+    """
+    payload = parse_json_body()
+    if not isinstance(payload, dict):
+        return validation_error("Informe uma compra valida.")
+
+    try:
+        card_id = require_string(payload, "card_id", "Cartao")
+        purchase = {
+            "card_id": card_id,
+            "category": require_string(payload, "category", "Categoria"),
+            "description": require_string(payload, "description", "Descricao", max_length=500),
+            "total_amount": parse_number(payload, "total_amount", "Valor total", minimum=0, allow_zero=False),
+            "purchase_date": require_date(payload, "purchase_date", "Data da compra"),
+            "installments": parse_int_number(payload, "installments", "Parcelas", minimum=1, maximum=72),
+        }
+
+        with get_db() as conn:
+            ensure_credit_card_owner(conn, current_user_id, card_id)
+            card = conn.execute(
+                "SELECT due_day, closing_day FROM credit_cards WHERE id = ? AND user_id = ?",
+                (card_id, current_user_id),
+            ).fetchone()
+            if not card:
+                raise ValidationError("Cartao nao encontrado.")
+
+            rows = build_installment_rows(purchase, card)
+            inserted = []
+            for row in rows:
+                item_id = new_id()
+                conn.execute(
+                    """
+                    INSERT INTO cc_expenses
+                    (id, user_id, card_id, category, description, amount, purchase_date,
+                     invoice_month, invoice_year, installment_info, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item_id,
+                        current_user_id,
+                        row["card_id"],
+                        row["category"],
+                        row["description"],
+                        row["amount"],
+                        row["purchase_date"],
+                        row["invoice_month"],
+                        row["invoice_year"],
+                        row["installment_info"],
+                        row["status"],
+                    ),
+                )
+                inserted.append(item_id)
+
+            placeholders = ",".join("?" for _ in inserted)
+            created = conn.execute(
+                f"SELECT * FROM cc_expenses WHERE id IN ({placeholders})"
+                " ORDER BY invoice_year ASC, invoice_month ASC",
+                inserted,
+            ).fetchall()
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Nao foi possivel criar a compra no cartao."}), 400
+
+    return jsonify([row_to_dict(row) for row in created]), 201
 
 
 @app.route("/api/cc-expenses/candidates", methods=["GET"])
@@ -4072,6 +4323,7 @@ def get_historical_portfolio(current_user_id):
 
 
 init_db()
+run_startup_backup()
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG") == "1", port=5000)

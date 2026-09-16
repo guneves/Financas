@@ -35,6 +35,10 @@ export const ccExpensesApi = {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
+  createPurchase: (payload) => apiFetch('/api/cc-expenses/purchases', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
   candidates: (params) => apiFetch(`/api/cc-expenses/candidates${queryString(params)}`),
   removeMany: (ids) => apiFetch('/api/cc-expenses', {
     method: 'DELETE',

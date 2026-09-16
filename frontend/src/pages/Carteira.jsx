@@ -144,14 +144,6 @@ function dateAtDay(day, monthOffset = 0) {
   return getLocalDateString(base)
 }
 
-function addMonths(month, year, monthsToAdd) {
-  const date = new Date(year, month - 1 + monthsToAdd, 1)
-  return {
-    month: date.getMonth() + 1,
-    year: date.getFullYear(),
-  }
-}
-
 function getDaysRemainingInMonth() {
   const today = getNow()
   const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
@@ -182,40 +174,6 @@ function getPurchaseGroupKey(expense) {
   ].join('|')
 }
 
-function getInvoiceStart(purchaseDate, card) {
-  const purchaseDay = purchaseDate.getDate()
-  let invoiceMonth = purchaseDate.getMonth() + 1
-  let invoiceYear = purchaseDate.getFullYear()
-  const dueDay = Number(card.due_day)
-  const closingDay = Number(card.closing_day || (dueDay - 7 > 0 ? dueDay - 7 : 30 + (dueDay - 7)))
-
-  if (closingDay < dueDay) {
-    if (purchaseDay >= closingDay) invoiceMonth += 1
-  } else if (purchaseDay < closingDay) {
-    invoiceMonth += 1
-  } else {
-    invoiceMonth += 2
-  }
-
-  while (invoiceMonth > 12) {
-    invoiceMonth -= 12
-    invoiceYear += 1
-  }
-
-  return { invoiceMonth, invoiceYear }
-}
-
-function splitInstallments(totalAmount, installmentsCount) {
-  const totalCents = Math.round(Number(totalAmount) * 100)
-  const baseCents = Math.floor(totalCents / installmentsCount)
-  const remainder = totalCents % installmentsCount
-
-  return Array.from({ length: installmentsCount }, (_, index) => {
-    const cents = baseCents + (index < remainder ? 1 : 0)
-    return cents / 100
-  })
-}
-
 function isSameTransaction(existing, candidate) {
   return existing.type === candidate.type
     && existing.date === candidate.date
@@ -223,13 +181,11 @@ function isSameTransaction(existing, candidate) {
     && Number(existing.amount || 0).toFixed(2) === Number(candidate.amount || 0).toFixed(2)
 }
 
-function isSameCardExpense(existing, candidate) {
+function isSamePurchase(existing, candidate) {
   return existing.card_id === candidate.card_id
     && existing.description === candidate.description
     && existing.purchase_date === candidate.purchase_date
     && existing.category === candidate.category
-    && existing.installment_info === candidate.installment_info
-    && Number(existing.amount || 0).toFixed(2) === Number(candidate.amount || 0).toFixed(2)
 }
 
 function buildMockTransactions() {
@@ -708,36 +664,20 @@ export default function Carteira() {
       return
     }
 
-    const { invoiceMonth, invoiceYear } = getInvoiceStart(purchaseDate, selectedCard)
-    const installmentAmounts = splitInstallments(totalAmount, installmentsCount)
-
-    let currentMonth = invoiceMonth
-    let currentYear = invoiceYear
-    const inserts = installmentAmounts.map((amount, index) => {
-      const item = {
-        card_id: expenseForm.card_id,
-        category: expenseForm.category,
-        description: expenseForm.description,
-        amount: amount.toFixed(2),
-        purchase_date: expenseForm.purchase_date,
-        invoice_month: currentMonth,
-        invoice_year: currentYear,
-        installment_info: `${index + 1}/${installmentsCount}`,
-        status: 'OPEN',
-      }
-
-      const nextInvoice = addMonths(currentMonth, currentYear, 1)
-      currentMonth = nextInvoice.month
-      currentYear = nextInvoice.year
-
-      return item
-    })
-
     setLoading(true)
     setDataError('')
     setNotice('')
     try {
-      await ccExpensesApi.create(inserts)
+      // O parcelamento e a fatura de cada parcela sao calculados no backend
+      // (POST /api/cc-expenses/purchases), junto do cartao que define a regra.
+      await ccExpensesApi.createPurchase({
+        card_id: expenseForm.card_id,
+        category: expenseForm.category,
+        description: expenseForm.description,
+        total_amount: totalAmount,
+        purchase_date: expenseForm.purchase_date,
+        installments: installmentsCount,
+      })
       setExpenseForm({
         card_id: cards[0]?.id || '',
         category: '',
@@ -888,44 +828,28 @@ export default function Carteira() {
       }
 
       const cardByName = Object.fromEntries(latestCards.map((card) => [card.name, card]))
-      const expenseCandidates = []
 
-      MOCK_PURCHASES.forEach((mockPurchase) => {
+      for (const mockPurchase of MOCK_PURCHASES) {
         const card = cardByName[mockPurchase.cardName]
-        const purchaseDate = parseLocalDate(mockPurchase.purchase_date)
-        if (!card || !purchaseDate) return
+        if (!card) continue
 
-        const { invoiceMonth, invoiceYear } = getInvoiceStart(purchaseDate, card)
-        const installmentAmounts = splitInstallments(mockPurchase.total_amount, mockPurchase.installments)
-        let currentMonth = invoiceMonth
-        let currentYear = invoiceYear
+        const alreadySeeded = latestCardExpenses.some((expense) => isSamePurchase(expense, {
+          card_id: card.id,
+          description: mockPurchase.description,
+          purchase_date: mockPurchase.purchase_date,
+          category: mockPurchase.category,
+        }))
+        if (alreadySeeded) continue
 
-        installmentAmounts.forEach((amount, index) => {
-          expenseCandidates.push({
-            card_id: card.id,
-            category: mockPurchase.category,
-            description: mockPurchase.description,
-            amount: amount.toFixed(2),
-            purchase_date: mockPurchase.purchase_date,
-            invoice_month: currentMonth,
-            invoice_year: currentYear,
-            installment_info: `${index + 1}/${mockPurchase.installments}`,
-            status: 'OPEN',
-          })
-
-          const nextInvoice = addMonths(currentMonth, currentYear, 1)
-          currentMonth = nextInvoice.month
-          currentYear = nextInvoice.year
+        const created = await ccExpensesApi.createPurchase({
+          card_id: card.id,
+          category: mockPurchase.category,
+          description: mockPurchase.description,
+          total_amount: mockPurchase.total_amount,
+          purchase_date: mockPurchase.purchase_date,
+          installments: mockPurchase.installments,
         })
-      })
-
-      const missingExpenses = expenseCandidates.filter((candidate) => (
-        !latestCardExpenses.some((expense) => isSameCardExpense(expense, candidate))
-      ))
-
-      if (missingExpenses.length > 0) {
-        await ccExpensesApi.create(missingExpenses)
-        createdCounts.expenses = missingExpenses.length
+        createdCounts.expenses += created.length
       }
 
       await fetchData()

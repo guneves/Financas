@@ -10,7 +10,7 @@
 
 **Stack:** React 18 + Vite + Tailwind (frontend) · Flask 3 (backend, single file) · local SQLite with versioned migrations · hand-rolled HS256 JWT auth · yfinance for quotes.
 
-**Size:** `backend/app.py` = 4,063 lines · frontend = ~5,300 lines across 6 pages · 6 migrations · 88 backend tests (as of 2026-09-15; was 0).
+**Size:** `backend/app.py` = 4,063 lines · frontend = ~5,300 lines across 6 pages · 6 migrations · 127 backend tests (as of 2026-09-15; was 0).
 
 **What already works well:**
 
@@ -145,9 +145,9 @@ backend/
 
 Do this **incrementally**, one blueprint at a time, with the app running between each step. Don't attempt it in one pass.
 
-### 4.2 Automated tests — 88 in place (2026-09-15)
+### 4.2 Automated tests — 127 in place (2026-09-15)
 
-Was zero. There are now **88 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
+Was zero. There are now **127 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
 
 ```powershell
 .\start.ps1 -Tests          # or:  cd backend; ..\.venv\Scripts\python.exe -m pytest
@@ -159,25 +159,28 @@ Coverage against the five axes this document named:
 |---|---|---|---|---|
 | 1 | Sale FIFO — lot consumption, partial, full exit | `test_fifo.py` | 14 | Covered |
 | 2 | Regressive fixed-income tax + money rounding | `test_tax_rules.py` | 27 | Covered |
-| 3 | Credit card invoice | `test_credit_card_invoices.py` | 16 | **Partially** — see below |
+| 3 | Credit card invoice — settlement | `test_credit_card_invoices.py` | 16 | Covered |
+| 3 | Credit card invoice — which invoice a purchase lands in | `test_invoice_month.py` | 22 | Covered |
 | 4 | Investment ↔ cash linkage | `test_investment_cash_link.py` | 9 | Covered |
 | 5 | `user_id` isolation | `test_user_isolation.py` | 22 | Covered |
+| — | Automatic backup and retention | `test_backups.py` | 17 | Covered |
 
-**The gap in axis 3.** The original plan asked for "closing day, month rollover, which invoice an installment lands in". That computation is **not in the backend** — it lives in `frontend/src/pages/Carteira.jsx:190`, which derives the closing day and picks the invoice before POSTing. The backend simply stores the `invoice_month`/`invoice_year` it receives. So the tests cover the settlement state machine, installment separation, and payload validation; the rollover rule itself is still untested and will stay that way until either a frontend test runner is added or that computation moves server-side. **Moving it server-side is the better fix** — it is a financial rule, and it currently cannot be tested or reused.
+**Axis 3 is now complete.** The rollover rule ("closing day, month rollover, which invoice an installment lands in") used to live in `frontend/src/pages/Carteira.jsx`, where it could not be tested. It moved to the backend on 2026-09-15 — `compute_invoice_start()`, `split_installments()` and `POST /api/cc-expenses/purchases` — and `test_invoice_month.py` pins the behaviour, including the December→January rollover and the cent-exact installment split.
 
 Fixture notes for whoever extends this: `app.py` reads its config and calls `init_db()` at import time, so `backend/tests/conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* importing the module. `load_dotenv()` does not override already-set variables, which is why the real `backend/finance.db` is never touched. Fixtures available: `client`, `user`, `other_user`, `auth`.
 
 ### 4.3 Frontend
 
 - **`formatCurrency` is duplicated across 5 files** and `formatDateBR` across 3 (`Carteira.jsx`, `Dashboard.jsx`, `Investments.jsx`, `Proventos.jsx`, `Transactions.jsx`, `InvestmentLaunchModal.jsx`). Extract to `frontend/src/lib/format.js`.
-- **`Carteira.jsx` is 1,380 lines** and `Investments.jsx` is 875. Break them into per-section components.
+- **`Carteira.jsx` is ~1,300 lines** and `Investments.jsx` is 875. Break them into per-section components.
 - **No centralized server state.** Every page does its own `useEffect` + `fetch` + `loading` + `error`. TanStack Query would handle caching, revalidation, and the repeated error pattern — roughly 200 fewer lines and better behavior.
 - **Inconsistent error messages** — each page handles failure its own way. Standardize on a single toast/banner.
 - **No loading skeletons** on the heavy screens (the portfolio takes a while when refreshing quotes).
 
 ### 4.4 Operations
 
-- **Backup is manual** (`POST /api/database/backups`). For personal use, an automatic backup on boot and every N hours with 7-day retention is cheap, and prevents the kind of loss you only discover too late.
+- [x] **~~Backup is manual.~~ Done (2026-09-15):** `run_startup_backup()` runs right after `init_db()`. It backs up on boot, skips if a backup already ran inside `AUTO_BACKUP_MIN_INTERVAL_HOURS` (default 12, so restarting the app all day does not fill the directory), then prunes anything past `BACKUP_RETENTION_DAYS` (default 7). `POST /api/database/backups` prunes too and reports what it removed. Configurable via `AUTO_BACKUP_ON_BOOT`, `AUTO_BACKUP_MIN_INTERVAL_HOURS` and `BACKUP_RETENTION_DAYS`.
+  **Retention only ever touches files named `finance-AAAAMMDD-HHMMSS.{db,sql,zip}`** — the ones the app generates. Hand-named milestone backups (`finance-before-<thing>-*.db`) are deliberately excluded; see the handoff for why that rule exists.
 - **No integration healthcheck** — if yfinance goes down or changes, you find out visually, by noticing a stale quote.
 - **No structured logging.** `server.err.log` is empty; external integration errors vanish.
 - [x] **~~No single start script.~~ Done (2026-09-15):** `start.ps1` at the repo root starts backend and frontend together, waits for `/api/health` and for Vite, opens the browser, and stops both on Ctrl+C. `.\start.ps1 -Tests` runs the test suite instead; `-NoBrowser` skips opening the browser.
@@ -191,13 +194,13 @@ A sequence aimed at real personal use, not at a code portfolio. Each phase ships
 ### Phase 0 — Cleanup — DONE (2026-09-15)
 All of section 2. Nothing depends on it, but everything gets lighter.
 
-### Phase 1 — Safety net (1 week) — MOSTLY DONE (2026-09-15)
+### Phase 1 — Safety net (1 week) — DONE (2026-09-15)
 The tests from section 4.2 + automatic backup + single start script.
 *Without this, every refactor that follows is a gamble.*
 
-- [x] Tests — 88 of them, in `backend/tests/`. See section 4.2.
+- [x] Tests — 127 of them, in `backend/tests/`. See section 4.2.
 - [x] Single start script — `start.ps1` (`.\start.ps1`, or `.\start.ps1 -Tests`).
-- [ ] **Automatic backup on boot with 7-day retention — still open.** This is the one Phase 1 item left.
+- [x] Automatic backup on boot with 7-day retention. See section 4.4.
 
 ### Phase 2 — Data foundation (1–2 weeks)
 Bank accounts (3.1) → categories as a table (3.2) → edit transaction (3.7).

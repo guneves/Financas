@@ -29,6 +29,8 @@ def app_module():
     os.environ["DATABASE_MIGRATIONS_DIR"] = os.path.join(PROJECT_DIR, "database", "migrations")
     os.environ["DATABASE_BACKUP_DIR"] = os.path.join(tmp_dir, "backups")
     os.environ["JWT_SECRET"] = "test-secret"
+    # O backup automatico de boot e exercitado em test_backups.py, com controle explicito.
+    os.environ["AUTO_BACKUP_ON_BOOT"] = "0"
     os.environ["CORS_ORIGINS"] = "*"
 
     sys.modules.pop("app", None)

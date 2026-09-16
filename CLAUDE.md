@@ -59,8 +59,8 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-88 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices, the investment↔cash
-link, and `user_id` isolation. They run against a throwaway SQLite database built by the real
+127 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement and the
+invoice-month rule), the investment↔cash link, `user_id` isolation, and backup retention. They run against a throwaway SQLite database built by the real
 migrations — **the real `backend/finance.db` is never touched.**
 
 `app.py` reads config and calls `init_db()` at import time, so `conftest.py` sets `DATABASE_PATH` and
@@ -112,7 +112,8 @@ docs/
 
 - `backend/app.py` is one ~4,000-line file. Splitting it is planned (§4.1) but should happen
   incrementally, one blueprint at a time, with the suite green between steps.
-- The credit card **invoice-month rule lives in the frontend** (`Carteira.jsx:190`), so it is
-  untestable and partly duplicated in `Dashboard.jsx`. Moving it server-side is a standing
-  recommendation.
+- The credit card **invoice-month rule now lives in the backend** (`compute_invoice_start()` in
+  `backend/app.py`, behind `POST /api/cc-expenses/purchases`), covered by
+  `backend/tests/test_invoice_month.py`. It used to be in `Carteira.jsx`; don't reintroduce a
+  client-side copy.
 - `formatCurrency` is duplicated across five frontend files and `formatDateBR` across three.

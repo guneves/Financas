@@ -1,10 +1,10 @@
 """Axis 3: credit card invoices — settlement, installments and validation.
 
-Scope note: which invoice a purchase lands in (closing day + month rollover) is
-computed in the **frontend** (`frontend/src/pages/Carteira.jsx`), not here. The
-backend stores the `invoice_month`/`invoice_year` it is handed and owns the
-settlement state machine. These tests cover the backend half; the rollover rule
-is still untested — see `docs/handoff.md`.
+Scope note: these tests cover the settlement state machine, installment
+separation and payload validation on the raw `/api/cc-expenses` endpoint, which
+stores the `invoice_month`/`invoice_year` it is handed. The rule that *decides*
+which invoice a purchase lands in moved out of the frontend on 2026-09-15 and is
+covered by `test_invoice_month.py`.
 """
 
 import pytest
