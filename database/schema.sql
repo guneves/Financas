@@ -17,18 +17,74 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'CHECKING'
+        CHECK (type IN ('CHECKING', 'SAVINGS', 'BROKERAGE', 'CASH', 'OTHER')),
+    institution TEXT,
+    initial_balance REAL NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'BRL',
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+    archived_at TEXT,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(user_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_user_name
+ON accounts(user_id, name);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_user_active
+ON accounts(user_id, archived_at);
+
+CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'EXPENSE' CHECK (kind IN ('INCOME', 'EXPENSE', 'BOTH')),
+    parent_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+    color TEXT,
+    icon TEXT,
+    archived_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(user_id, name, parent_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_categories_user_name
+ON categories(user_id, name);
+
+CREATE INDEX IF NOT EXISTS idx_categories_user_parent
+ON categories(user_id, parent_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_user_root_name
+ON categories(user_id, name)
+WHERE parent_id IS NULL;
+
+-- Uma transferencia e UMA linha: type='TRANSFER', saindo de account_id e
+-- entrando em transfer_account_id. Ver database/migrations/007.
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+    transfer_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
     amount REAL NOT NULL CHECK (amount >= 0),
     date TEXT NOT NULL,
     category TEXT NOT NULL,
+    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
     description TEXT,
-    type TEXT NOT NULL CHECK (type IN ('INCOME', 'EXPENSE')),
+    type TEXT NOT NULL CHECK (type IN ('INCOME', 'EXPENSE', 'TRANSFER')),
     source_type TEXT,
     source_id TEXT,
     metadata TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK (type <> 'TRANSFER' OR (account_id IS NOT NULL
+                                  AND transfer_account_id IS NOT NULL
+                                  AND account_id <> transfer_account_id)),
+    CHECK (type = 'TRANSFER' OR transfer_account_id IS NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date
@@ -43,6 +99,15 @@ WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_category_date
 ON transactions(user_id, category, date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_user_category_id_date
+ON transactions(user_id, category_id, date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_user_account_date
+ON transactions(user_id, account_id, date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_user_transfer_account_date
+ON transactions(user_id, transfer_account_id, date DESC);
 
 CREATE TABLE IF NOT EXISTS investments (
     id TEXT PRIMARY KEY,

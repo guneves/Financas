@@ -6,6 +6,152 @@
 
 ---
 
+## Session — 2026-09-16 · Phase 2 closed: bank accounts, transfers, categories, editing
+
+### Where things stand
+
+**Phase 2 is complete.** All three items — §3.1 bank accounts, §3.2 categories as a table, §3.7 edit a
+transaction — landed together, because they are all migrations against `transactions` and doing them
+in one pass meant rebuilding that table once instead of twice. 127 tests → **205**. Phase 3 (monthly
+budget, recurring entries, statement filters) is next.
+
+There is also now a **`finance-guard` subagent** (`.claude/agents/finance-guard.md`) and a step in
+`CLAUDE.md`'s end-of-session ritual that says to run it before committing.
+
+### What was done
+
+**1. Bank accounts and transfers — migration `007_accounts_and_transfers.sql`**
+
+`accounts` table, `transactions.account_id` backfilled to an auto-created "Conta Principal" per user,
+and `TRANSFER` as a real transaction type. Endpoints: `GET/POST /api/accounts`,
+`PATCH/DELETE /api/accounts/<id>`, `POST /api/transfers`.
+
+**The design decision worth knowing: a transfer is ONE row, not two.** `type='TRANSFER'` leaves
+`account_id` and arrives at `transfer_account_id`. Two sibling rows would have to be kept in sync on
+every edit and delete, and every query would have to know how to pair them. One row of a distinct
+type means the consolidated balance ignores transfers for free.
+
+The cost of that choice: **anything summing `transactions` must skip `type = 'TRANSFER'`**, or moving
+money between your own accounts reads as an expense. Two callers did exactly that and were fixed
+(`Dashboard.jsx:~130`, `Transactions.jsx` in `fetchData`). If you add a third summation anywhere,
+that is the thing to remember. The `CHECK` constraints on the table keep the *columns* coherent
+(a TRANSFER must have both accounts and they must differ; a non-TRANSFER must have no destination)
+but they cannot protect a naive `SUM`.
+
+**The migration rebuilds `transactions`**, because SQLite cannot `ALTER` a `CHECK` constraint and
+`type` had to start accepting `TRANSFER`. That means `DROP TABLE` — which takes the table's indexes
+with it. All four existing indexes are recreated at the bottom of the migration, plus two new ones.
+If you ever rebuild a table again, check the index list; it is the easy thing to lose silently.
+
+**2. Categories as a table — migration `008_categories_table.sql`**
+
+`categories` (with `parent_id` for one level of subcategory, and `kind` extended to `INCOME|EXPENSE|BOTH`),
+`transactions.category_id`, and the 10 original categories seeded per user. Endpoints:
+`GET/POST /api/categories`, `PATCH/DELETE /api/categories/<id>`.
+
+**`transactions.category` (the text) stays and is still the value.** `category_id` is a link
+alongside it, not a replacement. The text is what the Dashboard groups on and what survives a
+category being archived — so `PATCH /api/categories/<id>` rewrites the linked lançamentos' text in
+the same transaction when the name changes, or the grouping would split in two. Free-text categories
+are still accepted on `POST /api/transactions` and come back with `category_id: null`; rejecting them
+would break `backend/scripts/`.
+
+The backfill promotes any category that only ever existed as free text into a real row. On the real
+database that picked up **"Freelance", "Salário", "Salario" (both spellings), "Mercado" and
+"Pagamento Fatura do Mês"** — 25 category rows across the two users. "Salario" and "Salário" existing
+side by side is real duplication in the data, not a migration bug; it is now visible and mergeable in
+the UI, which it was not before.
+
+**3. Edit a transaction — `PATCH /api/transactions/<id>`**
+
+Partial: it only touches fields present in the payload. Inline editing in the statement table on the
+Movimentações page (pencil → edit in place → check/cancel). Two refusals: a lançamento mirrored from
+an investment (`source_type = 'INVESTMENT_TRANSACTION'`) returns 409, the same rule `DELETE` already
+had; and a plain lançamento cannot be converted into a transfer or back, in either direction.
+
+**4. Frontend**
+
+- `Movimentações`: a "Contas" panel with per-account balance and an inline create form, a
+  "Transferência" panel, an account selector on the lançamento form, categories fetched from
+  `/api/categories` instead of the hardcoded array, and a Conta column plus inline editing in the
+  statement.
+- `Dashboard`: a "Saldo por conta" panel below the metric cards.
+- `CATEGORY_OPTIONS` survives in `Transactions.jsx` **as a first-render fallback only**, used until
+  `/api/categories` answers. It is no longer the source of truth.
+
+**5. Tests: 127 → 205**
+
+| File | Tests | What it pins |
+|---|---|---|
+| `test_accounts_and_transfers.py` | 31 | Default account on signup, CRUD, archiving rules, transfer arithmetic, `user_id` isolation |
+| `test_categories.py` | 23 | Seeding, subcategory depth, rename propagation to lançamentos, archiving, isolation |
+| `test_transaction_edit.py` | 24 | Partial PATCH, rounding, the two refusals, balance effects of moving/retyping a lançamento |
+
+The transfer arithmetic test is the one that matters most:
+`test_transfer_moves_money_without_changing_the_consolidated_total`.
+
+**6. The `finance-guard` subagent**
+
+`.claude/agents/finance-guard.md` — a read-only auditor that reads the diff and checks `user_id`
+scoping, `rounded_money()` vs bare `round()`, migrations staying append-only (and a rebuilt table
+getting its indexes back), destructive-endpoint guards, test coverage for touched financial rules,
+and the Portuguese/English split. `CLAUDE.md` now has a section describing it and a line in the
+end-of-session checklist saying to run it before committing.
+
+### Things to know
+
+- **The agent file could not be exercised this session.** Claude Code discovers `.claude/agents/*.md`
+  at startup, so `Agent(subagent_type="finance-guard")` returned *"Agent type not found"* right after
+  the file was written. Its checklist was run by hand instead (that is how the readback in
+  `POST /api/transfers` got its missing `user_id` filter). **Next session should run it for real
+  once**, early, to confirm the definition works before relying on it.
+- **The audit flagged pre-existing `round()` calls that are correct.** `backend/app.py` rounds share
+  quantities to 6 places, `amount_per_unit` to 8, and yield percentages to 2–4. Those are not
+  currency and the `rounded_money()` rule does not apply to them. The guard's own definition now
+  warns about this; do not "fix" them.
+- **The real `backend/finance.db` has NOT been migrated yet.** Migrations 007 and 008 will apply on
+  the next boot, after the automatic backup runs. They were verified on an exact copy: 49
+  transactions in, 49 out, zero rows with a null `account_id` or `category_id`, and both
+  `PRAGMA foreign_key_check` and `PRAGMA integrity_check` clean. Nothing needs doing — just expect
+  the first `.\start.ps1` to take a moment longer and to write a backup first.
+- **Two users exist in the real database**, so the backfill created two "Conta Principal" rows and two
+  copies of the 10 seed categories. That is correct — `UNIQUE(user_id, name)` is per user.
+- **`UNIQUE(user_id, name, parent_id)` does not constrain root categories**, because SQLite treats two
+  NULLs as distinct. Migration 008 adds a partial unique index
+  (`... WHERE parent_id IS NULL`) to cover that. Worth remembering for any future nullable-column
+  uniqueness.
+
+### What was NOT done, and why
+
+- **Nothing from Phase 3** (monthly budget §3.3, recurring entries §3.4, statement search §3.7).
+  Deliberate — Phase 2 plus its 78 tests was the session's scope, and §3.3 wants the categories work
+  to settle first anyway.
+- **No categories management screen.** The API is complete (create, rename, re-parent, archive) but
+  the UI only *reads* the list. You can pick a category and a subcategory when entering a lançamento;
+  you cannot yet create one without calling the API. This is the most obvious loose end.
+- **`formatCurrency`/`formatDateBR` are still duplicated** across five and three files (§4.3). Still
+  a ~30-minute mechanical win and still not taken.
+- **Transfers cannot be edited across the origin/destination pair in the UI.** The API accepts
+  `transfer_account_id` on PATCH and there is a test for it, but the inline editor only exposes the
+  origin account. Small gap, deliberate — the row layout was already dense.
+- **`backend/app.py` grew to ~4,950 lines.** The §4.1 split did not get smaller this session; it got
+  bigger. The accounts/categories/transfers routes are a clean, self-contained block and would make a
+  reasonable first blueprint to extract.
+
+### Recommended next steps, in order
+
+1. **Run `finance-guard` once** to confirm the agent definition loads and behaves. Two minutes, and
+   everything after this depends on it being real.
+2. **A categories screen** (§3.2's loose end). Small, and it closes the gap between an API that can do
+   five things and a UI that can do one.
+3. **Phase 3 — monthly budget (§3.3).** `budgets` table keyed by `(category_id, month)`, which is
+   only now possible because categories have stable ids. This is the biggest remaining win for daily
+   use.
+4. Then **recurring entries (§3.4)** and **statement search/filters (§3.7)**.
+5. If you want a quick win between two of those: extract `frontend/src/lib/format.js` (§4.3).
+
+---
+
 ## Session — 2026-09-15 (later) · Phase 1 closed + invoice rule moved server-side
 
 ### Where things stand

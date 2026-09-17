@@ -1,17 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  ArrowLeftRight,
   Banknote,
+  Check,
   CheckCircle,
   ChevronDown,
   ChevronUp,
   CreditCard,
   Landmark,
+  Pencil,
   Plus,
   Receipt,
   Trash2,
   Wallet,
+  X,
 } from 'lucide-react'
-import { ccExpensesApi, creditCardsApi, transactionsApi } from '../lib/dataApi'
+import {
+  accountsApi,
+  categoriesApi,
+  ccExpensesApi,
+  creditCardsApi,
+  transactionsApi,
+  transfersApi,
+} from '../lib/dataApi'
 import {
   Badge,
   Button,
@@ -26,7 +37,21 @@ import {
   cx,
 } from '../components/ui'
 
+// Fallback apenas: as categorias vem de /api/categories desde a migration 008.
+// Esta lista continua aqui para o primeiro render, antes da resposta chegar.
 const CATEGORY_OPTIONS = ['Receita', 'Investimento', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
+
+const ACCOUNT_TYPE_LABELS = {
+  CHECKING: 'Conta corrente',
+  SAVINGS: 'Poupança',
+  BROKERAGE: 'Corretora',
+  CASH: 'Dinheiro',
+  OTHER: 'Outra',
+}
+
+function categoryLabel(category) {
+  return category.parent_name ? `${category.parent_name} > ${category.name}` : category.name
+}
 
 function getNow() {
   return new Date()
@@ -127,7 +152,18 @@ export default function Transactions() {
     return readStoredNumber('@financeMVP:projectedBalanceNextMonth')
   })
 
-  const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
+  const [accounts, setAccounts] = useState(() => {
+    return readStoredJson('@financeMVP:accounts', [])
+  })
+  const [categories, setCategories] = useState(() => {
+    return readStoredJson('@financeMVP:categories', [])
+  })
+
+  const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
+  const [transferForm, setTransferForm] = useState({ amount: '', date: '', account_id: '', transfer_account_id: '', description: '' })
+  const [accountForm, setAccountForm] = useState({ name: '', type: 'CHECKING', institution: '', initial_balance: '' })
+  const [editingId, setEditingId] = useState('')
+  const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
   const [cardForm, setCardForm] = useState({ name: '', due_day: '', closing_day: '' })
   const [expenseForm, setExpenseForm] = useState({ card_id: '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
   const [expandedCards, setExpandedCards] = useState([])
@@ -146,20 +182,33 @@ export default function Transactions() {
     setDataError('')
 
     try {
-      const [tData, cData, ccData] = await Promise.all([
+      const [tData, cData, ccData, accountData, categoryData] = await Promise.all([
         transactionsApi.list(),
         creditCardsApi.list(),
         ccExpensesApi.list({ status: 'OPEN' }),
+        accountsApi.list(),
+        categoriesApi.list(),
       ])
 
       const safeTransactions = tData || []
       const safeCards = cData || []
       const safeCreditExpenses = ccData || []
+      const safeAccounts = accountData || []
+      const safeCategories = categoryData || []
 
       setTransactions(safeTransactions)
       localStorage.setItem('@financeMVP:transactions', JSON.stringify(safeTransactions))
 
+      setAccounts(safeAccounts)
+      localStorage.setItem('@financeMVP:accounts', JSON.stringify(safeAccounts))
+
+      setCategories(safeCategories)
+      localStorage.setItem('@financeMVP:categories', JSON.stringify(safeCategories))
+
+      // TRANSFER fica de fora: ela move dinheiro entre contas proprias e nao
+      // muda o consolidado. O saldo por conta vem pronto de /api/accounts.
       const currentBalance = safeTransactions.reduce((acc, curr) => {
+        if (curr.type === 'TRANSFER') return acc
         const amount = Number(curr.amount || 0)
         return curr.type === 'INCOME' ? acc + amount : acc - amount
       }, 0)
@@ -266,6 +315,34 @@ export default function Transactions() {
       .sort((a, b) => a.cardName.localeCompare(b.cardName))
   }, [ccExpenses])
 
+  const defaultAccountId = useMemo(() => {
+    const preferred = accounts.find((account) => account.is_default) || accounts[0]
+    return preferred?.id || ''
+  }, [accounts])
+
+  const accountName = (accountId) => {
+    return accounts.find((account) => account.id === accountId)?.name || '—'
+  }
+
+  const categoryOptions = useMemo(() => {
+    if (categories.length === 0) {
+      return CATEGORY_OPTIONS.map((name) => ({ id: name, name, label: name, kind: 'BOTH' }))
+    }
+    return categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      label: categoryLabel(category),
+      kind: category.kind,
+    }))
+  }, [categories])
+
+  const categoryOptionsFor = (type) => {
+    if (type === 'INCOME') {
+      return categoryOptions.filter((option) => option.kind !== 'EXPENSE')
+    }
+    return categoryOptions.filter((option) => option.kind !== 'INCOME')
+  }
+
   const handleBankSubmit = async (event) => {
     event.preventDefault()
     const amount = Number(transForm.amount)
@@ -283,11 +360,123 @@ export default function Transactions() {
         category: transForm.category,
         description: transForm.description,
         type: transForm.type,
+        account_id: transForm.account_id || defaultAccountId || undefined,
       })
-      setTransForm({ amount: '', date: '', category: '', description: '', type: 'EXPENSE' })
+      setTransForm({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: transForm.account_id })
       await fetchData()
     } catch (error) {
       setDataError(error.message || 'Nao foi possivel criar o lancamento.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTransferSubmit = async (event) => {
+    event.preventDefault()
+    const amount = Number(transferForm.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setDataError('Informe um valor valido para a transferencia.')
+      return
+    }
+    if (transferForm.account_id === transferForm.transfer_account_id) {
+      setDataError('Origem e destino devem ser contas diferentes.')
+      return
+    }
+
+    setSaving(true)
+    setDataError('')
+    try {
+      await transfersApi.create({
+        amount,
+        date: transferForm.date,
+        account_id: transferForm.account_id,
+        transfer_account_id: transferForm.transfer_account_id,
+        description: transferForm.description,
+      })
+      setTransferForm({ amount: '', date: '', account_id: '', transfer_account_id: '', description: '' })
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel registrar a transferencia.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCreateAccount = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    setDataError('')
+    try {
+      await accountsApi.create({
+        name: accountForm.name,
+        type: accountForm.type,
+        institution: accountForm.institution,
+        initial_balance: Number(accountForm.initial_balance || 0),
+      })
+      setAccountForm({ name: '', type: 'CHECKING', institution: '', initial_balance: '' })
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel criar a conta.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleArchiveAccount = async (account) => {
+    if (!window.confirm(`Arquivar a conta "${account.name}"? Os lançamentos dela continuam no extrato.`)) return
+
+    setDataError('')
+    try {
+      await accountsApi.archive(account.id)
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel arquivar a conta.')
+    }
+  }
+
+  const startEditing = (transaction) => {
+    setEditingId(transaction.id)
+    setEditForm({
+      amount: String(transaction.amount ?? ''),
+      date: transaction.date || '',
+      category: transaction.category || '',
+      description: transaction.description || '',
+      type: transaction.type,
+      account_id: transaction.account_id || '',
+    })
+  }
+
+  const cancelEditing = () => {
+    setEditingId('')
+  }
+
+  const handleEditSubmit = async (transaction) => {
+    const amount = Number(editForm.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setDataError('Informe um valor valido.')
+      return
+    }
+
+    setSaving(true)
+    setDataError('')
+    try {
+      // PATCH e parcial; transferencias so aceitam os campos que fazem sentido
+      // para elas (o backend recusa converter um tipo no outro).
+      const payload = {
+        amount,
+        date: editForm.date,
+        description: editForm.description,
+        account_id: editForm.account_id,
+      }
+      if (transaction.type !== 'TRANSFER') {
+        payload.category = editForm.category
+        payload.type = editForm.type
+      }
+      await transactionsApi.update(transaction.id, payload)
+      setEditingId('')
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Nao foi possivel atualizar o lancamento.')
     } finally {
       setSaving(false)
     }
@@ -548,6 +737,103 @@ export default function Transactions() {
 
       {activeTab === 'CONTA' ? (
         <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <Panel className="xl:col-span-2">
+              <PanelHeader
+                title="Contas"
+                description="Saldo de cada conta. Transferências entre elas não contam como receita nem despesa."
+                actions={<Badge>{accounts.length} conta(s)</Badge>}
+              />
+              {accounts.length > 0 ? (
+                <div className="divide-y divide-zinc-100">
+                  {accounts.map((account) => (
+                    <div key={account.id} className="flex items-center justify-between gap-4 px-5 py-3">
+                      <div>
+                        <p className="font-medium text-zinc-900">
+                          {account.name}
+                          {account.is_default ? <Badge className="ml-2">Padrão</Badge> : null}
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          {ACCOUNT_TYPE_LABELS[account.type] || account.type}
+                          {account.institution ? ` · ${account.institution}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={cx('font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
+                          {formatCurrency(account.balance)}
+                        </span>
+                        <IconButton label="Arquivar conta" icon={Trash2} variant="danger" onClick={() => handleArchiveAccount(account)} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-5">
+                  <EmptyState icon={Landmark} title="Nenhuma conta" message="Cadastre a primeira conta para começar." />
+                </div>
+              )}
+
+              <form onSubmit={handleCreateAccount} className="grid grid-cols-1 gap-4 border-t border-zinc-100 p-5 md:grid-cols-5">
+                <Field label="Nome">
+                  <input type="text" placeholder="Ex: Nubank" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} className="app-input" required />
+                </Field>
+                <Field label="Tipo">
+                  <select value={accountForm.type} onChange={(event) => setAccountForm({ ...accountForm, type: event.target.value })} className="app-select">
+                    {Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Instituição">
+                  <input type="text" placeholder="Opcional" value={accountForm.institution} onChange={(event) => setAccountForm({ ...accountForm, institution: event.target.value })} className="app-input" />
+                </Field>
+                <Field label="Saldo inicial">
+                  <input type="number" step="0.01" placeholder="0,00" value={accountForm.initial_balance} onChange={(event) => setAccountForm({ ...accountForm, initial_balance: event.target.value })} className="app-input" />
+                </Field>
+                <div className="flex items-end">
+                  <Button type="submit" icon={Plus} loading={saving} className="w-full">Criar conta</Button>
+                </div>
+              </form>
+            </Panel>
+
+            <Panel className="h-fit">
+              <PanelHeader title="Transferência" description="Mover dinheiro entre contas próprias." />
+              <form onSubmit={handleTransferSubmit} className="space-y-4 p-5">
+                <Field label="De">
+                  <select value={transferForm.account_id} onChange={(event) => setTransferForm({ ...transferForm, account_id: event.target.value })} className="app-select" required>
+                    <option value="">Selecione...</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>{account.name}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Para">
+                  <select value={transferForm.transfer_account_id} onChange={(event) => setTransferForm({ ...transferForm, transfer_account_id: event.target.value })} className="app-select" required>
+                    <option value="">Selecione...</option>
+                    {accounts.filter((account) => account.id !== transferForm.account_id).map((account) => (
+                      <option key={account.id} value={account.id}>{account.name}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Valor">
+                  <input type="number" step="0.01" placeholder="0,00" value={transferForm.amount} onChange={(event) => setTransferForm({ ...transferForm, amount: event.target.value })} className="app-input" required />
+                </Field>
+                <Field label="Data">
+                  <input type="date" value={transferForm.date} onChange={(event) => setTransferForm({ ...transferForm, date: event.target.value })} className="app-input" required />
+                </Field>
+                <Field label="Descrição" hint="Opcional">
+                  <input type="text" placeholder="Ex: Reserva do mês" value={transferForm.description} onChange={(event) => setTransferForm({ ...transferForm, description: event.target.value })} className="app-input" />
+                </Field>
+                <Button type="submit" icon={ArrowLeftRight} loading={saving} className="w-full" disabled={accounts.length < 2}>
+                  Transferir
+                </Button>
+                {accounts.length < 2 ? (
+                  <p className="text-xs text-zinc-500">Cadastre uma segunda conta para transferir.</p>
+                ) : null}
+              </form>
+            </Panel>
+          </div>
+
           <Panel>
             <PanelHeader title="Lançamento bancário" description="Registre entradas e saídas da conta corrente." />
             <form onSubmit={handleBankSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-6">
@@ -555,6 +841,13 @@ export default function Transactions() {
                 <select value={transForm.type} onChange={(event) => setTransForm({ ...transForm, type: event.target.value })} className="app-select">
                   <option value="EXPENSE">Saída bancária</option>
                   <option value="INCOME">Entrada bancária</option>
+                </select>
+              </Field>
+              <Field label="Conta">
+                <select value={transForm.account_id || defaultAccountId} onChange={(event) => setTransForm({ ...transForm, account_id: event.target.value })} className="app-select" required>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
                 </select>
               </Field>
               <Field label="Valor">
@@ -566,16 +859,16 @@ export default function Transactions() {
               <Field label="Categoria">
                 <select value={transForm.category} onChange={(event) => setTransForm({ ...transForm, category: event.target.value })} className="app-select" required>
                   <option value="">Selecione...</option>
-                  {CATEGORY_OPTIONS.map((category) => (
-                    <option key={category} value={category}>{category}</option>
+                  {categoryOptionsFor(transForm.type).map((category) => (
+                    <option key={category.id} value={category.name}>{category.label}</option>
                   ))}
                 </select>
               </Field>
               <Field label="Descrição" className="md:col-span-1">
                 <input type="text" placeholder="Ex: Mercado" value={transForm.description} onChange={(event) => setTransForm({ ...transForm, description: event.target.value })} className="app-input" required />
               </Field>
-              <div className="flex items-end">
-                <Button type="submit" icon={Plus} loading={saving} className="w-full">Lançar</Button>
+              <div className="flex items-end md:col-span-6">
+                <Button type="submit" icon={Plus} loading={saving} className="w-full md:w-auto">Lançar</Button>
               </div>
             </form>
           </Panel>
@@ -588,34 +881,106 @@ export default function Transactions() {
             />
             {transactions.length > 0 ? (
               <div className="overflow-x-auto">
-                <table className="app-table min-w-[760px]">
+                <table className="app-table min-w-[900px]">
                   <thead>
                     <tr>
                       <th>Data</th>
+                      <th>Conta</th>
                       <th>Categoria</th>
                       <th>Descrição</th>
                       <th>Tipo</th>
                       <th>Valor</th>
-                      <th className="text-right">Ação</th>
+                      <th className="text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.map((transaction) => (
-                      <tr key={transaction.id}>
-                        <td className="text-zinc-600">{formatDateBR(transaction.date)}</td>
-                        <td className="font-medium text-zinc-800">{transaction.category}</td>
-                        <td className="text-zinc-700">{transaction.description}</td>
-                        <td>
-                          {transaction.type === 'INCOME' ? <Badge tone="success">Entrada</Badge> : <Badge tone="danger">Saída</Badge>}
-                        </td>
-                        <td className={cx('font-bold', transaction.type === 'INCOME' ? 'text-emerald-700' : 'text-zinc-950')}>
-                          {transaction.type === 'INCOME' ? '+' : '-'} {formatCurrency(transaction.amount)}
-                        </td>
-                        <td className="text-right">
-                          <IconButton label="Excluir transação" icon={Trash2} variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
-                        </td>
-                      </tr>
-                    ))}
+                    {transactions.map((transaction) => {
+                      const isTransfer = transaction.type === 'TRANSFER'
+                      const isLinkedToInvestment = transaction.source_type === 'INVESTMENT_TRANSACTION'
+
+                      if (editingId === transaction.id) {
+                        return (
+                          <tr key={transaction.id} className="bg-zinc-50">
+                            <td>
+                              <input type="date" value={editForm.date} onChange={(event) => setEditForm({ ...editForm, date: event.target.value })} className="app-input" />
+                            </td>
+                            <td>
+                              <select value={editForm.account_id} onChange={(event) => setEditForm({ ...editForm, account_id: event.target.value })} className="app-select">
+                                {accounts.map((account) => (
+                                  <option key={account.id} value={account.id}>{account.name}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td>
+                              {isTransfer ? (
+                                <span className="text-zinc-500">{transaction.category}</span>
+                              ) : (
+                                <select value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} className="app-select">
+                                  {categoryOptionsFor(editForm.type).map((category) => (
+                                    <option key={category.id} value={category.name}>{category.label}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </td>
+                            <td>
+                              <input type="text" value={editForm.description} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} className="app-input" />
+                            </td>
+                            <td>
+                              {isTransfer ? (
+                                <Badge tone="info">Transferência</Badge>
+                              ) : (
+                                <select value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value })} className="app-select">
+                                  <option value="EXPENSE">Saída</option>
+                                  <option value="INCOME">Entrada</option>
+                                </select>
+                              )}
+                            </td>
+                            <td>
+                              <input type="number" step="0.01" value={editForm.amount} onChange={(event) => setEditForm({ ...editForm, amount: event.target.value })} className="app-input" />
+                            </td>
+                            <td className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <IconButton label="Salvar alterações" icon={Check} onClick={() => handleEditSubmit(transaction)} />
+                                <IconButton label="Cancelar edição" icon={X} onClick={cancelEditing} />
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }
+
+                      return (
+                        <tr key={transaction.id}>
+                          <td className="text-zinc-600">{formatDateBR(transaction.date)}</td>
+                          <td className="text-zinc-700">
+                            {isTransfer
+                              ? `${accountName(transaction.account_id)} → ${accountName(transaction.transfer_account_id)}`
+                              : accountName(transaction.account_id)}
+                          </td>
+                          <td className="font-medium text-zinc-800">{transaction.category}</td>
+                          <td className="text-zinc-700">{transaction.description}</td>
+                          <td>
+                            {isTransfer ? <Badge tone="info">Transferência</Badge> : null}
+                            {transaction.type === 'INCOME' ? <Badge tone="success">Entrada</Badge> : null}
+                            {transaction.type === 'EXPENSE' ? <Badge tone="danger">Saída</Badge> : null}
+                          </td>
+                          <td className={cx('font-bold', isTransfer ? 'text-zinc-500' : transaction.type === 'INCOME' ? 'text-emerald-700' : 'text-zinc-950')}>
+                            {isTransfer ? '' : transaction.type === 'INCOME' ? '+ ' : '- '}{formatCurrency(transaction.amount)}
+                          </td>
+                          <td className="text-right">
+                            <div className="flex justify-end gap-2">
+                              {isLinkedToInvestment ? (
+                                <Badge>Investimento</Badge>
+                              ) : (
+                                <>
+                                  <IconButton label="Editar transação" icon={Pencil} onClick={() => startEditing(transaction)} />
+                                  <IconButton label="Excluir transação" icon={Trash2} variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

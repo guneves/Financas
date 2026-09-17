@@ -17,7 +17,44 @@ export const transactionsApi = {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
+  update: (id, payload) => apiFetch(`/api/transactions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
   remove: (id) => apiFetch(`/api/transactions/${id}`, { method: 'DELETE' })
+}
+
+export const accountsApi = {
+  list: (params = {}) => apiFetch(`/api/accounts${queryString(params)}`),
+  create: (payload) => apiFetch('/api/accounts', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  update: (id, payload) => apiFetch(`/api/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  archive: (id) => apiFetch(`/api/accounts/${id}`, { method: 'DELETE' })
+}
+
+export const categoriesApi = {
+  list: (params = {}) => apiFetch(`/api/categories${queryString(params)}`),
+  create: (payload) => apiFetch('/api/categories', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  update: (id, payload) => apiFetch(`/api/categories/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  archive: (id) => apiFetch(`/api/categories/${id}`, { method: 'DELETE' })
+}
+
+export const transfersApi = {
+  create: (payload) => apiFetch('/api/transfers', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
 }
 
 export const creditCardsApi = {

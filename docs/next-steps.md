@@ -10,7 +10,7 @@
 
 **Stack:** React 18 + Vite + Tailwind (frontend) · Flask 3 (backend, single file) · local SQLite with versioned migrations · hand-rolled HS256 JWT auth · yfinance for quotes.
 
-**Size:** `backend/app.py` = 4,063 lines · frontend = ~5,300 lines across 6 pages · 6 migrations · 127 backend tests (as of 2026-09-15; was 0).
+**Size:** `backend/app.py` = 4,946 lines · frontend = ~5,600 lines across 6 pages · 8 migrations · 205 backend tests (as of 2026-09-16; was 0 two sessions ago).
 
 **What already works well:**
 
@@ -26,6 +26,9 @@
 | Quotes with `fresh`/`stale`/`missing` status and per-asset refresh | Done |
 | Automatic migrations on boot + local backup (.db/.sql/.zip) | Done |
 | Dashboard with net worth, balance, expenses by category, installments, next invoice | Done |
+| Bank accounts with per-account balance, and transfers that don't distort totals | Done (2026-09-16) |
+| Categories as a table, with subcategories | Done (2026-09-16) |
+| Editing a transaction | Done (2026-09-16) |
 
 The **investments** core is considerably more mature than the **everyday finances** core. That asymmetry is the central thing to correct if the goal is a complete personal finance manager.
 
@@ -62,23 +65,58 @@ Removing it would mean a migration rewriting the `CHECK` constraint on two table
 
 Ordered by impact on daily use. Each item names the tables/endpoints/screens involved.
 
-### 3.1 Bank accounts (highest priority)
+### 3.1 Bank accounts — DONE (2026-09-16)
 
-Today there is **a single implicit balance**, derived from summing `transactions`. There is no account entity. In practice you have a checking account, savings, and probably a brokerage account — and investments are funded from one of them.
+There used to be **a single implicit balance**, derived from summing `transactions`, with no account
+entity at all. Migration `007_accounts_and_transfers.sql` introduced one.
 
-- New `accounts` table (id, user_id, name, type `CHECKING|SAVINGS|BROKERAGE|CASH|OTHER`, institution, initial_balance, currency, archived_at).
-- `transactions.account_id` (nullable in the migration, backfilled to an automatically created "Primary" account).
-- Transfers between accounts as their own type (`TRANSFER`) — today they'd be recorded as expense + income, distorting every total.
-- Per-account balance on the Dashboard, alongside the consolidated one.
+- [x] **`accounts` table** — id, user_id, name, type `CHECKING|SAVINGS|BROKERAGE|CASH|OTHER`,
+  institution, initial_balance, currency, is_default, archived_at, metadata.
+- [x] **`transactions.account_id`**, backfilled to an auto-created **"Conta Principal"** per user.
+  Every one of the 49 existing rows was backfilled; verified on a copy of the real database with
+  `PRAGMA foreign_key_check` and `integrity_check` both clean.
+- [x] **`TRANSFER` as its own type**, via `POST /api/transfers`.
+- [x] **Per-account balance** on the Dashboard ("Saldo por conta") and on the Movimentações page.
+- [x] **CRUD**: `GET/POST /api/accounts`, `PATCH/DELETE /api/accounts/<id>`.
 
-### 3.2 Categories as data, not as a constant
+**A transfer is one row, not two.** `type='TRANSFER'` leaves `account_id` and arrives at
+`transfer_account_id`. The alternative — two sibling rows that have to be kept in sync — buys
+nothing here and doubles the ways the data can go wrong. Because it is one row of a distinct type,
+the consolidated total ignores it for free, and the per-account balance subtracts at the origin and
+adds at the destination.
 
-`CATEGORY_OPTIONS` is hardcoded in `frontend/src/pages/Transactions.jsx:29` with 10 fixed values. You can't rename, create, or group them.
+Consequence for anything that sums `transactions`: **skip `type = 'TRANSFER'`**, or moving money
+between your own accounts will read as an expense. Two places already did this and were fixed
+(`Dashboard.jsx`, `Transactions.jsx`); a `CHECK` constraint keeps the column combinations valid but
+cannot help a caller that sums naively.
 
-- `categories` table (id, user_id, name, kind `INCOME|EXPENSE`, parent_id, color, icon, archived_at).
-- Auto-seed the current 10 categories on first login so nothing breaks.
-- `transactions.category` becomes `category_id` (keep the text column through the migration as a fallback).
-- Subcategories: "Food > Groceries" vs "Food > Restaurants" — that's where spending analysis actually becomes useful.
+Accounts are **archived, never deleted** (`archived_at`), because `transactions.account_id` uses
+`ON DELETE SET NULL` and a real delete would silently orphan lançamentos. Archiving the last active
+account is refused.
+
+### 3.2 Categories as data — DONE (2026-09-16)
+
+`CATEGORY_OPTIONS` was hardcoded in `frontend/src/pages/Transactions.jsx` with 10 fixed values.
+Migration `008_categories_table.sql` moved them into the database.
+
+- [x] **`categories` table** — id, user_id, name, kind `INCOME|EXPENSE|BOTH`, parent_id, color, icon,
+  archived_at. `BOTH` exists because "Investimento" is legitimately either side.
+- [x] **The 10 original categories are seeded** per user — by the migration for existing users, and by
+  `seed_default_categories()` at signup for new ones.
+- [x] **`transactions.category_id`**, backfilled by matching on name. Any category that only ever
+  existed as free text in `transactions` ("Freelance", "Salário", "Pagamento Fatura do Mês") was
+  promoted to a real row, so no historical lançamento is orphaned.
+- [x] **Subcategories** via `parent_id`, one level deep. The API rejects a grandchild.
+- [x] **CRUD**: `GET/POST /api/categories`, `PATCH/DELETE /api/categories/<id>`, with
+  `?kind=` and `?include_archived=` filters.
+
+**`transactions.category` (the text) did not go away, and should not.** It is what the Dashboard
+groups on, and it is what survives a category being archived. `category_id` is the new link;
+the name is still the value. Renaming a category therefore rewrites both — `PATCH /api/categories/<id>`
+updates the linked lançamentos' text in the same transaction, or the grouping would split in two.
+
+Free-text categories are still accepted on `POST /api/transactions` (they come back with
+`category_id: null`). Rejecting them would break `backend/scripts/`.
 
 ### 3.3 Monthly budget by category
 
@@ -113,7 +151,11 @@ Manual data entry is what gets personal finance managers abandoned in month thre
 
 ### 3.7 Smaller gaps, but annoying ones
 
-- [ ] **Edit a transaction.** Today `/api/transactions/<id>` only accepts `DELETE` (`backend/app.py:1822`). A typo means delete and re-enter.
+- [x] **~~Edit a transaction.~~ Done (2026-09-16):** `PATCH /api/transactions/<id>`, partial — it only
+  touches the fields present in the payload. Inline editing in the statement table on the
+  Movimentações page. Two things it refuses: editing a lançamento mirrored from an investment
+  (`source_type = 'INVESTMENT_TRANSACTION'` → 409, same rule `DELETE` already had), and converting a
+  plain lançamento into a transfer or back.
 - [ ] **Attachments/receipts** per transaction (store the file locally, path in `metadata`).
 - [ ] **Search and filters on the statement** — by period, category, account, amount range, free text.
 - [ ] **Export to CSV/Excel** for the statement and the portfolio.
@@ -124,7 +166,7 @@ Manual data entry is what gets personal finance managers abandoned in month thre
 
 ## 4. Technical debt
 
-### 4.1 `backend/app.py` at 4,063 lines
+### 4.1 `backend/app.py` at 4,946 lines
 
 This is structural problem number one. Routes, SQL, auth, portfolio computation, tax, FIFO, and the yfinance integration all live in one file. A suggested split, in order of ease:
 
@@ -145,9 +187,9 @@ backend/
 
 Do this **incrementally**, one blueprint at a time, with the app running between each step. Don't attempt it in one pass.
 
-### 4.2 Automated tests — 127 in place (2026-09-15)
+### 4.2 Automated tests — 205 in place (2026-09-16)
 
-Was zero. There are now **127 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
+Was zero two sessions ago. There are now **205 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
 
 ```powershell
 .\start.ps1 -Tests          # or:  cd backend; ..\.venv\Scripts\python.exe -m pytest
@@ -160,10 +202,13 @@ Coverage against the five axes this document named:
 | 1 | Sale FIFO — lot consumption, partial, full exit | `test_fifo.py` | 14 | Covered |
 | 2 | Regressive fixed-income tax + money rounding | `test_tax_rules.py` | 27 | Covered |
 | 3 | Credit card invoice — settlement | `test_credit_card_invoices.py` | 16 | Covered |
-| 3 | Credit card invoice — which invoice a purchase lands in | `test_invoice_month.py` | 22 | Covered |
+| 3 | Credit card invoice — which invoice a purchase lands in | `test_invoice_month.py` | 24 | Covered |
 | 4 | Investment ↔ cash linkage | `test_investment_cash_link.py` | 9 | Covered |
 | 5 | `user_id` isolation | `test_user_isolation.py` | 22 | Covered |
-| — | Automatic backup and retention | `test_backups.py` | 17 | Covered |
+| — | Automatic backup and retention | `test_backups.py` | 15 | Covered |
+| 6 | Bank accounts, per-account balance, transfers | `test_accounts_and_transfers.py` | 31 | Covered |
+| 7 | Categories, subcategories, rename propagation | `test_categories.py` | 23 | Covered |
+| 8 | Editing a transaction | `test_transaction_edit.py` | 24 | Covered |
 
 **Axis 3 is now complete.** The rollover rule ("closing day, month rollover, which invoice an installment lands in") used to live in `frontend/src/pages/Carteira.jsx`, where it could not be tested. It moved to the backend on 2026-09-15 — `compute_invoice_start()`, `split_installments()` and `POST /api/cc-expenses/purchases` — and `test_invoice_month.py` pins the behaviour, including the December→January rollover and the cent-exact installment split.
 
@@ -202,9 +247,13 @@ The tests from section 4.2 + automatic backup + single start script.
 - [x] Single start script — `start.ps1` (`.\start.ps1`, or `.\start.ps1 -Tests`).
 - [x] Automatic backup on boot with 7-day retention. See section 4.4.
 
-### Phase 2 — Data foundation (1–2 weeks)
+### Phase 2 — Data foundation — DONE (2026-09-16)
 Bank accounts (3.1) → categories as a table (3.2) → edit transaction (3.7).
-*These are migrations with backfill. Do them early, while the data volume is small.*
+Two migrations with backfill, both verified against a copy of the real database before landing.
+
+- [x] Bank accounts + transfers — migration 007. See §3.1.
+- [x] Categories as a table — migration 008. See §3.2.
+- [x] Edit a transaction — `PATCH /api/transactions/<id>`. See §3.7.
 
 ### Phase 3 — What makes it useful daily (2–3 weeks)
 Monthly budget (3.3) → recurring entries (3.4) → statement search and filters (3.7).

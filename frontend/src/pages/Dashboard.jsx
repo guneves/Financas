@@ -12,9 +12,17 @@ import {
   Wallet,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import { ccExpensesApi, transactionsApi } from '../lib/dataApi'
+import { accountsApi, ccExpensesApi, transactionsApi } from '../lib/dataApi'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import { Badge, Button, EmptyState, MetricCard, PageHeader, Panel, PanelHeader, cx } from '../components/ui'
+
+const ACCOUNT_TYPE_LABELS = {
+  CHECKING: 'Conta corrente',
+  SAVINGS: 'Poupanca',
+  BROKERAGE: 'Corretora',
+  CASH: 'Dinheiro',
+  OTHER: 'Outra',
+}
 
 const CATEGORIES = ['Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
 const PAYMENT_METHOD_COLORS = {
@@ -69,6 +77,7 @@ export default function Dashboard() {
   const [portfolioError, setPortfolioError] = useState('')
   const [dataError, setDataError] = useState('')
   const [bankBalance, setBankBalance] = useState(0)
+  const [accounts, setAccounts] = useState([])
   const [currentMonthInvoice, setCurrentMonthInvoice] = useState(0)
   const [currentMonthInvoiceItems, setCurrentMonthInvoiceItems] = useState([])
   const [expensesByCategory, setExpensesByCategory] = useState([])
@@ -107,12 +116,14 @@ export default function Dashboard() {
     let ccData = []
 
     try {
-      const [transactions, creditExpenses] = await Promise.all([
+      const [transactions, creditExpenses, accountData] = await Promise.all([
         transactionsApi.list(),
         ccExpensesApi.list({ status: 'OPEN' }),
+        accountsApi.list(),
       ])
       transData = transactions || []
       ccData = creditExpenses || []
+      setAccounts(accountData || [])
     } catch (error) {
       console.warn('Erro ao buscar movimentações:', error)
       setDataError(error.message || 'Não foi possível carregar movimentações e faturas.')
@@ -128,7 +139,10 @@ export default function Dashboard() {
       categoryTotals[category] = { cash: 0, credit: 0 }
     })
 
+    // TRANSFER nao entra: ela so move dinheiro entre contas proprias, o
+    // consolidado nao muda. O saldo de cada conta vem de /api/accounts.
     const calculatedBalance = transData.reduce((acc, curr) => {
+      if (curr.type === 'TRANSFER') return acc
       return curr.type === 'INCOME'
         ? acc + parseFloat(curr.amount)
         : acc - parseFloat(curr.amount)
@@ -355,6 +369,29 @@ export default function Dashboard() {
           subtitle={`${daysRemainingInMonth} dia(s) restantes no mês`}
         />
       </div>
+
+      {accounts.length > 0 ? (
+        <Panel>
+          <PanelHeader
+            title="Saldo por conta"
+            description="O consolidado acima e a soma destas contas."
+            actions={<Badge>{accounts.length} conta(s)</Badge>}
+          />
+          <div className="grid grid-cols-1 divide-y divide-zinc-100 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4">
+            {accounts.map((account) => (
+              <div key={account.id} className="px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  {ACCOUNT_TYPE_LABELS[account.type] || account.type}
+                </p>
+                <p className="mt-1 font-medium text-zinc-900">{account.name}</p>
+                <p className={cx('mt-1 text-lg font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
+                  {formatCurrency(account.balance)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
         <Panel className="xl:col-span-3">

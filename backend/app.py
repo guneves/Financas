@@ -63,7 +63,23 @@ try:
 except ValueError:
     JWT_EXP_DAYS = 30
 
-ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE"}
+ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE", "TRANSFER"}
+ALLOWED_ACCOUNT_TYPES = {"CHECKING", "SAVINGS", "BROKERAGE", "CASH", "OTHER"}
+ALLOWED_CATEGORY_KINDS = {"INCOME", "EXPENSE", "BOTH"}
+DEFAULT_ACCOUNT_NAME = "Conta Principal"
+TRANSFER_CATEGORY = "Transferencia"
+DEFAULT_CATEGORY_SEEDS = (
+    ("receita", "Receita", "INCOME"),
+    ("investimento", "Investimento", "BOTH"),
+    ("alimentacao", "Alimentação", "EXPENSE"),
+    ("moradia", "Moradia", "EXPENSE"),
+    ("transporte", "Transporte", "EXPENSE"),
+    ("saude", "Saúde", "EXPENSE"),
+    ("educacao", "Educação", "EXPENSE"),
+    ("lazer", "Lazer", "EXPENSE"),
+    ("servicos", "Serviços", "EXPENSE"),
+    ("outros", "Outros", "EXPENSE"),
+)
 ALLOWED_ASSET_CLASSES = {"STOCKS", "FIXED_INCOME", "REIT", "CATTLE", "OTHER"}
 ALLOWED_CC_STATUS = {"OPEN", "PAID"}
 ALLOWED_PROCEEDS_TYPES = {"DIVIDEND", "JCP", "AMORTIZATION"}
@@ -715,12 +731,13 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
     conn.execute(
         """
         INSERT INTO transactions
-        (id, user_id, amount, date, category, description, type, source_type, source_id, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, user_id, account_id, amount, date, category, description, type, source_type, source_id, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             f"cash:{investment_id}",
             current_user_id,
+            ensure_default_account(conn, current_user_id),
             amount,
             transaction_date,
             INVESTMENT_CASH_CATEGORY,
@@ -1932,6 +1949,8 @@ def signup():
                 "INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)",
                 (user_id, email, generate_password_hash(password)),
             )
+            ensure_default_account(conn, user_id)
+            seed_default_categories(conn, user_id)
             user = conn.execute(
                 "SELECT id, email, created_at FROM users WHERE id = ?",
                 (user_id,),
@@ -1964,6 +1983,174 @@ def me(current_user_id):
     return jsonify({"user": row_to_dict(fetch_user_by_id(current_user_id))}), 200
 
 
+# ---------------------------------------------------------------------------
+# Contas bancarias e categorias (3.1 / 3.2 de docs/next-steps.md)
+# ---------------------------------------------------------------------------
+
+
+def serialize_account(row):
+    item = serialize_metadata_row(row)
+    if item:
+        item["is_default"] = bool(item.get("is_default"))
+        for key in ("balance", "initial_balance"):
+            if key in item and item[key] is not None:
+                item[key] = rounded_money(item[key])
+    return item
+
+
+def default_account_id(current_user_id):
+    return f"acct:{current_user_id}"
+
+
+def ensure_default_account(conn, current_user_id):
+    """Garante que o usuario tenha ao menos uma conta e devolve o id dela.
+
+    Contas nasceram na migration 007, mas usuarios criados depois dela e
+    lancamentos vindos de outros fluxos (caixa de investimento, por exemplo)
+    ainda precisam de um destino. A conta padrao e sempre criada com o mesmo id
+    deterministico usado no backfill, para que nao existam duas "Conta
+    Principal" para o mesmo usuario.
+    """
+    existing = conn.execute(
+        """
+        SELECT id FROM accounts
+        WHERE user_id = ? AND archived_at IS NULL
+        ORDER BY is_default DESC, created_at ASC
+        LIMIT 1
+        """,
+        (current_user_id,),
+    ).fetchone()
+    if existing:
+        return existing["id"]
+
+    account_id = default_account_id(current_user_id)
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO accounts (id, user_id, name, type, is_default)
+        VALUES (?, ?, ?, 'CHECKING', 1)
+        """,
+        (account_id, current_user_id, DEFAULT_ACCOUNT_NAME),
+    )
+    return account_id
+
+
+def seed_default_categories(conn, current_user_id):
+    """Cria as 10 categorias iniciais para um usuario novo."""
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO categories (id, user_id, name, kind)
+        VALUES (?, ?, ?, ?)
+        """,
+        [
+            (f"cat:{current_user_id}:{slug}", current_user_id, name, kind)
+            for slug, name, kind in DEFAULT_CATEGORY_SEEDS
+        ],
+    )
+
+
+def fetch_account(conn, current_user_id, account_id):
+    if not account_id:
+        return None
+    return conn.execute(
+        "SELECT * FROM accounts WHERE id = ? AND user_id = ?",
+        (account_id, current_user_id),
+    ).fetchone()
+
+
+def require_account(conn, current_user_id, account_id, label="Conta"):
+    account = fetch_account(conn, current_user_id, account_id)
+    if not account:
+        raise ValidationError(f"{label} nao encontrada.")
+    if account["archived_at"]:
+        raise ValidationError(f"{label} esta arquivada.")
+    return account
+
+
+def resolve_account_id(conn, current_user_id, payload, key="account_id", label="Conta"):
+    """Conta informada no payload, ou a conta padrao quando omitida."""
+    raw = payload.get(key)
+    if raw in (None, ""):
+        return ensure_default_account(conn, current_user_id)
+    return require_account(conn, current_user_id, str(raw), label)["id"]
+
+
+def fetch_category(conn, current_user_id, category_id):
+    if not category_id:
+        return None
+    return conn.execute(
+        "SELECT * FROM categories WHERE id = ? AND user_id = ?",
+        (category_id, current_user_id),
+    ).fetchone()
+
+
+def resolve_category(conn, current_user_id, payload, required=True):
+    """Resolve (nome, id) da categoria de um lancamento.
+
+    Aceita `category_id` (novo) ou `category` em texto (o que o app sempre
+    mandou). O nome continua sendo gravado em transactions.category: e ele que
+    o Dashboard agrupa e e o fallback caso a categoria seja apagada depois.
+    """
+    category_id = payload.get("category_id")
+    if category_id not in (None, ""):
+        row = fetch_category(conn, current_user_id, str(category_id))
+        if not row:
+            raise ValidationError("Categoria nao encontrada.")
+        if row["archived_at"]:
+            raise ValidationError("Categoria esta arquivada.")
+        return row["name"], row["id"]
+
+    if required:
+        name = require_string(payload, "category", "Categoria")
+    else:
+        name = optional_string(payload, "category", max_length=255)
+        if not name:
+            return None, None
+
+    row = conn.execute(
+        "SELECT id FROM categories WHERE user_id = ? AND name = ? LIMIT 1",
+        (current_user_id, name),
+    ).fetchone()
+    return name, row["id"] if row else None
+
+
+def account_balance_rows(conn, current_user_id):
+    """Saldo por conta: inicial + receitas - despesas -/+ transferencias.
+
+    TRANSFER sai de account_id e entra em transfer_account_id, por isso aparece
+    duas vezes aqui com sinais opostos e some do consolidado.
+    """
+    return conn.execute(
+        """
+        SELECT
+            a.*,
+            a.initial_balance
+              + COALESCE((
+                    SELECT SUM(
+                        CASE t.type
+                            WHEN 'INCOME' THEN t.amount
+                            WHEN 'EXPENSE' THEN -t.amount
+                            WHEN 'TRANSFER' THEN -t.amount
+                            ELSE 0
+                        END
+                    )
+                    FROM transactions t
+                    WHERE t.user_id = a.user_id AND t.account_id = a.id
+                ), 0)
+              + COALESCE((
+                    SELECT SUM(t.amount)
+                    FROM transactions t
+                    WHERE t.user_id = a.user_id
+                      AND t.type = 'TRANSFER'
+                      AND t.transfer_account_id = a.id
+                ), 0) AS balance
+        FROM accounts a
+        WHERE a.user_id = ?
+        ORDER BY a.archived_at IS NOT NULL, a.is_default DESC, a.name COLLATE NOCASE
+        """,
+        (current_user_id,),
+    ).fetchall()
+
+
 @app.route("/api/transactions", methods=["GET", "POST"])
 @token_required
 def transactions(current_user_id):
@@ -1980,35 +2167,124 @@ def transactions(current_user_id):
         return jsonify([serialize_transaction(row) for row in rows]), 200
 
     payload = parse_json_body()
-    try:
-        amount = parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
-        date_value = require_date(payload, "date", "Data")
-        category = require_string(payload, "category", "Categoria")
-        description = optional_string(payload, "description")
-        transaction_type = require_choice(payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES)
-    except ValidationError as exc:
-        return validation_error(str(exc))
-
     item_id = new_id()
     with get_db() as conn:
+        try:
+            amount = parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
+            date_value = require_date(payload, "date", "Data")
+            description = optional_string(payload, "description")
+            transaction_type = require_choice(payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES)
+            if transaction_type == "TRANSFER":
+                raise ValidationError(
+                    "Use POST /api/transfers para registrar uma transferencia entre contas."
+                )
+            category, category_id = resolve_category(conn, current_user_id, payload)
+            account_id = resolve_account_id(conn, current_user_id, payload)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
         conn.execute(
             """
             INSERT INTO transactions
-            (id, user_id, amount, date, category, description, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (id, user_id, account_id, amount, date, category, category_id, description, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item_id,
                 current_user_id,
-                amount,
+                account_id,
+                rounded_money(amount),
                 date_value,
                 category,
+                category_id,
                 description,
                 transaction_type,
             ),
         )
         item = conn.execute("SELECT * FROM transactions WHERE id = ?", (item_id,)).fetchone()
     return jsonify(serialize_transaction(item)), 201
+
+
+@app.route("/api/transactions/<item_id>", methods=["PATCH"])
+@token_required
+def update_transaction(current_user_id, item_id):
+    """Editar um lancamento (3.7 de docs/next-steps.md).
+
+    Ate aqui so existia DELETE: corrigir um digito significava apagar e digitar
+    de novo. Lancamentos espelhados de investimento continuam bloqueados — eles
+    sao derivados da movimentacao e sao reescritos por
+    sync_investment_cash_transaction().
+    """
+    payload = parse_json_body()
+    with get_db() as conn:
+        item = conn.execute(
+            "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
+            (item_id, current_user_id),
+        ).fetchone()
+        if not item:
+            return jsonify({"error": "Lancamento nao encontrado."}), 404
+        if item["source_type"] == INVESTMENT_CASH_SOURCE_TYPE:
+            return jsonify({
+                "error": "Este lancamento de caixa esta vinculado a uma movimentacao de investimento. Edite a movimentacao de investimento para manter o patrimonio consistente."
+            }), 409
+
+        updates = {}
+        try:
+            if "amount" in payload:
+                updates["amount"] = rounded_money(
+                    parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
+                )
+            if "date" in payload:
+                updates["date"] = require_date(payload, "date", "Data")
+            if "description" in payload:
+                updates["description"] = optional_string(payload, "description")
+            if "type" in payload:
+                transaction_type = require_choice(
+                    payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES
+                )
+                if (transaction_type == "TRANSFER") != (item["type"] == "TRANSFER"):
+                    raise ValidationError(
+                        "Nao e possivel converter um lancamento comum em transferencia."
+                    )
+                updates["type"] = transaction_type
+            if "category" in payload or "category_id" in payload:
+                category, category_id = resolve_category(conn, current_user_id, payload)
+                updates["category"] = category
+                updates["category_id"] = category_id
+            if "account_id" in payload:
+                updates["account_id"] = resolve_account_id(conn, current_user_id, payload)
+            if "transfer_account_id" in payload:
+                if item["type"] != "TRANSFER":
+                    raise ValidationError(
+                        "Conta de destino so se aplica a transferencias."
+                    )
+                updates["transfer_account_id"] = require_account(
+                    conn,
+                    current_user_id,
+                    str(payload.get("transfer_account_id") or ""),
+                    "Conta de destino",
+                )["id"]
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        if not updates:
+            return validation_error("Informe ao menos um campo para atualizar.")
+
+        origin = updates.get("account_id", item["account_id"])
+        destination = updates.get("transfer_account_id", item["transfer_account_id"])
+        if item["type"] == "TRANSFER" and origin == destination:
+            return validation_error("Origem e destino devem ser contas diferentes.")
+
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        conn.execute(
+            f"UPDATE transactions SET {assignments} WHERE id = ? AND user_id = ?",
+            (*updates.values(), item_id, current_user_id),
+        )
+        updated = conn.execute(
+            "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
+            (item_id, current_user_id),
+        ).fetchone()
+    return jsonify(serialize_transaction(updated)), 200
 
 
 @app.route("/api/transactions/<item_id>", methods=["DELETE"])
@@ -2032,6 +2308,347 @@ def delete_transaction(current_user_id, item_id):
     if cursor.rowcount == 0:
         return jsonify({"deleted": False}), 404
     return jsonify({"deleted": True}), 200
+
+
+@app.route("/api/accounts", methods=["GET", "POST"])
+@token_required
+def accounts(current_user_id):
+    if request.method == "GET":
+        include_archived = str(request.args.get("include_archived", "")).lower() in ("1", "true", "yes")
+        with get_db() as conn:
+            ensure_default_account(conn, current_user_id)
+            rows = account_balance_rows(conn, current_user_id)
+        items = [serialize_account(row) for row in rows]
+        if not include_archived:
+            items = [item for item in items if not item.get("archived_at")]
+        return jsonify(items), 200
+
+    payload = parse_json_body()
+    try:
+        name = require_string(payload, "name", "Nome da conta")
+        account_type = require_choice(payload, "type", "Tipo de conta", ALLOWED_ACCOUNT_TYPES)
+        institution = optional_string(payload, "institution", max_length=255)
+        initial_balance = rounded_money(
+            parse_optional_number(payload, "initial_balance", "Saldo inicial") or 0
+        )
+        currency = (optional_string(payload, "currency", max_length=3) or "BRL").upper()
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
+    account_id = new_id()
+    try:
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO accounts
+                (id, user_id, name, type, institution, initial_balance, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    account_id,
+                    current_user_id,
+                    name,
+                    account_type,
+                    institution or None,
+                    initial_balance,
+                    currency,
+                ),
+            )
+            row = fetch_account(conn, current_user_id, account_id)
+    except sqlite3.IntegrityError:
+        return validation_error("Ja existe uma conta com este nome.", 409)
+
+    item = serialize_account(row)
+    item["balance"] = initial_balance
+    return jsonify(item), 201
+
+
+@app.route("/api/accounts/<account_id>", methods=["PATCH", "DELETE"])
+@token_required
+def account_detail(current_user_id, account_id):
+    with get_db() as conn:
+        account = fetch_account(conn, current_user_id, account_id)
+        if not account:
+            return jsonify({"error": "Conta nao encontrada."}), 404
+
+        if request.method == "DELETE":
+            # Arquivar, nao apagar: transactions.account_id usa ON DELETE SET
+            # NULL e uma exclusao deixaria lancamentos sem conta, silenciosamente.
+            used = conn.execute(
+                """
+                SELECT COUNT(*) AS total FROM transactions
+                WHERE user_id = ? AND (account_id = ? OR transfer_account_id = ?)
+                """,
+                (current_user_id, account_id, account_id),
+            ).fetchone()["total"]
+            remaining = conn.execute(
+                """
+                SELECT COUNT(*) AS total FROM accounts
+                WHERE user_id = ? AND archived_at IS NULL AND id <> ?
+                """,
+                (current_user_id, account_id),
+            ).fetchone()["total"]
+            if remaining == 0:
+                return validation_error(
+                    "Esta e a unica conta ativa. Crie outra antes de arquivar esta.", 409
+                )
+            conn.execute(
+                """
+                UPDATE accounts
+                SET archived_at = ?, is_default = 0, updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (utc_timestamp(), utc_timestamp(), account_id, current_user_id),
+            )
+            return jsonify({"archived": True, "transactions": used}), 200
+
+        payload = parse_json_body()
+        updates = {}
+        try:
+            if "name" in payload:
+                updates["name"] = require_string(payload, "name", "Nome da conta")
+            if "type" in payload:
+                updates["type"] = require_choice(
+                    payload, "type", "Tipo de conta", ALLOWED_ACCOUNT_TYPES
+                )
+            if "institution" in payload:
+                updates["institution"] = optional_string(payload, "institution", max_length=255) or None
+            if "initial_balance" in payload:
+                updates["initial_balance"] = rounded_money(
+                    parse_number(payload, "initial_balance", "Saldo inicial")
+                )
+            if "archived_at" in payload and payload.get("archived_at") in (None, ""):
+                updates["archived_at"] = None
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        if payload.get("is_default") is True:
+            conn.execute(
+                "UPDATE accounts SET is_default = 0 WHERE user_id = ?",
+                (current_user_id,),
+            )
+            updates["is_default"] = 1
+
+        if not updates:
+            return validation_error("Informe ao menos um campo para atualizar.")
+
+        updates["updated_at"] = utc_timestamp()
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        try:
+            conn.execute(
+                f"UPDATE accounts SET {assignments} WHERE id = ? AND user_id = ?",
+                (*updates.values(), account_id, current_user_id),
+            )
+        except sqlite3.IntegrityError:
+            return validation_error("Ja existe uma conta com este nome.", 409)
+        row = fetch_account(conn, current_user_id, account_id)
+    return jsonify(serialize_account(row)), 200
+
+
+@app.route("/api/transfers", methods=["POST"])
+@token_required
+def create_transfer(current_user_id):
+    """Transferencia entre contas proprias.
+
+    Uma unica linha type='TRANSFER': sai de account_id, entra em
+    transfer_account_id. Nao e receita nem despesa, entao nao distorce os
+    totais do mes — que era exatamente o problema de registrar como
+    despesa + receita.
+    """
+    payload = parse_json_body()
+    with get_db() as conn:
+        try:
+            amount = rounded_money(
+                parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
+            )
+            date_value = require_date(payload, "date", "Data")
+            description = optional_string(payload, "description")
+            origin = require_account(
+                conn, current_user_id, str(payload.get("account_id") or ""), "Conta de origem"
+            )
+            destination = require_account(
+                conn,
+                current_user_id,
+                str(payload.get("transfer_account_id") or ""),
+                "Conta de destino",
+            )
+            if origin["id"] == destination["id"]:
+                raise ValidationError("Origem e destino devem ser contas diferentes.")
+            category, category_id = resolve_category(conn, current_user_id, payload, required=False)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        item_id = new_id()
+        default_description = "{} -> {}".format(origin["name"], destination["name"])
+        conn.execute(
+            """
+            INSERT INTO transactions
+            (id, user_id, account_id, transfer_account_id, amount, date,
+             category, category_id, description, type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER')
+            """,
+            (
+                item_id,
+                current_user_id,
+                origin["id"],
+                destination["id"],
+                amount,
+                date_value,
+                category or TRANSFER_CATEGORY,
+                category_id,
+                description or default_description,
+            ),
+        )
+        item = conn.execute(
+            "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
+            (item_id, current_user_id),
+        ).fetchone()
+    return jsonify(serialize_transaction(item)), 201
+
+
+@app.route("/api/categories", methods=["GET", "POST"])
+@token_required
+def categories(current_user_id):
+    if request.method == "GET":
+        include_archived = str(request.args.get("include_archived", "")).lower() in ("1", "true", "yes")
+        kind = str(request.args.get("kind", "") or "").strip().upper()
+        with get_db() as conn:
+            seed_default_categories(conn, current_user_id)
+            rows = conn.execute(
+                """
+                SELECT c.*, parent.name AS parent_name
+                FROM categories c
+                LEFT JOIN categories parent ON parent.id = c.parent_id
+                WHERE c.user_id = ?
+                ORDER BY COALESCE(parent.name, c.name) COLLATE NOCASE,
+                         c.parent_id IS NOT NULL,
+                         c.name COLLATE NOCASE
+                """,
+                (current_user_id,),
+            ).fetchall()
+        items = [row_to_dict(row) for row in rows]
+        if not include_archived:
+            items = [item for item in items if not item.get("archived_at")]
+        if kind in ALLOWED_CATEGORY_KINDS:
+            items = [item for item in items if item["kind"] in (kind, "BOTH")]
+        return jsonify(items), 200
+
+    payload = parse_json_body()
+    with get_db() as conn:
+        try:
+            name = require_string(payload, "name", "Nome da categoria")
+            kind = require_choice(payload, "kind", "Tipo da categoria", ALLOWED_CATEGORY_KINDS)
+            color = optional_string(payload, "color", max_length=32) or None
+            icon = optional_string(payload, "icon", max_length=64) or None
+            parent_id = payload.get("parent_id")
+            if parent_id in (None, ""):
+                parent_id = None
+            else:
+                parent = fetch_category(conn, current_user_id, str(parent_id))
+                if not parent:
+                    raise ValidationError("Categoria pai nao encontrada.")
+                if parent["parent_id"]:
+                    raise ValidationError("So existe um nivel de subcategoria.")
+                parent_id = parent["id"]
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        category_id = new_id()
+        try:
+            conn.execute(
+                """
+                INSERT INTO categories (id, user_id, name, kind, parent_id, color, icon)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (category_id, current_user_id, name, kind, parent_id, color, icon),
+            )
+        except sqlite3.IntegrityError:
+            return validation_error("Ja existe uma categoria com este nome.", 409)
+        row = fetch_category(conn, current_user_id, category_id)
+    return jsonify(row_to_dict(row)), 201
+
+
+@app.route("/api/categories/<category_id>", methods=["PATCH", "DELETE"])
+@token_required
+def category_detail(current_user_id, category_id):
+    with get_db() as conn:
+        category = fetch_category(conn, current_user_id, category_id)
+        if not category:
+            return jsonify({"error": "Categoria nao encontrada."}), 404
+
+        if request.method == "DELETE":
+            # Arquivar. Apagar zeraria transactions.category_id via ON DELETE
+            # SET NULL e os lancamentos perderiam a ligacao sem aviso.
+            children = conn.execute(
+                """
+                SELECT COUNT(*) AS total FROM categories
+                WHERE user_id = ? AND parent_id = ? AND archived_at IS NULL
+                """,
+                (current_user_id, category_id),
+            ).fetchone()["total"]
+            if children:
+                return validation_error(
+                    "Arquive as subcategorias antes de arquivar esta categoria.", 409
+                )
+            conn.execute(
+                "UPDATE categories SET archived_at = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                (utc_timestamp(), utc_timestamp(), category_id, current_user_id),
+            )
+            return jsonify({"archived": True}), 200
+
+        payload = parse_json_body()
+        updates = {}
+        try:
+            if "name" in payload:
+                updates["name"] = require_string(payload, "name", "Nome da categoria")
+            if "kind" in payload:
+                updates["kind"] = require_choice(
+                    payload, "kind", "Tipo da categoria", ALLOWED_CATEGORY_KINDS
+                )
+            if "color" in payload:
+                updates["color"] = optional_string(payload, "color", max_length=32) or None
+            if "icon" in payload:
+                updates["icon"] = optional_string(payload, "icon", max_length=64) or None
+            if "parent_id" in payload:
+                parent_id = payload.get("parent_id")
+                if parent_id in (None, ""):
+                    updates["parent_id"] = None
+                else:
+                    parent = fetch_category(conn, current_user_id, str(parent_id))
+                    if not parent:
+                        raise ValidationError("Categoria pai nao encontrada.")
+                    if parent["id"] == category_id:
+                        raise ValidationError("Uma categoria nao pode ser pai dela mesma.")
+                    if parent["parent_id"]:
+                        raise ValidationError("So existe um nivel de subcategoria.")
+                    updates["parent_id"] = parent["id"]
+            if "archived_at" in payload and payload.get("archived_at") in (None, ""):
+                updates["archived_at"] = None
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        if not updates:
+            return validation_error("Informe ao menos um campo para atualizar.")
+
+        # Renomear a categoria renomeia junto o texto gravado nos lancamentos,
+        # que e o que o Dashboard agrupa.
+        new_name = updates.get("name")
+        updates["updated_at"] = utc_timestamp()
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        try:
+            conn.execute(
+                f"UPDATE categories SET {assignments} WHERE id = ? AND user_id = ?",
+                (*updates.values(), category_id, current_user_id),
+            )
+        except sqlite3.IntegrityError:
+            return validation_error("Ja existe uma categoria com este nome.", 409)
+        if new_name and new_name != category["name"]:
+            conn.execute(
+                "UPDATE transactions SET category = ? WHERE user_id = ? AND category_id = ?",
+                (new_name, current_user_id, category_id),
+            )
+        row = fetch_category(conn, current_user_id, category_id)
+    return jsonify(row_to_dict(row)), 200
 
 
 @app.route("/api/credit-cards", methods=["GET", "POST"])
