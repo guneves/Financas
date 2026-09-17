@@ -10,7 +10,7 @@
 
 **Stack:** React 18 + Vite + Tailwind (frontend) · Flask 3 (backend, single file) · local SQLite with versioned migrations · hand-rolled HS256 JWT auth · yfinance for quotes.
 
-**Size:** `backend/app.py` = 4,946 lines · frontend = ~5,600 lines across 6 pages · 8 migrations · 205 backend tests (as of 2026-09-16; was 0 two sessions ago).
+**Size:** `backend/app.py` = 5,344 lines · frontend = ~6,100 lines across 7 pages · 9 migrations · 249 backend tests (as of 2026-09-16).
 
 **What already works well:**
 
@@ -29,6 +29,8 @@
 | Bank accounts with per-account balance, and transfers that don't distort totals | Done (2026-09-16) |
 | Categories as a table, with subcategories | Done (2026-09-16) |
 | Editing a transaction | Done (2026-09-16) |
+| Monthly budget by category, with rollover | Done (2026-09-16) |
+| Category management screen (create, rename, archive) | Done (2026-09-16) |
 
 The **investments** core is considerably more mature than the **everyday finances** core. That asymmetry is the central thing to correct if the goal is a complete personal finance manager.
 
@@ -118,14 +120,62 @@ updates the linked lançamentos' text in the same transaction, or the grouping w
 Free-text categories are still accepted on `POST /api/transactions` (they come back with
 `category_id: null`). Rejecting them would break `backend/scripts/`.
 
-### 3.3 Monthly budget by category
+- [x] **Management screen** (2026-09-16) — the "Categorias" tab of `Orcamento.jsx`: create
+  (with a parent), rename, change kind, archive and reactivate. Until then the API could do five
+  things and the UI could only list them.
 
-The biggest practical win for personal use, and entirely absent today.
+### 3.3 Monthly budget by category — DONE (2026-09-16)
 
-- `budgets` table (id, user_id, category_id, month `YYYY-MM`, planned_amount, rollover boolean).
-- `/api/budgets` endpoint returning the month plus computed actuals.
-- Screen: a bar per category showing planned × spent × remaining, with a visual alert on overrun.
-- Reuse the grouping the Dashboard already does in `expensesByCategory`.
+Migration `009_budgets.sql`. The biggest practical win for personal use, and it only became possible
+after 3.2: the plan is keyed by `category_id`, not by the category's text, so renaming a category
+does not orphan its budget.
+
+- [x] **`budgets` table** — id, user_id, category_id, month `YYYY-MM`, planned_amount, rollover, note.
+  `UNIQUE(user_id, category_id, month)`: one plan per category per month.
+- [x] **`GET /api/budgets?month=`** returns the month with the actuals already computed — planned,
+  carryover, available, spent, remaining, percent and a `OK|WARNING|OVER` status per category, plus
+  the totals. Defaults to the current month.
+- [x] **`POST`, `PATCH /api/budgets/<id>`, `DELETE /api/budgets/<id>`**, and
+  **`POST /api/budgets/copy`** (`from_month` defaults to the month before `to_month`;
+  `overwrite` decides what happens to a category already planned there).
+- [x] **Screen** — `frontend/src/pages/Orcamento.jsx`, a bar per category over planned × spent ×
+  remaining, month navigation, inline edit of the planned value, and "copiar mês anterior".
+
+**The realized amount is read from `transactions`, never stored.** A category whose `kind` is
+`INCOME` realizes income; every other kind realizes expense. `TRANSFER` is excluded — the same rule
+§3.1 imposed on everything that sums `transactions`. Lançamentos that carry only the category *text*
+(free text, or anything older than migration 008) are matched by name, so historical months still
+add up.
+
+**A subcategory without its own budget counts against its parent's.** Budgeting "Alimentação" has to
+cover what was spent on "Alimentação › Delivery", or the planned figure never reconciles with the
+statement. Give the subcategory its own budget and it stops counting against the parent.
+
+**`rollover` carries only what was left over, and only one month back.** The carry-over is computed
+on read, not stored: storing it would mean recalculating a chain of months every time a retroactive
+lançamento lands. An overrun does *not* become next month's debt — the carry-over floors at zero,
+which is the behaviour that keeps the plan usable rather than punitive.
+
+`DELETE` here is a real delete and has no confirmation guard, unlike accounts and categories. A
+budget is a plan; removing one destroys no lançamento. `test_delete_removes_the_budget_and_keeps_the_transactions` pins that.
+
+**Open, and deliberately so: credit card purchases do not count as budget spending.** The
+realized amount is read from `transactions`, and a card purchase lives in `cc_expenses` until the
+invoice is settled — at which point it enters as a single lançamento in a
+`Pagamento Fatura <cartão>` category, not under the category the purchase was made in. For a
+household that puts most spending on the card, a per-category budget therefore under-reports until
+the invoice is paid, and then over-reports one category. The page says so. Three ways out, none
+taken yet:
+
+1. Budget the "Pagamento Fatura" categories themselves — works today, no code, but it is a
+   budget for *the card*, not for what was bought.
+2. Count open `cc_expenses` of the month into the matching category's `spent`, and exclude the
+   invoice-payment lançamento to avoid counting it twice. The most useful, and the most invasive.
+3. Materialize each installment as a real `transactions` row when the invoice is settled. Cleanest
+   model, largest migration.
+
+Decide before §3.4, because recurring entries will raise the same "where does the spending live"
+question.
 
 ### 3.4 Recurring entries
 
@@ -187,9 +237,9 @@ backend/
 
 Do this **incrementally**, one blueprint at a time, with the app running between each step. Don't attempt it in one pass.
 
-### 4.2 Automated tests — 205 in place (2026-09-16)
+### 4.2 Automated tests — 249 in place (2026-09-16)
 
-Was zero two sessions ago. There are now **205 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
+Was zero three sessions ago. There are now **249 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
 
 ```powershell
 .\start.ps1 -Tests          # or:  cd backend; ..\.venv\Scripts\python.exe -m pytest
@@ -209,6 +259,7 @@ Coverage against the five axes this document named:
 | 6 | Bank accounts, per-account balance, transfers | `test_accounts_and_transfers.py` | 31 | Covered |
 | 7 | Categories, subcategories, rename propagation | `test_categories.py` | 23 | Covered |
 | 8 | Editing a transaction | `test_transaction_edit.py` | 24 | Covered |
+| 9 | Monthly budget — actuals, rollup, rollover, isolation | `test_budgets.py` | 44 | Covered |
 
 **Axis 3 is now complete.** The rollover rule ("closing day, month rollover, which invoice an installment lands in") used to live in `frontend/src/pages/Carteira.jsx`, where it could not be tested. It moved to the backend on 2026-09-15 — `compute_invoice_start()`, `split_installments()` and `POST /api/cc-expenses/purchases` — and `test_invoice_month.py` pins the behaviour, including the December→January rollover and the cent-exact installment split.
 
@@ -216,7 +267,13 @@ Fixture notes for whoever extends this: `app.py` reads its config and calls `ini
 
 ### 4.3 Frontend
 
-- **`formatCurrency` is duplicated across 5 files** and `formatDateBR` across 3 (`Carteira.jsx`, `Dashboard.jsx`, `Investments.jsx`, `Proventos.jsx`, `Transactions.jsx`, `InvestmentLaunchModal.jsx`). Extract to `frontend/src/lib/format.js`.
+- [x] **~~`formatCurrency` duplicated across 5 files.~~ Done (2026-09-16):** `frontend/src/lib/format.js`
+  holds `formatCurrency`, `formatUnitCurrency`, `formatPercent`, `parseLocalDate`, `formatDateBR`,
+  `getLocalDateString`, `monthKey`, `monthLabel` and `shiftMonth`; the six files that had copies now
+  import them. **Two local copies survive deliberately:** `Carteira.jsx` and `Transactions.jsx`
+  default `getLocalDateString` to their `getNow()` clock hook instead of `new Date()`, and
+  `Transactions.jsx`'s `formatDateBR` returns `''` where the shared one returns `'-'`. Collapsing
+  those would change behaviour, not just remove duplication.
 - **`Carteira.jsx` is ~1,300 lines** and `Investments.jsx` is 875. Break them into per-section components.
 - **No centralized server state.** Every page does its own `useEffect` + `fetch` + `loading` + `error`. TanStack Query would handle caching, revalidation, and the repeated error pattern — roughly 200 fewer lines and better behavior.
 - **Inconsistent error messages** — each page handles failure its own way. Standardize on a single toast/banner.
@@ -255,9 +312,14 @@ Two migrations with backfill, both verified against a copy of the real database 
 - [x] Categories as a table — migration 008. See §3.2.
 - [x] Edit a transaction — `PATCH /api/transactions/<id>`. See §3.7.
 
-### Phase 3 — What makes it useful daily (2–3 weeks)
+### Phase 3 — What makes it useful daily (2–3 weeks) — IN PROGRESS
 Monthly budget (3.3) → recurring entries (3.4) → statement search and filters (3.7).
 *This is where the app starts replacing the spreadsheet.*
+
+- [x] Monthly budget by category, with rollover — migration 009 + `Orcamento.jsx`. See §3.3.
+- [x] Category management screen — the loose end 3.2 left. See §3.2.
+- [ ] Recurring entries (3.4). Next.
+- [ ] Search and filters on the statement (3.7).
 
 ### Phase 4 — Reduce friction (2 weeks)
 CSV import → auto-categorization rules → OFX.

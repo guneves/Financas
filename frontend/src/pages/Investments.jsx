@@ -3,6 +3,7 @@ import { apiFetch } from '../lib/api'
 import { investmentsApi } from '../lib/dataApi'
 import { RefreshCw, TrendingUp, Landmark, History, Plus, X } from 'lucide-react'
 import InvestmentLaunchModal from '../components/InvestmentLaunchModal'
+import { formatCurrency, getLocalDateString } from '../lib/format'
 
 function readStoredJson(key, fallback) {
   try {
@@ -12,13 +13,6 @@ function readStoredJson(key, fallback) {
     localStorage.removeItem(key)
     return fallback
   }
-}
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(Number(value || 0))
 }
 
 function formatPercent(value) {
@@ -67,13 +61,6 @@ function parseNumberInput(value) {
     : rawValue
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : NaN
-}
-
-function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 function movementDateValue(movement) {

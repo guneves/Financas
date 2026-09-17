@@ -6,6 +6,166 @@
 
 ---
 
+## Session — 2026-09-16 (later) · Phase 3 opened: monthly budget, categories screen, format.js
+
+### Where things stand
+
+**§3.3 (monthly budget) is complete**, and with it Phase 3 is underway. The categories management
+screen that the last session flagged as "the most obvious loose end" is also done, and §4.3's
+`formatCurrency` duplication is closed. 205 tests → **249**. Migration count 8 → **9**. Recurring
+entries (§3.4) is the next Phase 3 item.
+
+There is also a second subagent now: **`session-scout`**, which reads the three state documents at
+the *start* of a session and hands back a one-page briefing. `CLAUDE.md` describes both agents as one
+routine that brackets a session — scout opens it, guard closes it.
+
+### What was done
+
+**1. Monthly budget by category — migration `009_budgets.sql`**
+
+`budgets` (id, user_id, category_id, month `YYYY-MM`, planned_amount, rollover, note), with
+`UNIQUE(user_id, category_id, month)`. Endpoints: `GET /api/budgets?month=`,
+`POST /api/budgets`, `PATCH/DELETE /api/budgets/<id>`, `POST /api/budgets/copy`.
+
+`GET` returns the month already computed — per category: planned, carryover, available, spent,
+remaining, percent, and a `OK | WARNING (≥80%) | OVER` status — plus totals and an `over_count`.
+
+Three design decisions worth knowing:
+
+- **The realized amount is never stored.** It is read from `transactions` each time: a category whose
+  `kind` is `INCOME` realizes income, every other kind realizes expense, and `TRANSFER` is excluded —
+  the same rule §3.1 imposed on everything that sums `transactions`. Lançamentos carrying only the
+  category *text* (free text, or older than migration 008) are matched by name, so historical months
+  still add up.
+- **A subcategory without its own budget counts against its parent's.** Budgeting "Alimentação" has
+  to cover "Alimentação › Delivery" or the planned figure never reconciles with the statement. Give
+  the subcategory its own budget and it stops counting against the parent — two tests pin both halves.
+- **`rollover` carries only the leftover, floored at zero, and only one month back.** Computed on
+  read. Storing it would mean recalculating a chain of months every time a retroactive lançamento
+  lands; and letting an overrun become next month's debt makes the plan punitive rather than useful.
+
+`DELETE /api/budgets/<id>` is a **real delete with no confirmation guard**, unlike accounts and
+categories. That is deliberate and is the one place the "destructive endpoints take a guard"
+convention does not apply: a budget is a plan, and removing one destroys no lançamento.
+`test_delete_removes_the_budget_and_keeps_the_transactions` pins it.
+
+**2. `Orcamento.jsx` — new page, two tabs**
+
+- *Orçamento*: four metric cards, month navigation (‹ setembro de 2026 ›), a bar per category over
+  planned × spent × remaining with the status colour, inline edit of the planned value, an "Acumula"
+  toggle for rollover, and "Copiar mês anterior".
+- *Categorias*: **this closes §3.2's loose end.** Create (with a parent), rename, change kind,
+  archive, reactivate. Until now the API could do five things and the UI could only list them.
+
+Registered at `/orcamento` and added to the sidebar between Movimentações and Carteira.
+
+**3. `frontend/src/lib/format.js` — §4.3's duplication, closed**
+
+`formatCurrency`, `formatUnitCurrency`, `formatPercent`, `parseLocalDate`, `formatDateBR`,
+`getLocalDateString`, `monthKey`, `monthLabel`, `shiftMonth`. Six files that had their own copies now
+import them.
+
+**Two local copies survive on purpose.** `Carteira.jsx` and `Transactions.jsx` default their
+`getLocalDateString` to a `getNow()` clock hook rather than to `new Date()`, and
+`Transactions.jsx`'s `formatDateBR` returns `''` where the shared one returns `'-'`. Collapsing those
+would be a behaviour change dressed up as a cleanup. `npm run build` passes.
+
+**4. Tests: 205 → 249**
+
+`tests/test_budgets.py` (44): creation and the seven invalid payloads, actuals from transactions,
+months not bleeding into each other, free-text categories counted by name, transfers excluded,
+income categories realizing income, the subcategory rollup in both directions, the OK→WARNING→OVER
+walk, totals and `over_count`, rollover (carries, floors at zero, crosses the year, no-op without a
+previous month), partial PATCH, copy (default source month, skip vs. overwrite, same-month refusal),
+and five isolation tests.
+
+**5. The `session-scout` subagent**
+
+`.claude/agents/session-scout.md`. Reads `docs/handoff.md`, `docs/next-steps.md`, the git log, the
+migration directory and the test suite, and returns ≤500 words: where things stand, what is genuinely
+open, the next task **and the concrete files it touches**, the traps from the handoff that apply to
+*that* task, and any drift between the docs and the repository. The arithmetic is the point — this
+handoff file grows by a full entry per session and most of it is history the current task does not
+need.
+
+### The audit caught a real bug — read this one
+
+`finance-guard` (via the fallback below) found that **`rollover` was transporting money that had
+already been spent.** The screen computed a parent category's `spent` *including* its unbudgeted
+subcategories, but `budget_carryover()` computed the previous month's leftover from the parent's own
+spending only. Alimentação budgeted 900, R$300 spent on it and R$200 on an unbudgeted
+"Delivery": August correctly showed 400 left, and September's carry-over came out as **600**.
+
+Fixed by giving both callers one definition of "realized": `budget_month_spent()`
+(`backend/app.py`), which the screen, the carry-over, `POST` and `PATCH` all call.
+`test_rollover_uses_the_same_spent_the_screen_shows` pins it — verified by reverting the fix and
+watching it fail with exactly `600 != 400`.
+
+The lesson generalizes: two code paths that both answer "how much was spent" will drift, and the one
+the user does not see on screen is the one that drifts silently.
+
+Also from the audit, and applied: a deterministic tiebreaker when two subcategories share a name
+(`ORDER BY parent_id IS NOT NULL, created_at, id`), and `window.confirm` on the two destructive
+actions in `Orcamento.jsx` — every other page in the project already prompts.
+
+### Things to know
+
+- **`.claude/agents/*.md` are still not discoverable.** `Agent(subagent_type="finance-guard")`
+  returned *"Agent type not found"* again this session, listing only the built-in types — and the
+  definition has been committed since the session before. So this is **not** the "written this
+  session, visible next session" problem the last handoff guessed at; discovery of project agent
+  files simply is not happening in this environment. The audit was run through the documented
+  fallback instead (`general-purpose` told to read `.claude/agents/finance-guard.md` and follow it),
+  which works and gives the same report. `CLAUDE.md` now documents that fallback for both agents.
+  Try the real `subagent_type` first next session; if it still fails, don't spend time on it.
+- **A rounding test of mine was wrong, and the code was right.** I asserted that two lançamentos of
+  `0.125` should show `0.25` of spending. They show `0.26`: `POST /api/transactions` already rounds
+  each lançamento half-up on the way in (`0.125 → 0.13`), and the budget sums the *stored* values,
+  not the typed ones. The test now states that explicitly. Worth remembering before "fixing" a
+  similar off-by-a-cent elsewhere — with banker's rounding it would have been `0.24`.
+- **Month arithmetic lives in two places now** and must agree: `shift_month()` in `backend/app.py`
+  and `shiftMonth()` in `frontend/src/lib/format.js`. Both are integer arithmetic on
+  `year * 12 + month`, which is why the year rollover is not a special case.
+- **Credit card purchases do not count as budget spending, and that is now a recorded open
+  decision** (§3.3 of the plan lists the three ways out). Spending on the card lives in `cc_expenses`
+  until the invoice is settled, and then enters as one lançamento in a `Pagamento Fatura <cartão>`
+  category rather than under what was actually bought. For a card-heavy household the budget
+  under-reports all month and then over-reports one category. The page says so in its subtitle rather
+  than leaving it to be discovered. **Decide this before §3.4** — recurring entries raise the same
+  question about where spending lives.
+- **The real `backend/finance.db` has not been migrated yet.** Migration 009 will apply on the next
+  boot, after the automatic backup. It only creates a table and two indexes — no backfill, no table
+  rebuild, nothing to verify on a copy first.
+
+### What was NOT done, and why
+
+- **Recurring entries (§3.4) and statement search (§3.7)** — the rest of Phase 3. Deliberate: §3.3
+  plus 44 tests plus the categories screen was the session's scope.
+- **The credit-card question above was recorded, not answered.** Answering it well means choosing
+  between three designs and probably a migration; doing that badly at the end of a session would put
+  wrong numbers in front of the person using this daily.
+- **The Dashboard does not show the budget.** A "orçamento do mês" strip on the Dashboard is the
+  obvious next small win — the data is one `GET /api/budgets` away and the page already has the card
+  layout for it. Left out to keep the diff to one new page.
+- **A budget cannot be created from the Movimentações page**, where you notice you need one. Minor.
+- **No frontend tests.** There still is no frontend test harness at all; `Orcamento.jsx` was verified
+  by `npm run build` and by reading, like every page before it.
+- **`backend/app.py` is now ~5,344 lines.** The §4.1 split got further away again. The budget block
+  (helpers + four routes, `backend/app.py:2675-3050`) is self-contained and, together with the
+  accounts/categories block, would make a sensible first blueprint to extract.
+
+### Recommended next steps, in order
+
+1. **A budget strip on the Dashboard.** Small, visible, and it is what makes the budget actually get
+   looked at daily.
+2. **Recurring entries (§3.4).** Rent, salary, subscriptions — the largest remaining source of manual
+   typing, and a 30/60/90-day forecast falls out of it for free.
+3. **Statement search and filters (§3.7).** By period, category, account, amount range, free text.
+4. If you want a quick win between two of those: extract the first blueprint from `app.py` (§4.1),
+   starting with accounts + categories + budgets.
+
+---
+
 ## Session — 2026-09-16 · Phase 2 closed: bank accounts, transfers, categories, editing
 
 ### Where things stand

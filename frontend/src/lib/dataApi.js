@@ -50,6 +50,23 @@ export const categoriesApi = {
   archive: (id) => apiFetch(`/api/categories/${id}`, { method: 'DELETE' })
 }
 
+export const budgetsApi = {
+  month: (month) => apiFetch(`/api/budgets${queryString({ month })}`),
+  create: (payload) => apiFetch('/api/budgets', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  update: (id, payload) => apiFetch(`/api/budgets/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  remove: (id) => apiFetch(`/api/budgets/${id}`, { method: 'DELETE' }),
+  copy: (payload) => apiFetch('/api/budgets/copy', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
 export const transfersApi = {
   create: (payload) => apiFetch('/api/transfers', {
     method: 'POST',

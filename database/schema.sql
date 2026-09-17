@@ -64,6 +64,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_user_root_name
 ON categories(user_id, name)
 WHERE parent_id IS NULL;
 
+-- Orcamento mensal por categoria. month e TEXT 'YYYY-MM'; o saldo transportado
+-- de rollover e calculado na leitura, nunca gravado. Ver migrations/009.
+CREATE TABLE IF NOT EXISTS budgets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+    planned_amount REAL NOT NULL CHECK (planned_amount >= 0),
+    rollover INTEGER NOT NULL DEFAULT 0 CHECK (rollover IN (0, 1)),
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(user_id, category_id, month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_budgets_user_month
+ON budgets(user_id, month);
+
+CREATE INDEX IF NOT EXISTS idx_budgets_user_category
+ON budgets(user_id, category_id);
+
 -- Uma transferencia e UMA linha: type='TRANSFER', saindo de account_id e
 -- entrando em transfer_account_id. Ver database/migrations/007.
 CREATE TABLE IF NOT EXISTS transactions (

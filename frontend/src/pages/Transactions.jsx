@@ -36,6 +36,7 @@ import {
   SegmentedControl,
   cx,
 } from '../components/ui'
+import { formatCurrency } from '../lib/format'
 
 // Fallback apenas: as categorias vem de /api/categories desde a migration 008.
 // Esta lista continua aqui para o primeiro render, antes da resposta chegar.
@@ -103,13 +104,6 @@ function getPurchaseGroupKey(expense) {
 
 function formatInvoiceLabel(month, year) {
   return `${String(month).padStart(2, '0')}/${year}`
-}
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(Number(value || 0))
 }
 
 function readStoredJson(key, fallback) {

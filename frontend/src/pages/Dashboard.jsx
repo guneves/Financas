@@ -15,6 +15,7 @@ import { apiFetch } from '../lib/api'
 import { accountsApi, ccExpensesApi, transactionsApi } from '../lib/dataApi'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import { Badge, Button, EmptyState, MetricCard, PageHeader, Panel, PanelHeader, cx } from '../components/ui'
+import { formatCurrency, getLocalDateString } from '../lib/format'
 
 const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
@@ -30,22 +31,10 @@ const PAYMENT_METHOD_COLORS = {
   credit: '#0284c7',
 }
 
-const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-}).format(Number(value || 0))
-
 const getDaysRemainingInMonth = () => {
   const today = new Date()
   const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
   return Math.max(lastDay - today.getDate() + 1, 1)
-}
-
-const getLocalDateString = (date = new Date()) => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 const parseInstallmentInfo = (value) => {

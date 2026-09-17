@@ -42,6 +42,7 @@ import {
   SegmentedControl,
   cx,
 } from '../components/ui'
+import { formatCurrency, formatDateBR } from '../lib/format'
 
 const CATEGORY_OPTIONS = [
   'Receita',
@@ -66,11 +67,6 @@ const STORAGE_KEYS = {
   cards: '@financeMVP:walletCards',
   ccExpenses: '@financeMVP:walletCcExpenses',
 }
-
-const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-}).format(Number(value || 0))
 
 const compactCurrency = (value) => {
   const numeric = Number(value || 0)
@@ -112,12 +108,6 @@ function parseLocalDate(dateString) {
   const [year, month, day] = String(dateString).split('-').map(Number)
   if (!year || !month || !day) return null
   return new Date(year, month - 1, day)
-}
-
-function formatDateBR(dateString) {
-  const date = parseLocalDate(dateString)
-  if (!date || Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString('pt-BR')
 }
 
 function formatInvoiceLabel(month, year) {

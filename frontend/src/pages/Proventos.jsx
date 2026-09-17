@@ -24,6 +24,7 @@ import {
   SegmentedControl,
   cx,
 } from '../components/ui'
+import { formatCurrency, formatDateBR, formatUnitCurrency, getLocalDateString } from '../lib/format'
 
 const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos', tone: 'success' },
@@ -47,33 +48,7 @@ const ASSET_CLASS_LABELS = {
 
 const currentYear = new Date().getFullYear()
 
-const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-}).format(Number(value || 0))
-
-const formatUnitCurrency = (value) => new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 6,
-}).format(Number(value || 0))
-
 const formatPercent = (value, digits = 2) => `${Number(value || 0).toFixed(digits)}%`
-
-const getLocalDateString = (date = new Date()) => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-const formatDateBR = (value) => {
-  if (!value) return '-'
-  const [year, month, day] = String(value).slice(0, 10).split('-').map(Number)
-  if (!year || !month || !day) return '-'
-  return new Date(year, month - 1, day).toLocaleDateString('pt-BR')
-}
 
 const parseNumberInput = (value) => {
   if (value === '' || value === null || value === undefined) return null

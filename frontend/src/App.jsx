@@ -8,6 +8,7 @@ import Layout from './components/Layout'
 import Carteira from './pages/Carteira'
 import Investments from './pages/Investments'
 import Proventos from './pages/Proventos'
+import Orcamento from './pages/Orcamento'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -35,6 +36,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/transactions" element={<Transactions />} />
+            <Route path="/orcamento" element={<Orcamento />} />
             <Route path="/carteira" element={<Carteira />} />
             <Route path="/investments" element={<Investments />} />
             <Route path="/proventos" element={<Proventos />} />

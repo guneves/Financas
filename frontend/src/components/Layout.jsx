@@ -7,6 +7,7 @@ import {
   Menu,
   PieChart,
   Receipt,
+  Target,
   Wallet,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -16,6 +17,7 @@ import { cx, IconButton } from './ui'
 const navItems = [
   { name: 'Visão geral', path: '/dashboard', icon: LayoutDashboard },
   { name: 'Movimentações', path: '/transactions', icon: Receipt },
+  { name: 'Orçamento', path: '/orcamento', icon: Target },
   { name: 'Carteira', path: '/carteira', icon: PieChart },
   { name: 'Investimentos', path: '/investments', icon: Briefcase },
   { name: 'Proventos', path: '/proventos', icon: CalendarDays },

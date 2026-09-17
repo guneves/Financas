@@ -3,6 +3,7 @@ import { CalendarDays, Plus, X } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { investmentsApi } from '../lib/dataApi'
 import { Button, cx } from './ui'
+import { formatCurrency, getLocalDateString } from '../lib/format'
 
 const ASSET_TYPES = [
   { value: 'STOCKS', label: 'Ações' },
@@ -24,13 +25,6 @@ const initialForm = () => ({
   is_tax_free: false,
 })
 
-function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 function parseAmount(value) {
   const rawValue = String(value || '').trim()
   const normalized = rawValue.includes(',')
@@ -38,13 +32,6 @@ function parseAmount(value) {
     : rawValue
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : 0
-}
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(Number(value || 0))
 }
 
 function normalizeAssetName(value) {

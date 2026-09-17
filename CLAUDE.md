@@ -14,6 +14,10 @@ carry state between them. **Start every session by reading them in this order:**
 3. **`ROADMAP.md`** — historical record of what has been built and the original direction. Read for
    background; it does not drive work anymore.
 
+Cheaper route for the same thing: run the **`session-scout` subagent** (see below) and let it read
+those documents for you. It hands back a one-page briefing and leaves the other ~8,000 tokens of
+handoff history in its own context instead of yours.
+
 **End every session by:**
 
 - Updating `docs/next-steps.md` — tick off what you completed, and rewrite the affected section
@@ -27,14 +31,34 @@ carry state between them. **Start every session by reading them in this order:**
 Be explicit in the handoff about partial work. "Phase 1 complete except automatic backup, because X"
 is useful; "Phase 1 done" when it isn't costs the next session an hour of confusion.
 
-## The `finance-guard` subagent
+## The subagent routine
 
-`.claude/agents/finance-guard.md` defines a read-only auditor for this repository. It reads the diff
-and checks the six things that are expensive to get wrong here: `user_id` scoping on every query,
-`rounded_money()` instead of Python's banker's `round()`, migrations staying append-only (and a
-rebuilt table getting all of its indexes back), destructive endpoints keeping their confirmation
-guard, tests covering any financial rule the diff touched, and the Portuguese/English split. It
-reports; it never edits, never commits, and never runs the app against `backend/finance.db`.
+Two read-only subagents bracket a session: one opens it, one closes it. Both live in
+`.claude/agents/`. Neither edits, commits, or runs the app against `backend/finance.db`.
+
+### Opening — `session-scout`
+
+`.claude/agents/session-scout.md`. Reads `docs/handoff.md`, `docs/next-steps.md`, the git log, the
+migration directory and the test suite, and returns a one-page briefing: where the project stands,
+what the last session genuinely left open, the next task and the concrete files it touches, the traps
+from the handoff that apply to *that* task, and any drift between the docs and the repository.
+
+```
+Agent(subagent_type="session-scout", prompt="Brief me for this session.")
+```
+
+The point is the arithmetic: `docs/handoff.md` is a rolling log that grows by a full entry per
+session, and most of it is history the current task does not need. The scout reads all of it and
+keeps the ~500 words that matter. Read the documents yourself instead whenever the session is a
+follow-up on work still fresh in context — the briefing is for a cold start.
+
+### Closing — `finance-guard`
+
+`.claude/agents/finance-guard.md` defines a read-only auditor. It reads the diff and checks the six
+things that are expensive to get wrong here: `user_id` scoping on every query, `rounded_money()`
+instead of Python's banker's `round()`, migrations staying append-only (and a rebuilt table getting
+all of its indexes back), destructive endpoints keeping their confirmation guard, tests covering any
+financial rule the diff touched, and the Portuguese/English split.
 
 ```
 Agent(subagent_type="finance-guard", prompt="Audit the uncommitted changes. They implement <X>.")
@@ -44,16 +68,28 @@ Agent(subagent_type="finance-guard", prompt="Audit the uncommitted changes. They
 where a missing `user_id` filter is cheap to fix and after which it is a data leak in production
 data. It is worth a second run if the first one found something and you changed code in response.
 
-Why a subagent rather than an inline checklist: the checks are mechanical, they need to read a lot of
-diff to answer, and none of that reading is worth keeping in the main context afterwards. The audit
-runs on its own budget and hands back a short report.
+Why subagents rather than an inline checklist: both jobs are mechanical, both need to read a lot of
+text to answer, and none of that reading is worth keeping in the main context afterwards. Each runs
+on its own budget and hands back a short report.
 
-It is a *reviewer*, not an authority. It has been wrong about pre-existing `round()` calls on
-non-monetary values (share quantities at 6 decimal places, yield percentages) — those are correct as
-they stand. Check a finding before acting on it.
+They are *reviewers*, not authorities. `finance-guard` has been wrong about pre-existing `round()`
+calls on non-monetary values (share quantities at 6 decimal places, yield percentages) — those are
+correct as they stand. Check a finding before acting on it.
 
-**Note:** Claude Code discovers agent definitions at startup, so a newly created or edited agent file
-is only usable from the next session on.
+### If `subagent_type` is not found
+
+Custom agent definitions are discovered by Claude Code at startup, and on 2026-09-15 and again on
+2026-09-16 `Agent(subagent_type="finance-guard")` returned *"Agent type not found"* even though the
+file had been committed a session earlier. Do not conclude the file is broken — it is a discovery
+problem, not a definition problem. The fallback works and gives the same audit:
+
+```
+Agent(subagent_type="general-purpose",
+      prompt="Read .claude/agents/finance-guard.md in full and follow it exactly as your "
+             "instructions. Audit the uncommitted working tree. You are read-only.")
+```
+
+Same shape for `session-scout`. If the fallback is what you used, say so in the handoff.
 
 ## What this is
 
@@ -88,9 +124,9 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-205 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement and the
+248 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
-transaction, `user_id` isolation, and backup retention. They run against a throwaway SQLite database built by the real
+transaction, monthly budgets, `user_id` isolation, and backup retention. They run against a throwaway SQLite database built by the real
 migrations — **the real `backend/finance.db` is never touched.**
 
 `app.py` reads config and calls `init_db()` at import time, so `conftest.py` sets `DATABASE_PATH` and
@@ -106,7 +142,7 @@ refactoring `app.py`, and that refactor is only safe with the suite in place.
 
 ```
 backend/
-  app.py              # ~4,950 lines: routes, SQL, auth, portfolio, tax, FIFO, yfinance
+  app.py              # ~5,340 lines: routes, SQL, auth, budgets, portfolio, tax, FIFO, yfinance
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -114,12 +150,13 @@ database/
   schema.sql          # reference schema
   migrations/         # versioned, applied automatically on boot
 frontend/src/
-  pages/              # Dashboard, Transactions, Carteira, Investments, Proventos
-  lib/                # api.js, auth.js, dataApi.js, portfolio.js
+  pages/              # Dashboard, Transactions, Orcamento, Carteira, Investments, Proventos
+  lib/                # api.js, auth.js, dataApi.js, format.js, portfolio.js
 docs/
   next-steps.md       # the plan
   handoff.md          # session log
 .claude/agents/
+  session-scout.md    # the start-of-session briefing subagent
   finance-guard.md    # the pre-commit audit subagent
 ```
 
@@ -147,6 +184,10 @@ docs/
 - **Comments and identifiers are a mix of Portuguese and English.** User-facing strings and error
   messages are Portuguese; documentation in `docs/` is English. Match the surrounding file rather
   than converting it.
+- **A budget is a plan, not a record.** `budgets` rows are keyed by `(category_id, month)` and
+  `DELETE /api/budgets/<id>` is a real delete with no confirmation guard — removing one destroys
+  no lançamento. The `rollover` carry-over is computed on read, never stored, so a retroactive
+  lançamento does not have to rewrite a chain of months.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/next-steps.md` §2 before touching it.
 
 ## Known sharp edges
@@ -157,4 +198,7 @@ docs/
   `backend/app.py`, behind `POST /api/cc-expenses/purchases`), covered by
   `backend/tests/test_invoice_month.py`. It used to be in `Carteira.jsx`; don't reintroduce a
   client-side copy.
-- `formatCurrency` is duplicated across five frontend files and `formatDateBR` across three.
+- `formatCurrency` and the date helpers now live in `frontend/src/lib/format.js`. Two local
+  copies survive on purpose: `Carteira.jsx` and `Transactions.jsx` default their
+  `getLocalDateString` to a `getNow()` clock hook rather than to `new Date()`, and
+  `Transactions.jsx`'s `formatDateBR` returns `''` where the shared one returns `'-'`.
