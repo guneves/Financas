@@ -130,6 +130,40 @@ ON transactions(user_id, account_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_transfer_account_date
 ON transactions(user_id, transfer_account_id, date DESC);
 
+-- Molde de lancamento recorrente. O dinheiro continua nascendo em
+-- transactions: POST /api/recurring/run materializa o que venceu, gravando
+-- source_type='RECURRING_TRANSACTION' e source_id='<recorrencia>:<AAAA-MM-DD>',
+-- de modo que o indice unico idx_transactions_user_source torne uma segunda
+-- rodada inofensiva. Ver database/migrations/010.
+CREATE TABLE IF NOT EXISTS recurring_transactions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+    category TEXT NOT NULL,
+    description TEXT,
+    type TEXT NOT NULL CHECK (type IN ('INCOME', 'EXPENSE')),
+    amount REAL NOT NULL CHECK (amount > 0),
+    frequency TEXT NOT NULL CHECK (frequency IN ('WEEKLY', 'MONTHLY', 'YEARLY')),
+    interval_count INTEGER NOT NULL DEFAULT 1 CHECK (interval_count >= 1),
+    start_date TEXT NOT NULL,
+    next_run_date TEXT,
+    end_date TEXT,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    last_run_at TEXT,
+    note TEXT,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK (end_date IS NULL OR end_date >= start_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_user_next_run
+ON recurring_transactions(user_id, active, next_run_date);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_user_category
+ON recurring_transactions(user_id, category_id);
+
 CREATE TABLE IF NOT EXISTS investments (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

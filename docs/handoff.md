@@ -6,6 +6,166 @@
 
 ---
 
+## Session — 2026-09-16 (latest) · §3.4 recurring entries, and the real database is four migrations behind
+
+### Where things stand
+
+**Phase 3 is one item from done.** §3.4 (recurring entries) landed with migration `010`, five
+endpoints and a new page; only §3.7 (statement search and filters) is left. 249 tests → **325**.
+Migration count 9 → **10**. `backend/app.py` 5,344 → **5,891 lines**.
+
+The headline for the next session is not the feature, though — read "The real database" below.
+
+### What was done
+
+**1. Recurring entries — migration `010_recurring_transactions.sql`**
+
+`recurring_transactions` (id, user_id, account_id, category_id, category, description,
+type `INCOME|EXPENSE`, amount, frequency `WEEKLY|MONTHLY|YEARLY`, interval_count, start_date,
+next_run_date, end_date, active, last_run_at, note, metadata). Endpoints: `GET/POST /api/recurring`,
+`PATCH/DELETE /api/recurring/<id>`, `POST /api/recurring/run`, `GET /api/recurring/forecast?days=`.
+
+Five decisions worth knowing:
+
+- **The template is not the money.** A recurrence generates real rows in `transactions`; nothing is
+  projected into the statement. That is what makes a generated lançamento editable, deletable, and
+  counted by the budget (§3.3) and by the per-account balance (§3.1) without any of those queries
+  having to learn that recurrences exist. Both are pinned by tests.
+- **Running twice is a no-op, and that is structural.** Each occurrence writes
+  `source_type = 'RECURRING_TRANSACTION'` and `source_id = '<recorrência>:<AAAA-MM-DD>'`, so the
+  unique index `idx_transactions_user_source` from migration 007 rejects the duplicate and
+  `INSERT OR IGNORE` turns it into "already existed". No bookkeeping, no lock. Reuse this shape for
+  anything else that materializes rows on demand.
+- **Monthly anchors on `start_date`'s day, not on the last occurrence.** Day 31 lands on 28/02 and
+  then goes *back* to 31/03. Anchoring on the previous occurrence would trap it at day 28 forever,
+  one February at a time. `test_monthly_keeps_the_anchor_day_after_a_short_month` pins it.
+- **`run` is a button, not a boot hook.** Materializing a backlog while nobody is looking is how you
+  get surprised by four months of rent appearing at once. The page shows the pending count and the
+  user presses "Lançar N pendente(s)". The endpoint is idempotent, so adding an automatic call later
+  costs nothing.
+- **Deleting a recurrence keeps its lançamentos** (the response reports `kept_transactions`). Same
+  reasoning as the budget's guard-free `DELETE`: what is destroyed is a plan, not a record.
+
+Two deliberate omissions: a recurring **TRANSFER** is not supported (only `INCOME`/`EXPENSE`), and
+there is no "generate the next N occurrences ahead of time" — `through` on `/run` covers the real
+case (closing the month a few days early).
+
+**2. `Recorrentes.jsx` — new page at `/recorrentes`**
+
+Four metric cards (previsto 30d: receitas, despesas, saldo, e pendentes), the create form, the list
+with pause/resume, inline amount edit and delete, and a "próximos 90 dias" projection. In the
+sidebar between Orçamento and Carteira. `npm run build` passes.
+
+**3. Tests: 249 → 325 (`test_recurring.py`, 76)**
+
+Creation and the eleven invalid payloads, materialization and resumption, the anchor-day calendar
+(day 31 across February, leap year, year rollover, weekly, yearly, `interval_count`), `end_date`
+inclusivity, pause/resume, the budget interaction, editing and deleting a generated lançamento,
+forecast totals and windows, and seven isolation tests.
+
+### The audit caught a real bug — read this one
+
+`finance-guard` (via the documented fallback) found that **resuming a paused recurrence back-dated
+the entire pause.** `PATCH {"active": true}` restored the flag but left `next_run_date` frozen where
+the pause had left it, so the next `/run` wrote real expenses for every month the recurrence had been
+switched off. A R$50 subscription cancelled in February and re-subscribed in May produced expenses
+dated 10/02, 10/03 and 10/04 — money that was never spent, counted by three months of budget and by
+the account balance.
+
+Fixed with `recurring_resume_date()` (`backend/app.py`): when `active` flips 0 → 1, `next_run_date`
+rolls forward to the first occurrence on or after today, unless the same `PATCH` sets it explicitly.
+Four tests cover it, and the fix was verified by disabling it and watching two of them fail.
+
+The generalizable part: **`active` was treated as one flag, but pausing and resuming are not
+symmetric.** Pausing has to freeze the schedule; resuming has to move it. Anything else with an
+on/off switch over a time cursor has the same trap.
+
+The audit also caught that `database/schema.sql` had not been updated for migration 010 (it had been
+kept current through 009) — added, and verified by building the whole file into an in-memory
+database. And it caught that `test_running_twice_creates_nothing_new` passed for the wrong reason:
+the second run created nothing because `next_run_date` had advanced, so the unique-index safety net
+the whole idempotency claim rests on had **no coverage**.
+`test_rerunning_an_already_materialized_date_is_ignored` rewinds the recurrence on purpose and
+asserts `already_existed == 3`.
+
+**A second audit pass over the fix found two more, both fixed.** (i) The resume rolled forward using
+the recurrence's *old* schedule, so `PATCH {active: true, end_date: <later>}` — reactivate and extend
+in one save, the common gesture — evaluated against the end date being replaced and immediately
+marked the recurrence `FINISHED`. It now merges the payload over the stored row first. (ii) Shrinking
+`end_date` below `next_run_date` left the row showing "Ativa, próxima em …" forever, because
+`materialize_recurring()` returns before the `UPDATE` when nothing is due; the recurrence now
+finishes on the spot, and an explicit `next_run_date` past `end_date` is refused with a 400. Four
+tests, each verified to fail without its fix. A third finding was deliberately **not** fixed — first
+bullet below.
+
+### The real database is four migrations behind — do this first
+
+`backend/finance.db` is at **migration 006**. Not 009, as the last two handoffs assumed: 007, 008,
+009 and 010 are *all* pending, which means the app has not been booted since 2026-09-15 21:30. The
+next boot will, after the automatic backup, rebuild the `transactions` table (007), backfill
+`account_id` and `category_id` (008), and create two empty tables (009, 010).
+
+**This was dry-run on a copy and it is clean**: all four applied in order, 49 transactions kept,
+0 rows left without `account_id` or `category_id`, 2 accounts and 25 categories created,
+`PRAGMA foreign_key_check` empty, `integrity_check` ok. So it should be uneventful — but it is a
+table rebuild against the only copy of the real data, so boot it deliberately, check the backup
+landed in `backups/`, and look at the Dashboard before doing anything else.
+
+### Things to know
+
+- **`.claude/agents/*.md` are still not discoverable** — `subagent_type="finance-guard"` returned
+  *"Agent type not found"* again, for the third session running. `CLAUDE.md` now says to expect the
+  fallback to be the normal path and to stop investigating after one failed attempt. Both audits this
+  session ran through `general-purpose` told to read the definition file.
+- **A pause/resume round-trip drops an occurrence that was already overdue.** Rent due on the 10th,
+  not yet lançado on the 12th, is lost if you pause and resume that day: `next_run_date` is a single
+  cursor and nothing records when the pause began, so the resume walks to today and takes the overdue
+  one with it. The pending counter visibly drops to zero.
+  `test_pausing_after_an_occurrence_came_due_drops_it` pins the behaviour so the next session finds a
+  decision rather than a bug. The precise fix is a `paused_at` column plus a materializer that skips
+  only the pause window — a migration's worth of work, and the trade is deliberate: **losing a
+  lançamento is visible and re-typed in ten seconds; generating expenses that were never paid is
+  silent.** Revisit if it actually bites in daily use.
+- **A finished recurrence does not restart if you extend `end_date`.** Once `next_run_date` is NULL
+  the recurrence is `FINISHED`, and pushing `end_date` out does not revive it — you have to set
+  `next_run_date` explicitly (the API accepts it; the UI does not expose it yet). Arguably wrong, but
+  it is at least not silent: the status badge says "Encerrada".
+- **`recurring_occurrence_dates()` is capped at 400 occurrences per call** (`RECURRING_MAX_OCCURRENCES`).
+  A weekly recurrence forgotten for eight years would otherwise write thousands of rows in one
+  request. `next_run_date` advances to occurrence 401, so a second `/run` continues where it stopped.
+- **The credit-card question from the last handoff is still open, and §3.4 did not resolve it** — it
+  sidestepped it. A recurring entry writes to `transactions`, so it lands in the budget; a card
+  purchase still does not. The three options in §3.3 are unchanged, and the question now has a second
+  consumer.
+
+### What was NOT done, and why
+
+- **Statement search and filters (§3.7)** — the last Phase 3 item. Deliberate: §3.4 plus 76 tests
+  plus a page was the session's scope.
+- **No budget strip on the Dashboard**, which the last handoff recommended as the next small win. It
+  is still the right small win, and the recurring forecast now deserves a Dashboard strip too — a
+  "previsto para os próximos 30 dias" line next to the month's real numbers. Left out to keep the
+  diff to one feature.
+- **`run` is not called automatically on boot or on the Dashboard load.** Deliberate (see above), and
+  cheap to add later because the endpoint is idempotent.
+- **No frontend tests**, still — `Recorrentes.jsx` was verified by `npm run build` and by reading.
+- **`backend/app.py` is now ~5,891 lines.** The §4.1 split receded again. The recurring block
+  (helpers + four routes) is self-contained and sits right after the budget block; together with
+  accounts/categories/budgets it is a natural first blueprint.
+
+### Recommended next steps, in order
+
+1. **Boot the app and let migrations 007–010 apply.** Everything else is blocked behind this in the
+   sense that the real database does not yet have the last three sessions' features.
+2. **Statement search and filters (§3.7)** — closes Phase 3.
+3. **A Dashboard strip for the budget and the recurring forecast.** Small, and it is what makes both
+   features get looked at daily.
+4. **Answer the credit-card question (§3.3).** It now has two consumers and will not get easier.
+5. If you want a quick win between two of those: extract the first blueprint from `app.py` (§4.1) —
+   accounts + categories + budgets + recurring.
+
+---
+
 ## Session — 2026-09-16 (later) · Phase 3 opened: monthly budget, categories screen, format.js
 
 ### Where things stand

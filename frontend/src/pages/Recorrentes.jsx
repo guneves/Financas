@@ -1,0 +1,523 @@
+import { useEffect, useMemo, useState } from 'react'
+import {
+  AlertTriangle,
+  CalendarClock,
+  Check,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Repeat,
+  TrendingDown,
+  TrendingUp,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
+import { formatCurrency, formatDateBR, getLocalDateString } from '../lib/format'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  MetricCard,
+  PageHeader,
+  Panel,
+  PanelHeader,
+} from '../components/ui'
+
+const FREQUENCY_LABELS = {
+  WEEKLY: 'Semanal',
+  MONTHLY: 'Mensal',
+  YEARLY: 'Anual',
+}
+
+const STATUS_TONES = {
+  ACTIVE: 'success',
+  PAUSED: 'neutral',
+  FINISHED: 'warning',
+}
+
+const STATUS_LABELS = {
+  ACTIVE: 'Ativa',
+  PAUSED: 'Pausada',
+  FINISHED: 'Encerrada',
+}
+
+const emptyForm = () => ({
+  description: '',
+  amount: '',
+  type: 'EXPENSE',
+  category_id: '',
+  account_id: '',
+  frequency: 'MONTHLY',
+  interval_count: '1',
+  start_date: getLocalDateString(),
+  end_date: '',
+})
+
+function frequencyLabel(item) {
+  const base = FREQUENCY_LABELS[item.frequency] || item.frequency
+  const interval = Number(item.interval_count || 1)
+  if (interval <= 1) return base
+  if (item.frequency === 'WEEKLY') return `A cada ${interval} semanas`
+  if (item.frequency === 'YEARLY') return `A cada ${interval} anos`
+  return `A cada ${interval} meses`
+}
+
+export default function Recorrentes() {
+  const [items, setItems] = useState([])
+  const [forecast, setForecast] = useState(null)
+  const [categories, setCategories] = useState([])
+  const [accounts, setAccounts] = useState([])
+  const [form, setForm] = useState(emptyForm)
+  const [editingId, setEditingId] = useState('')
+  const [editValue, setEditValue] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    loadAll()
+  }, [])
+
+  const loadAll = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [listData, forecastData, categoryData, accountData] = await Promise.all([
+        recurringApi.list(),
+        recurringApi.forecast({ days: 90 }),
+        categoriesApi.list(),
+        accountsApi.list(),
+      ])
+      setItems(listData?.items || [])
+      setForecast(forecastData || null)
+      setCategories(categoryData || [])
+      setAccounts(accountData || [])
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível carregar os lançamentos recorrentes.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const pendingCount = useMemo(
+    () => items.reduce((total, item) => total + Number(item.pending_count || 0), 0),
+    [items]
+  )
+
+  const windows = forecast?.windows || {}
+  const window30 = windows['30'] || {}
+
+  const handleCreate = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      await recurringApi.create({
+        description: form.description,
+        amount: Number(form.amount),
+        type: form.type,
+        category_id: form.category_id,
+        account_id: form.account_id || null,
+        frequency: form.frequency,
+        interval_count: Number(form.interval_count || 1),
+        start_date: form.start_date,
+        end_date: form.end_date || null,
+      })
+      setForm(emptyForm())
+      await loadAll()
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível criar a recorrência.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRun = async () => {
+    setSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await recurringApi.run()
+      setNotice(
+        result.created
+          ? `${result.created} lançamento(s) gerado(s) até ${formatDateBR(result.through)}.`
+          : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.'
+      )
+      await loadAll()
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível gerar os lançamentos.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleToggleActive = async (item) => {
+    setSaving(true)
+    setError('')
+    try {
+      await recurringApi.update(item.id, { active: !item.active })
+      await loadAll()
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível atualizar a recorrência.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveAmount = async (item) => {
+    setSaving(true)
+    setError('')
+    try {
+      await recurringApi.update(item.id, { amount: Number(editValue) })
+      setEditingId('')
+      setEditValue('')
+      await loadAll()
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível atualizar o valor.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (item) => {
+    const confirmed = window.confirm(
+      `Excluir a recorrência "${item.description || item.category}"? Os lançamentos já gerados continuam no extrato.`
+    )
+    if (!confirmed) return
+
+    setSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await recurringApi.remove(item.id)
+      setNotice(
+        result.kept_transactions
+          ? `Recorrência excluída. ${result.kept_transactions} lançamento(s) já gerado(s) foram mantidos.`
+          : 'Recorrência excluída.'
+      )
+      await loadAll()
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível excluir a recorrência.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Planejamento"
+        title="Recorrentes"
+        description="Aluguel, salário, mensalidade, assinatura: o molde fica aqui e o lançamento é gerado quando vence."
+        actions={
+          <Button icon={CalendarClock} onClick={handleRun} loading={saving}>
+            {pendingCount ? `Lançar ${pendingCount} pendente(s)` : 'Lançar pendentes'}
+          </Button>
+        }
+      />
+
+      {error ? (
+        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <Check className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{notice}</span>
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          title="Receitas previstas (30d)"
+          value={formatCurrency(window30.income)}
+          icon={TrendingUp}
+          tone="success"
+        />
+        <MetricCard
+          title="Despesas previstas (30d)"
+          value={formatCurrency(window30.expense)}
+          icon={TrendingDown}
+          tone="danger"
+        />
+        <MetricCard
+          title="Saldo previsto (30d)"
+          value={formatCurrency(window30.net)}
+          valueClassName={Number(window30.net || 0) < 0 ? 'text-rose-600' : 'text-emerald-600'}
+          subtitle={windows['90'] ? `Em 90 dias: ${formatCurrency(windows['90'].net)}` : null}
+          tone="info"
+        />
+        <MetricCard
+          title="Pendentes"
+          value={pendingCount}
+          subtitle={pendingCount ? 'Já venceram e ainda não foram lançados' : 'Tudo em dia'}
+          icon={Repeat}
+          tone={pendingCount ? 'warning' : 'neutral'}
+        />
+      </div>
+
+      <Panel>
+        <PanelHeader
+          title="Nova recorrência"
+          description="O lançamento só nasce quando a data chega — nada é antecipado no extrato."
+        />
+        <form onSubmit={handleCreate} className="grid gap-4 px-5 py-4 md:grid-cols-3 xl:grid-cols-4">
+          <Field label="Descrição">
+            <input
+              type="text"
+              value={form.description}
+              onChange={(event) => setForm({ ...form, description: event.target.value })}
+              placeholder="Aluguel"
+              className="app-input"
+              required
+            />
+          </Field>
+          <Field label="Valor">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0,00"
+              value={form.amount}
+              onChange={(event) => setForm({ ...form, amount: event.target.value })}
+              className="app-input"
+              required
+            />
+          </Field>
+          <Field label="Tipo">
+            <select
+              value={form.type}
+              onChange={(event) => setForm({ ...form, type: event.target.value })}
+              className="app-select"
+            >
+              <option value="EXPENSE">Despesa</option>
+              <option value="INCOME">Receita</option>
+            </select>
+          </Field>
+          <Field label="Categoria">
+            <select
+              value={form.category_id}
+              onChange={(event) => setForm({ ...form, category_id: event.target.value })}
+              className="app-select"
+              required
+            >
+              <option value="">Selecione</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.parent_name ? `${category.parent_name} › ${category.name}` : category.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Conta" hint="Opcional — usa a conta padrão">
+            <select
+              value={form.account_id}
+              onChange={(event) => setForm({ ...form, account_id: event.target.value })}
+              className="app-select"
+            >
+              <option value="">Conta padrão</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Frequência">
+            <select
+              value={form.frequency}
+              onChange={(event) => setForm({ ...form, frequency: event.target.value })}
+              className="app-select"
+            >
+              <option value="MONTHLY">Mensal</option>
+              <option value="WEEKLY">Semanal</option>
+              <option value="YEARLY">Anual</option>
+            </select>
+          </Field>
+          <Field label="A cada" hint="1 = todo período">
+            <input
+              type="number"
+              min="1"
+              max="60"
+              step="1"
+              value={form.interval_count}
+              onChange={(event) => setForm({ ...form, interval_count: event.target.value })}
+              className="app-input"
+            />
+          </Field>
+          <Field label="Primeira data" hint="Define o dia de ancoragem">
+            <input
+              type="date"
+              value={form.start_date}
+              onChange={(event) => setForm({ ...form, start_date: event.target.value })}
+              className="app-input"
+              required
+            />
+          </Field>
+          <Field label="Até" hint="Opcional — sem data, não termina">
+            <input
+              type="date"
+              value={form.end_date}
+              onChange={(event) => setForm({ ...form, end_date: event.target.value })}
+              className="app-input"
+            />
+          </Field>
+          <div className="flex items-end">
+            <Button type="submit" icon={Plus} loading={saving} className="w-full">
+              Adicionar
+            </Button>
+          </div>
+        </form>
+      </Panel>
+
+      <Panel>
+        <PanelHeader
+          title="Recorrências"
+          description="Pausar interrompe a geração sem apagar o histórico; excluir mantém os lançamentos já gerados."
+        />
+        {loading ? (
+          <p className="px-5 py-8 text-center text-sm text-zinc-500">Carregando...</p>
+        ) : !items.length ? (
+          <EmptyState
+            icon={Repeat}
+            title="Nenhuma recorrência cadastrada"
+            message="Cadastre o aluguel, o salário e as assinaturas uma vez — depois é só lançar os pendentes."
+          />
+        ) : (
+          <div className="divide-y divide-zinc-100">
+            {items.map((item) => (
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate font-semibold text-zinc-900">
+                      {item.description || item.category}
+                    </p>
+                    <Badge tone={STATUS_TONES[item.status] || 'neutral'}>
+                      {STATUS_LABELS[item.status] || item.status}
+                    </Badge>
+                    {item.pending_count ? (
+                      <Badge tone="warning">{item.pending_count} pendente(s)</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    {item.category} · {frequencyLabel(item)} ·{' '}
+                    {item.next_run_date
+                      ? `próxima em ${formatDateBR(item.next_run_date)}`
+                      : 'sem próxima data'}
+                    {item.end_date ? ` · até ${formatDateBR(item.end_date)}` : ''}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {editingId === item.id ? (
+                    <>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editValue}
+                        onChange={(event) => setEditValue(event.target.value)}
+                        className="app-input h-9 w-32"
+                      />
+                      <IconButton
+                        label="Salvar valor"
+                        icon={Check}
+                        variant="primary"
+                        onClick={() => handleSaveAmount(item)}
+                      />
+                      <IconButton label="Cancelar" icon={X} onClick={() => setEditingId('')} />
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className={
+                          item.type === 'INCOME'
+                            ? 'text-base font-bold text-emerald-600'
+                            : 'text-base font-bold text-zinc-900'
+                        }
+                      >
+                        {item.type === 'INCOME' ? '+' : '-'}
+                        {formatCurrency(item.amount)}
+                      </span>
+                      <IconButton
+                        label="Editar valor"
+                        icon={Pencil}
+                        onClick={() => {
+                          setEditingId(item.id)
+                          setEditValue(String(item.amount ?? ''))
+                        }}
+                      />
+                      <IconButton
+                        label={item.active ? 'Pausar' : 'Retomar'}
+                        icon={item.active ? Pause : Play}
+                        onClick={() => handleToggleActive(item)}
+                      />
+                      <IconButton
+                        label="Excluir"
+                        icon={Trash2}
+                        variant="danger"
+                        onClick={() => handleDelete(item)}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      <Panel>
+        <PanelHeader
+          title="Próximos 90 dias"
+          description="Projeção das recorrências ativas. Nada aqui existe no extrato ainda."
+        />
+        {!forecast?.occurrences?.length ? (
+          <EmptyState
+            icon={CalendarClock}
+            title="Nada previsto"
+            message="Cadastre uma recorrência ativa para ver a projeção de caixa."
+          />
+        ) : (
+          <div className="divide-y divide-zinc-100">
+            {forecast.occurrences.map((occurrence) => (
+              <div
+                key={`${occurrence.recurring_id}-${occurrence.date}`}
+                className="flex items-center justify-between gap-3 px-5 py-3"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="w-24 shrink-0 text-sm font-semibold text-zinc-600">
+                    {formatDateBR(occurrence.date)}
+                  </span>
+                  <span className="truncate text-sm text-zinc-800">
+                    {occurrence.description || occurrence.category}
+                  </span>
+                  {occurrence.pending ? <Badge tone="warning">venceu</Badge> : null}
+                </div>
+                <span
+                  className={
+                    occurrence.type === 'INCOME'
+                      ? 'shrink-0 text-sm font-bold text-emerald-600'
+                      : 'shrink-0 text-sm font-bold text-zinc-900'
+                  }
+                >
+                  {occurrence.type === 'INCOME' ? '+' : '-'}
+                  {formatCurrency(occurrence.amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+    </div>
+  )
+}

@@ -10,7 +10,7 @@
 
 **Stack:** React 18 + Vite + Tailwind (frontend) · Flask 3 (backend, single file) · local SQLite with versioned migrations · hand-rolled HS256 JWT auth · yfinance for quotes.
 
-**Size:** `backend/app.py` = 5,344 lines · frontend = ~6,100 lines across 7 pages · 9 migrations · 249 backend tests (as of 2026-09-16).
+**Size:** `backend/app.py` = 5,891 lines · frontend = ~6,600 lines across 8 pages · 10 migrations · 325 backend tests (as of 2026-09-16).
 
 **What already works well:**
 
@@ -31,6 +31,7 @@
 | Editing a transaction | Done (2026-09-16) |
 | Monthly budget by category, with rollover | Done (2026-09-16) |
 | Category management screen (create, rename, archive) | Done (2026-09-16) |
+| Recurring entries with cash-flow forecast | Done (2026-09-16) |
 
 The **investments** core is considerably more mature than the **everyday finances** core. That asymmetry is the central thing to correct if the goal is a complete personal finance manager.
 
@@ -177,13 +178,63 @@ taken yet:
 Decide before §3.4, because recurring entries will raise the same "where does the spending live"
 question.
 
-### 3.4 Recurring entries
+### 3.4 Recurring entries — DONE (2026-09-16)
 
-Rent, salary, subscriptions, tuition. Today these are typed in one by one every month.
+Rent, salary, subscriptions, tuition — typed in one by one every month until now.
+Migration `010_recurring_transactions.sql`.
 
-- `recurring_transactions` table (template + `frequency` MONTHLY/WEEKLY/YEARLY + `next_run_date` + `end_date`).
-- Materialization: on the Dashboard call or via a `/api/recurring/run` endpoint, generate everything pending up to today. Avoids cron and keeps the app fully local.
-- A 30/60/90-day cash flow forecast falls out of this for free.
+- [x] **`recurring_transactions` table** — id, user_id, account_id, category_id, category, description,
+  type `INCOME|EXPENSE`, amount, frequency `WEEKLY|MONTHLY|YEARLY`, interval_count, start_date,
+  next_run_date, end_date, active, last_run_at, note.
+- [x] **`POST /api/recurring/run`** materializes everything due up to today (or up to `through`, or for
+  a single `id`). No cron, no daemon: the app stays fully local and the button lives on the page.
+- [x] **CRUD**: `GET/POST /api/recurring`, `PATCH/DELETE /api/recurring/<id>`.
+- [x] **`GET /api/recurring/forecast?days=90`** — the 30/60/90-day cash flow projection, computed and
+  never stored.
+- [x] **Screen** — `frontend/src/pages/Recorrentes.jsx`, at `/recorrentes`.
+
+**The template is not the money.** A recurrence generates real rows in `transactions`; nothing is
+projected into the statement. That is what makes a generated lançamento editable, deletable and
+countable by the budget (3.3) and by the per-account balance (3.1) without any of those queries
+having to know recurrences exist.
+
+**Running twice is a no-op.** Each occurrence writes `source_type = 'RECURRING_TRANSACTION'` and
+`source_id = '<recurrence>:<AAAA-MM-DD>'`, and the unique index `idx_transactions_user_source` from
+migration 007 rejects the duplicate — `INSERT OR IGNORE` turns that into "already existed". So the
+button is safe to press repeatedly, and so is a future automatic call on boot.
+
+**Monthly anchors on `start_date`'s day, not on the last occurrence.** A recurrence on day 31 lands
+on 28/02 and then goes back to 31/03. Anchoring on the previous occurrence would trap it on day 28
+forever, one February at a time.
+
+**`next_run_date` is stored, not derived.** It is the only state that records how far the recurrence
+has walked. Deleting a generated lançamento therefore does not make it come back — which is the
+behaviour you want when you delete one on purpose.
+
+**Resuming a pause skips the paused period.** When `active` flips 0 → 1, `next_run_date` rolls
+forward to the first occurrence on or after today (`recurring_resume_date()`), unless the same
+`PATCH` sets `next_run_date` explicitly. The roll-forward is evaluated against the schedule *after*
+the PATCH, so reactivating and extending `end_date` in one save works. The audit caught the opposite
+behaviour: a subscription paused for three months and then resumed materialized all three missed
+months as real expenses that were never paid — and the budget and the per-account balance counted
+them.
+
+**Known cost of that rule, accepted:** an occurrence that was *already overdue before* the pause is
+dropped too, because `next_run_date` is a single cursor and nothing records when the pause began.
+Rent due on the 10th, not yet lançado on the 12th, is lost if you pause and resume that day — the
+pending counter visibly drops to zero.
+`test_pausing_after_an_occurrence_came_due_drops_it` pins it so it stays a decision. The precise fix
+is a `paused_at` column and a materializer that skips only the pause window; it costs a migration and
+was judged more than §3.4 warrants, because losing a lançamento is visible and re-typed in ten
+seconds, while generating expenses that were never paid is silent.
+
+**Deleting a recurrence keeps its lançamentos** (the response says how many). The template is a
+setting; the lançamentos are money that already moved. Same reasoning as the budget's guard-free
+`DELETE`: what is destroyed here is a plan, not a record.
+
+Two deliberate omissions: a recurring **TRANSFER** is not supported (only `INCOME`/`EXPENSE`), and
+`run` is **not** called automatically on boot — it is a button, so a backlog is materialized when the
+user is looking at the screen and can see what appeared.
 
 ### 3.5 Statement import (OFX / CSV)
 
@@ -216,7 +267,7 @@ Manual data entry is what gets personal finance managers abandoned in month thre
 
 ## 4. Technical debt
 
-### 4.1 `backend/app.py` at 4,946 lines
+### 4.1 `backend/app.py` at 5,891 lines
 
 This is structural problem number one. Routes, SQL, auth, portfolio computation, tax, FIFO, and the yfinance integration all live in one file. A suggested split, in order of ease:
 
@@ -237,9 +288,9 @@ backend/
 
 Do this **incrementally**, one blueprint at a time, with the app running between each step. Don't attempt it in one pass.
 
-### 4.2 Automated tests — 249 in place (2026-09-16)
+### 4.2 Automated tests — 325 in place (2026-09-16)
 
-Was zero three sessions ago. There are now **249 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
+Was zero three sessions ago. There are now **325 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
 
 ```powershell
 .\start.ps1 -Tests          # or:  cd backend; ..\.venv\Scripts\python.exe -m pytest
@@ -260,6 +311,7 @@ Coverage against the five axes this document named:
 | 7 | Categories, subcategories, rename propagation | `test_categories.py` | 23 | Covered |
 | 8 | Editing a transaction | `test_transaction_edit.py` | 24 | Covered |
 | 9 | Monthly budget — actuals, rollup, rollover, isolation | `test_budgets.py` | 44 | Covered |
+| 10 | Recurring entries — calendar, idempotency, forecast, isolation | `test_recurring.py` | 76 | Covered |
 
 **Axis 3 is now complete.** The rollover rule ("closing day, month rollover, which invoice an installment lands in") used to live in `frontend/src/pages/Carteira.jsx`, where it could not be tested. It moved to the backend on 2026-09-15 — `compute_invoice_start()`, `split_installments()` and `POST /api/cc-expenses/purchases` — and `test_invoice_month.py` pins the behaviour, including the December→January rollover and the cent-exact installment split.
 
@@ -318,8 +370,8 @@ Monthly budget (3.3) → recurring entries (3.4) → statement search and filter
 
 - [x] Monthly budget by category, with rollover — migration 009 + `Orcamento.jsx`. See §3.3.
 - [x] Category management screen — the loose end 3.2 left. See §3.2.
-- [ ] Recurring entries (3.4). Next.
-- [ ] Search and filters on the statement (3.7).
+- [x] Recurring entries — migration 010 + `Recorrentes.jsx`. See §3.4.
+- [ ] Search and filters on the statement (3.7). Next.
 
 ### Phase 4 — Reduce friction (2 weeks)
 CSV import → auto-categorization rules → OFX.

@@ -7,6 +7,7 @@ import {
   Menu,
   PieChart,
   Receipt,
+  Repeat,
   Target,
   Wallet,
 } from 'lucide-react'
@@ -18,6 +19,7 @@ const navItems = [
   { name: 'Visão geral', path: '/dashboard', icon: LayoutDashboard },
   { name: 'Movimentações', path: '/transactions', icon: Receipt },
   { name: 'Orçamento', path: '/orcamento', icon: Target },
+  { name: 'Recorrentes', path: '/recorrentes', icon: Repeat },
   { name: 'Carteira', path: '/carteira', icon: PieChart },
   { name: 'Investimentos', path: '/investments', icon: Briefcase },
   { name: 'Proventos', path: '/proventos', icon: CalendarDays },

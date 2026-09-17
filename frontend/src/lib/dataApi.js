@@ -67,6 +67,24 @@ export const budgetsApi = {
   })
 }
 
+export const recurringApi = {
+  list: (params = {}) => apiFetch(`/api/recurring${queryString(params)}`),
+  create: (payload) => apiFetch('/api/recurring', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  update: (id, payload) => apiFetch(`/api/recurring/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  remove: (id) => apiFetch(`/api/recurring/${id}`, { method: 'DELETE' }),
+  run: (payload = {}) => apiFetch('/api/recurring/run', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  forecast: (params = {}) => apiFetch(`/api/recurring/forecast${queryString(params)}`)
+}
+
 export const transfersApi = {
   create: (payload) => apiFetch('/api/transfers', {
     method: 'POST',

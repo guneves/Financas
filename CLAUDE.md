@@ -34,7 +34,9 @@ is useful; "Phase 1 done" when it isn't costs the next session an hour of confus
 ## The subagent routine
 
 Two read-only subagents bracket a session: one opens it, one closes it. Both live in
-`.claude/agents/`. Neither edits, commits, or runs the app against `backend/finance.db`.
+`.claude/agents/`. Neither edits, commits, or runs the app against `backend/finance.db`. As of
+2026-09-16 neither is discoverable by `subagent_type`; use the fallback documented at the end of this
+section.
 
 ### Opening — `session-scout`
 
@@ -78,10 +80,11 @@ correct as they stand. Check a finding before acting on it.
 
 ### If `subagent_type` is not found
 
-Custom agent definitions are discovered by Claude Code at startup, and on 2026-09-15 and again on
+Custom agent definitions are discovered by Claude Code at startup, and on 2026-09-15 and twice on
 2026-09-16 `Agent(subagent_type="finance-guard")` returned *"Agent type not found"* even though the
-file had been committed a session earlier. Do not conclude the file is broken — it is a discovery
-problem, not a definition problem. The fallback works and gives the same audit:
+file had been committed sessions earlier. Three sessions in a row: **expect the fallback to be the
+normal path**, and reach for it after one failed attempt rather than investigating. Do not conclude
+the file is broken — it is a discovery problem, not a definition problem. The fallback works and gives the same audit:
 
 ```
 Agent(subagent_type="general-purpose",
@@ -124,10 +127,11 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-248 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement and the
+325 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
-transaction, monthly budgets, `user_id` isolation, and backup retention. They run against a throwaway SQLite database built by the real
-migrations — **the real `backend/finance.db` is never touched.**
+transaction, monthly budgets, recurring entries, `user_id` isolation, and backup retention. They run
+against a throwaway SQLite database built by the real migrations — **the real
+`backend/finance.db` is never touched.**
 
 `app.py` reads config and calls `init_db()` at import time, so `conftest.py` sets `DATABASE_PATH` and
 friends in `os.environ` *before* importing it. If you add a test that needs different config, set it
@@ -150,7 +154,7 @@ database/
   schema.sql          # reference schema
   migrations/         # versioned, applied automatically on boot
 frontend/src/
-  pages/              # Dashboard, Transactions, Orcamento, Carteira, Investments, Proventos
+  pages/              # Dashboard, Transactions, Orcamento, Recorrentes, Carteira, Investments, Proventos
   lib/                # api.js, auth.js, dataApi.js, format.js, portfolio.js
 docs/
   next-steps.md       # the plan
@@ -188,6 +192,12 @@ docs/
   `DELETE /api/budgets/<id>` is a real delete with no confirmation guard — removing one destroys
   no lançamento. The `rollover` carry-over is computed on read, never stored, so a retroactive
   lançamento does not have to rewrite a chain of months.
+- **A recurrence is a template, not money.** `recurring_transactions` rows generate real
+  `transactions` rows via `POST /api/recurring/run`; nothing is projected into the statement. Each
+  occurrence writes `source_type = 'RECURRING_TRANSACTION'` and
+  `source_id = '<recurrence>:<AAAA-MM-DD>'`, so the unique index `idx_transactions_user_source`
+  makes a second run a no-op. Keep that shape for anything else that materializes rows on demand —
+  it is what makes the button safe to press twice. Deleting a recurrence keeps its lançamentos.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/next-steps.md` §2 before touching it.
 
 ## Known sharp edges
