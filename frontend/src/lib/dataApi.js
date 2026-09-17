@@ -148,6 +148,11 @@ export const investmentsApi = {
   })
 }
 
+export const marketApi = {
+  searchTickers: (params = {}) => apiFetch(`/api/market/tickers${queryString(params)}`),
+  ticker: (ticker) => apiFetch(`/api/market/tickers/${encodeURIComponent(ticker)}`)
+}
+
 export const investmentProceedsApi = {
   list: (params = {}) => apiFetch(`/api/investment-proceeds${queryString(params)}`),
   summary: (params = {}) => apiFetch(`/api/investment-proceeds/summary${queryString(params)}`),

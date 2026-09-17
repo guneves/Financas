@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarDays, Plus, X } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import { investmentsApi } from '../lib/dataApi'
+import { investmentsApi, marketApi } from '../lib/dataApi'
 import { Button, cx } from './ui'
 import { formatCurrency, getLocalDateString } from '../lib/format'
+import TickerAutocomplete from './TickerAutocomplete'
+
+// Classes com cotacao na B3: o ativo tem de vir do catalogo, nao de texto livre.
+const CATALOG_ASSET_CLASSES = ['STOCKS', 'REIT']
 
 const ASSET_TYPES = [
   { value: 'STOCKS', label: 'Ações' },
@@ -17,6 +21,7 @@ const initialForm = () => ({
   asset_class: 'STOCKS',
   ticker_or_name: '',
   asset_id: '',
+  ticker_confirmed: false,
   transaction_date: getLocalDateString(),
   quantity: '1',
   price: '',
@@ -86,8 +91,28 @@ export default function InvestmentLaunchModal({
       ? unitPrice + otherCosts
       : (quantity * unitPrice) + otherCosts
 
+  const usesCatalog = mode === 'BUY' && CATALOG_ASSET_CLASSES.includes(form.asset_class)
+
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }))
+  }
+
+  const handleTickerChange = (ticker, option) => {
+    setForm((current) => ({
+      ...current,
+      ticker_or_name: ticker,
+      // Guardado para nao repetir a consulta ao catalogo no submit.
+      ticker_confirmed: Boolean(option),
+    }))
+  }
+
+  const handleAssetClassChange = (nextClass) => {
+    setForm((current) => ({
+      ...current,
+      asset_class: nextClass,
+      ticker_or_name: '',
+      ticker_confirmed: false,
+    }))
   }
 
   const handleModeChange = (nextMode) => {
@@ -136,9 +161,26 @@ export default function InvestmentLaunchModal({
     }
   }
 
+  // O ativo pode ter sido digitado inteiro sem passar pela lista. Antes de
+  // lancar, confirma no catalogo -- ou aceita uma posicao que ja esta na
+  // carteira, caso de papeis anteriores ao catalogo.
+  const ensureKnownTicker = async (ticker) => {
+    const inWallet = assets.some((asset) => normalizeAssetName(asset.ticker || asset.name) === ticker)
+    if (inWallet) return
+
+    try {
+      await marketApi.ticker(ticker)
+    } catch {
+      throw new Error(`${ticker} não está na lista da B3. Selecione um ativo pela busca.`)
+    }
+  }
+
   const createBuyMovement = async () => {
     const tickerName = normalizeAssetName(form.ticker_or_name)
     if (!tickerName) throw new Error('Informe o ativo do lançamento.')
+    if (usesCatalog && !form.ticker_confirmed) {
+      await ensureKnownTicker(tickerName)
+    }
     if (unitPrice <= 0) throw new Error('Informe um preço válido.')
     if (form.asset_class !== 'FIXED_INCOME' && quantity <= 0) throw new Error('Informe uma quantidade válida.')
 
@@ -266,7 +308,7 @@ export default function InvestmentLaunchModal({
             <ModalField label="Tipo de ativo">
               <select
                 value={form.asset_class}
-                onChange={(event) => updateForm('asset_class', event.target.value)}
+                onChange={(event) => handleAssetClassChange(event.target.value)}
                 disabled={mode === 'SELL'}
                 className="app-select h-12"
               >
@@ -277,7 +319,15 @@ export default function InvestmentLaunchModal({
             </ModalField>
 
             <ModalField label="Ativo">
-              {mode === 'BUY' ? (
+              {mode === 'BUY' && usesCatalog ? (
+                <TickerAutocomplete
+                  value={form.ticker_or_name}
+                  onChange={handleTickerChange}
+                  assetClass={form.asset_class}
+                  walletAssets={assets}
+                  required
+                />
+              ) : mode === 'BUY' ? (
                 <>
                   <input
                     list="investment-assets"

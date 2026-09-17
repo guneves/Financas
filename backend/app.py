@@ -32,6 +32,8 @@ try:
 except ImportError:
     yf = None
 
+import market_catalog
+
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -90,6 +92,13 @@ ALLOWED_ASSET_CLASSES = {"STOCKS", "FIXED_INCOME", "REIT", "CATTLE", "OTHER"}
 ALLOWED_CC_STATUS = {"OPEN", "PAID"}
 ALLOWED_PROCEEDS_TYPES = {"DIVIDEND", "JCP", "AMORTIZATION"}
 QUOTED_ASSET_CLASSES = {"STOCKS", "REIT"}
+ASSET_CLASS_LABELS = {
+    "STOCKS": "Acoes",
+    "REIT": "Fundos Imobiliarios",
+    "FIXED_INCOME": "Renda Fixa",
+    "CATTLE": "Gado",
+    "OTHER": "Outros",
+}
 INVESTMENT_CASH_SOURCE_TYPE = "INVESTMENT_TRANSACTION"
 INVESTMENT_CASH_CATEGORY = "Investimento"
 DEFAULT_JCP_TAX_RATE = 0.15
@@ -4187,6 +4196,33 @@ def list_investment_positions(current_user_id):
     return jsonify([serialize_metadata_row(row) for row in rows]), 200
 
 
+@app.route("/api/market/tickers", methods=["GET"])
+@token_required
+def market_tickers(current_user_id):
+    """Busca no catalogo da B3 (acoes, ETFs, FIIs e BDRs).
+
+    Alimenta o autocomplete da tela de lancamento. E dado de referencia, igual
+    para todo mundo, entao nao ha filtro por user_id aqui -- nenhuma linha vem
+    do banco.
+    """
+    results = market_catalog.search(
+        query=request.args.get("q", ""),
+        asset_class=parse_asset_class_filter(request.args.get("asset_class")),
+        kind=request.args.get("kind"),
+        limit=request.args.get("limit", 20),
+    )
+    return jsonify(results), 200
+
+
+@app.route("/api/market/tickers/<ticker>", methods=["GET"])
+@token_required
+def market_ticker_detail(current_user_id, ticker):
+    entry = market_catalog.lookup(ticker)
+    if not entry:
+        return jsonify({"error": "Ativo nao encontrado na lista da B3."}), 404
+    return jsonify(entry), 200
+
+
 @app.route("/api/investments", methods=["GET", "POST"])
 @token_required
 def investments(current_user_id):
@@ -4233,6 +4269,13 @@ def investments(current_user_id):
                 if metadata not in (None, "") and not isinstance(metadata, (dict, str)):
                     raise ValidationError("Metadata deve ser um objeto valido.")
                 metadata_dict = investment_metadata_dict(metadata)
+                ticker_or_name = resolve_catalog_ticker(
+                    conn,
+                    current_user_id,
+                    asset_class,
+                    ticker_or_name,
+                    quantity,
+                )
                 validate_investment_movement(
                     conn,
                     current_user_id,
@@ -4594,6 +4637,57 @@ def fetch_position_quantity(conn, current_user_id, asset_class, ticker, exclude_
         params.append(exclude_id)
     row = conn.execute(query, params).fetchone()
     return safe_float(row["quantity"] if row else 0)
+
+
+def resolve_catalog_ticker(conn, current_user_id, asset_class, ticker_or_name, quantity):
+    """Garante que uma compra de renda variavel use um papel conhecido.
+
+    Devolve sempre o ticker canonico das classes com cotacao (maiusculas, sem o
+    sufixo .SA), inclusive nas vendas -- e a normalizacao das duas pontas que
+    faz a venda encontrar a posicao criada pela compra. Vendas e resgates nao
+    consultam o catalogo (eles se apoiam numa posicao que ja existe) e classes
+    sem cotacao (renda fixa, gado, outros) continuam com texto livre, porque ali
+    o "ticker" e so o nome que o dono deu ao ativo.
+
+    Posicoes antigas, anteriores ao catalogo, continuam aceitas: se o ativo ja
+    existe na carteira do usuario, o lancamento passa mesmo fora da lista.
+    """
+    ticker = market_catalog.normalize_ticker(ticker_or_name)
+    if asset_class not in QUOTED_ASSET_CLASSES:
+        # Renda fixa, gado e outros: o "ticker" e so o nome do ativo, texto livre.
+        return ticker_key(ticker_or_name)
+    if quantity <= 0:
+        # Venda/resgate nao consulta o catalogo, mas usa a mesma normalizacao da
+        # compra -- senao "PETR4.SA" nao acha a posicao gravada como "PETR4".
+        return ticker
+
+    if not ticker:
+        raise ValidationError("Informe o ativo do lancamento.")
+
+    entry = market_catalog.lookup(ticker)
+    if entry is None:
+        # O ticker gravado pode ser o normalizado ou, num ativo antigo, o texto
+        # original com sufixo.
+        existing = conn.execute(
+            """
+            SELECT ticker FROM assets
+            WHERE user_id = ? AND asset_class = ? AND ticker IN (?, ?)
+            """,
+            (current_user_id, asset_class, ticker, ticker_key(ticker_or_name)),
+        ).fetchone()
+        if existing:
+            return existing["ticker"]
+        raise ValidationError(
+            f"Ativo {ticker} nao encontrado na lista da B3. Selecione um papel pela busca."
+        )
+
+    if entry["asset_class"] != asset_class:
+        expected = ASSET_CLASS_LABELS.get(entry["asset_class"], entry["asset_class"])
+        raise ValidationError(
+            f"{ticker} e um ativo do tipo {entry['kind_label']}. Selecione o tipo {expected}."
+        )
+
+    return entry["ticker"]
 
 
 def validate_investment_movement(conn, current_user_id, asset_class, ticker_or_name, quantity):

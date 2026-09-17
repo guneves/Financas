@@ -10,7 +10,7 @@
 
 **Stack:** React 18 + Vite + Tailwind (frontend) · Flask 3 (backend, single file) · local SQLite with versioned migrations · hand-rolled HS256 JWT auth · yfinance for quotes.
 
-**Size:** `backend/app.py` = 5,891 lines · frontend = ~6,600 lines across 8 pages · 10 migrations · 325 backend tests (as of 2026-09-16).
+**Size:** `backend/app.py` = 5,985 lines · frontend = ~6,800 lines across 8 pages · 10 migrations · 347 backend tests (as of 2026-09-16).
 
 **What already works well:**
 
@@ -32,6 +32,7 @@
 | Monthly budget by category, with rollover | Done (2026-09-16) |
 | Category management screen (create, rename, archive) | Done (2026-09-16) |
 | Recurring entries with cash-flow forecast | Done (2026-09-16) |
+| B3 ticker catalog with search, and buys restricted to known assets | Done (2026-09-16) |
 
 The **investments** core is considerably more mature than the **everyday finances** core. That asymmetry is the central thing to correct if the goal is a complete personal finance manager.
 
@@ -257,6 +258,13 @@ Manual data entry is what gets personal finance managers abandoned in month thre
   Movimentações page. Two things it refuses: editing a lançamento mirrored from an investment
   (`source_type = 'INVESTMENT_TRANSACTION'` → 409, same rule `DELETE` already had), and converting a
   plain lançamento into a transfer or back.
+- [x] **~~Typing a ticker that does not exist.~~ Done (2026-09-16):** `backend/market_catalog.py`
+  holds a static catalog of B3 assets (Ibovespa shares, ETFs, FIIs and the most traded BDRs),
+  `GET /api/market/tickers?q=&asset_class=&kind=` searches it, and `POST /api/investments` refuses a
+  **buy** of an unknown STOCKS/REIT ticker. The launch modal uses a `TickerAutocomplete` dropdown.
+  Sales, fixed income, cattle and "outros" are untouched — and an asset already in the wallet stays
+  valid even if it is outside the catalog, so old positions can still be traded. Keeping the catalog
+  current is a manual edit to that file.
 - [ ] **Attachments/receipts** per transaction (store the file locally, path in `metadata`).
 - [ ] **Search and filters on the statement** — by period, category, account, amount range, free text.
 - [ ] **Export to CSV/Excel** for the statement and the portfolio.
@@ -288,9 +296,9 @@ backend/
 
 Do this **incrementally**, one blueprint at a time, with the app running between each step. Don't attempt it in one pass.
 
-### 4.2 Automated tests — 325 in place (2026-09-16)
+### 4.2 Automated tests — 347 in place (2026-09-16)
 
-Was zero three sessions ago. There are now **325 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
+Was zero three sessions ago. There are now **347 passing tests** in `backend/tests/`, run with pytest against a throwaway SQLite database built by the real migrations.
 
 ```powershell
 .\start.ps1 -Tests          # or:  cd backend; ..\.venv\Scripts\python.exe -m pytest
@@ -312,6 +320,7 @@ Coverage against the five axes this document named:
 | 8 | Editing a transaction | `test_transaction_edit.py` | 24 | Covered |
 | 9 | Monthly budget — actuals, rollup, rollover, isolation | `test_budgets.py` | 44 | Covered |
 | 10 | Recurring entries — calendar, idempotency, forecast, isolation | `test_recurring.py` | 76 | Covered |
+| 11 | B3 catalog — search ranking, purchase guard, legacy assets | `test_market_catalog.py` | 22 | Covered |
 
 **Axis 3 is now complete.** The rollover rule ("closing day, month rollover, which invoice an installment lands in") used to live in `frontend/src/pages/Carteira.jsx`, where it could not be tested. It moved to the backend on 2026-09-15 — `compute_invoice_start()`, `split_installments()` and `POST /api/cc-expenses/purchases` — and `test_invoice_month.py` pins the behaviour, including the December→January rollover and the cent-exact installment split.
 
@@ -371,6 +380,7 @@ Monthly budget (3.3) → recurring entries (3.4) → statement search and filter
 - [x] Monthly budget by category, with rollover — migration 009 + `Orcamento.jsx`. See §3.3.
 - [x] Category management screen — the loose end 3.2 left. See §3.2.
 - [x] Recurring entries — migration 010 + `Recorrentes.jsx`. See §3.4.
+- [x] B3 ticker catalog + search, buys restricted to known assets. See §3.7.
 - [ ] Search and filters on the statement (3.7). Next.
 
 ### Phase 4 — Reduce friction (2 weeks)

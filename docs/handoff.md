@@ -6,7 +6,106 @@
 
 ---
 
-## Session — 2026-09-16 (latest) · §3.4 recurring entries, and the real database is four migrations behind
+## Session — 2026-09-16 (latest) · B3 ticker catalog: search, autocomplete, and a guard on buys
+
+### Where things stand
+
+A buy of a listed asset can no longer invent a ticker. `backend/market_catalog.py` carries a static
+catalog of B3 papers — Ibovespa shares, ETFs, FIIs and the most traded BDRs — `GET /api/market/tickers`
+searches it, and the launch modal picks from a dropdown instead of a free-text field. 325 tests →
+**347**. `backend/app.py` 5,891 → **5,985 lines**. No migration: the catalog is code, not data.
+
+Phase 3 still has §3.7 (statement search and filters) open — this session did not touch it.
+
+### What was done
+
+**1. `backend/market_catalog.py` — the catalog**
+
+~250 entries as `(ticker, name, kind)` with `kind ∈ {ACAO, ETF, FII, BDR}` mapped to the app's
+`asset_class` (FII → `REIT`, the rest → `STOCKS`). `normalize_ticker()` folds `petr4`, ` PETR4 ` and
+`PETR4.SA` into `PETR4`. `search()` ranks prefix matches on the ticker first, then substring on the
+ticker, then the company name — that ordering is what makes the dropdown feel right for "PET".
+
+Two decisions:
+
+- **Static, not fetched.** No network on the search path, so the dropdown is instant and works
+  offline. The cost is that the list ages: a new Ibovespa entrant is a manual line in that file.
+- **Renamed papers keep both tickers** (CCRO3 *and* MOTV3, ARZZ3 *and* AZZA3). Whoever holds the old
+  position has to be able to launch movements on it.
+
+**2. `GET /api/market/tickers` + `GET /api/market/tickers/<ticker>`**
+
+Query params `q`, `asset_class`, `kind`, `limit` (capped at 100). Both are `@token_required` but
+carry **no `user_id` filter on purpose** — nothing here comes from the database; it is reference data
+that is identical for every user. Say so out loud if `finance-guard` flags it again.
+
+**3. The guard — `resolve_catalog_ticker()` in `app.py`, called from `POST /api/investments`**
+
+It only bites on a **buy** (`quantity > 0`) of a **quoted** class (`STOCKS`/`REIT`). Three ways out:
+
+- unknown ticker → 400 `"Ativo XXXX9 nao encontrado na lista da B3."`
+- right ticker, wrong class (MXRF11 as `STOCKS`) → 400 naming the correct class, via the new
+  `ASSET_CLASS_LABELS`
+- **an asset the user already owns passes anyway**, even outside the catalog. That escape hatch is
+  what keeps a pre-catalog position tradeable; without it, the guard would strand old holdings.
+
+Sales, resgates, `FIXED_INCOME`, `CATTLE` and `OTHER` are untouched — for those the "ticker" is just
+the name the owner gave the thing. The function also returns the canonical ticker, so `wege3.sa` is
+stored as `WEGE3`.
+
+**4. `TickerAutocomplete.jsx` + wiring in `InvestmentLaunchModal.jsx`**
+
+Debounced (180ms) search, keyboard navigation (↑/↓/Enter/Esc), a coloured badge per kind, and the
+user's own wallet assets appended as "Na carteira" so legacy papers stay reachable. It replaces the
+old `<datalist>` only for BUY + `STOCKS`/`REIT`; the other classes keep the free-text input. If the
+ticker was typed whole without touching the list, the modal confirms it against
+`/api/market/tickers/<ticker>` before posting. `npm run build` passes.
+
+**5. Tests: 325 → 347 (`test_market_catalog.py`, 22)**
+
+Search ranking, the `.SA` fold, class filtering, the endpoint (including its 401 and 404), and the
+purchase guard in all its branches — known share, known ETF, unknown ticker, FII under the wrong
+class, free text for `CATTLE`, legacy asset, and a sale of a legacy asset.
+
+### What was not done, and why
+
+- **The catalog is not the whole of B3.** Small caps outside the Ibovespa, most FIIs and most BDRs
+  are missing. That is deliberate for a first cut — the file is easy to extend, and the "asset
+  already in the wallet" escape hatch means nobody gets locked out of a position they already hold.
+  If the owner hits a missing paper often, the next step is a `POST /api/market/tickers` that appends
+  to a user table, not a bigger literal.
+- **No refresh from an external source.** A scheduled job pulling the index composition from B3 or
+  yfinance was considered and dropped: it puts a network dependency in front of a form field.
+- **Proventos and the edit modal were left alone.** Proceeds are launched against an asset that
+  already exists, so there is no unknown-ticker path there.
+- **§3.7 (statement search and filters) is still the next Phase 3 item.**
+
+### Traps worth knowing
+
+- `backend/tests/test_investment_cash_link.py` and `test_user_isolation.py` used **invented tickers**
+  (`BUYTEST1`, `SELLTEST1`, `ISOL4`). The guard made nine of them fail. They were rewritten to use
+  real papers (PETR4, VALE3, ITUB4, …), one per test so the isolation between tests is unchanged.
+  Any new test that posts a *buy* of `STOCKS`/`REIT` has to use a catalog ticker.
+- `app.py` now does `import market_catalog` — a plain module import that relies on `backend/` being
+  on `sys.path`. True both for `python app.py` and for the test suite (`conftest.py` inserts it).
+- **The cash-link and isolation suites are now coupled to catalog membership.** Deleting a line from
+  `_RAW_CATALOG` breaks tests in files that have nothing to do with the catalog — PETR4, VALE3,
+  ITUB4, BBAS3, WEGE3, ABEV3, MGLU3, B3SA3, TOTS3 and EMBR3 are load-bearing there.
+- **Both legs of a movement must normalize the ticker the same way.** `finance-guard` caught the
+  first cut returning `ticker_key()` (no `.SA` strip) on the sell path while the buy path stripped
+  it, so a sale of `PETR4.SA` could not find the position stored as `PETR4`. Fixed, and pinned by
+  `test_selling_with_the_sa_suffix_finds_the_position_bought_without_it`. The legacy escape hatch now
+  matches the stored ticker in either spelling.
+- `finance-guard` was again not discoverable by `subagent_type`; the documented `general-purpose`
+  fallback was used. Fourth session in a row.
+
+### What the next session should pick up
+
+§3.7, statement search and filters — the last open item of Phase 3.
+
+---
+
+## Session — 2026-09-16 · §3.4 recurring entries, and the real database is four migrations behind
 
 ### Where things stand
 

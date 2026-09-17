@@ -38,7 +38,7 @@ def cash_entries(client, auth):
 
 class TestBuyCreatesAnOutflow:
     def test_a_buy_creates_a_matching_expense(self, client, auth):
-        investment = post_buy(client, auth, ticker="BUYTEST1", quantity=100, price=10.0)
+        investment = post_buy(client, auth, ticker="PETR4", quantity=100, price=10.0)
 
         entries = cash_entries(client, auth)
         linked = [e for e in entries if e["source_id"] == investment["id"]]
@@ -50,13 +50,13 @@ class TestBuyCreatesAnOutflow:
         assert entry["date"] == "2026-02-10"
 
     def test_the_outflow_amount_follows_quantity_times_price(self, client, auth):
-        investment = post_buy(client, auth, ticker="BUYTEST2", quantity=7, price=33.33)
+        investment = post_buy(client, auth, ticker="VALE3", quantity=7, price=33.33)
         entry = [e for e in cash_entries(client, auth) if e["source_id"] == investment["id"]][0]
         assert entry["amount"] == pytest.approx(233.31)
 
     def test_two_buys_create_two_independent_entries(self, client, auth):
-        first = post_buy(client, auth, ticker="BUYTEST3", quantity=10, price=5.0)
-        second = post_buy(client, auth, ticker="BUYTEST3", quantity=20, price=5.0)
+        first = post_buy(client, auth, ticker="ITUB4", quantity=10, price=5.0)
+        second = post_buy(client, auth, ticker="ITUB4", quantity=20, price=5.0)
 
         entries = cash_entries(client, auth)
         ids = {e["source_id"] for e in entries}
@@ -65,7 +65,7 @@ class TestBuyCreatesAnOutflow:
 
 class TestDeletingTheMovementRemovesTheCashEntry:
     def test_deleting_a_buy_removes_its_linked_expense(self, client, auth):
-        investment = post_buy(client, auth, ticker="DELTEST1", quantity=50, price=8.0)
+        investment = post_buy(client, auth, ticker="BBAS3", quantity=50, price=8.0)
         assert any(e["source_id"] == investment["id"] for e in cash_entries(client, auth))
 
         response = client.delete(f"/api/investments/{investment['id']}", headers=auth)
@@ -74,8 +74,8 @@ class TestDeletingTheMovementRemovesTheCashEntry:
         assert not any(e["source_id"] == investment["id"] for e in cash_entries(client, auth))
 
     def test_deleting_every_movement_of_an_asset_clears_its_cash_entries(self, client, auth):
-        first = post_buy(client, auth, ticker="DELTEST2", quantity=10, price=10.0)
-        second = post_buy(client, auth, ticker="DELTEST2", quantity=10, price=12.0)
+        first = post_buy(client, auth, ticker="WEGE3", quantity=10, price=10.0)
+        second = post_buy(client, auth, ticker="WEGE3", quantity=10, price=12.0)
         asset_id = first["asset_id"]
 
         # The endpoint demands the asset class as a confirmation guard, so a
@@ -93,14 +93,14 @@ class TestDeletingTheMovementRemovesTheCashEntry:
 
 class TestSellCreatesAnInflow:
     def test_a_sell_creates_an_income_entry(self, client, auth):
-        post_buy(client, auth, ticker="SELLTEST1", quantity=100, price=10.0, date="2026-01-10")
+        post_buy(client, auth, ticker="ABEV3", quantity=100, price=10.0, date="2026-01-10")
 
         response = client.post(
             "/api/investments",
             headers=auth,
             json={
                 "asset_class": "STOCKS",
-                "ticker_or_name": "SELLTEST1",
+                "ticker_or_name": "ABEV3",
                 "quantity": -40,
                 "average_price": 10.0,
                 "current_price": 15.0,
@@ -116,14 +116,14 @@ class TestSellCreatesAnInflow:
         assert entry["amount"] == pytest.approx(600.0)
 
     def test_selling_more_than_owned_is_rejected(self, client, auth):
-        post_buy(client, auth, ticker="SELLTEST2", quantity=10, price=10.0)
+        post_buy(client, auth, ticker="MGLU3", quantity=10, price=10.0)
 
         response = client.post(
             "/api/investments",
             headers=auth,
             json={
                 "asset_class": "STOCKS",
-                "ticker_or_name": "SELLTEST2",
+                "ticker_or_name": "MGLU3",
                 "quantity": -50,
                 "average_price": 10.0,
                 "current_price": 12.0,
@@ -135,7 +135,7 @@ class TestSellCreatesAnInflow:
 
 class TestDestructiveGuards:
     def test_deleting_an_asset_without_its_class_is_refused(self, client, auth):
-        investment = post_buy(client, auth, ticker="GUARD1", quantity=10, price=10.0)
+        investment = post_buy(client, auth, ticker="B3SA3", quantity=10, price=10.0)
 
         response = client.delete(
             f"/api/investments/by-asset/{investment['asset_id']}",
@@ -144,7 +144,7 @@ class TestDestructiveGuards:
         assert response.status_code == 400
 
     def test_deleting_an_asset_with_the_wrong_class_is_refused(self, client, auth):
-        investment = post_buy(client, auth, ticker="GUARD2", quantity=10, price=10.0)
+        investment = post_buy(client, auth, ticker="TOTS3", quantity=10, price=10.0)
 
         response = client.delete(
             f"/api/investments/by-asset/{investment['asset_id']}?asset_class=REIT",

@@ -59,7 +59,7 @@ def owner_data(client, user):
         headers=auth,
         json={
             "asset_class": "STOCKS",
-            "ticker_or_name": "ISOL4",
+            "ticker_or_name": "EMBR3",
             "quantity": 100,
             "average_price": 20.0,
             "current_price": 20.0,
