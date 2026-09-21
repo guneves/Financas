@@ -6,7 +6,54 @@
 
 ---
 
-## Session — 2026-09-21 (latest) · UI pass: chart kit, new Dashboard graphs, animations
+## Session — 2026-09-21 (latest) · §3.7 statement search and filters — Phase 3 closed; next-steps.md shortened
+
+### Where things stand
+
+**Phase 3 is done.** The statement on Movimentações can be searched and filtered. 347 tests →
+**363**. `backend/app.py` → **6,072 lines**. No migration.
+
+This session ran **in parallel with another Claude instance** doing the UI pass below. Files were
+split cleanly: this one touched `backend/app.py`, the new test file, `lib/dataApi.js`, the statement
+panel of `Transactions.jsx`, and the docs.
+
+### What was done
+
+1. **`docs/next-steps.md` rewritten to ~90 lines** at the owner's request: a "Done" table, the open
+   work in priority order, and open decisions. The *how* and *why* of past work was deleted from it on
+   purpose — it survives in this file and in `CLAUDE.md`. Keep it short: tick items, don't narrate.
+2. **`GET /api/transactions` takes optional filters** via `transaction_filter_clause()`: `from`/`to`
+   (inclusive), `type`, `account_id` (origin *or* transfer destination), `category_id` (includes its
+   subcategories, and legacy rows with only the category text match by name — same rule as the
+   budget), `q` (LIKE on description and category, `%`/`_` escaped, max 100 chars),
+   `min_amount`/`max_amount` (inclusive). Invalid values → 400. No params → unchanged behaviour,
+   which the page still relies on for the consolidated balance.
+3. **Filter bar on the statement panel** (`Transactions.jsx`): debounced 250ms server-side fetch,
+   income/expense totals of the filtered set as badges, "Limpar filtros", and filters are reapplied
+   after any create/edit/delete (`dataVersion` bumped in `fetchData`).
+4. **`test_transaction_filters.py`, 16 tests** — each filter, combinations, validation, and
+   isolation (another user's rows, category and account).
+
+### What was not done, and why
+
+- Filters are not persisted in the URL or localStorage — a reload clears them. Cheap to add if the
+  owner wants it.
+- Text search is `LIKE`, so it is case-insensitive only for ASCII: "alimentacao" does not find
+  "Alimentação". Accent folding would need a normalized column or a Python-side filter.
+- Filtering by an unknown `category_id` is a 400, but an unknown `account_id` just returns nothing.
+  Asymmetric but harmless; the category lookup needs the row to expand subcategories anyway.
+
+### Things to know
+
+- `finance-guard` **was** discoverable by `subagent_type` this session (first time since 2026-09-15).
+
+### What the next session should pick up
+
+Phase 4: CSV statement import. And look at the app in a browser — neither session today did.
+
+---
+
+## Session — 2026-09-21 · UI pass: chart kit, new Dashboard graphs, animations
 
 ### Where things stand
 

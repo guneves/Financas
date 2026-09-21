@@ -12,7 +12,7 @@ const queryString = (params) => {
 }
 
 export const transactionsApi = {
-  list: () => apiFetch('/api/transactions'),
+  list: (params = {}) => apiFetch(`/api/transactions${queryString(params)}`),
   create: (payload) => apiFetch('/api/transactions', {
     method: 'POST',
     body: JSON.stringify(payload)

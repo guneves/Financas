@@ -2188,18 +2188,105 @@ def account_balance_rows(conn, current_user_id):
     ).fetchall()
 
 
+def escape_like(value):
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def transaction_filter_clause(conn, current_user_id, args):
+    """Monta o WHERE dos filtros do extrato. Todo filtro e opcional.
+
+    - from / to: periodo inclusivo (AAAA-MM-DD)
+    - type: INCOME | EXPENSE | TRANSFER
+    - account_id: a conta de origem ou, numa transferencia, a de destino
+    - category_id: a categoria e as subcategorias dela; lancamentos que so
+      carregam o nome (texto livre ou anteriores a 008) casam pelo nome
+    - q: texto livre em descricao e categoria
+    - min_amount / max_amount: faixa de valor, inclusiva
+    """
+    clauses = ["user_id = ?"]
+    params = [current_user_id]
+
+    date_from = optional_date(args, "from", "Data inicial")
+    date_to = optional_date(args, "to", "Data final")
+    if date_from and date_to and date_from > date_to:
+        raise ValidationError("Data inicial deve ser anterior ou igual a data final.")
+    if date_from:
+        clauses.append("date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("date <= ?")
+        params.append(date_to)
+
+    if args.get("type"):
+        transaction_type = require_choice(args, "type", "Tipo", ALLOWED_TRANSACTION_TYPES)
+        clauses.append("type = ?")
+        params.append(transaction_type)
+
+    account_id = str(args.get("account_id") or "").strip()
+    if account_id:
+        clauses.append("(account_id = ? OR transfer_account_id = ?)")
+        params.extend([account_id, account_id])
+
+    category_id = str(args.get("category_id") or "").strip()
+    if category_id:
+        category_rows = conn.execute(
+            """
+            SELECT id, name FROM categories
+            WHERE user_id = ? AND (id = ? OR parent_id = ?)
+            """,
+            (current_user_id, category_id, category_id),
+        ).fetchall()
+        if not category_rows:
+            raise ValidationError("Categoria nao encontrada.")
+        ids = [row["id"] for row in category_rows]
+        names = [row["name"] for row in category_rows]
+        id_marks = ", ".join("?" for _ in ids)
+        name_marks = ", ".join("?" for _ in names)
+        clauses.append(
+            f"(category_id IN ({id_marks}) OR (category_id IS NULL AND category IN ({name_marks})))"
+        )
+        params.extend(ids + names)
+
+    text = str(args.get("q") or "").strip()
+    if len(text) > 100:
+        raise ValidationError("Busca deve ter no maximo 100 caracteres.")
+    if text:
+        pattern = f"%{escape_like(text)}%"
+        clauses.append(
+            "(description LIKE ? ESCAPE '\\' OR category LIKE ? ESCAPE '\\')"
+        )
+        params.extend([pattern, pattern])
+
+    min_amount = parse_optional_number(args, "min_amount", "Valor minimo", minimum=0)
+    max_amount = parse_optional_number(args, "max_amount", "Valor maximo", minimum=0)
+    if min_amount is not None and max_amount is not None and min_amount > max_amount:
+        raise ValidationError("Valor minimo deve ser menor ou igual ao valor maximo.")
+    if min_amount is not None:
+        clauses.append("amount >= ?")
+        params.append(rounded_money(min_amount))
+    if max_amount is not None:
+        clauses.append("amount <= ?")
+        params.append(rounded_money(max_amount))
+
+    return " AND ".join(clauses), params
+
+
 @app.route("/api/transactions", methods=["GET", "POST"])
 @token_required
 def transactions(current_user_id):
     if request.method == "GET":
         with get_db() as conn:
+            try:
+                where, params = transaction_filter_clause(conn, current_user_id, request.args)
+            except ValidationError as exc:
+                return validation_error(str(exc))
             rows = conn.execute(
-                """
+                f"""
                 SELECT * FROM transactions
-                WHERE user_id = ?
+                WHERE {where}
                 ORDER BY date DESC, created_at DESC
                 """,
-                (current_user_id,),
+                params,
             ).fetchall()
         return jsonify([serialize_transaction(row) for row in rows]), 200
 

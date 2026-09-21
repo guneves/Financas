@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   Receipt,
+  Search,
   Trash2,
   Wallet,
   X,
@@ -48,6 +49,12 @@ const ACCOUNT_TYPE_LABELS = {
   BROKERAGE: 'Corretora',
   CASH: 'Dinheiro',
   OTHER: 'Outra',
+}
+
+const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
+
+function hasActiveFilters(filters) {
+  return Object.values(filters).some((value) => String(value).trim() !== '')
 }
 
 function categoryLabel(category) {
@@ -162,6 +169,58 @@ export default function Transactions() {
   const [expenseForm, setExpenseForm] = useState({ card_id: '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
   const [expandedCards, setExpandedCards] = useState([])
 
+  // Filtros do extrato: aplicados no backend (GET /api/transactions?...).
+  // Sem filtro, o extrato usa a lista completa ja carregada por fetchData.
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [filteredTransactions, setFilteredTransactions] = useState(null)
+  const [filterError, setFilterError] = useState('')
+  const [filtering, setFiltering] = useState(false)
+  const [dataVersion, setDataVersion] = useState(0)
+  const filtersActive = hasActiveFilters(filters)
+
+  const updateFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }))
+
+  useEffect(() => {
+    if (!filtersActive) {
+      setFilteredTransactions(null)
+      setFilterError('')
+      setFiltering(false)
+      return undefined
+    }
+
+    let cancelled = false
+    setFiltering(true)
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await transactionsApi.list(filters)
+        if (!cancelled) {
+          setFilteredTransactions(rows || [])
+          setFilterError('')
+        }
+      } catch (error) {
+        if (!cancelled) setFilterError(error.message || 'Nao foi possivel aplicar os filtros.')
+      } finally {
+        if (!cancelled) setFiltering(false)
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [filters, filtersActive, dataVersion])
+
+  const statementTransactions = filteredTransactions ?? transactions
+
+  const statementTotals = useMemo(() => {
+    return statementTransactions.reduce((acc, item) => {
+      const amount = Number(item.amount || 0)
+      if (item.type === 'INCOME') acc.income += amount
+      if (item.type === 'EXPENSE') acc.expense += amount
+      return acc
+    }, { income: 0, expense: 0 })
+  }, [statementTransactions])
+
   const toggleCardExpenses = (cardId) => {
     setExpandedCards((prev) =>
       prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId]
@@ -192,6 +251,8 @@ export default function Transactions() {
 
       setTransactions(safeTransactions)
       localStorage.setItem('@financeMVP:transactions', JSON.stringify(safeTransactions))
+      // Reaplica os filtros ativos depois de lancar/editar/excluir.
+      setDataVersion((version) => version + 1)
 
       setAccounts(safeAccounts)
       localStorage.setItem('@financeMVP:accounts', JSON.stringify(safeAccounts))
@@ -870,10 +931,72 @@ export default function Transactions() {
           <Panel>
             <PanelHeader
               title="Extrato da conta"
-              description="Últimas movimentações registradas."
-              actions={<Badge>{transactions.length} registro(s)</Badge>}
+              description={filtersActive ? 'Movimentações que atendem aos filtros.' : 'Últimas movimentações registradas.'}
+              actions={
+                <div className="flex flex-wrap items-center gap-2">
+                  {filtersActive ? (
+                    <>
+                      <Badge tone="success">+ {formatCurrency(statementTotals.income)}</Badge>
+                      <Badge tone="danger">- {formatCurrency(statementTotals.expense)}</Badge>
+                    </>
+                  ) : null}
+                  <Badge>{filtering ? 'Filtrando…' : `${statementTransactions.length} registro(s)`}</Badge>
+                </div>
+              }
             />
-            {transactions.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 border-b border-zinc-100 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Buscar" className="lg:col-span-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <input type="search" placeholder="Descrição ou categoria" value={filters.q} onChange={(event) => updateFilter('q', event.target.value)} className="app-input pl-9" />
+                </div>
+              </Field>
+              <Field label="De">
+                <input type="date" value={filters.from} onChange={(event) => updateFilter('from', event.target.value)} className="app-input" />
+              </Field>
+              <Field label="Até">
+                <input type="date" value={filters.to} onChange={(event) => updateFilter('to', event.target.value)} className="app-input" />
+              </Field>
+              <Field label="Tipo">
+                <select value={filters.type} onChange={(event) => updateFilter('type', event.target.value)} className="app-select">
+                  <option value="">Todos</option>
+                  <option value="INCOME">Entradas</option>
+                  <option value="EXPENSE">Saídas</option>
+                  <option value="TRANSFER">Transferências</option>
+                </select>
+              </Field>
+              <Field label="Conta">
+                <select value={filters.account_id} onChange={(event) => updateFilter('account_id', event.target.value)} className="app-select">
+                  <option value="">Todas</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Categoria">
+                <select value={filters.category_id} onChange={(event) => updateFilter('category_id', event.target.value)} className="app-select">
+                  <option value="">Todas</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>{categoryLabel(category)}</option>
+                  ))}
+                </select>
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Valor mín.">
+                  <input type="number" min="0" step="0.01" value={filters.min_amount} onChange={(event) => updateFilter('min_amount', event.target.value)} className="app-input" />
+                </Field>
+                <Field label="Valor máx.">
+                  <input type="number" min="0" step="0.01" value={filters.max_amount} onChange={(event) => updateFilter('max_amount', event.target.value)} className="app-input" />
+                </Field>
+              </div>
+              {filtersActive ? (
+                <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-4">
+                  <Button type="button" variant="secondary" size="sm" icon={X} onClick={() => setFilters(EMPTY_FILTERS)}>Limpar filtros</Button>
+                  {filterError ? <span className="text-sm text-rose-600">{filterError}</span> : null}
+                </div>
+              ) : null}
+            </div>
+            {statementTransactions.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="app-table min-w-[900px]">
                   <thead>
@@ -888,7 +1011,7 @@ export default function Transactions() {
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.map((transaction) => {
+                    {statementTransactions.map((transaction) => {
                       const isTransfer = transaction.type === 'TRANSFER'
                       const isLinkedToInvestment = transaction.source_type === 'INVESTMENT_TRANSACTION'
 
@@ -980,7 +1103,7 @@ export default function Transactions() {
               </div>
             ) : (
               <div className="p-5">
-                <EmptyState icon={Receipt} title="Nenhuma movimentação" message="Os lançamentos bancários aparecerão no extrato." />
+                <EmptyState icon={Receipt} title="Nenhuma movimentação" message={filtersActive ? "Nenhum lançamento atende aos filtros." : "Os lançamentos bancários aparecerão no extrato."} />
               </div>
             )}
           </Panel>
