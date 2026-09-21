@@ -37,6 +37,11 @@
 
 ## 2. Open work, in priority order
 
+### UX reorganization — current work
+Spec, decisions and inventory: **`docs/ux-reorganization.md`**. Frontend only, no new features.
+- [ ] 1 Shell (nav, routes, redirects) · [ ] 2 Ajustes · [ ] 3 Lançamentos + "+ Novo" (Carteira
+  merged away) · [ ] 4 Planejamento · [ ] 5 Investimentos · [ ] 6 Início
+
 ### Phase 4 — Reduce friction
 - [ ] **CSV statement import** with configurable column mapping; dedupe by hash (date + amount +
   normalized description) so re-imports are idempotent.
@@ -54,6 +59,7 @@
 
 ### Frontend debt
 - [ ] Break up `Carteira.jsx` (~1,300 lines) and `Investments.jsx` into per-section components.
+  *(Absorbed by the UX reorganization, steps 3 and 5.)*
 - [ ] Centralized server state (TanStack Query).
 - [ ] One consistent error toast/banner.
 - [ ] Loading skeletons on heavy screens.

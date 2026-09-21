@@ -6,7 +6,39 @@
 
 ---
 
-## Session — 2026-09-21 (latest) · §3.7 statement search and filters — Phase 3 closed; next-steps.md shortened
+## Session — 2026-09-21 (latest) · UX reorganization planned — `docs/ux-reorganization.md`
+
+### Where things stand
+
+Docs only; no code changed. The owner asked for a UX audit and a reorganization using only existing
+features, then delegated every open decision. The result is **`docs/ux-reorganization.md`** — the
+spec the next sessions build from. It is now the top item in `docs/next-steps.md`.
+
+### What was done
+
+1. Audited all 7 screens, `Layout.jsx` and `ui.jsx`. Main findings: `Carteira.jsx` is a weaker
+   duplicate of `Transactions.jsx` (hard-coded categories, no account selector); the daily entry
+   form sits third on its page; categories are hidden inside Orçamento; "Criar dados demo" writes
+   to the real DB from a primary button with no confirm; `Investments.jsx` ignores the UI kit.
+2. Wrote the plan: 4 sections (Início, Lançamentos, Planejamento, Investimentos) + Ajustes, a
+   global "+ Novo" sheet, Portuguese nested routes with redirects, label glossary, a feature
+   inventory (§8) to tick as things move, and six steps (§9).
+
+### What was not done, and why
+
+- No implementation — the owner asked for the page first. Step 1 (shell) is next.
+- `finance-guard` not run: no code in the diff.
+
+### Next session
+
+Start at `docs/ux-reorganization.md` §9 step 1. Read §2 (decisions) and §6 (traps) first —
+especially the `getNow()` clock hook and the rule that the statement's balance never comes from the
+filtered list. Order matters: Ajustes (step 2) must exist before accounts, cards and categories
+leave their current pages.
+
+---
+
+## Session — 2026-09-21 · §3.7 statement search and filters — Phase 3 closed; next-steps.md shortened
 
 ### Where things stand
 
