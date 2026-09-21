@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ANIMATION, CHART, ChartTooltip, FLOW, axisProps, compactCurrency } from '../components/charts'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarDays,
   Coins,
@@ -13,9 +13,12 @@ import {
   X,
 } from 'lucide-react'
 import { investmentProceedsApi, investmentsApi } from '../lib/dataApi'
+import { useDataVersion } from '../lib/newEntry'
 import {
+  AlertMessage,
   Badge,
   Button,
+  Collapsible,
   EmptyState,
   Field,
   IconButton,
@@ -31,7 +34,7 @@ import { formatCurrency, formatDateBR, formatUnitCurrency, getLocalDateString } 
 const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos', tone: 'success' },
   { value: 'JCP', label: 'JCP', tone: 'warning' },
-  { value: 'AMORTIZATION', label: 'Amortizacao', tone: 'info' },
+  { value: 'AMORTIZATION', label: 'Amortização', tone: 'info' },
 ]
 
 const STATUS_ITEMS = [
@@ -41,7 +44,7 @@ const STATUS_ITEMS = [
 ]
 
 const ASSET_CLASS_LABELS = {
-  STOCKS: 'Acoes',
+  STOCKS: 'Ações',
   FIXED_INCOME: 'Renda fixa',
   REIT: 'FIIs',
   CATTLE: 'Gado',
@@ -92,14 +95,12 @@ export default function Proventos() {
   })
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState('')
+  const [formOpen, setFormOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-
-  useEffect(() => {
-    fetchData()
-  }, [])
+  const requestRef = useRef(0)
 
   useEffect(() => {
     if (!form.asset_id && assets[0]?.id && !editingId) {
@@ -115,7 +116,10 @@ export default function Proventos() {
     status: filters.status,
   }), [filters])
 
+  // Os filtros valem ao mudar, como no extrato: cada mudanca refaz a busca.
+  // So a resposta da ultima busca e aplicada, para uma lenta nao sobrescrever a nova.
   const fetchData = async () => {
+    const requestId = ++requestRef.current
     setLoading(true)
     setError('')
     try {
@@ -129,25 +133,28 @@ export default function Proventos() {
           status: 'SCHEDULED',
         }),
       ])
+      if (requestId !== requestRef.current) return
       setAssets(assetData || [])
       setProceeds(proceedData || [])
       setSummary(summaryData || null)
       setCalendarEvents(calendarData || [])
     } catch (err) {
+      if (requestId !== requestRef.current) return
       console.warn('Erro ao carregar proventos:', err)
-      setError(err.message || 'Nao foi possivel carregar os proventos.')
+      setError(err.message || 'Não foi possível carregar os proventos.')
       setProceeds([])
       setCalendarEvents([])
       setSummary(null)
     } finally {
-      setLoading(false)
+      if (requestId === requestRef.current) setLoading(false)
     }
   }
 
-  const handleFilterSubmit = async (event) => {
-    event.preventDefault()
-    await fetchData()
-  }
+  const dataVersion = useDataVersion()
+  useEffect(() => {
+    fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredParams, dataVersion])
 
   const resetForm = () => {
     setEditingId('')
@@ -167,7 +174,7 @@ export default function Proventos() {
     if (!form.record_date) throw new Error('Informe a data com.')
     if (!form.payment_date) throw new Error('Informe a data de pagamento.')
     if (Number.isNaN(amountPerUnit) || Number.isNaN(eligibleQuantity) || Number.isNaN(grossAmount) || Number.isNaN(taxAmount)) {
-      throw new Error('Informe valores numericos validos.')
+      throw new Error('Informe valores numéricos válidos.')
     }
 
     return {
@@ -200,9 +207,10 @@ export default function Proventos() {
         setNotice('Provento registrado.')
       }
       resetForm()
+      setFormOpen(false)
       await fetchData()
     } catch (err) {
-      setError(err.message || 'Nao foi possivel salvar o provento.')
+      setError(err.message || 'Não foi possível salvar o provento.')
     } finally {
       setSaving(false)
     }
@@ -223,6 +231,7 @@ export default function Proventos() {
       tax_amount: item.tax_amount ?? '',
       notes: item.notes || '',
     })
+    setFormOpen(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -234,11 +243,21 @@ export default function Proventos() {
     setNotice('')
     try {
       await investmentProceedsApi.remove(item.id)
-      setNotice('Provento excluido.')
+      setNotice('Provento excluído.')
       await fetchData()
     } catch (err) {
-      setError(err.message || 'Nao foi possivel excluir o provento.')
+      setError(err.message || 'Não foi possível excluir o provento.')
     }
+  }
+
+  const handleFormOpenChange = (next) => {
+    setFormOpen(next)
+    if (!next && editingId) resetForm()
+  }
+
+  const handleCancelEdit = () => {
+    resetForm()
+    setFormOpen(false)
   }
 
   return (
@@ -246,7 +265,7 @@ export default function Proventos() {
       <PageHeader
         eyebrow="Investimentos"
         title="Proventos"
-        description="Dividendos, JCP, amortizacoes, yield on cost e agenda de pagamentos."
+        description="Dividendos, JCP, amortizações, yield on cost e agenda de pagamentos."
         actions={(
           <Button type="button" variant="secondary" icon={RefreshCw} loading={loading} onClick={fetchData}>
             Atualizar
@@ -254,14 +273,42 @@ export default function Proventos() {
         )}
       />
 
-      {error ? <AlertMessage tone="danger" message={error} /> : null}
-      {notice ? <AlertMessage tone="success" message={notice} /> : null}
+      <AlertMessage tone="danger" message={error} onDismiss={() => setError('')} />
+      <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
+
+      <Collapsible
+        label={editingId ? 'Editar provento' : 'Registrar provento'}
+        icon={editingId ? Pencil : Plus}
+        open={formOpen}
+        onOpenChange={handleFormOpenChange}
+        buttonClassName="w-full sm:w-auto"
+      >
+        <Panel>
+          <PanelHeader
+            title={editingId ? 'Editar provento' : 'Registrar provento'}
+            description="Informe datas, tipo e valores para calcular o yield on cost."
+            actions={editingId ? (
+              <Button type="button" variant="secondary" icon={X} onClick={handleCancelEdit}>
+                Cancelar edição
+              </Button>
+            ) : null}
+          />
+          <ProventoForm
+            form={form}
+            setForm={setForm}
+            assets={assets}
+            editingId={editingId}
+            saving={saving}
+            onSubmit={handleSubmit}
+          />
+        </Panel>
+      </Collapsible>
 
       <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Coins}
           tone="success"
-          title="Liquido no periodo"
+          title="Líquido no período"
           value={formatCurrency(summary?.net_amount)}
           subtitle={`${summary?.event_count || 0} evento(s)`}
         />
@@ -271,7 +318,7 @@ export default function Proventos() {
           title="Yield on cost"
           value={formatPercent(summary?.yield_on_cost_percent)}
           valueClassName="text-sky-700"
-          subtitle="Liquido / custo elegivel"
+          subtitle="Líquido / custo elegível"
         />
         <MetricCard
           icon={CalendarDays}
@@ -290,73 +337,10 @@ export default function Proventos() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
-        <Panel className="xl:col-span-3">
+        <Panel className={summary?.by_month?.length ? 'xl:col-span-2' : 'xl:col-span-5'}>
           <PanelHeader
-            title={editingId ? 'Editar provento' : 'Registrar provento'}
-            description="Informe datas, tipo e valores para calcular o yield on cost."
-            actions={editingId ? (
-              <Button type="button" variant="secondary" icon={X} onClick={resetForm}>
-                Cancelar
-              </Button>
-            ) : null}
-          />
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-6">
-            <Field label="Ativo" className="xl:col-span-2">
-              <select value={form.asset_id} onChange={(event) => setForm({ ...form, asset_id: event.target.value })} className="app-select" required>
-                <option value="">Selecione...</option>
-                {assets.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {asset.ticker} - {ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Tipo">
-              <select value={form.proceeds_type} onChange={(event) => setForm({ ...form, proceeds_type: event.target.value })} className="app-select" required>
-                {PROCEEDS_TYPES.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Data com">
-              <input type="date" value={form.record_date} onChange={(event) => setForm({ ...form, record_date: event.target.value })} className="app-input" required />
-            </Field>
-            <Field label="Data ex">
-              <input type="date" value={form.ex_date} onChange={(event) => setForm({ ...form, ex_date: event.target.value })} className="app-input" />
-            </Field>
-            <Field label="Pagamento">
-              <input type="date" value={form.payment_date} onChange={(event) => setForm({ ...form, payment_date: event.target.value })} className="app-input" required />
-            </Field>
-            <Field label="Declaracao">
-              <input type="date" value={form.declared_date} onChange={(event) => setForm({ ...form, declared_date: event.target.value })} className="app-input" />
-            </Field>
-            <Field label="Valor por cota">
-              <input type="text" inputMode="decimal" placeholder="0,00" value={form.amount_per_unit} onChange={(event) => setForm({ ...form, amount_per_unit: event.target.value })} className="app-input" />
-            </Field>
-            <Field label="Qtd. elegivel">
-              <input type="text" inputMode="decimal" placeholder="auto" value={form.eligible_quantity} onChange={(event) => setForm({ ...form, eligible_quantity: event.target.value })} className="app-input" />
-            </Field>
-            <Field label="Valor bruto">
-              <input type="text" inputMode="decimal" placeholder="auto" value={form.gross_amount} onChange={(event) => setForm({ ...form, gross_amount: event.target.value })} className="app-input" />
-            </Field>
-            <Field label="Imposto">
-              <input type="text" inputMode="decimal" placeholder="auto" value={form.tax_amount} onChange={(event) => setForm({ ...form, tax_amount: event.target.value })} className="app-input" />
-            </Field>
-            <Field label="Observacoes" className="md:col-span-2 xl:col-span-2">
-              <input type="text" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="app-input" />
-            </Field>
-            <div className="flex items-end md:col-span-2 xl:col-span-6">
-              <Button type="submit" icon={editingId ? Pencil : Plus} loading={saving} className="w-full sm:w-auto">
-                {editingId ? 'Salvar alteracoes' : 'Registrar provento'}
-              </Button>
-            </div>
-          </form>
-        </Panel>
-
-        <Panel className="xl:col-span-2">
-          <PanelHeader
-            title="Calendario"
-            description="Proximos pagamentos por data."
+            title="Calendário"
+            description="Próximos pagamentos por data."
             actions={<Badge tone="warning">{calendarEvents.length} evento(s)</Badge>}
           />
           <div className="p-5">
@@ -369,7 +353,7 @@ export default function Proventos() {
                         <p className="font-semibold text-zinc-950">{formatDateBR(item.payment_date)}</p>
                         <Badge tone={typeTone(item.proceeds_type)}>{typeLabel(item.proceeds_type)}</Badge>
                       </div>
-                      <p className="mt-1 truncate text-sm text-zinc-500">
+                      <p className="mt-1 truncate text-sm text-zinc-600">
                         {item.asset?.ticker} - {formatCurrency(item.net_amount)}
                       </p>
                     </div>
@@ -382,12 +366,47 @@ export default function Proventos() {
             )}
           </div>
         </Panel>
+        {summary?.by_month?.length ? (
+          <Panel className="xl:col-span-3">
+            <PanelHeader title="Recebimentos por mês" description="Total líquido agrupado por pagamento." />
+            <div className="p-5">
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={[...summary.by_month]
+                      .sort((a, b) => String(a.month).localeCompare(String(b.month)))
+                      .map((item) => ({ ...item, net: Number(item.net_amount || 0) }))}
+                    margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid vertical={false} stroke={CHART.grid} />
+                    <XAxis dataKey="month" {...axisProps} />
+                    <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                      content={(
+                        <ChartTooltip
+                          names={{ net: 'Líquido' }}
+                          footer={(payload) => `${payload?.[0]?.payload?.event_count || 0} evento(s)`}
+                        />
+                      )}
+                    />
+                    <Bar dataKey="net" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </Panel>
+        ) : null}
       </div>
 
       <Panel>
-        <PanelHeader title="Filtros" description="Periodo, status, ativo e tipo de provento." />
-        <form onSubmit={handleFilterSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-6">
-          <Field label="Inicio">
+        <PanelHeader
+          title="Filtros"
+          description="Período, status, ativo e tipo de provento. Valem ao mudar."
+          actions={loading ? <Badge>Atualizando...</Badge> : null}
+        />
+        <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-6">
+          <Field label="Início">
             <input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} className="app-input" />
           </Field>
           <Field label="Fim">
@@ -418,54 +437,47 @@ export default function Proventos() {
               className="w-full"
             />
           </div>
-          <div className="flex items-end md:col-span-2 xl:col-span-6">
-            <Button type="submit" icon={Filter} loading={loading}>
-              Aplicar filtros
-            </Button>
-          </div>
-        </form>
+        </div>
       </Panel>
-
-      {summary?.by_month?.length ? (
-        <Panel>
-          <PanelHeader title="Recebimentos por mes" description="Total liquido agrupado por pagamento." />
-          <div className="p-5">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={[...summary.by_month]
-                    .sort((a, b) => String(a.month).localeCompare(String(b.month)))
-                    .map((item) => ({ ...item, net: Number(item.net_amount || 0) }))}
-                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid vertical={false} stroke={CHART.grid} />
-                  <XAxis dataKey="month" {...axisProps} />
-                  <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(24,24,27,0.04)' }}
-                    content={(
-                      <ChartTooltip
-                        names={{ net: 'Líquido' }}
-                        footer={(payload) => `${payload?.[0]?.payload?.event_count || 0} evento(s)`}
-                      />
-                    )}
-                  />
-                  <Bar dataKey="net" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </Panel>
-      ) : null}
 
       <Panel>
         <PanelHeader
-          title="Historico de proventos"
+          title="Histórico de proventos"
           description="Eventos registrados com YOC e impostos."
           actions={<Badge>{proceeds.length} registro(s)</Badge>}
         />
         {proceeds.length > 0 ? (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-zinc-100 md:hidden">
+            {proceeds.map((item) => (
+              <li key={item.id} className="space-y-2 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-zinc-950">{item.asset?.ticker}</p>
+                    <p className="text-xs text-zinc-600">
+                      {formatDateBR(item.payment_date)} · {ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}
+                    </p>
+                  </div>
+                  <p className="shrink-0 font-bold tabular text-emerald-700">{formatCurrency(item.net_amount)}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={item.status === 'PAID' ? 'success' : 'warning'}>
+                    {item.status === 'PAID' ? 'Pago' : 'Agendado'}
+                  </Badge>
+                  <Badge tone={typeTone(item.proceeds_type)}>{typeLabel(item.proceeds_type)}</Badge>
+                </div>
+                <p className="text-xs text-zinc-600 tabular">
+                  {formatUnitCurrency(item.amount_per_unit)}/cota · {Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} cotas ·
+                  {' '}Bruto {formatCurrency(item.gross_amount)} · Imposto {formatCurrency(item.tax_amount)} · YOC {formatPercent(item.yield_on_cost_percent, 4)}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <IconButton label="Editar provento" icon={Pencil} onClick={() => handleEdit(item)} />
+                  <IconButton label="Excluir provento" icon={Trash2} variant="danger" onClick={() => handleDelete(item)} />
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="app-table min-w-[1120px]">
               <thead>
                 <tr>
@@ -477,9 +489,9 @@ export default function Proventos() {
                   <th>Qtd.</th>
                   <th>Bruto</th>
                   <th>Imposto</th>
-                  <th>Liquido</th>
+                  <th>Líquido</th>
                   <th>YOC</th>
-                  <th className="text-right">Acao</th>
+                  <th className="text-right">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -524,9 +536,10 @@ export default function Proventos() {
               </tbody>
             </table>
           </div>
+          </>
         ) : (
           <div className="p-5">
-            <EmptyState icon={Coins} title="Nenhum provento" message="Registre dividendos, JCP ou amortizacoes para acompanhar o calendario." />
+            <EmptyState icon={Coins} title="Nenhum provento" message="Registre dividendos, JCP ou amortizações para acompanhar o calendário." />
           </div>
         )}
       </Panel>
@@ -534,14 +547,58 @@ export default function Proventos() {
   )
 }
 
-function AlertMessage({ tone = 'danger', message }) {
-  const classes = tone === 'success'
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-    : 'border-rose-200 bg-rose-50 text-rose-700'
-
+function ProventoForm({ form, setForm, assets, editingId, saving, onSubmit }) {
   return (
-    <div className={cx('rounded-lg border px-4 py-3 text-sm font-medium', classes)}>
-      {message}
-    </div>
+    <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-6">
+      <Field label="Ativo" className="xl:col-span-2">
+        <select value={form.asset_id} onChange={(event) => setForm({ ...form, asset_id: event.target.value })} className="app-select" required>
+          <option value="">Selecione...</option>
+          {assets.map((asset) => (
+            <option key={asset.id} value={asset.id}>
+              {asset.ticker} - {ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Tipo">
+        <select value={form.proceeds_type} onChange={(event) => setForm({ ...form, proceeds_type: event.target.value })} className="app-select" required>
+          {PROCEEDS_TYPES.map((item) => (
+            <option key={item.value} value={item.value}>{item.label}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Data com">
+        <input type="date" value={form.record_date} onChange={(event) => setForm({ ...form, record_date: event.target.value })} className="app-input" required />
+      </Field>
+      <Field label="Data ex">
+        <input type="date" value={form.ex_date} onChange={(event) => setForm({ ...form, ex_date: event.target.value })} className="app-input" />
+      </Field>
+      <Field label="Pagamento">
+        <input type="date" value={form.payment_date} onChange={(event) => setForm({ ...form, payment_date: event.target.value })} className="app-input" required />
+      </Field>
+      <Field label="Declaração">
+        <input type="date" value={form.declared_date} onChange={(event) => setForm({ ...form, declared_date: event.target.value })} className="app-input" />
+      </Field>
+      <Field label="Valor por cota">
+        <input type="text" inputMode="decimal" placeholder="0,00" value={form.amount_per_unit} onChange={(event) => setForm({ ...form, amount_per_unit: event.target.value })} className="app-input" />
+      </Field>
+      <Field label="Qtd. elegível">
+        <input type="text" inputMode="decimal" placeholder="auto" value={form.eligible_quantity} onChange={(event) => setForm({ ...form, eligible_quantity: event.target.value })} className="app-input" />
+      </Field>
+      <Field label="Valor bruto">
+        <input type="text" inputMode="decimal" placeholder="auto" value={form.gross_amount} onChange={(event) => setForm({ ...form, gross_amount: event.target.value })} className="app-input" />
+      </Field>
+      <Field label="Imposto">
+        <input type="text" inputMode="decimal" placeholder="auto" value={form.tax_amount} onChange={(event) => setForm({ ...form, tax_amount: event.target.value })} className="app-input" />
+      </Field>
+      <Field label="Observações" className="md:col-span-2 xl:col-span-2">
+        <input type="text" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="app-input" />
+      </Field>
+      <div className="flex items-end md:col-span-2 xl:col-span-6">
+        <Button type="submit" icon={editingId ? Pencil : Plus} loading={saving} className="w-full sm:w-auto">
+          Salvar
+        </Button>
+      </div>
+    </form>
   )
 }

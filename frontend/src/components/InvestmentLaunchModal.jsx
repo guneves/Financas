@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Plus, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { ArrowDownRight, ArrowUpRight, CalendarDays } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { investmentsApi, marketApi } from '../lib/dataApi'
-import { Button, cx } from './ui'
+import { AlertMessage, Button, Field, SegmentedControl, Sheet } from './ui'
 import { formatCurrency, getLocalDateString } from '../lib/format'
 import TickerAutocomplete from './TickerAutocomplete'
 
@@ -15,6 +16,13 @@ const ASSET_TYPES = [
   { value: 'CATTLE', label: 'Gado' },
   { value: 'FIXED_INCOME', label: 'Renda Fixa' },
   { value: 'OTHER', label: 'Outros' },
+]
+
+const FORM_ID = 'investment-launch-form'
+
+const MODE_ITEMS = [
+  { value: 'BUY', label: 'Compra', icon: ArrowUpRight },
+  { value: 'SELL', label: 'Venda', icon: ArrowDownRight },
 ]
 
 const initialForm = () => ({
@@ -255,226 +263,186 @@ export default function InvestmentLaunchModal({
     ])
   }
 
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/45 p-4">
-      <div className="w-full max-w-3xl overflow-hidden rounded-lg bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-5">
-          <h2 className="text-2xl font-semibold text-zinc-900">Adicionar Lançamento</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
-            aria-label="Fechar"
-          >
-            <X className="h-5 w-5" />
-          </button>
+  // Portal: o wrapper animado do Layout tem transform, o que prenderia o
+  // `fixed` do Sheet a caixa da pagina em vez da janela.
+  return createPortal((
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Registrar operação"
+      description="Compra ou venda. O resgate de renda fixa fica na linha do ativo, em Posição."
+      className="sm:max-w-3xl"
+      footer={(
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Button type="button" variant="secondary" size="lg" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" form={FORM_ID} size="lg" loading={saving}>
+            {mode === 'BUY' ? 'Salvar compra' : 'Salvar venda'}
+          </Button>
         </div>
+      )}
+    >
+      <form id={FORM_ID} onSubmit={handleSubmit} className="space-y-5">
+        <SegmentedControl
+          items={MODE_ITEMS}
+          value={mode}
+          onChange={handleModeChange}
+          className="grid w-full grid-cols-2 [&>button]:h-11"
+        />
 
-        <form onSubmit={handleSubmit} className="space-y-6 px-6 py-7">
-          <div className="grid grid-cols-2 rounded-lg bg-zinc-100 p-1">
-            <button
-              type="button"
-              onClick={() => handleModeChange('BUY')}
-              className={cx(
-                'flex h-12 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition',
-                mode === 'BUY' ? 'bg-white text-zinc-800 shadow-sm' : 'text-zinc-400'
-              )}
+        <AlertMessage tone="danger" message={error} />
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="Tipo de ativo">
+            <select
+              value={form.asset_class}
+              onChange={(event) => handleAssetClassChange(event.target.value)}
+              disabled={mode === 'SELL'}
+              className="app-select h-11"
             >
-              <span className="text-emerald-500">◌</span>
-              Compra
-            </button>
-            <button
-              type="button"
-              onClick={() => handleModeChange('SELL')}
-              className={cx(
-                'flex h-12 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition',
-                mode === 'SELL' ? 'bg-white text-zinc-800 shadow-sm' : 'text-zinc-400'
-              )}
-            >
-              <span className="text-rose-400">◌</span>
-              Venda
-            </button>
-          </div>
+              {ASSET_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+          </Field>
 
-          {error ? (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            <ModalField label="Tipo de ativo">
+          <Field label="Ativo">
+            {mode === 'BUY' && usesCatalog ? (
+              <TickerAutocomplete
+                value={form.ticker_or_name}
+                onChange={handleTickerChange}
+                assetClass={form.asset_class}
+                walletAssets={assets}
+                required
+              />
+            ) : mode === 'BUY' ? (
+              <>
+                <input
+                  list="investment-assets"
+                  value={form.ticker_or_name}
+                  onChange={(event) => updateForm('ticker_or_name', event.target.value)}
+                  placeholder="Selecionar ou digitar"
+                  className="app-input h-11"
+                  required
+                />
+                <datalist id="investment-assets">
+                  {assets.map((asset) => (
+                    <option key={asset.id} value={asset.ticker || asset.name} />
+                  ))}
+                </datalist>
+              </>
+            ) : (
               <select
-                value={form.asset_class}
-                onChange={(event) => handleAssetClassChange(event.target.value)}
-                disabled={mode === 'SELL'}
-                className="app-select h-12"
+                value={form.asset_id}
+                onChange={(event) => handleSaleAssetChange(event.target.value)}
+                className="app-select h-11"
+                required
               >
-                {ASSET_TYPES.map((type) => (
-                  <option key={type.value} value={type.value}>{type.label}</option>
+                <option value="">Selecionar</option>
+                {saleAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.name} - {formatCurrency(asset.current_value)}
+                  </option>
                 ))}
               </select>
-            </ModalField>
+            )}
+          </Field>
 
-            <ModalField label="Ativo">
-              {mode === 'BUY' && usesCatalog ? (
-                <TickerAutocomplete
-                  value={form.ticker_or_name}
-                  onChange={handleTickerChange}
-                  assetClass={form.asset_class}
-                  walletAssets={assets}
-                  required
-                />
-              ) : mode === 'BUY' ? (
-                <>
-                  <input
-                    list="investment-assets"
-                    value={form.ticker_or_name}
-                    onChange={(event) => updateForm('ticker_or_name', event.target.value)}
-                    placeholder="Selecionar ou digitar"
-                    className="app-input h-12"
-                    required
-                  />
-                  <datalist id="investment-assets">
-                    {assets.map((asset) => (
-                      <option key={asset.id} value={asset.ticker || asset.name} />
-                    ))}
-                  </datalist>
-                </>
-              ) : (
-                <select
-                  value={form.asset_id}
-                  onChange={(event) => handleSaleAssetChange(event.target.value)}
-                  className="app-select h-12"
-                  required
-                >
-                  <option value="">Selecionar</option>
-                  {saleAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.name} - {formatCurrency(asset.current_value)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </ModalField>
-
-            <ModalField label="Data da transação">
-              <div className="relative">
-                <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                <input
-                  type="date"
-                  value={form.transaction_date}
-                  onChange={(event) => updateForm('transaction_date', event.target.value)}
-                  className="app-input h-12 pl-10"
-                  required
-                />
-              </div>
-            </ModalField>
-
-            <ModalField label="Quantidade">
+          <Field label="Data da operação">
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
               <input
-                type="number"
-                min="0"
-                step="0.0001"
-                value={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? '1' : form.quantity}
-                onChange={(event) => updateForm('quantity', event.target.value)}
-                disabled={form.asset_class === 'FIXED_INCOME' && mode === 'BUY'}
-                className="app-input h-12"
+                type="date"
+                value={form.transaction_date}
+                onChange={(event) => updateForm('transaction_date', event.target.value)}
+                className="app-input h-11 pl-10"
                 required
               />
-            </ModalField>
-
-            <ModalField label={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? 'Valor aplicado em R$' : 'Preço em R$'}>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.price}
-                onChange={(event) => updateForm('price', event.target.value)}
-                placeholder="0,00"
-                className="app-input h-12"
-                required
-              />
-            </ModalField>
-
-            <ModalField
-              label="Outros custos"
-              action={<span className="text-xs font-medium text-zinc-500">(Opcional)</span>}
-            >
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.other_costs}
-                onChange={(event) => updateForm('other_costs', event.target.value)}
-                placeholder="0,00"
-                className="app-input h-12"
-              />
-            </ModalField>
-
-            {mode === 'BUY' && form.asset_class === 'FIXED_INCOME' ? (
-              <>
-                <ModalField label="% do CDI">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={form.cdi_percentage}
-                    onChange={(event) => updateForm('cdi_percentage', event.target.value)}
-                    placeholder="Ex: 110"
-                    className="app-input h-12"
-                    required
-                  />
-                </ModalField>
-
-                <label className="flex h-12 items-center gap-3 self-end rounded-lg border border-zinc-200 px-4 text-sm font-medium text-zinc-700">
-                  <input
-                    type="checkbox"
-                    checked={form.is_tax_free}
-                    onChange={(event) => updateForm('is_tax_free', event.target.checked)}
-                    className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  Isento de IR (LCI/LCA)
-                </label>
-              </>
-            ) : null}
-          </div>
-
-          {mode === 'SELL' && saleAssets.length === 0 ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Não há ativos de renda variável disponíveis para venda. Resgates de renda fixa continuam na linha do ativo.
             </div>
+          </Field>
+
+          <Field label="Quantidade">
+            <input
+              type="number"
+              min="0"
+              step="0.0001"
+              inputMode="decimal"
+              value={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? '1' : form.quantity}
+              onChange={(event) => updateForm('quantity', event.target.value)}
+              disabled={form.asset_class === 'FIXED_INCOME' && mode === 'BUY'}
+              className="app-input h-11"
+              required
+            />
+          </Field>
+
+          <Field label={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? 'Valor aplicado em R$' : 'Preço em R$'}>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={form.price}
+              onChange={(event) => updateForm('price', event.target.value)}
+              placeholder="0,00"
+              className="app-input h-11"
+              required
+            />
+          </Field>
+
+          <Field label="Outros custos (opcional)">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={form.other_costs}
+              onChange={(event) => updateForm('other_costs', event.target.value)}
+              placeholder="0,00"
+              className="app-input h-11"
+            />
+          </Field>
+
+          {mode === 'BUY' && form.asset_class === 'FIXED_INCOME' ? (
+            <>
+              <Field label="% do CDI">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  inputMode="decimal"
+                  value={form.cdi_percentage}
+                  onChange={(event) => updateForm('cdi_percentage', event.target.value)}
+                  placeholder="Ex: 110"
+                  className="app-input h-11"
+                  required
+                />
+              </Field>
+
+              <label className="flex h-11 cursor-pointer items-center gap-3 self-end rounded-lg border border-zinc-200 px-4 text-sm font-medium text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={form.is_tax_free}
+                  onChange={(event) => updateForm('is_tax_free', event.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                Isento de IR (LCI/LCA)
+              </label>
+            </>
           ) : null}
+        </div>
 
-          <div className="flex items-center justify-between rounded-lg bg-zinc-200 px-4 py-3">
-            <span className="font-semibold text-zinc-800">Valor total</span>
-            <span className="text-lg font-bold text-zinc-900">{formatCurrency(totalValue)}</span>
-          </div>
+        {mode === 'SELL' && saleAssets.length === 0 ? (
+          <AlertMessage tone="warning">
+            Não há ativos de renda variável disponíveis para venda. Resgates de renda fixa continuam na linha do ativo.
+          </AlertMessage>
+        ) : null}
 
-          <div className="flex flex-col-reverse gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button type="submit" variant="dark" icon={Plus} loading={saving}>
-              {mode === 'BUY' ? 'Adicionar Lançamento' : 'Registrar Venda'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function ModalField({ label, action, children }) {
-  return (
-    <label className="block space-y-2">
-      <span className="flex items-center justify-between text-sm font-medium text-zinc-500">
-        <span>{label}</span>
-        {action}
-      </span>
-      {children}
-    </label>
-  )
+        <div className="flex items-center justify-between rounded-lg bg-zinc-100 px-4 py-3">
+          <span className="font-semibold text-zinc-800">Valor total</span>
+          <span className="text-lg font-bold tabular text-zinc-950">{formatCurrency(totalValue)}</span>
+        </div>
+      </form>
+    </Sheet>
+  ), document.body)
 }

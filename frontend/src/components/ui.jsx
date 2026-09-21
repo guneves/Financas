@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -403,6 +404,8 @@ export function Collapsible({
 }
 
 // Modal no desktop, folha que sobe de baixo no celular. Esc e clique fora fecham.
+// Vai para document.body via portal: o wrapper animado do Layout tem transform,
+// o que faria `fixed` se medir pela pagina e nao pela janela.
 export function Sheet({ open, onClose, title, description, children, footer, className = '' }) {
   useEffect(() => {
     if (!open) return undefined
@@ -420,7 +423,7 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
       <div className="absolute inset-0 animate-fade-in bg-zinc-950/40 backdrop-blur-sm" onClick={onClose} />
       <div
@@ -441,6 +444,7 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer ? <div className="border-t border-zinc-100 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">{footer}</div> : null}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

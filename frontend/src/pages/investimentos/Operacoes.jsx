@@ -1,0 +1,494 @@
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Calculator, History, Pencil, Plus, Receipt, Scale, Trash2, TrendingUp } from 'lucide-react'
+import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
+import {
+  AlertMessage,
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  MetricCard,
+  PageHeader,
+  Panel,
+  PanelHeader,
+  Sheet,
+  cx,
+} from '../../components/ui'
+import { investmentsApi } from '../../lib/dataApi'
+import { formatCurrency } from '../../lib/format'
+import {
+  formatPercent,
+  getClassLabel,
+  hasRealizedResult,
+  movementDateValue,
+  movementFees,
+  movementTotalValue,
+  movementUnitPrice,
+  parseNumberInput,
+} from './helpers'
+import useInvestments from './useInvestments'
+
+const EDIT_FORM_ID = 'investment-movement-edit'
+
+// Leitura de uma linha do historico, usada pela tabela e pelos cartoes.
+function describeMovement(mov) {
+  const isFixed = mov.asset_class === 'FIXED_INCOME'
+  const isSale = mov.quantity < 0
+  const isRedemption = !!mov.metadata?.is_redemption
+  const unitPrice = movementUnitPrice(mov)
+  const totalValue = movementTotalValue(mov)
+  const fees = movementFees(mov)
+  const hasResult = hasRealizedResult(mov)
+  const netProceeds = hasResult
+    ? Number(mov.realized_net_proceeds || 0)
+    : Math.max(totalValue - fees, 0)
+  const realizedProfit = Number(mov.realized_profit || 0)
+  const realizedTax = Number(mov.realized_tax_amount || 0)
+  const afterTax = Number(mov.realized_net_profit_after_tax || 0)
+  const realizedMetadata = mov.realized_metadata || {}
+  const allocationCount = Array.isArray(realizedMetadata.allocations)
+    ? realizedMetadata.allocations.length
+    : 0
+
+  const dateValue = movementDateValue(mov)
+  const hasCustomDate = dateValue && dateValue !== mov.created_at
+  const dateObj = hasCustomDate
+    ? new Date(`${String(dateValue).slice(0, 10)}T00:00:00`)
+    : new Date(mov.created_at)
+  const dateLabel = `${dateObj.toLocaleDateString('pt-BR')}${!hasCustomDate ? ` às ${dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}`
+  const kindLabel = `${isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')} de ${isRedemption ? formatCurrency(totalValue) : Math.abs(mov.quantity)}`
+
+  return {
+    isSale,
+    unitPrice,
+    totalValue,
+    fees,
+    hasResult,
+    netProceeds,
+    realizedProfit,
+    realizedTax,
+    afterTax,
+    realizedMetadata,
+    allocationCount,
+    dateLabel,
+    kindLabel,
+  }
+}
+
+export default function Operacoes() {
+  const {
+    assets,
+    movements,
+    dataError,
+    setDataError,
+    fetchPortfolio,
+    fetchMovements,
+    refreshAll,
+    handleUpdateStockPrices,
+  } = useInvestments()
+
+  const [loading, setLoading] = useState(false)
+  const [editModal, setEditModal] = useState(null)
+  const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
+
+  const openEditModal = (mov) => {
+    const movementDate = movementDateValue(mov)
+    setEditModal({
+      id: mov.id,
+      asset_class: mov.asset_class,
+      ticker_or_name: mov.ticker_or_name,
+      quantity: mov.quantity,
+      average_price: mov.average_price,
+      current_price: mov.current_price,
+      metadata: mov.metadata || {},
+      is_sale: mov.quantity < 0 && mov.asset_class !== 'FIXED_INCOME',
+      is_redemption: !!mov.metadata?.is_redemption,
+      sale_price: mov.metadata?.sale_price || '',
+      other_costs: mov.metadata?.other_costs ?? mov.fee_amount ?? '',
+      cdi_percentage: mov.metadata?.cdi_percentage ? (mov.metadata.cdi_percentage * 100).toFixed(1) : '',
+      movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
+      is_tax_free: mov.metadata?.is_tax_free || false
+    })
+  }
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setDataError('')
+
+    try {
+      const averagePrice = Number(editModal.average_price)
+      const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : Number(editModal.quantity)
+      const cdiPercentage = Number(editModal.cdi_percentage)
+      const otherCosts = editModal.other_costs === '' ? 0 : parseNumberInput(editModal.other_costs)
+      const metadata = { ...(editModal.metadata || {}) }
+
+      if (!Number.isFinite(averagePrice) || averagePrice < 0) {
+        throw new Error('Informe um preço/valor válido.')
+      }
+      if (!Number.isFinite(otherCosts) || otherCosts < 0) {
+        throw new Error('Informe custos válidos.')
+      }
+      if (editModal.is_sale) {
+        const salePrice = Number(editModal.sale_price || 0)
+        if (!Number.isFinite(salePrice) || salePrice <= 0) {
+          throw new Error('Informe um preço de venda válido.')
+        }
+      }
+      if (
+        !editModal.is_redemption
+        && (
+          !Number.isFinite(finalQuantity)
+          || (editModal.is_sale ? finalQuantity >= 0 : finalQuantity <= 0)
+        )
+      ) {
+        throw new Error('Informe uma quantidade válida.')
+      }
+
+      delete metadata.purchase_date
+      delete metadata.sale_date
+      delete metadata.redemption_date
+      metadata.other_costs = otherCosts
+
+      if (editModal.is_redemption) {
+        metadata.redemption_date = editModal.movement_date
+        metadata.is_redemption = true
+      } else if (editModal.is_sale) {
+        metadata.sale_date = editModal.movement_date
+        metadata.sale_price = Number(editModal.sale_price || editModal.current_price || averagePrice)
+      } else {
+        metadata.purchase_date = editModal.movement_date
+      }
+
+      if (editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption) {
+        if (!Number.isFinite(cdiPercentage) || cdiPercentage <= 0) {
+          throw new Error('Informe um percentual de CDI válido.')
+        }
+        metadata.cdi_percentage = cdiPercentage / 100
+        metadata.is_tax_free = editModal.is_tax_free
+      }
+
+      await investmentsApi.update(editModal.id, {
+        quantity: editModal.is_redemption ? Number(editModal.quantity) : finalQuantity,
+        average_price: averagePrice,
+        metadata: metadata
+      })
+
+      setEditModal(null)
+      await fetchPortfolio()
+      await fetchMovements()
+
+      await handleUpdateStockPrices(true, editModal.id)
+    } catch (error) {
+      setDataError('Erro ao guardar edição: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteMovement = async (id) => {
+    if (window.confirm('Tem certeza que deseja excluir APENAS essa operação do histórico?')) {
+      try {
+        await investmentsApi.remove(id)
+        await fetchPortfolio()
+        await fetchMovements()
+      } catch (error) {
+        alert('Erro ao excluir operação: ' + error.message)
+      }
+    }
+  }
+
+  const realizedMovements = movements.filter(hasRealizedResult)
+  const realizedSummary = realizedMovements.reduce((acc, movement) => {
+    acc.realizedProfit += Number(movement.realized_profit || 0)
+    acc.taxAmount += Number(movement.realized_tax_amount || 0)
+    acc.netProfitAfterTax += Number(movement.realized_net_profit_after_tax || 0)
+    acc.netProceeds += Number(movement.realized_net_proceeds || 0)
+    acc.costBasis += Number(movement.realized_cost_basis || 0)
+    return acc
+  }, {
+    realizedProfit: 0,
+    taxAmount: 0,
+    netProfitAfterTax: 0,
+    netProceeds: 0,
+    costBasis: 0,
+  })
+
+  const setEditField = (field, value) => setEditModal({ ...editModal, [field]: value })
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Investimentos"
+        title="Operações"
+        description="Compras, vendas, aportes e resgates, com o resultado realizado e o IR estimado."
+        actions={(
+          <Button type="button" icon={Plus} onClick={() => setIsLaunchModalOpen(true)}>
+            Registrar operação
+          </Button>
+        )}
+      />
+
+      <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
+
+      <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          icon={History}
+          title="Operações realizadas"
+          value={realizedMovements.length}
+        />
+        <MetricCard
+          icon={TrendingUp}
+          tone={realizedSummary.realizedProfit >= 0 ? 'success' : 'danger'}
+          title="Lucro/prejuízo realizado"
+          value={formatCurrency(realizedSummary.realizedProfit)}
+          valueClassName={realizedSummary.realizedProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}
+        />
+        <MetricCard
+          icon={Calculator}
+          tone="warning"
+          title="IR estimado"
+          value={formatCurrency(realizedSummary.taxAmount)}
+        />
+        <MetricCard
+          icon={Scale}
+          tone={realizedSummary.netProfitAfterTax >= 0 ? 'success' : 'danger'}
+          title="Resultado pós-IR"
+          value={formatCurrency(realizedSummary.netProfitAfterTax)}
+          valueClassName={realizedSummary.netProfitAfterTax >= 0 ? 'text-emerald-700' : 'text-rose-600'}
+        />
+      </div>
+
+      <Panel className="overflow-hidden">
+        <PanelHeader
+          title="Operações"
+          description="Compras e vendas da sua carteira."
+          actions={<Badge>{movements.length} registro(s)</Badge>}
+        />
+        {movements.length === 0 ? (
+          <div className="p-5">
+            <EmptyState icon={Receipt} title="Nenhum histórico encontrado." message="As compras, vendas e resgates registrados aparecem aqui." />
+          </div>
+        ) : (
+          <>
+            <ul className="divide-y divide-zinc-100 md:hidden">
+              {movements.map((mov) => (
+                <MovementCard
+                  key={mov.id}
+                  mov={mov}
+                  info={describeMovement(mov)}
+                  onEdit={() => openEditModal(mov)}
+                  onDelete={() => handleDeleteMovement(mov.id)}
+                />
+              ))}
+            </ul>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="app-table min-w-[1040px]">
+                <thead>
+                  <tr>
+                    <th>Data / hora</th>
+                    <th>Ativo</th>
+                    <th>Operação</th>
+                    <th>Preço registrado</th>
+                    <th>Total</th>
+                    <th>Resultado realizado</th>
+                    <th>IR estimado</th>
+                    <th className="text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.map((mov) => (
+                    <MovementRow
+                      key={mov.id}
+                      mov={mov}
+                      info={describeMovement(mov)}
+                      onEdit={() => openEditModal(mov)}
+                      onDelete={() => handleDeleteMovement(mov.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Panel>
+
+      <InvestmentLaunchModal
+        open={isLaunchModalOpen}
+        onClose={() => setIsLaunchModalOpen(false)}
+        assets={assets}
+        onSaved={refreshAll}
+      />
+
+      {createPortal((
+      <Sheet
+        open={Boolean(editModal)}
+        onClose={() => setEditModal(null)}
+        title="Editar operação"
+        description={editModal ? `Ativo: ${editModal.ticker_or_name}` : undefined}
+        footer={(
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" size="lg" onClick={() => setEditModal(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" form={EDIT_FORM_ID} size="lg" loading={loading}>
+              Salvar
+            </Button>
+          </div>
+        )}
+      >
+        {editModal ? (
+          <form id={EDIT_FORM_ID} onSubmit={handleSaveEdit} className="space-y-4">
+            {editModal.asset_class !== 'FIXED_INCOME' && (
+              <Field label="Quantidade">
+                <input type="number" step="0.0001" value={editModal.quantity} onChange={(e) => setEditField('quantity', e.target.value)} className="app-input" required />
+              </Field>
+            )}
+
+            <Field label={editModal.is_redemption ? 'Base de custo resgatada (R$)' : editModal.asset_class === 'FIXED_INCOME' ? 'Valor aplicado (R$)' : 'Preço médio/base de custo (R$)'}>
+              <input type="number" step="0.01" value={editModal.average_price} onChange={(e) => setEditField('average_price', e.target.value)} className="app-input" required />
+            </Field>
+
+            {editModal.is_sale && (
+              <Field label="Preço de venda (R$)">
+                <input type="number" step="0.01" value={editModal.sale_price} onChange={(e) => setEditField('sale_price', e.target.value)} className="app-input" required />
+              </Field>
+            )}
+
+            <Field label="Outros custos (R$)">
+              <input type="number" min="0" step="0.01" value={editModal.other_costs} onChange={(e) => setEditField('other_costs', e.target.value)} className="app-input" />
+            </Field>
+
+            <Field label="Data da operação">
+              <input type="date" value={editModal.movement_date} onChange={(e) => setEditField('movement_date', e.target.value)} className="app-input" required />
+            </Field>
+
+            {editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption && (
+              <>
+                <Field label="% do CDI">
+                  <input type="number" step="0.1" value={editModal.cdi_percentage} onChange={(e) => setEditField('cdi_percentage', e.target.value)} className="app-input" required />
+                </Field>
+
+                <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-zinc-200 px-4 text-sm font-medium text-zinc-700">
+                  <input type="checkbox" checked={editModal.is_tax_free} onChange={(e) => setEditField('is_tax_free', e.target.checked)} className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500" />
+                  Isento de IR (LCI/LCA)
+                </label>
+              </>
+            )}
+          </form>
+        ) : null}
+      </Sheet>
+      ), document.body)}
+    </div>
+  )
+}
+
+function profitClass(value) {
+  return value >= 0 ? 'text-emerald-700' : 'text-rose-600'
+}
+
+function MovementRow({ mov, info, onEdit, onDelete }) {
+  return (
+    <tr>
+      <td className="whitespace-nowrap text-zinc-600">{info.dateLabel}</td>
+      <td>
+        <p className="font-semibold text-zinc-950">{mov.ticker_or_name}</p>
+        <p className="text-xs text-zinc-600">{getClassLabel(mov.asset_class)}</p>
+      </td>
+      <td>
+        <Badge tone={info.isSale ? 'danger' : 'success'}>{info.kindLabel}</Badge>
+      </td>
+      <td className="tabular text-zinc-800">{formatCurrency(info.unitPrice)}</td>
+      <td className="tabular font-medium text-zinc-900">
+        <p>{formatCurrency(info.totalValue)}</p>
+        {info.fees > 0 ? <p className="text-xs font-normal text-zinc-600">Custos: {formatCurrency(info.fees)}</p> : null}
+        {info.isSale ? <p className="text-xs font-normal text-zinc-600">Líquido: {formatCurrency(info.netProceeds)}</p> : null}
+      </td>
+      <td className="tabular">
+        {info.hasResult ? (
+          <div>
+            <p className={cx('font-bold', profitClass(info.realizedProfit))}>
+              {info.realizedProfit > 0 ? '+' : ''}{formatCurrency(info.realizedProfit)}
+            </p>
+            <p className="text-xs text-zinc-600">Base: {formatCurrency(mov.realized_cost_basis)}</p>
+            <p className="text-xs text-zinc-600">
+              {formatPercent(mov.realized_profitability_percent)} via {info.realizedMetadata.cost_method || 'FIFO'}
+              {info.allocationCount ? ` (${info.allocationCount} lote${info.allocationCount > 1 ? 's' : ''})` : ''}
+            </p>
+          </div>
+        ) : (
+          <span className="text-zinc-400">-</span>
+        )}
+      </td>
+      <td className="tabular">
+        {info.hasResult ? (
+          <div>
+            <p className="font-medium text-zinc-900">{formatCurrency(info.realizedTax)}</p>
+            <p className={cx('text-xs font-medium', profitClass(info.afterTax))}>
+              Pós-IR: {formatCurrency(info.afterTax)}
+            </p>
+            <p className="text-xs text-zinc-600">
+              Alíq.: {formatPercent(Number(mov.realized_tax_rate || 0) * 100)}
+            </p>
+          </div>
+        ) : (
+          <span className="text-zinc-400">-</span>
+        )}
+      </td>
+      <td className="text-right">
+        <div className="flex justify-end gap-2">
+          <IconButton label="Editar operação" icon={Pencil} onClick={onEdit} />
+          <IconButton label="Excluir apenas esta operação" icon={Trash2} variant="danger" onClick={onDelete} />
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function MovementCard({ mov, info, onEdit, onDelete }) {
+  return (
+    <li className="space-y-3 px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-zinc-950">{mov.ticker_or_name}</p>
+          <p className="text-xs text-zinc-600">{getClassLabel(mov.asset_class)} · {info.dateLabel}</p>
+        </div>
+        <p className="shrink-0 font-semibold tabular text-zinc-950">{formatCurrency(info.totalValue)}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+        <Badge tone={info.isSale ? 'danger' : 'success'}>{info.kindLabel}</Badge>
+        <span>a {formatCurrency(info.unitPrice)}</span>
+        {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
+        {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
+      </div>
+      {info.hasResult ? (
+        <div className="grid grid-cols-2 gap-3 rounded-lg bg-zinc-50 px-3 py-2 text-sm tabular">
+          <div>
+            <p className="text-xs text-zinc-600">Resultado</p>
+            <p className={cx('font-bold', profitClass(info.realizedProfit))}>
+              {info.realizedProfit > 0 ? '+' : ''}{formatCurrency(info.realizedProfit)}
+            </p>
+            <p className="text-xs text-zinc-600">Base: {formatCurrency(mov.realized_cost_basis)}</p>
+            <p className="text-xs text-zinc-600">
+              {formatPercent(mov.realized_profitability_percent)} via {info.realizedMetadata.cost_method || 'FIFO'}
+              {info.allocationCount ? ` (${info.allocationCount} lote${info.allocationCount > 1 ? 's' : ''})` : ''}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600">IR estimado</p>
+            <p className="font-medium text-zinc-900">{formatCurrency(info.realizedTax)}</p>
+            <p className={cx('text-xs font-medium', profitClass(info.afterTax))}>Pós-IR: {formatCurrency(info.afterTax)}</p>
+            <p className="text-xs text-zinc-600">Alíq.: {formatPercent(Number(mov.realized_tax_rate || 0) * 100)}</p>
+          </div>
+        </div>
+      ) : null}
+      <div className="flex justify-end gap-2">
+        <IconButton label="Editar operação" icon={Pencil} onClick={onEdit} />
+        <IconButton label="Excluir apenas esta operação" icon={Trash2} variant="danger" onClick={onDelete} />
+      </div>
+    </li>
+  )
+}
