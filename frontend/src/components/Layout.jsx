@@ -28,7 +28,7 @@ const navItems = [
 function BrandMark() {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-950 text-white">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white shadow-glow">
         <Wallet className="h-5 w-5" />
       </div>
       <div>
@@ -48,15 +48,25 @@ function NavItem({ item, onClick }) {
       onClick={onClick}
       className={({ isActive }) =>
         cx(
-          'flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition',
+          'group relative flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition duration-200',
           isActive
-            ? 'bg-zinc-950 text-white shadow-sm'
-            : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950'
+            ? 'bg-zinc-950 text-white shadow-lift'
+            : 'text-zinc-600 hover:translate-x-0.5 hover:bg-zinc-100 hover:text-zinc-950'
         )
       }
     >
-      <Icon className="h-4 w-4 shrink-0" />
-      <span className="truncate">{item.name}</span>
+      {({ isActive }) => (
+        <>
+          <span
+            className={cx(
+              'absolute left-0 top-2 h-6 w-1 -translate-x-2 rounded-r-full bg-emerald-400 transition-all duration-300',
+              isActive ? 'opacity-100' : 'opacity-0'
+            )}
+          />
+          <Icon className={cx('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-emerald-300' : 'text-zinc-400 group-hover:text-zinc-700')} />
+          <span className="truncate">{item.name}</span>
+        </>
+      )}
     </NavLink>
   )
 }
@@ -83,13 +93,13 @@ export default function Layout() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-zinc-200 bg-white lg:flex lg:flex-col">
+    <div className="min-h-screen text-zinc-950">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-zinc-200/80 bg-white/90 backdrop-blur lg:flex lg:flex-col">
         <div className="border-b border-zinc-100 px-5 py-5">
           <BrandMark />
         </div>
 
-        <nav className="flex-1 space-y-1 px-4 py-5">
+        <nav className="stagger flex-1 space-y-1 px-4 py-5">
           {navItems.map((item) => (
             <NavItem key={item.path} item={item} />
           ))}
@@ -128,7 +138,7 @@ export default function Layout() {
         </div>
 
         {mobileOpen ? (
-          <nav className="space-y-1 border-t border-zinc-100 px-4 py-3">
+          <nav className="animate-slide-down space-y-1 border-t border-zinc-100 px-4 py-3">
             {navItems.map((item) => (
               <NavItem key={item.path} item={item} onClick={() => setMobileOpen(false)} />
             ))}
@@ -145,12 +155,12 @@ export default function Layout() {
 
       <div className="lg:pl-72">
         <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div className="mb-6 hidden items-center justify-between border-b border-zinc-200 pb-5 lg:flex">
+          <div className="mb-6 hidden items-center justify-between border-b border-zinc-200/80 pb-5 lg:flex">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Área atual</p>
-              <p className="mt-1 text-lg font-bold text-zinc-950">{activePage.name}</p>
+              <p key={activePage.path} className="mt-1 animate-fade-in text-lg font-bold text-zinc-950">{activePage.name}</p>
             </div>
-            <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm">
+            <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2 shadow-card">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-xs font-bold text-emerald-700">
                 {initials || 'FM'}
               </div>
@@ -158,7 +168,9 @@ export default function Layout() {
             </div>
           </div>
 
-          <Outlet />
+          <div key={location.pathname} className="animate-fade-up">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

@@ -236,7 +236,7 @@ export default function Recorrentes() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Receitas previstas (30d)"
           value={formatCurrency(window30.income)}

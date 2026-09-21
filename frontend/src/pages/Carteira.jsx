@@ -3,14 +3,12 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
+import { ANIMATION, CHART, ChartTooltip, DonutChart, FLOW, LegendDot, axisProps, compactCurrency } from '../components/charts'
 import {
   AlertTriangle,
   ArrowDownCircle,
@@ -61,25 +59,10 @@ const CATEGORY_OPTIONS = [
 ]
 
 const EXPENSE_CATEGORIES = CATEGORY_OPTIONS.filter((category) => !['Receita', 'Salário', 'Freelance'].includes(category))
-const CATEGORY_COLORS = ['#059669', '#0284c7', '#f59e0b', '#e11d48', '#7c3aed', '#52525b', '#14b8a6', '#f97316']
 const STORAGE_KEYS = {
   transactions: '@financeMVP:walletTransactions',
   cards: '@financeMVP:walletCards',
   ccExpenses: '@financeMVP:walletCcExpenses',
-}
-
-const compactCurrency = (value) => {
-  const numeric = Number(value || 0)
-  const absolute = Math.abs(numeric)
-
-  if (absolute >= 1000) {
-    const formatted = (absolute / 1000).toLocaleString('pt-BR', {
-      maximumFractionDigits: absolute >= 10000 ? 0 : 1,
-    })
-    return `R$ ${numeric < 0 ? '-' : ''}${formatted}K`
-  }
-
-  return formatCurrency(numeric)
 }
 
 function readStoredJson(key, fallback) {
@@ -407,6 +390,8 @@ export default function Carteira() {
       const key = monthKeyFromDate(date)
       if (!byKey[key]) return
 
+      // TRANSFER so move dinheiro entre contas proprias; nao e saida.
+      if (transaction.type === 'TRANSFER') return
       if (transaction.type === 'INCOME') {
         byKey[key].entradas += Number(transaction.amount || 0)
       } else {
@@ -883,7 +868,7 @@ export default function Carteira() {
       {dataError ? <AlertMessage tone="danger" message={dataError} /> : null}
       {notice ? <AlertMessage tone="success" message={notice} /> : null}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Landmark}
           tone={walletSummary.balance >= 0 ? 'success' : 'danger'}
@@ -923,19 +908,36 @@ export default function Carteira() {
           <PanelHeader
             title="Fluxo dos últimos 6 meses"
             description="Entradas e saídas lançadas na conta corrente."
-            actions={<Badge tone={walletSummary.dailyAvailable >= 0 ? 'success' : 'danger'}>{formatCurrency(walletSummary.dailyAvailable)} por dia</Badge>}
+            actions={(
+              <div className="flex flex-wrap items-center gap-3">
+                <LegendDot color={FLOW.income} label="Entradas" />
+                <LegendDot color={FLOW.expense} label="Saídas" />
+                <Badge tone={walletSummary.dailyAvailable >= 0 ? 'success' : 'danger'}>{formatCurrency(walletSummary.dailyAvailable)} por dia</Badge>
+              </div>
+            )}
           />
           <div className="p-5">
             <div className="h-80 min-h-[320px] min-w-0">
               {cashflowData.some((item) => item.entradas > 0 || item.saidas > 0) ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={cashflowData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
-                    <CartesianGrid vertical={false} stroke="#e4e4e7" />
-                    <XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis tickFormatter={compactCurrency} tick={{ fill: '#71717a', fontSize: 12 }} tickLine={false} axisLine={false} width={74} />
-                    <Tooltip formatter={(value, name) => [formatCurrency(value), name === 'entradas' ? 'Entradas' : 'Saídas']} contentStyle={{ borderRadius: 8, borderColor: '#d4d4d8' }} />
-                    <Bar dataKey="entradas" fill="#059669" radius={[5, 5, 0, 0]} maxBarSize={42} />
-                    <Bar dataKey="saidas" fill="#e11d48" radius={[5, 5, 0, 0]} maxBarSize={42} />
+                  <BarChart data={cashflowData} barGap={2} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                    <CartesianGrid vertical={false} stroke={CHART.grid} />
+                    <XAxis dataKey="month" {...axisProps} />
+                    <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                      content={(
+                        <ChartTooltip
+                          names={{ entradas: 'Entradas', saidas: 'Saídas' }}
+                          footer={(payload) => {
+                            const row = payload?.[0]?.payload
+                            return row ? `Resultado: ${formatCurrency(row.entradas - row.saidas)}` : null
+                          }}
+                        />
+                      )}
+                    />
+                    <Bar dataKey="entradas" fill={FLOW.income} radius={[4, 4, 0, 0]} maxBarSize={24} {...ANIMATION} />
+                    <Bar dataKey="saidas" fill={FLOW.expense} radius={[4, 4, 0, 0]} maxBarSize={24} {...ANIMATION} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -953,31 +955,7 @@ export default function Carteira() {
           />
           <div className="p-5">
             {expensesByCategory.length > 0 ? (
-              <div className="space-y-5">
-                <div className="h-56 min-h-[224px] min-w-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={expensesByCategory} dataKey="value" nameKey="name" innerRadius={54} outerRadius={86} paddingAngle={2}>
-                        {expensesByCategory.map((entry, index) => (
-                          <Cell key={entry.name} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => formatCurrency(value)} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="space-y-3">
-                  {expensesByCategory.slice(0, 6).map((item, index) => (
-                    <div key={item.name} className="flex items-center justify-between gap-3 text-sm">
-                      <div className="flex min-w-0 items-center gap-2 font-medium text-zinc-700">
-                        <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: CATEGORY_COLORS[index % CATEGORY_COLORS.length] }} />
-                        <span className="truncate">{item.name}</span>
-                      </div>
-                      <span className="font-semibold text-zinc-950">{formatCurrency(item.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <DonutChart data={expensesByCategory} centerLabel="No mês" height={200} />
             ) : (
               <EmptyState icon={Receipt} title="Sem despesas no mês" message="As categorias aparecem depois dos lançamentos." className="min-h-[19rem]" />
             )}

@@ -702,7 +702,7 @@ export default function Transactions() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard
           icon={Landmark}
           tone={balance >= 0 ? 'success' : 'danger'}

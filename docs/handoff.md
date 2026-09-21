@@ -6,7 +6,56 @@
 
 ---
 
-## Session — 2026-09-16 (latest) · B3 ticker catalog: search, autocomplete, and a guard on buys
+## Session — 2026-09-21 (latest) · UI pass: chart kit, new Dashboard graphs, animations
+
+### Where things stand
+
+Frontend-only session. No backend, migration or test changes. `npm run build` passes. I did **not**
+look at the result in a browser, because the Chrome extension wasn't connected. The first thing to do
+next session is open the app and look at every page.
+
+### What was done
+
+- **`frontend/src/components/charts.jsx`, the shared chart kit.** A fixed categorical palette
+  (`SERIES`, validated for colour blindness), `FLOW` colours for income and expense, axis props,
+  `ChartTooltip`, `LegendDot`, `Sparkline`, a hover-aware `DonutChart` that folds anything past the
+  6th slice into "Outros", and the only `compactCurrency`. New charts should import from here.
+- **Dashboard rewritten.** New panels: 12-month cash flow (income above the zero line, expense below,
+  net line on top), month-end balance history, spending pace (running total for this month vs last
+  month), a category donut with month-over-month deltas, next-6-invoices projection, and progress bars
+  on installments. Metric cards count up and carry a sparkline or a split bar. The invoice-payment
+  handler is unchanged.
+  - The Dashboard now fetches **all** `cc-expenses` (not only `OPEN`) and filters `OPEN` locally.
+    Last month's paid card purchases are needed for the spending comparison.
+  - Categories now use the real `transactions.category` name. The old hard-coded list of eight is gone.
+- **Carteira bug fixed.** The 6-month cash flow counted `TRANSFER` rows as expenses. Now skipped.
+- **Investments** gains an allocation donut (gross value by class) and a return-per-asset chart
+  (6 best + 6 worst when there are more than 12 assets). **Proventos** monthly cards became a column chart.
+- **Animations.** New keyframes in `tailwind.config.js` plus `.stagger`, `.skeleton` and `.bar-grow` in
+  `index.css`. There is a fade when changing pages, `useCountUp`/`AnimatedNumber`/`DeltaBadge`/`Skeleton`
+  in `ui.jsx`, and a new sidebar active indicator. `prefers-reduced-motion` turns motion off.
+  `.animate-in` is now defined, so the old tailwindcss-animate class names in Investments animate.
+
+### Traps
+
+- **Keyframes must end on `transform: none`, not `translateY(0)`.** The page wrapper is animated, and
+  any leftover transform turns it into the containing block for `position: fixed`, which breaks every
+  modal on the page.
+- Green vs red (income vs expense) is only borderline for colour-blind readers. That is why expenses
+  are drawn below zero. Keep that encoding.
+
+### Not done
+
+- No visual check (see above). The radius on negative (expense) bars in particular needs a look.
+- The Transactions, Orçamento and Recorrentes pages only got staggered cards and animated bars, no new charts.
+- Bundle is 759 kB and Vite warns about it. Code-splitting the pages is a cheap follow-up.
+- `docs/next-steps.md` was left alone. It had uncommitted edits from a concurrent session
+  (statement filters, §3.7), and so did `backend/app.py` and `backend/tests/test_transaction_filters.py`.
+  None of those were touched or committed here. `finance-guard` was not run, because this diff has no backend code.
+
+---
+
+## Session — 2026-09-16 · B3 ticker catalog: search, autocomplete, and a guard on buys
 
 ### Where things stand
 

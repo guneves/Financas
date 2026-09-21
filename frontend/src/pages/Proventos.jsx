@@ -1,3 +1,5 @@
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { ANIMATION, CHART, ChartTooltip, FLOW, axisProps, compactCurrency } from '../components/charts'
 import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarDays,
@@ -239,10 +241,6 @@ export default function Proventos() {
     }
   }
 
-  const monthMax = useMemo(() => {
-    return Math.max(...(summary?.by_month || []).map((item) => Number(item.net_amount || 0)), 0)
-  }, [summary])
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -259,7 +257,7 @@ export default function Proventos() {
       {error ? <AlertMessage tone="danger" message={error} /> : null}
       {notice ? <AlertMessage tone="success" message={notice} /> : null}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Coins}
           tone="success"
@@ -431,22 +429,31 @@ export default function Proventos() {
       {summary?.by_month?.length ? (
         <Panel>
           <PanelHeader title="Recebimentos por mes" description="Total liquido agrupado por pagamento." />
-          <div className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">
-            {summary.by_month.map((item) => {
-              const width = monthMax > 0 ? `${Math.max((Number(item.net_amount || 0) / monthMax) * 100, 3)}%` : '0%'
-              return (
-                <div key={item.month} className="rounded-lg border border-zinc-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-zinc-950">{item.month}</p>
-                    <Badge>{item.event_count}</Badge>
-                  </div>
-                  <p className="mt-2 text-lg font-bold text-emerald-700">{formatCurrency(item.net_amount)}</p>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
-                    <div className="h-full rounded-full bg-emerald-500" style={{ width }} />
-                  </div>
-                </div>
-              )
-            })}
+          <div className="p-5">
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[...summary.by_month]
+                    .sort((a, b) => String(a.month).localeCompare(String(b.month)))
+                    .map((item) => ({ ...item, net: Number(item.net_amount || 0) }))}
+                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid vertical={false} stroke={CHART.grid} />
+                  <XAxis dataKey="month" {...axisProps} />
+                  <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                    content={(
+                      <ChartTooltip
+                        names={{ net: 'Líquido' }}
+                        footer={(payload) => `${payload?.[0]?.payload?.event_count || 0} evento(s)`}
+                      />
+                    )}
+                  />
+                  <Bar dataKey="net" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </Panel>
       ) : null}

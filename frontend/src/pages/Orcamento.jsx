@@ -59,7 +59,7 @@ function ProgressBar({ percent, status }) {
   const width = Math.min(Math.max(Number(percent || 0), 0), 100)
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
-      <div className={cx('h-full rounded-full transition-all', BAR_COLORS[status] || BAR_COLORS.OK)} style={{ width: `${width}%` }} />
+      <div className={cx('bar-grow h-full rounded-full transition-all duration-700 ease-out', BAR_COLORS[status] || BAR_COLORS.OK)} style={{ width: `${width}%` }} />
     </div>
   )
 }
@@ -295,7 +295,7 @@ export default function Orcamento() {
 
       {tab === 'BUDGET' ? (
         <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} tone="info" />
             <MetricCard
               title="Disponível"

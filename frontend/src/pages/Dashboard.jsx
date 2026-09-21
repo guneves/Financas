@@ -1,11 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
   CreditCard,
   Landmark,
+  LineChart as LineChartIcon,
   ListChecks,
   PiggyBank,
   Receipt,
@@ -14,8 +30,31 @@ import {
 import { apiFetch } from '../lib/api'
 import { accountsApi, ccExpensesApi, transactionsApi } from '../lib/dataApi'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
-import { Badge, Button, EmptyState, MetricCard, PageHeader, Panel, PanelHeader, cx } from '../components/ui'
-import { formatCurrency, getLocalDateString } from '../lib/format'
+import {
+  Badge,
+  Button,
+  DeltaBadge,
+  EmptyState,
+  MetricCard,
+  PageHeader,
+  Panel,
+  PanelHeader,
+  Skeleton,
+  cx,
+} from '../components/ui'
+import {
+  ANIMATION,
+  CHART,
+  ChartTooltip,
+  DonutChart,
+  FLOW,
+  LegendDot,
+  SERIES,
+  Sparkline,
+  axisProps,
+  compactCurrency,
+} from '../components/charts'
+import { formatCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth } from '../lib/format'
 
 const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
@@ -25,11 +64,8 @@ const ACCOUNT_TYPE_LABELS = {
   OTHER: 'Outra',
 }
 
-const CATEGORIES = ['Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
-const PAYMENT_METHOD_COLORS = {
-  cash: '#18181b',
-  credit: '#0284c7',
-}
+const HISTORY_MONTHS = 12
+const INVOICE_MONTHS = 6
 
 const getDaysRemainingInMonth = () => {
   const today = new Date()
@@ -61,16 +97,61 @@ const getPurchaseGroupKey = (expense) => {
   ].join('|')
 }
 
+// 'AAAA-MM' -> 'set/26'
+const shortMonth = (key) => {
+  const [year, month] = String(key).split('-').map(Number)
+  const name = new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+  return `${name}/${String(year).slice(2)}`
+}
+
+const isInvoicePayment = (transaction) => transaction.category?.startsWith('Pagamento Fatura')
+
+const percentChange = (current, previous) => {
+  if (!previous) return null
+  return ((current - previous) / Math.abs(previous)) * 100
+}
+
+// Gasto de consumo de um mes, por dia e por categoria: saidas da conta (menos
+// o pagamento de fatura, que ja e a soma das compras) + compras no cartao pelo
+// valor total da compra, na data da compra.
+function buildSpending(transactions, ccExpenses, key) {
+  const byDay = {}
+  const byCategory = {}
+  const add = (day, category, channel, amount) => {
+    byDay[day] = (byDay[day] || 0) + amount
+    const name = category || 'Outros'
+    if (!byCategory[name]) byCategory[name] = { cash: 0, credit: 0 }
+    byCategory[name][channel] += amount
+  }
+
+  transactions.forEach((transaction) => {
+    if (transaction.type !== 'EXPENSE' || isInvoicePayment(transaction)) return
+    if (String(transaction.date).slice(0, 7) !== key) return
+    add(Number(transaction.date.slice(8, 10)), transaction.category, 'cash', parseFloat(transaction.amount) || 0)
+  })
+
+  const purchases = {}
+  ccExpenses.forEach((expense) => {
+    if (String(expense.purchase_date || '').slice(0, 7) !== key) return
+    const groupKey = getPurchaseGroupKey(expense)
+    if (!purchases[groupKey]) {
+      purchases[groupKey] = { day: Number(expense.purchase_date.slice(8, 10)), category: expense.category, amount: 0 }
+    }
+    purchases[groupKey].amount += parseFloat(expense.amount) || 0
+  })
+  Object.values(purchases).forEach((purchase) => add(purchase.day, purchase.category, 'credit', purchase.amount))
+
+  const total = Object.values(byDay).reduce((acc, value) => acc + value, 0)
+  return { byDay, byCategory, total }
+}
+
 export default function Dashboard() {
   const [portfolio, setPortfolio] = useState(null)
   const [portfolioError, setPortfolioError] = useState('')
   const [dataError, setDataError] = useState('')
-  const [bankBalance, setBankBalance] = useState(0)
+  const [transactions, setTransactions] = useState([])
+  const [ccExpenses, setCcExpenses] = useState([])
   const [accounts, setAccounts] = useState([])
-  const [currentMonthInvoice, setCurrentMonthInvoice] = useState(0)
-  const [currentMonthInvoiceItems, setCurrentMonthInvoiceItems] = useState([])
-  const [expensesByCategory, setExpensesByCategory] = useState([])
-  const [installmentExpenses, setInstallmentExpenses] = useState([])
   const [isPayingCurrentInvoice, setIsPayingCurrentInvoice] = useState(false)
 
   useEffect(() => {
@@ -90,122 +171,203 @@ export default function Dashboard() {
       setPortfolio(EMPTY_PORTFOLIO)
     }
 
-    const today = new Date()
-    const currentMonth = today.getMonth() + 1
-    const currentYear = today.getFullYear()
-
-    let nextMonth = currentMonth + 1
-    let nextYear = currentYear
-    if (nextMonth > 12) {
-      nextMonth = 1
-      nextYear += 1
-    }
-
-    let transData = []
-    let ccData = []
-
     try {
-      const [transactions, creditExpenses, accountData] = await Promise.all([
+      // Todas as compras do cartao, nao so as abertas: o ritmo de gastos do mes
+      // passado precisa das compras que ja foram pagas.
+      const [transactionData, creditExpenses, accountData] = await Promise.all([
         transactionsApi.list(),
-        ccExpensesApi.list({ status: 'OPEN' }),
+        ccExpensesApi.list(),
         accountsApi.list(),
       ])
-      transData = transactions || []
-      ccData = creditExpenses || []
+      setTransactions(transactionData || [])
+      setCcExpenses(creditExpenses || [])
       setAccounts(accountData || [])
     } catch (error) {
       console.warn('Erro ao buscar movimentações:', error)
       setDataError(error.message || 'Não foi possível carregar movimentações e faturas.')
-      setExpensesByCategory([])
-      setCurrentMonthInvoiceItems([])
-      setCurrentMonthInvoice(0)
-      setInstallmentExpenses([])
-      return
+      setTransactions([])
+      setCcExpenses([])
     }
-
-    const categoryTotals = {}
-    CATEGORIES.forEach((category) => {
-      categoryTotals[category] = { cash: 0, credit: 0 }
-    })
-
-    // TRANSFER nao entra: ela so move dinheiro entre contas proprias, o
-    // consolidado nao muda. O saldo de cada conta vem de /api/accounts.
-    const calculatedBalance = transData.reduce((acc, curr) => {
-      if (curr.type === 'TRANSFER') return acc
-      return curr.type === 'INCOME'
-        ? acc + parseFloat(curr.amount)
-        : acc - parseFloat(curr.amount)
-    }, 0)
-    setBankBalance(calculatedBalance)
-
-    const currentMonthCashExpenses = transData.filter((transaction) => {
-      if (transaction.type !== 'EXPENSE') return false
-      if (transaction.category?.startsWith('Pagamento Fatura ')) return false
-
-      const [year, month] = transaction.date.split('-')
-      return parseInt(month) === currentMonth && parseInt(year) === currentYear
-    })
-
-    currentMonthCashExpenses.forEach((transaction) => {
-      const category = CATEGORIES.includes(transaction.category) ? transaction.category : 'Outros'
-      categoryTotals[category].cash += parseFloat(transaction.amount)
-    })
-
-    const currentMonthPurchases = ccData
-      .filter((expense) => {
-        if (!expense.purchase_date) return false
-        const [year, month] = expense.purchase_date.split('-')
-        return parseInt(month) === currentMonth && parseInt(year) === currentYear
-      })
-      .reduce((acc, expense) => {
-        const key = getPurchaseGroupKey(expense)
-        if (!acc[key]) {
-          acc[key] = {
-            category: CATEGORIES.includes(expense.category) ? expense.category : 'Outros',
-            totalPurchaseAmount: 0,
-          }
-        }
-        acc[key].totalPurchaseAmount += parseFloat(expense.amount)
-        return acc
-      }, {})
-
-    Object.values(currentMonthPurchases).forEach((purchase) => {
-      categoryTotals[purchase.category].credit += purchase.totalPurchaseAmount
-    })
-
-    const currentMonthItems = ccData.filter((expense) => expense.invoice_month === nextMonth && expense.invoice_year === nextYear)
-    const currentMonthTotal = currentMonthItems.reduce((acc, curr) => acc + parseFloat(curr.amount), 0)
-
-    const openInstallments = ccData
-      .map((expense) => {
-        const installment = parseInstallmentInfo(expense.installment_info)
-        return {
-          ...expense,
-          installmentCurrent: installment.current,
-          installmentTotal: installment.total,
-        }
-      })
-      .filter((expense) => expense.installmentTotal > 1)
-
-    setCurrentMonthInvoiceItems(currentMonthItems)
-    setCurrentMonthInvoice(currentMonthTotal)
-    setInstallmentExpenses(openInstallments)
-
-    const chartDataExpenses = Object.keys(categoryTotals)
-      .map((category) => ({
-        name: category,
-        cash: Number(categoryTotals[category].cash.toFixed(2)),
-        credit: Number(categoryTotals[category].credit.toFixed(2)),
-        value: Number((categoryTotals[category].cash + categoryTotals[category].credit).toFixed(2)),
-      }))
-      .filter((item) => item.value > 0)
-      .sort((a, b) => b.value - a.value)
-
-    setExpensesByCategory(chartDataExpenses)
   }
 
+  const today = new Date()
+  const currentKey = monthKey(today)
+  const previousKey = shiftMonth(currentKey, -1)
+  const nextKey = shiftMonth(currentKey, 1)
+
+  const openCcExpenses = useMemo(() => ccExpenses.filter((expense) => expense.status === 'OPEN'), [ccExpenses])
+
+  // TRANSFER nao entra: ela so move dinheiro entre contas proprias, o
+  // consolidado nao muda. O saldo de cada conta vem de /api/accounts.
+  const bankBalance = useMemo(() => transactions.reduce((acc, curr) => {
+    if (curr.type === 'TRANSFER') return acc
+    return curr.type === 'INCOME' ? acc + parseFloat(curr.amount) : acc - parseFloat(curr.amount)
+  }, 0), [transactions])
+
+  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses.
+  const monthlyHistory = useMemo(() => {
+    const keys = Array.from({ length: HISTORY_MONTHS }, (_, index) => shiftMonth(currentKey, index - (HISTORY_MONTHS - 1)))
+    const firstKey = keys[0]
+    const byKey = Object.fromEntries(keys.map((key) => [key, { income: 0, expense: 0 }]))
+    let openingBalance = 0
+
+    transactions.forEach((transaction) => {
+      if (transaction.type === 'TRANSFER') return
+      const amount = parseFloat(transaction.amount) || 0
+      const signed = transaction.type === 'INCOME' ? amount : -amount
+      const key = String(transaction.date).slice(0, 7)
+      if (key < firstKey) {
+        openingBalance += signed
+        return
+      }
+      if (!byKey[key]) return
+      if (transaction.type === 'INCOME') byKey[key].income += amount
+      else byKey[key].expense += amount
+    })
+
+    let running = openingBalance
+    return keys.map((key) => {
+      const { income, expense } = byKey[key]
+      running += income - expense
+      return {
+        key,
+        label: shortMonth(key),
+        income: Number(income.toFixed(2)),
+        // Desenhada abaixo do zero: a posicao diz "saida" sem depender da cor.
+        expense: -Number(expense.toFixed(2)),
+        net: Number((income - expense).toFixed(2)),
+        balance: Number(running.toFixed(2)),
+      }
+    })
+  }, [transactions, currentKey])
+
+  const flowSummary = useMemo(() => {
+    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0)
+    const income = monthlyHistory.reduce((acc, item) => acc + item.income, 0)
+    const expense = monthlyHistory.reduce((acc, item) => acc - item.expense, 0)
+    const months = Math.max(active.length, 1)
+    return {
+      avgIncome: income / months,
+      avgExpense: expense / months,
+      savingsRate: income > 0 ? ((income - expense) / income) * 100 : null,
+      hasData: active.length > 0,
+    }
+  }, [monthlyHistory])
+
+  const currentSpending = useMemo(() => buildSpending(transactions, ccExpenses, currentKey), [transactions, ccExpenses, currentKey])
+  const previousSpending = useMemo(() => buildSpending(transactions, ccExpenses, previousKey), [transactions, ccExpenses, previousKey])
+
+  // Acumulado dia a dia: este mes (ate hoje) contra o mes passado inteiro.
+  const spendingPace = useMemo(() => {
+    const daysInCurrent = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+    const daysInPrevious = new Date(today.getFullYear(), today.getMonth(), 0).getDate()
+    const todayDay = today.getDate()
+    let current = 0
+    let previous = 0
+    const rows = []
+    for (let day = 1; day <= Math.max(daysInCurrent, daysInPrevious); day += 1) {
+      current += currentSpending.byDay[day] || 0
+      previous += previousSpending.byDay[day] || 0
+      rows.push({
+        day,
+        current: day <= todayDay ? Number(current.toFixed(2)) : null,
+        previous: day <= daysInPrevious ? Number(previous.toFixed(2)) : null,
+      })
+    }
+    const previousAtSameDay = rows[Math.min(todayDay, daysInPrevious) - 1]?.previous || 0
+    return { rows, todayDay, previousAtSameDay }
+  }, [currentSpending, previousSpending])
+
+  const categoryBreakdown = useMemo(() => {
+    return Object.entries(currentSpending.byCategory)
+      .map(([name, totals]) => {
+        const value = totals.cash + totals.credit
+        const previous = previousSpending.byCategory[name]
+        const previousValue = previous ? previous.cash + previous.credit : 0
+        return {
+          name,
+          value: Number(value.toFixed(2)),
+          cash: totals.cash,
+          credit: totals.credit,
+          delta: percentChange(value, previousValue),
+        }
+      })
+      .filter((item) => item.value > 0)
+  }, [currentSpending, previousSpending])
+
+  const nextInvoiceItems = useMemo(() => openCcExpenses.filter((expense) => {
+    const [year, month] = nextKey.split('-').map(Number)
+    return expense.invoice_month === month && expense.invoice_year === year
+  }), [openCcExpenses, nextKey])
+
+  const currentMonthInvoice = useMemo(
+    () => nextInvoiceItems.reduce((acc, curr) => acc + parseFloat(curr.amount), 0),
+    [nextInvoiceItems]
+  )
+
+  // Quanto ja esta comprometido nas proximas faturas, por mes de fatura.
+  const invoiceProjection = useMemo(() => {
+    const keys = Array.from({ length: INVOICE_MONTHS }, (_, index) => shiftMonth(nextKey, index))
+    const byKey = Object.fromEntries(keys.map((key) => [key, 0]))
+    openCcExpenses.forEach((expense) => {
+      const key = `${expense.invoice_year}-${String(expense.invoice_month).padStart(2, '0')}`
+      if (key in byKey) byKey[key] += parseFloat(expense.amount) || 0
+    })
+    return keys.map((key) => ({ key, label: shortMonth(key), value: Number(byKey[key].toFixed(2)) }))
+  }, [openCcExpenses, nextKey])
+
+  const groupedInstallmentExpenses = useMemo(() => {
+    const grouped = openCcExpenses.reduce((acc, expense) => {
+      const installment = parseInstallmentInfo(expense.installment_info)
+      if (installment.total <= 1) return acc
+
+      const key = [
+        expense.card_id || 'sem-cartao',
+        expense.description || 'sem-descricao',
+        expense.purchase_date || 'sem-data',
+        expense.category || 'sem-categoria',
+      ].join('|')
+
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          description: expense.description,
+          cardName: expense.card_name || expense.credit_cards?.name || 'Cartão',
+          installmentAmount: parseFloat(expense.amount),
+          remainingInstallments: 0,
+          totalInstallments: installment.total,
+          nextInvoiceMonth: expense.invoice_month,
+          nextInvoiceYear: expense.invoice_year,
+        }
+      }
+
+      acc[key].remainingInstallments += 1
+
+      if (
+        expense.invoice_year < acc[key].nextInvoiceYear ||
+        (expense.invoice_year === acc[key].nextInvoiceYear && expense.invoice_month < acc[key].nextInvoiceMonth)
+      ) {
+        acc[key].nextInvoiceMonth = expense.invoice_month
+        acc[key].nextInvoiceYear = expense.invoice_year
+      }
+
+      return acc
+    }, {})
+
+    return Object.values(grouped).sort((a, b) => {
+      if (a.nextInvoiceYear !== b.nextInvoiceYear) return a.nextInvoiceYear - b.nextInvoiceYear
+      if (a.nextInvoiceMonth !== b.nextInvoiceMonth) return a.nextInvoiceMonth - b.nextInvoiceMonth
+      return String(a.description).localeCompare(String(b.description))
+    })
+  }, [openCcExpenses])
+
+  const installmentTotal = groupedInstallmentExpenses.reduce(
+    (acc, item) => acc + item.installmentAmount * item.remainingInstallments,
+    0
+  )
+
   const handlePayCurrentMonthInvoice = async () => {
-    if (currentMonthInvoiceItems.length === 0 || currentMonthInvoice <= 0) return
+    if (nextInvoiceItems.length === 0 || currentMonthInvoice <= 0) return
 
     const confirmed = window.confirm(`Deseja pagar a fatura total deste mês no valor de ${formatCurrency(currentMonthInvoice)}?`)
     if (!confirmed) return
@@ -221,7 +383,7 @@ export default function Dashboard() {
         description: 'Baixa da fatura total do mês pela dashboard',
       })
 
-      const idsToUpdate = currentMonthInvoiceItems.map((item) => item.id)
+      const idsToUpdate = nextInvoiceItems.map((item) => item.id)
 
       if (idsToUpdate.length > 0) {
         await ccExpensesApi.updateStatus(idsToUpdate, 'PAID')
@@ -236,78 +398,17 @@ export default function Dashboard() {
     }
   }
 
+  if (!portfolio) {
+    return <DashboardSkeleton />
+  }
+
   const investmentsNetBalance = portfolio?.current_net_balance ?? portfolio?.current_balance ?? 0
   const totalWealth = (bankBalance || 0) + investmentsNetBalance
   const daysRemainingInMonth = getDaysRemainingInMonth()
   const dailyAvailable = (bankBalance - currentMonthInvoice) / daysRemainingInMonth
-
-  const expenseTotals = useMemo(() => {
-    return expensesByCategory.reduce((acc, item) => {
-      acc.cash += item.cash
-      acc.credit += item.credit
-      acc.total += item.value
-      return acc
-    }, { cash: 0, credit: 0, total: 0 })
-  }, [expensesByCategory])
-
-  const groupedInstallmentExpenses = useMemo(() => {
-    const grouped = installmentExpenses.reduce((acc, item) => {
-      const key = [
-        item.card_id || 'sem-cartao',
-        item.description || 'sem-descricao',
-        item.purchase_date || 'sem-data',
-        item.category || 'sem-categoria',
-      ].join('|')
-
-      if (!acc[key]) {
-        acc[key] = {
-          key,
-          description: item.description,
-          cardName: item.credit_cards?.name || 'Cartão',
-          purchaseDate: item.purchase_date,
-          category: item.category || 'Outros',
-          installmentAmount: parseFloat(item.amount),
-          remainingInstallments: 0,
-          totalInstallments: item.installmentTotal,
-          nextInvoiceMonth: item.invoice_month,
-          nextInvoiceYear: item.invoice_year,
-        }
-      }
-
-      acc[key].remainingInstallments += 1
-
-      if (
-        item.invoice_year < acc[key].nextInvoiceYear ||
-        (item.invoice_year === acc[key].nextInvoiceYear && item.invoice_month < acc[key].nextInvoiceMonth)
-      ) {
-        acc[key].nextInvoiceMonth = item.invoice_month
-        acc[key].nextInvoiceYear = item.invoice_year
-      }
-
-      return acc
-    }, {})
-
-    return Object.values(grouped).sort((a, b) => {
-      if (a.nextInvoiceYear !== b.nextInvoiceYear) return a.nextInvoiceYear - b.nextInvoiceYear
-      if (a.nextInvoiceMonth !== b.nextInvoiceMonth) return a.nextInvoiceMonth - b.nextInvoiceMonth
-      return a.description.localeCompare(b.description)
-    })
-  }, [installmentExpenses])
-
-  const installmentSummary = useMemo(() => {
-    return groupedInstallmentExpenses.reduce((acc, item) => {
-      acc.total += item.installmentAmount * item.remainingInstallments
-      return acc
-    }, { total: 0 })
-  }, [groupedInstallmentExpenses])
-
-  if (!portfolio) {
-    return (
-      <Panel className="p-6">
-        <div className="h-28 animate-pulse rounded-lg bg-zinc-100" />
-      </Panel>
-    )
-  }
+  const previousMonthBalance = monthlyHistory[monthlyHistory.length - 2]?.balance
+  const spendingVsLastMonth = percentChange(currentSpending.total, spendingPace.previousAtSameDay)
+  const maxAccountBalance = Math.max(...accounts.map((account) => Math.abs(Number(account.balance) || 0)), 1)
 
   return (
     <div className="space-y-6">
@@ -315,6 +416,7 @@ export default function Dashboard() {
         eyebrow="Painel"
         title="Visão geral"
         description="Patrimônio, saldo disponível, despesas do mês e compromissos em aberto."
+        meta={<Badge tone="success">{monthLabel(currentKey)}</Badge>}
       />
 
       {portfolioError ? (
@@ -325,27 +427,33 @@ export default function Dashboard() {
         <AlertMessage tone="danger" message={`Movimentações indisponíveis no momento. Detalhe: ${dataError}`} />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Landmark}
           tone="dark"
           title="Patrimônio total"
-          value={formatCurrency(totalWealth)}
+          amount={totalWealth}
+          format={formatCurrency}
           subtitle="Conta corrente + investimentos"
+          chart={<WealthSplit cash={bankBalance} investments={investmentsNetBalance} />}
         />
         <MetricCard
           icon={Wallet}
           tone={bankBalance >= 0 ? 'success' : 'danger'}
           title="Saldo em conta"
-          value={formatCurrency(bankBalance)}
+          amount={bankBalance}
+          format={formatCurrency}
           valueClassName={bankBalance >= 0 ? 'text-zinc-950' : 'text-rose-600'}
-          subtitle="Saldo real calculado"
+          delta={<DeltaBadge value={percentChange(bankBalance, previousMonthBalance)} />}
+          subtitle="vs. fim do mês passado"
+          chart={<Sparkline data={monthlyHistory} dataKey="balance" color={SERIES[0]} />}
         />
         <MetricCard
           icon={PiggyBank}
           tone="info"
           title="Investimentos"
-          value={formatCurrency(investmentsNetBalance)}
+          amount={investmentsNetBalance}
+          format={formatCurrency}
           valueClassName="text-sky-700"
           subtitle="Saldo líquido estimado"
         />
@@ -353,181 +461,326 @@ export default function Dashboard() {
           icon={CalendarDays}
           tone={dailyAvailable >= 0 ? 'success' : 'danger'}
           title="Disponível por dia"
-          value={formatCurrency(dailyAvailable)}
+          amount={dailyAvailable}
+          format={formatCurrency}
           valueClassName={dailyAvailable >= 0 ? 'text-emerald-700' : 'text-rose-600'}
           subtitle={`${daysRemainingInMonth} dia(s) restantes no mês`}
+          footer={(
+            <MonthProgress day={today.getDate()} daysLeft={daysRemainingInMonth} />
+          )}
         />
       </div>
 
-      {accounts.length > 0 ? (
-        <Panel>
-          <PanelHeader
-            title="Saldo por conta"
-            description="O consolidado acima e a soma destas contas."
-            actions={<Badge>{accounts.length} conta(s)</Badge>}
-          />
-          <div className="grid grid-cols-1 divide-y divide-zinc-100 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4">
-            {accounts.map((account) => (
-              <div key={account.id} className="px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  {ACCOUNT_TYPE_LABELS[account.type] || account.type}
-                </p>
-                <p className="mt-1 font-medium text-zinc-900">{account.name}</p>
-                <p className={cx('mt-1 text-lg font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
-                  {formatCurrency(account.balance)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+      <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
         <Panel className="xl:col-span-3">
           <PanelHeader
-            title="Despesas por categoria"
-            description="Comparativo entre conta corrente e cartão no mês atual."
+            title="Fluxo de caixa"
+            description="Entradas e saídas da conta nos últimos 12 meses. Transferências entre contas não entram."
             actions={(
-              <div className="text-right">
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total</p>
-                <p className="text-lg font-bold text-zinc-950">{formatCurrency(expenseTotals.total)}</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <LegendDot color={FLOW.income} label="Entradas" />
+                <LegendDot color={FLOW.expense} label="Saídas" />
+                <LegendDot color={FLOW.net} label="Resultado" shape="line" />
               </div>
             )}
           />
-
           <div className="p-5">
-            {expensesByCategory.length > 0 ? (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <InlineStat label="Conta corrente" value={formatCurrency(expenseTotals.cash)} tone="neutral" />
-                  <InlineStat label="Cartão de crédito" value={formatCurrency(expenseTotals.credit)} tone="info" />
+            {flowSummary.hasData ? (
+              <>
+                <div className="mb-4 grid grid-cols-3 gap-3">
+                  <InlineStat label="Média de entradas" value={formatCurrency(flowSummary.avgIncome)} />
+                  <InlineStat label="Média de saídas" value={formatCurrency(flowSummary.avgExpense)} />
+                  <InlineStat
+                    label="Taxa de poupança"
+                    value={flowSummary.savingsRate === null ? '—' : `${flowSummary.savingsRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
+                    valueClassName={flowSummary.savingsRate !== null && flowSummary.savingsRate < 0 ? 'text-rose-600' : 'text-emerald-700'}
+                  />
                 </div>
-
-                <div className="h-80">
+                <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={expensesByCategory} layout="vertical" margin={{ top: 8, right: 18, left: 8, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e4e4e7" />
-                      <XAxis type="number" tickFormatter={(value) => `${Math.round(value)}`} tick={{ fill: '#71717a', fontSize: 12 }} />
-                      <YAxis dataKey="name" type="category" width={96} tick={{ fill: '#52525b', fontSize: 12 }} />
+                    <ComposedChart data={monthlyHistory} stackOffset="sign" margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid vertical={false} stroke={CHART.grid} />
+                      <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" />
+                      <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                      <ReferenceLine y={0} stroke={CHART.axis} />
                       <Tooltip
-                        formatter={(value, name) => [formatCurrency(value), name === 'cash' ? 'Conta corrente' : 'Cartão']}
-                        labelFormatter={(label) => `Categoria: ${label}`}
-                        contentStyle={{ borderRadius: 8, borderColor: '#d4d4d8' }}
+                        cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                        content={(
+                          <ChartTooltip
+                            absolute
+                            names={{ income: 'Entradas', expense: 'Saídas', net: 'Resultado' }}
+                            labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
+                          />
+                        )}
                       />
-                      <Legend formatter={(value) => value === 'cash' ? 'Conta corrente' : 'Cartão'} />
-                      <Bar dataKey="cash" stackId="expenses" fill={PAYMENT_METHOD_COLORS.cash} radius={[4, 0, 0, 4]} />
-                      <Bar dataKey="credit" stackId="expenses" fill={PAYMENT_METHOD_COLORS.credit} radius={[0, 4, 4, 0]} />
-                    </BarChart>
+                      <Bar dataKey="income" stackId="flow" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                      <Bar dataKey="expense" stackId="flow" fill={FLOW.expense} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                      <Line
+                        type="monotone"
+                        dataKey="net"
+                        stroke={FLOW.net}
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: FLOW.net, strokeWidth: 2, stroke: '#fff' }}
+                        activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
+                        {...ANIMATION}
+                        animationBegin={300}
+                      />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
+              </>
+            ) : (
+              <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver entradas ou saídas lançadas." />
+            )}
+          </div>
+        </Panel>
 
-                <div className="space-y-3">
-                  {expensesByCategory.map((item) => {
-                    const percentage = expenseTotals.total > 0 ? (item.value / expenseTotals.total) * 100 : 0
-                    return (
-                      <div key={item.name} className="rounded-lg border border-zinc-200 p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <p className="font-semibold text-zinc-900">{item.name}</p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {item.cash > 0 ? <Badge>Conta: {formatCurrency(item.cash)}</Badge> : null}
-                              {item.credit > 0 ? <Badge tone="info">Cartão: {formatCurrency(item.credit)}</Badge> : null}
-                            </div>
-                          </div>
-                          <p className="whitespace-nowrap text-base font-bold text-zinc-950">{formatCurrency(item.value)}</p>
-                        </div>
-                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
-                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(percentage, 100)}%` }} />
-                        </div>
-                      </div>
-                    )
-                  })}
+        <Panel className="xl:col-span-2">
+          <PanelHeader
+            title="Evolução do saldo"
+            description="Saldo consolidado no fim de cada mês."
+            actions={<Badge tone={bankBalance >= 0 ? 'success' : 'danger'}>{formatCurrency(bankBalance)}</Badge>}
+          />
+          <div className="p-5">
+            {flowSummary.hasData ? (
+              <div className="h-[22rem]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyHistory} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="balanceFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={SERIES[0]} stopOpacity={0.2} />
+                        <stop offset="100%" stopColor={SERIES[0]} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} stroke={CHART.grid} />
+                    <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={16} />
+                    <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                    <ReferenceLine y={0} stroke={CHART.axis} />
+                    <Tooltip
+                      cursor={{ stroke: CHART.axis }}
+                      content={(
+                        <ChartTooltip
+                          names={{ balance: 'Saldo' }}
+                          labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
+                        />
+                      )}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="balance"
+                      stroke={SERIES[0]}
+                      strokeWidth={2}
+                      fill="url(#balanceFill)"
+                      dot={false}
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
+                      {...ANIMATION}
+                      animationDuration={1200}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <EmptyState icon={LineChartIcon} title="Sem histórico" message="O saldo mês a mês aparece depois dos primeiros lançamentos." />
+            )}
+          </div>
+        </Panel>
+      </div>
+
+      <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
+        <Panel className="xl:col-span-3">
+          <PanelHeader
+            title="Ritmo de gastos"
+            description="Gasto acumulado dia a dia: conta corrente e compras no cartão, contra o mês passado."
+            actions={(
+              <div className="text-right">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Até hoje</p>
+                <div className="flex items-center justify-end gap-2">
+                  <DeltaBadge value={spendingVsLastMonth} inverse />
+                  <p className="text-lg font-bold tabular text-zinc-950">{formatCurrency(currentSpending.total)}</p>
                 </div>
+              </div>
+            )}
+          />
+          <div className="p-5">
+            {currentSpending.total > 0 || previousSpending.total > 0 ? (
+              <>
+                <div className="mb-3 flex flex-wrap gap-4">
+                  <LegendDot color={SERIES[0]} label={`Este mês (${shortMonth(currentKey)})`} shape="line" />
+                  <LegendDot color="#a1a1aa" label={`Mês passado (${shortMonth(previousKey)})`} shape="line" />
+                </div>
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={spendingPace.rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <CartesianGrid vertical={false} stroke={CHART.grid} />
+                      <XAxis dataKey="day" {...axisProps} interval={4} />
+                      <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                      <ReferenceLine
+                        x={spendingPace.todayDay}
+                        stroke={CHART.axis}
+                        label={{ value: 'hoje', position: 'insideTopRight', fill: CHART.tick, fontSize: 11 }}
+                      />
+                      <Tooltip
+                        cursor={{ stroke: CHART.axis }}
+                        content={(
+                          <ChartTooltip
+                            names={{ current: 'Este mês', previous: 'Mês passado' }}
+                            labelFormatter={(day) => `Dia ${day}`}
+                          />
+                        )}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="previous"
+                        stroke="#a1a1aa"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
+                        connectNulls={false}
+                        {...ANIMATION}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="current"
+                        stroke={SERIES[0]}
+                        strokeWidth={2.5}
+                        dot={false}
+                        activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
+                        connectNulls={false}
+                        {...ANIMATION}
+                        animationDuration={1200}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            ) : (
+              <EmptyState icon={Receipt} title="Nenhum gasto registrado" message="O ritmo aparece com os primeiros gastos deste mês ou do anterior." />
+            )}
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-2">
+          <PanelHeader
+            title="Despesas por categoria"
+            description="Mês atual. A seta compara com o mês passado inteiro."
+          />
+          <div className="p-5">
+            {categoryBreakdown.length > 0 ? (
+              <div className="space-y-5">
+                <DonutChart data={categoryBreakdown} centerLabel="No mês" legend={false} height={200} />
+                <CategoryList items={categoryBreakdown} />
               </div>
             ) : (
               <EmptyState
                 icon={Receipt}
                 title="Nenhuma despesa no mês"
-                message="As categorias aparecem assim que houver movimentações ou compras abertas."
+                message="As categorias aparecem assim que houver movimentações ou compras no cartão."
               />
             )}
           </div>
         </Panel>
+      </div>
 
-        <div className="space-y-6 xl:col-span-2">
-          <Panel>
-            <PanelHeader
-              title="Parcelamentos abertos"
-              description="Compras agrupadas por cartão e compra original."
-              actions={<Badge tone="warning">{formatCurrency(installmentSummary.total)}</Badge>}
-            />
+      {accounts.length > 0 ? (
+        <Panel className="animate-fade-up">
+          <PanelHeader
+            title="Saldo por conta"
+            description="O consolidado acima é a soma destas contas."
+            actions={<Badge>{accounts.length} conta(s)</Badge>}
+          />
+          <div className="stagger grid grid-cols-1 gap-px bg-zinc-100 sm:grid-cols-2 lg:grid-cols-4">
+            {accounts.map((account) => {
+              const balance = Number(account.balance) || 0
+              return (
+                <div key={account.id} className="bg-white px-5 py-4 transition-colors hover:bg-zinc-50/70">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    {ACCOUNT_TYPE_LABELS[account.type] || account.type}
+                  </p>
+                  <p className="mt-1 font-medium text-zinc-900">{account.name}</p>
+                  <p className={cx('mt-1 text-lg font-bold tabular', balance >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
+                    {formatCurrency(balance)}
+                  </p>
+                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-100">
+                    <div
+                      className={cx('bar-grow h-full rounded-full', balance >= 0 ? 'bg-emerald-500' : 'bg-rose-500')}
+                      style={{ width: `${(Math.abs(balance) / maxAccountBalance) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Panel>
+      ) : null}
 
-            <div className="p-5">
-              {groupedInstallmentExpenses.length > 0 ? (
-                <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
-                  {groupedInstallmentExpenses.map((expense) => (
-                    <div key={expense.key} className="rounded-lg border border-zinc-200 p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-zinc-900">{expense.description}</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <Badge tone="info">{expense.cardName}</Badge>
-                            <Badge>{expense.remainingInstallments}x de {formatCurrency(expense.installmentAmount)}</Badge>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="whitespace-nowrap font-bold text-zinc-950">
-                            {formatCurrency(expense.installmentAmount * expense.remainingInstallments)}
-                          </p>
-                          <p className="mt-1 text-xs font-medium uppercase tracking-wide text-zinc-400">Restante</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+      <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
+        <Panel className="xl:col-span-3">
+          <PanelHeader
+            title="Próximas faturas"
+            description="O que já está comprometido no cartão para os próximos meses, parcelas incluídas."
+            actions={(
+              <p className={cx('text-xl font-bold tabular', currentMonthInvoice > 0 ? 'text-rose-600' : 'text-emerald-700')}>
+                {formatCurrency(currentMonthInvoice)}
+              </p>
+            )}
+          />
+
+          <div className="grid grid-cols-1 gap-6 p-5 lg:grid-cols-2">
+            <div>
+              {invoiceProjection.some((item) => item.value > 0) ? (
+                <div className="h-60">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={invoiceProjection} margin={{ top: 20, right: 4, left: 0, bottom: 0 }}>
+                      <CartesianGrid vertical={false} stroke={CHART.grid} />
+                      <XAxis dataKey="label" {...axisProps} />
+                      <YAxis tickFormatter={compactCurrency} {...axisProps} width={70} />
+                      <Tooltip
+                        cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                        content={(
+                          <ChartTooltip
+                            names={{ value: 'Fatura' }}
+                            labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
+                          />
+                        )}
+                      />
+                      <Bar dataKey="value" maxBarSize={28} radius={[4, 4, 0, 0]} {...ANIMATION}>
+                        {invoiceProjection.map((item, index) => (
+                          <Cell key={item.key} fill={index === 0 ? SERIES[1] : '#f6c3ad'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               ) : (
-                <EmptyState
-                  icon={ListChecks}
-                  title="Sem parcelamentos"
-                  message="Compras parceladas abertas aparecerão neste painel."
-                />
+                <EmptyState icon={CreditCard} title="Nada comprometido" message="Sem compras abertas nos próximos meses." className="h-60 min-h-0" />
               )}
+              <p className="mt-2 text-xs text-zinc-500">
+                Em destaque, a fatura de {monthLabel(nextKey)}.
+              </p>
             </div>
-          </Panel>
 
-          <Panel>
-            <PanelHeader
-              title="Próxima fatura"
-              description="Total aberto com vencimento no próximo ciclo."
-              actions={(
-                <p className={cx('text-xl font-bold', currentMonthInvoice > 0 ? 'text-rose-600' : 'text-emerald-700')}>
-                  {formatCurrency(currentMonthInvoice)}
-                </p>
-              )}
-            />
-
-            <div className="p-5">
+            <div className="flex flex-col">
               {currentMonthInvoice > 0 ? (
-                <div className="space-y-4">
+                <div className="flex flex-1 flex-col gap-4">
                   <div className="flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                     <CreditCard className="mt-0.5 h-4 w-4 shrink-0" />
                     <div>
-                      <p className="font-semibold">{currentMonthInvoiceItems.length} lançamento(s) em aberto</p>
+                      <p className="font-semibold">{nextInvoiceItems.length} lançamento(s) em aberto</p>
                       <p className="mt-1 text-rose-600">O pagamento cria uma saída bancária e baixa os itens da fatura.</p>
                     </div>
                   </div>
 
-                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
-                    {currentMonthInvoiceItems.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2.5">
+                  <div className="max-h-44 flex-1 space-y-2 overflow-y-auto pr-1">
+                    {nextInvoiceItems.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2.5 transition-colors hover:bg-zinc-50">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-zinc-900">{item.description}</p>
                           <p className="mt-0.5 text-xs text-zinc-500">
-                            {item.credit_cards?.name || 'Cartão'}
+                            {item.card_name || item.credit_cards?.name || 'Cartão'}
                             {item.installment_info && item.installment_info !== '1/1' ? ` • ${item.installment_info}` : ''}
                           </p>
                         </div>
-                        <span className="whitespace-nowrap text-sm font-bold text-zinc-950">
+                        <span className="whitespace-nowrap text-sm font-bold tabular text-zinc-950">
                           {formatCurrency(item.amount)}
                         </span>
                       </div>
@@ -549,12 +802,156 @@ export default function Dashboard() {
                   icon={CheckCircle2}
                   title="Nenhuma fatura aberta"
                   message="Não há lançamentos previstos para o próximo ciclo."
-                  className="min-h-40"
+                  className="h-full min-h-40"
                 />
               )}
             </div>
-          </Panel>
-        </div>
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-2">
+          <PanelHeader
+            title="Parcelamentos abertos"
+            description="Compras agrupadas por cartão e compra original."
+            actions={<Badge tone="warning">{formatCurrency(installmentTotal)}</Badge>}
+          />
+
+          <div className="p-5">
+            {groupedInstallmentExpenses.length > 0 ? (
+              <div className="stagger max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                {groupedInstallmentExpenses.map((expense) => {
+                  const paid = expense.totalInstallments - expense.remainingInstallments
+                  const progress = expense.totalInstallments > 0 ? (paid / expense.totalInstallments) * 100 : 0
+                  return (
+                    <div key={expense.key} className="rounded-lg border border-zinc-200 p-4 transition hover:border-zinc-300 hover:shadow-card">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-zinc-900">{expense.description}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Badge tone="info">{expense.cardName}</Badge>
+                            <Badge>{expense.remainingInstallments}x de {formatCurrency(expense.installmentAmount)}</Badge>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="whitespace-nowrap font-bold tabular text-zinc-950">
+                            {formatCurrency(expense.installmentAmount * expense.remainingInstallments)}
+                          </p>
+                          <p className="mt-1 text-xs font-medium uppercase tracking-wide text-zinc-400">Restante</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100">
+                          <div className="bar-grow h-full rounded-full bg-amber-500" style={{ width: `${progress}%` }} />
+                        </div>
+                        <span className="text-xs font-semibold tabular text-zinc-500">
+                          {paid}/{expense.totalInstallments} pagas
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState
+                icon={ListChecks}
+                title="Sem parcelamentos"
+                message="Compras parceladas abertas aparecerão neste painel."
+              />
+            )}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  )
+}
+
+// Barra fina conta x investimentos dentro do card de patrimonio.
+function WealthSplit({ cash, investments }) {
+  const positiveCash = Math.max(cash, 0)
+  const positiveInvestments = Math.max(investments, 0)
+  const total = positiveCash + positiveInvestments
+  if (total <= 0) return null
+  const cashShare = (positiveCash / total) * 100
+
+  return (
+    <div className="flex h-full flex-col justify-end gap-2 px-1">
+      <div className="flex h-2 gap-0.5 overflow-hidden rounded-full">
+        <div className="bar-grow h-full rounded-l-full" style={{ width: `${cashShare}%`, backgroundColor: SERIES[0] }} />
+        <div className="bar-grow h-full flex-1 rounded-r-full" style={{ backgroundColor: SERIES[2], animationDelay: '120ms' }} />
+      </div>
+      <div className="flex justify-between text-xs">
+        <LegendDot color={SERIES[0]} label={`Conta ${cashShare.toFixed(0)}%`} />
+        <LegendDot color={SERIES[2]} label={`Investido ${(100 - cashShare).toFixed(0)}%`} />
+      </div>
+    </div>
+  )
+}
+
+function MonthProgress({ day, daysLeft }) {
+  const total = day + daysLeft - 1
+  const progress = (day / total) * 100
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100">
+        <div className="bar-grow h-full rounded-full bg-zinc-800" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="text-xs font-semibold tabular text-zinc-500">{progress.toFixed(0)}% do mês</span>
+    </div>
+  )
+}
+
+function CategoryList({ items }) {
+  const sorted = [...items].sort((a, b) => b.value - a.value)
+  const total = sorted.reduce((acc, item) => acc + item.value, 0)
+  // Mesma ordem de cor da rosca: a cor segue o ranking do mes, e "Outros"
+  // agrupa a partir da sexta categoria.
+  return (
+    <ul className="stagger space-y-2">
+      {sorted.map((item, index) => {
+        const color = index < 5 || sorted.length <= 6 ? SERIES[index] : '#a1a1aa'
+        const cashShare = item.value > 0 ? (item.cash / item.value) * 100 : 0
+        return (
+          <li key={item.name} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-zinc-50">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="flex min-w-0 items-center gap-2 font-medium text-zinc-700">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                <span className="truncate">{item.name}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <DeltaBadge value={item.delta} inverse />
+                <span className="font-semibold tabular text-zinc-950">{formatCurrency(item.value)}</span>
+              </span>
+            </div>
+            <div className="mt-1.5 flex items-center gap-2">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-100">
+                <div className="bar-grow h-full rounded-full" style={{ width: `${total > 0 ? (item.value / total) * 100 : 0}%`, backgroundColor: color }} />
+              </div>
+              <span className="w-24 text-right text-[11px] text-zinc-400">
+                {item.credit > 0 && item.cash > 0
+                  ? `${cashShare.toFixed(0)}% conta`
+                  : item.credit > 0 ? 'cartão' : 'conta'}
+              </span>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-8 w-56" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-36" />)}
+      </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+        <Skeleton className="h-96 xl:col-span-3" />
+        <Skeleton className="h-96 xl:col-span-2" />
       </div>
     </div>
   )
@@ -566,20 +963,18 @@ function AlertMessage({ tone, message }) {
     : 'border-amber-200 bg-amber-50 text-amber-800'
 
   return (
-    <div className={cx('flex items-start gap-3 rounded-lg border px-4 py-3 text-sm font-medium', classes)}>
+    <div className={cx('flex animate-slide-down items-start gap-3 rounded-lg border px-4 py-3 text-sm font-medium', classes)}>
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <span>{message}</span>
     </div>
   )
 }
 
-function InlineStat({ label, value, tone }) {
-  const toneClass = tone === 'info' ? 'text-sky-700' : 'text-zinc-950'
-
+function InlineStat({ label, value, valueClassName = 'text-zinc-950' }) {
   return (
-    <div className="rounded-lg border border-zinc-200 px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className={cx('mt-1 text-xl font-bold', toneClass)}>{value}</p>
+    <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-3 py-2.5">
+      <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={cx('mt-0.5 truncate text-base font-bold tabular', valueClassName)}>{value}</p>
     </div>
   )
 }
