@@ -1,5 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowDownRight, ArrowUpRight, Loader2 } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { NavLink } from 'react-router-dom'
+import {
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  CheckCircle2,
+  ChevronDown,
+  Info,
+  Loader2,
+  X,
+} from 'lucide-react'
 
 export function cx(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -54,7 +64,8 @@ export function IconButton({ label, icon: Icon, className = '', variant = 'secon
       aria-label={label}
       title={label}
       className={cx(
-        'inline-flex h-9 w-9 items-center justify-center rounded-lg border transition active:scale-95',
+        // 44px no toque; volta a 36px no desktop, onde o ponteiro e preciso.
+        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition active:scale-95 lg:h-9 lg:w-9',
         buttonVariants[variant],
         className
       )}
@@ -81,9 +92,10 @@ export function Badge({ children, tone = 'neutral', className = '' }) {
   )
 }
 
-export function Panel({ children, className = '', as: Component = 'section', interactive = false }) {
+export function Panel({ children, className = '', as: Component = 'section', interactive = false, ...props }) {
   return (
     <Component
+      {...props}
       className={cx(
         'rounded-xl border border-zinc-200/80 bg-white shadow-card',
         interactive && 'transition duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift',
@@ -288,6 +300,147 @@ export function EmptyState({ icon: Icon, title, message, action, className = '' 
       <p className="font-semibold text-zinc-800">{title}</p>
       {message ? <p className="mt-1 max-w-md text-sm text-zinc-500">{message}</p> : null}
       {action ? <div className="mt-4">{action}</div> : null}
+    </div>
+  )
+}
+
+const alertTones = {
+  danger: { classes: 'border-rose-200 bg-rose-50 text-rose-700', icon: AlertTriangle },
+  warning: { classes: 'border-amber-200 bg-amber-50 text-amber-800', icon: AlertTriangle },
+  success: { classes: 'border-emerald-200 bg-emerald-50 text-emerald-700', icon: CheckCircle2 },
+  info: { classes: 'border-sky-200 bg-sky-50 text-sky-700', icon: Info },
+}
+
+// O unico banner de aviso/erro do app. `message` ou `children`; nada = nao renderiza.
+export function AlertMessage({ tone = 'danger', message, children, onDismiss, className = '' }) {
+  const content = children ?? message
+  if (!content) return null
+  const { classes, icon: Icon } = alertTones[tone] || alertTones.danger
+  return (
+    <div role={tone === 'danger' ? 'alert' : 'status'} className={cx('flex animate-slide-down items-start gap-3 rounded-lg border px-4 py-3 text-sm font-medium', classes, className)}>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="min-w-0 flex-1">{content}</div>
+      {onDismiss ? (
+        <button type="button" onClick={onDismiss} aria-label="Fechar aviso" className="-m-1 rounded p-1 opacity-70 hover:opacity-100">
+          <X className="h-4 w-4" />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+// Abas ligadas a rota: cada item e um link, o ativo e o da URL atual.
+export function Tabs({ items, className = '' }) {
+  return (
+    <nav className={cx('inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
+      {items.map((item) => {
+        const Icon = item.icon
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) => cx(
+              'inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200 lg:h-9',
+              isActive ? 'bg-white text-zinc-950 shadow-card ring-1 ring-zinc-200/70' : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
+            )}
+          >
+            {Icon ? <Icon className="h-4 w-4" /> : null}
+            {item.label}
+          </NavLink>
+        )
+      })}
+    </nav>
+  )
+}
+
+// Botao que expande um formulario logo abaixo. Controlado (`open` + `onOpenChange`)
+// ou nao controlado (`defaultOpen`).
+export function Collapsible({
+  label,
+  icon,
+  open: openProp,
+  defaultOpen = false,
+  onOpenChange,
+  variant = 'primary',
+  size = 'md',
+  className = '',
+  buttonClassName = '',
+  children,
+}) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : internalOpen
+  const contentId = useId()
+
+  const toggle = () => {
+    const next = !open
+    if (!isControlled) setInternalOpen(next)
+    onOpenChange?.(next)
+  }
+
+  return (
+    <div className={className}>
+      <Button
+        type="button"
+        variant={open ? 'secondary' : variant}
+        size={size}
+        icon={icon}
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={contentId}
+        className={buttonClassName}
+      >
+        {label}
+        <ChevronDown className={cx('h-4 w-4 transition-transform', open && 'rotate-180')} />
+      </Button>
+      {open ? (
+        <div id={contentId} className="mt-4 animate-slide-down">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// Modal no desktop, folha que sobe de baixo no celular. Esc e clique fora fecham.
+export function Sheet({ open, onClose, title, description, children, footer, className = '' }) {
+  useEffect(() => {
+    if (!open) return undefined
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', onKey)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
+      <div className="absolute inset-0 animate-fade-in bg-zinc-950/40 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className={cx(
+          'relative flex max-h-[92vh] w-full animate-fade-up flex-col overflow-hidden rounded-t-2xl bg-white shadow-lift',
+          'sm:max-w-xl sm:animate-scale-in sm:rounded-2xl',
+          className
+        )}
+      >
+        <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-zinc-200 sm:hidden" />
+        <div className="flex items-start justify-between gap-4 border-b border-zinc-100 px-5 py-4">
+          <div className="min-w-0">
+            {title ? <h2 className="text-lg font-bold text-zinc-950">{title}</h2> : null}
+            {description ? <p className="mt-1 text-sm text-zinc-600">{description}</p> : null}
+          </div>
+          <IconButton label="Fechar" icon={X} variant="subtle" onClick={onClose} />
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {footer ? <div className="border-t border-zinc-100 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">{footer}</div> : null}
+      </div>
     </div>
   )
 }

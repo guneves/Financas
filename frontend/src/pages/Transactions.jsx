@@ -128,8 +128,9 @@ function readStoredNumber(key, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-export default function Transactions() {
-  const [activeTab, setActiveTab] = useState('CONTA')
+export default function Transactions({ tab = 'extrato' }) {
+  // A aba vem da rota (/lancamentos/extrato | /lancamentos/cartoes).
+  const activeTab = tab === 'cartoes' ? 'CARTOES' : 'CONTA'
   const [dataError, setDataError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -743,18 +744,8 @@ export default function Transactions() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Operação"
-        title="Movimentações"
+        title="Lançamentos"
         description="Lançamentos bancários, cartões e faturas em aberto."
-        actions={(
-          <SegmentedControl
-            value={activeTab}
-            onChange={setActiveTab}
-            items={[
-              { value: 'CONTA', label: 'Conta corrente', icon: Wallet },
-              { value: 'CARTOES', label: 'Cartões', icon: CreditCard },
-            ]}
-          />
-        )}
       />
 
       {dataError ? (

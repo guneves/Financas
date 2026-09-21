@@ -1,29 +1,10 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import {
-  Briefcase,
-  CalendarDays,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  PieChart,
-  Receipt,
-  Repeat,
-  Target,
-  Wallet,
-} from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { LogOut, Plus, Settings, Wallet } from 'lucide-react'
+import { useCallback, useMemo } from 'react'
 import { getCurrentUser, signOut } from '../lib/auth'
-import { cx, IconButton } from './ui'
-
-const navItems = [
-  { name: 'Visão geral', path: '/dashboard', icon: LayoutDashboard },
-  { name: 'Movimentações', path: '/transactions', icon: Receipt },
-  { name: 'Orçamento', path: '/orcamento', icon: Target },
-  { name: 'Recorrentes', path: '/recorrentes', icon: Repeat },
-  { name: 'Carteira', path: '/carteira', icon: PieChart },
-  { name: 'Investimentos', path: '/investments', icon: Briefcase },
-  { name: 'Proventos', path: '/proventos', icon: CalendarDays },
-]
+import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
+import { NewEntryContext } from '../lib/newEntry'
+import { Button, cx, Tabs } from './ui'
 
 function BrandMark() {
   return (
@@ -33,22 +14,19 @@ function BrandMark() {
       </div>
       <div>
         <p className="text-sm font-bold leading-5 text-zinc-950">FinanceMVP</p>
-        <p className="text-xs text-zinc-500">Painel financeiro</p>
+        <p className="text-xs text-zinc-600">Painel financeiro</p>
       </div>
     </div>
   )
 }
 
-function NavItem({ item, onClick }) {
-  const Icon = item.icon
-
+function SidebarItem({ to, name, icon: Icon }) {
   return (
     <NavLink
-      to={item.path}
-      onClick={onClick}
+      to={to}
       className={({ isActive }) =>
         cx(
-          'group relative flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition duration-200',
+          'group relative flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition duration-200',
           isActive
             ? 'bg-zinc-950 text-white shadow-lift'
             : 'text-zinc-600 hover:translate-x-0.5 hover:bg-zinc-100 hover:text-zinc-950'
@@ -59,26 +37,47 @@ function NavItem({ item, onClick }) {
         <>
           <span
             className={cx(
-              'absolute left-0 top-2 h-6 w-1 -translate-x-2 rounded-r-full bg-emerald-400 transition-all duration-300',
+              'absolute left-0 top-2.5 h-6 w-1 -translate-x-2 rounded-r-full bg-emerald-400 transition-all duration-300',
               isActive ? 'opacity-100' : 'opacity-0'
             )}
           />
           <Icon className={cx('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-emerald-300' : 'text-zinc-400 group-hover:text-zinc-700')} />
-          <span className="truncate">{item.name}</span>
+          <span className="truncate">{name}</span>
         </>
       )}
     </NavLink>
   )
 }
 
+function BottomTab({ to, name, icon: Icon }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        cx(
+          'flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition',
+          isActive ? 'text-emerald-700' : 'text-zinc-500 hover:text-zinc-900'
+        )
+      }
+    >
+      <Icon className="h-5 w-5" />
+      <span className="max-w-full truncate px-1">{name}</span>
+    </NavLink>
+  )
+}
+
 export default function Layout() {
   const location = useLocation()
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const navigate = useNavigate()
   const user = getCurrentUser()
+  const section = useMemo(() => findSection(location.pathname), [location.pathname])
 
-  const activePage = useMemo(() => {
-    return navItems.find((item) => item.path === location.pathname) || navItems[0]
-  }, [location.pathname])
+  // Placeholder ate o sheet do passo 3: leva para onde os formularios estao hoje.
+  const openNewEntry = useCallback(() => {
+    navigate('/lancamentos/extrato')
+  }, [navigate])
+
+  const newEntryValue = useMemo(() => ({ openNewEntry }), [openNewEntry])
 
   const initials = (user?.email || 'FM')
     .split('@')[0]
@@ -88,91 +87,94 @@ export default function Layout() {
     .join('')
     .toUpperCase()
 
-  const handleLogout = () => {
-    signOut()
-  }
-
   return (
-    <div className="min-h-screen text-zinc-950">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-zinc-200/80 bg-white/90 backdrop-blur lg:flex lg:flex-col">
-        <div className="border-b border-zinc-100 px-5 py-5">
-          <BrandMark />
-        </div>
-
-        <nav className="stagger flex-1 space-y-1 px-4 py-5">
-          {navItems.map((item) => (
-            <NavItem key={item.path} item={item} />
-          ))}
-        </nav>
-
-        <div className="border-t border-zinc-100 p-4">
-          <div className="mb-3 flex items-center gap-3 rounded-lg bg-zinc-50 p-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-sm font-bold text-emerald-700">
-              {initials || 'FM'}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-zinc-900">{user?.email || 'Usuário'}</p>
-              <p className="text-xs text-zinc-500">Sessão ativa</p>
-            </div>
+    <NewEntryContext.Provider value={newEntryValue}>
+      <div className="min-h-screen text-zinc-950">
+        <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-zinc-200/80 bg-white/90 backdrop-blur lg:flex lg:flex-col">
+          <div className="border-b border-zinc-100 px-5 py-5">
+            <BrandMark />
           </div>
 
-          <button
-            onClick={handleLogout}
-            className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-zinc-600 transition hover:bg-rose-50 hover:text-rose-700"
-          >
-            <LogOut className="h-4 w-4" />
-            Sair
-          </button>
-        </div>
-      </aside>
+          <div className="px-4 pt-5">
+            <Button icon={Plus} size="lg" className="w-full" onClick={() => openNewEntry()}>
+              Novo
+            </Button>
+          </div>
 
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur lg:hidden">
-        <div className="flex h-16 items-center justify-between px-4">
-          <BrandMark />
-          <IconButton
-            label="Abrir menu"
-            icon={Menu}
-            variant="secondary"
-            onClick={() => setMobileOpen((current) => !current)}
-          />
-        </div>
-
-        {mobileOpen ? (
-          <nav className="animate-slide-down space-y-1 border-t border-zinc-100 px-4 py-3">
-            {navItems.map((item) => (
-              <NavItem key={item.path} item={item} onClick={() => setMobileOpen(false)} />
+          <nav className="stagger flex-1 space-y-1 px-4 py-5">
+            {sections.map((item) => (
+              <SidebarItem key={item.path} to={item.path} name={item.name} icon={item.icon} />
             ))}
+          </nav>
+
+          <div className="space-y-1 border-t border-zinc-100 p-4">
+            <SidebarItem to={SETTINGS_PATH} name="Ajustes" icon={Settings} />
+            <div className="my-2 flex items-center gap-3 rounded-lg bg-zinc-50 p-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-sm font-bold text-emerald-700">
+                {initials || 'FM'}
+              </div>
+              <p className="min-w-0 truncate text-sm font-semibold text-zinc-900">{user?.email || 'Usuário'}</p>
+            </div>
             <button
-              onClick={handleLogout}
-              className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-zinc-600 transition hover:bg-rose-50 hover:text-rose-700"
+              onClick={signOut}
+              className="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-zinc-600 transition hover:bg-rose-50 hover:text-rose-700"
             >
               <LogOut className="h-4 w-4" />
               Sair
             </button>
-          </nav>
-        ) : null}
-      </header>
-
-      <div className="lg:pl-72">
-        <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div className="mb-6 hidden items-center justify-between border-b border-zinc-200/80 pb-5 lg:flex">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Área atual</p>
-              <p key={activePage.path} className="mt-1 animate-fade-in text-lg font-bold text-zinc-950">{activePage.name}</p>
-            </div>
-            <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2 shadow-card">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-xs font-bold text-emerald-700">
-                {initials || 'FM'}
-              </div>
-              <span className="max-w-56 truncate text-sm font-semibold text-zinc-700">{user?.email || 'Usuário'}</span>
-            </div>
           </div>
+        </aside>
 
-          <div key={location.pathname} className="animate-fade-up">
-            <Outlet />
+        <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur lg:hidden">
+          <div className="flex h-16 items-center justify-between px-4">
+            <BrandMark />
+            <NavLink
+              to={SETTINGS_PATH}
+              aria-label="Ajustes"
+              title="Ajustes"
+              className={({ isActive }) => cx(
+                'inline-flex h-11 w-11 items-center justify-center rounded-lg border transition',
+                isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
+              )}
+            >
+              <Settings className="h-5 w-5" />
+            </NavLink>
           </div>
-        </main>
+        </header>
+
+        <div className="lg:pl-72">
+          <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:py-8">
+            {section?.tabs.length ? (
+              <Tabs items={section.tabs} className="mb-5" />
+            ) : null}
+
+            <div key={location.pathname} className="animate-fade-up">
+              <Outlet />
+            </div>
+          </main>
+        </div>
+
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-lg items-stretch px-2">
+            {sections.slice(0, 2).map((item) => (
+              <BottomTab key={item.path} to={item.path} name={item.name} icon={item.icon} />
+            ))}
+            <div className="flex flex-1 items-center justify-center">
+              <button
+                type="button"
+                onClick={() => openNewEntry()}
+                aria-label="Novo lançamento"
+                className="-mt-5 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-glow ring-4 ring-white transition active:scale-95"
+              >
+                <Plus className="h-6 w-6" />
+              </button>
+            </div>
+            {sections.slice(2).map((item) => (
+              <BottomTab key={item.path} to={item.path} name={item.name} icon={item.icon} />
+            ))}
+          </div>
+        </nav>
       </div>
-    </div>
+    </NewEntryContext.Provider>
   )
 }

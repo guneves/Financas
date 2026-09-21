@@ -98,8 +98,10 @@ function hasRealizedResult(movement) {
     && Number.isFinite(Number(movement.realized_profit))
 }
 
-export default function Investments() {
-  const [activeTab, setActiveTab] = useState('VARIAVEL')
+export default function Investments({ tab = 'posicao' }) {
+  // Posição x Operações vem da rota; Variável x Renda fixa continua local.
+  const [positionTab, setActiveTab] = useState('VARIAVEL')
+  const activeTab = tab === 'operacoes' ? 'MOVIMENTACOES' : positionTab
 
   const [assets, setAssets] = useState(() => {
     return readStoredJson('@financeMVP:assets', []);
@@ -486,6 +488,7 @@ export default function Investments() {
         <PortfolioOverview assets={assets} getClassLabel={getClassLabel} />
       ) : null}
 
+      {activeTab !== 'MOVIMENTACOES' && (
       <div className="flex flex-wrap bg-zinc-200 p-1 rounded-lg w-fit gap-1">
         <button 
           onClick={() => setActiveTab('VARIAVEL')}
@@ -499,13 +502,8 @@ export default function Investments() {
         >
           <Landmark size={18}/> Renda Fixa (CDI)
         </button>
-        <button 
-          onClick={() => setActiveTab('MOVIMENTACOES')} 
-          className={`px-4 py-2 rounded-md font-medium transition flex items-center gap-2 ${activeTab === 'MOVIMENTACOES' ? 'bg-white shadow-sm text-blue-600' : 'text-zinc-600 hover:bg-zinc-300'}`}
-        >
-          <History size={18}/> Movimentações
-        </button>
       </div>
+      )}
       
       {activeTab !== 'MOVIMENTACOES' && (
         <>
