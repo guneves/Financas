@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Area,
   AreaChart,
@@ -16,21 +17,26 @@ import {
   YAxis,
 } from 'recharts'
 import {
-  AlertTriangle,
+  BellRing,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
   CreditCard,
   Landmark,
   LineChart as LineChartIcon,
   ListChecks,
   PiggyBank,
+  Plus,
   Receipt,
+  Repeat,
   Wallet,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import { accountsApi, ccExpensesApi, transactionsApi } from '../lib/dataApi'
+import { accountsApi, ccExpensesApi, recurringApi, transactionsApi } from '../lib/dataApi'
+import { useNewEntry } from '../lib/newEntry'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import {
+  AlertMessage,
   Badge,
   Button,
   DeltaBadge,
@@ -58,7 +64,7 @@ import { formatCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth } 
 
 const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
-  SAVINGS: 'Poupanca',
+  SAVINGS: 'Poupança',
   BROKERAGE: 'Corretora',
   CASH: 'Dinheiro',
   OTHER: 'Outra',
@@ -153,6 +159,10 @@ export default function Dashboard() {
   const [ccExpenses, setCcExpenses] = useState([])
   const [accounts, setAccounts] = useState([])
   const [isPayingCurrentInvoice, setIsPayingCurrentInvoice] = useState(false)
+  const [recurringItems, setRecurringItems] = useState([])
+  const [isRunningRecurring, setIsRunningRecurring] = useState(false)
+  const [notice, setNotice] = useState('')
+  const { openNewEntry } = useNewEntry()
 
   useEffect(() => {
     fetchAllData()
@@ -187,6 +197,43 @@ export default function Dashboard() {
       setDataError(error.message || 'Não foi possível carregar movimentações e faturas.')
       setTransactions([])
       setCcExpenses([])
+    }
+
+    // Recorrencias vencidas para o "Precisa de voce". Falhar aqui so esconde o
+    // aviso: nao deve derrubar o resto do painel.
+    try {
+      const recurringData = await recurringApi.list()
+      setRecurringItems(recurringData?.items || [])
+    } catch (error) {
+      console.warn('Erro ao buscar recorrências:', error)
+      setRecurringItems([])
+    }
+  }
+
+  // Mesma conta da tela Recorrentes: soma do pending_count de cada recorrencia.
+  const pendingRecurringCount = useMemo(
+    () => recurringItems.reduce((total, item) => total + Number(item.pending_count || 0), 0),
+    [recurringItems]
+  )
+
+  // Mesma chamada do botao "Lancar pendentes" de Recorrentes (idempotente).
+  const handleRunRecurring = async () => {
+    setIsRunningRecurring(true)
+    setDataError('')
+    setNotice('')
+    try {
+      const result = await recurringApi.run()
+      setNotice(
+        result?.created
+          ? `${result.created} lançamento(s) recorrente(s) gerado(s).`
+          : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.'
+      )
+      await fetchAllData()
+    } catch (error) {
+      console.warn('Erro ao lançar recorrências:', error)
+      setDataError(error.message || 'Não foi possível gerar os lançamentos recorrentes.')
+    } finally {
+      setIsRunningRecurring(false)
     }
   }
 
@@ -414,9 +461,14 @@ export default function Dashboard() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Painel"
-        title="Visão geral"
+        title="Início"
         description="Patrimônio, saldo disponível, despesas do mês e compromissos em aberto."
         meta={<Badge tone="success">{monthLabel(currentKey)}</Badge>}
+        actions={(
+          <Button type="button" icon={Plus} onClick={() => openNewEntry()}>
+            Novo
+          </Button>
+        )}
       />
 
       {portfolioError ? (
@@ -426,6 +478,19 @@ export default function Dashboard() {
       {dataError ? (
         <AlertMessage tone="danger" message={`Movimentações indisponíveis no momento. Detalhe: ${dataError}`} />
       ) : null}
+
+      {notice ? <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} /> : null}
+
+      <NeedsAttention
+        pendingRecurringCount={pendingRecurringCount}
+        onRunRecurring={handleRunRecurring}
+        isRunningRecurring={isRunningRecurring}
+        invoiceAmount={currentMonthInvoice}
+        invoiceItemCount={nextInvoiceItems.length}
+        invoiceMonthLabel={monthLabel(nextKey)}
+        onPayInvoice={handlePayCurrentMonthInvoice}
+        isPayingInvoice={isPayingCurrentInvoice}
+      />
 
       <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -474,7 +539,7 @@ export default function Dashboard() {
       <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
         <Panel className="xl:col-span-3">
           <PanelHeader
-            title="Fluxo de caixa"
+            title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
             description="Entradas e saídas da conta nos últimos 12 meses. Transferências entre contas não entram."
             actions={(
               <div className="flex flex-wrap items-center gap-3">
@@ -661,7 +726,7 @@ export default function Dashboard() {
 
         <Panel className="xl:col-span-2">
           <PanelHeader
-            title="Despesas por categoria"
+            title={<PanelLink to="/planejamento/orcamento">Despesas por categoria</PanelLink>}
             description="Mês atual. A seta compara com o mês passado inteiro."
           />
           <div className="p-5">
@@ -684,7 +749,7 @@ export default function Dashboard() {
       {accounts.length > 0 ? (
         <Panel className="animate-fade-up">
           <PanelHeader
-            title="Saldo por conta"
+            title={<PanelLink to="/ajustes#contas">Saldo por conta</PanelLink>}
             description="O consolidado acima é a soma destas contas."
             actions={<Badge>{accounts.length} conta(s)</Badge>}
           />
@@ -716,7 +781,7 @@ export default function Dashboard() {
       <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
         <Panel className="xl:col-span-3">
           <PanelHeader
-            title="Próximas faturas"
+            title={<PanelLink to="/lancamentos/cartoes">Próximas faturas</PanelLink>}
             description="O que já está comprometido no cartão para os próximos meses, parcelas incluídas."
             actions={(
               <p className={cx('text-xl font-bold tabular', currentMonthInvoice > 0 ? 'text-rose-600' : 'text-emerald-700')}>
@@ -754,7 +819,7 @@ export default function Dashboard() {
               ) : (
                 <EmptyState icon={CreditCard} title="Nada comprometido" message="Sem compras abertas nos próximos meses." className="h-60 min-h-0" />
               )}
-              <p className="mt-2 text-xs text-zinc-500">
+              <p className="mt-2 text-xs text-zinc-600">
                 Em destaque, a fatura de {monthLabel(nextKey)}.
               </p>
             </div>
@@ -766,7 +831,7 @@ export default function Dashboard() {
                     <CreditCard className="mt-0.5 h-4 w-4 shrink-0" />
                     <div>
                       <p className="font-semibold">{nextInvoiceItems.length} lançamento(s) em aberto</p>
-                      <p className="mt-1 text-rose-600">O pagamento cria uma saída bancária e baixa os itens da fatura.</p>
+                      <p className="mt-1 text-rose-600">O pagamento lança uma despesa na conta e baixa os itens da fatura.</p>
                     </div>
                   </div>
 
@@ -775,7 +840,7 @@ export default function Dashboard() {
                       <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2.5 transition-colors hover:bg-zinc-50">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-zinc-900">{item.description}</p>
-                          <p className="mt-0.5 text-xs text-zinc-500">
+                          <p className="mt-0.5 text-xs text-zinc-600">
                             {item.card_name || item.credit_cards?.name || 'Cartão'}
                             {item.installment_info && item.installment_info !== '1/1' ? ` • ${item.installment_info}` : ''}
                           </p>
@@ -811,7 +876,7 @@ export default function Dashboard() {
 
         <Panel className="xl:col-span-2">
           <PanelHeader
-            title="Parcelamentos abertos"
+            title={<PanelLink to="/lancamentos/cartoes">Parcelamentos abertos</PanelLink>}
             description="Compras agrupadas por cartão e compra original."
             actions={<Badge tone="warning">{formatCurrency(installmentTotal)}</Badge>}
           />
@@ -843,7 +908,7 @@ export default function Dashboard() {
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100">
                           <div className="bar-grow h-full rounded-full bg-amber-500" style={{ width: `${progress}%` }} />
                         </div>
-                        <span className="text-xs font-semibold tabular text-zinc-500">
+                        <span className="text-xs font-semibold tabular text-zinc-600">
                           {paid}/{expense.totalInstallments} pagas
                         </span>
                       </div>
@@ -895,7 +960,7 @@ function MonthProgress({ day, daysLeft }) {
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100">
         <div className="bar-grow h-full rounded-full bg-zinc-800" style={{ width: `${progress}%` }} />
       </div>
-      <span className="text-xs font-semibold tabular text-zinc-500">{progress.toFixed(0)}% do mês</span>
+      <span className="text-xs font-semibold tabular text-zinc-600">{progress.toFixed(0)}% do mês</span>
     </div>
   )
 }
@@ -957,16 +1022,92 @@ function DashboardSkeleton() {
   )
 }
 
-function AlertMessage({ tone, message }) {
-  const classes = tone === 'danger'
-    ? 'border-rose-200 bg-rose-50 text-rose-700'
-    : 'border-amber-200 bg-amber-50 text-amber-800'
+// Titulo de painel que leva para a tela do assunto. A seta indica o link sem
+// transformar o titulo em botao.
+function PanelLink({ to, children }) {
+  return (
+    <Link
+      to={to}
+      className="group inline-flex items-center gap-1 rounded-sm text-zinc-950 transition-colors hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+    >
+      {children}
+      <ChevronRight
+        aria-hidden="true"
+        className="h-4 w-4 text-zinc-400 transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-600"
+      />
+    </Link>
+  )
+}
+
+// "Precisa de voce": so aparece quando ha algo a fazer.
+function NeedsAttention({
+  pendingRecurringCount,
+  onRunRecurring,
+  isRunningRecurring,
+  invoiceAmount,
+  invoiceItemCount,
+  invoiceMonthLabel,
+  onPayInvoice,
+  isPayingInvoice,
+}) {
+  const hasRecurring = pendingRecurringCount > 0
+  const hasInvoice = invoiceItemCount > 0 && invoiceAmount > 0
+  if (!hasRecurring && !hasInvoice) return null
 
   return (
-    <div className={cx('flex animate-slide-down items-start gap-3 rounded-lg border px-4 py-3 text-sm font-medium', classes)}>
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{message}</span>
-    </div>
+    <section aria-labelledby="precisa-de-voce" className="animate-fade-up rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+      <h2 id="precisa-de-voce" className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+        <BellRing className="h-4 w-4" />
+        Precisa de você
+      </h2>
+      <ul className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        {hasRecurring ? (
+          <AttentionItem
+            icon={Repeat}
+            title={`${pendingRecurringCount} ${pendingRecurringCount === 1 ? 'recorrência vencida' : 'recorrências vencidas'}`}
+            detail={(
+              <Link to="/planejamento/recorrentes" className="underline-offset-2 hover:text-emerald-700 hover:underline">
+                Ver recorrentes
+              </Link>
+            )}
+            action={(
+              <Button type="button" size="lg" icon={Repeat} loading={isRunningRecurring} onClick={onRunRecurring}>
+                Lançar
+              </Button>
+            )}
+          />
+        ) : null}
+        {hasInvoice ? (
+          <AttentionItem
+            icon={CreditCard}
+            title={`Fatura em aberto: ${formatCurrency(invoiceAmount)}`}
+            detail={`${invoiceMonthLabel} · ${invoiceItemCount} lançamento(s)`}
+            action={(
+              <Button type="button" size="lg" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayInvoice}>
+                Pagar
+              </Button>
+            )}
+          />
+        ) : null}
+      </ul>
+    </section>
+  )
+}
+
+function AttentionItem({ icon: Icon, title, detail, action }) {
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-lg border border-amber-200/80 bg-white px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+          <Icon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-zinc-900">{title}</p>
+          <p className="mt-0.5 text-sm text-zinc-600">{detail}</p>
+        </div>
+      </div>
+      <div className="shrink-0">{action}</div>
+    </li>
   )
 }
 
