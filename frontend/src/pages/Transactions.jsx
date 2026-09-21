@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   ArrowLeftRight,
   Banknote,
@@ -12,8 +13,8 @@ import {
   Plus,
   Receipt,
   Search,
+  Settings,
   Trash2,
-  Wallet,
   X,
 } from 'lucide-react'
 import {
@@ -25,6 +26,7 @@ import {
   transfersApi,
 } from '../lib/dataApi'
 import {
+  AlertMessage,
   Badge,
   Button,
   EmptyState,
@@ -34,7 +36,6 @@ import {
   PageHeader,
   Panel,
   PanelHeader,
-  SegmentedControl,
   cx,
 } from '../components/ui'
 import { formatCurrency } from '../lib/format'
@@ -42,14 +43,6 @@ import { formatCurrency } from '../lib/format'
 // Fallback apenas: as categorias vem de /api/categories desde a migration 008.
 // Esta lista continua aqui para o primeiro render, antes da resposta chegar.
 const CATEGORY_OPTIONS = ['Receita', 'Investimento', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Serviços', 'Outros']
-
-const ACCOUNT_TYPE_LABELS = {
-  CHECKING: 'Conta corrente',
-  SAVINGS: 'Poupança',
-  BROKERAGE: 'Corretora',
-  CASH: 'Dinheiro',
-  OTHER: 'Outra',
-}
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
@@ -128,6 +121,24 @@ function readStoredNumber(key, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+// Atalho para a secao de Ajustes onde contas e cartoes sao cadastrados.
+function ManageLink({ to, children, button = false }) {
+  return (
+    <Link
+      to={to}
+      className={cx(
+        'inline-flex items-center gap-2 text-sm font-semibold',
+        button
+          ? 'h-10 rounded-lg border border-emerald-600 bg-emerald-600 px-4 text-white hover:bg-emerald-700'
+          : 'h-10 text-emerald-700 hover:text-emerald-800'
+      )}
+    >
+      <Settings className="h-4 w-4" />
+      {children}
+    </Link>
+  )
+}
+
 export default function Transactions({ tab = 'extrato' }) {
   // A aba vem da rota (/lancamentos/extrato | /lancamentos/cartoes).
   const activeTab = tab === 'cartoes' ? 'CARTOES' : 'CONTA'
@@ -163,10 +174,8 @@ export default function Transactions({ tab = 'extrato' }) {
 
   const [transForm, setTransForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
   const [transferForm, setTransferForm] = useState({ amount: '', date: '', account_id: '', transfer_account_id: '', description: '' })
-  const [accountForm, setAccountForm] = useState({ name: '', type: 'CHECKING', institution: '', initial_balance: '' })
   const [editingId, setEditingId] = useState('')
   const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
-  const [cardForm, setCardForm] = useState({ name: '', due_day: '', closing_day: '' })
   const [expenseForm, setExpenseForm] = useState({ card_id: '', category: '', description: '', total_amount: '', purchase_date: '', installments: '1' })
   const [expandedCards, setExpandedCards] = useState([])
 
@@ -458,38 +467,6 @@ export default function Transactions({ tab = 'extrato' }) {
     }
   }
 
-  const handleCreateAccount = async (event) => {
-    event.preventDefault()
-    setSaving(true)
-    setDataError('')
-    try {
-      await accountsApi.create({
-        name: accountForm.name,
-        type: accountForm.type,
-        institution: accountForm.institution,
-        initial_balance: Number(accountForm.initial_balance || 0),
-      })
-      setAccountForm({ name: '', type: 'CHECKING', institution: '', initial_balance: '' })
-      await fetchData()
-    } catch (error) {
-      setDataError(error.message || 'Nao foi possivel criar a conta.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleArchiveAccount = async (account) => {
-    if (!window.confirm(`Arquivar a conta "${account.name}"? Os lançamentos dela continuam no extrato.`)) return
-
-    setDataError('')
-    try {
-      await accountsApi.archive(account.id)
-      await fetchData()
-    } catch (error) {
-      setDataError(error.message || 'Nao foi possivel arquivar a conta.')
-    }
-  }
-
   const startEditing = (transaction) => {
     setEditingId(transaction.id)
     setEditForm({
@@ -533,42 +510,6 @@ export default function Transactions({ tab = 'extrato' }) {
       await fetchData()
     } catch (error) {
       setDataError(error.message || 'Nao foi possivel atualizar o lancamento.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDueDayChange = (event) => {
-    const due = parseInt(event.target.value)
-    let closing = ''
-    if (!Number.isNaN(due)) {
-      closing = due - 7
-      if (closing <= 0) closing += 30
-    }
-    setCardForm({ ...cardForm, due_day: event.target.value, closing_day: closing.toString() })
-  }
-
-  const handleCreateCard = async (event) => {
-    event.preventDefault()
-    const dueDay = Number(cardForm.due_day)
-    const closingDay = Number(cardForm.closing_day)
-    if (!cardForm.name.trim() || !Number.isInteger(dueDay) || !Number.isInteger(closingDay)) {
-      setDataError('Preencha os dados do cartao corretamente.')
-      return
-    }
-
-    setSaving(true)
-    setDataError('')
-    try {
-      await creditCardsApi.create({
-        name: cardForm.name,
-        due_day: dueDay,
-        closing_day: closingDay,
-      })
-      setCardForm({ name: '', due_day: '', closing_day: '' })
-      await fetchData()
-    } catch (error) {
-      setDataError(error.message || 'Nao foi possivel criar o cartao.')
     } finally {
       setSaving(false)
     }
@@ -722,17 +663,6 @@ export default function Transactions({ tab = 'extrato' }) {
     }
   }
 
-  const handleDeleteCard = async (id, name) => {
-    if (!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas vinculadas a ele. Esta ação não pode ser desfeita.`)) return
-
-    try {
-      await creditCardsApi.remove(id)
-      await fetchData()
-    } catch (error) {
-      setDataError(error.message || 'Nao foi possivel excluir o cartao.')
-    }
-  }
-
   const getInvoiceStatus = (year, month, dueDay) => {
     const today = getNow()
     const dueDate = new Date(year, month - 1, dueDay)
@@ -748,11 +678,7 @@ export default function Transactions({ tab = 'extrato' }) {
         description="Lançamentos bancários, cartões e faturas em aberto."
       />
 
-      {dataError ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-          {dataError}
-        </div>
-      ) : null}
+      <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 
       <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard
@@ -784,60 +710,50 @@ export default function Transactions({ tab = 'extrato' }) {
       {activeTab === 'CONTA' ? (
         <div className="space-y-6">
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <Panel className="xl:col-span-2">
+            <Panel className="h-fit xl:col-span-2">
               <PanelHeader
-                title="Contas"
-                description="Saldo de cada conta. Transferências entre elas não contam como receita nem despesa."
-                actions={<Badge>{accounts.length} conta(s)</Badge>}
+                title="Lançamento bancário"
+                description="Registre entradas e saídas da conta corrente."
+                actions={<ManageLink to="/ajustes#contas">Gerenciar contas</ManageLink>}
               />
-              {accounts.length > 0 ? (
-                <div className="divide-y divide-zinc-100">
-                  {accounts.map((account) => (
-                    <div key={account.id} className="flex items-center justify-between gap-4 px-5 py-3">
-                      <div>
-                        <p className="font-medium text-zinc-900">
-                          {account.name}
-                          {account.is_default ? <Badge className="ml-2">Padrão</Badge> : null}
-                        </p>
-                        <p className="text-xs text-zinc-500">
-                          {ACCOUNT_TYPE_LABELS[account.type] || account.type}
-                          {account.institution ? ` · ${account.institution}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={cx('font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
-                          {formatCurrency(account.balance)}
-                        </span>
-                        <IconButton label="Arquivar conta" icon={Trash2} variant="danger" onClick={() => handleArchiveAccount(account)} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-5">
-                  <EmptyState icon={Landmark} title="Nenhuma conta" message="Cadastre a primeira conta para começar." />
-                </div>
-              )}
-
-              <form onSubmit={handleCreateAccount} className="grid grid-cols-1 gap-4 border-t border-zinc-100 p-5 md:grid-cols-5">
-                <Field label="Nome">
-                  <input type="text" placeholder="Ex: Nubank" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} className="app-input" required />
-                </Field>
+              <form onSubmit={handleBankSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-3">
                 <Field label="Tipo">
-                  <select value={accountForm.type} onChange={(event) => setAccountForm({ ...accountForm, type: event.target.value })} className="app-select">
-                    {Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
+                  <select value={transForm.type} onChange={(event) => setTransForm({ ...transForm, type: event.target.value })} className="app-select">
+                    <option value="EXPENSE">Saída bancária</option>
+                    <option value="INCOME">Entrada bancária</option>
+                  </select>
+                </Field>
+                <Field label="Conta">
+                  <select value={transForm.account_id || defaultAccountId} onChange={(event) => setTransForm({ ...transForm, account_id: event.target.value })} className="app-select" required>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>{account.name}</option>
+                    ))}
+                  </select>
+                  {accounts.length === 0 ? (
+                    <span className="block text-sm text-zinc-600">
+                      Nenhuma conta. <Link to="/ajustes#contas" className="font-semibold text-emerald-700 underline-offset-2 hover:underline">Cadastre em Ajustes</Link>.
+                    </span>
+                  ) : null}
+                </Field>
+                <Field label="Valor">
+                  <input type="number" step="0.01" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className="app-input" required />
+                </Field>
+                <Field label="Data">
+                  <input type="date" value={transForm.date} onChange={(event) => setTransForm({ ...transForm, date: event.target.value })} className="app-input" required />
+                </Field>
+                <Field label="Categoria">
+                  <select value={transForm.category} onChange={(event) => setTransForm({ ...transForm, category: event.target.value })} className="app-select" required>
+                    <option value="">Selecione...</option>
+                    {categoryOptionsFor(transForm.type).map((category) => (
+                      <option key={category.id} value={category.name}>{category.label}</option>
                     ))}
                   </select>
                 </Field>
-                <Field label="Instituição">
-                  <input type="text" placeholder="Opcional" value={accountForm.institution} onChange={(event) => setAccountForm({ ...accountForm, institution: event.target.value })} className="app-input" />
+                <Field label="Descrição" className="md:col-span-1">
+                  <input type="text" placeholder="Ex: Mercado" value={transForm.description} onChange={(event) => setTransForm({ ...transForm, description: event.target.value })} className="app-input" required />
                 </Field>
-                <Field label="Saldo inicial">
-                  <input type="number" step="0.01" placeholder="0,00" value={accountForm.initial_balance} onChange={(event) => setAccountForm({ ...accountForm, initial_balance: event.target.value })} className="app-input" />
-                </Field>
-                <div className="flex items-end">
-                  <Button type="submit" icon={Plus} loading={saving} className="w-full">Criar conta</Button>
+                <div className="flex items-end md:col-span-3">
+                  <Button type="submit" icon={Plus} loading={saving} className="w-full md:w-auto">Lançar</Button>
                 </div>
               </form>
             </Panel>
@@ -874,50 +790,13 @@ export default function Transactions({ tab = 'extrato' }) {
                   Transferir
                 </Button>
                 {accounts.length < 2 ? (
-                  <p className="text-xs text-zinc-500">Cadastre uma segunda conta para transferir.</p>
+                  <p className="text-sm text-zinc-600">
+                    Cadastre uma segunda conta em <Link to="/ajustes#contas" className="font-semibold text-emerald-700 underline-offset-2 hover:underline">Ajustes › Contas</Link> para transferir.
+                  </p>
                 ) : null}
               </form>
             </Panel>
           </div>
-
-          <Panel>
-            <PanelHeader title="Lançamento bancário" description="Registre entradas e saídas da conta corrente." />
-            <form onSubmit={handleBankSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-6">
-              <Field label="Tipo">
-                <select value={transForm.type} onChange={(event) => setTransForm({ ...transForm, type: event.target.value })} className="app-select">
-                  <option value="EXPENSE">Saída bancária</option>
-                  <option value="INCOME">Entrada bancária</option>
-                </select>
-              </Field>
-              <Field label="Conta">
-                <select value={transForm.account_id || defaultAccountId} onChange={(event) => setTransForm({ ...transForm, account_id: event.target.value })} className="app-select" required>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>{account.name}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Valor">
-                <input type="number" step="0.01" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className="app-input" required />
-              </Field>
-              <Field label="Data">
-                <input type="date" value={transForm.date} onChange={(event) => setTransForm({ ...transForm, date: event.target.value })} className="app-input" required />
-              </Field>
-              <Field label="Categoria">
-                <select value={transForm.category} onChange={(event) => setTransForm({ ...transForm, category: event.target.value })} className="app-select" required>
-                  <option value="">Selecione...</option>
-                  {categoryOptionsFor(transForm.type).map((category) => (
-                    <option key={category.id} value={category.name}>{category.label}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Descrição" className="md:col-span-1">
-                <input type="text" placeholder="Ex: Mercado" value={transForm.description} onChange={(event) => setTransForm({ ...transForm, description: event.target.value })} className="app-input" required />
-              </Field>
-              <div className="flex items-end md:col-span-6">
-                <Button type="submit" icon={Plus} loading={saving} className="w-full md:w-auto">Lançar</Button>
-              </div>
-            </form>
-          </Panel>
 
           <Panel>
             <PanelHeader
@@ -1103,54 +982,24 @@ export default function Transactions({ tab = 'extrato' }) {
 
       {activeTab === 'CARTOES' ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <Panel className="h-fit">
-              <PanelHeader title="Cartões" description="Vencimento e fechamento de cada cartão." />
-
-              <form onSubmit={handleCreateCard} className="space-y-4 p-5">
-                <Field label="Nome do cartão">
-                  <input type="text" placeholder="Ex: Nubank" value={cardForm.name} onChange={(event) => setCardForm({ ...cardForm, name: event.target.value })} className="app-input" required />
-                </Field>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Vencimento">
-                    <input type="number" min="1" max="31" placeholder="Dia" value={cardForm.due_day} onChange={handleDueDayChange} className="app-input" required />
-                  </Field>
-                  <Field label="Fechamento">
-                    <input type="number" min="1" max="31" placeholder="Dia" value={cardForm.closing_day} onChange={(event) => setCardForm({ ...cardForm, closing_day: event.target.value })} className="app-input" required />
-                  </Field>
-                </div>
-
-                <Button type="submit" variant="dark" icon={Plus} loading={saving} className="w-full">Salvar cartão</Button>
-              </form>
-
-              <div className="border-t border-zinc-100 p-5">
-                {cards.length > 0 ? (
-                  <div className="space-y-2">
-                    {cards.map((card) => (
-                      <div key={card.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-zinc-800">{card.name}</p>
-                          <p className="mt-0.5 text-xs text-zinc-500">Vence dia {card.due_day} • Fecha dia {card.closing_day}</p>
-                        </div>
-                        <IconButton label="Excluir cartão" icon={Trash2} variant="danger" onClick={() => handleDeleteCard(card.id, card.name)} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState icon={CreditCard} title="Nenhum cartão" message="Cadastre um cartão para lançar compras no crédito." className="min-h-40" />
-                )}
-              </div>
-            </Panel>
-
-            <Panel className="xl:col-span-2">
-              <PanelHeader title="Compra no crédito" description="Lançamento parcelado por cartão e categoria." />
+          <div>
+            <Panel>
+              <PanelHeader
+                title="Compra no crédito"
+                description="Lançamento parcelado por cartão e categoria."
+                actions={<ManageLink to="/ajustes#cartoes">Gerenciar cartões</ManageLink>}
+              />
 
               <div className="p-5">
                 {cards.length === 0 ? (
-                  <EmptyState icon={CreditCard} title="Cadastre um cartão primeiro" message="Depois disso, o formulário de compras fica disponível." />
+                  <EmptyState
+                    icon={CreditCard}
+                    title="Cadastre um cartão primeiro"
+                    message="Os cartões ficam em Ajustes. Depois disso, o formulário de compras fica disponível."
+                    action={<ManageLink to="/ajustes#cartoes" button>Cadastrar cartão</ManageLink>}
+                  />
                 ) : (
-                  <form onSubmit={handleCCExpenseSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <form onSubmit={handleCCExpenseSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     <Field label="Cartão">
                       <select value={expenseForm.card_id} onChange={(event) => setExpenseForm({ ...expenseForm, card_id: event.target.value })} className="app-select" required>
                         <option value="">Selecione...</option>
@@ -1177,7 +1026,7 @@ export default function Transactions({ tab = 'extrato' }) {
                     <Field label="Parcelas">
                       <input type="number" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className="app-input" required />
                     </Field>
-                    <Button type="submit" icon={Plus} loading={saving} className="md:col-span-2">Registrar compra</Button>
+                    <Button type="submit" icon={Plus} loading={saving} className="md:col-span-2 xl:col-span-3">Registrar compra</Button>
                   </form>
                 )}
               </div>

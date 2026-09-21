@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
-  AlertTriangle,
-  Archive,
   ChevronLeft,
   ChevronRight,
   Copy,
   Check,
   Pencil,
   Plus,
+  Settings,
   Target,
   Trash2,
   X,
@@ -15,6 +15,7 @@ import {
 import { budgetsApi, categoriesApi } from '../lib/dataApi'
 import { formatCurrency, monthKey, monthLabel, shiftMonth } from '../lib/format'
 import {
+  AlertMessage,
   Badge,
   Button,
   EmptyState,
@@ -24,15 +25,8 @@ import {
   PageHeader,
   Panel,
   PanelHeader,
-  SegmentedControl,
   cx,
 } from '../components/ui'
-
-const KIND_LABELS = {
-  INCOME: 'Receita',
-  EXPENSE: 'Despesa',
-  BOTH: 'Ambos',
-}
 
 const STATUS_TONES = {
   OK: 'success',
@@ -53,7 +47,6 @@ const BAR_COLORS = {
 }
 
 const emptyBudgetForm = () => ({ category_id: '', planned_amount: '', rollover: false, note: '' })
-const emptyCategoryForm = () => ({ name: '', kind: 'EXPENSE', parent_id: '' })
 
 function ProgressBar({ percent, status }) {
   const width = Math.min(Math.max(Number(percent || 0), 0), 100)
@@ -65,7 +58,6 @@ function ProgressBar({ percent, status }) {
 }
 
 export default function Orcamento() {
-  const [tab, setTab] = useState('BUDGET')
   const [month, setMonth] = useState(() => monthKey())
   const [budget, setBudget] = useState({ month: monthKey(), items: [], totals: {} })
   const [categories, setCategories] = useState([])
@@ -76,9 +68,6 @@ export default function Orcamento() {
   const [budgetForm, setBudgetForm] = useState(emptyBudgetForm)
   const [editingId, setEditingId] = useState('')
   const [editValue, setEditValue] = useState('')
-  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm)
-  const [editingCategoryId, setEditingCategoryId] = useState('')
-  const [categoryEdit, setCategoryEdit] = useState({ name: '', kind: 'EXPENSE' })
 
   useEffect(() => {
     loadAll()
@@ -115,11 +104,6 @@ export default function Orcamento() {
   const availableCategories = useMemo(
     () => activeCategories.filter((category) => !budgetedIds.has(category.id)),
     [activeCategories, budgetedIds]
-  )
-
-  const rootCategories = useMemo(
-    () => activeCategories.filter((category) => !category.parent_id),
-    [activeCategories]
   )
 
   const totals = budget.totals || {}
@@ -200,66 +184,6 @@ export default function Orcamento() {
     }
   }
 
-  const handleCreateCategory = async (event) => {
-    event.preventDefault()
-    setSaving(true)
-    setError('')
-    try {
-      await categoriesApi.create({
-        name: categoryForm.name,
-        kind: categoryForm.kind,
-        parent_id: categoryForm.parent_id || undefined,
-      })
-      setCategoryForm(emptyCategoryForm())
-      await loadAll()
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível criar a categoria.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleSaveCategory = async (category) => {
-    setSaving(true)
-    setError('')
-    try {
-      await categoriesApi.update(category.id, { name: categoryEdit.name, kind: categoryEdit.kind })
-      setEditingCategoryId('')
-      await loadAll()
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível atualizar a categoria.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleArchiveCategory = async (category) => {
-    if (!window.confirm(`Arquivar "${category.name}"? Os lançamentos continuam, e dá para reativar depois.`)) return
-    setSaving(true)
-    setError('')
-    try {
-      await categoriesApi.archive(category.id)
-      await loadAll()
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível arquivar a categoria.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleRestoreCategory = async (category) => {
-    setSaving(true)
-    setError('')
-    try {
-      await categoriesApi.update(category.id, { archived_at: null })
-      await loadAll()
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível reativar a categoria.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -267,7 +191,14 @@ export default function Orcamento() {
         title="Orçamento"
         description="Quanto você planejou gastar em cada categoria neste mês, e quanto já saiu."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/ajustes#categorias"
+              className="inline-flex h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800"
+            >
+              <Settings className="h-4 w-4" />
+              Gerenciar categorias
+            </Link>
             <IconButton label="Mês anterior" icon={ChevronLeft} onClick={() => setMonth(shiftMonth(month, -1))} />
             <span className="min-w-40 text-center text-sm font-semibold capitalize text-zinc-800">
               {monthLabel(month)}
@@ -277,23 +208,8 @@ export default function Orcamento() {
         }
       />
 
-      {error ? (
-        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : null}
+      <AlertMessage message={error} onDismiss={() => setError('')} />
 
-      <SegmentedControl
-        value={tab}
-        onChange={setTab}
-        items={[
-          { value: 'BUDGET', label: 'Orçamento', icon: Target },
-          { value: 'CATEGORIES', label: 'Categorias', icon: Pencil },
-        ]}
-      />
-
-      {tab === 'BUDGET' ? (
         <div className="space-y-6">
           <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} tone="info" />
@@ -464,159 +380,6 @@ export default function Orcamento() {
             )}
           </Panel>
         </div>
-      ) : (
-        <div className="space-y-6">
-          <Panel>
-            <PanelHeader title="Nova categoria" description="Uma subcategoria precisa de uma categoria pai — só existe um nível." />
-            <form onSubmit={handleCreateCategory} className="grid gap-4 px-5 py-4 md:grid-cols-4">
-              <Field label="Nome">
-                <input
-                  type="text"
-                  placeholder="Ex: Delivery"
-                  value={categoryForm.name}
-                  onChange={(event) => setCategoryForm({ ...categoryForm, name: event.target.value })}
-                  className="app-input"
-                  required
-                />
-              </Field>
-              <Field label="Tipo">
-                <select
-                  value={categoryForm.kind}
-                  onChange={(event) => setCategoryForm({ ...categoryForm, kind: event.target.value })}
-                  className="app-select"
-                >
-                  <option value="EXPENSE">Despesa</option>
-                  <option value="INCOME">Receita</option>
-                  <option value="BOTH">Ambos</option>
-                </select>
-              </Field>
-              <Field label="Categoria pai" hint="Opcional">
-                <select
-                  value={categoryForm.parent_id}
-                  onChange={(event) => setCategoryForm({ ...categoryForm, parent_id: event.target.value })}
-                  className="app-select"
-                >
-                  <option value="">Nenhuma (categoria raiz)</option>
-                  {rootCategories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <div className="flex items-end">
-                <Button type="submit" icon={Plus} loading={saving} className="w-full">
-                  Criar categoria
-                </Button>
-              </div>
-            </form>
-          </Panel>
-
-          <Panel>
-            <PanelHeader
-              title="Categorias"
-              description="Renomear arrasta junto o texto gravado nos lançamentos. Arquivar não apaga histórico."
-            />
-            {loading ? (
-              <p className="px-5 py-8 text-center text-sm text-zinc-500">Carregando...</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="app-table">
-                  <thead>
-                    <tr>
-                      <th>Categoria</th>
-                      <th>Tipo</th>
-                      <th>Situação</th>
-                      <th className="text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {categories.map((category) => {
-                      const isEditing = editingCategoryId === category.id
-                      return (
-                        <tr key={category.id}>
-                          <td>
-                            {isEditing ? (
-                              <input
-                                type="text"
-                                value={categoryEdit.name}
-                                onChange={(event) => setCategoryEdit({ ...categoryEdit, name: event.target.value })}
-                                className="app-input w-48"
-                              />
-                            ) : (
-                              <span className={category.parent_id ? 'text-zinc-600' : 'font-semibold text-zinc-900'}>
-                                {category.parent_name ? `${category.parent_name} › ${category.name}` : category.name}
-                              </span>
-                            )}
-                          </td>
-                          <td>
-                            {isEditing ? (
-                              <select
-                                value={categoryEdit.kind}
-                                onChange={(event) => setCategoryEdit({ ...categoryEdit, kind: event.target.value })}
-                                className="app-select w-32"
-                              >
-                                <option value="EXPENSE">Despesa</option>
-                                <option value="INCOME">Receita</option>
-                                <option value="BOTH">Ambos</option>
-                              </select>
-                            ) : (
-                              KIND_LABELS[category.kind] || category.kind
-                            )}
-                          </td>
-                          <td>
-                            {category.archived_at ? (
-                              <Badge tone="neutral">Arquivada</Badge>
-                            ) : (
-                              <Badge tone="success">Ativa</Badge>
-                            )}
-                          </td>
-                          <td>
-                            <div className="flex justify-end gap-2">
-                              {isEditing ? (
-                                <>
-                                  <IconButton
-                                    label="Salvar"
-                                    icon={Check}
-                                    variant="primary"
-                                    onClick={() => handleSaveCategory(category)}
-                                  />
-                                  <IconButton label="Cancelar" icon={X} onClick={() => setEditingCategoryId('')} />
-                                </>
-                              ) : category.archived_at ? (
-                                <Button size="sm" variant="secondary" onClick={() => handleRestoreCategory(category)}>
-                                  Reativar
-                                </Button>
-                              ) : (
-                                <>
-                                  <IconButton
-                                    label="Editar"
-                                    icon={Pencil}
-                                    onClick={() => {
-                                      setEditingCategoryId(category.id)
-                                      setCategoryEdit({ name: category.name, kind: category.kind })
-                                    }}
-                                  />
-                                  <IconButton
-                                    label="Arquivar"
-                                    icon={Archive}
-                                    variant="danger"
-                                    onClick={() => handleArchiveCategory(category)}
-                                  />
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Panel>
-        </div>
-      )}
     </div>
   )
 }
