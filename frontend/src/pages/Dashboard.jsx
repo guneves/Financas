@@ -60,7 +60,7 @@ import {
   axisProps,
   compactCurrency,
 } from '../components/charts'
-import { formatCurrency, formatDateBR, monthKey, monthLabel, shiftMonth } from '../lib/format'
+import { formatCurrency, formatDateBR, getLocalDateString, monthKey, monthLabel, shiftMonth } from '../lib/format'
 import { isInvestmentOutflow } from '../lib/transactions'
 
 const ACCOUNT_TYPE_LABELS = {
@@ -377,6 +377,37 @@ export default function Dashboard() {
 
   const payableTotal = payableInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
 
+  // "Precisa de voce" so cobra fatura vencida: passou do dia do vencimento e
+  // continua em aberto. A data vem do servidor (invoice_due_date).
+  const overdueInvoices = useMemo(() => {
+    const todayText = getLocalDateString()
+    const byInvoice = {}
+    openCcExpenses.forEach((item) => {
+      if (!item.invoice_due_date || item.invoice_due_date >= todayText) return
+      const key = `${item.card_id}|${item.invoice_year}-${item.invoice_month}`
+      if (!byInvoice[key]) {
+        byInvoice[key] = {
+          card_id: item.card_id,
+          card_name: item.credit_cards?.name || 'Cartão',
+          invoice_month: item.invoice_month,
+          invoice_year: item.invoice_year,
+          due_date: item.invoice_due_date,
+          total: 0,
+          count: 0,
+        }
+      }
+      byInvoice[key].total += parseFloat(item.amount)
+      byInvoice[key].count += 1
+    })
+    return Object.values(byInvoice).sort((a, b) => a.due_date.localeCompare(b.due_date))
+  }, [openCcExpenses])
+
+  const overdueTotal = overdueInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
+  const overdueItemCount = overdueInvoices.reduce((acc, invoice) => acc + invoice.count, 0)
+  const overdueDetail = overdueInvoices.length === 1
+    ? `${overdueInvoices[0].card_name} · venceu em ${formatDateBR(overdueInvoices[0].due_date)}`
+    : `${overdueInvoices.length} faturas · a mais antiga venceu em ${formatDateBR(overdueInvoices[0]?.due_date)}`
+
   const nextClosingDate = useMemo(() => nextInvoiceItems
     .filter((item) => item.invoice_closed !== true && item.invoice_closing_date)
     .map((item) => item.invoice_closing_date)
@@ -469,6 +500,30 @@ export default function Dashboard() {
     }
   }
 
+  const handlePayOverdueInvoices = async () => {
+    if (overdueInvoices.length === 0) return
+
+    const confirmed = window.confirm(`Deseja pagar ${overdueInvoices.length === 1 ? 'a fatura vencida' : `as ${overdueInvoices.length} faturas vencidas`} no valor de ${formatCurrency(overdueTotal)}?`)
+    if (!confirmed) return
+
+    setIsPayingCurrentInvoice(true)
+    try {
+      for (const invoice of overdueInvoices) {
+        await ccExpensesApi.payInvoice({
+          card_id: invoice.card_id,
+          invoice_month: invoice.invoice_month,
+          invoice_year: invoice.invoice_year,
+        })
+      }
+      await fetchAllData()
+    } catch (error) {
+      console.warn('Erro ao pagar faturas vencidas:', error)
+      setDataError(error.message || 'Não foi possível pagar as faturas vencidas.')
+    } finally {
+      setIsPayingCurrentInvoice(false)
+    }
+  }
+
   if (!portfolio) {
     return <DashboardSkeleton />
   }
@@ -509,10 +564,10 @@ export default function Dashboard() {
         pendingRecurringCount={pendingRecurringCount}
         onRunRecurring={handleRunRecurring}
         isRunningRecurring={isRunningRecurring}
-        invoiceAmount={currentMonthInvoice}
-        invoiceItemCount={nextInvoiceItems.length}
-        invoiceMonthLabel={monthLabel(nextKey)}
-        onPayInvoice={handlePayCurrentMonthInvoice}
+        invoiceAmount={overdueTotal}
+        invoiceItemCount={overdueItemCount}
+        invoiceDetail={overdueDetail}
+        onPayInvoice={handlePayOverdueInvoices}
         isPayingInvoice={isPayingCurrentInvoice}
       />
 
@@ -1079,7 +1134,7 @@ function NeedsAttention({
   isRunningRecurring,
   invoiceAmount,
   invoiceItemCount,
-  invoiceMonthLabel,
+  invoiceDetail,
   onPayInvoice,
   isPayingInvoice,
 }) {
@@ -1113,8 +1168,8 @@ function NeedsAttention({
         {hasInvoice ? (
           <AttentionItem
             icon={CreditCard}
-            title={`Fatura em aberto: ${formatCurrency(invoiceAmount)}`}
-            detail={`${invoiceMonthLabel} · ${invoiceItemCount} lançamento(s)`}
+            title={`Fatura vencida: ${formatCurrency(invoiceAmount)}`}
+            detail={`${invoiceDetail} · ${invoiceItemCount} lançamento(s)`}
             action={(
               <Button type="button" size="lg" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayInvoice}>
                 Pagar
