@@ -8,22 +8,25 @@ This project is worked on in discrete sessions, each starting from a clean conte
 carry state between them. **Start every session by reading them in this order:**
 
 1. **`docs/handoff.md`** — what the last session did, what it deliberately left undone, and what it
-   recommends next. Most recent session is at the top. This is the fastest way into context.
+   recommends next. It holds only the most recent session; older entries live in git history
+   (`git log -p docs/handoff.md`). This is the fastest way into context.
 2. **`docs/next-steps.md`** — the active, prioritized work plan. Phases, functional gaps, technical
    debt. This is the source of truth for *what to work on*.
 3. **`ROADMAP.md`** — historical record of what has been built and the original direction. Read for
    background; it does not drive work anymore.
 
 Cheaper route for the same thing: run the **`session-scout` subagent** (see below) and let it read
-those documents for you. It hands back a one-page briefing and leaves the other ~8,000 tokens of
-handoff history in its own context instead of yours.
+those documents for you. It hands back a one-page briefing and keeps the reading in its own context
+instead of yours.
 
 **End every session by:**
 
 - Updating `docs/next-steps.md` — tick off what you completed, and rewrite the affected section
   rather than appending a note to it. A stale plan is worse than no plan.
 - Running the **`finance-guard` subagent** over the change (see below) and acting on what it finds.
-- Prepending a new session entry to `docs/handoff.md`, covering: what was done, **what was not done
+- Replacing the session entry in `docs/handoff.md` with a new one — the file holds only the latest
+  session, so delete the previous entry rather than stacking on top of it. Carry forward anything
+  from it that is still open and still matters. Cover: what was done, **what was not done
   and why**, what the next session should pick up, and anything non-obvious you learned along the
   way (a fixture quirk, a bug you found, a decision you made and its reasoning).
 - Committing the work.
@@ -49,9 +52,9 @@ from the handoff that apply to *that* task, and any drift between the docs and t
 Agent(subagent_type="session-scout", prompt="Brief me for this session.")
 ```
 
-The point is the arithmetic: `docs/handoff.md` is a rolling log that grows by a full entry per
-session, and most of it is history the current task does not need. The scout reads all of it and
-keeps the ~500 words that matter. Read the documents yourself instead whenever the session is a
+The point is the arithmetic: the handoff, the plan, the git log and the test suite together are
+more text than the current task needs. The scout reads all of it and keeps the ~500 words that
+matter. Read the documents yourself instead whenever the session is a
 follow-up on work still fresh in context — the briefing is for a cold start.
 
 ### Closing — `finance-guard`
@@ -164,7 +167,7 @@ frontend/src/
   lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js
 docs/
   next-steps.md       # the plan
-  handoff.md          # session log
+  handoff.md          # latest session only
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
   finance-guard.md    # the pre-commit audit subagent
