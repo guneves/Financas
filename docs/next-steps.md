@@ -39,8 +39,11 @@
 ## 2. Open work, in priority order
 
 ### UX reorganization — follow-ups
-All six steps done. Open items (owner walk-through, favicon, bundle split, filters in URL) are in
-**`docs/ux-reorganization.md`** › Open.
+All six steps done (`docs/ux-reorganization.md`). Tested only on a scratch database so far.
+- [ ] **Owner walk-through in the real app**, then settle open decisions 6–8 below.
+- [ ] Keep statement filters in the URL — today a reload clears them.
+- [ ] Add a favicon to `frontend/index.html` — every first load logs a 404.
+- [ ] Split the bundle (737 kB, over Vite's 500 kB warning) with route-level `lazy()`.
 
 ### Bugs found during the UX work (pre-existing, backend)
 - [ ] Registering a provento against a fixed-income asset (CDB) returns a backend error.
@@ -89,3 +92,10 @@ All six steps done. Open items (owner walk-through, favicon, bundle split, filte
    with HTTPS is still undecided.
 5. **Tax: support tool or source of truth?** Filing-grade use needs reconciliation against
    brokerage notes.
+6. **"+ Novo" twice on Início and Extrato.** The page header has one and so do the sidebar
+   (desktop) and the bottom bar (phone). Keep both, or drop the header one?
+7. **Cartões header: Pagar fatura and "+ Novo" side by side.** Pagar fatura is primary while an
+   invoice is open. Keep both, or rely on the global "+ Novo" only?
+8. **Wording and fit.** The Início cash-flow legend still says "Entradas/Saídas" (the glossary allows
+   plurals for aggregates) — switch to Receitas/Despesas? The "+ Novo" type selector wraps onto two
+   lines so "Investimento" stays visible — acceptable, or shorten the labels?

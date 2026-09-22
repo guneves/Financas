@@ -38,12 +38,6 @@ Behaviour differences from before (deliberate, see `docs/handoff.md`):
 
 ## Open
 
-- [ ] **Owner walk-through in the real app.** Everything above was tested on a scratch database;
-  the owner has not used it yet. Things to judge: the two "+ Novo" buttons on Início and Extrato
-  (page header + sidebar/bottom bar — keep one?), the Cartões header having Pagar fatura and
-  + Novo side by side, the type selector wrapping onto two lines in the sheet.
-- [ ] Cash-flow chart legend on Início still says "Entradas/Saídas" (allowed for plural aggregates
-  by the glossary; change to Receitas/Despesas if preferred).
-- [ ] Statement filters are not kept in the URL — a reload clears them.
-- [ ] `index.html` declares no favicon, so every first load logs a 404.
-- [ ] Bundle is 737 kB (> 500 kB warning) — route-level `lazy()` would split it.
+Nothing left in this plan. The follow-ups (owner walk-through, filters in the URL, favicon,
+bundle split) and the open design questions it raised are tracked in `docs/next-steps.md`: §2
+"UX reorganization — follow-ups" and §3 open decisions 6–8.
