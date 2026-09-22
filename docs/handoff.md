@@ -6,7 +6,44 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Quote refresh skips fully sold positions
+## Session — 2026-09-22 (latest) · Fixed income: security type, pós/pré, indexer
+
+### What was done
+
+Owner request: a fixed-income buy picks the security type (LCI, LCA, CDB, LC, LF, RDB,
+Debênture, CRI, CRA, CCB), no quantity prompt, Pós-fixado or Pré-fixado, and for pós the indexer
+(CDI, CDI+, IPCA+) with a rate field whose meaning follows the choice.
+
+- **Frontend.** New `lib/fixedIncome.js` (constants, form <-> metadata, `describeFixedIncome`) and
+  `components/FixedIncomeFields.jsx`, used by both `InvestmentLaunchModal` (buy) and the edit
+  sheet in `Operacoes.jsx`. The quantity field is not rendered for fixed-income buys (still sent
+  as 1). LCI/LCA/CRI/CRA tick "Isento de IR" automatically; Debênture leaves it to the user
+  (only *incentivadas* are exempt). Posição shows e.g. "CDB · 110% do CDI" under the class.
+  Quote source `cdi` now reads "Taxa do título".
+- **Metadata shape.** `fixed_income_type`, `rate_type` (POS/PRE), `indexer` (CDI/CDI_PLUS/IPCA,
+  pós only), `cdi_percentage` (fraction, CDI only) or `annual_rate` (fraction, the rest). Legacy
+  rows with only `cdi_percentage` are read as pós/CDI — no migration needed. The edit sheet clears
+  all these keys before re-writing, so switching CDI -> pré leaves no stale `cdi_percentage`.
+- **Backend.** `refresh_fixed_income_prices` rewritten on pure helpers:
+  `fixed_income_rate_terms`, `fixed_income_accrual_factor`, `ipca_accrual_factor`, plus
+  `fetch_bcb_series` (SGS 12 CDI, 433 IPCA). Pré and the spread part of CDI+/IPCA+ compound on
+  252 business days, counted as the length of the CDI series since purchase. The new price now
+  goes through `rounded_money()` (the old code used bare `round()`).
+- Tests: `backend/tests/test_fixed_income_indexers.py` (9, BCB monkeypatched). Suite green;
+  `vite build` clean.
+
+### Not done / caveats
+
+- IPCA+ is an estimate (first month pro rata by calendar days, unpublished month missing). Logged
+  in next-steps.
+- No server-side validation of the new metadata keys.
+- The pre-existing "'str' object has no attribute 'get'" quote bug was not reproduced; left open.
+- Not clicked through in a browser — verified by build and backend tests only.
+- `finance-guard` ran via `subagent_type="finance-guard"` directly this time (discovery worked); no findings.
+
+---
+
+## Session — 2026-09-22 · Quote refresh skips fully sold positions
 
 ### What was done
 

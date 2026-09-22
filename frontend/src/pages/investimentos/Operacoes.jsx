@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Calculator, History, Pencil, Plus, Receipt, Scale, Trash2, TrendingUp } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
+import FixedIncomeFields from '../../components/FixedIncomeFields'
 import {
   AlertMessage,
   Badge,
@@ -18,6 +19,11 @@ import {
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
+import {
+  FIXED_INCOME_METADATA_KEYS,
+  fixedIncomeFormFromMetadata,
+  fixedIncomeMetadataFromForm,
+} from '../../lib/fixedIncome'
 import {
   formatPercent,
   getClassLabel,
@@ -107,9 +113,8 @@ export default function Operacoes() {
       is_redemption: !!mov.metadata?.is_redemption,
       sale_price: mov.metadata?.sale_price || '',
       other_costs: mov.metadata?.other_costs ?? mov.fee_amount ?? '',
-      cdi_percentage: mov.metadata?.cdi_percentage ? (mov.metadata.cdi_percentage * 100).toFixed(1) : '',
+      fixed_income: fixedIncomeFormFromMetadata(mov.metadata || {}),
       movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
-      is_tax_free: mov.metadata?.is_tax_free || false
     })
   }
 
@@ -121,7 +126,6 @@ export default function Operacoes() {
     try {
       const averagePrice = Number(editModal.average_price)
       const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : Number(editModal.quantity)
-      const cdiPercentage = Number(editModal.cdi_percentage)
       const otherCosts = editModal.other_costs === '' ? 0 : parseNumberInput(editModal.other_costs)
       const metadata = { ...(editModal.metadata || {}) }
 
@@ -163,11 +167,8 @@ export default function Operacoes() {
       }
 
       if (editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption) {
-        if (!Number.isFinite(cdiPercentage) || cdiPercentage <= 0) {
-          throw new Error('Informe um percentual de CDI válido.')
-        }
-        metadata.cdi_percentage = cdiPercentage / 100
-        metadata.is_tax_free = editModal.is_tax_free
+        FIXED_INCOME_METADATA_KEYS.forEach((key) => delete metadata[key])
+        Object.assign(metadata, fixedIncomeMetadataFromForm(editModal.fixed_income))
       }
 
       await investmentsApi.update(editModal.id, {
@@ -367,16 +368,12 @@ export default function Operacoes() {
             </Field>
 
             {editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption && (
-              <>
-                <Field label="% do CDI">
-                  <input type="number" step="0.1" value={editModal.cdi_percentage} onChange={(e) => setEditField('cdi_percentage', e.target.value)} className="app-input" required />
-                </Field>
-
-                <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-zinc-200 px-4 text-sm font-medium text-zinc-700">
-                  <input type="checkbox" checked={editModal.is_tax_free} onChange={(e) => setEditField('is_tax_free', e.target.checked)} className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500" />
-                  Isento de IR (LCI/LCA)
-                </label>
-              </>
+              <FixedIncomeFields
+                value={editModal.fixed_income}
+                onChange={(next) => setEditField('fixed_income', next)}
+                inputClassName="app-input"
+                selectClassName="app-select"
+              />
             )}
           </form>
         ) : null}

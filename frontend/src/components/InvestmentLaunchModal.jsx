@@ -6,6 +6,8 @@ import { investmentsApi, marketApi } from '../lib/dataApi'
 import { AlertMessage, Button, Field, SegmentedControl, Sheet } from './ui'
 import { formatCurrency, getLocalDateString } from '../lib/format'
 import TickerAutocomplete from './TickerAutocomplete'
+import FixedIncomeFields from './FixedIncomeFields'
+import { emptyFixedIncomeForm, fixedIncomeMetadataFromForm } from '../lib/fixedIncome'
 
 // Classes com cotacao na B3: o ativo tem de vir do catalogo, nao de texto livre.
 const CATALOG_ASSET_CLASSES = ['STOCKS', 'REIT']
@@ -34,8 +36,7 @@ const initialForm = () => ({
   quantity: '1',
   price: '',
   other_costs: '',
-  cdi_percentage: '',
-  is_tax_free: false,
+  fixed_income: emptyFixedIncomeForm(),
 })
 
 function parseAmount(value) {
@@ -205,9 +206,8 @@ export default function InvestmentLaunchModal({
 
     const metadata = form.asset_class === 'FIXED_INCOME'
       ? {
-          cdi_percentage: form.cdi_percentage ? parseAmount(form.cdi_percentage) / 100 : undefined,
+          ...fixedIncomeMetadataFromForm(form.fixed_income),
           purchase_date: form.transaction_date,
-          is_tax_free: form.is_tax_free,
           other_costs: otherCosts,
         }
       : {
@@ -322,7 +322,7 @@ export default function InvestmentLaunchModal({
                   list="investment-assets"
                   value={form.ticker_or_name}
                   onChange={(event) => updateForm('ticker_or_name', event.target.value)}
-                  placeholder="Selecionar ou digitar"
+                  placeholder={form.asset_class === 'FIXED_INCOME' ? 'Ex: CDB Banco X 2027' : 'Selecionar ou digitar'}
                   className="app-input h-11"
                   required
                 />
@@ -362,19 +362,20 @@ export default function InvestmentLaunchModal({
             </div>
           </Field>
 
-          <Field label="Quantidade">
-            <input
-              type="number"
-              min="0"
-              step="0.0001"
-              inputMode="decimal"
-              value={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? '1' : form.quantity}
-              onChange={(event) => updateForm('quantity', event.target.value)}
-              disabled={form.asset_class === 'FIXED_INCOME' && mode === 'BUY'}
-              className="app-input h-11"
-              required
-            />
-          </Field>
+          {form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? null : (
+            <Field label="Quantidade">
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                inputMode="decimal"
+                value={form.quantity}
+                onChange={(event) => updateForm('quantity', event.target.value)}
+                className="app-input h-11"
+                required
+              />
+            </Field>
+          )}
 
           <Field label={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? 'Valor aplicado em R$' : 'Preço em R$'}>
             <input
@@ -404,31 +405,10 @@ export default function InvestmentLaunchModal({
           </Field>
 
           {mode === 'BUY' && form.asset_class === 'FIXED_INCOME' ? (
-            <>
-              <Field label="% do CDI">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  inputMode="decimal"
-                  value={form.cdi_percentage}
-                  onChange={(event) => updateForm('cdi_percentage', event.target.value)}
-                  placeholder="Ex: 110"
-                  className="app-input h-11"
-                  required
-                />
-              </Field>
-
-              <label className="flex h-11 cursor-pointer items-center gap-3 self-end rounded-lg border border-zinc-200 px-4 text-sm font-medium text-zinc-700">
-                <input
-                  type="checkbox"
-                  checked={form.is_tax_free}
-                  onChange={(event) => updateForm('is_tax_free', event.target.checked)}
-                  className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                Isento de IR (LCI/LCA)
-              </label>
-            </>
+            <FixedIncomeFields
+              value={form.fixed_income}
+              onChange={(next) => updateForm('fixed_income', next)}
+            />
           ) : null}
         </div>
 

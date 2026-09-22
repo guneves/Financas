@@ -32,7 +32,7 @@ export function quoteSourceLabel(source) {
   const labels = {
     market: 'Mercado',
     manual: 'Manual',
-    cdi: 'CDI',
+    cdi: 'Taxa do título',
     legacy: 'Legado',
     cache: 'Cache',
     cache_stale: 'Cache antigo',

@@ -24,6 +24,7 @@ import {
   quoteStatusLabel,
 } from './helpers'
 import useInvestments from './useInvestments'
+import { describeFixedIncome } from '../../lib/fixedIncome'
 
 const POSITION_TABS = [
   { value: 'VARIAVEL', label: 'Variável', icon: TrendingUp },
@@ -326,7 +327,7 @@ function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPri
           disabled={isFixed}
           onBlur={(e) => onManualPrice(asset, e)}
           className={cx('app-input w-32 py-2', isFixed && 'cursor-not-allowed bg-zinc-100 text-zinc-500')}
-          title={isFixed ? 'Cotação calculada automaticamente pelo CDI' : 'Digite o novo preço e clique fora para salvar'}
+          title={isFixed ? 'Valor calculado automaticamente pela taxa do título' : 'Digite o novo preço e clique fora para salvar'}
         />
         <IconButton
           label="Atualizar cotação deste ativo"
@@ -374,6 +375,9 @@ function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
       <td>
         <p className="font-semibold text-zinc-950">{asset.name}</p>
         <p className="text-xs text-zinc-600">{getClassLabel(asset.class)}</p>
+        {isFixed && describeFixedIncome(asset.metadata) ? (
+          <p className="text-xs text-zinc-500">{describeFixedIncome(asset.metadata)}</p>
+        ) : null}
       </td>
       <td className="tabular text-zinc-800">{isFixed ? '-' : asset.quantity}</td>
       <td className="tabular text-zinc-800">{formatCurrency(asset.average_price)}</td>
@@ -406,6 +410,7 @@ function PositionCard({ asset, busy, onSell, onDelete, ...priceProps }) {
           <p className="truncate font-semibold text-zinc-950">{asset.name}</p>
           <p className="text-xs text-zinc-600">
             {getClassLabel(asset.class)}
+            {isFixed && describeFixedIncome(asset.metadata) ? ` · ${describeFixedIncome(asset.metadata)}` : ''}
             {isFixed ? '' : ` · ${asset.quantity} un.`}
             {` · PM ${formatCurrency(asset.average_price)}`}
           </p>

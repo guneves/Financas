@@ -5655,28 +5655,129 @@ def refresh_market_prices(current_user_id, investment_id=None, *, force=False, a
     }
 
 
+FIXED_INCOME_INDEXERS = {"CDI", "CDI_PLUS", "IPCA"}
+BUSINESS_DAYS_PER_YEAR = 252
+BCB_SERIES_CDI = 12
+BCB_SERIES_IPCA = 433
+
+
+def fixed_income_rate_terms(metadata):
+    """Le a forma de remuneracao do titulo a partir do metadata.
+
+    Devolve (indexador, taxa) onde indexador e "PRE", "CDI", "CDI_PLUS" ou
+    "IPCA". Para CDI a taxa e o percentual do CDI (1.10 = 110%); para os
+    demais e a taxa anual (0.065 = 6,5% a.a.). Lancamentos anteriores a
+    escolha do indexador so tem `cdi_percentage` e seguem como % do CDI.
+    Devolve (None, None) se faltar a taxa.
+    """
+    metadata = metadata or {}
+    if metadata.get("rate_type") == "PRE":
+        indexer = "PRE"
+    else:
+        indexer = metadata.get("indexer") or "CDI"
+        if indexer not in FIXED_INCOME_INDEXERS:
+            return None, None
+
+    if indexer == "CDI":
+        rate = safe_float(metadata.get("cdi_percentage"), None)
+    else:
+        rate = safe_float(metadata.get("annual_rate"), None)
+
+    if rate is None or not math.isfinite(rate) or rate < 0 or (indexer == "CDI" and rate == 0):
+        return None, None
+    return indexer, rate
+
+
+def ipca_accrual_factor(ipca_monthly, purchase_date):
+    """Fator do IPCA desde a compra, com o primeiro mes pro rata por dias corridos.
+
+    `ipca_monthly` e uma lista de (data do mes, variacao decimal) como a serie
+    433 do BCB. Meses ainda nao divulgados nao entram: o valor e uma estimativa
+    que se completa quando o IPCA sai.
+    """
+    factor = 1.0
+    for month_date, variation in ipca_monthly:
+        if (month_date.year, month_date.month) < (purchase_date.year, purchase_date.month):
+            continue
+        weight = 1.0
+        if (month_date.year, month_date.month) == (purchase_date.year, purchase_date.month):
+            days_in_month = calendar.monthrange(purchase_date.year, purchase_date.month)[1]
+            weight = (days_in_month - purchase_date.day + 1) / days_in_month
+        factor *= (1 + variation) ** weight
+    return factor
+
+
+def fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca_monthly=None, purchase_date=None):
+    """Fator de correcao acumulado do titulo.
+
+    `cdi_daily` e a serie diaria do CDI (decimal ao dia) desde a compra; alem
+    de corrigir os pos-fixados em CDI, seu tamanho e a contagem de dias uteis
+    usada para a parte prefixada (base 252).
+    """
+    business_days = len(cdi_daily)
+    if indexer == "CDI":
+        factor = 1.0
+        for daily_rate in cdi_daily:
+            factor *= 1 + (daily_rate * rate)
+        return factor
+
+    fixed_part = (1 + rate) ** (business_days / BUSINESS_DAYS_PER_YEAR)
+    if indexer == "PRE":
+        return fixed_part
+    if indexer == "CDI_PLUS":
+        factor = 1.0
+        for daily_rate in cdi_daily:
+            factor *= 1 + daily_rate
+        return factor * fixed_part
+    if indexer == "IPCA":
+        return ipca_accrual_factor(ipca_monthly or [], purchase_date) * fixed_part
+    raise ValueError(f"Indexador desconhecido: {indexer}")
+
+
+def fetch_bcb_series(series_code, start_date, end_date=None):
+    """Busca uma serie do SGS do BCB; devolve [(data, valor decimal)]."""
+    end_date = end_date or datetime.now()
+    url = (
+        f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{series_code}/dados"
+        f"?formato=json&dataInicial={start_date.strftime('%d/%m/%Y')}"
+        f"&dataFinal={end_date.strftime('%d/%m/%Y')}"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as response_bcb:
+        if response_bcb.status != 200:
+            raise RuntimeError(f"BCB respondeu {response_bcb.status}")
+        rows = json.loads(response_bcb.read().decode())
+    return [
+        (datetime.strptime(row["data"], "%d/%m/%Y"), safe_float(row.get("valor")) / 100)
+        for row in rows
+    ]
+
+
 def refresh_fixed_income_prices(current_user_id, investments_to_update):
     updated_assets = []
     failed_assets = []
+
+    def fail(inv, message):
+        failed_assets.append({
+            "asset_id": inv.get("asset_id"),
+            "investment_id": inv.get("id"),
+            "asset_class": inv.get("asset_class"),
+            "ticker": ticker_key(inv.get("ticker_or_name")),
+            "name": inv.get("ticker_or_name"),
+            "status": "failed",
+            "error": message,
+        })
 
     for inv in investments_to_update:
         if inv["asset_class"] != "FIXED_INCOME":
             continue
 
         meta = inv.get("metadata") or {}
-        if not meta or "cdi_percentage" not in meta:
-            failed_assets.append({
-                "asset_id": inv.get("asset_id"),
-                "investment_id": inv.get("id"),
-                "asset_class": inv.get("asset_class"),
-                "ticker": ticker_key(inv.get("ticker_or_name")),
-                "name": inv.get("ticker_or_name"),
-                "status": "failed",
-                "error": "Percentual do CDI nao informado",
-            })
+        indexer, rate = fixed_income_rate_terms(meta)
+        if indexer is None:
+            fail(inv, "Taxa do titulo nao informada")
             continue
 
-        cdi_pct = safe_float(meta["cdi_percentage"])
         date_str = meta.get("purchase_date")
         try:
             if date_str:
@@ -5684,67 +5785,47 @@ def refresh_fixed_income_prices(current_user_id, investments_to_update):
             else:
                 dt_obj = datetime.strptime(inv["created_at"][:10], "%Y-%m-%d")
         except ValueError:
-            print(f"Data invalida para {inv['ticker_or_name']}; pulando CDI.")
-            failed_assets.append({
-                "asset_id": inv.get("asset_id"),
-                "investment_id": inv.get("id"),
-                "asset_class": inv.get("asset_class"),
-                "ticker": ticker_key(inv.get("ticker_or_name")),
-                "name": inv.get("ticker_or_name"),
-                "status": "failed",
-                "error": "Data invalida para calculo de CDI",
-            })
+            print(f"Data invalida para {inv['ticker_or_name']}; pulando correcao.")
+            fail(inv, "Data invalida para calculo da rentabilidade")
             continue
 
-        url = (
-            "https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados"
-            f"?formato=json&dataInicial={dt_obj.strftime('%d/%m/%Y')}"
-            f"&dataFinal={datetime.now().strftime('%d/%m/%Y')}"
-        )
-
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as response_bcb:
-                if response_bcb.status == 200:
-                    cdi_data = json.loads(response_bcb.read().decode())
-                    accumulated = 1.0
-                    for day in cdi_data:
-                        daily_rate = safe_float(day.get("valor")) / 100
-                        accumulated *= (1 + (daily_rate * cdi_pct))
-
-                    new_price = safe_float(inv.get("average_price")) * accumulated
-                    with get_db() as conn:
-                        record_price_quote(
-                            conn,
-                            current_user_id,
-                            inv["asset_id"],
-                            round(new_price, 2),
-                            asset_class=inv["asset_class"],
-                            transaction_id=inv["id"],
-                            source="cdi",
-                            metadata={"provider": "bcb", "cdi_percentage": cdi_pct},
-                        )
-                    updated_assets.append({
-                        "asset_id": inv.get("asset_id"),
-                        "investment_id": inv.get("id"),
-                        "asset_class": inv.get("asset_class"),
-                        "ticker": ticker_key(inv.get("ticker_or_name")),
-                        "name": inv.get("ticker_or_name"),
-                        "price": round(new_price, 2),
-                        "source": "cdi",
-                        "status": "updated",
-                    })
-        except Exception as exc:
-            print(f"Erro ao buscar CDI para {inv['ticker_or_name']}: {exc}")
-            failed_assets.append({
+            cdi_daily = [value for _, value in fetch_bcb_series(BCB_SERIES_CDI, dt_obj)]
+            ipca_monthly = (
+                fetch_bcb_series(BCB_SERIES_IPCA, dt_obj.replace(day=1))
+                if indexer == "IPCA" else None
+            )
+            accumulated = fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca_monthly, dt_obj)
+            new_price = rounded_money(safe_float(inv.get("average_price")) * accumulated)
+            quote_metadata = {"provider": "bcb", "indexer": indexer}
+            if indexer == "CDI":
+                quote_metadata["cdi_percentage"] = rate
+            else:
+                quote_metadata["annual_rate"] = rate
+            with get_db() as conn:
+                record_price_quote(
+                    conn,
+                    current_user_id,
+                    inv["asset_id"],
+                    new_price,
+                    asset_class=inv["asset_class"],
+                    transaction_id=inv["id"],
+                    source="cdi",
+                    metadata=quote_metadata,
+                )
+            updated_assets.append({
                 "asset_id": inv.get("asset_id"),
                 "investment_id": inv.get("id"),
                 "asset_class": inv.get("asset_class"),
                 "ticker": ticker_key(inv.get("ticker_or_name")),
                 "name": inv.get("ticker_or_name"),
-                "status": "failed",
-                "error": str(exc) or "Erro ao buscar CDI",
+                "price": new_price,
+                "source": "cdi",
+                "status": "updated",
             })
+        except Exception as exc:
+            print(f"Erro ao corrigir {inv['ticker_or_name']} pelo BCB: {exc}")
+            fail(inv, str(exc) or "Erro ao buscar indices no BCB")
 
     return {
         "updated_count": len(updated_assets),
