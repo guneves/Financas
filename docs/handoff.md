@@ -6,7 +6,29 @@
 
 ---
 
-## Session — 2026-09-21 (latest) · UX reorganization implemented — all six steps
+## Session — 2026-09-22 (latest) · Quote refresh skips fully sold positions
+
+### What was done
+
+Bug report: "Atualizar cotações" fetched BBAS3 and AAPL34 although BBAS3 had been bought and
+sold in full. `refresh_market_prices` built its ticker list from every `investment_transactions`
+row, so a closed position kept being quoted. New `open_asset_ids()` in `backend/app.py` sums
+quantity per `asset_id` (sales are negative) and `unique_market_asset_targets()` now drops assets
+at ≤ 0.000001 — the same tolerance the FIFO lot code uses. The open set is computed from the
+*whole* history, not from the `investment_id`/`asset_id`/`asset_class`-filtered rows, so refreshing
+by a single buy row of a closed position is also a no-op. Covers both the manual
+`POST /api/investments/update-prices` and the automatic refresh in `GET /api/investments/portfolio`.
+Tests: `backend/tests/test_quote_targets.py` (4). Suite green.
+
+### Not done
+
+Fixed income (`refresh_fixed_income_prices`) was not touched — a fully redeemed CDB is still
+recomputed. It makes no network call, so it is cheap, but the same rule could apply. Nothing in
+`docs/next-steps.md` covered this bug, so the plan is unchanged.
+
+---
+
+## Session — 2026-09-21 · UX reorganization implemented — all six steps
 
 ### Where things stand
 

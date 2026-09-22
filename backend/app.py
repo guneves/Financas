@@ -5529,13 +5529,28 @@ def get_market_prices_with_status(tickers, *, force=False):
     return result
 
 
-def unique_market_asset_targets(investments):
+def open_asset_ids(investments):
+    # Vendas entram com quantidade negativa; um ativo zerado nao precisa de cotacao.
+    quantities = {}
+    for inv in investments:
+        asset_id = inv.get("asset_id")
+        if asset_id:
+            key = str(asset_id)
+            quantities[key] = quantities.get(key, 0) + safe_float(inv.get("quantity"))
+    return {asset_id for asset_id, quantity in quantities.items() if quantity > 0.000001}
+
+
+def unique_market_asset_targets(investments, open_ids=None):
+    if open_ids is None:
+        open_ids = open_asset_ids(investments)
     targets = {}
     for inv in investments:
         asset_id = inv.get("asset_id")
         asset_class = inv.get("asset_class")
         ticker = ticker_key(inv.get("ticker_or_name"))
         if not asset_id or asset_class not in QUOTED_ASSET_CLASSES or not ticker:
+            continue
+        if str(asset_id) not in open_ids:
             continue
         targets[asset_id] = {
             "asset_id": asset_id,
@@ -5584,7 +5599,10 @@ def update_current_prices_for_assets(current_user_id, target_assets, market_resu
 
 
 def refresh_market_prices(current_user_id, investment_id=None, *, force=False, asset_id=None, asset_class=None):
-    investments_to_update = fetch_investments(current_user_id, investment_id)
+    all_investments = fetch_investments(current_user_id)
+    investments_to_update = (
+        fetch_investments(current_user_id, investment_id) if investment_id else all_investments
+    )
     if asset_id:
         investments_to_update = [
             inv for inv in investments_to_update
@@ -5596,7 +5614,10 @@ def refresh_market_prices(current_user_id, investment_id=None, *, force=False, a
             if inv.get("asset_class") == asset_class
         ]
 
-    target_assets = unique_market_asset_targets(investments_to_update)
+    # A posicao aberta vem de todos os movimentos, nao so dos filtrados.
+    target_assets = unique_market_asset_targets(
+        investments_to_update, open_asset_ids(all_investments)
+    )
     tickers = sorted({asset["ticker"] for asset in target_assets})
 
     market_result = get_market_prices_with_status(tickers, force=force)
