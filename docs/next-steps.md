@@ -39,6 +39,7 @@
 | BCB fetch hardened (404 = no data yet, >10-year windows split, error payloads reported); fixed-income rate metadata validated on save; clearer provento error without a position | 2026-09-22 |
 | Invoice payment: account picker (card's autopay account, else default); Início warns when an autopay account will not cover upcoming debits | 2026-09-22 |
 | Statement filters in the URL; favicon; route-level `lazy()` (largest chunk 386 kB, was 737 kB) | 2026-09-22 |
+| Phase 4: CSV/OFX statement import with preview and dedupe, auto-categorization rules — migration 013 | 2026-09-22 |
 
 ---
 
@@ -57,6 +58,9 @@ recent frontend work has been clicked through. One pass in the real app covers a
   next 31 days exceed the debit account's balance today.
 - [ ] Extrato: filters survive a reload and the filter panel opens when the URL carries them.
 - [ ] Each screen loads its own chunk now; first visit shows a skeleton in the page area.
+- [ ] Lançamentos → Importar: pick a real bank export (CSV and OFX), check the column mapping
+  guess, the preview statuses, category overrides, "Criar regra", and that importing the same file
+  twice creates nothing the second time.
 
 ### Known limits, accepted for now
 - Privacy masking covers values formatted through `lib/format.js` / `compactCurrency`. Percentages
@@ -77,11 +81,20 @@ recent frontend work has been clicked through. One pass in the real app covers a
   fetch now rejects non-list payloads with the BCB's message, treats 404 "Value(s) not found" (title
   bought today) as no accrual, and splits windows over BCB's 10-year limit (406).
 
-### Phase 4 — Reduce friction
-- [ ] **CSV statement import** with configurable column mapping; dedupe by hash (date + amount +
-  normalized description) so re-imports are idempotent.
-- [ ] **Auto-categorization rules** (`import_rules`: description contains X → category).
-- [ ] **OFX import** (`ofxparse`).
+### Phase 4 — Reduce friction — done, not yet clicked through
+- [x] **CSV statement import** — `backend/statement_import.py` parses the file (delimiter sniffing,
+  pt-BR and en-US numbers, the usual date shapes), `POST /api/import/preview` shows what would enter
+  without writing, `POST /api/import/commit` writes it. Dedupe is `source_type='STATEMENT_IMPORT'`
+  plus a hash of account + date + amount + normalized description, so the unique index from 007
+  makes a re-import a no-op; identical rows inside one file get an occurrence suffix and survive.
+- [x] **Auto-categorization rules** — `import_rules` (migration 013), `/api/import-rules`, applied
+  in the preview only. Managed in Ajustes → Regras de importação, or created straight from a preview
+  row.
+- [x] **OFX import** — hand-rolled SGML reader in the same module (no `ofxparse` dependency); the
+  bank's `FITID` becomes the dedupe key when the file carries one.
+- [ ] Not built: applying rules to lançamentos already recorded (rules only run on import), amount
+  and account conditions on a rule, and editing a rule's pattern after creation (toggle + delete
+  only). Import is capped at 2,000 rows per file.
 
 ### Smaller gaps
 - [ ] Attachments/receipts per transaction (file stored locally, path in `metadata`).

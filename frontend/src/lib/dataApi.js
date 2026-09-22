@@ -85,6 +85,32 @@ export const recurringApi = {
   forecast: (params = {}) => apiFetch(`/api/recurring/forecast${queryString(params)}`)
 }
 
+// Importacao de extrato (Fase 4). A previa nao grava nada: ela le o arquivo,
+// aplica as regras e devolve o que entraria; o commit grava o que foi conferido.
+export const importApi = {
+  preview: (payload) => apiFetch('/api/import/preview', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  commit: (payload) => apiFetch('/api/import/commit', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export const importRulesApi = {
+  list: () => apiFetch('/api/import-rules'),
+  create: (payload) => apiFetch('/api/import-rules', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  update: (id, payload) => apiFetch(`/api/import-rules/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  remove: (id) => apiFetch(`/api/import-rules/${id}`, { method: 'DELETE' })
+}
+
 export const transfersApi = {
   create: (payload) => apiFetch('/api/transfers', {
     method: 'POST',

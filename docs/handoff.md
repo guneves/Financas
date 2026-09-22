@@ -6,7 +6,77 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Follow-ups: fixed-income bugs, invoice account, UX debt
+## Session — 2026-09-22 (latest) · Phase 4: statement import (CSV/OFX) and rules
+
+### What was done
+
+Owner request: "work on phase 4". All three items of the phase are in.
+
+- **Parser in its own module.** `backend/statement_import.py` — pure functions, no database, the
+  same shape as `market_catalog`. It sniffs the delimiter, reads pt-BR and en-US numbers
+  (`1.234,56`, `1,234.56`, `R$`, parentheses = negative), the usual date shapes (including the OFX
+  `AAAAMMDDHHMMSS[-3:BRT]`), guesses the column mapping from the header names Brazilian banks use,
+  and covers the three ways a bank exports the sign: one Valor column with a sign, separate
+  Débito/Crédito columns, or Valor plus a Tipo column. A bad line becomes `status: ERROR` in the
+  preview instead of failing the whole file. Capped at 2,000 rows.
+- **OFX with no new dependency.** A `<STMTTRN>` SGML reader in the same module — `ofxparse` was not
+  installed. When the file carries a `FITID` it becomes the `source_id`: the best dedupe key
+  available, and it survives the bank rewording the same transaction.
+- **Dedupe in the shape the project already uses.** `source_type = 'STATEMENT_IMPORT'` and
+  `source_id` = hash(account + date + amount + normalized description), against
+  `idx_transactions_user_source` (007). Re-importing the same file is a no-op; the commit uses
+  `INSERT OR IGNORE` and returns `created`/`skipped`. The account is in the hash on purpose — the
+  same file into two accounts is two real transactions. Two identical rows inside one file get an
+  occurrence suffix and stay two lançamentos.
+- **Preview is separate from writing.** `POST /api/import/preview` writes nothing;
+  `POST /api/import/commit` writes only the confirmed rows, revalidating each one (date, amount,
+  type, category, account).
+- **Rules** (`import_rules`, migration 013): "description contains / starts with / equals X →
+  category", optionally only for income or only for expenses, with a priority. They run **in the
+  preview only** — changing a rule never rewrites a lançamento already recorded. `hits` counts only
+  rows that actually became transactions.
+- **Frontend.** New tab Lançamentos → Importar (`pages/lancamentos/Importar.jsx`, lazy route):
+  file, destination account, reading options (decimal separator, delimiter, rows to skip, invert
+  sign), per-role column remapping, and the preview list with a status per row, an editable
+  category and a "Criar regra" button built from that row. Ajustes gained "Regras de importação"
+  (`pages/ajustes/RegrasSection.jsx`). The file is read as UTF-8 and re-read as windows-1252 if the
+  replacement character shows up — bank exports are still latin-1 often enough.
+- Tests: 54 new in `backend/tests/test_statement_import.py`. **515 passing** (461 before).
+  `vite build` clean; the new chunk is 10 kB.
+- Migration 013 was applied against a **copy** of `finance.db`: 013 recorded, no FK violation, 853
+  transactions intact. The real database was not touched.
+
+### Not done / worth knowing
+
+- **Nothing was clicked in a browser again.** The import screen is the newest item in the
+  "Browser walk-through" section of `next-steps.md`, and the one that most needs a real file: the
+  column mapping guess is only proven by the owner's actual bank export.
+- Rules do **not** apply to transactions already recorded, and there is no "reapply rules to the
+  statement". There is also no condition by amount or by account, and the screen only offers
+  activate/deactivate/delete (the PATCH accepts any field, but editing the pattern is not exposed).
+- An imported row goes through the same `resolve_category` as everything else: it writes the
+  category **name** into `transactions.category` and `category_id` when one exists.
+- Two bugs found while reviewing rather than from a failing test: an oversized `source_id` from the
+  client used to 500 the commit (`optional_string` raises outside the `try`), and a malformed
+  `skip_rows`/`delimiter`/`mapping` in the preview payload did the same. Both fixed, with tests.
+- `finance-guard` ran via `subagent_type="finance-guard"` directly — discovery worked, no fallback
+  needed (third session in a row that it works; the CLAUDE.md warning is now stale). No findings. Its one non-finding is now closed: `idx_import_rules_user_pattern` compares
+  the raw pattern, so "Uber" and "uber" were two rules that always matched together;
+  `ensure_unique_import_rule()` rejects the duplicate in Python, where the normalization lives, so
+  the index stays as it is.
+- `backend/app.py` went from 6,742 to ~7,124 lines. Phase 5 (blueprints) only gets more attractive;
+  when it starts, `statement_import.py` shows the shape — pure parser outside, route inside.
+
+### Next session
+
+1. Run the browser walk-through, starting with Importar and a real statement (CSV **and** OFX).
+2. If the import holds up in daily use, the next friction is "Export to CSV/Excel" (§Smaller gaps)
+   — the inverse path, and much cheaper.
+3. Phase 5 (blueprints) is still the technical debt growing fastest.
+
+---
+
+## Session — 2026-09-22 · Follow-ups: fixed-income bugs, invoice account, UX debt
 
 ### What was done
 

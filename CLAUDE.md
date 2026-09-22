@@ -34,9 +34,9 @@ is useful; "Phase 1 done" when it isn't costs the next session an hour of confus
 ## The subagent routine
 
 Two read-only subagents bracket a session: one opens it, one closes it. Both live in
-`.claude/agents/`. Neither edits, commits, or runs the app against `backend/finance.db`. As of
-2026-09-16 neither is discoverable by `subagent_type`; use the fallback documented at the end of this
-section.
+`.claude/agents/`. Neither edits, commits, or runs the app against `backend/finance.db`. Discovery by
+`subagent_type` failed repeatedly around 2026-09-15/16 but has worked since; if it fails again, use
+the fallback documented at the end of this section.
 
 ### Opening — `session-scout`
 
@@ -82,9 +82,10 @@ correct as they stand. Check a finding before acting on it.
 
 Custom agent definitions are discovered by Claude Code at startup, and on 2026-09-15 and twice on
 2026-09-16 `Agent(subagent_type="finance-guard")` returned *"Agent type not found"* even though the
-file had been committed sessions earlier. Three sessions in a row: **expect the fallback to be the
-normal path**, and reach for it after one failed attempt rather than investigating. Do not conclude
-the file is broken — it is a discovery problem, not a definition problem. The fallback works and gives the same audit:
+file had been committed sessions earlier. It has worked directly in every session since, so try it
+first and reach for the fallback after one failed attempt rather than investigating. Do not conclude
+the file is broken — it is a discovery problem, not a definition problem. The fallback gives the
+same audit:
 
 ```
 Agent(subagent_type="general-purpose",
@@ -127,9 +128,10 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-461 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
+515 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
-transaction, monthly budgets, recurring entries, `user_id` isolation, and backup retention. They run
+transaction, monthly budgets, recurring entries, statement import and its rules, `user_id`
+isolation, and backup retention. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
 
@@ -146,7 +148,8 @@ refactoring `app.py`, and that refactor is only safe with the suite in place.
 
 ```
 backend/
-  app.py              # ~5,340 lines: routes, SQL, auth, budgets, portfolio, tax, FIFO, yfinance
+  app.py              # ~7,100 lines: routes, SQL, auth, budgets, portfolio, tax, FIFO, yfinance
+  statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -155,7 +158,7 @@ database/
   migrations/         # versioned, applied automatically on boot
 frontend/src/
   pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, investimentos/,
-                      # Proventos, Ajustes + ajustes/ — screen map in lib/navigation.js
+                      # Proventos, Ajustes + ajustes/, Importar — screen map in lib/navigation.js
   components/         # Layout (nav, "+ Novo" sheet host), NewEntrySheet, ui.jsx (the UI kit)
   lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js
 docs/
@@ -209,11 +212,18 @@ docs/
   by `apply_due_autopay()`, dated on the due day, with `source_type = 'CC_AUTOPAY'` and
   `source_id = '<card>:<AAAA-MM>'` — same idempotency shape as recurrences. Only invoices due on or
   after `autopay_start_date` are paid, and a reopened invoice is not debited twice.
+- **An import is idempotent by construction.** CSV/OFX rows are written by
+  `POST /api/import/commit` with `source_type = 'STATEMENT_IMPORT'` and `source_id` = the row's
+  hash (account + date + amount + normalized description) or `'ofx:<conta>:<FITID>'` when the file
+  carries one, so the unique index makes a re-import a no-op — same shape as recurrences and
+  autopay. Two identical rows in one file get an occurrence suffix, so they are still two
+  lançamentos. Parsing lives in `backend/statement_import.py` (pure functions, no DB) and
+  `POST /api/import/preview` never writes.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/next-steps.md` §2 before touching it.
 
 ## Known sharp edges
 
-- `backend/app.py` is one ~4,950-line file. Splitting it is planned (§4.1) but should happen
+- `backend/app.py` is one ~7,120-line file. Splitting it is planned (Phase 5) but should happen
   incrementally, one blueprint at a time, with the suite green between steps.
 - The credit card **invoice-month rule now lives in the backend** (`compute_invoice_start()` in
   `backend/app.py`, behind `POST /api/cc-expenses/purchases`), covered by

@@ -10,6 +10,7 @@ import Layout from './components/Layout'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Extrato = lazy(() => import('./pages/lancamentos/Extrato'))
 const Cartoes = lazy(() => import('./pages/lancamentos/Cartoes'))
+const Importar = lazy(() => import('./pages/lancamentos/Importar'))
 const Investments = lazy(() => import('./pages/Investments'))
 const Proventos = lazy(() => import('./pages/Proventos'))
 const Orcamento = lazy(() => import('./pages/Orcamento'))
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
             <Route path="/lancamentos/extrato" element={<Extrato />} />
             <Route path="/lancamentos/cartoes" element={<Cartoes />} />
+            <Route path="/lancamentos/importar" element={<Importar />} />
 
             <Route path="/planejamento" element={<Navigate to="/planejamento/orcamento" replace />} />
             <Route path="/planejamento/orcamento" element={<Orcamento />} />

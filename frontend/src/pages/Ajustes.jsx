@@ -6,11 +6,13 @@ import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
 import DemoDataSection from './ajustes/DemoDataSection'
 import PerfilSection from './ajustes/PerfilSection'
+import RegrasSection from './ajustes/RegrasSection'
 
 const SECTION_LINKS = [
   { id: 'contas', label: 'Contas' },
   { id: 'cartoes', label: 'Cartões' },
   { id: 'categorias', label: 'Categorias' },
+  { id: 'regras-de-importacao', label: 'Regras de importação' },
   { id: 'dados-de-exemplo', label: 'Dados de exemplo' },
   { id: 'perfil', label: 'Perfil' },
 ]
@@ -66,6 +68,7 @@ export default function Ajustes() {
       <ContasSection refreshKey={dataVersion} />
       <CartoesSection refreshKey={dataVersion} />
       <CategoriasSection refreshKey={dataVersion} />
+      <RegrasSection refreshKey={dataVersion} />
       <DemoDataSection onDataChanged={() => setDataVersion((version) => version + 1)} />
 
       <PerfilSection />

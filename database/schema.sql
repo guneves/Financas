@@ -165,6 +165,31 @@ ON recurring_transactions(user_id, active, next_run_date);
 CREATE INDEX IF NOT EXISTS idx_recurring_user_category
 ON recurring_transactions(user_id, category_id);
 
+-- 013: regras de categorizacao automatica da importacao de extrato.
+CREATE TABLE IF NOT EXISTS import_rules (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    pattern TEXT NOT NULL,
+    match_type TEXT NOT NULL DEFAULT 'CONTAINS'
+        CHECK (match_type IN ('CONTAINS', 'STARTS_WITH', 'EQUALS')),
+    applies_to TEXT NOT NULL DEFAULT 'BOTH'
+        CHECK (applies_to IN ('INCOME', 'EXPENSE', 'BOTH')),
+    category TEXT NOT NULL,
+    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    hits INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_rules_user_priority
+ON import_rules(user_id, active, priority DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_import_rules_user_pattern
+ON import_rules(user_id, pattern, match_type, applies_to);
+
 CREATE TABLE IF NOT EXISTS investments (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

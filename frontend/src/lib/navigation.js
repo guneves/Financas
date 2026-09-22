@@ -7,6 +7,7 @@ import {
   PieChart,
   Receipt,
   Repeat,
+  Upload,
   Target,
   Wallet,
 } from 'lucide-react'
@@ -21,6 +22,7 @@ export const sections = [
     tabs: [
       { to: '/lancamentos/extrato', label: 'Extrato', icon: Wallet },
       { to: '/lancamentos/cartoes', label: 'Cartões', icon: CreditCard },
+      { to: '/lancamentos/importar', label: 'Importar', icon: Upload },
     ],
   },
   {

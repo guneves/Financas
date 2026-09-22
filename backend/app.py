@@ -34,6 +34,7 @@ except ImportError:
     yf = None
 
 import market_catalog
+import statement_import
 
 load_dotenv()
 
@@ -89,6 +90,15 @@ RECURRING_SOURCE_TYPE = "RECURRING_TRANSACTION"
 # Teto por recorrencia numa unica chamada de /api/recurring/run: uma semanal
 # esquecida por anos nao pode gerar milhares de lancamentos de uma vez.
 RECURRING_MAX_OCCURRENCES = 400
+# Importacao de extrato (013). O source_id e o hash da linha (ou o FITID do
+# OFX), entao reimportar o mesmo arquivo nao duplica nada.
+STATEMENT_IMPORT_SOURCE_TYPE = "STATEMENT_IMPORT"
+ALLOWED_IMPORT_TYPES = {"INCOME", "EXPENSE"}
+ALLOWED_IMPORT_MATCH_TYPES = {"CONTAINS", "STARTS_WITH", "EQUALS"}
+ALLOWED_IMPORT_APPLIES_TO = {"INCOME", "EXPENSE", "BOTH"}
+# Um extrato de um ano cabe folgado; acima disso o arquivo provavelmente nao e
+# um extrato, e o payload passa a pesar na memoria do processo.
+MAX_IMPORT_CONTENT_CHARS = 4_000_000
 ALLOWED_ASSET_CLASSES = {"STOCKS", "FIXED_INCOME", "REIT", "CATTLE", "OTHER"}
 ALLOWED_CC_STATUS = {"OPEN", "PAID"}
 ALLOWED_PROCEEDS_TYPES = {"DIVIDEND", "JCP", "AMORTIZATION"}
@@ -3982,6 +3992,408 @@ def recurring_forecast(current_user_id):
 
     with get_db() as conn:
         return jsonify(build_recurring_forecast(conn, current_user_id, days)), 200
+
+
+# --------------------------------------------------------------------------
+# Importacao de extrato e regras de categorizacao (Fase 4)
+# --------------------------------------------------------------------------
+
+# Categoria sugerida quando nenhuma regra casa. E so um palpite: a previa
+# sempre deixa o dono trocar antes de gravar.
+DEFAULT_IMPORT_CATEGORIES = {"EXPENSE": "Outros", "INCOME": "Receita"}
+
+
+def serialize_import_rule(row):
+    item = row_to_dict(row)
+    item["active"] = bool(item.get("active"))
+    return item
+
+
+def fetch_import_rule(conn, current_user_id, rule_id):
+    return conn.execute(
+        "SELECT * FROM import_rules WHERE id = ? AND user_id = ?",
+        (rule_id, current_user_id),
+    ).fetchone()
+
+
+def ensure_unique_import_rule(conn, current_user_id, fields, existing=None):
+    """Recusa uma regra que ja existe *do jeito que a comparacao enxerga*.
+
+    O indice unico de 013 compara o texto cru, mas a avaliacao normaliza (sem
+    acento, sem caixa): sem esta checagem, "Uber" e "uber" entrariam como duas
+    regras que casam sempre juntas, e so a prioridade decidiria qual vence.
+    """
+    pattern = fields.get("pattern", existing["pattern"] if existing else "")
+    match_type = fields.get("match_type", existing["match_type"] if existing else "CONTAINS")
+    applies_to = fields.get("applies_to", existing["applies_to"] if existing else "BOTH")
+    normalized = statement_import.normalize_text(pattern)
+
+    rows = conn.execute(
+        """
+        SELECT id, pattern FROM import_rules
+        WHERE user_id = ? AND match_type = ? AND applies_to = ?
+        """,
+        (current_user_id, match_type, applies_to),
+    ).fetchall()
+    for row in rows:
+        if existing is not None and row["id"] == existing["id"]:
+            continue
+        if statement_import.normalize_text(row["pattern"]) == normalized:
+            raise ValidationError(f"Ja existe uma regra para \"{row['pattern']}\".")
+
+
+def import_rules_for_matching(conn, current_user_id):
+    """Regras ativas na ordem de avaliacao: prioridade desc, depois idade.
+
+    Empate resolvido pela mais antiga de proposito — a regra que o dono criou
+    primeiro continua ganhando quando ele acrescenta outra parecida.
+    """
+    rows = conn.execute(
+        """
+        SELECT * FROM import_rules
+        WHERE user_id = ? AND active = 1
+        ORDER BY priority DESC, created_at ASC
+        """,
+        (current_user_id,),
+    ).fetchall()
+    return [row_to_dict(row) for row in rows]
+
+
+def read_import_rule_payload(conn, current_user_id, payload, existing=None):
+    """Campos validados de uma regra. Em PATCH, so o que veio no payload."""
+    fields = {}
+    is_create = existing is None
+
+    if is_create or "pattern" in payload:
+        pattern = require_string(payload, "pattern", "Texto da regra", max_length=255)
+        if len(statement_import.normalize_text(pattern)) < 2:
+            raise ValidationError("O texto da regra precisa de ao menos 2 caracteres.")
+        fields["pattern"] = pattern
+
+    if is_create or "match_type" in payload:
+        fields["match_type"] = require_choice(
+            payload, "match_type", "Tipo de comparacao", ALLOWED_IMPORT_MATCH_TYPES
+        ) if payload.get("match_type") else "CONTAINS"
+
+    if is_create or "applies_to" in payload:
+        fields["applies_to"] = require_choice(
+            payload, "applies_to", "Aplica-se a", ALLOWED_IMPORT_APPLIES_TO
+        ) if payload.get("applies_to") else "BOTH"
+
+    if is_create or "category" in payload or "category_id" in payload:
+        category, category_id = resolve_category(conn, current_user_id, payload)
+        fields["category"] = category
+        fields["category_id"] = category_id
+
+    if "priority" in payload:
+        fields["priority"] = int(
+            parse_number(payload, "priority", "Prioridade", minimum=-999, maximum=999)
+        )
+
+    if "active" in payload:
+        fields["active"] = 1 if payload.get("active") else 0
+
+    if "note" in payload:
+        fields["note"] = optional_string(payload, "note")
+
+    return fields
+
+
+@app.route("/api/import-rules", methods=["GET", "POST"])
+@token_required
+def import_rules(current_user_id):
+    if request.method == "GET":
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM import_rules
+                WHERE user_id = ?
+                ORDER BY priority DESC, created_at ASC
+                """,
+                (current_user_id,),
+            ).fetchall()
+        return jsonify({"items": [serialize_import_rule(row) for row in rows]}), 200
+
+    payload = parse_json_body()
+    with get_db() as conn:
+        try:
+            fields = read_import_rule_payload(conn, current_user_id, payload)
+            ensure_unique_import_rule(conn, current_user_id, fields)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        rule_id = new_id()
+        columns = ["id", "user_id", *fields.keys()]
+        placeholders = ", ".join("?" for _ in columns)
+        try:
+            conn.execute(
+                f"INSERT INTO import_rules ({', '.join(columns)}) VALUES ({placeholders})",
+                (rule_id, current_user_id, *fields.values()),
+            )
+        except sqlite3.IntegrityError:
+            return validation_error("Ja existe uma regra igual a essa.")
+        row = fetch_import_rule(conn, current_user_id, rule_id)
+    return jsonify(serialize_import_rule(row)), 201
+
+
+@app.route("/api/import-rules/<rule_id>", methods=["PATCH", "DELETE"])
+@token_required
+def import_rule_detail(current_user_id, rule_id):
+    with get_db() as conn:
+        row = fetch_import_rule(conn, current_user_id, rule_id)
+        if not row:
+            return jsonify({"error": "Regra nao encontrada."}), 404
+
+        if request.method == "DELETE":
+            # Regra e configuracao, nao dinheiro: apagar nao desfaz nenhuma
+            # categorizacao ja gravada, entao nao ha guarda de confirmacao.
+            conn.execute(
+                "DELETE FROM import_rules WHERE id = ? AND user_id = ?",
+                (rule_id, current_user_id),
+            )
+            return jsonify({"deleted": True}), 200
+
+        payload = parse_json_body()
+        try:
+            fields = read_import_rule_payload(conn, current_user_id, payload, existing=row)
+            if fields:
+                ensure_unique_import_rule(conn, current_user_id, fields, existing=row)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+        if not fields:
+            return validation_error("Informe ao menos um campo para atualizar.")
+
+        fields["updated_at"] = utc_timestamp()
+        assignments = ", ".join(f"{column} = ?" for column in fields)
+        try:
+            conn.execute(
+                f"UPDATE import_rules SET {assignments} WHERE id = ? AND user_id = ?",
+                (*fields.values(), rule_id, current_user_id),
+            )
+        except sqlite3.IntegrityError:
+            return validation_error("Ja existe uma regra igual a essa.")
+        updated = fetch_import_rule(conn, current_user_id, rule_id)
+    return jsonify(serialize_import_rule(updated)), 200
+
+
+def import_default_category(conn, current_user_id, transaction_type):
+    name = DEFAULT_IMPORT_CATEGORIES.get(transaction_type)
+    if not name:
+        return None, None
+    row = conn.execute(
+        """
+        SELECT id, name FROM categories
+        WHERE user_id = ? AND name = ? AND archived_at IS NULL
+        LIMIT 1
+        """,
+        (current_user_id, name),
+    ).fetchone()
+    if not row:
+        return None, None
+    return row["name"], row["id"]
+
+
+def import_content_from_payload(payload):
+    content = payload.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValidationError("Envie o conteudo do arquivo em 'content'.")
+    if len(content) > MAX_IMPORT_CONTENT_CHARS:
+        raise ValidationError("Arquivo grande demais para importar de uma vez.")
+    return content
+
+
+def import_source_id(account_id, row, seen):
+    """Chave de dedupe da linha, ja separando repetidas dentro do arquivo."""
+    if row.get("fitid"):
+        return statement_import.ofx_source_id(account_id, row["fitid"])
+    base = statement_import.row_hash(
+        account_id, row["date"], row["amount"], row.get("description")
+    )
+    occurrence = seen.get(base, 0)
+    seen[base] = occurrence + 1
+    if occurrence == 0:
+        return base
+    return f"{base}:{occurrence}"
+
+
+def existing_import_source_ids(conn, current_user_id, source_ids):
+    """Quais desses source_id ja estao gravados — uma consulta, nao N."""
+    found = set()
+    ids = [sid for sid in source_ids if sid]
+    for start in range(0, len(ids), 400):
+        chunk = ids[start:start + 400]
+        placeholders = ", ".join("?" for _ in chunk)
+        rows = conn.execute(
+            f"""
+            SELECT source_id FROM transactions
+            WHERE user_id = ? AND source_type = ? AND source_id IN ({placeholders})
+            """,
+            (current_user_id, STATEMENT_IMPORT_SOURCE_TYPE, *chunk),
+        ).fetchall()
+        found.update(row["source_id"] for row in rows)
+    return found
+
+
+@app.route("/api/import/preview", methods=["POST"])
+@token_required
+def import_preview(current_user_id):
+    """Le o arquivo, aplica as regras e diz o que entraria — sem gravar nada.
+
+    Toda a gravacao acontece no /commit, com as linhas que o dono confirmou:
+    importar e uma operacao que mexe no extrato inteiro, e ver antes e o que
+    torna isso seguro.
+    """
+    payload = parse_json_body()
+    with get_db() as conn:
+        try:
+            content = import_content_from_payload(payload)
+            account_id = resolve_account_id(conn, current_user_id, payload)
+            rows, meta = statement_import.parse_statement(
+                content,
+                file_format=payload.get("format"),
+                filename=payload.get("filename"),
+                mapping=payload.get("mapping"),
+                delimiter=payload.get("delimiter"),
+                has_header=payload.get("has_header"),
+                decimal_separator=payload.get("decimal_separator", "auto"),
+                invert_sign=payload.get("invert_sign"),
+                skip_rows=payload.get("skip_rows", 0),
+            )
+        except statement_import.ImportError_ as exc:
+            return validation_error(str(exc))
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        rules = import_rules_for_matching(conn, current_user_id)
+        seen = {}
+        items = []
+        for row in rows:
+            item = dict(row)
+            if row.get("error"):
+                item["status"] = "ERROR"
+                item["source_id"] = None
+                items.append(item)
+                continue
+
+            item["source_id"] = import_source_id(account_id, row, seen)
+            rule = statement_import.first_matching_rule(
+                rules, row.get("description"), row["type"]
+            )
+            if rule:
+                item["category"] = rule["category"]
+                item["category_id"] = rule["category_id"]
+                item["rule_id"] = rule["id"]
+                item["rule_pattern"] = rule["pattern"]
+                item["category_source"] = "RULE"
+            else:
+                name, category_id = import_default_category(conn, current_user_id, row["type"])
+                item["category"] = name
+                item["category_id"] = category_id
+                item["rule_id"] = None
+                item["rule_pattern"] = None
+                item["category_source"] = "DEFAULT" if name else None
+            items.append(item)
+
+        already = existing_import_source_ids(
+            conn, current_user_id, [item.get("source_id") for item in items]
+        )
+        for item in items:
+            if item.get("status") == "ERROR":
+                continue
+            item["status"] = "DUPLICATE" if item["source_id"] in already else "NEW"
+
+    summary = {
+        "total": len(items),
+        "new": sum(1 for item in items if item.get("status") == "NEW"),
+        "duplicates": sum(1 for item in items if item.get("status") == "DUPLICATE"),
+        "errors": sum(1 for item in items if item.get("status") == "ERROR"),
+        "categorized": sum(1 for item in items if item.get("category_source") == "RULE"),
+    }
+    return jsonify({**meta, "account_id": account_id, "rows": items, "summary": summary}), 200
+
+
+@app.route("/api/import/commit", methods=["POST"])
+@token_required
+def import_commit(current_user_id):
+    """Grava as linhas confirmadas na previa.
+
+    INSERT OR IGNORE contra idx_transactions_user_source: uma linha que ja
+    entrou (mesmo arquivo importado duas vezes, ou duas abas abertas) e
+    ignorada em vez de duplicada, e o retorno conta quantas foram puladas.
+    """
+    payload = parse_json_body()
+    raw_rows = payload.get("rows")
+    if not isinstance(raw_rows, list) or not raw_rows:
+        return validation_error("Envie as linhas a importar em 'rows'.")
+    if len(raw_rows) > statement_import.MAX_IMPORT_ROWS:
+        return validation_error("Linhas demais em uma unica importacao.")
+
+    created = 0
+    skipped = 0
+    rule_hits = {}
+    with get_db() as conn:
+        seen = {}
+        prepared = []
+        for index, raw in enumerate(raw_rows):
+            if not isinstance(raw, dict):
+                return validation_error(f"Linha {index + 1}: formato invalido.")
+            try:
+                amount = parse_number(raw, "amount", "Valor", minimum=0, allow_zero=False)
+                date_value = require_date(raw, "date", "Data")
+                transaction_type = require_choice(raw, "type", "Tipo", ALLOWED_IMPORT_TYPES)
+                description = optional_string(raw, "description")
+                category, category_id = resolve_category(conn, current_user_id, raw)
+                account_id = resolve_account_id(conn, current_user_id, raw) if raw.get("account_id") \
+                    else resolve_account_id(conn, current_user_id, payload)
+                # Normalmente o source_id vem da previa; sem ele, e recalculado
+                # aqui com a mesma regra, para o dedupe valer de qualquer jeito.
+                source_id = optional_string(raw, "source_id", max_length=255) or import_source_id(
+                    account_id,
+                    {"date": date_value, "amount": amount, "description": description},
+                    seen,
+                )
+            except ValidationError as exc:
+                return validation_error(f"Linha {index + 1}: {exc}")
+            prepared.append((raw.get("rule_id"), (
+                new_id(),
+                current_user_id,
+                account_id,
+                rounded_money(amount),
+                date_value,
+                category,
+                category_id,
+                description,
+                transaction_type,
+                STATEMENT_IMPORT_SOURCE_TYPE,
+                source_id,
+            )))
+
+        for rule_id, values in prepared:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO transactions
+                (id, user_id, account_id, amount, date, category, category_id,
+                 description, type, source_type, source_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            if cursor.rowcount:
+                created += 1
+                if rule_id:
+                    rule_hits[str(rule_id)] = rule_hits.get(str(rule_id), 0) + 1
+            else:
+                skipped += 1
+
+        # hits so conta o que virou lancamento de verdade; e o numero que diz
+        # se a regra esta puxando o peso dela.
+        for rule_id, count in rule_hits.items():
+            conn.execute(
+                "UPDATE import_rules SET hits = hits + ? WHERE id = ? AND user_id = ?",
+                (count, rule_id, current_user_id),
+            )
+
+    return jsonify({"created": created, "skipped": skipped}), 201
 
 
 @app.route("/api/credit-cards", methods=["GET", "POST"])
