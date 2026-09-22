@@ -41,6 +41,7 @@
 | Statement filters in the URL; favicon; route-level `lazy()` (largest chunk 386 kB, was 737 kB) | 2026-09-22 |
 | Phase 4: CSV/OFX statement import with preview and dedupe, auto-categorization rules — migration 013 | 2026-09-22 |
 | Export to CSV (Excel pt-BR) of the filtered statement and of the portfolio | 2026-09-22 |
+| brapi as the primary quote provider (batch + 5-min cache + dedupe + market-hours TTL), yfinance as fallback | 2026-09-22 |
 
 ---
 

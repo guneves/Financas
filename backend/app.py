@@ -33,6 +33,7 @@ try:
 except ImportError:
     yf = None
 
+import brapi_client
 import export_csv
 import market_catalog
 import statement_import
@@ -6268,9 +6269,46 @@ def download_close_prices(yf_symbols, *, period, interval):
     return prices
 
 
-def download_market_prices(tickers):
-    if yf is None:
+def download_brapi_prices(tickers):
+    """Cotacoes na brapi: um credito por lote, cache e dedupe no brapi_client.
+
+    Sem BRAPI_TOKEN configurado o provedor simplesmente nao existe e o yfinance
+    continua sendo o unico caminho; qualquer falha aqui tambem cai para ele.
+    """
+    if not tickers or not brapi_client.is_configured():
         return {}
+
+    try:
+        prices = brapi_client.get_market_prices(tickers)
+    except brapi_client.BrapiError as exc:
+        print(f"Erro ao consultar cotacoes na brapi: {exc}")
+        return {}
+
+    valid = {}
+    for ticker, price in prices.items():
+        numeric = safe_float(price, None)
+        if numeric is None or not math.isfinite(numeric) or numeric <= 0:
+            continue
+        valid[ticker_key(ticker)] = rounded_money(numeric)
+    return valid
+
+
+def market_price_provider(ticker):
+    """Quem entregou a cotacao mais recente deste ticker, para o metadata."""
+    if brapi_client.cached_quote(ticker) is not None:
+        return "brapi"
+    return "yfinance"
+
+
+def download_market_prices(tickers):
+    # A brapi e o provedor primario quando ha token; o yfinance cobre o resto
+    # (ticker fora da B3, token ausente, brapi fora do ar).
+    prices = download_brapi_prices(tickers)
+    tickers = [ticker for ticker in tickers if ticker not in prices]
+    if not tickers:
+        return prices
+    if yf is None:
+        return prices
 
     symbols_by_ticker = {ticker: yahoo_symbol(ticker) for ticker in tickers}
     yf_symbols = sorted(set(symbols_by_ticker.values()))
@@ -6280,7 +6318,6 @@ def download_market_prices(tickers):
     if missing_symbols:
         symbol_prices.update(download_close_prices(missing_symbols, period="5d", interval="1d"))
 
-    prices = {}
     for ticker, yf_symbol in symbols_by_ticker.items():
         price = symbol_prices.get(yf_symbol)
         if price is not None:
@@ -6358,8 +6395,8 @@ def get_market_prices(tickers, *, force=False):
     normalized_tickers = sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)})
     if not normalized_tickers:
         return {}
-    if yf is None:
-        print("yfinance nao esta instalado; pulando atualizacao de cotacoes.")
+    if yf is None and not brapi_client.is_configured():
+        print("Nenhum provedor de cotacao disponivel (sem yfinance e sem BRAPI_TOKEN).")
         return {}
 
     fresh_prices, fallback_prices, stale_tickers = read_price_cache(normalized_tickers)
@@ -6406,10 +6443,10 @@ def get_market_prices_with_status(tickers, *, force=False):
     }
     if not normalized_tickers:
         return result
-    if yf is None:
-        print("yfinance nao esta instalado; pulando atualizacao de cotacoes.")
+    if yf is None and not brapi_client.is_configured():
+        print("Nenhum provedor de cotacao disponivel (sem yfinance e sem BRAPI_TOKEN).")
         result["failed_tickers"] = normalized_tickers
-        result["errors"] = {ticker: "yfinance indisponivel" for ticker in normalized_tickers}
+        result["errors"] = {ticker: "Provedor de cotacao indisponivel" for ticker in normalized_tickers}
         return result
 
     fresh_prices, fallback_prices, stale_tickers = read_price_cache(normalized_tickers)
@@ -6511,7 +6548,7 @@ def update_current_prices_for_assets(current_user_id, target_assets, market_resu
                 round(price, 2),
                 asset_class=asset["asset_class"],
                 source="market",
-                metadata={"ticker": ticker, "provider": "yfinance"},
+                metadata={"ticker": ticker, "provider": market_price_provider(ticker)},
             )
             updated_assets.append({
                 **asset,
