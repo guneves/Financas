@@ -98,7 +98,7 @@ export default function Extrato() {
           setFilterError('')
         }
       } catch (error) {
-        if (!cancelled) setFilterError(error.message || 'Nao foi possivel aplicar os filtros.')
+        if (!cancelled) setFilterError(error.message || 'Não foi possível aplicar os filtros.')
       } finally {
         if (!cancelled) setFiltering(false)
       }
@@ -163,7 +163,7 @@ export default function Extrato() {
       setEditingId('')
       await fetchData()
     } catch (error) {
-      setDataError(error.message || 'Nao foi possivel atualizar o lancamento.')
+      setDataError(error.message || 'Não foi possível atualizar o lançamento.')
     } finally {
       setSaving(false)
     }
@@ -175,7 +175,7 @@ export default function Extrato() {
       await transactionsApi.remove(id)
       await fetchData()
     } catch (error) {
-      setDataError(error.message || 'Nao foi possivel excluir a transacao.')
+      setDataError(error.message || 'Não foi possível excluir a transação.')
     }
   }
 

@@ -154,8 +154,10 @@ database/
   schema.sql          # reference schema
   migrations/         # versioned, applied automatically on boot
 frontend/src/
-  pages/              # Dashboard, Transactions, Orcamento, Recorrentes, Carteira, Investments, Proventos
-  lib/                # api.js, auth.js, dataApi.js, format.js, portfolio.js
+  pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, investimentos/,
+                      # Proventos, Ajustes + ajustes/ — screen map in lib/navigation.js
+  components/         # Layout (nav, "+ Novo" sheet host), NewEntrySheet, ui.jsx (the UI kit)
+  lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js
 docs/
   next-steps.md       # the plan
   handoff.md          # session log
@@ -206,9 +208,13 @@ docs/
   incrementally, one blueprint at a time, with the suite green between steps.
 - The credit card **invoice-month rule now lives in the backend** (`compute_invoice_start()` in
   `backend/app.py`, behind `POST /api/cc-expenses/purchases`), covered by
-  `backend/tests/test_invoice_month.py`. It used to be in `Carteira.jsx`; don't reintroduce a
+  `backend/tests/test_invoice_month.py`. The "+ Novo" card form calls it (`ccExpensesApi.createPurchase`); don't reintroduce a
   client-side copy.
-- `formatCurrency` and the date helpers now live in `frontend/src/lib/format.js`. Two local
-  copies survive on purpose: `Carteira.jsx` and `Transactions.jsx` default their
-  `getLocalDateString` to a `getNow()` clock hook rather than to `new Date()`, and
-  `Transactions.jsx`'s `formatDateBR` returns `''` where the shared one returns `'-'`.
+- `formatCurrency` and the date helpers now live in `frontend/src/lib/format.js`. One local
+  copy survives on purpose: `pages/lancamentos/helpers.js` defaults `getLocalDateString` to a
+  `getNow()` clock hook rather than to `new Date()`, and its `formatDateBR` returns `''` where the
+  shared one returns `'-'`.
+- **Frontend conventions** (from the 2026-09-21 UX reorganization): pages use only `ui.jsx`
+  pieces (`AlertMessage`, `Collapsible`, `Sheet`, `Tabs`…), emerald is the only accent, section
+  tabs come from the URL, and a page that shows data saved by "+ Novo" puts `useDataVersion()`
+  (`lib/newEntry.js`) in its fetch effect's dependencies.

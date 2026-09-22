@@ -87,7 +87,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
         setExpenseForm((current) => ({ ...current, card_id: current.card_id || safeCards[0]?.id || '' }))
       })
       .catch((loadError) => {
-        if (!cancelled) setError(loadError.message || 'Nao foi possivel carregar contas, cartoes e categorias.')
+        if (!cancelled) setError(loadError.message || 'Não foi possível carregar contas, cartões e categorias.')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -137,7 +137,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
       })
       await finish()
     } catch (submitError) {
-      setError(submitError.message || 'Nao foi possivel criar o lancamento.')
+      setError(submitError.message || 'Não foi possível criar o lançamento.')
     } finally {
       setSaving(false)
     }
@@ -167,7 +167,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
       })
       await finish()
     } catch (submitError) {
-      setError(submitError.message || 'Nao foi possivel registrar a transferencia.')
+      setError(submitError.message || 'Não foi possível registrar a transferência.')
     } finally {
       setSaving(false)
     }
@@ -181,7 +181,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
     const selectedCard = cards.find((card) => card.id === expenseForm.card_id)
 
     if (!selectedCard || !purchaseDate || Number.isNaN(purchaseDate.getTime()) || !Number.isFinite(totalAmount) || totalAmount <= 0 || !Number.isInteger(installmentsCount) || installmentsCount <= 0) {
-      setError('Preencha a compra no cartao com valores validos.')
+      setError('Preencha a compra no cartão com valores válidos.')
       return
     }
 
@@ -200,7 +200,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
       })
       await finish()
     } catch (submitError) {
-      setError(submitError.message || 'Nao foi possivel criar a compra no cartao.')
+      setError(submitError.message || 'Não foi possível criar a compra no cartão.')
     } finally {
       setSaving(false)
     }

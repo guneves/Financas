@@ -32,15 +32,20 @@
 | Shared `frontend/src/lib/format.js` | 2026-09-16 |
 | B3 ticker catalog, autocomplete, and guard on buys | 2026-09-16 |
 | Statement search and filters (§3.7) — closes Phase 3 | 2026-09-21 |
+| UX reorganization: 4 sections + Ajustes, "+ Novo" sheet, Carteira merged away, phone layout (`docs/ux-reorganization.md`) | 2026-09-21 |
 
 ---
 
 ## 2. Open work, in priority order
 
-### UX reorganization — current work
-Spec, decisions and inventory: **`docs/ux-reorganization.md`**. Frontend only, no new features.
-- [ ] 1 Shell (nav, routes, redirects) · [ ] 2 Ajustes · [ ] 3 Lançamentos + "+ Novo" (Carteira
-  merged away) · [ ] 4 Planejamento · [ ] 5 Investimentos · [ ] 6 Início
+### UX reorganization — follow-ups
+All six steps done. Open items (owner walk-through, favicon, bundle split, filters in URL) are in
+**`docs/ux-reorganization.md`** › Open.
+
+### Bugs found during the UX work (pre-existing, backend)
+- [ ] Registering a provento against a fixed-income asset (CDB) returns a backend error.
+- [ ] Quote update on fixed-income assets fails with `'str' object has no attribute 'get'` (and
+  "Percentual do CDI nao informado" when the CDI % is missing).
 
 ### Phase 4 — Reduce friction
 - [ ] **CSV statement import** with configurable column mapping; dedupe by hash (date + amount +
@@ -51,17 +56,14 @@ Spec, decisions and inventory: **`docs/ux-reorganization.md`**. Frontend only, n
 ### Smaller gaps
 - [ ] Attachments/receipts per transaction (file stored locally, path in `metadata`).
 - [ ] Export to CSV/Excel for the statement and the portfolio.
-- [ ] Dashboard strip for the budget and the recurring forecast.
+- [ ] Dashboard strip for the budget (overdue recurrences and the open invoice are now on Início).
 
 ### Phase 5 — Backend refactor
 - [ ] Split `backend/app.py` into blueprints (config, db, auth, validators, services/portfolio,
   prices, invoices, routes/*), one at a time, suite green between steps.
 
 ### Frontend debt
-- [ ] Break up `Carteira.jsx` (~1,300 lines) and `Investments.jsx` into per-section components.
-  *(Absorbed by the UX reorganization, steps 3 and 5.)*
-- [ ] Centralized server state (TanStack Query).
-- [ ] One consistent error toast/banner.
+- [ ] Centralized server state (TanStack Query). A small `DataVersionContext` covers "+ Novo" refetch for now.
 - [ ] Loading skeletons on heavy screens.
 
 ### Operations
@@ -83,6 +85,7 @@ Spec, decisions and inventory: **`docs/ux-reorganization.md`**. Frontend only, n
 2. **Recurring pause/resume** drops an occurrence already overdue before the pause (accepted for now;
    fix would be a `paused_at` column).
 3. **Single-user or multi-user?** Schema is ready for either; SQLite is enough for personal use.
-4. **Desktop only or phone access?** Phone access means responsive work and hosting with HTTPS.
+4. **Desktop only or phone access?** The layout is now responsive (bottom bar, card lists); hosting
+   with HTTPS is still undecided.
 5. **Tax: support tool or source of truth?** Filing-grade use needs reconciliation against
    brokerage notes.

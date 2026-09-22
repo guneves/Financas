@@ -126,7 +126,7 @@ export default function useLancamentos() {
       localStorage.setItem('@financeMVP:projectedBalanceNextMonth', projNextMonth.toString())
     } catch (error) {
       console.warn('Erro ao carregar movimentacoes:', error)
-      setDataError(error.message || 'Nao foi possivel carregar os dados financeiros.')
+      setDataError(error.message || 'Não foi possível carregar os dados financeiros.')
     }
   }, [])
 

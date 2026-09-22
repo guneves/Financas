@@ -6,7 +6,78 @@
 
 ---
 
-## Session — 2026-09-21 (latest) · UX reorganization planned — `docs/ux-reorganization.md`
+## Session — 2026-09-21 (latest) · UX reorganization implemented — all six steps
+
+### Where things stand
+
+`docs/ux-reorganization.md` is **done**: the file now holds only a "Done" block and the open
+follow-ups (the full original spec is at `9c186fe:docs/ux-reorganization.md`). Frontend only, no
+backend or migration change; backend suite untouched (363 tests). Seven commits: one per step
+(`d47e506` 1 · `c439a3e` 2 · `7763447` 3 · `e59193e` 4 · `8c24858` 5 · `0ba9dde` 6) plus a
+closing commit (accents, docs).
+
+### How it was run
+
+Step 1 (shell) was done in the main session because everything depends on it. Steps 2, 5, 6 then
+ran as parallel `general-purpose` subagents with strict per-file ownership; 3 and 4 followed once
+2 had landed (both touch pages 2 stripped). Each agent built into a private `--outDir` and
+nothing committed; the coordinator committed each step by path. Two contracts were fixed up front
+so parallel agents could code against them: `lib/newEntry.js` (`useNewEntry`, `useDataVersion`)
+and `lib/navigation.js`.
+
+**Testing without touching the real DB.** The owner's app was running on :5000/:5173, so a second
+instance ran on **:5055** (backend, `DATABASE_PATH` in the scratchpad, `AUTO_BACKUP_ON_BOOT=0`) and
+**:5199** (`VITE_API_BASE_URL=http://localhost:5055 npx vite --port 5199`). The Chrome extension
+was not connected, so tests used `playwright-core` driving the installed Chrome
+(`executablePath`), auth injected into localStorage `@financeMVP:auth`. Every §8 inventory row was
+exercised at 1400px and 390px. The scripts lived in the session scratchpad and are gone; the
+recipe above is enough to rebuild them.
+
+### Things that changed behaviour (deliberately)
+
+1. **Card purchases now use `POST /api/cc-expenses/purchases`.** The old Movimentações form
+   computed installments client-side and called `ccExpensesApi.create` — a stale copy of the
+   invoice rule CLAUDE.md says lives in the backend (Carteira was already on the endpoint).
+   Invoice months are identical; amounts now sum exactly (100 in 3x → 33,34 + 33,33 + 33,33
+   instead of 3 × 33,33).
+2. Because of (1), **delete purchase** (`pages/lancamentos/Cartoes.jsx`) matches sibling
+   installments with a 1-cent tolerance instead of exact equality. It still also removes
+   installments already paid — unchanged from before.
+3. Cartões' summary (ported from Carteira's `walletSummary`) skips `TRANSFER` rows; Carteira
+   counted them as expenses. With that, "Saldo projetado" equals "Projeção global".
+4. Demo data (now Ajustes › Dados de exemplo, behind `window.confirm`) computes its dates when
+   pressed, not at module load.
+
+### What was not done, and why
+
+- **No owner walk-through** — everything was tested on a scratch DB. That is the first open item
+  in `docs/ux-reorganization.md`, with the judgement calls listed (duplicate "+ Novo" buttons on
+  Início/Extrato, etc.).
+- Favicon 404, bundle size (737 kB), filters in the URL: listed as open, not in scope.
+- Two **pre-existing backend bugs** surfaced and were only recorded (`next-steps.md`): provento
+  on a fixed-income asset errors; quote update on fixed income fails with
+  `'str' object has no attribute 'get'`.
+
+### Things to know
+
+- **`Sheet` must portal** (it does now). `Layout` wraps `<Outlet/>` in an `animate-fade-up` div
+  whose transform makes `position: fixed` measure against the page, not the window. Any future
+  overlay rendered inside a page needs `createPortal` too.
+- Full-page Playwright screenshots show the sticky header/bottom bar mid-page — artifact, not bug.
+- Playwright `getByLabel` on a `<label>` wrapping a `<select>` includes the option text in the
+  accessible name; select the element directly.
+- The "+ Novo" sheet refetches accounts/cards/categories on every open; Salvar is disabled until
+  they arrive.
+- `finance-guard` **was** discoverable by `subagent_type` this session.
+
+### Next session
+
+Owner walk-through of the new layout in the real app, then the two backend bugs above, then
+Phase 4 (CSV import).
+
+---
+
+## Session — 2026-09-21 · UX reorganization planned — `docs/ux-reorganization.md`
 
 ### Where things stand
 

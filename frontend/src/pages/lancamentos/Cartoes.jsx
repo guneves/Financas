@@ -194,7 +194,7 @@ export default function Cartoes() {
 
       await fetchData()
     } catch (error) {
-      setDataError(error.message || 'Nao foi possivel pagar a fatura.')
+      setDataError(error.message || 'Não foi possível pagar a fatura.')
     } finally {
       setSaving(false)
     }
@@ -212,7 +212,7 @@ export default function Cartoes() {
         category: purchase.category,
       })
     } catch (error) {
-      setDataError(error.message || 'Nao foi possivel localizar as faturas da compra.')
+      setDataError(error.message || 'Não foi possível localizar as faturas da compra.')
       return
     }
 
@@ -238,7 +238,7 @@ export default function Cartoes() {
       await ccExpensesApi.removeMany(idsToDelete)
       await fetchData()
     } catch (error) {
-      setDataError(error.message || 'Nao foi possivel excluir a compra.')
+      setDataError(error.message || 'Não foi possível excluir a compra.')
     }
   }
 
