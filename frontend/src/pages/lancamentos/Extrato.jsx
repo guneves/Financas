@@ -15,6 +15,7 @@ import {
   cx,
 } from '../../components/ui'
 import { formatCurrency } from '../../lib/format'
+import { isInvestmentOutflow } from '../../lib/transactions'
 import { categoryLabel, formatDateBR } from './helpers'
 import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
@@ -30,9 +31,12 @@ function countHiddenFilters(filters) {
   return Object.entries(filters).filter(([key, value]) => key !== 'q' && String(value).trim() !== '').length
 }
 
-function TypeBadge({ type }) {
+function TypeBadge({ transaction }) {
+  const { type } = transaction
   if (type === 'TRANSFER') return <Badge tone="info">Transferência</Badge>
   if (type === 'INCOME') return <Badge tone="success">Receita</Badge>
+  // Aporte sai da conta, mas nao e despesa.
+  if (isInvestmentOutflow(transaction)) return <Badge tone="info">Investimento</Badge>
   if (type === 'EXPENSE') return <Badge tone="danger">Despesa</Badge>
   return null
 }
@@ -116,9 +120,10 @@ export default function Extrato() {
     return statementTransactions.reduce((acc, item) => {
       const amount = Number(item.amount || 0)
       if (item.type === 'INCOME') acc.income += amount
-      if (item.type === 'EXPENSE') acc.expense += amount
+      else if (isInvestmentOutflow(item)) acc.investment += amount
+      else if (item.type === 'EXPENSE') acc.expense += amount
       return acc
-    }, { income: 0, expense: 0 })
+    }, { income: 0, expense: 0, investment: 0 })
   }, [statementTransactions])
 
   const startEditing = (transaction) => {
@@ -229,7 +234,7 @@ export default function Extrato() {
 
   const rowActions = (transaction) => (
     transaction.source_type === 'INVESTMENT_TRANSACTION' ? (
-      <Badge>Investimento</Badge>
+      <Badge>Pela carteira</Badge>
     ) : transaction.source_type === 'CC_INVOICE_PAYMENT' || transaction.source_type === 'CC_AUTOPAY' ? (
       <Badge>{transaction.source_type === 'CC_AUTOPAY' ? 'Débito automático' : 'Pela fatura'}</Badge>
     ) : (
@@ -267,6 +272,9 @@ export default function Extrato() {
                 <>
                   <Badge tone="success">+ {formatCurrency(statementTotals.income)}</Badge>
                   <Badge tone="danger">- {formatCurrency(statementTotals.expense)}</Badge>
+                  {statementTotals.investment > 0 ? (
+                    <Badge tone="info">Investido {formatCurrency(statementTotals.investment)}</Badge>
+                  ) : null}
                 </>
               ) : null}
               <Badge>{filtering ? 'Filtrando…' : `${statementTransactions.length} registro(s)`}</Badge>
@@ -399,7 +407,7 @@ export default function Extrato() {
                         <td className="text-zinc-700">{accountLabel(transaction)}</td>
                         <td className="font-medium text-zinc-800">{transaction.category}</td>
                         <td className="text-zinc-700">{transaction.description}</td>
-                        <td><TypeBadge type={transaction.type} /></td>
+                        <td><TypeBadge transaction={transaction} /></td>
                         <td className={cx('font-bold', amountClass(transaction))}>{amountText(transaction)}</td>
                         <td className="text-right">
                           <div className="flex justify-end gap-2">{rowActions(transaction)}</div>
@@ -445,7 +453,7 @@ export default function Extrato() {
                       <p className={cx('shrink-0 whitespace-nowrap font-bold', amountClass(transaction))}>{amountText(transaction)}</p>
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-2">
-                      <TypeBadge type={transaction.type} />
+                      <TypeBadge transaction={transaction} />
                       <div className="flex gap-2">{rowActions(transaction)}</div>
                     </div>
                   </li>

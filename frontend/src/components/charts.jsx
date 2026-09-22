@@ -14,10 +14,12 @@ export const OTHER_COLOR = '#a1a1aa'
 
 // Entradas e saidas: verde/vermelho por convencao, mas o par fica na faixa de
 // alerta para daltonismo — por isso os graficos de fluxo desenham as saidas
-// abaixo do zero. A posicao carrega o sinal; a cor so reforca.
+// abaixo do zero. A posicao carrega o sinal; a cor so reforca. Aporte e saida
+// mas nao e despesa: azul, a mesma cor de Investimentos no painel.
 export const FLOW = {
   income: '#1baf7a',
   expense: '#e34948',
+  investment: '#2a78d6',
   net: '#18181b',
 }
 

@@ -15,6 +15,7 @@ import {
 import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
 import { formatCurrency, formatDateBR, getLocalDateString } from '../lib/format'
 import { useDataVersion } from '../lib/newEntry'
+import { isInvestmentOutflow } from '../lib/transactions'
 import {
   AlertMessage,
   Badge,
@@ -240,7 +241,7 @@ export default function Recorrentes() {
           tone="success"
         />
         <MetricCard
-          title="Despesas previstas (30d)"
+          title="Saídas previstas (30d)"
           value={formatCurrency(window30.expense)}
           icon={TrendingDown}
           tone="danger"
@@ -408,7 +409,7 @@ export default function Recorrentes() {
                     ) : null}
                   </div>
                   <p className="mt-1 text-sm text-zinc-600">
-                    {item.type === 'INCOME' ? 'Receita' : 'Despesa'} · {item.category} · {frequencyLabel(item)} ·{' '}
+                    {item.type === 'INCOME' ? 'Receita' : isInvestmentOutflow(item) ? 'Investimento' : 'Despesa'} · {item.category} · {frequencyLabel(item)} ·{' '}
                     {item.next_run_date
                       ? `próxima em ${formatDateBR(item.next_run_date)}`
                       : 'sem próxima data'}

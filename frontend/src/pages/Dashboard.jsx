@@ -61,6 +61,7 @@ import {
   compactCurrency,
 } from '../components/charts'
 import { formatCurrency, formatDateBR, monthKey, monthLabel, shiftMonth } from '../lib/format'
+import { isInvestmentOutflow } from '../lib/transactions'
 
 const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
@@ -118,8 +119,8 @@ const percentChange = (current, previous) => {
 }
 
 // Gasto de consumo de um mes, por dia e por categoria: saidas da conta (menos
-// o pagamento de fatura, que ja e a soma das compras) + compras no cartao pelo
-// valor total da compra, na data da compra.
+// o pagamento de fatura, que ja e a soma das compras, e os aportes em
+// investimento) + compras no cartao pelo valor total da compra, na data da compra.
 function buildSpending(transactions, ccExpenses, key) {
   const byDay = {}
   const byCategory = {}
@@ -131,7 +132,7 @@ function buildSpending(transactions, ccExpenses, key) {
   }
 
   transactions.forEach((transaction) => {
-    if (transaction.type !== 'EXPENSE' || isInvoicePayment(transaction)) return
+    if (transaction.type !== 'EXPENSE' || isInvoicePayment(transaction) || isInvestmentOutflow(transaction)) return
     if (String(transaction.date).slice(0, 7) !== key) return
     add(Number(transaction.date.slice(8, 10)), transaction.category, 'cash', parseFloat(transaction.amount) || 0)
   })
@@ -253,11 +254,12 @@ export default function Dashboard() {
     return curr.type === 'INCOME' ? acc + parseFloat(curr.amount) : acc - parseFloat(curr.amount)
   }, 0), [transactions])
 
-  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses.
+  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses. As saidas se
+  // dividem em despesa e aporte: investir tira dinheiro da conta, mas nao e gasto.
   const monthlyHistory = useMemo(() => {
     const keys = Array.from({ length: HISTORY_MONTHS }, (_, index) => shiftMonth(currentKey, index - (HISTORY_MONTHS - 1)))
     const firstKey = keys[0]
-    const byKey = Object.fromEntries(keys.map((key) => [key, { income: 0, expense: 0 }]))
+    const byKey = Object.fromEntries(keys.map((key) => [key, { income: 0, expense: 0, investment: 0 }]))
     let openingBalance = 0
 
     transactions.forEach((transaction) => {
@@ -271,33 +273,38 @@ export default function Dashboard() {
       }
       if (!byKey[key]) return
       if (transaction.type === 'INCOME') byKey[key].income += amount
+      else if (isInvestmentOutflow(transaction)) byKey[key].investment += amount
       else byKey[key].expense += amount
     })
 
     let running = openingBalance
     return keys.map((key) => {
-      const { income, expense } = byKey[key]
-      running += income - expense
+      const { income, expense, investment } = byKey[key]
+      running += income - expense - investment
       return {
         key,
         label: shortMonth(key),
         income: Number(income.toFixed(2)),
-        // Desenhada abaixo do zero: a posicao diz "saida" sem depender da cor.
+        // Desenhadas abaixo do zero: a posicao diz "saida" sem depender da cor.
         expense: -Number(expense.toFixed(2)),
-        net: Number((income - expense).toFixed(2)),
+        investment: -Number(investment.toFixed(2)),
+        net: Number((income - expense - investment).toFixed(2)),
         balance: Number(running.toFixed(2)),
       }
     })
   }, [transactions, currentKey])
 
   const flowSummary = useMemo(() => {
-    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0)
+    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0 || item.investment !== 0)
     const income = monthlyHistory.reduce((acc, item) => acc + item.income, 0)
     const expense = monthlyHistory.reduce((acc, item) => acc - item.expense, 0)
+    const investment = monthlyHistory.reduce((acc, item) => acc - item.investment, 0)
     const months = Math.max(active.length, 1)
     return {
       avgIncome: income / months,
       avgExpense: expense / months,
+      avgInvestment: investment / months,
+      // O que foi investido conta como poupado: so a despesa reduz a taxa.
       savingsRate: income > 0 ? ((income - expense) / income) * 100 : null,
       hasData: active.length > 0,
     }
@@ -557,11 +564,12 @@ export default function Dashboard() {
         <Panel className="xl:col-span-3">
           <PanelHeader
             title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
-            description="Entradas e saídas da conta nos últimos 12 meses. Transferências entre contas não entram."
+            description="Entradas, despesas e aportes da conta nos últimos 12 meses. Transferências entre contas não entram."
             actions={(
               <div className="flex flex-wrap items-center gap-3">
                 <LegendDot color={FLOW.income} label="Entradas" />
-                <LegendDot color={FLOW.expense} label="Saídas" />
+                <LegendDot color={FLOW.expense} label="Despesas" />
+                <LegendDot color={FLOW.investment} label="Investimentos" />
                 <LegendDot color={FLOW.net} label="Resultado" shape="line" />
               </div>
             )}
@@ -569,9 +577,10 @@ export default function Dashboard() {
           <div className="p-5">
             {flowSummary.hasData ? (
               <>
-                <div className="mb-4 grid grid-cols-3 gap-3">
+                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <InlineStat label="Média de entradas" value={formatCurrency(flowSummary.avgIncome)} />
-                  <InlineStat label="Média de saídas" value={formatCurrency(flowSummary.avgExpense)} />
+                  <InlineStat label="Média de despesas" value={formatCurrency(flowSummary.avgExpense)} />
+                  <InlineStat label="Média investida" value={formatCurrency(flowSummary.avgInvestment)} />
                   <InlineStat
                     label="Taxa de poupança"
                     value={flowSummary.savingsRate === null ? '—' : `${flowSummary.savingsRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
@@ -590,13 +599,14 @@ export default function Dashboard() {
                         content={(
                           <ChartTooltip
                             absolute
-                            names={{ income: 'Entradas', expense: 'Saídas', net: 'Resultado' }}
+                            names={{ income: 'Entradas', expense: 'Despesas', investment: 'Investimentos', net: 'Resultado' }}
                             labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
                           />
                         )}
                       />
                       <Bar dataKey="income" stackId="flow" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
-                      <Bar dataKey="expense" stackId="flow" fill={FLOW.expense} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                      <Bar dataKey="expense" stackId="flow" fill={FLOW.expense} maxBarSize={24} {...ANIMATION} />
+                      <Bar dataKey="investment" stackId="flow" fill={FLOW.investment} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
                       <Line
                         type="monotone"
                         dataKey="net"
@@ -612,7 +622,7 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver entradas ou saídas lançadas." />
+              <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver entradas, despesas ou aportes lançados." />
             )}
           </div>
         </Panel>
