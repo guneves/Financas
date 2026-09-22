@@ -143,6 +143,7 @@ export const investmentsApi = {
   transactions: () => apiFetch('/api/investment-transactions'),
   positions: () => apiFetch('/api/investment-positions'),
   realizedResults: () => apiFetch('/api/investment-realized-results'),
+  history: (params = {}) => apiFetch(`/api/investments/history${queryString(params)}`),
   create: (payload) => apiFetch('/api/investments', {
     method: 'POST',
     body: JSON.stringify(payload)

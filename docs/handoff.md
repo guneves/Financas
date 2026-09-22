@@ -6,7 +6,41 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Recorrentes: phantom pendentes + reviving a finished recurrence
+## Session — 2026-09-22 (latest) · Investimentos: "Evolução do Patrimônio"
+
+### What was done
+
+Owner request: replace "Rentabilidade por ativo" in Investimentos with an "Evolução do Patrimônio"
+chart — monthly, valor aplicado + ganho de capital, 12 months by default, period selectable.
+
+- **No backend change.** `GET /api/investments/history?months=N` and `build_portfolio_evolution()`
+  already produced exactly this series (`valorAplicado`, `patrimonio`, `ganhoCapitalReal` per month,
+  capped at 60 months) — nothing in the frontend called it. New `investmentsApi.history()`.
+- **`PortfolioOverview.jsx`**: the bar chart per asset is gone; the panel is now a stacked monthly
+  bar (blue = aplicado, green = ganho) beside the Alocação donut (grid is now 1/3 + 2/3). A month
+  with a loss draws patrimônio as the base and the loss in red up to the aplicado height, so the
+  bar never hides a loss. Period selector 6M / 1A / 2A / 3A / 5A (the 5A matches the backend cap),
+  remembered in `localStorage` (`@financeMVP:patrimonioPeriod`). Refetches on `useDataVersion()`.
+- **Tests.** The endpoint had none; `test_portfolio_evolution.py` (9) stubs `yf` to `None` and
+  covers the period, the 60 cap, aplicado/ganho from the buy month on, a negative gain, and
+  `user_id` isolation. 424 passing.
+
+### Not done / worth knowing
+
+- **Fixed income is flat in past months.** `build_portfolio_evolution()` marks FIXED_INCOME,
+  CATTLE and OTHER at cost for every month except the current one, so their accumulated yield
+  shows up as a jump in the last bar. Stocks/FIIs use the yfinance monthly close. Logged in
+  `next-steps.md` Phase 6.
+- The first load of a long period hits yfinance for every ticker (cached 1h server-side); the
+  panel shows a skeleton meanwhile.
+- **`Posicao.jsx` had uncommitted changes that are not from this session** (grouping positions by
+  class / fixed-income type). Left untouched and uncommitted.
+- `finance-guard` ran via `subagent_type` directly: no findings.
+- Not clicked through in a browser; `vite build` clean.
+
+---
+
+## Session — 2026-09-22 · Recorrentes: phantom pendentes + reviving a finished recurrence
 
 ### What was done
 

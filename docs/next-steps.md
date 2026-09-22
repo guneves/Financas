@@ -34,6 +34,7 @@
 | Statement search and filters (§3.7) — closes Phase 3 | 2026-09-21 |
 | UX reorganization: 4 sections + Ajustes, "+ Novo" sheet, Carteira merged away, phone layout (spec in git at `9c186fe:docs/ux-reorganization.md`, file removed) | 2026-09-21 |
 | Invoice payment only after closing, server-side; "Débito automático" per card — migration 011 | 2026-09-22 |
+| Investimentos: "Evolução do Patrimônio" (monthly valor aplicado + ganho de capital, 6M–5A) replaces "Rentabilidade por ativo" | 2026-09-22 |
 
 ---
 
@@ -102,6 +103,9 @@ the GETs for transactions, accounts, cards and cc-expenses (tests: `test_invoice
 - [ ] Corporate actions (splits, reverse splits, bonus shares).
 - [ ] Real multi-currency (`assets.currency` is not converted today).
 - [ ] Annual tax report.
+- [ ] Evolução do Patrimônio: fixed income and other non-quoted assets show only their cost in past
+  months (the backend marks them to market in the current month only), so their gain appears as a
+  step in the last bar. Needs a historical accrual per month (CDI/IPCA series are already fetched).
 
 ---
 
