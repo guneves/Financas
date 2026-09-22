@@ -111,7 +111,9 @@ the GETs for transactions, accounts, cards and cc-expenses (tests: `test_invoice
    paid, as one "Pagamento Fatura" lançamento. Options: budget the invoice categories; count open
    `cc_expenses` into their category; or materialize installments as `transactions` on settlement.
 2. **Recurring pause/resume** drops an occurrence already overdue before the pause (accepted for now;
-   fix would be a `paused_at` column).
+   fix would be a `paused_at` column). Related: reviving a finished recurrence by extending its
+   `end_date` restarts after the latest *surviving* generated lançamento, so a deleted last one is
+   regenerated — a stored cursor would fix both.
 3. **Single-user or multi-user?** Schema is ready for either; SQLite is enough for personal use.
 4. **Desktop only or phone access?** The layout is now responsive (bottom bar, card lists); hosting
    with HTTPS is still undecided.

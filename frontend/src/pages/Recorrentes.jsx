@@ -38,8 +38,8 @@ const FREQUENCY_LABELS = {
 
 const STATUS_TONES = {
   ACTIVE: 'success',
-  PAUSED: 'neutral',
-  FINISHED: 'warning',
+  PAUSED: 'info',
+  FINISHED: 'neutral',
 }
 
 const STATUS_LABELS = {
@@ -398,7 +398,7 @@ export default function Recorrentes() {
               <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate font-semibold text-zinc-900">
+                    <p className={`truncate font-semibold ${item.status === 'FINISHED' ? 'text-zinc-500' : 'text-zinc-900'}`}>
                       {item.description || item.category}
                     </p>
                     <Badge tone={STATUS_TONES[item.status] || 'neutral'}>

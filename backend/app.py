@@ -3414,9 +3414,13 @@ def recurring_occurrence_dates(row, through_date, *, limit=RECURRING_MAX_OCCURRE
     Comeca em next_run_date (o que ainda nao foi materializado), respeita
     end_date e tem um teto de seguranca: uma recorrencia semanal esquecida por
     anos nao pode gerar milhares de lancamentos numa chamada.
+
+    next_run_date nulo e recorrencia encerrada: nao deve nada. Cair de volta em
+    start_date aqui recontava o historico inteiro como pendente — o /run nao
+    duplicava (o indice unico barra), mas o contador nunca zerava.
     """
     start = parse_iso_date(row["start_date"])
-    cursor_date = parse_iso_date(row["next_run_date"]) or start
+    cursor_date = parse_iso_date(row["next_run_date"])
     if not cursor_date or not through_date:
         return []
 
@@ -3468,6 +3472,47 @@ def recurring_resume_date(row, from_date):
         )
         guard += 1
 
+    if end and cursor_date > end:
+        return None
+    return cursor_date.strftime("%Y-%m-%d")
+
+
+def recurring_revival_date(conn, current_user_id, row):
+    """Proxima ocorrencia de uma recorrencia encerrada cujo end_date foi estendido.
+
+    Encerrada perde o next_run_date, entao o cursor e reconstruido: a primeira
+    data do calendario (ancorado no dia de start_date, com a frequencia do
+    DEPOIS do PATCH) estritamente posterior a ultima ocorrencia ja
+    materializada. Sem nada materializado, comeca em start_date.
+
+    Diferente de retomar uma pausa: prorrogar diz que o contrato continuou, e o
+    intervalo entre o fim antigo e hoje fica pendente de proposito.
+    """
+    start = parse_iso_date(row["start_date"])
+    if not start:
+        return None
+
+    prefix = f"{row['id']}:"
+    last_text = conn.execute(
+        """
+        SELECT MAX(substr(source_id, ?)) AS last_date
+        FROM transactions
+        WHERE user_id = ? AND source_type = ? AND source_id LIKE ?
+        """,
+        (len(prefix) + 1, current_user_id, RECURRING_SOURCE_TYPE, f"{prefix}%"),
+    ).fetchone()["last_date"]
+    last_date = parse_iso_date(last_text)
+
+    cursor_date = start
+    if last_date:
+        guard = 0
+        while cursor_date <= last_date and guard < RECURRING_MAX_OCCURRENCES * 25:
+            cursor_date = recurring_next_date(
+                cursor_date, row["frequency"], row["interval_count"], start.day
+            )
+            guard += 1
+
+    end = parse_iso_date(row["end_date"]) if row["end_date"] else None
     if end and cursor_date > end:
         return None
     return cursor_date.strftime("%Y-%m-%d")
@@ -3699,11 +3744,32 @@ def read_recurring_payload(conn, current_user_id, payload, existing=None):
         # Depois de gerar, mexer em start_date so muda o dia de ancoragem.
         fields["next_run_date"] = fields["start_date"]
 
+    revived = False
+    if (
+        existing is not None
+        and not existing["next_run_date"]
+        and "end_date" in fields
+        and "next_run_date" not in fields
+        and fields["end_date"] != existing["end_date"]
+        and (
+            not fields["end_date"]
+            or (existing["end_date"] and fields["end_date"] > existing["end_date"])
+        )
+    ):
+        # Encerrada e prorrogada (ou sem data final): sem isto next_run_date
+        # ficava nulo e a recorrencia continuava "Encerrada" para sempre.
+        revival = recurring_revival_date(
+            conn, current_user_id, {**dict(existing), **fields}
+        )
+        if revival:
+            fields["next_run_date"] = revival
+            revived = True
+
     if (
         existing is not None
         and fields.get("active") == 1
         and not existing["active"]
-        and "next_run_date" not in fields
+        and ("next_run_date" not in fields or revived)
     ):
         # Retomar salta o periodo pausado. Sem isso o proximo /run lancaria
         # todos os meses da pausa de uma vez, como se tivessem sido pagos.

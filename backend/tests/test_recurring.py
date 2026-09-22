@@ -354,6 +354,93 @@ def test_shrinking_the_end_date_past_the_next_occurrence_finishes_it(client, aut
     assert run(client, auth, through="2026-12-31")["created"] == 0
 
 
+def finished_weekly(client, auth, *, materialize=True):
+    """Semanal de -70 a -40 dias: gera -70, -63, -56, -49 e -42, e encerra.
+
+    Sem `materialize`, encerra sem gerar nada (pausa e retoma depois do fim).
+    """
+    recurring = create_ok(
+        client,
+        auth,
+        frequency="WEEKLY",
+        start_date=iso(today_date() - timedelta(days=70)),
+        end_date=iso(today_date() - timedelta(days=40)),
+    )
+    if materialize:
+        assert run(client, auth)["created"] == 5
+    else:
+        client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
+        client.patch(f"/api/recurring/{recurring['id']}", json={"active": True}, headers=auth)
+    assert get_recurring(client, auth, recurring["id"])["status"] == "FINISHED"
+    return recurring
+
+
+def test_extending_the_end_date_revives_a_finished_recurrence(client, auth):
+    """Prorrogar diz que o contrato continuou: o intervalo desde o fim fica pendente."""
+    recurring = finished_weekly(client, auth)
+    revived = client.patch(
+        f"/api/recurring/{recurring['id']}",
+        json={"end_date": iso(today_date() + timedelta(days=365))},
+        headers=auth,
+    ).get_json()
+    assert revived["status"] == "ACTIVE"
+    assert revived["next_run_date"] == iso(today_date() - timedelta(days=35))
+    # -35, -28, -21, -14, -7 e hoje.
+    assert revived["pending_count"] == 6
+    assert run(client, auth)["created"] == 6
+    assert get_recurring(client, auth, recurring["id"])["pending_count"] == 0
+
+
+def test_clearing_the_end_date_revives_a_finished_recurrence(client, auth):
+    recurring = finished_weekly(client, auth)
+    revived = client.patch(
+        f"/api/recurring/{recurring['id']}", json={"end_date": None}, headers=auth
+    ).get_json()
+    assert revived["status"] == "ACTIVE"
+    assert revived["end_date"] is None
+    assert revived["next_run_date"] == iso(today_date() - timedelta(days=35))
+    assert revived["pending_count"] == 6
+
+
+def test_extending_to_before_the_next_occurrence_stays_finished(client, auth):
+    recurring = finished_weekly(client, auth)
+    updated = client.patch(
+        f"/api/recurring/{recurring['id']}",
+        json={"end_date": iso(today_date() - timedelta(days=37))},
+        headers=auth,
+    ).get_json()
+    assert updated["status"] == "FINISHED"
+    assert updated["next_run_date"] is None
+    assert updated["pending_count"] == 0
+
+
+def test_a_finished_recurrence_that_never_ran_revives_from_the_start(client, auth):
+    recurring = finished_weekly(client, auth, materialize=False)
+    revived = client.patch(
+        f"/api/recurring/{recurring['id']}",
+        json={"end_date": iso(today_date() + timedelta(days=365))},
+        headers=auth,
+    ).get_json()
+    assert revived["status"] == "ACTIVE"
+    assert revived["next_run_date"] == recurring["start_date"]
+    # -70 a hoje, de 7 em 7.
+    assert revived["pending_count"] == 11
+
+
+def test_extending_and_resuming_in_one_save_still_skips_the_pause(client, auth):
+    """Reativar no mesmo salvamento aplica a retomada sobre a data revivida."""
+    recurring = finished_weekly(client, auth)
+    client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
+    revived = client.patch(
+        f"/api/recurring/{recurring['id']}",
+        json={"active": True, "end_date": iso(today_date() + timedelta(days=365))},
+        headers=auth,
+    ).get_json()
+    assert revived["status"] == "ACTIVE"
+    assert revived["next_run_date"] == iso(today_date())
+    assert revived["pending_count"] == 1
+
+
 def test_an_explicit_next_date_after_the_end_date_is_refused(client, auth):
     recurring = create_ok(client, auth, start_date="2026-01-10", end_date="2026-06-30")
     response = client.patch(
@@ -601,6 +688,20 @@ def test_pending_count_reports_what_run_would_create(client, auth):
     assert body["pending_count"] == body["items"][0]["pending_count"] == 3
     run(client, auth)
     assert list_recurring(client, auth)["pending_count"] == 0
+
+
+def test_a_finished_recurrence_has_nothing_pending(client, auth):
+    """Encerrada (next_run_date nulo) nao pode recontar o historico como vencido."""
+    start = today_date() - timedelta(days=200)
+    create_ok(client, auth, start_date=iso(start), end_date=iso(start + timedelta(days=100)))
+    run(client, auth)
+    body = list_recurring(client, auth)
+    assert body["items"][0]["status"] == "FINISHED"
+    assert body["pending_count"] == body["items"][0]["pending_count"] == 0
+
+    forecast = client.get("/api/recurring/forecast?days=90", headers=auth).get_json()
+    assert forecast["occurrences"] == []
+    assert forecast["pending_count"] == 0
 
 
 # --- previsao de caixa ------------------------------------------------------

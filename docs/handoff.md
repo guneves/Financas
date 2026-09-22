@@ -6,7 +6,42 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Invoice payment only after closing + Débito automático
+## Session — 2026-09-22 (latest) · Recorrentes: phantom pendentes + reviving a finished recurrence
+
+### What was done
+
+Owner report: Recorrentes showed far too many pendentes on the 3-year mock of
+wgrrodrigues6@gmail.com (92, with every recurrence actually up to date).
+
+- **Root cause.** `recurring_occurrence_dates()` did `next_run_date or start_date`. A FINISHED
+  recurrence has `next_run_date = NULL`, so it recounted its entire history as due. The mock chains
+  a new recurrence per salary raise / rent adjustment, so 7 of 14 rows were finished → 92 phantom
+  pendentes, 92 "venceu" rows in the forecast, "Receitas previstas (30d)" inflated by ~R$343k, and
+  Início's "92 recorrências vencidas". `/run` never duplicated anything (the unique index blocked
+  it), so it answered "Nada pendente" while the counter stayed at 92. **No data to repair.** Fix:
+  NULL `next_run_date` owes nothing.
+- **Reviving a finished recurrence.** Extending or clearing `end_date` on a FINISHED row left it
+  finished forever. New `recurring_revival_date()`: first scheduled date (anchored on start_date's
+  day, post-PATCH frequency) strictly after the last materialized occurrence (read from
+  `source_id`, not `date`), or `start_date` if none. Deliberately *unlike* resuming a pause: the gap
+  between the old end and today becomes pending, because extending says the contract continued.
+  Extend + reactivate in one save still applies the pause skip.
+- **Badges.** Encerrada is now neutral (was amber, the same as "N pendente(s)"), Pausada is info,
+  finished rows have a muted title.
+- 6 new tests in `test_recurring.py`; 415 passing (the "416" in CLAUDE.md was stale — the suite was
+  409 before this change).
+- Work split per owner request: the revival and badge fixes were done by two parallel
+  `general-purpose` subagents; `finance-guard` ran via `subagent_type` directly.
+
+### Not done / worth knowing
+
+- If the owner deleted the most recent generated lançamento, a revival restarts from the latest
+  *remaining* one and would regenerate the deleted date. Avoiding it needs a stored cursor.
+- Not clicked through in a browser; `vite build` clean.
+
+---
+
+## Session — 2026-09-22 · Invoice payment only after closing + Débito automático
 
 ### What was done
 
