@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Briefcase, Landmark, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
+import { Briefcase, Download, Landmark, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import {
   AlertMessage,
@@ -86,8 +86,22 @@ export default function Posicao() {
 
   const [activeTab, setActiveTab] = useState('VARIAVEL')
   const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
   const [launchIntent, setLaunchIntent] = useState({ mode: 'BUY', assetId: '' })
+
+  // Exporta a carteira como ela esta agora; nao forca atualizacao de cotacao.
+  const handleExportPortfolio = async () => {
+    setExporting(true)
+    try {
+      await investmentsApi.exportPortfolioCsv()
+      setDataError('')
+    } catch (error) {
+      setDataError(error.message || 'Não foi possível exportar a carteira.')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const openBuyModal = () => {
     setLaunchIntent({ mode: 'BUY', assetId: '' })
@@ -235,6 +249,16 @@ export default function Posicao() {
               onClick={() => handleUpdateStockPrices(false)}
             >
               Atualizar cotações
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              icon={Download}
+              loading={exporting}
+              disabled={assets.length === 0}
+              onClick={handleExportPortfolio}
+            >
+              Exportar
             </Button>
             <Button type="button" icon={Plus} onClick={openBuyModal}>
               Registrar operação

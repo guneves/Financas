@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Check, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
+import { Check, Download, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { transactionsApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
 import {
@@ -86,6 +86,7 @@ export default function Extrato() {
   } = useLancamentos()
 
   const [saving, setSaving] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
 
@@ -141,6 +142,20 @@ export default function Extrato() {
   }, [filters, filtersActive, reloadCount])
 
   const statementTransactions = filteredTransactions ?? transactions
+
+  // Exporta exatamente o que a tela mostra: o backend refaz a mesma consulta
+  // com os filtros da URL. Sem filtro, sai o extrato inteiro.
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await transactionsApi.exportCsv(filters)
+      setDataError('')
+    } catch (error) {
+      setDataError(error.message || 'Não foi possível exportar o extrato.')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const statementTotals = useMemo(() => {
     return statementTransactions.reduce((acc, item) => {
@@ -277,7 +292,21 @@ export default function Extrato() {
         eyebrow="Operação"
         title="Extrato"
         description="Entradas, saídas e transferências das suas contas."
-        actions={<Button type="button" icon={Plus} onClick={() => openNewEntry()}>Novo</Button>}
+        actions={(
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              icon={Download}
+              loading={exporting}
+              disabled={statementTransactions.length === 0}
+              onClick={handleExport}
+            >
+              Exportar
+            </Button>
+            <Button type="button" icon={Plus} onClick={() => openNewEntry()}>Novo</Button>
+          </>
+        )}
       />
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />

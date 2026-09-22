@@ -6,7 +6,72 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Phase 4: statement import (CSV/OFX) and rules
+## Session — 2026-09-22 (latest) · Export to CSV (statement and portfolio)
+
+### What was done
+
+The browser walk-through at the top of `next-steps.md` is the owner's to run, so this session took
+the next item the previous handoff named: **"Export to CSV/Excel" (§Smaller gaps)** — the inverse of
+the import that just landed.
+
+- **`backend/export_csv.py`** — pure functions, no database and no Flask, the same shape as
+  `statement_import.py` (and a deliberate refusal to add another 150 lines to `app.py`, which Phase 5
+  wants to shrink). It formats numbers pt-BR (`1234,50`, no thousand separator so Excel *and* Google
+  Sheets read the cell as a number), labels the enums in Portuguese, and writes the file with a
+  **BOM UTF-8**, `;` as the delimiter and `\r\n` — that combination is what makes a double click in
+  Excel pt-BR open the columns split instead of one text column.
+- **`GET /api/transactions/export`** reuses `transaction_filter_clause()`, so the export is exactly
+  the statement the filters show and there is no second copy of the filter rules. It runs
+  `apply_due_autopay()` first, like the list does, so a due autopay invoice is in the file.
+- **`GET /api/investments/portfolio/export`** calls `build_portfolio_snapshot()` but **not**
+  `refresh_realized_results()` or the price refresh: exporting should not mutate anything or wait on
+  yfinance. It exports the carteira as the screen last showed it.
+- **Transfers.** The statement CSV has two amount columns: `Valor` (magnitude) and `Valor com sinal`
+  (+ receita, − despesa). A TRANSFER leaves the signed column **empty** — a transfer is one row in
+  this schema, so signing it would make "sum the column" report moving money between your own
+  accounts as an expense. Same reasoning as the consolidated balance.
+- **Frontend.** `apiDownload()` in `lib/api.js`: the JWT travels in the header, so a plain `<a href>`
+  cannot download an authenticated file — the response becomes a Blob and a temporary link saves it.
+  The filename comes from `Content-Disposition` (the route adds
+  `Access-Control-Expose-Headers` so the browser can read it across the CORS origin), with a local
+  fallback. Buttons: Extrato → "Exportar" (passes the URL filters straight through) and
+  Investimentos → Posição → "Exportar"; both disabled when there is nothing to export.
+- Tests: 18 new in `backend/tests/test_export_csv.py` — the pure formatters, the BOM, delimiter
+  escaping, the signed column per type, the empty transfer column, filters honoured, an invalid
+  filter still 400, auth required, and no leakage between two users. **533 passing** (515 before).
+  `vite build` clean.
+
+### Not done / worth knowing
+
+- **Still nothing clicked in a browser.** The walk-through list in `next-steps.md` grew one line
+  (the two Exportar buttons). The download path — Blob, `link.click()`, the filename from the
+  header — is the part a test cannot prove; it is worth one real click before trusting it.
+- **CSV, not `.xlsx`.** No `openpyxl` in `backend/requirements.txt` and no reason to add a
+  dependency for it: the file already opens in Excel. If a real `.xlsx` is ever wanted (formatting,
+  more than one sheet), that is when the dependency earns its place.
+- Not exported: Operações, Proventos and Orçamento. There is no column picker and no date range in
+  the portfolio export (it is a snapshot of today by nature).
+- The export does **not** respect the privacy (eye) toggle — masking is a display state in
+  `lib/format.js` and the file comes from the backend. That is the right call (an exported file with
+  `R$ •••` would be useless), but it is worth knowing before exporting with someone watching.
+- `backend/app.py` grew ~65 lines (~7,190). Everything that could live outside it does.
+- `finance-guard` ran via `subagent_type="finance-guard"` directly (fourth session in a row that
+  discovery works). No findings. Its one non-finding: `export_csv.format_decimal()` uses
+  `f"{n:.2f}"` rather than `rounded_money()`. That is display formatting of values already
+  rounded upstream and nothing on this path is written back to the database — but if that helper
+  is ever reused for a value that gets persisted, it has to go through `rounded_money()`.
+
+### Next session
+
+1. The browser walk-through, now including the two Exportar buttons and Importar with a real file.
+2. Phase 5 (blueprints) — `statement_import.py` and now `export_csv.py` show the shape: pure module
+   outside, thin route inside. It is the debt growing fastest.
+3. If more friction shows up in daily use first: attachments per lançamento, or the budget strip on
+   Início (both in §Smaller gaps).
+
+---
+
+## Session — 2026-09-22 · Phase 4: statement import (CSV/OFX) and rules
 
 ### What was done
 

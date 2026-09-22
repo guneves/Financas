@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from functools import wraps
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -33,6 +33,7 @@ try:
 except ImportError:
     yf = None
 
+import export_csv
 import market_catalog
 import statement_import
 
@@ -2558,6 +2559,68 @@ def transactions(current_user_id):
         )
         item = conn.execute("SELECT * FROM transactions WHERE id = ?", (item_id,)).fetchone()
     return jsonify(serialize_transaction(item)), 201
+
+
+def csv_response(text, filename):
+    """Resposta de download de CSV.
+
+    Content-Disposition fica exposto no CORS para o navegador poder ler o nome
+    do arquivo; o cliente busca com o Bearer no cabecalho, entao o download nao
+    pode ser um link simples.
+    """
+    response = Response(text, mimetype="text/csv; charset=utf-8")
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
+    return response
+
+
+def account_names_map(conn, current_user_id):
+    rows = conn.execute(
+        "SELECT id, name FROM accounts WHERE user_id = ?",
+        (current_user_id,),
+    ).fetchall()
+    return {row["id"]: row["name"] for row in rows}
+
+
+@app.route("/api/transactions/export", methods=["GET"])
+@token_required
+def export_transactions(current_user_id):
+    """Extrato filtrado em CSV — os mesmos filtros de GET /api/transactions."""
+    with get_db() as conn:
+        apply_due_autopay(conn, current_user_id)
+        try:
+            where, params = transaction_filter_clause(conn, current_user_id, request.args)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+        rows = conn.execute(
+            f"""
+            SELECT * FROM transactions
+            WHERE {where}
+            ORDER BY date DESC, created_at DESC
+            """,
+            params,
+        ).fetchall()
+        names = account_names_map(conn, current_user_id)
+
+    items = [serialize_transaction(row) for row in rows]
+    text = export_csv.transactions_csv(items, names)
+    filename = f"extrato-{datetime.now().strftime('%Y-%m-%d')}.csv"
+    return csv_response(text, filename)
+
+
+@app.route("/api/investments/portfolio/export", methods=["GET"])
+@token_required
+def export_portfolio(current_user_id):
+    """Carteira atual em CSV, sem forcar atualizacao de cotacao."""
+    try:
+        portfolio = build_portfolio_snapshot(current_user_id)
+    except Exception as exc:
+        print(f"Erro ao exportar a carteira: {exc}")
+        return jsonify({"error": "Nao foi possivel exportar a carteira."}), 500
+
+    text = export_csv.portfolio_csv(portfolio.get("assets"))
+    filename = f"carteira-{datetime.now().strftime('%Y-%m-%d')}.csv"
+    return csv_response(text, filename)
 
 
 @app.route("/api/transactions/<item_id>", methods=["PATCH"])

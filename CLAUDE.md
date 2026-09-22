@@ -128,9 +128,9 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-515 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
+533 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
-transaction, monthly budgets, recurring entries, statement import and its rules, `user_id`
+transaction, monthly budgets, recurring entries, statement import and its rules, CSV export, `user_id`
 isolation, and backup retention. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
@@ -150,6 +150,7 @@ refactoring `app.py`, and that refactor is only safe with the suite in place.
 backend/
   app.py              # ~7,100 lines: routes, SQL, auth, budgets, portfolio, tax, FIFO, yfinance
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
+  export_csv.py       # geracao dos CSV de extrato e carteira (funcoes puras, sem banco)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template

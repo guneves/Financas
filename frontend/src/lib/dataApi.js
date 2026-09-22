@@ -1,4 +1,4 @@
-import { apiFetch } from './api'
+import { apiDownload, apiFetch } from './api'
 
 const queryString = (params) => {
   const searchParams = new URLSearchParams()
@@ -21,7 +21,9 @@ export const transactionsApi = {
     method: 'PATCH',
     body: JSON.stringify(payload)
   }),
-  remove: (id) => apiFetch(`/api/transactions/${id}`, { method: 'DELETE' })
+  remove: (id) => apiFetch(`/api/transactions/${id}`, { method: 'DELETE' }),
+  // Baixa o extrato filtrado em CSV; aceita os mesmos filtros do list.
+  exportCsv: (params = {}) => apiDownload(`/api/transactions/export${queryString(params)}`, 'extrato.csv')
 }
 
 export const accountsApi = {
@@ -183,7 +185,8 @@ export const investmentsApi = {
   updatePriceByAsset: (assetId, assetClass, currentPrice) => apiFetch(`/api/investments/price-by-asset/${encodeURIComponent(assetId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ asset_class: assetClass, current_price: currentPrice })
-  })
+  }),
+  exportPortfolioCsv: () => apiDownload('/api/investments/portfolio/export', 'carteira.csv')
 }
 
 export const marketApi = {

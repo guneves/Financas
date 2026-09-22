@@ -40,6 +40,7 @@
 | Invoice payment: account picker (card's autopay account, else default); Início warns when an autopay account will not cover upcoming debits | 2026-09-22 |
 | Statement filters in the URL; favicon; route-level `lazy()` (largest chunk 386 kB, was 737 kB) | 2026-09-22 |
 | Phase 4: CSV/OFX statement import with preview and dedupe, auto-categorization rules — migration 013 | 2026-09-22 |
+| Export to CSV (Excel pt-BR) of the filtered statement and of the portfolio | 2026-09-22 |
 
 ---
 
@@ -61,6 +62,8 @@ recent frontend work has been clicked through. One pass in the real app covers a
 - [ ] Lançamentos → Importar: pick a real bank export (CSV and OFX), check the column mapping
   guess, the preview statuses, category overrides, "Criar regra", and that importing the same file
   twice creates nothing the second time.
+- [ ] Extrato → "Exportar" and Investimentos → Posição → "Exportar": the file downloads, opens in
+  Excel with the columns split, and the statement export respects the active filters.
 
 ### Known limits, accepted for now
 - Privacy masking covers values formatted through `lib/format.js` / `compactCurrency`. Percentages
@@ -97,8 +100,15 @@ recent frontend work has been clicked through. One pass in the real app covers a
   only). Import is capped at 2,000 rows per file.
 
 ### Smaller gaps
+- [x] **Export to CSV** — `GET /api/transactions/export` (the same filters as the statement list) and
+  `GET /api/investments/portfolio/export`. The file is what Excel in pt-BR opens on a double click:
+  BOM UTF-8, `;` as the separator, comma as the decimal mark. Formatting lives in
+  `backend/export_csv.py` (pure functions, no DB — the `statement_import.py` shape). The statement
+  has both `Valor` (magnitude) and `Valor com sinal`, and a TRANSFER leaves the signed column empty
+  so summing it cannot turn moving money between your own accounts into an expense. Buttons:
+  Extrato → "Exportar" (exports exactly what the filters show) and Investimentos → Posição →
+  "Exportar". Not built: .xlsx proper, exporting Operações/Proventos, and a column picker.
 - [ ] Attachments/receipts per transaction (file stored locally, path in `metadata`).
-- [ ] Export to CSV/Excel for the statement and the portfolio.
 - [ ] Dashboard strip for the budget (overdue recurrences and the open invoice are now on Início).
 
 ### Phase 5 — Backend refactor
