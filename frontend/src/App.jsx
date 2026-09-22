@@ -4,7 +4,8 @@ import { getSession, onAuthStateChange } from './lib/auth'
 import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
 import Dashboard from './pages/Dashboard'
-import Transactions from './pages/Transactions'
+import Extrato from './pages/lancamentos/Extrato'
+import Cartoes from './pages/lancamentos/Cartoes'
 import Layout from './components/Layout'
 import Investments from './pages/Investments'
 import Proventos from './pages/Proventos'
@@ -39,8 +40,8 @@ export default function App() {
             <Route path="/inicio" element={<Dashboard />} />
 
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
-            <Route path="/lancamentos/extrato" element={<Transactions tab="extrato" />} />
-            <Route path="/lancamentos/cartoes" element={<Transactions tab="cartoes" />} />
+            <Route path="/lancamentos/extrato" element={<Extrato />} />
+            <Route path="/lancamentos/cartoes" element={<Cartoes />} />
 
             <Route path="/planejamento" element={<Navigate to="/planejamento/orcamento" replace />} />
             <Route path="/planejamento/orcamento" element={<Orcamento />} />

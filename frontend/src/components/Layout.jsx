@@ -1,10 +1,15 @@
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { LogOut, Plus, Settings, Wallet } from 'lucide-react'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { apiFetch } from '../lib/api'
 import { getCurrentUser, signOut } from '../lib/auth'
 import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
-import { NewEntryContext } from '../lib/newEntry'
+import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
+import InvestmentLaunchModal from './InvestmentLaunchModal'
+import NewEntrySheet from './NewEntrySheet'
 import { Button, cx, Tabs } from './ui'
+
+const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD', 'INVESTMENT']
 
 function BrandMark() {
   return (
@@ -68,14 +73,43 @@ function BottomTab({ to, name, icon: Icon }) {
 
 export default function Layout() {
   const location = useLocation()
-  const navigate = useNavigate()
   const user = getCurrentUser()
   const section = useMemo(() => findSection(location.pathname), [location.pathname])
 
-  // Placeholder ate o sheet do passo 3: leva para onde os formularios estao hoje.
-  const openNewEntry = useCallback(() => {
-    navigate('/lancamentos/extrato')
-  }, [navigate])
+  // "+ Novo" (docs/ux-reorganization.md D5): o sheet e o modal de investimento
+  // moram aqui, fora das paginas. Cada gravacao bem-sucedida incrementa
+  // dataVersion, e as paginas montadas recarregam (useDataVersion()).
+  const [dataVersion, setDataVersion] = useState(0)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [sheetType, setSheetType] = useState('EXPENSE')
+  const [investmentOpen, setInvestmentOpen] = useState(false)
+  const [investmentAssets, setInvestmentAssets] = useState([])
+
+  const bumpDataVersion = useCallback(() => {
+    setDataVersion((version) => version + 1)
+  }, [])
+
+  const openInvestment = useCallback(() => {
+    setSheetOpen(false)
+    setInvestmentOpen(true)
+    // Mesma carga da tela de investimentos: o modal precisa dos ativos da carteira.
+    apiFetch('/api/investments/portfolio?refresh_prices=false')
+      .then((data) => setInvestmentAssets(data?.assets || []))
+      .catch((error) => console.warn('Erro ao buscar ativos:', error))
+  }, [])
+
+  const openNewEntry = useCallback((type) => {
+    const nextType = NEW_ENTRY_TYPE_VALUES.includes(type) ? type : 'EXPENSE'
+    if (nextType === 'INVESTMENT') {
+      openInvestment()
+      return
+    }
+    setSheetType(nextType)
+    setSheetOpen(true)
+  }, [openInvestment])
+
+  const closeSheet = useCallback(() => setSheetOpen(false), [])
+  const closeInvestment = useCallback(() => setInvestmentOpen(false), [])
 
   const newEntryValue = useMemo(() => ({ openNewEntry }), [openNewEntry])
 
@@ -89,6 +123,7 @@ export default function Layout() {
 
   return (
     <NewEntryContext.Provider value={newEntryValue}>
+      <DataVersionContext.Provider value={dataVersion}>
       <div className="min-h-screen text-zinc-950">
         <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-zinc-200/80 bg-white/90 backdrop-blur lg:flex lg:flex-col">
           <div className="border-b border-zinc-100 px-5 py-5">
@@ -175,6 +210,21 @@ export default function Layout() {
           </div>
         </nav>
       </div>
+
+      <NewEntrySheet
+        open={sheetOpen}
+        initialType={sheetType}
+        onClose={closeSheet}
+        onSaved={bumpDataVersion}
+        onPickInvestment={openInvestment}
+      />
+      <InvestmentLaunchModal
+        open={investmentOpen}
+        onClose={closeInvestment}
+        assets={investmentAssets}
+        onSaved={bumpDataVersion}
+      />
+      </DataVersionContext.Provider>
     </NewEntryContext.Provider>
   )
 }

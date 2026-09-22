@@ -33,7 +33,7 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { accountsApi, ccExpensesApi, recurringApi, transactionsApi } from '../lib/dataApi'
-import { useNewEntry } from '../lib/newEntry'
+import { useDataVersion, useNewEntry } from '../lib/newEntry'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import {
   AlertMessage,
@@ -163,10 +163,12 @@ export default function Dashboard() {
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
   const [notice, setNotice] = useState('')
   const { openNewEntry } = useNewEntry()
+  // Recarrega depois de um "+ Novo" salvo no Layout.
+  const dataVersion = useDataVersion()
 
   useEffect(() => {
     fetchAllData()
-  }, [])
+  }, [dataVersion])
 
   const fetchAllData = async () => {
     setDataError('')
