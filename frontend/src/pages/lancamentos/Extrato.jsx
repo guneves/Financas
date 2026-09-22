@@ -230,6 +230,8 @@ export default function Extrato() {
   const rowActions = (transaction) => (
     transaction.source_type === 'INVESTMENT_TRANSACTION' ? (
       <Badge>Investimento</Badge>
+    ) : transaction.source_type === 'CC_INVOICE_PAYMENT' || transaction.source_type === 'CC_AUTOPAY' ? (
+      <Badge>{transaction.source_type === 'CC_AUTOPAY' ? 'Débito automático' : 'Pela fatura'}</Badge>
     ) : (
       <>
         <IconButton label="Editar transação" icon={Pencil} onClick={() => startEditing(transaction)} />

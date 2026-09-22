@@ -334,6 +334,8 @@ CREATE TABLE IF NOT EXISTS credit_cards (
     due_day INTEGER NOT NULL CHECK (due_day BETWEEN 1 AND 31),
     closing_day INTEGER NOT NULL CHECK (closing_day BETWEEN 1 AND 31),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    autopay_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,  -- 011
+    autopay_start_date TEXT,                                              -- 011
     UNIQUE(user_id, name)
 );
 

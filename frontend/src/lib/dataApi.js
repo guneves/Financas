@@ -98,6 +98,11 @@ export const creditCardsApi = {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
+  // Debito automatico: conta que paga a fatura no vencimento; null desliga.
+  setAutopay: (id, accountId) => apiFetch(`/api/credit-cards/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ autopay_account_id: accountId || null })
+  }),
   remove: (id) => apiFetch(`/api/credit-cards/${id}`, { method: 'DELETE' })
 }
 
@@ -122,6 +127,12 @@ export const ccExpensesApi = {
   }),
   updateInvoiceStatus: (payload) => apiFetch('/api/cc-expenses/invoice-status', {
     method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  // Paga uma fatura fechada: debita a conta e baixa os itens de uma vez.
+  // O servidor recusa (409) uma fatura que ainda nao fechou.
+  payInvoice: (payload) => apiFetch('/api/cc-expenses/pay-invoice', {
+    method: 'POST',
     body: JSON.stringify(payload)
   })
 }

@@ -1569,7 +1569,188 @@ def serialize_cc_expense(row):
             "due_day": due_day,
             "closing_day": closing_day,
         }
+    if due_day is not None and item.get("invoice_month") and item.get("invoice_year"):
+        # O cliente usa estes campos para liberar (ou nao) o botao Pagar; a
+        # regra do fechamento continua so aqui.
+        closing = invoice_closing_date(item["invoice_month"], item["invoice_year"], due_day, closing_day)
+        item["invoice_closing_date"] = closing.strftime("%Y-%m-%d")
+        item["invoice_due_date"] = invoice_due_date(
+            item["invoice_month"], item["invoice_year"], due_day
+        ).strftime("%Y-%m-%d")
+        item["invoice_closed"] = local_today() >= closing
     return item
+
+
+CC_INVOICE_PAYMENT_SOURCE_TYPE = "CC_INVOICE_PAYMENT"
+CC_AUTOPAY_SOURCE_TYPE = "CC_AUTOPAY"
+# O pagamento e o PAID dos itens nascem juntos em settle_invoice(); editar ou
+# apagar so o lancamento deixaria a fatura quitada sem dinheiro saindo da conta.
+INVOICE_PAYMENT_SOURCE_TYPES = {CC_INVOICE_PAYMENT_SOURCE_TYPE, CC_AUTOPAY_SOURCE_TYPE}
+INVOICE_PAYMENT_LOCKED_MESSAGE = (
+    "Este lancamento e o pagamento de uma fatura de cartao e fica vinculado a ela; "
+    "nao pode ser editado nem excluido pelo extrato."
+)
+
+
+def local_today():
+    """Hoje (data local, sem hora). Ponto unico para os testes congelarem o relogio."""
+    return datetime.now().date()
+
+
+def clamped_date(year, month, day):
+    """Dia `day` do mes, recuado para o ultimo dia quando o mes e mais curto."""
+    year, month = int(year), int(month)
+    return datetime(year, month, min(int(day), calendar.monthrange(year, month)[1])).date()
+
+
+def invoice_closing_date(invoice_month, invoice_year, due_day, closing_day=None):
+    """Dia em que a fatura (mes, ano) fecha.
+
+    O mes da fatura e o mes do vencimento. Se o fechamento vem antes do
+    vencimento no mes, a fatura fecha no proprio mes; senao fecha no mes
+    anterior — o mesmo deslocamento que `compute_invoice_start` aplica as
+    compras. No dia do fechamento a fatura ja esta fechada: uma compra feita
+    nesse dia vai para a proxima.
+    """
+    due_day = int(due_day)
+    closing_day = int(closing_day) if closing_day else default_closing_day(due_day)
+    month, year = int(invoice_month), int(invoice_year)
+    if closing_day >= due_day:
+        month, year = add_invoice_months(month, year, -1)
+    return clamped_date(year, month, closing_day)
+
+
+def invoice_due_date(invoice_month, invoice_year, due_day):
+    return clamped_date(invoice_year, invoice_month, due_day)
+
+
+def invoice_label(invoice_month, invoice_year):
+    return f"{int(invoice_month):02d}/{int(invoice_year)}"
+
+
+class InvoiceStillOpenError(ValidationError):
+    """Pagamento de fatura antes do fechamento (respondido com 409)."""
+
+
+def ensure_invoice_closed(card, invoice_month, invoice_year, today=None):
+    """Recusa pagar uma fatura que ainda nao fechou."""
+    closing = invoice_closing_date(invoice_month, invoice_year, card["due_day"], card["closing_day"])
+    if (today or local_today()) < closing:
+        raise InvoiceStillOpenError(
+            f"A fatura {invoice_label(invoice_month, invoice_year)} ainda esta aberta. "
+            f"O pagamento so e liberado depois do fechamento, em {closing.strftime('%d/%m/%Y')}."
+        )
+
+
+def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
+                   account_id, payment_date, source_type, source_id):
+    """Paga os itens em aberto de uma fatura: um EXPENSE na conta + status PAID.
+
+    As duas coisas acontecem na mesma transacao do banco. Devolve o lancamento
+    criado, ou None quando nao havia nada em aberto ou quando o source_id ja
+    existia (outra chamada pagou primeiro) — nesse caso nada e alterado.
+    """
+    lines = conn.execute(
+        """
+        SELECT id, amount FROM cc_expenses
+        WHERE user_id = ? AND card_id = ? AND invoice_month = ? AND invoice_year = ?
+          AND status = 'OPEN'
+        """,
+        (current_user_id, card["id"], int(invoice_month), int(invoice_year)),
+    ).fetchall()
+    if not lines:
+        return None
+
+    total = rounded_money(sum(Decimal(str(line["amount"])) for line in lines))
+    transaction_id = new_id()
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO transactions
+        (id, user_id, account_id, amount, date, category, description, type,
+         source_type, source_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'EXPENSE', ?, ?)
+        """,
+        (
+            transaction_id,
+            current_user_id,
+            account_id,
+            total,
+            payment_date,
+            f"Pagamento Fatura {card['name']}",
+            f"Fatura {invoice_label(invoice_month, invoice_year)}",
+            source_type,
+            source_id,
+        ),
+    )
+    if not cursor.rowcount:
+        return None
+
+    line_ids = [line["id"] for line in lines]
+    placeholders = ",".join("?" for _ in line_ids)
+    conn.execute(
+        f"UPDATE cc_expenses SET status = 'PAID' WHERE user_id = ? AND id IN ({placeholders})",
+        [current_user_id, *line_ids],
+    )
+    return conn.execute(
+        "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
+        (transaction_id, current_user_id),
+    ).fetchone()
+
+
+def autopay_source_id(card_id, invoice_month, invoice_year):
+    return f"{card_id}:{int(invoice_year):04d}-{int(invoice_month):02d}"
+
+
+def apply_due_autopay(conn, current_user_id, today=None):
+    """Debito automatico: paga toda fatura vencida de cartao com conta de debito.
+
+    Roda no inicio das leituras que dependem dele (lancamentos, contas,
+    cartoes, faturas) — o app e local e nao tem cron. O pagamento sai no dia
+    do vencimento, mesmo que o app so seja aberto dias depois. Idempotente
+    pelo source_id deterministico '<cartao>:<AAAA-MM>': uma fatura reaberta a
+    mao depois do debito nao e paga de novo.
+    """
+    today = today or local_today()
+    cards = conn.execute(
+        """
+        SELECT cc.*
+        FROM credit_cards cc
+        JOIN accounts a ON a.id = cc.autopay_account_id AND a.user_id = cc.user_id
+        WHERE cc.user_id = ? AND a.archived_at IS NULL
+        """,
+        (current_user_id,),
+    ).fetchall()
+
+    paid = []
+    for card in cards:
+        start = parse_iso_date(card["autopay_start_date"])
+        start = start.date() if start else None
+        invoices = conn.execute(
+            """
+            SELECT DISTINCT invoice_month, invoice_year FROM cc_expenses
+            WHERE user_id = ? AND card_id = ? AND status = 'OPEN'
+            ORDER BY invoice_year, invoice_month
+            """,
+            (current_user_id, card["id"]),
+        ).fetchall()
+        for invoice in invoices:
+            due = invoice_due_date(invoice["invoice_month"], invoice["invoice_year"], card["due_day"])
+            if due > today or (start and due < start):
+                continue
+            row = settle_invoice(
+                conn,
+                current_user_id,
+                card,
+                invoice["invoice_month"],
+                invoice["invoice_year"],
+                account_id=card["autopay_account_id"],
+                payment_date=due.strftime("%Y-%m-%d"),
+                source_type=CC_AUTOPAY_SOURCE_TYPE,
+                source_id=autopay_source_id(card["id"], invoice["invoice_month"], invoice["invoice_year"]),
+            )
+            if row:
+                paid.append(row)
+    return paid
 
 
 def create_token(user_id):
@@ -2276,6 +2457,7 @@ def transaction_filter_clause(conn, current_user_id, args):
 def transactions(current_user_id):
     if request.method == "GET":
         with get_db() as conn:
+            apply_due_autopay(conn, current_user_id)
             try:
                 where, params = transaction_filter_clause(conn, current_user_id, request.args)
             except ValidationError as exc:
@@ -2351,6 +2533,8 @@ def update_transaction(current_user_id, item_id):
             return jsonify({
                 "error": "Este lancamento de caixa esta vinculado a uma movimentacao de investimento. Edite a movimentacao de investimento para manter o patrimonio consistente."
             }), 409
+        if item["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES:
+            return jsonify({"error": INVOICE_PAYMENT_LOCKED_MESSAGE}), 409
 
         updates = {}
         try:
@@ -2425,6 +2609,8 @@ def delete_transaction(current_user_id, item_id):
             return jsonify({
                 "error": "Este lancamento de caixa esta vinculado a uma movimentacao de investimento. Exclua a movimentacao de investimento para manter o patrimonio consistente."
             }), 409
+        if item["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES:
+            return jsonify({"error": INVOICE_PAYMENT_LOCKED_MESSAGE}), 409
         cursor = conn.execute(
             "DELETE FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),
@@ -2441,6 +2627,7 @@ def accounts(current_user_id):
         include_archived = str(request.args.get("include_archived", "")).lower() in ("1", "true", "yes")
         with get_db() as conn:
             ensure_default_account(conn, current_user_id)
+            apply_due_autopay(conn, current_user_id)
             rows = account_balance_rows(conn, current_user_id)
         items = [serialize_account(row) for row in rows]
         if not include_archived:
@@ -3697,6 +3884,7 @@ def recurring_forecast(current_user_id):
 def credit_cards(current_user_id):
     if request.method == "GET":
         with get_db() as conn:
+            apply_due_autopay(conn, current_user_id)
             rows = conn.execute(
                 "SELECT * FROM credit_cards WHERE user_id = ? ORDER BY name ASC",
                 (current_user_id,),
@@ -3714,10 +3902,15 @@ def credit_cards(current_user_id):
     item_id = new_id()
     try:
         with get_db() as conn:
+            try:
+                autopay_account_id = resolve_autopay_account(conn, current_user_id, payload)
+            except ValidationError as exc:
+                return validation_error(str(exc))
             conn.execute(
                 """
-                INSERT INTO credit_cards (id, user_id, name, due_day, closing_day)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO credit_cards
+                (id, user_id, name, due_day, closing_day, autopay_account_id, autopay_start_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -3725,6 +3918,8 @@ def credit_cards(current_user_id):
                     name,
                     due_day,
                     closing_day,
+                    autopay_account_id,
+                    local_today().strftime("%Y-%m-%d") if autopay_account_id else None,
                 ),
             )
             item = conn.execute("SELECT * FROM credit_cards WHERE id = ?", (item_id,)).fetchone()
@@ -3733,6 +3928,62 @@ def credit_cards(current_user_id):
             return jsonify({"error": "Ja existe um cartao com este nome."}), 409
         return jsonify({"error": "Nao foi possivel criar o cartao."}), 400
     return jsonify(row_to_dict(item)), 201
+
+
+def resolve_autopay_account(conn, current_user_id, payload):
+    """Conta do debito automatico no payload; vazio/None desliga o debito."""
+    raw = payload.get("autopay_account_id")
+    if raw in (None, ""):
+        return None
+    return require_account(conn, current_user_id, str(raw), "Conta do debito automatico")["id"]
+
+
+@app.route("/api/credit-cards/<card_id>", methods=["PATCH"])
+@token_required
+def update_credit_card(current_user_id, card_id):
+    """Liga, troca ou desliga o debito automatico do cartao.
+
+    Ligar (ou trocar de conta) grava hoje em autopay_start_date: faturas que
+    venceram antes disso continuam para pagamento manual.
+    """
+    payload = parse_json_body()
+    if not isinstance(payload, dict) or "autopay_account_id" not in payload:
+        return validation_error("Informe autopay_account_id (ou null para desligar).")
+
+    with get_db() as conn:
+        card = conn.execute(
+            "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
+            (card_id, current_user_id),
+        ).fetchone()
+        if not card:
+            return jsonify({"error": "Cartao nao encontrado."}), 404
+        try:
+            autopay_account_id = resolve_autopay_account(conn, current_user_id, payload)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        if autopay_account_id is None:
+            start_date = None
+        elif autopay_account_id == card["autopay_account_id"]:
+            start_date = card["autopay_start_date"]
+        else:
+            start_date = local_today().strftime("%Y-%m-%d")
+
+        conn.execute(
+            """
+            UPDATE credit_cards
+            SET autopay_account_id = ?, autopay_start_date = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (autopay_account_id, start_date, card_id, current_user_id),
+        )
+        # Uma fatura que vence hoje ja e paga agora, sem esperar a proxima leitura.
+        apply_due_autopay(conn, current_user_id)
+        item = conn.execute(
+            "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
+            (card_id, current_user_id),
+        ).fetchone()
+    return jsonify(row_to_dict(item)), 200
 
 
 @app.route("/api/credit-cards/<card_id>", methods=["DELETE"])
@@ -3763,6 +4014,7 @@ def cc_expenses(current_user_id):
             params.append(status)
 
         with get_db() as conn:
+            apply_due_autopay(conn, current_user_id)
             rows = conn.execute(
                 f"""
                 SELECT
@@ -3969,6 +4221,22 @@ def update_cc_expense_status(current_user_id):
 
     placeholders = ",".join("?" for _ in ids)
     with get_db() as conn:
+        if status == "PAID":
+            lines = conn.execute(
+                f"""
+                SELECT DISTINCT cce.invoice_month, cce.invoice_year, cc.due_day, cc.closing_day
+                FROM cc_expenses cce
+                JOIN credit_cards cc ON cc.id = cce.card_id AND cc.user_id = cce.user_id
+                WHERE cce.user_id = ? AND cce.id IN ({placeholders})
+                """,
+                [current_user_id, *ids],
+            ).fetchall()
+            try:
+                for line in lines:
+                    ensure_invoice_closed(line, line["invoice_month"], line["invoice_year"])
+            except ValidationError as exc:
+                return validation_error(str(exc), 409)
+
         cursor = conn.execute(
             f"""
             UPDATE cc_expenses
@@ -4001,6 +4269,16 @@ def update_invoice_status(current_user_id):
         except ValidationError as exc:
             return validation_error(str(exc), 404)
 
+        if status == "PAID":
+            card = conn.execute(
+                "SELECT due_day, closing_day FROM credit_cards WHERE id = ? AND user_id = ?",
+                (card_id, current_user_id),
+            ).fetchone()
+            try:
+                ensure_invoice_closed(card, invoice_month, invoice_year)
+            except ValidationError as exc:
+                return validation_error(str(exc), 409)
+
         cursor = conn.execute(
             """
             UPDATE cc_expenses
@@ -4021,6 +4299,58 @@ def update_invoice_status(current_user_id):
             ),
         )
     return jsonify({"updated": cursor.rowcount}), 200
+
+
+@app.route("/api/cc-expenses/pay-invoice", methods=["POST"])
+@token_required
+def pay_invoice(current_user_id):
+    """Paga uma fatura fechada: debita a conta e baixa os itens, de uma vez.
+
+    Fatura ainda aberta (antes do dia do fechamento) e recusada com 409 — o
+    valor dela ainda pode mudar. `account_id` omitido usa a conta padrao;
+    `date` omitido e hoje.
+    """
+    payload = parse_json_body()
+    if not isinstance(payload, dict):
+        return validation_error("Informe uma fatura valida.")
+
+    try:
+        card_id = require_string(payload, "card_id", "Cartao")
+        invoice_month = parse_int_number(payload, "invoice_month", "Mes da fatura", minimum=1, maximum=12)
+        invoice_year = parse_int_number(payload, "invoice_year", "Ano da fatura", minimum=2000)
+        payment_date = optional_date(payload, "date", "Data do pagamento") or local_today().strftime("%Y-%m-%d")
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
+    with get_db() as conn:
+        card = conn.execute(
+            "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
+            (card_id, current_user_id),
+        ).fetchone()
+        if not card:
+            return jsonify({"error": "Cartao nao encontrado."}), 404
+        try:
+            ensure_invoice_closed(card, invoice_month, invoice_year)
+            account_id = resolve_account_id(conn, current_user_id, payload)
+        except InvoiceStillOpenError as exc:
+            return validation_error(str(exc), 409)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+
+        row = settle_invoice(
+            conn,
+            current_user_id,
+            card,
+            invoice_month,
+            invoice_year,
+            account_id=account_id,
+            payment_date=payment_date,
+            source_type=CC_INVOICE_PAYMENT_SOURCE_TYPE,
+            source_id=f"{autopay_source_id(card_id, invoice_month, invoice_year)}:{new_id()}",
+        )
+        if not row:
+            return jsonify({"error": "Nao ha itens em aberto nesta fatura."}), 409
+    return jsonify({"transaction": serialize_transaction(row)}), 201
 
 
 @app.route("/api/assets", methods=["GET"])

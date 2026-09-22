@@ -60,7 +60,7 @@ import {
   axisProps,
   compactCurrency,
 } from '../components/charts'
-import { formatCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth } from '../lib/format'
+import { formatCurrency, formatDateBR, monthKey, monthLabel, shiftMonth } from '../lib/format'
 
 const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
@@ -354,6 +354,27 @@ export default function Dashboard() {
     [nextInvoiceItems]
   )
 
+  // So fatura fechada pode ser paga (o servidor recusa as outras). Uma por
+  // cartao: cada uma vira um pagamento proprio.
+  const payableInvoices = useMemo(() => {
+    const byCard = {}
+    nextInvoiceItems.forEach((item) => {
+      if (item.invoice_closed !== true) return
+      if (!byCard[item.card_id]) {
+        byCard[item.card_id] = { card_id: item.card_id, invoice_month: item.invoice_month, invoice_year: item.invoice_year, total: 0 }
+      }
+      byCard[item.card_id].total += parseFloat(item.amount)
+    })
+    return Object.values(byCard)
+  }, [nextInvoiceItems])
+
+  const payableTotal = payableInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
+
+  const nextClosingDate = useMemo(() => nextInvoiceItems
+    .filter((item) => item.invoice_closed !== true && item.invoice_closing_date)
+    .map((item) => item.invoice_closing_date)
+    .sort()[0] || null, [nextInvoiceItems])
+
   // Quanto ja esta comprometido nas proximas faturas, por mes de fatura.
   const invoiceProjection = useMemo(() => {
     const keys = Array.from({ length: INVOICE_MONTHS }, (_, index) => shiftMonth(nextKey, index))
@@ -416,26 +437,20 @@ export default function Dashboard() {
   )
 
   const handlePayCurrentMonthInvoice = async () => {
-    if (nextInvoiceItems.length === 0 || currentMonthInvoice <= 0) return
+    if (payableInvoices.length === 0 || payableTotal <= 0) return
 
-    const confirmed = window.confirm(`Deseja pagar a fatura total deste mês no valor de ${formatCurrency(currentMonthInvoice)}?`)
+    const confirmed = window.confirm(`Deseja pagar a fatura fechada deste mês no valor de ${formatCurrency(payableTotal)}?`)
     if (!confirmed) return
 
     setIsPayingCurrentInvoice(true)
 
     try {
-      await transactionsApi.create({
-        type: 'EXPENSE',
-        amount: Number(currentMonthInvoice.toFixed(2)),
-        date: getLocalDateString(),
-        category: 'Pagamento Fatura do Mês',
-        description: 'Baixa da fatura total do mês pela dashboard',
-      })
-
-      const idsToUpdate = nextInvoiceItems.map((item) => item.id)
-
-      if (idsToUpdate.length > 0) {
-        await ccExpensesApi.updateStatus(idsToUpdate, 'PAID')
+      for (const invoice of payableInvoices) {
+        await ccExpensesApi.payInvoice({
+          card_id: invoice.card_id,
+          invoice_month: invoice.invoice_month,
+          invoice_year: invoice.invoice_year,
+        })
       }
 
       await fetchAllData()
@@ -854,10 +869,16 @@ export default function Dashboard() {
                     ))}
                   </div>
 
+                  {payableInvoices.length === 0 && nextClosingDate ? (
+                    <p className="text-xs text-zinc-600">
+                      A fatura fecha em {formatDateBR(nextClosingDate)}; o pagamento é liberado depois do fechamento.
+                    </p>
+                  ) : null}
                   <Button
                     type="button"
                     onClick={handlePayCurrentMonthInvoice}
                     loading={isPayingCurrentInvoice}
+                    disabled={payableInvoices.length === 0}
                     icon={CheckCircle2}
                     className="w-full"
                   >

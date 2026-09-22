@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle, ChevronDown, CreditCard, Plus, Receipt, Trash2, Wallet } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { ccExpensesApi, transactionsApi } from '../../lib/dataApi'
+import { ccExpensesApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
 import {
   AlertMessage,
@@ -17,7 +17,6 @@ import { formatCurrency } from '../../lib/format'
 import {
   formatDateBR,
   formatInvoiceLabel,
-  getLocalDateString,
   getNow,
   getPurchaseGroupKey,
   parseInstallmentInfo,
@@ -62,6 +61,7 @@ export default function Cartoes() {
     ccExpenses,
     projectedBalanceGlobal,
     projectedBalanceNextMonth,
+    accountName,
   } = useLancamentos()
 
   const [saving, setSaving] = useState(false)
@@ -100,6 +100,7 @@ export default function Cartoes() {
           cardName: expense.credit_cards?.name || card?.name || 'Cartão',
           dueDay: expense.credit_cards?.due_day || card?.due_day,
           closingDay: expense.credit_cards?.closing_day || card?.closing_day,
+          autopayAccountId: card?.autopay_account_id || null,
           invoices: {},
         }
       }
@@ -109,6 +110,10 @@ export default function Cartoes() {
           invoiceKey,
           invoiceMonth: expense.invoice_month,
           invoiceYear: expense.invoice_year,
+          // Vem do servidor, que e onde mora a regra do fechamento.
+          closed: expense.invoice_closed === true,
+          closingDate: expense.invoice_closing_date,
+          dueDate: expense.invoice_due_date,
           total: 0,
           purchases: {},
         }
@@ -171,25 +176,17 @@ export default function Cartoes() {
   }
 
   const handlePayInvoice = async (invoice, cardGroup) => {
+    if (!invoice.closed) return
     if (!window.confirm(`Deseja pagar a fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} do cartão ${cardGroup.cardName} no valor de ${formatCurrency(invoice.total)}?`)) return
 
     setSaving(true)
     setDataError('')
     try {
-      await transactionsApi.create({
-        type: 'EXPENSE',
-        amount: Number(invoice.total.toFixed(2)),
-        date: getLocalDateString(),
-        category: `Pagamento Fatura ${cardGroup.cardName}`,
-        description: `Fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}`,
-      })
-
-      await ccExpensesApi.updateInvoiceStatus({
+      // Um unico pedido: o servidor lanca a despesa e baixa a fatura juntos.
+      await ccExpensesApi.payInvoice({
         card_id: cardGroup.cardId,
         invoice_month: invoice.invoiceMonth,
         invoice_year: invoice.invoiceYear,
-        status: 'PAID',
-        current_status: 'OPEN',
       })
 
       await fetchData()
@@ -242,11 +239,23 @@ export default function Cartoes() {
     }
   }
 
-  const getInvoiceStatus = (year, month, dueDay) => {
+  const getInvoiceStatus = (invoice, dueDay) => {
     const today = getNow()
-    const dueDate = new Date(year, month - 1, dueDay)
+    const dueDate = new Date(invoice.invoiceYear, invoice.invoiceMonth - 1, dueDay)
     if (today > dueDate) return <Badge tone="danger">Em atraso</Badge>
+    if (invoice.closed) return <Badge tone="info">Fechada</Badge>
     return <Badge tone="warning">Aberta</Badge>
+  }
+
+  // Por que o botao Pagar esta (ou nao) liberado, numa linha.
+  const paymentHint = (invoice, cardGroup) => {
+    if (!invoice.closed) {
+      return invoice.closingDate ? `Fecha em ${formatDateBR(invoice.closingDate)} · pagamento liberado depois` : 'Pagamento liberado após o fechamento'
+    }
+    if (cardGroup.autopayAccountId && invoice.dueDate) {
+      return `Débito automático em ${formatDateBR(invoice.dueDate)}`
+    }
+    return null
   }
 
   const headerActions = nearestInvoice ? (
@@ -256,6 +265,8 @@ export default function Cartoes() {
         type="button"
         icon={CheckCircle}
         loading={saving}
+        disabled={!nearestInvoice.invoice.closed}
+        title={nearestInvoice.invoice.closed ? undefined : paymentHint(nearestInvoice.invoice, nearestInvoice.cardGroup)}
         onClick={() => handlePayInvoice(nearestInvoice.invoice, nearestInvoice.cardGroup)}
       >
         Pagar fatura
@@ -312,6 +323,9 @@ export default function Cartoes() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-lg font-bold text-zinc-950">{cardGroup.cardName}</h3>
                       <Badge tone="info">{cardGroup.invoices.length} fatura(s)</Badge>
+                      {cardGroup.autopayAccountId ? (
+                        <Badge tone="success">Débito automático · {accountName(cardGroup.autopayAccountId)}</Badge>
+                      ) : null}
                     </div>
                     <p className="mt-1 text-sm text-zinc-600">Vence dia {cardGroup.dueDay} • Fecha dia {cardGroup.closingDay}</p>
                   </div>
@@ -323,6 +337,7 @@ export default function Cartoes() {
                     const key = `${cardGroup.cardId}|${invoice.invoiceKey}`
                     const expanded = isInvoiceExpanded(key)
                     const isNearest = key === nearestInvoice?.key
+                    const hint = paymentHint(invoice, cardGroup)
 
                     return (
                       <div key={invoice.invoiceKey}>
@@ -337,14 +352,15 @@ export default function Cartoes() {
                             <div className="min-w-0">
                               <p className="font-bold text-zinc-950">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-2">
-                                {getInvoiceStatus(invoice.invoiceYear, invoice.invoiceMonth, cardGroup.dueDay)}
+                                {getInvoiceStatus(invoice, cardGroup.dueDay)}
                                 {isNearest ? <Badge tone="success">Próxima</Badge> : null}
                               </div>
+                              {hint ? <p className="mt-1 text-xs text-zinc-600">{hint}</p> : null}
                             </div>
                           </button>
                           <div className="flex items-center gap-3">
                             <p className="whitespace-nowrap text-lg font-bold text-rose-600">{formatCurrency(invoice.total)}</p>
-                            <Button type="button" variant={isNearest ? 'primary' : 'secondary'} icon={CheckCircle} loading={saving} onClick={() => handlePayInvoice(invoice, cardGroup)} className="h-11 lg:h-10">
+                            <Button type="button" variant={isNearest && invoice.closed ? 'primary' : 'secondary'} icon={CheckCircle} loading={saving} disabled={!invoice.closed} title={invoice.closed ? undefined : hint} onClick={() => handlePayInvoice(invoice, cardGroup)} className="h-11 lg:h-10">
                               Pagar
                             </Button>
                           </div>

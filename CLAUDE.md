@@ -127,7 +127,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-325 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement and the
+416 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, `user_id` isolation, and backup retention. They run
 against a throwaway SQLite database built by the real migrations — **the real
@@ -200,6 +200,15 @@ docs/
   `source_id = '<recurrence>:<AAAA-MM-DD>'`, so the unique index `idx_transactions_user_source`
   makes a second run a no-op. Keep that shape for anything else that materializes rows on demand —
   it is what makes the button safe to press twice. Deleting a recurrence keeps its lançamentos.
+- **An invoice is paid only once it has closed.** `invoice_closing_date()` in `backend/app.py`
+  is the rule (same shift as `compute_invoice_start()`; closed *on* the closing day). Every path
+  that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is
+  `POST /api/cc-expenses/pay-invoice` — don't go back to a client-side EXPENSE + status PATCH.
+  The client reads `invoice_closed` / `invoice_closing_date` from `GET /api/cc-expenses`.
+- **Débito automático** (`credit_cards.autopay_account_id`, migration 011) is materialized on read
+  by `apply_due_autopay()`, dated on the due day, with `source_type = 'CC_AUTOPAY'` and
+  `source_id = '<card>:<AAAA-MM>'` — same idempotency shape as recurrences. Only invoices due on or
+  after `autopay_start_date` are paid, and a reopened invoice is not debited twice.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/next-steps.md` §2 before touching it.
 
 ## Known sharp edges

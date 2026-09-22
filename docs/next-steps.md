@@ -33,6 +33,7 @@
 | B3 ticker catalog, autocomplete, and guard on buys | 2026-09-16 |
 | Statement search and filters (§3.7) — closes Phase 3 | 2026-09-21 |
 | UX reorganization: 4 sections + Ajustes, "+ Novo" sheet, Carteira merged away, phone layout (spec in git at `9c186fe:docs/ux-reorganization.md`, file removed) | 2026-09-21 |
+| Invoice payment only after closing, server-side; "Débito automático" per card — migration 011 | 2026-09-22 |
 
 ---
 
@@ -62,6 +63,17 @@ Buys carry `fixed_income_type`, `rate_type` (POS/PRE), `indexer` (CDI/CDI_PLUS/I
   indexer surfaces only as a failed refresh.
 - [ ] Lancamentos from before this change have no `fixed_income_type`; the edit sheet asks for
   one on first edit.
+
+### Credit card payment — closed-only + Débito automático (done 2026-09-22, follow-ups)
+Payment goes through `POST /api/cc-expenses/pay-invoice` (EXPENSE + PAID in one DB transaction),
+refused with 409 before the closing day; the status PATCHes refuse PAID the same way. A card with
+`autopay_account_id` is paid on its due date by `apply_due_autopay()`, which runs at the start of
+the GETs for transactions, accounts, cards and cc-expenses (tests: `test_invoice_payment.py`).
+- [ ] Manual payment always debits the **default account**; there is no account picker in the
+  Pagar confirmation. Use the card's autopay account when set, or ask?
+- [ ] Autopay does not check the balance — it debits even into the negative, as a real bank's
+  débito automático would try to. Warn on Início when the debit account will not cover it?
+- [ ] Not clicked through in a browser; verified by backend tests and `vite build`.
 
 ### Phase 4 — Reduce friction
 - [ ] **CSV statement import** with configurable column mapping; dedupe by hash (date + amount +
@@ -107,8 +119,8 @@ Buys carry `fixed_income_type`, `rate_type` (POS/PRE), `indexer` (CDI/CDI_PLUS/I
    brokerage notes.
 6. **"+ Novo" twice on Início and Extrato.** The page header has one and so do the sidebar
    (desktop) and the bottom bar (phone). Keep both, or drop the header one?
-7. **Cartões header: Pagar fatura and "+ Novo" side by side.** Pagar fatura is primary while an
-   invoice is open. Keep both, or rely on the global "+ Novo" only?
+7. **Cartões header: Pagar fatura and "+ Novo" side by side.** Pagar fatura is primary while the
+   nearest invoice is closed (disabled before that). Keep both, or rely on the global "+ Novo" only?
 8. **Wording and fit.** The Início cash-flow legend still says "Entradas/Saídas" (the glossary allows
    plurals for aggregates) — switch to Receitas/Despesas? The "+ Novo" type selector wraps onto two
    lines so "Investimento" stays visible — acceptable, or shorten the labels?

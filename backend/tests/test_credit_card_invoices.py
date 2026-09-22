@@ -192,17 +192,19 @@ class TestInstallments:
         assert {mine[item["id"]]["installment_info"] for item in created} == {"1/3", "2/3", "3/3"}
 
     def test_settling_one_month_does_not_settle_the_later_installments(self, client, auth, card):
+        # Past months: an invoice can only be settled once it has closed
+        # (test_invoice_payment.py).
         first = add_expense(
-            client, auth, card, invoice_month=10, invoice_year=2027, installment_info="1/2"
+            client, auth, card, invoice_month=10, invoice_year=2025, installment_info="1/2"
         )
         second = add_expense(
-            client, auth, card, invoice_month=11, invoice_year=2027, installment_info="2/2"
+            client, auth, card, invoice_month=11, invoice_year=2025, installment_info="2/2"
         )
 
         client.patch(
             "/api/cc-expenses/invoice-status",
             headers=auth,
-            json={"card_id": card["id"], "invoice_month": 10, "invoice_year": 2027, "status": "PAID"},
+            json={"card_id": card["id"], "invoice_month": 10, "invoice_year": 2025, "status": "PAID"},
         )
 
         assert fetch_expense(client, auth, first["id"])["status"] == "PAID"

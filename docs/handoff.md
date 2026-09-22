@@ -6,7 +6,60 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Fixed income: security type, pós/pré, indexer
+## Session — 2026-09-22 (latest) · Invoice payment only after closing + Débito automático
+
+### What was done
+
+Owner request: an invoice cannot be paid while it is still open, only once it has closed; add
+"Débito automático", which pays the invoice on its due date from an account.
+
+- **Closing rule (backend).** `invoice_closing_date()` / `invoice_due_date()` in `backend/app.py`.
+  Invoice (M, Y) is named after its due month; it closes on `closing_day` of M when
+  `closing_day < due_day`, else of M-1 — the same shift `compute_invoice_start()` applies, checked
+  day by day for a year in `test_matches_the_purchase_rule`. Closed *on* the closing day (a purchase
+  that day already goes to the next invoice). Days are clamped to short months.
+- **Payment moved server-side.** New `POST /api/cc-expenses/pay-invoice` -> `settle_invoice()`:
+  one EXPENSE (`Pagamento Fatura <card>`, `source_type='CC_INVOICE_PAYMENT'`) + the OPEN lines to
+  PAID in one DB transaction; 409 before closing, 409 when nothing is open. Before this, Cartões and
+  Início did an EXPENSE POST then a status PATCH from the client (two requests, no rule). Both
+  status PATCHes now refuse PAID on an open invoice (`InvoiceStillOpenError`, 409); reopening is
+  still free.
+- **Débito automático.** Migration 011: `credit_cards.autopay_account_id` (+ `autopay_start_date`).
+  `PATCH /api/credit-cards/<id>` sets or clears it; `POST /api/credit-cards` accepts it.
+  `apply_due_autopay()` runs at the start of GET transactions / accounts / credit-cards /
+  cc-expenses (no cron in a local app), pays every OPEN invoice whose due date has passed, dated on
+  the due day, `source_type='CC_AUTOPAY'`, `source_id='<card>:<AAAA-MM>'` (idempotent via
+  `idx_transactions_user_source`). "Last day" in the request was read as the **due date**.
+- **Payment lançamentos are locked.** `finance-guard` found that deleting the payment in Extrato
+  left the invoice PAID with no money out; edit/delete of both source types now return 409, and
+  Extrato shows a badge instead of the icons.
+- **Frontend.** `GET /api/cc-expenses` now returns `invoice_closed`, `invoice_closing_date`,
+  `invoice_due_date`. Cartões: Pagar disabled until closed, "Aberta/Fechada/Em atraso" badge, hint
+  "Fecha em dd/mm" or "Débito automático em dd/mm", autopay badge on the card. Início: pays only the
+  closed invoices of the month (one call per card). Ajustes › Cartões: a "Débito automático"
+  account select per card and on the new-card form.
+- Tests: `backend/tests/test_invoice_payment.py`. One existing test in
+  `test_credit_card_invoices.py` settled a **2027** invoice; moved to 2025 so it keeps testing the
+  same thing. 416 passing; `vite build` clean.
+
+### Not done / decisions to confirm
+
+- **Autopay starts from the day it is switched on.** Invoices that fell due before that stay for
+  manual payment, so switching it on doesn't settle a backlog of old open invoices with past dates.
+- **A reopened autopaid invoice is not debited again** (deterministic source_id) — manual Pagar.
+- Autopay does not check the balance; it debits into the negative. Manual payment always uses the
+  default account (no picker). Both logged in next-steps.
+- Invoice payment lançamentos from before this change have no source_type and stay editable.
+- Not clicked through in a browser.
+- The owner had uncommitted, unrelated edits in Dashboard.jsx, Extrato.jsx, Recorrentes.jsx,
+  charts.jsx, lib/transactions.js, backend/scripts/. Only this change's hunks were committed; the
+  rest is left in the working tree untouched.
+- `finance-guard` ran via `subagent_type="finance-guard"` directly (discovery worked). Findings:
+  unlocked payment lançamentos (fixed) and `schema.sql` missing the 011 columns (fixed).
+
+---
+
+## Session — 2026-09-22 · Fixed income: security type, pós/pré, indexer
 
 ### What was done
 
