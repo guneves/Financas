@@ -14,10 +14,12 @@ import {
 } from 'lucide-react'
 import { budgetsApi, categoriesApi } from '../lib/dataApi'
 import { formatCurrency, monthKey, monthLabel, shiftMonth } from '../lib/format'
+import { useDataVersion } from '../lib/newEntry'
 import {
   AlertMessage,
   Badge,
   Button,
+  Collapsible,
   EmptyState,
   Field,
   IconButton,
@@ -66,13 +68,17 @@ export default function Orcamento() {
   const [saving, setSaving] = useState(false)
 
   const [budgetForm, setBudgetForm] = useState(emptyBudgetForm)
+  const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [editValue, setEditValue] = useState('')
+
+  // Sobe quando o "+ Novo" do Layout salva um lançamento: o realizado do mês muda.
+  const dataVersion = useDataVersion()
 
   useEffect(() => {
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month])
+  }, [month, dataVersion])
 
   const loadAll = async () => {
     setLoading(true)
@@ -108,6 +114,8 @@ export default function Orcamento() {
 
   const totals = budget.totals || {}
 
+  // O formulario fica aberto depois de salvar: montar o mes costuma ser
+  // varias categorias seguidas, e a nova linha aparece logo abaixo.
   const handleCreateBudget = async (event) => {
     event.preventDefault()
     setSaving(true)
@@ -191,16 +199,9 @@ export default function Orcamento() {
         title="Orçamento"
         description="Quanto você planejou gastar em cada categoria neste mês, e quanto já saiu."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              to="/ajustes#categorias"
-              className="inline-flex h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800"
-            >
-              <Settings className="h-4 w-4" />
-              Gerenciar categorias
-            </Link>
+          <div className="flex items-center gap-1">
             <IconButton label="Mês anterior" icon={ChevronLeft} onClick={() => setMonth(shiftMonth(month, -1))} />
-            <span className="min-w-40 text-center text-sm font-semibold capitalize text-zinc-800">
+            <span className="inline-block min-w-40 text-center text-sm font-semibold text-zinc-800 first-letter:uppercase">
               {monthLabel(month)}
             </span>
             <IconButton label="Próximo mês" icon={ChevronRight} onClick={() => setMonth(shiftMonth(month, 1))} />
@@ -210,36 +211,40 @@ export default function Orcamento() {
 
       <AlertMessage message={error} onDismiss={() => setError('')} />
 
-        <div className="space-y-6">
-          <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} tone="info" />
-            <MetricCard
-              title="Disponível"
-              value={formatCurrency(totals.available)}
-              subtitle={totals.carryover ? `Inclui ${formatCurrency(totals.carryover)} do mês anterior` : null}
-              tone="neutral"
-            />
-            <MetricCard title="Realizado" value={formatCurrency(totals.spent)} tone="warning" />
-            <MetricCard
-              title="Saldo do plano"
-              value={formatCurrency(totals.remaining)}
-              subtitle={totals.over_count ? `${totals.over_count} categoria(s) estourada(s)` : 'Nenhuma categoria estourada'}
-              valueClassName={Number(totals.remaining || 0) < 0 ? 'text-rose-600' : 'text-emerald-600'}
-              tone={totals.over_count ? 'danger' : 'success'}
-            />
-          </div>
+      <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} tone="info" />
+        <MetricCard
+          title="Disponível"
+          value={formatCurrency(totals.available)}
+          subtitle={totals.carryover ? `Inclui ${formatCurrency(totals.carryover)} do mês anterior` : null}
+          tone="neutral"
+        />
+        <MetricCard title="Realizado" value={formatCurrency(totals.spent)} tone="warning" />
+        <MetricCard
+          title="Saldo do plano"
+          value={formatCurrency(totals.remaining)}
+          subtitle={totals.over_count ? `${totals.over_count} categoria(s) estourada(s)` : 'Nenhuma categoria estourada'}
+          valueClassName={Number(totals.remaining || 0) < 0 ? 'text-rose-600' : 'text-emerald-600'}
+          tone={totals.over_count ? 'danger' : 'success'}
+        />
+      </div>
 
-          <Panel>
-            <PanelHeader
-              title="Novo orçamento"
-              description="Uma categoria por mês. Subcategoria sem orçamento próprio soma no orçamento do pai."
-              actions={
-                <Button variant="secondary" icon={Copy} onClick={handleCopyPreviousMonth} loading={saving}>
-                  Copiar mês anterior
-                </Button>
-              }
-            />
-            <form onSubmit={handleCreateBudget} className="grid gap-4 px-5 py-4 md:grid-cols-4">
+      <Panel>
+        <PanelHeader
+          title="Categorias do mês"
+          description={`Plano de ${monthLabel(month)}. O realizado vem das movimentações em conta; compras no cartão só entram no mês em que a fatura é paga, na categoria "Pagamento Fatura".`}
+        />
+
+        <div className="flex flex-col gap-3 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+          <Collapsible
+            label="Adicionar categoria ao mês"
+            icon={Plus}
+            open={formOpen}
+            onOpenChange={setFormOpen}
+            className="min-w-0 flex-1"
+            buttonClassName="h-11 lg:h-10"
+          >
+            <form onSubmit={handleCreateBudget} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
               <Field label="Categoria">
                 <select
                   value={budgetForm.category_id}
@@ -276,7 +281,7 @@ export default function Orcamento() {
                 />
               </Field>
               <div className="flex flex-col justify-end gap-2">
-                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                <label className="flex min-h-11 items-center gap-2 text-sm text-zinc-700 lg:min-h-0">
                   <input
                     type="checkbox"
                     checked={budgetForm.rollover}
@@ -285,101 +290,116 @@ export default function Orcamento() {
                   />
                   Acumular sobra do mês anterior
                 </label>
-                <Button type="submit" icon={Plus} loading={saving} disabled={!availableCategories.length}>
-                  Adicionar
+                <Button type="submit" icon={Check} loading={saving} disabled={!availableCategories.length} className="h-11 lg:h-10">
+                  Salvar
                 </Button>
               </div>
+              <p className="text-sm text-zinc-600 sm:col-span-2 xl:col-span-4">
+                {availableCategories.length
+                  ? 'Uma categoria por mês. Subcategoria sem orçamento próprio soma no orçamento do pai.'
+                  : 'Todas as categorias ativas já têm orçamento neste mês.'}
+              </p>
             </form>
-          </Panel>
-
-          <Panel>
-            <PanelHeader
-              title="Categorias do mês"
-              description={`Plano de ${monthLabel(month)}. O realizado vem das movimentações em conta; compras no cartão só entram no mês em que a fatura é paga, na categoria "Pagamento Fatura".`}
-            />
-            {loading ? (
-              <p className="px-5 py-8 text-center text-sm text-zinc-500">Carregando...</p>
-            ) : !budget.items?.length ? (
-              <EmptyState
-                icon={Target}
-                title="Nenhum orçamento neste mês"
-                message="Adicione uma categoria acima, ou copie o plano do mês anterior."
-              />
-            ) : (
-              <div className="divide-y divide-zinc-100">
-                {budget.items.map((item) => (
-                  <div key={item.id} className="px-5 py-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-zinc-900">
-                          {item.parent_name ? `${item.parent_name} › ${item.category_name}` : item.category_name}
-                        </p>
-                        <p className="mt-0.5 text-sm text-zinc-500">
-                          {formatCurrency(item.spent)} de {formatCurrency(item.available)}
-                          {item.carryover ? ` (inclui ${formatCurrency(item.carryover)} acumulado)` : ''}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge tone={STATUS_TONES[item.status]}>{STATUS_LABELS[item.status]}</Badge>
-                        {editingId === item.id ? (
-                          <>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={editValue}
-                              onChange={(event) => setEditValue(event.target.value)}
-                              className="app-input w-32"
-                            />
-                            <IconButton label="Salvar" icon={Check} variant="primary" onClick={() => handleSaveEdit(item)} />
-                            <IconButton label="Cancelar" icon={X} onClick={() => setEditingId('')} />
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleRollover(item)}
-                              className={cx(
-                                'rounded-full border px-2.5 py-1 text-xs font-semibold transition',
-                                item.rollover
-                                  ? 'border-sky-200 bg-sky-50 text-sky-700'
-                                  : 'border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50'
-                              )}
-                              title="Acumular a sobra do mês anterior"
-                            >
-                              Acumula
-                            </button>
-                            <IconButton
-                              label="Editar valor"
-                              icon={Pencil}
-                              onClick={() => {
-                                setEditingId(item.id)
-                                setEditValue(String(item.planned_amount))
-                              }}
-                            />
-                            <IconButton label="Remover" icon={Trash2} variant="danger" onClick={() => handleRemoveBudget(item)} />
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-3 flex items-center gap-3">
-                      <ProgressBar percent={item.percent} status={item.status} />
-                      <span
-                        className={cx(
-                          'w-28 shrink-0 text-right text-sm font-semibold',
-                          item.remaining < 0 ? 'text-rose-600' : 'text-zinc-700'
-                        )}
-                      >
-                        {formatCurrency(item.remaining)}
-                      </span>
-                    </div>
-                    {item.note ? <p className="mt-2 text-xs text-zinc-500">{item.note}</p> : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
+          </Collapsible>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" icon={Copy} onClick={handleCopyPreviousMonth} loading={saving} className="h-11 lg:h-10">
+              Copiar mês anterior
+            </Button>
+            <Link
+              to="/ajustes#categorias"
+              className="inline-flex h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800 lg:h-10"
+            >
+              <Settings className="h-4 w-4" />
+              Gerenciar categorias
+            </Link>
+          </div>
         </div>
+
+        {loading ? (
+          <p className="px-5 py-8 text-center text-sm text-zinc-600">Carregando...</p>
+        ) : !budget.items?.length ? (
+          <EmptyState
+            icon={Target}
+            title="Nenhum orçamento neste mês"
+            message="Adicione uma categoria ao mês, ou copie o plano do mês anterior."
+            className="m-5"
+          />
+        ) : (
+          <div className="divide-y divide-zinc-100">
+            {budget.items.map((item) => (
+              <div key={item.id} className="px-5 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-zinc-900">
+                      {item.parent_name ? `${item.parent_name} › ${item.category_name}` : item.category_name}
+                    </p>
+                    <p className="mt-0.5 text-sm text-zinc-600">
+                      {formatCurrency(item.spent)} de {formatCurrency(item.available)}
+                      {item.carryover ? ` (inclui ${formatCurrency(item.carryover)} acumulado)` : ''}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={STATUS_TONES[item.status]}>{STATUS_LABELS[item.status]}</Badge>
+                    {editingId === item.id ? (
+                      <>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editValue}
+                          onChange={(event) => setEditValue(event.target.value)}
+                          aria-label="Valor planejado"
+                          className="app-input w-32"
+                        />
+                        <IconButton label="Salvar" icon={Check} variant="primary" onClick={() => handleSaveEdit(item)} />
+                        <IconButton label="Cancelar" icon={X} onClick={() => setEditingId('')} />
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleRollover(item)}
+                          aria-pressed={Boolean(item.rollover)}
+                          className={cx(
+                            'inline-flex h-11 items-center rounded-full border px-3 text-xs font-semibold transition lg:h-8',
+                            item.rollover
+                              ? 'border-sky-200 bg-sky-50 text-sky-700'
+                              : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+                          )}
+                          title="Acumular a sobra do mês anterior"
+                        >
+                          Acumula
+                        </button>
+                        <IconButton
+                          label="Editar valor"
+                          icon={Pencil}
+                          onClick={() => {
+                            setEditingId(item.id)
+                            setEditValue(String(item.planned_amount))
+                          }}
+                        />
+                        <IconButton label="Remover" icon={Trash2} variant="danger" onClick={() => handleRemoveBudget(item)} />
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center gap-3">
+                  <ProgressBar percent={item.percent} status={item.status} />
+                  <span
+                    className={cx(
+                      'w-28 shrink-0 text-right text-sm font-semibold',
+                      item.remaining < 0 ? 'text-rose-600' : 'text-zinc-700'
+                    )}
+                  >
+                    {formatCurrency(item.remaining)}
+                  </span>
+                </div>
+                {item.note ? <p className="mt-2 text-sm text-zinc-600">{item.note}</p> : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
     </div>
   )
 }

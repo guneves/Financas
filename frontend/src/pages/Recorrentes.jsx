@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle,
   CalendarClock,
   Check,
   Pause,
@@ -15,9 +14,12 @@ import {
 } from 'lucide-react'
 import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
 import { formatCurrency, formatDateBR, getLocalDateString } from '../lib/format'
+import { useDataVersion } from '../lib/newEntry'
 import {
+  AlertMessage,
   Badge,
   Button,
+  Collapsible,
   EmptyState,
   Field,
   IconButton,
@@ -72,6 +74,7 @@ export default function Recorrentes() {
   const [categories, setCategories] = useState([])
   const [accounts, setAccounts] = useState([])
   const [form, setForm] = useState(emptyForm)
+  const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [editValue, setEditValue] = useState('')
   const [error, setError] = useState('')
@@ -79,9 +82,12 @@ export default function Recorrentes() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Sobe quando o "+ Novo" do Layout salva algo (uma conta nova, por exemplo).
+  const dataVersion = useDataVersion()
+
   useEffect(() => {
     loadAll()
-  }, [])
+  }, [dataVersion])
 
   const loadAll = async () => {
     setLoading(true)
@@ -130,6 +136,7 @@ export default function Recorrentes() {
         end_date: form.end_date || null,
       })
       setForm(emptyForm())
+      setFormOpen(false)
       await loadAll()
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível criar a recorrência.')
@@ -216,25 +223,14 @@ export default function Recorrentes() {
         title="Recorrentes"
         description="Aluguel, salário, mensalidade, assinatura: o molde fica aqui e o lançamento é gerado quando vence."
         actions={
-          <Button icon={CalendarClock} onClick={handleRun} loading={saving}>
+          <Button icon={CalendarClock} onClick={handleRun} loading={saving} className="h-11 lg:h-10">
             {pendingCount ? `Lançar ${pendingCount} pendente(s)` : 'Lançar pendentes'}
           </Button>
         }
       />
 
-      {error ? (
-        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : null}
-
-      {notice ? (
-        <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          <Check className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{notice}</span>
-        </div>
-      ) : null}
+      <AlertMessage message={error} onDismiss={() => setError('')} />
+      <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
 
       <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -267,130 +263,133 @@ export default function Recorrentes() {
 
       <Panel>
         <PanelHeader
-          title="Nova recorrência"
-          description="O lançamento só nasce quando a data chega — nada é antecipado no extrato."
-        />
-        <form onSubmit={handleCreate} className="grid gap-4 px-5 py-4 md:grid-cols-3 xl:grid-cols-4">
-          <Field label="Descrição">
-            <input
-              type="text"
-              value={form.description}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
-              placeholder="Aluguel"
-              className="app-input"
-              required
-            />
-          </Field>
-          <Field label="Valor">
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="0,00"
-              value={form.amount}
-              onChange={(event) => setForm({ ...form, amount: event.target.value })}
-              className="app-input"
-              required
-            />
-          </Field>
-          <Field label="Tipo">
-            <select
-              value={form.type}
-              onChange={(event) => setForm({ ...form, type: event.target.value })}
-              className="app-select"
-            >
-              <option value="EXPENSE">Despesa</option>
-              <option value="INCOME">Receita</option>
-            </select>
-          </Field>
-          <Field label="Categoria">
-            <select
-              value={form.category_id}
-              onChange={(event) => setForm({ ...form, category_id: event.target.value })}
-              className="app-select"
-              required
-            >
-              <option value="">Selecione</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.parent_name ? `${category.parent_name} › ${category.name}` : category.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Conta" hint="Opcional — usa a conta padrão">
-            <select
-              value={form.account_id}
-              onChange={(event) => setForm({ ...form, account_id: event.target.value })}
-              className="app-select"
-            >
-              <option value="">Conta padrão</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Frequência">
-            <select
-              value={form.frequency}
-              onChange={(event) => setForm({ ...form, frequency: event.target.value })}
-              className="app-select"
-            >
-              <option value="MONTHLY">Mensal</option>
-              <option value="WEEKLY">Semanal</option>
-              <option value="YEARLY">Anual</option>
-            </select>
-          </Field>
-          <Field label="A cada" hint="1 = todo período">
-            <input
-              type="number"
-              min="1"
-              max="60"
-              step="1"
-              value={form.interval_count}
-              onChange={(event) => setForm({ ...form, interval_count: event.target.value })}
-              className="app-input"
-            />
-          </Field>
-          <Field label="Primeira data" hint="Define o dia de ancoragem">
-            <input
-              type="date"
-              value={form.start_date}
-              onChange={(event) => setForm({ ...form, start_date: event.target.value })}
-              className="app-input"
-              required
-            />
-          </Field>
-          <Field label="Até" hint="Opcional — sem data, não termina">
-            <input
-              type="date"
-              value={form.end_date}
-              onChange={(event) => setForm({ ...form, end_date: event.target.value })}
-              className="app-input"
-            />
-          </Field>
-          <div className="flex items-end">
-            <Button type="submit" icon={Plus} loading={saving} className="w-full">
-              Adicionar
-            </Button>
-          </div>
-        </form>
-      </Panel>
-
-      <Panel>
-        <PanelHeader
           title="Recorrências"
           description="Pausar interrompe a geração sem apagar o histórico; excluir mantém os lançamentos já gerados."
         />
+
+        <div className="border-b border-zinc-100 px-5 py-4">
+          <Collapsible label="Nova recorrência" icon={Plus} variant="secondary" open={formOpen} onOpenChange={setFormOpen} buttonClassName="h-11 lg:h-10">
+            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+              <p className="text-sm text-zinc-600 sm:col-span-2 md:col-span-3 xl:col-span-4">
+                O lançamento só nasce quando a data chega — nada é antecipado no extrato.
+              </p>
+              <Field label="Descrição">
+                <input
+                  type="text"
+                  value={form.description}
+                  onChange={(event) => setForm({ ...form, description: event.target.value })}
+                  placeholder="Aluguel"
+                  className="app-input"
+                  required
+                />
+              </Field>
+              <Field label="Valor">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0,00"
+                  value={form.amount}
+                  onChange={(event) => setForm({ ...form, amount: event.target.value })}
+                  className="app-input"
+                  required
+                />
+              </Field>
+              <Field label="Tipo">
+                <select
+                  value={form.type}
+                  onChange={(event) => setForm({ ...form, type: event.target.value })}
+                  className="app-select"
+                >
+                  <option value="EXPENSE">Despesa</option>
+                  <option value="INCOME">Receita</option>
+                </select>
+              </Field>
+              <Field label="Categoria">
+                <select
+                  value={form.category_id}
+                  onChange={(event) => setForm({ ...form, category_id: event.target.value })}
+                  className="app-select"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.parent_name ? `${category.parent_name} › ${category.name}` : category.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Conta" hint="Opcional — usa a conta padrão">
+                <select
+                  value={form.account_id}
+                  onChange={(event) => setForm({ ...form, account_id: event.target.value })}
+                  className="app-select"
+                >
+                  <option value="">Conta padrão</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Frequência">
+                <select
+                  value={form.frequency}
+                  onChange={(event) => setForm({ ...form, frequency: event.target.value })}
+                  className="app-select"
+                >
+                  <option value="MONTHLY">Mensal</option>
+                  <option value="WEEKLY">Semanal</option>
+                  <option value="YEARLY">Anual</option>
+                </select>
+              </Field>
+              <Field label="A cada" hint="1 = todo período">
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  step="1"
+                  value={form.interval_count}
+                  onChange={(event) => setForm({ ...form, interval_count: event.target.value })}
+                  className="app-input"
+                />
+              </Field>
+              <Field label="Primeira data" hint="Define o dia de ancoragem">
+                <input
+                  type="date"
+                  value={form.start_date}
+                  onChange={(event) => setForm({ ...form, start_date: event.target.value })}
+                  className="app-input"
+                  required
+                />
+              </Field>
+              <Field label="Até" hint="Opcional — sem data, não termina">
+                <input
+                  type="date"
+                  value={form.end_date}
+                  onChange={(event) => setForm({ ...form, end_date: event.target.value })}
+                  className="app-input"
+                />
+              </Field>
+              <div className="flex items-end">
+                <Button type="submit" icon={Check} loading={saving} className="h-11 w-full lg:h-10">
+                  Salvar
+                </Button>
+              </div>
+            </form>
+          </Collapsible>
+        </div>
+
         {loading ? (
-          <p className="px-5 py-8 text-center text-sm text-zinc-500">Carregando...</p>
+          <p className="px-5 py-8 text-center text-sm text-zinc-600">Carregando...</p>
         ) : !items.length ? (
           <EmptyState
             icon={Repeat}
             title="Nenhuma recorrência cadastrada"
             message="Cadastre o aluguel, o salário e as assinaturas uma vez — depois é só lançar os pendentes."
+            className="m-5"
           />
         ) : (
           <div className="divide-y divide-zinc-100">
@@ -408,8 +407,8 @@ export default function Recorrentes() {
                       <Badge tone="warning">{item.pending_count} pendente(s)</Badge>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    {item.category} · {frequencyLabel(item)} ·{' '}
+                  <p className="mt-1 text-sm text-zinc-600">
+                    {item.type === 'INCOME' ? 'Receita' : 'Despesa'} · {item.category} · {frequencyLabel(item)} ·{' '}
                     {item.next_run_date
                       ? `próxima em ${formatDateBR(item.next_run_date)}`
                       : 'sem próxima data'}
@@ -417,7 +416,7 @@ export default function Recorrentes() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {editingId === item.id ? (
                     <>
                       <input
@@ -426,7 +425,8 @@ export default function Recorrentes() {
                         min="0"
                         value={editValue}
                         onChange={(event) => setEditValue(event.target.value)}
-                        className="app-input h-9 w-32"
+                        aria-label="Valor"
+                        className="app-input w-32"
                       />
                       <IconButton
                         label="Salvar valor"
@@ -441,8 +441,8 @@ export default function Recorrentes() {
                       <span
                         className={
                           item.type === 'INCOME'
-                            ? 'text-base font-bold text-emerald-600'
-                            : 'text-base font-bold text-zinc-900'
+                            ? 'mr-1 text-base font-bold text-emerald-600'
+                            : 'mr-1 text-base font-bold text-zinc-900'
                         }
                       >
                         {item.type === 'INCOME' ? '+' : '-'}
@@ -486,6 +486,7 @@ export default function Recorrentes() {
             icon={CalendarClock}
             title="Nada previsto"
             message="Cadastre uma recorrência ativa para ver a projeção de caixa."
+            className="m-5"
           />
         ) : (
           <div className="divide-y divide-zinc-100">
@@ -494,14 +495,15 @@ export default function Recorrentes() {
                 key={`${occurrence.recurring_id}-${occurrence.date}`}
                 className="flex items-center justify-between gap-3 px-5 py-3"
               >
-                <div className="flex min-w-0 items-center gap-3">
+                {/* No celular a descricao desce para a segunda linha; no desktop fica na mesma. */}
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 sm:flex-nowrap">
                   <span className="w-24 shrink-0 text-sm font-semibold text-zinc-600">
                     {formatDateBR(occurrence.date)}
                   </span>
-                  <span className="truncate text-sm text-zinc-800">
+                  <span className="order-last min-w-0 basis-full truncate text-sm text-zinc-800 sm:order-none sm:basis-auto">
                     {occurrence.description || occurrence.category}
                   </span>
-                  {occurrence.pending ? <Badge tone="warning">venceu</Badge> : null}
+                  {occurrence.pending ? <Badge tone="warning" className="shrink-0">venceu</Badge> : null}
                 </div>
                 <span
                   className={
