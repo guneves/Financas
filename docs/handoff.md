@@ -30,8 +30,8 @@ wgrrodrigues6@gmail.com.
 - Script-only change, no app code: `finance-guard` not run, test suite still green (424).
 - Not looked at in a browser. Worth checking next: stat tiles and chart axes with 7-digit values
   on Início, Orçamento and Investimentos, on phone width.
-- The uncommitted frontend changes (`charts.jsx`, `PortfolioOverview.jsx`, `Posicao.jsx`) predate
-  this session and were left out of the commit.
+- The frontend changes in the tree at the start (`charts.jsx`, `PortfolioOverview.jsx`,
+  `Posicao.jsx`) are not from this session; they landed separately as `66cc8a2`.
 
 ---
 
