@@ -6,7 +6,44 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Username and privacy mode
+## Session — 2026-09-22 (latest) · Faster "Atualizar cotações"
+
+### What was done
+
+Profiled `POST /api/investments/update-prices` on a **copy** of `finance.db` (41 rows: 7 fixed
+income, 34 quoted). Baseline 2.5 s: 1.55 s was seven sequential BCB requests (one CDI fetch per
+fixed-income title), 0.84 s the single yfinance download, everything in the DB under 0.1 s.
+
+- `refresh_fixed_income_prices` split into `start_fixed_income_refresh` (picks titles, submits one
+  CDI fetch from the earliest purchase date, plus one IPCA fetch only if a title is IPCA+, to a new
+  `_index_fetch_executor`) and `finish_fixed_income_refresh` (waits, slices the CDI series per
+  title with `day >= purchase_date`, writes all quotes on one connection **in the request
+  thread**). The old name still exists as start+finish.
+- The endpoint starts the BCB fetch before `refresh_market_prices`, so BCB and yfinance overlap.
+  It also builds the portfolio snapshot once instead of twice.
+- Redemption rows (`is_redemption`, negative quantity) are no longer treated as titles. On the
+  real data this was a visible bug: every refresh reported the Banco Inter CDB redemption as
+  failed with "Taxa do titulo nao informada".
+- After: 0.7–0.9 s, bounded by yfinance. Prices were compared against the old per-title
+  calculation for all six live titles (CDI, PRE, IPCA+, CDI+): identical to the cent.
+- Tests: 3 new in `test_fixed_income_indexers.py` (one fetch per series + per-title slicing,
+  redemption row ignored, BCB outage fails every title with status 200). 436 passed.
+
+### Not done / worth knowing
+
+- yfinance was left alone. The `1d/1m` download already covers every ticker in one call; the
+  `5d/1d` fallback only runs for misses.
+- The frontend still does a `GET /portfolio` after the POST. The POST already builds the
+  snapshot and could return it, which would save one round trip. Not worth a contract change for
+  ~50 ms locally.
+- A separate executor for BCB is deliberate. Sharing `_price_fetch_executor` would let a
+  timed-out yfinance download that is still running queue the BCB request behind it.
+- BCB latency varies: one run saw 1.3 s per request. With one request per series instead of
+  one per title, that no longer multiplies.
+
+---
+
+## Session — 2026-09-22 · Username and privacy mode
 
 ### What was done
 

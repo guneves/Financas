@@ -58,13 +58,16 @@ All six steps done (summary at `5faa425:docs/ux-reorganization.md`). Tested only
 ### Bugs found during the UX work (pre-existing, backend)
 - [ ] Registering a provento against a fixed-income asset (CDB) returns a backend error.
 - [ ] Quote update on fixed-income assets fails with `'str' object has no attribute 'get'` (not
-  reproduced on 2026-09-22 against a scratch DB; the missing-rate case now reports "Taxa do titulo
-  nao informada").
+  reproduced on 2026-09-22 against a scratch DB or a copy of the real one; the missing-rate case
+  reports "Taxa do titulo nao informada", and redemption rows are no longer refreshed, which was
+  the one spurious failure the real data produced).
 
 ### Fixed income — type and indexer (done 2026-09-22, follow-ups)
 Buys carry `fixed_income_type`, `rate_type` (POS/PRE), `indexer` (CDI/CDI_PLUS/IPCA) and
 `cdi_percentage` or `annual_rate`; the quantity field is gone for fixed-income buys. Valuation in
 `refresh_fixed_income_prices` handles all four forms (tests: `test_fixed_income_indexers.py`).
+Since 2026-09-22 the refresh fetches each BCB series once for the whole portfolio, in parallel
+with yfinance (`start_/finish_fixed_income_refresh`).
 - [ ] IPCA+ is an **estimate**: the purchase month is pro rata by calendar days and the current,
   unpublished month is missing until the BCB releases it. Real contracts use pro rata by business
   days and the projected IPCA — revisit if the owner holds IPCA+ papers and sees a gap.

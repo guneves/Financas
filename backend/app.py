@@ -169,6 +169,8 @@ _price_cache = {}
 _history_cache = {}
 _price_cache_lock = threading.Lock()
 _price_fetch_executor = ThreadPoolExecutor(max_workers=PRICE_FETCH_WORKERS)
+# Separado do yfinance: um download travado la nao pode enfileirar o BCB.
+_index_fetch_executor = ThreadPoolExecutor(max_workers=2)
 
 app = Flask(__name__)
 cors_origins = "*" if CORS_ORIGINS == "*" else [
@@ -6180,56 +6182,99 @@ def fetch_bcb_series(series_code, start_date, end_date=None):
     ]
 
 
-def refresh_fixed_income_prices(current_user_id, investments_to_update):
-    updated_assets = []
+def fixed_income_asset_result(inv, **fields):
+    return {
+        "asset_id": inv.get("asset_id"),
+        "investment_id": inv.get("id"),
+        "asset_class": inv.get("asset_class"),
+        "ticker": ticker_key(inv.get("ticker_or_name")),
+        "name": inv.get("ticker_or_name"),
+        **fields,
+    }
+
+
+def start_fixed_income_refresh(investments_to_update):
+    """Separa os titulos a corrigir e dispara a busca no BCB em segundo plano.
+
+    Cada serie (CDI e, se algum titulo for IPCA+, o IPCA) e buscada uma unica
+    vez, a partir da compra mais antiga; cada titulo usa o trecho desde a sua
+    compra. Resgates tem quantidade negativa e nao sao titulos: corrigi-los
+    so gerava uma falha "Taxa do titulo nao informada".
+    """
+    titles = []
     failed_assets = []
-
-    def fail(inv, message):
-        failed_assets.append({
-            "asset_id": inv.get("asset_id"),
-            "investment_id": inv.get("id"),
-            "asset_class": inv.get("asset_class"),
-            "ticker": ticker_key(inv.get("ticker_or_name")),
-            "name": inv.get("ticker_or_name"),
-            "status": "failed",
-            "error": message,
-        })
-
     for inv in investments_to_update:
-        if inv["asset_class"] != "FIXED_INCOME":
+        if inv.get("asset_class") != "FIXED_INCOME" or safe_float(inv.get("quantity")) <= 0:
+            continue
+        meta = inv.get("metadata") or {}
+        if meta.get("is_redemption"):
             continue
 
-        meta = inv.get("metadata") or {}
         indexer, rate = fixed_income_rate_terms(meta)
         if indexer is None:
-            fail(inv, "Taxa do titulo nao informada")
+            failed_assets.append(fixed_income_asset_result(
+                inv, status="failed", error="Taxa do titulo nao informada"
+            ))
             continue
 
-        date_str = meta.get("purchase_date")
         try:
-            if date_str:
-                dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            else:
-                dt_obj = datetime.strptime(inv["created_at"][:10], "%Y-%m-%d")
+            date_str = meta.get("purchase_date") or (inv.get("created_at") or "")[:10]
+            purchase_date = datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
             print(f"Data invalida para {inv['ticker_or_name']}; pulando correcao.")
-            fail(inv, "Data invalida para calculo da rentabilidade")
+            failed_assets.append(fixed_income_asset_result(
+                inv, status="failed", error="Data invalida para calculo da rentabilidade"
+            ))
             continue
 
-        try:
-            cdi_daily = [value for _, value in fetch_bcb_series(BCB_SERIES_CDI, dt_obj)]
-            ipca_monthly = (
-                fetch_bcb_series(BCB_SERIES_IPCA, dt_obj.replace(day=1))
-                if indexer == "IPCA" else None
+        titles.append((inv, indexer, rate, purchase_date))
+
+    plan = {"titles": titles, "failed_assets": failed_assets, "cdi": None, "ipca": None}
+    if titles:
+        start_date = min(purchase_date for _, _, _, purchase_date in titles)
+        plan["cdi"] = _index_fetch_executor.submit(fetch_bcb_series, BCB_SERIES_CDI, start_date)
+        if any(indexer == "IPCA" for _, indexer, _, _ in titles):
+            plan["ipca"] = _index_fetch_executor.submit(
+                fetch_bcb_series, BCB_SERIES_IPCA, start_date.replace(day=1)
             )
-            accumulated = fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca_monthly, dt_obj)
-            new_price = rounded_money(safe_float(inv.get("average_price")) * accumulated)
-            quote_metadata = {"provider": "bcb", "indexer": indexer}
-            if indexer == "CDI":
-                quote_metadata["cdi_percentage"] = rate
-            else:
-                quote_metadata["annual_rate"] = rate
-            with get_db() as conn:
+    return plan
+
+
+def finish_fixed_income_refresh(current_user_id, plan):
+    updated_assets = []
+    failed_assets = list(plan["failed_assets"])
+
+    def series_result(future):
+        # fetch_bcb_series tem timeout proprio; o result() nao fica preso.
+        if future is None:
+            return None, None
+        try:
+            return future.result(), None
+        except Exception as exc:
+            print(f"Erro ao buscar indices no BCB: {exc}")
+            return None, str(exc) or "Erro ao buscar indices no BCB"
+
+    cdi_series, cdi_error = series_result(plan["cdi"])
+    ipca_series, ipca_error = series_result(plan["ipca"])
+
+    with get_db() as conn:
+        for inv, indexer, rate, purchase_date in plan["titles"]:
+            error = cdi_error or (ipca_error if indexer == "IPCA" else None)
+            if error:
+                failed_assets.append(fixed_income_asset_result(inv, status="failed", error=error))
+                continue
+
+            try:
+                cdi_daily = [value for day, value in cdi_series if day >= purchase_date]
+                accumulated = fixed_income_accrual_factor(
+                    indexer, rate, cdi_daily, ipca_series, purchase_date
+                )
+                new_price = rounded_money(safe_float(inv.get("average_price")) * accumulated)
+                quote_metadata = {"provider": "bcb", "indexer": indexer}
+                if indexer == "CDI":
+                    quote_metadata["cdi_percentage"] = rate
+                else:
+                    quote_metadata["annual_rate"] = rate
                 record_price_quote(
                     conn,
                     current_user_id,
@@ -6240,25 +6285,28 @@ def refresh_fixed_income_prices(current_user_id, investments_to_update):
                     source="cdi",
                     metadata=quote_metadata,
                 )
-            updated_assets.append({
-                "asset_id": inv.get("asset_id"),
-                "investment_id": inv.get("id"),
-                "asset_class": inv.get("asset_class"),
-                "ticker": ticker_key(inv.get("ticker_or_name")),
-                "name": inv.get("ticker_or_name"),
-                "price": new_price,
-                "source": "cdi",
-                "status": "updated",
-            })
-        except Exception as exc:
-            print(f"Erro ao corrigir {inv['ticker_or_name']} pelo BCB: {exc}")
-            fail(inv, str(exc) or "Erro ao buscar indices no BCB")
+            except Exception as exc:
+                print(f"Erro ao corrigir {inv['ticker_or_name']} pelo BCB: {exc}")
+                failed_assets.append(fixed_income_asset_result(
+                    inv, status="failed", error=str(exc) or "Erro ao corrigir o titulo"
+                ))
+                continue
+
+            updated_assets.append(fixed_income_asset_result(
+                inv, price=new_price, source="cdi", status="updated"
+            ))
 
     return {
         "updated_count": len(updated_assets),
         "updated_assets": updated_assets,
         "failed_assets": failed_assets,
     }
+
+
+def refresh_fixed_income_prices(current_user_id, investments_to_update):
+    return finish_fixed_income_refresh(
+        current_user_id, start_fixed_income_refresh(investments_to_update)
+    )
 
 
 def build_portfolio_snapshot(current_user_id):
@@ -6492,6 +6540,8 @@ def update_stock_prices(current_user_id):
         if asset_id and not investments_to_update:
             return jsonify({"error": "Ativo nao encontrado para atualizacao de cotacao."}), 404
 
+        # BCB e yfinance sao buscados ao mesmo tempo; as gravacoes ficam nesta thread.
+        fixed_income_plan = start_fixed_income_refresh(investments_to_update)
         market_result = refresh_market_prices(
             current_user_id,
             investment_id,
@@ -6499,13 +6549,16 @@ def update_stock_prices(current_user_id):
             asset_id=asset_id,
             asset_class=asset_class,
         )
-        fixed_income_result = refresh_fixed_income_prices(current_user_id, investments_to_update)
+        fixed_income_result = finish_fixed_income_refresh(current_user_id, fixed_income_plan)
         updated_assets = market_result.get("updated_assets", []) + fixed_income_result.get("updated_assets", [])
         failed_assets = market_result.get("failed_assets", []) + fixed_income_result.get("failed_assets", [])
         cached_assets = market_result.get("cached_assets", [])
         updated_count = len(updated_assets)
-        refresh_materialized_positions(current_user_id)
         portfolio = build_portfolio_snapshot(current_user_id)
+        try:
+            replace_materialized_positions(current_user_id, portfolio["assets"])
+        except Exception as exc:
+            print(f"Nao foi possivel atualizar posicoes materializadas: {exc}")
         scoped_asset_ids = {str(inv.get("asset_id")) for inv in investments_to_update if inv.get("asset_id")}
         stale_assets = [
             {
