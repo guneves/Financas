@@ -1,7 +1,12 @@
 """Semeia 3 anos de dados ficticios para UM usuario, pelo proprio app.
 
 Uso (de dentro de backend/):
-    ..\\.venv\\Scripts\\python.exe scripts/seed_three_years_mock.py wgrrodrigues6@gmail.com
+    ..\\.venv\\Scripts\\python.exe scripts/seed_three_years_mock.py wgrrodrigues6@gmail.com [--scale N]
+
+--scale multiplica todo valor monetario (salario, despesas, saldos, aportes,
+orcamentos). O padrao, 10, leva receita acumulada e patrimonio para a casa dos
+milhoes, para exercitar formatacao e graficos com numeros grandes. Precos de
+ativos, proventos por cota, corretagem e assinaturas nao escalam.
 
 DESTRUTIVO para o usuario informado: apaga todas as linhas dele (contas,
 categorias, lancamentos, cartoes, orcamentos, recorrencias, investimentos) e
@@ -31,6 +36,7 @@ import app as finance_app  # noqa: E402
 TODAY = date.today()
 START = date(TODAY.year - 3, TODAY.month, 1)
 RNG = random.Random(20260922)
+SCALE = 10  # sobrescrito por --scale em main()
 
 # Ordem importa: filhos antes dos pais por causa das FKs.
 USER_TABLES = [
@@ -55,6 +61,11 @@ USER_TABLES = [
 
 def money(value):
     return float(finance_app.rounded_money(value))
+
+
+def scaled(value):
+    """Valor monetario do cenario base multiplicado por SCALE."""
+    return money(value * SCALE)
 
 
 def months_between(start, end):
@@ -133,12 +144,12 @@ def backup_and_wipe(user_id):
 def create_accounts(api):
     accounts = {a["name"]: a for a in api.get("/api/accounts")}  # cria a Conta Principal
     principal = accounts["Conta Principal"]["id"]
-    api.patch(f"/api/accounts/{principal}", {"institution": "Itaú", "initial_balance": 18500})
+    api.patch(f"/api/accounts/{principal}", {"institution": "Itaú", "initial_balance": scaled(18500)})
     savings = api.post("/api/accounts", {
-        "name": "Poupança", "type": "SAVINGS", "institution": "Itaú", "initial_balance": 6000,
+        "name": "Poupança", "type": "SAVINGS", "institution": "Itaú", "initial_balance": scaled(6000),
     })["id"]
     wallet = api.post("/api/accounts", {
-        "name": "Carteira", "type": "CASH", "initial_balance": 250,
+        "name": "Carteira", "type": "CASH", "initial_balance": scaled(250),
     })["id"]
     return {"principal": principal, "savings": savings, "wallet": wallet}
 
@@ -173,7 +184,7 @@ def create_recurrences(api, accounts):
             "type": type_,
             "description": description,
             "category": category,
-            "amount": amount,
+            "amount": scaled(amount),
             "frequency": extra.pop("frequency", "MONTHLY"),
             "start_date": iso(start),
             "end_date": iso(end) if end else None,
@@ -226,7 +237,7 @@ def seed_account_movements(api, accounts):
             return
         api.post("/api/transactions", {
             "type": type_, "date": iso(when), "category": category,
-            "amount": money(amount), "description": description,
+            "amount": scaled(amount), "description": description,
             "account_id": accounts[account],
         })
         count += 1
@@ -262,7 +273,7 @@ def seed_account_movements(api, accounts):
         if in_range(when):
             api.post("/api/transfers", {
                 "account_id": accounts["principal"], "transfer_account_id": accounts["savings"],
-                "amount": RNG.choice([800, 1000, 1200, 1500]), "date": iso(when),
+                "amount": scaled(RNG.choice([800, 1000, 1200, 1500])), "date": iso(when),
                 "description": "Reserva de emergência",
             })
             count += 1
@@ -270,7 +281,7 @@ def seed_account_movements(api, accounts):
         if in_range(when):
             api.post("/api/transfers", {
                 "account_id": accounts["principal"], "transfer_account_id": accounts["wallet"],
-                "amount": 100, "date": iso(when), "description": "Saque",
+                "amount": scaled(100), "date": iso(when), "description": "Saque",
             })
             count += 1
 
@@ -297,7 +308,7 @@ def seed_account_movements(api, accounts):
     # Resgate da poupanca para a viagem.
     api.post("/api/transfers", {
         "account_id": accounts["savings"], "transfer_account_id": accounts["principal"],
-        "amount": 4000, "date": "2025-01-05", "description": "Resgate para viagem",
+        "amount": scaled(4000), "date": "2025-01-05", "description": "Resgate para viagem",
     })
     return count + 1
 
@@ -338,9 +349,11 @@ def seed_card_purchases(api, cards):
         nonlocal count
         if not in_range(when):
             return
+        # Assinatura tem preco de tabela; escalar Netflix nao testa nada.
+        amount = money(amount) if category == "Assinaturas" else scaled(amount)
         api.post("/api/cc-expenses/purchases", {
             "card_id": cards[card]["id"], "category": category, "description": description,
-            "total_amount": money(amount), "purchase_date": iso(when), "installments": installments,
+            "total_amount": amount, "purchase_date": iso(when), "installments": installments,
         })
         count += 1
 
@@ -429,7 +442,7 @@ def seed_budgets(api, category_ids):
         for name, planned in BUDGET_PLAN.items():
             api.post("/api/budgets", {
                 "category_id": category_ids[name], "month": f"{year:04d}-{month:02d}",
-                "planned_amount": planned, "rollover": name == "Lazer",
+                "planned_amount": scaled(planned), "rollover": name == "Lazer",
             })
             count += 1
     return count
@@ -521,7 +534,7 @@ def seed_investments(api):
         if not in_range(when) or f"{year:04d}-{month:02d}" in fixed_months:
             continue
         price = prices[ticker][(year, month)]
-        quantity = max(1, round(MONTHLY_EQUITY_CONTRIBUTION / price))
+        quantity = max(1, round(MONTHLY_EQUITY_CONTRIBUTION * SCALE / price))
         events.append((when, "buy", ticker, quantity, price))
 
     for when, ticker, fraction in SALES:
@@ -565,6 +578,7 @@ def seed_investments(api):
             }])
         elif kind == "fixed":
             _, _, name, amount, metadata = event
+            amount = scaled(amount)
             fixed_buy_ids[name] = api.post("/api/investments", [{
                 "asset_class": "FIXED_INCOME", "ticker_or_name": name, "quantity": 1,
                 "average_price": amount, "current_price": amount,
@@ -572,6 +586,7 @@ def seed_investments(api):
             }])[0]["id"]
         elif kind == "redeem":
             _, _, name, cost, received = event
+            cost, received = scaled(cost), scaled(received)
             api.post("/api/investments", [{
                 "asset_class": "FIXED_INCOME", "ticker_or_name": name, "quantity": -1,
                 "average_price": cost, "current_price": received,
@@ -615,9 +630,15 @@ def seed_investments(api):
 # ---------------------------------------------------------------- main
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("Uso: python scripts/seed_three_years_mock.py <email>")
-    email = sys.argv[1].strip().lower()
+    global SCALE
+    args = sys.argv[1:]
+    if "--scale" in args:
+        index = args.index("--scale")
+        SCALE = float(args[index + 1])
+        del args[index:index + 2]
+    if len(args) != 1 or SCALE <= 0:
+        raise SystemExit("Uso: python scripts/seed_three_years_mock.py <email> [--scale N]")
+    email = args[0].strip().lower()
 
     with sqlite3.connect(finance_app.DATABASE_PATH) as conn:
         row = conn.execute("SELECT id FROM users WHERE lower(email) = ?", (email,)).fetchone()
@@ -625,7 +646,7 @@ def main():
         raise SystemExit(f"Usuario {email} nao encontrado.")
     user_id = row[0]
 
-    print(f"Periodo: {START} a {TODAY} | usuario {email}")
+    print(f"Periodo: {START} a {TODAY} | usuario {email} | escala {SCALE:g}x")
     backup_and_wipe(user_id)
     api = Api(user_id)
 

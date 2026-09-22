@@ -6,7 +6,36 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Investimentos: "Evolução do Patrimônio"
+## Session — 2026-09-22 (latest) · Mock seed scaled to millions
+
+### What was done
+
+Owner request: make the mock data add up to millions, to exercise the UI with big numbers, on
+wgrrodrigues6@gmail.com.
+
+- **`seed_three_years_mock.py` takes `--scale N` (default 10).** A single `scaled()` helper
+  multiplies every monetary value of the base scenario: initial balances, recurrences, account
+  movements, transfers, card purchases, budgets, the monthly equity contribution (so share
+  *quantities* grow, not prices), fixed-income applications and redemptions. **Not scaled on
+  purpose:** asset prices, proceeds per unit, the R$ 4,90 brokerage fee and `Assinaturas` card
+  purchases (a R$ 599 Netflix tests nothing). Proportions are unchanged, so months still close
+  positive the way `1fb38ba` tuned them. `--scale 1` reproduces the old magnitudes.
+- **Reseeded** wgrrodrigues6@gmail.com (backup
+  `backend/backups/finance-pre-mock-20260922-115515.db`). Result: Conta Principal R$ 840k,
+  Poupança R$ 462k, Carteira R$ 5,9k, portfolio R$ 929k current value → **~R$ 2,24M net worth**;
+  3-year income R$ 5,69M, expenses R$ 4,63M. Same RNG seed, same row counts as before.
+
+### Not done / worth knowing
+
+- Script-only change, no app code: `finance-guard` not run, test suite still green (424).
+- Not looked at in a browser. Worth checking next: stat tiles and chart axes with 7-digit values
+  on Início, Orçamento and Investimentos, on phone width.
+- The uncommitted frontend changes (`charts.jsx`, `PortfolioOverview.jsx`, `Posicao.jsx`) predate
+  this session and were left out of the commit.
+
+---
+
+## Session — 2026-09-22 · Investimentos: "Evolução do Patrimônio"
 
 ### What was done
 
