@@ -183,8 +183,10 @@ def create_recurrences(api, accounts):
         api.post("/api/recurring", payload)
 
     first = START
-    # Salario: reajuste todo marco.
-    salary_steps = [(9500.00, None), (10450.00, 3), (11600.00, 3), (12750.00, 3)]
+    # Salario liquido: reajuste todo marco. Dimensionado para que um mes comum
+    # feche positivo mesmo com o aporte mensal (o Inicio desconta aporte do
+    # resultado do mes).
+    salary_steps = [(10200.00, None), (11200.00, 3), (12300.00, 3), (13400.00, 3)]
     period_start = day_in(first.year, first.month, 5)
     for index, (amount, _) in enumerate(salary_steps):
         next_raise = date(period_start.year + (1 if period_start.month >= 3 else 0), 3, 5)
@@ -260,7 +262,7 @@ def seed_account_movements(api, accounts):
         if in_range(when):
             api.post("/api/transfers", {
                 "account_id": accounts["principal"], "transfer_account_id": accounts["savings"],
-                "amount": RNG.choice([300, 400, 500, 600]), "date": iso(when),
+                "amount": RNG.choice([800, 1000, 1200, 1500]), "date": iso(when),
                 "description": "Reserva de emergência",
             })
             count += 1
@@ -274,6 +276,9 @@ def seed_account_movements(api, accounts):
 
         # Eventos anuais.
         if month == 2:
+            # PLR cai no mesmo mes de IPVA/IPTU/material: e o que paga o pacote.
+            movement(date(year, 2, 20), "Salário", 9800.00 + (year - 2024) * 1100, "PLR - Empresa X",
+                    type_="INCOME")
             movement(date(year, 2, 10), "Transporte", 1860.00 + (year - 2024) * 95, "IPVA")
             movement(date(year, 2, 15), "Moradia", 1240.00, "IPTU (cota única)")
             movement(date(year, 2, 1), "Educação", RNG.uniform(420, 680), "Material escolar / livros")
@@ -363,10 +368,10 @@ def seed_card_purchases(api, cards):
                 RNG.uniform(18, 75))
 
         # Restaurantes e delivery.
-        for _ in range(RNG.randint(3, 7)):
+        for _ in range(RNG.randint(3, 6)):
             buy(day_in(year, month, RNG.randint(1, 28)), "Nubank", "Restaurantes",
                 RNG.choice(["iFood", "iFood", "Restaurante japonês", "Hamburgueria", "Pizzaria", "Café"]),
-                RNG.uniform(35, 190))
+                RNG.uniform(30, 150))
 
         # Farmacia, pet, lazer.
         if RNG.random() < 0.65:
@@ -401,15 +406,9 @@ def pay_past_invoices(api, cards, accounts):
         due = day_in(year, month, cards[names[card_id]]["due_day"])
         if due > TODAY:
             continue
-        api.post("/api/transactions", {
-            "type": "EXPENSE", "date": iso(due), "amount": money(total),
-            "category": f"Pagamento Fatura {names[card_id]}",
-            "description": f"Fatura {month:02d}/{year}",
-            "account_id": accounts["principal"],
-        })
-        api.patch("/api/cc-expenses/invoice-status", {
+        api.post("/api/cc-expenses/pay-invoice", {
             "card_id": card_id, "invoice_month": month, "invoice_year": year,
-            "status": "PAID", "current_status": "OPEN",
+            "account_id": accounts["principal"], "date": iso(due),
         })
         paid += 1
     return paid
@@ -463,20 +462,20 @@ PROCEEDS = {
 
 FIXED_INCOME = [
     # (data, nome, valor, metadata)
-    ("2023-10-10", "CDB Banco Inter 2026", 5000.00,
+    ("2023-12-20", "CDB Banco Inter 2026", 5000.00,
      {"fixed_income_type": "CDB", "rate_type": "POS", "indexer": "CDI", "cdi_percentage": 1.10}),
-    ("2024-01-15", "LCI Itaú 2026", 8000.00,
+    ("2024-02-23", "LCI Itaú 2026", 8000.00,
      {"fixed_income_type": "LCI", "rate_type": "POS", "indexer": "CDI", "cdi_percentage": 0.95,
       "is_tax_free": True}),
-    ("2024-06-20", "CDB XP Pré 2027", 6000.00,
+    ("2024-12-20", "CDB XP Pré 2027", 6000.00,
      {"fixed_income_type": "CDB", "rate_type": "PRE", "annual_rate": 0.118}),
-    ("2025-02-12", "CRA Raízen IPCA+ 2030", 7000.00,
+    ("2025-02-24", "CRA Raízen IPCA+ 2030", 7000.00,
      {"fixed_income_type": "CRA", "rate_type": "POS", "indexer": "IPCA", "annual_rate": 0.068,
       "is_tax_free": True}),
-    ("2025-09-18", "LCA BTG 2027", 10000.00,
+    ("2025-12-19", "LCA BTG 2027", 8000.00,
      {"fixed_income_type": "LCA", "rate_type": "POS", "indexer": "CDI", "cdi_percentage": 0.93,
       "is_tax_free": True}),
-    ("2026-04-08", "CDB Nubank CDI+ 2028", 9000.00,
+    ("2026-02-24", "CDB Nubank CDI+ 2028", 9000.00,
      {"fixed_income_type": "CDB", "rate_type": "POS", "indexer": "CDI_PLUS", "annual_rate": 0.015}),
 ]
 
@@ -485,12 +484,15 @@ FIXED_INCOME_REDEMPTIONS = [
     ("2025-12-22", "CDB Banco Inter 2026", 3000.00, 3786.00),
 ]
 
-# Vendas (data, ticker, quantidade)
+# Vendas (data, ticker, fracao da posicao vendida)
 SALES = [
-    ("2024-05-20", "PETR4", 100),
-    ("2025-07-14", "WEGE3", 100),
-    ("2026-06-10", "BBAS3", 200),
+    ("2024-05-20", "PETR4", 0.5),
+    ("2025-07-14", "WEGE3", 0.5),
+    ("2026-06-10", "BBAS3", 1.0),
 ]
+
+# Aporte mensal em renda variavel, em reais; a quantidade sai do preco.
+MONTHLY_EQUITY_CONTRIBUTION = 2000.00
 
 
 def price_path():
@@ -509,20 +511,22 @@ def seed_investments(api):
     prices = price_path()
     events = []
 
-    # Aporte mensal: um papel por mes, rotativo, lote de 100 (FII em lotes menores).
+    # Aporte mensal: um papel por mes, rotativo, ~R$ 1.500. Mes com aplicacao
+    # em renda fixa pula o aporte em bolsa, como faria quem aporta um valor fixo.
+    fixed_months = {date.fromisoformat(when).strftime("%Y-%m") for when, *_ in FIXED_INCOME}
     rotation = ["ITUB4", "HGLG11", "TAEE11", "MXRF11", "WEGE3", "KNRI11", "PETR4", "BBAS3"]
     for index, (year, month) in enumerate(months_between(START, TODAY)):
         ticker = rotation[index % len(rotation)]
         when = day_in(year, month, 7)
-        if not in_range(when):
+        if not in_range(when) or f"{year:04d}-{month:02d}" in fixed_months:
             continue
         price = prices[ticker][(year, month)]
-        quantity = {"HGLG11": 10, "KNRI11": 12, "MXRF11": 150}.get(ticker, 100)
+        quantity = max(1, round(MONTHLY_EQUITY_CONTRIBUTION / price))
         events.append((when, "buy", ticker, quantity, price))
 
-    for when, ticker, quantity in SALES:
+    for when, ticker, fraction in SALES:
         when = date.fromisoformat(when)
-        events.append((when, "sell", ticker, quantity, prices[ticker][(when.year, when.month)] * 1.04))
+        events.append((when, "sell", ticker, fraction, prices[ticker][(when.year, when.month)] * 1.04))
 
     for when, name, amount, metadata in FIXED_INCOME:
         events.append((date.fromisoformat(when), "fixed", name, amount, metadata))
@@ -531,6 +535,7 @@ def seed_investments(api):
 
     events.sort(key=lambda event: event[0])
     fixed_buy_ids = {}
+    holdings = {}
     count = 0
     for event in events:
         when, kind = event[0], event[1]
@@ -538,6 +543,7 @@ def seed_investments(api):
             continue
         if kind == "buy":
             _, _, ticker, quantity, price = event
+            holdings[ticker] = holdings.get(ticker, 0) + quantity
             fee = money(4.90)
             api.post("/api/investments", [{
                 "asset_class": STOCKS[ticker][0], "ticker_or_name": ticker,
@@ -547,7 +553,11 @@ def seed_investments(api):
                 "metadata": {"purchase_date": iso(when), "other_costs": fee},
             }])
         elif kind == "sell":
-            _, _, ticker, quantity, price = event
+            _, _, ticker, fraction, price = event
+            quantity = int(holdings.get(ticker, 0) * fraction)
+            if quantity <= 0:
+                continue
+            holdings[ticker] -= quantity
             api.post("/api/investments", [{
                 "asset_class": STOCKS[ticker][0], "ticker_or_name": ticker,
                 "quantity": -quantity, "average_price": money(price), "current_price": money(price),
