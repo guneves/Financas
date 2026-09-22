@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { ArrowRight, LockKeyhole, Mail, ShieldCheck, UserPlus, Wallet } from 'lucide-react'
+import { ArrowRight, LockKeyhole, Mail, ShieldCheck, UserPlus, UserRound, Wallet } from 'lucide-react'
 import { signIn, signUp } from '../lib/auth'
 import { Button, SegmentedControl } from '../components/ui'
 
 export default function Auth() {
   const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
@@ -19,7 +20,7 @@ export default function Auth() {
       if (isLogin) {
         await signIn(email, password)
       } else {
-        await signUp(email, password)
+        await signUp(email, password, username)
       }
     } catch (authError) {
       setError(authError.message || 'Não foi possível autenticar agora.')
@@ -80,7 +81,7 @@ export default function Auth() {
                 {isLogin ? 'Acesse sua conta' : 'Crie seu acesso'}
               </h2>
               <p className="mt-2 text-sm text-zinc-500">
-                {isLogin ? 'Informe suas credenciais para continuar.' : 'Use um e-mail válido e uma senha com pelo menos 6 caracteres.'}
+                {isLogin ? 'Informe suas credenciais para continuar.' : 'Escolha um nome de usuário, um e-mail válido e uma senha com pelo menos 6 caracteres.'}
               </p>
             </div>
 
@@ -91,6 +92,27 @@ export default function Auth() {
             ) : null}
 
             <form onSubmit={handleAuth} className="mt-6 space-y-4">
+              {!isLogin ? (
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-zinc-700">Nome de usuário</span>
+                  <div className="relative">
+                    <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      placeholder="Como você quer ser chamado"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      className="app-input pl-10"
+                      autoComplete="nickname"
+                      required
+                      minLength={2}
+                      maxLength={40}
+                    />
+                  </div>
+                  <span className="block text-xs text-zinc-500">É o nome exibido no app. O e-mail serve só para entrar.</span>
+                </label>
+              ) : null}
+
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium text-zinc-700">E-mail</span>
                 <div className="relative">

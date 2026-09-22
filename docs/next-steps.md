@@ -35,6 +35,7 @@
 | UX reorganization: 4 sections + Ajustes, "+ Novo" sheet, Carteira merged away, phone layout (spec in git at `9c186fe:docs/ux-reorganization.md`, file removed) | 2026-09-21 |
 | Invoice payment only after closing, server-side; "Débito automático" per card — migration 011 | 2026-09-22 |
 | Investimentos: "Evolução do Patrimônio" (monthly valor aplicado + ganho de capital, 6M–5A) replaces "Rentabilidade por ativo" | 2026-09-22 |
+| Username (display name) on signup, editable in Ajustes → Perfil; email no longer shown as the name; privacy toggle (eye) masks money and name — migration 012 | 2026-09-22 |
 
 ---
 
@@ -46,6 +47,13 @@ All six steps done (summary at `5faa425:docs/ux-reorganization.md`). Tested only
 - [ ] Keep statement filters in the URL — today a reload clears them.
 - [ ] Add a favicon to `frontend/index.html` — every first load logs a 404.
 - [ ] Split the bundle (737 kB, over Vite's 500 kB warning) with route-level `lazy()`.
+
+### Username and privacy mode (done 2026-09-22, follow-ups)
+- [ ] Not checked in a browser yet (the Chrome extension was offline). Walk through signup, the
+  eye toggle on every page (charts, tooltips, "+ Novo" sheet) and Ajustes → Perfil.
+- [ ] Existing accounts have `username = NULL` and show "Usuário" until they pick one.
+- [ ] Masking covers values formatted through `lib/format.js` / `compactCurrency`. Percentages and
+  share quantities stay visible on purpose; chart shapes still show relative sizes.
 
 ### Bugs found during the UX work (pre-existing, backend)
 - [ ] Registering a provento against a fixed-income asset (CDB) returns a backend error.

@@ -45,9 +45,12 @@ def client(app_module):
         yield test_client
 
 
-def _signup(client, email=None, password="senha-de-teste-123"):
+def _signup(client, email=None, password="senha-de-teste-123", username="Usuario de teste"):
     email = email or f"user-{uuid.uuid4().hex[:10]}@example.com"
-    response = client.post("/api/auth/signup", json={"email": email, "password": password})
+    response = client.post(
+        "/api/auth/signup",
+        json={"email": email, "password": password, "username": username},
+    )
     assert response.status_code in (200, 201), response.get_data(as_text=True)
     body = response.get_json()
     token = body["access_token"]

@@ -6,7 +6,7 @@
 // a cor segue a entidade, nunca a posicao no ranking, e nunca e "ciclada".
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
-import { formatCurrency } from '../lib/format'
+import { areValuesHidden, formatCurrency, MASKED_CURRENCY } from '../lib/format'
 import { cx } from './ui'
 
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948']
@@ -43,6 +43,7 @@ export const axisProps = {
 }
 
 export function compactCurrency(value) {
+  if (areValuesHidden()) return MASKED_CURRENCY
   const numeric = Number(value || 0)
   const absolute = Math.abs(numeric)
   const sign = numeric < 0 ? '-' : ''

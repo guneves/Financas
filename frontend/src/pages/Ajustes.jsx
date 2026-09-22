@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LogOut } from 'lucide-react'
-import { getCurrentUser, signOut } from '../lib/auth'
-import { Button, PageHeader, Panel, PanelHeader } from '../components/ui'
+import { PageHeader } from '../components/ui'
 import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
 import DemoDataSection from './ajustes/DemoDataSection'
+import PerfilSection from './ajustes/PerfilSection'
 
 const SECTION_LINKS = [
   { id: 'contas', label: 'Contas' },
   { id: 'cartoes', label: 'Cartões' },
   { id: 'categorias', label: 'Categorias' },
   { id: 'dados-de-exemplo', label: 'Dados de exemplo' },
-  { id: 'sessao', label: 'Sessão' },
+  { id: 'perfil', label: 'Perfil' },
 ]
 
 // O router nao rola ate a ancora sozinho. Rola na chegada e de novo depois que
@@ -37,9 +36,8 @@ function useHashScroll() {
   }, [hash])
 }
 
-// Configuracao feita uma vez: contas, cartoes, categorias, dados de exemplo, sessao.
+// Configuracao feita uma vez: contas, cartoes, categorias, dados de exemplo, perfil.
 export default function Ajustes() {
-  const user = getCurrentUser()
   // Os dados de exemplo criam cartoes e mexem nos saldos: as outras secoes
   // recarregam quando esse numero muda.
   const [dataVersion, setDataVersion] = useState(0)
@@ -70,13 +68,7 @@ export default function Ajustes() {
       <CategoriasSection refreshKey={dataVersion} />
       <DemoDataSection onDataChanged={() => setDataVersion((version) => version + 1)} />
 
-      <Panel id="sessao" className="scroll-mt-20 lg:scroll-mt-8">
-        <PanelHeader title="Sessão" description="Conta conectada neste navegador." />
-        <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="truncate text-sm font-semibold text-zinc-900">{user?.email || 'Usuário'}</p>
-          <Button variant="danger" icon={LogOut} onClick={signOut}>Sair</Button>
-        </div>
-      </Panel>
+      <PerfilSection />
     </div>
   )
 }

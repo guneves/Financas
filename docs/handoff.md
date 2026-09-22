@@ -6,7 +6,49 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Mock seed scaled to millions
+## Session — 2026-09-22 (latest) · Username and privacy mode
+
+### What was done
+
+Owner request: a sidebar button that masks all money and the username; stop showing the email as
+the username; ask for a username at signup; let the user change it.
+
+- **Migration 012** adds `users.username TEXT` (nullable, not unique — a display name, not a login;
+  login is still the email). `schema.sql` updated.
+- **Backend.** `normalize_username()` (2–40 chars, collapses spaces, rejects anything with `@`).
+  `POST /api/auth/signup` now **requires** `username`; login and `GET /api/auth/me` return it;
+  new `PATCH /api/auth/me {username}` changes it. `PUBLIC_USER_COLUMNS` is the one list of fields
+  sent to the client. `conftest._signup` now sends a username ("Usuario de teste").
+  `test_username.py` (9). 433 passing.
+- **Frontend.** Signup form has a "Nome de usuário" field. The sidebar card shows `displayName()`
+  (`lib/auth.js`) — username, or "Usuário" for accounts without one; never the email. Ajustes'
+  "Sessão" panel became **Perfil** (`pages/ajustes/PerfilSection.jsx`, anchor `#perfil`): edit
+  username, e-mail de acesso shown as login info, Sair. `updateUsername()` rewrites the stored
+  session so the sidebar updates without re-login.
+- **Privacy mode.** Eye button in the sidebar user card (and in the phone header, which has no
+  sidebar). State is module-level in `lib/format.js` (`areValuesHidden`/`setValuesHidden`,
+  persisted in `localStorage` `@financeMVP:hideValues`); `formatCurrency`, `formatUnitCurrency` and
+  `compactCurrency` return `R$ ••••••` when on. Layout keys the page wrapper on
+  `pathname:valuesHidden`, so toggling **remounts the current page** (it refetches) — the cheap
+  way to make every formatter re-run without threading a context through every page.
+
+### Not done / worth knowing
+
+- **Not verified in a browser**: the Chrome extension was not connected. Build passes
+  (`vite build`); walk through signup, the toggle on each page and Ajustes → Perfil.
+- The owner's existing account has no username yet → shows "Usuário" and Perfil prompts for one.
+  The dev backend was already running; restart it if migration 012 has not been applied
+  (the column missing would make `/api/auth/me` fail).
+- Masking is display-only via the formatters: percentages, share quantities and chart shapes
+  remain visible by design. Anything that formats money without `lib/format.js` would leak —
+  none found today (grepped for `R$`, `NumberFormat`, `toLocaleString`).
+- In privacy mode the username input in Perfil is disabled (it would otherwise show the name).
+- `finance-guard` ran via `subagent_type="finance-guard"` directly (discovery worked this time):
+  no findings.
+
+---
+
+## Session — 2026-09-22 · Mock seed scaled to millions
 
 ### What was done
 

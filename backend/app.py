@@ -1795,12 +1795,28 @@ def decode_token(token):
     return payload
 
 
+PUBLIC_USER_COLUMNS = ("id", "email", "username", "created_at")
+USERNAME_MAX_LENGTH = 40
+
+
 def fetch_user_by_id(user_id):
     with get_db() as conn:
         return conn.execute(
-            "SELECT id, email, created_at FROM users WHERE id = ?",
+            f"SELECT {', '.join(PUBLIC_USER_COLUMNS)} FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
+
+
+def normalize_username(value):
+    """Devolve (username, erro). Espacos repetidos viram um so."""
+    username = " ".join(str(value or "").split())
+    if len(username) < 2:
+        return None, "Informe um nome de usuario com pelo menos 2 caracteres."
+    if len(username) > USERNAME_MAX_LENGTH:
+        return None, f"O nome de usuario pode ter no maximo {USERNAME_MAX_LENGTH} caracteres."
+    if "@" in username:
+        return None, "O nome de usuario nao pode ser um e-mail."
+    return username, None
 
 
 def token_required(f):
@@ -2160,17 +2176,21 @@ def signup():
     if not email or "@" not in email or len(password) < 6:
         return jsonify({"error": "Informe email valido e senha com pelo menos 6 caracteres."}), 400
 
+    username, username_error = normalize_username(payload.get("username"))
+    if username_error:
+        return jsonify({"error": username_error}), 400
+
     user_id = new_id()
     try:
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)",
-                (user_id, email, generate_password_hash(password)),
+                "INSERT INTO users (id, email, username, password_hash) VALUES (?, ?, ?, ?)",
+                (user_id, email, username, generate_password_hash(password)),
             )
             ensure_default_account(conn, user_id)
             seed_default_categories(conn, user_id)
             user = conn.execute(
-                "SELECT id, email, created_at FROM users WHERE id = ?",
+                f"SELECT {', '.join(PUBLIC_USER_COLUMNS)} FROM users WHERE id = ?",
                 (user_id,),
             ).fetchone()
     except sqlite3.IntegrityError:
@@ -2191,13 +2211,24 @@ def login():
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Email ou senha invalidos."}), 401
 
-    public_user = {key: user[key] for key in ("id", "email", "created_at")}
+    public_user = {key: user[key] for key in PUBLIC_USER_COLUMNS}
     return jsonify({"user": public_user, "access_token": create_token(user["id"])}), 200
 
 
-@app.route("/api/auth/me", methods=["GET"])
+@app.route("/api/auth/me", methods=["GET", "PATCH"])
 @token_required
 def me(current_user_id):
+    if request.method == "PATCH":
+        payload = parse_json_body()
+        username, username_error = normalize_username(payload.get("username"))
+        if username_error:
+            return jsonify({"error": username_error}), 400
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET username = ? WHERE id = ?",
+                (username, current_user_id),
+            )
+
     return jsonify({"user": row_to_dict(fetch_user_by_id(current_user_id))}), 200
 
 

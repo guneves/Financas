@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LogOut, Plus, Settings, Wallet } from 'lucide-react'
+import { Eye, EyeOff, LogOut, Plus, Settings, Wallet } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
-import { getCurrentUser, signOut } from '../lib/auth'
+import { displayName, getCurrentUser, signOut } from '../lib/auth'
+import { areValuesHidden, MASKED_TEXT, setValuesHidden } from '../lib/format'
 import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
@@ -54,6 +55,28 @@ function SidebarItem({ to, name, icon: Icon }) {
   )
 }
 
+// Olho da barra lateral (e do cabecalho no celular): esconde valores e nome.
+function PrivacyToggle({ hidden, onToggle, className = '' }) {
+  const label = hidden ? 'Mostrar valores' : 'Ocultar valores'
+  const Icon = hidden ? EyeOff : Eye
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={label}
+      aria-pressed={hidden}
+      title={label}
+      className={cx(
+        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition',
+        hidden ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50',
+        className
+      )}
+    >
+      <Icon className="h-5 w-5" />
+    </button>
+  )
+}
+
 function BottomTab({ to, name, icon: Icon }) {
   return (
     <NavLink
@@ -84,6 +107,12 @@ export default function Layout() {
   const [sheetType, setSheetType] = useState('EXPENSE')
   const [investmentOpen, setInvestmentOpen] = useState(false)
   const [investmentAssets, setInvestmentAssets] = useState([])
+  const [valuesHidden, setValuesHiddenState] = useState(areValuesHidden)
+
+  const toggleValuesHidden = useCallback(() => {
+    setValuesHidden(!areValuesHidden())
+    setValuesHiddenState(areValuesHidden())
+  }, [])
 
   const bumpDataVersion = useCallback(() => {
     setDataVersion((version) => version + 1)
@@ -113,9 +142,10 @@ export default function Layout() {
 
   const newEntryValue = useMemo(() => ({ openNewEntry }), [openNewEntry])
 
-  const initials = (user?.email || 'FM')
-    .split('@')[0]
-    .split(/[.\-_]/)
+  const name = displayName(user)
+  const initials = name
+    .split(/[\s.\-_]+/)
+    .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0])
     .join('')
@@ -146,9 +176,12 @@ export default function Layout() {
             <SidebarItem to={SETTINGS_PATH} name="Ajustes" icon={Settings} />
             <div className="my-2 flex items-center gap-3 rounded-lg bg-zinc-50 p-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-sm font-bold text-emerald-700">
-                {initials || 'FM'}
+                {valuesHidden ? '•' : initials || 'FM'}
               </div>
-              <p className="min-w-0 truncate text-sm font-semibold text-zinc-900">{user?.email || 'Usuário'}</p>
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">
+                {valuesHidden ? MASKED_TEXT : name}
+              </p>
+              <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} className="h-9 w-9" />
             </div>
             <button
               onClick={signOut}
@@ -163,17 +196,20 @@ export default function Layout() {
         <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur lg:hidden">
           <div className="flex h-16 items-center justify-between px-4">
             <BrandMark />
-            <NavLink
-              to={SETTINGS_PATH}
-              aria-label="Ajustes"
-              title="Ajustes"
-              className={({ isActive }) => cx(
-                'inline-flex h-11 w-11 items-center justify-center rounded-lg border transition',
-                isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
-              )}
-            >
-              <Settings className="h-5 w-5" />
-            </NavLink>
+            <div className="flex items-center gap-2">
+              <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
+              <NavLink
+                to={SETTINGS_PATH}
+                aria-label="Ajustes"
+                title="Ajustes"
+                className={({ isActive }) => cx(
+                  'inline-flex h-11 w-11 items-center justify-center rounded-lg border transition',
+                  isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
+                )}
+              >
+                <Settings className="h-5 w-5" />
+              </NavLink>
+            </div>
           </div>
         </header>
 
@@ -183,7 +219,9 @@ export default function Layout() {
               <Tabs items={section.tabs} className="mb-5" />
             ) : null}
 
-            <div key={location.pathname} className="animate-fade-up">
+            {/* Trocar o modo privado remonta a pagina: os formatadores de
+                lib/format.js leem o modo na renderizacao. */}
+            <div key={`${location.pathname}:${valuesHidden}`} className="animate-fade-up">
               <Outlet />
             </div>
           </main>
