@@ -42,6 +42,7 @@
 | Phase 4: CSV/OFX statement import with preview and dedupe, auto-categorization rules — migration 013 | 2026-09-22 |
 | Export to CSV (Excel pt-BR) of the filtered statement and of the portfolio | 2026-09-22 |
 | brapi as the primary quote provider (batch + 5-min cache + dedupe + market-hours TTL), yfinance as fallback | 2026-09-22 |
+| Motion pass: sheet/collapsible exit animations, sliding tab pill, count-up and chart draw-in once per page per session, reduced motion honoured in JS, new-row flash in Extrato, invoice-paid confirmation — zero new dependencies | 2026-09-22 |
 
 ---
 
@@ -65,6 +66,13 @@ recent frontend work has been clicked through. One pass in the real app covers a
   twice creates nothing the second time.
 - [ ] Extrato → "Exportar" and Investimentos → Posição → "Exportar": the file downloads, opens in
   Excel with the columns split, and the statement export respects the active filters.
+- [ ] Motion pass: every sheet ("+ Novo", Pagar fatura, investimento, editar operação) animates
+  out, not just in, and shows its last content while leaving (no "Pagar R$ 0,00" flash). Tab pill
+  slides between abas. Início numbers count up on the first visit only; leaving and coming back,
+  or toggling the eye, shows them still. Collapsibles and Cartões invoices open and close in height,
+  and focus rings inside an open one are not clipped. A lançamento saved by "+ Novo" flashes green
+  in Extrato. Paying an invoice shows a green confirmation with a drawn check; a refused payment
+  shakes the error. With Windows "animation effects" off, nothing moves (charts included).
 
 ### Known limits, accepted for now
 - Privacy masking covers values formatted through `lib/format.js` / `compactCurrency`. Percentages

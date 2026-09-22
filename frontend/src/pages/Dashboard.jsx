@@ -50,7 +50,6 @@ import {
   cx,
 } from '../components/ui'
 import {
-  ANIMATION,
   CHART,
   ChartTooltip,
   DonutChart,
@@ -58,6 +57,7 @@ import {
   LegendDot,
   SERIES,
   Sparkline,
+  useChartAnimation,
   axisProps,
   compactCurrency,
 } from '../components/charts'
@@ -154,6 +154,7 @@ function buildSpending(transactions, ccExpenses, key) {
 }
 
 export default function Dashboard() {
+  const chartAnimation = useChartAnimation()
   const [portfolio, setPortfolio] = useState(null)
   const [portfolioError, setPortfolioError] = useState('')
   const [dataError, setDataError] = useState('')
@@ -552,6 +553,7 @@ export default function Dashboard() {
     if (!payRequest) return
     setIsPayingCurrentInvoice(true)
     setPayError('')
+    setNotice('')
     try {
       for (const invoice of payRequest.invoices) {
         await ccExpensesApi.payInvoice({
@@ -561,7 +563,9 @@ export default function Dashboard() {
           account_id: accountId || undefined,
         })
       }
+      const paid = payRequest.invoices.length
       setPayRequest(null)
+      setNotice(`${paid === 1 ? 'Fatura paga' : `${paid} faturas pagas`} — ${formatCurrency(payRequest.total)} debitado.`)
       await fetchAllData()
     } catch (error) {
       console.warn('Erro ao pagar fatura:', error)
@@ -722,9 +726,9 @@ export default function Dashboard() {
                           />
                         )}
                       />
-                      <Bar dataKey="income" stackId="flow" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
-                      <Bar dataKey="expense" stackId="flow" fill={FLOW.expense} maxBarSize={24} {...ANIMATION} />
-                      <Bar dataKey="investment" stackId="flow" fill={FLOW.investment} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                      <Bar dataKey="income" stackId="flow" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
+                      <Bar dataKey="expense" stackId="flow" fill={FLOW.expense} maxBarSize={24} {...chartAnimation} />
+                      <Bar dataKey="investment" stackId="flow" fill={FLOW.investment} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
                       <Line
                         type="monotone"
                         dataKey="net"
@@ -732,8 +736,8 @@ export default function Dashboard() {
                         strokeWidth={2}
                         dot={{ r: 3, fill: FLOW.net, strokeWidth: 2, stroke: '#fff' }}
                         activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
-                        {...ANIMATION}
-                        animationBegin={300}
+                        {...chartAnimation}
+                        animationBegin={160}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -783,8 +787,7 @@ export default function Dashboard() {
                       fill="url(#balanceFill)"
                       dot={false}
                       activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
-                      {...ANIMATION}
-                      animationDuration={1200}
+                      {...chartAnimation}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -846,7 +849,7 @@ export default function Dashboard() {
                         dot={false}
                         activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
                         connectNulls={false}
-                        {...ANIMATION}
+                        {...chartAnimation}
                       />
                       <Line
                         type="monotone"
@@ -856,8 +859,8 @@ export default function Dashboard() {
                         dot={false}
                         activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
                         connectNulls={false}
-                        {...ANIMATION}
-                        animationDuration={1200}
+                        {...chartAnimation}
+                        animationBegin={80}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -953,7 +956,7 @@ export default function Dashboard() {
                           />
                         )}
                       />
-                      <Bar dataKey="value" maxBarSize={28} radius={[4, 4, 0, 0]} {...ANIMATION}>
+                      <Bar dataKey="value" maxBarSize={28} radius={[4, 4, 0, 0]} {...chartAnimation}>
                         {invoiceProjection.map((item, index) => (
                           <Cell key={item.key} fill={index === 0 ? SERIES[1] : '#f6c3ad'} />
                         ))}

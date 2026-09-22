@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Check, Download, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { transactionsApi } from '../../lib/dataApi'
-import { useNewEntry } from '../../lib/newEntry'
+import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
   AlertMessage,
   Badge,
@@ -14,6 +14,7 @@ import {
   Panel,
   PanelHeader,
   cx,
+  useArrivals,
 } from '../../components/ui'
 import { formatCurrency } from '../../lib/format'
 import { isInvestmentOutflow } from '../../lib/transactions'
@@ -142,6 +143,9 @@ export default function Extrato() {
   }, [filters, filtersActive, reloadCount])
 
   const statementTransactions = filteredTransactions ?? transactions
+  // Sem cascata nas linhas: um extrato se le de cima para baixo, e filtrar e
+  // digitar. So o que acabou de ser gravado pisca, para ser achado.
+  const arrived = useArrivals(statementTransactions, useDataVersion())
 
   // Exporta exatamente o que a tela mostra: o backend refaz a mesma consulta
   // com os filtros da URL. Sem filtro, sai o extrato inteiro.
@@ -457,7 +461,7 @@ export default function Extrato() {
                     }
 
                     return (
-                      <tr key={transaction.id}>
+                      <tr key={transaction.id} className={arrived.has(transaction.id) ? 'animate-flash-emerald' : undefined}>
                         <td className="text-zinc-600">{formatDateBR(transaction.date)}</td>
                         <td className="text-zinc-700">{accountLabel(transaction)}</td>
                         <td className="font-medium text-zinc-800">{transaction.category}</td>
@@ -497,7 +501,7 @@ export default function Extrato() {
                 }
 
                 return (
-                  <li key={transaction.id} className="px-4 py-3">
+                  <li key={transaction.id} className={cx('px-4 py-3', arrived.has(transaction.id) && 'animate-flash-emerald')}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-zinc-900">{transaction.description || transaction.category}</p>

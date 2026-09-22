@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  Expand,
   IconButton,
   PageHeader,
   Panel,
@@ -70,6 +71,7 @@ export default function Cartoes() {
   // Fatura aguardando confirmacao no sheet de pagamento: { invoice, cardGroup }.
   const [paying, setPaying] = useState(null)
   const [payError, setPayError] = useState('')
+  const [payNotice, setPayNotice] = useState('')
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
 
@@ -200,6 +202,7 @@ export default function Cartoes() {
     const { invoice, cardGroup } = paying
     setSaving(true)
     setPayError('')
+    setPayNotice('')
     try {
       // Um unico pedido: o servidor lanca a despesa e baixa a fatura juntos.
       await ccExpensesApi.payInvoice({
@@ -209,6 +212,8 @@ export default function Cartoes() {
         account_id: accountId || undefined,
       })
       setPaying(null)
+      const payer = accountId ? ` saiu de ${accountName(accountId)}` : ' foi debitado'
+      setPayNotice(`Fatura ${cardGroup.cardName} ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} paga — ${formatCurrency(invoice.total)}${payer}.`)
       await fetchData()
     } catch (error) {
       setPayError(error.message || 'Não foi possível pagar a fatura.')
@@ -308,6 +313,7 @@ export default function Cartoes() {
       />
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
+      <AlertMessage tone="success" message={payNotice} onDismiss={() => setPayNotice('')} />
 
       <PayInvoiceSheet
         open={Boolean(paying)}
@@ -401,27 +407,25 @@ export default function Cartoes() {
                           </div>
                         </div>
 
-                        {expanded ? (
-                          <div className="animate-slide-down space-y-2 px-5 pb-5">
-                            {invoice.purchases.map((purchase) => (
-                              <div key={purchase.purchaseKey} className="flex flex-col gap-3 rounded-lg border border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-                                <div className="min-w-0">
-                                  <p className="font-semibold text-zinc-900">{purchase.description}</p>
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    <Badge tone="info">{purchase.category}</Badge>
-                                    <Badge>Compra em {formatDateBR(purchase.purchase_date)}</Badge>
-                                    <Badge tone="warning">Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}</Badge>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center justify-between gap-4 md:justify-end">
-                                  <p className="whitespace-nowrap font-bold text-zinc-950">{formatCurrency(purchase.amount)}</p>
-                                  <IconButton label="Excluir compra parcelada" icon={Trash2} variant="danger" onClick={() => handleDeleteCCPurchase(purchase)} />
+                        <Expand open={expanded} innerClassName="space-y-2 px-5 pb-5">
+                          {invoice.purchases.map((purchase) => (
+                            <div key={purchase.purchaseKey} className="flex flex-col gap-3 rounded-lg border border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-zinc-900">{purchase.description}</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <Badge tone="info">{purchase.category}</Badge>
+                                  <Badge>Compra em {formatDateBR(purchase.purchase_date)}</Badge>
+                                  <Badge tone="warning">Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}</Badge>
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        ) : null}
+
+                              <div className="flex items-center justify-between gap-4 md:justify-end">
+                                <p className="whitespace-nowrap font-bold text-zinc-950">{formatCurrency(purchase.amount)}</p>
+                                <IconButton label="Excluir compra parcelada" icon={Trash2} variant="danger" onClick={() => handleDeleteCCPurchase(purchase)} />
+                              </div>
+                            </div>
+                          ))}
+                        </Expand>
                       </div>
                     )
                   })}

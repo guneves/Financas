@@ -1,11 +1,10 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
-  CheckCircle2,
   ChevronDown,
   Info,
   Loader2,
@@ -14,6 +13,63 @@ import {
 
 export function cx(...classes) {
   return classes.filter(Boolean).join(' ')
+}
+
+// O CSS (index.css) ja zera animacoes e transicoes no modo reduzido; isto e
+// para o que roda em JS: contagem de numeros, graficos, tempos de saida.
+export function prefersReducedMotion() {
+  return typeof window !== 'undefined'
+    && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+
+// Mantem montado durante a saida. `closing` e true nos `exitMs` entre o
+// `open` virar false e a desmontagem — o tempo da animacao de saida.
+export function usePresence(open, exitMs = 200) {
+  const [mounted, setMounted] = useState(open)
+  if (open && !mounted) setMounted(true)
+
+  useEffect(() => {
+    if (open || !mounted) return undefined
+    const timer = setTimeout(() => setMounted(false), prefersReducedMotion() ? 0 : exitMs)
+    return () => clearTimeout(timer)
+  }, [open, mounted, exitMs])
+
+  return { mounted: open || mounted, closing: !open && mounted }
+}
+
+const defaultGetId = (item) => item.id
+
+// Ids que chegaram na lista depois que `version` mudou (um "+ Novo" salvo).
+// A lista so muda quando a busca volta, entao a mudanca de versao "arma" e a
+// proxima mudanca da lista compara com a foto tirada naquele momento.
+// Filtros e a carga inicial nao armam: so o que acabou de ser gravado pisca.
+export function useArrivals(items, version, getId = defaultGetId) {
+  const [arrived, setArrived] = useState(() => new Set())
+  const versionRef = useRef(version)
+  const snapshotRef = useRef(null)
+  const itemsRef = useRef(items)
+
+  useEffect(() => {
+    if (versionRef.current === version) return
+    versionRef.current = version
+    snapshotRef.current = new Set(itemsRef.current.map(getId))
+  }, [version, getId])
+
+  useEffect(() => {
+    itemsRef.current = items
+    const snapshot = snapshotRef.current
+    if (!snapshot) return undefined
+    // A primeira mudanca depois de armar e a recarga: desarma com ou sem
+    // novidade, senao um filtro trocado depois piscaria linhas antigas.
+    snapshotRef.current = null
+    const fresh = items.map(getId).filter((id) => !snapshot.has(id))
+    if (fresh.length === 0) return undefined
+    setArrived(new Set(fresh))
+    const timer = setTimeout(() => setArrived(new Set()), 1800)
+    return () => clearTimeout(timer)
+  }, [items, getId])
+
+  return arrived
 }
 
 const buttonVariants = {
@@ -129,48 +185,51 @@ const metricTones = {
   danger: 'bg-rose-100 text-rose-700',
 }
 
-// Conta de 0 ate o valor com ease-out. Ao mudar o valor, anima do anterior
-// ate o novo — assim um pagamento de fatura "desce" o saldo na tela.
-export function useCountUp(target, duration = 700) {
-  const [display, setDisplay] = useState(target)
-  const fromRef = useRef(0)
-  const frameRef = useRef(null)
+// Ultimo valor mostrado por `cacheKey`, na sessao. Voltar a uma pagina (ou
+// remontar) comeca do valor que ja estava na tela — so a primeira carga conta
+// a partir de zero, e dali em diante so uma mudanca real anima.
+const countUpCache = new Map()
+
+// Conta ate o valor com easeOutQuint (a curva do app). Ao mudar o valor, anima
+// do que esta na tela ate o novo — assim um pagamento de fatura "desce" o saldo.
+export function useCountUp(target, { duration = 500, cacheKey } = {}) {
+  const displayRef = useRef(null)
+  if (displayRef.current === null) {
+    displayRef.current = prefersReducedMotion()
+      ? Number(target) || 0
+      : (cacheKey && countUpCache.has(cacheKey) ? countUpCache.get(cacheKey) : 0)
+  }
+  const [display, setDisplay] = useState(displayRef.current)
 
   useEffect(() => {
     const to = Number(target) || 0
-    const from = fromRef.current
-    const reduce = typeof window !== 'undefined'
-      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (cacheKey) countUpCache.set(cacheKey, to)
+    const from = displayRef.current
 
-    if (reduce || from === to) {
-      fromRef.current = to
+    if (prefersReducedMotion() || from === to) {
+      displayRef.current = to
       setDisplay(to)
       return undefined
     }
 
+    let frame = null
     const start = performance.now()
     const tick = (now) => {
       const progress = Math.min((now - start) / duration, 1)
-      const eased = 1 - Math.pow(1 - progress, 3)
-      setDisplay(from + (to - from) * eased)
-      if (progress < 1) {
-        frameRef.current = requestAnimationFrame(tick)
-      } else {
-        fromRef.current = to
-      }
+      const value = from + (to - from) * (1 - Math.pow(1 - progress, 5))
+      displayRef.current = progress < 1 ? value : to
+      setDisplay(displayRef.current)
+      if (progress < 1) frame = requestAnimationFrame(tick)
     }
-    frameRef.current = requestAnimationFrame(tick)
-    return () => {
-      cancelAnimationFrame(frameRef.current)
-      fromRef.current = to
-    }
-  }, [target, duration])
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [target, duration, cacheKey])
 
   return display
 }
 
-export function AnimatedNumber({ value, format = (v) => v, className = '' }) {
-  const display = useCountUp(value)
+export function AnimatedNumber({ value, format = (v) => v, cacheKey, className = '' }) {
+  const display = useCountUp(value, { cacheKey })
   return <span className={className}>{format(display)}</span>
 }
 
@@ -215,8 +274,14 @@ export function MetricCard({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</p>
-          <p className={cx('mt-2 truncate text-2xl font-bold tracking-tight text-zinc-950', valueClassName)}>
-            {animated ? <AnimatedNumber value={amount} format={format} /> : value}
+          <p className={cx('tabular mt-2 truncate text-2xl font-bold tracking-tight text-zinc-950', valueClassName)}>
+            {animated ? (
+              <AnimatedNumber
+                value={amount}
+                format={format}
+                cacheKey={typeof title === 'string' ? `${window.location.pathname}|${title}` : undefined}
+              />
+            ) : value}
           </p>
           {subtitle || delta ? (
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-500">
@@ -305,10 +370,20 @@ export function EmptyState({ icon: Icon, title, message, action, className = '' 
   )
 }
 
+// O CheckCircle2 do lucide, com o traco do check desenhado ao aparecer.
+function DrawnCheck({ className = '' }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <path d="m9 12 2 2 4-4" pathLength="1" strokeDasharray="1" className="animate-check-draw" />
+    </svg>
+  )
+}
+
 const alertTones = {
   danger: { classes: 'border-rose-200 bg-rose-50 text-rose-700', icon: AlertTriangle },
   warning: { classes: 'border-amber-200 bg-amber-50 text-amber-800', icon: AlertTriangle },
-  success: { classes: 'border-emerald-200 bg-emerald-50 text-emerald-700', icon: CheckCircle2 },
+  success: { classes: 'border-emerald-200 bg-emerald-50 text-emerald-700', icon: DrawnCheck },
   info: { classes: 'border-sky-200 bg-sky-50 text-sky-700', icon: Info },
 }
 
@@ -331,9 +406,47 @@ export function AlertMessage({ tone = 'danger', message, children, onDismiss, cl
 }
 
 // Abas ligadas a rota: cada item e um link, o ativo e o da URL atual.
+// O fundo branco do ativo e uma pilula so, que desliza de uma aba para a
+// outra — o Layout nao remonta as abas ao trocar de rota.
 export function Tabs({ items, className = '' }) {
+  const navRef = useRef(null)
+  const { pathname } = useLocation()
+  const [pill, setPill] = useState(null)
+  const [pillReady, setPillReady] = useState(false)
+
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    if (!nav) return undefined
+    const measure = () => {
+      const active = nav.querySelector('[aria-current="page"]')
+      setPill(active ? { left: active.offsetLeft, width: active.offsetWidth } : null)
+    }
+    measure()
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    observer?.observe(nav)
+    return () => observer?.disconnect()
+  }, [pathname, items])
+
+  // A transicao so liga depois da primeira medida: a pilula nao entra
+  // deslizando da borda esquerda.
+  useEffect(() => {
+    if (!pill || pillReady) return undefined
+    const frame = requestAnimationFrame(() => setPillReady(true))
+    return () => cancelAnimationFrame(frame)
+  }, [pill, pillReady])
+
   return (
-    <nav className={cx('inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
+    <nav ref={navRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
+      {pill ? (
+        <span
+          aria-hidden="true"
+          className={cx(
+            'absolute bottom-1 left-0 top-1 rounded-md bg-white shadow-card ring-1 ring-zinc-200/70',
+            pillReady && 'transition-[transform,width] duration-200 ease-out-quint'
+          )}
+          style={{ width: pill.width, transform: `translateX(${pill.left}px)` }}
+        />
+      ) : null}
       {items.map((item) => {
         const Icon = item.icon
         return (
@@ -341,8 +454,10 @@ export function Tabs({ items, className = '' }) {
             key={item.to}
             to={item.to}
             className={({ isActive }) => cx(
-              'inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200 lg:h-9',
-              isActive ? 'bg-white text-zinc-950 shadow-card ring-1 ring-zinc-200/70' : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
+              'relative inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200 lg:h-9',
+              isActive
+                ? cx('text-zinc-950', !pill && 'bg-white shadow-card ring-1 ring-zinc-200/70')
+                : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
             )}
           >
             {Icon ? <Icon className="h-4 w-4" /> : null}
@@ -394,11 +509,56 @@ export function Collapsible({
         {label}
         <ChevronDown className={cx('h-4 w-4 transition-transform', open && 'rotate-180')} />
       </Button>
-      {open ? (
-        <div id={contentId} className="mt-4 animate-slide-down">
-          {children}
-        </div>
-      ) : null}
+      <Expand open={open} id={contentId} innerClassName="pt-4">
+        {children}
+      </Expand>
+    </div>
+  )
+}
+
+// Abre e fecha na altura real do conteudo: grid-template-rows 0fr -> 1fr
+// transiciona ate "auto", o que `height` nao faz. Fechado, desmonta (como
+// sempre foi) — so que depois da animacao de saida.
+export function Expand({ open, id, className = '', innerClassName = '', children }) {
+  const { mounted, closing } = usePresence(open, 220)
+  const [expanded, setExpanded] = useState(false)
+  const [settled, setSettled] = useState(false)
+
+  useEffect(() => {
+    setSettled(false)
+    if (!open) {
+      setExpanded(false)
+      return undefined
+    }
+    // Dois frames: o 0fr precisa ser pintado antes, senao nao ha transicao.
+    let inner = null
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setExpanded(true))
+    })
+    return () => {
+      cancelAnimationFrame(outer)
+      cancelAnimationFrame(inner)
+    }
+  }, [open])
+
+  if (!mounted) return null
+  const isOpen = expanded && !closing
+
+  return (
+    <div
+      id={id}
+      className={cx('grid transition-[grid-template-rows] duration-200 ease-out-quint', className)}
+      style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
+      onTransitionEnd={(event) => {
+        if (event.target === event.currentTarget && event.propertyName === 'grid-template-rows') {
+          setSettled(isOpen)
+        }
+      }}
+    >
+      {/* Aberto e parado, o overflow volta a visible: o anel de foco dos campos nao e cortado. */}
+      <div className={cx('min-h-0', settled ? 'overflow-visible' : 'overflow-hidden')}>
+        <div className={innerClassName}>{children}</div>
+      </div>
     </div>
   )
 }
@@ -407,6 +567,14 @@ export function Collapsible({
 // Vai para document.body via portal: o wrapper animado do Layout tem transform,
 // o que faria `fixed` se medir pela pagina e nao pela janela.
 export function Sheet({ open, onClose, title, description, children, footer, className = '' }) {
+  const { mounted, closing } = usePresence(open, 200)
+  // Na saida, mostra o ultimo conteudo aberto: quem chama costuma zerar o
+  // estado junto com o `open` (ex.: `paying` vira null), e o sheet piscaria
+  // "Pagar R$ 0,00" enquanto some.
+  const lastOpenRef = useRef(null)
+  if (open) lastOpenRef.current = { title, description, children, footer }
+  const shown = open ? { title, description, children, footer } : lastOpenRef.current || {}
+
   useEffect(() => {
     if (!open) return undefined
     const onKey = (event) => {
@@ -421,28 +589,34 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
     }
   }, [open, onClose])
 
-  if (!open) return null
+  if (!mounted) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-      <div className="absolute inset-0 animate-fade-in bg-zinc-950/40 backdrop-blur-sm" onClick={onClose} />
+    <div
+      className={cx('fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4', closing && 'pointer-events-none')}
+      role="dialog"
+      aria-modal="true"
+      aria-label={typeof shown.title === 'string' ? shown.title : undefined}
+    >
+      <div className={cx('absolute inset-0 bg-zinc-950/40 backdrop-blur-sm', closing ? 'animate-fade-out' : 'animate-fade-in')} onClick={onClose} />
       <div
         className={cx(
-          'relative flex max-h-[92vh] w-full animate-fade-up flex-col overflow-hidden rounded-t-2xl bg-white shadow-lift',
-          'sm:max-w-xl sm:animate-scale-in sm:rounded-2xl',
+          'relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-lift',
+          'sm:max-w-xl sm:rounded-2xl',
+          closing ? 'animate-slide-out-down sm:animate-scale-out' : 'animate-fade-up sm:animate-scale-in',
           className
         )}
       >
         <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-zinc-200 sm:hidden" />
         <div className="flex items-start justify-between gap-4 border-b border-zinc-100 px-5 py-4">
           <div className="min-w-0">
-            {title ? <h2 className="text-lg font-bold text-zinc-950">{title}</h2> : null}
-            {description ? <p className="mt-1 text-sm text-zinc-600">{description}</p> : null}
+            {shown.title ? <h2 className="text-lg font-bold text-zinc-950">{shown.title}</h2> : null}
+            {shown.description ? <p className="mt-1 text-sm text-zinc-600">{shown.description}</p> : null}
           </div>
           <IconButton label="Fechar" icon={X} variant="subtle" onClick={onClose} />
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer ? <div className="border-t border-zinc-100 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">{footer}</div> : null}
+        <div className="flex-1 overflow-y-auto px-5 py-4">{shown.children}</div>
+        {shown.footer ? <div className="border-t border-zinc-100 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">{shown.footer}</div> : null}
       </div>
     </div>,
     document.body

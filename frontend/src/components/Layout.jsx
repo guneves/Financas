@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Eye, EyeOff, LogOut, Plus, Settings, Wallet } from 'lucide-react'
-import { Suspense, useCallback, useMemo, useState } from 'react'
+import { Fragment, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
 import { areValuesHidden, MASKED_TEXT, setValuesHidden } from '../lib/format'
@@ -98,6 +98,18 @@ export default function Layout() {
   const location = useLocation()
   const user = getCurrentUser()
   const section = useMemo(() => findSection(location.pathname), [location.pathname])
+
+  // Entrada da pagina: fade-up ao mudar de secao; entre abas da mesma secao
+  // (troca frequente, as abas ficam paradas) so fade-in, sem deslocamento.
+  const pageEnter = useRef({ pathname: location.pathname, sectionPath: section?.path, className: 'animate-fade-up' })
+  if (pageEnter.current.pathname !== location.pathname) {
+    const sameSection = Boolean(section) && pageEnter.current.sectionPath === section.path
+    pageEnter.current = {
+      pathname: location.pathname,
+      sectionPath: section?.path,
+      className: sameSection ? 'animate-fade-in' : 'animate-fade-up',
+    }
+  }
 
   // "+ Novo" (docs/ux-reorganization.md D5): o sheet e o modal de investimento
   // moram aqui, fora das paginas. Cada gravacao bem-sucedida incrementa
@@ -219,12 +231,16 @@ export default function Layout() {
               <Tabs items={section.tabs} className="mb-5" />
             ) : null}
 
-            {/* Trocar o modo privado remonta a pagina: os formatadores de
-                lib/format.js leem o modo na renderizacao. */}
-            <div key={`${location.pathname}:${valuesHidden}`} className="animate-fade-up">
-              <Suspense fallback={<PageLoading />}>
-                <Outlet />
-              </Suspense>
+            {/* Trocar de pagina remonta e anima a entrada. Trocar o modo
+                privado tambem remonta (os formatadores de lib/format.js leem
+                o modo na renderizacao), mas pelo Fragment de dentro: sem
+                animacao, e numeros e graficos voltam sem recontar. */}
+            <div key={location.pathname} className={pageEnter.current.className}>
+              <Fragment key={String(valuesHidden)}>
+                <Suspense fallback={<PageLoading />}>
+                  <Outlet />
+                </Suspense>
+              </Fragment>
             </div>
           </main>
         </div>

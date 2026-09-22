@@ -107,7 +107,7 @@
   }
 
   .skeleton {
-    @apply rounded-lg bg-zinc-100 animate-shimmer;
+    @apply rounded-lg bg-zinc-100 animate-skeleton;
     background-image: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, 0.7) 50%, transparent 100%);
     background-size: 400px 100%;
     background-repeat: no-repeat;
@@ -131,5 +131,7 @@
     animation-duration: 0.01ms !important;
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    /* Sem isto o shimmer `infinite` a 0.01ms vira um laco de repintura. */
+    animation-iteration-count: 1 !important;
   }
 }

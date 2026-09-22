@@ -4,10 +4,10 @@
 // que os graficos do app leiam como um sistema so. A paleta categorica segue uma
 // ordem fixa validada para daltonismo (azul, laranja, verde-agua, amarelo...) —
 // a cor segue a entidade, nunca a posicao no ranking, e nunca e "ciclada".
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { areValuesHidden, formatCurrency, MASKED_CURRENCY } from '../lib/format'
-import { cx } from './ui'
+import { cx, prefersReducedMotion } from './ui'
 
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948']
 export const OTHER_COLOR = '#a1a1aa'
@@ -30,10 +30,30 @@ export const CHART = {
   ink: '#18181b',
 }
 
+// A curva do app (tailwind.config.js); o recharts aceita cubic-bezier em texto.
 export const ANIMATION = {
   isAnimationActive: true,
-  animationDuration: 900,
-  animationEasing: 'ease-out',
+  animationDuration: 600,
+  animationEasing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+}
+
+const NO_ANIMATION = { isAnimationActive: false }
+
+// Paginas cujos graficos ja foram desenhados nesta sessao.
+const drawnPaths = new Set()
+
+// Props de animacao para as series. Os graficos se desenham na primeira visita
+// da pagina na sessao; voltar a ela, ou remontar (modo privado), mostra direto.
+// O `isAnimationActive` e JS: o prefers-reduced-motion do CSS nao o alcanca.
+// A pagina so e marcada ao desmontar, para os graficos que montam depois da
+// carga (ainda na primeira visita) tambem se desenharem.
+export function useChartAnimation() {
+  const [animate] = useState(() => !prefersReducedMotion() && !drawnPaths.has(window.location.pathname))
+  useEffect(() => {
+    const path = window.location.pathname
+    return () => { drawnPaths.add(path) }
+  }, [])
+  return animate ? ANIMATION : NO_ANIMATION
 }
 
 export const axisProps = {
@@ -114,6 +134,7 @@ export function LegendDot({ color, label, className = '', shape = 'dot' }) {
 // Linha minima com lavagem de area — cabe dentro de um MetricCard.
 export function Sparkline({ data, dataKey = 'value', color = SERIES[0], formatter = formatCurrency, labelKey = 'label' }) {
   const gradientId = useId().replace(/:/g, '')
+  const animation = useChartAnimation()
   if (!data || data.length < 2) return null
 
   return (
@@ -143,7 +164,7 @@ export function Sparkline({ data, dataKey = 'value', color = SERIES[0], formatte
           fill={`url(#${gradientId})`}
           dot={false}
           activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
-          {...ANIMATION}
+          {...animation}
         />
       </AreaChart>
     </ResponsiveContainer>
@@ -208,6 +229,7 @@ export function DonutChart({
   stacked = false,
 }) {
   const [hovered, setHovered] = useState(null)
+  const animation = useChartAnimation()
 
   const slices = useMemo(() => {
     const sorted = [...(data || [])].filter((item) => item.value > 0).sort((a, b) => b.value - a.value)
@@ -242,8 +264,7 @@ export function DonutChart({
               startAngle={90}
               endAngle={-270}
               onMouseLeave={() => setHovered(null)}
-              {...ANIMATION}
-              animationDuration={1000}
+              {...animation}
             >
               {slices.map((slice, index) => (
                 <Cell

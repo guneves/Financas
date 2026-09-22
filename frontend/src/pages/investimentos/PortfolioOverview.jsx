@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ANIMATION, CHART, ChartTooltip, DonutChart, FLOW, LegendDot, axisProps, compactCurrency } from '../../components/charts'
+import { CHART, ChartTooltip, DonutChart, FLOW, LegendDot, axisProps, compactCurrency, useChartAnimation } from '../../components/charts'
 import { AlertMessage, Panel, PanelHeader, SegmentedControl, Skeleton } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
@@ -31,6 +31,7 @@ function readStoredPeriod() {
 // cima; num mes de perda, a base vira o patrimonio e a perda (vermelha) completa
 // a barra ate o valor aplicado — a altura total nunca esconde o prejuizo.
 export default function PortfolioOverview({ assets, getClassLabel }) {
+  const chartAnimation = useChartAnimation()
   const allocation = useMemo(() => {
     const byClass = {}
     assets.forEach((asset) => {
@@ -142,9 +143,9 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
                       )
                     }}
                   />
-                  <Bar dataKey="base" stackId="patrimonio" fill={FLOW.investment} maxBarSize={32} {...ANIMATION} />
-                  <Bar dataKey="ganho" stackId="patrimonio" fill={FLOW.income} maxBarSize={32} radius={[4, 4, 0, 0]} {...ANIMATION} />
-                  <Bar dataKey="perda" stackId="patrimonio" fill={FLOW.expense} maxBarSize={32} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                  <Bar dataKey="base" stackId="patrimonio" fill={FLOW.investment} maxBarSize={32} {...chartAnimation} />
+                  <Bar dataKey="ganho" stackId="patrimonio" fill={FLOW.income} maxBarSize={32} radius={[4, 4, 0, 0]} {...chartAnimation} />
+                  <Bar dataKey="perda" stackId="patrimonio" fill={FLOW.expense} maxBarSize={32} radius={[4, 4, 0, 0]} {...chartAnimation} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

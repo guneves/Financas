@@ -1,5 +1,5 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ANIMATION, CHART, ChartTooltip, FLOW, axisProps, compactCurrency } from '../components/charts'
+import { CHART, ChartTooltip, FLOW, axisProps, compactCurrency, useChartAnimation } from '../components/charts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarDays,
@@ -82,6 +82,7 @@ const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)
 const typeTone = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.tone || 'neutral'
 
 export default function Proventos() {
+  const chartAnimation = useChartAnimation()
   const [assets, setAssets] = useState([])
   const [proceeds, setProceeds] = useState([])
   const [calendarEvents, setCalendarEvents] = useState([])
@@ -390,7 +391,7 @@ export default function Proventos() {
                         />
                       )}
                     />
-                    <Bar dataKey="net" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...ANIMATION} />
+                    <Bar dataKey="net" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

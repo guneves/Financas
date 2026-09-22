@@ -7,63 +7,85 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · brapi as the primary quote provider
+## Session — 2026-09-22 (latest) · Motion pass
+
+The owner asked for research across seven animation sources (tailwindcss-motion, motion.dev, Magic
+UI, Aceternity, animate.css, Recharts, animations.dev/easings.net) and a plan under hard
+constraints: extend the existing Tailwind vocabulary, emerald only, legibility over decoration,
+≤2 deps under ~15 kB each, reduced motion everywhere, animation in `ui.jsx` primitives. The plan was
+approved with one addition ("rework it" — the privacy-mode remount in `Layout.jsx`), then built.
 
 ### What was done
 
-- **`backend/brapi_client.py`** — new pure module (no DB, no Flask), same shape as
-  `statement_import.py` / `export_csv.py`. It talks to `GET https://brapi.dev/api/v2/stocks/quote`
-  with `Authorization: Bearer <BRAPI_TOKEN>`, via `urllib.request` — the same HTTP style the BCB
-  fetch already uses, so no new dependency. Typed surface: a frozen `StockQuote` dataclass
-  (`from_payload()` maps the documented camelCase fields, `raw` keeps the original object) and a
-  typed error tree `BrapiError` → `BrapiNotConfiguredError` / `BrapiHTTPError(status, detail)` /
-  `BrapiUnavailableError` / `BrapiResponseError`. `get_stock_quote()` returns the first requested
-  symbol (`results[0]`), `get_stock_quotes()` the whole map, `get_market_prices()` is the
-  `{ticker: preço}` adapter `app.py` consumes.
-- **Credit saving**, which is the whole point on the free plan: one comma-separated
-  `symbols=PETR4,VALE3,...` per batch of 20 (1 credit, not N); a 5-minute in-memory cache
-  (`BRAPI_CACHE_TTL_SECONDS`, floored at 300); and request deduplication — concurrent callers for a
-  ticker already in flight wait on that fetch's `threading.Event` instead of opening a second
-  request. **Market-hours rule:** outside B3 hours (Mon–Fri 10:00–18:00 BRT, fixed −03:00 offset
-  since Brazil has no DST) a cached entry does not expire on the TTL at all; it is valid until the
-  next `next_market_open()`. A Saturday refresh therefore costs one credit for the whole weekend.
-  B3 holidays are deliberately *not* modeled: treating a holiday as open only shortens the cache,
-  which costs credits but can never serve a wrong price.
-- **`app.py` wiring** — `download_brapi_prices()` runs first inside `download_market_prices()`; only
-  the tickers it could not price fall through to the existing yfinance path, so the cache, the
-  timeout wrapper and the stale-quote fallback in `get_market_prices*()` are untouched. The two
-  `if yf is None: return` guards now also check `brapi_client.is_configured()`, so the app still
-  quotes with yfinance absent. `record_price_quote()` metadata now records the real provider via
-  `market_price_provider()` instead of hardcoding `"yfinance"`.
-- Prices go through `rounded_money()` / a local ROUND_HALF_UP quantize — never a bare `round()`.
-- 21 new tests in `backend/tests/test_brapi_client.py` (`urlopen` monkeypatched, no network):
-  header and URL shape, one request for many tickers, cache hit, partial miss, `force`, batch cap,
-  4 concurrent threads → 1 request, `results[0]`, unknown ticker absent rather than an error,
-  half-up rounding, each typed error, in-flight map cleaned after a failure, and the closed-market
-  cache holding across a weekend.
-- 7 more in `backend/tests/test_market_price_provider.py`, added after `finance-guard` pointed out
-  that every other test runs with `BRAPI_TOKEN` unset — so the wiring in `app.py` was never
-  exercised with a configured provider. They cover brapi-first precedence, a mixed batch splitting
-  between the two providers, fallback on `BrapiHTTPError`, half-up rounding, a zero/negative price
-  being ignored, the no-token path, and the `market_price_provider()` label.
-  Suite: **561 passing** (was 533).
+- **Zero new dependencies.** Motion's smallest bundle with exit animations (`LazyMotion` +
+  `domAnimation`) is ~19.6 kB, over the budget; everything below is CSS keyframes plus small hooks.
+- **`tailwind.config.js` (additive):** keyframes `fade-out`, `scale-out`, `slide-out-down`,
+  `flash-emerald`, `check-draw`, `nudge` (animate.css `headShake` without `rotateY`); animations for
+  each plus `skeleton` (fade-in after 150 ms + shimmer); `transitionTimingFunction.out-quint`. The
+  app curve `cubic-bezier(0.22, 1, 0.36, 1)` is easings.net's `easeOutQuint` — kept as the only
+  curve; exits use it at ~60% of the enter duration.
+- **`ui.jsx` primitives:**
+  - `prefersReducedMotion()`; `usePresence(open, exitMs)` keeps a node mounted through its exit.
+  - `Sheet` animates out (desktop `scale-out`, phone `slide-out-down`, backdrop `fade-out`) and
+    renders the **last open content** while leaving — callers null their state with `open`
+    (`paying` → null) and it would otherwise flash "Pagar R$ 0,00".
+  - `Expand` (new, exported): height via `grid-template-rows 0fr → 1fr`, unmounts after the exit
+    like the old Collapsible did (form-reset behaviour unchanged); `overflow` turns visible once
+    settled so focus rings are not clipped. `Collapsible` uses it; so do Cartões invoices.
+  - `Tabs`: one white pill measured from `aria-current="page"` slides between tabs.
+  - `useCountUp(target, { duration, cacheKey })`: 500 ms easeOutQuint, and a module-level cache of
+    the last value per `pathname|title` — only the first visit of a session counts from 0; a real
+    change animates old → new. Also fixed a one-frame flash of the final value before the count.
+    `MetricCard` value is now `tabular`.
+  - `useArrivals(items, version)`: ids that appear after a `DataVersion` bump; Extrato rows flash
+    `flash-emerald` once. Disarms on the first list change so a later filter never flashes.
+  - Success `AlertMessage` draws its check (`check-draw`).
+- **`charts.jsx`:** `useChartAnimation()` replaces spreading the static `ANIMATION`. It honours
+  reduced motion (recharts' `isAnimationActive` is JS — the CSS media query never reached it, and
+  recharts' own `'auto'` only means "off in SSR") and draws a page's charts once per session (marks
+  the path on unmount so charts mounting after the data load still draw). 600 ms, app curve; the
+  hardcoded 1200 ms / 1000 ms overrides are gone. Used in Dashboard, PortfolioOverview, Proventos,
+  Sparkline, DonutChart.
+- **`Layout.jsx` (the rework):** the page wrapper is keyed by `pathname` only; the privacy toggle
+  remounts through an inner `<Fragment key={valuesHidden}>`, so it no longer replays the page
+  fade-up (and, with the caches above, numbers and charts do not re-animate). Moving between tabs of
+  the same section uses `fade-in`; changing section keeps `fade-up`.
+- **Pages:** Cartões and Início show a success notice after paying an invoice; `PayInvoiceSheet`
+  nudges a refused-payment error; Orçamento bars transition `width` on the app curve.
+- **`index.css`:** reduced-motion block adds `animation-iteration-count: 1` — the infinite shimmer
+  at 0.01 ms was a busy repaint loop, not a static skeleton.
 
 ### What was not done and why
 
-- **`BRAPI_TOKEN` is empty.** The task said the key was already in `backend/.env`; it was not there
-  (only DB/JWT/CORS keys). A commented placeholder was added to `backend/.env` and the three
-  `BRAPI_*` options to `backend/.env.example`. Until a real token is pasted in, `is_configured()` is
-  false and every quote still comes from yfinance — the integration is inert, not broken.
-- **No TypeScript.** The request asked for TS interfaces; this repo has no TypeScript (Flask +
-  JSX) and the token must never reach the client bundle, so the typed layer is the Python dataclass
-  and error classes above. The frontend is unchanged: it keeps reading prices from the existing
-  endpoints.
-- No live call against the real API was made (no token, and it would spend credits).
+- **Not clicked through.** The Chrome extension was offline again; Playwright not installed. Only
+  `vite build` (clean) and a check that every new keyframe is emitted. The walk-through list in
+  `next-steps.md` has a "Motion pass" item.
+- **Deviation from the plan, E (list rows):** no whole-table fade on filter change. Filtering is
+  typing; animating the table on every keystroke violates the frequency-of-use rule. Only the
+  new-row flash shipped.
+- **`fade-in-late`** from the plan became the `skeleton` animation entry instead (one class carries
+  both the delay and the shimmer).
+- `SegmentedControl` does not get the sliding pill yet — it could reuse the `Tabs` logic.
+- Rejected on purpose (see the plan): Magic UI BorderBeam/AnimatedBeam/NumberTicker, Aceternity
+  Focus/Wobble/Glare/3D cards, Text Generate, Sticky Scroll, Multi Step Loader, animate.css
+  attention seekers, tailwindcss-motion presets, Motion `layoutId`.
+- Carried forward from the previous session: **`BRAPI_TOKEN` is still empty** in `backend/.env`,
+  so quotes still come from yfinance (brapi integration inert, not broken).
 
 ### Next session
 
-- Paste the token into `backend/.env` and hit "Atualizar cotações" once; confirm the quote metadata
-  now says `provider: brapi` and that a second refresh inside 5 minutes spends no credit.
-- Still open: the browser walk-through at the top of `next-steps.md`, and Phase 5 (splitting
-  `app.py`).
+- Owner: the browser walk-through at the top of `next-steps.md`, including the motion item.
+- Paste the brapi token into `backend/.env`, hit "Atualizar cotações" once, and confirm the quote
+  metadata says `provider: brapi` and that a second refresh within 5 minutes spends no credit.
+- Phase 5 (splitting `app.py`).
 
+### Non-obvious things learned
+
+- Tailwind emits utilities in config order, so `animate-slide-down` comes after `animate-nudge` in
+  the CSS: two `animate-*` classes on one element → the later-defined one wins. `PayInvoiceSheet`
+  puts the nudge on a wrapper div for that reason.
+- Recharts 3.7 parses `cubic-bezier(...)` easing strings (`es6/animation/easing.js`).
+- The invoice-payment path unmounted the sheet and dropped the paid invoice from the list with no
+  confirmation at all — hence the success notices.
+- The bash tool mangles `${...}` template literals inside a double-quoted `python -c`; use the
+  Edit tool or a script file in the scratchpad for JSX with template strings.

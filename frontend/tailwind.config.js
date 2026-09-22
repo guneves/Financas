@@ -39,6 +39,37 @@ export default {
           '0%': { backgroundPosition: '-400px 0' },
           '100%': { backgroundPosition: '400px 0' },
         },
+        // Saidas: espelho das entradas, mesma curva, ~60% da duracao.
+        'fade-out': {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+        'scale-out': {
+          '0%': { opacity: '1', transform: 'none' },
+          '100%': { opacity: '0', transform: 'scale(0.96)' },
+        },
+        'slide-out-down': {
+          '0%': { opacity: '1', transform: 'none' },
+          '100%': { opacity: '0', transform: 'translateY(16px)' },
+        },
+        // Linha recem-criada: lavagem emerald-100 que some.
+        'flash-emerald': {
+          '0%': { backgroundColor: 'rgb(209 250 229)' },
+          '100%': { backgroundColor: 'transparent' },
+        },
+        // Traco do check; o path usa pathLength="1" e stroke-dasharray 1.
+        'check-draw': {
+          '0%': { strokeDashoffset: '1' },
+          '100%': { strokeDashoffset: '0' },
+        },
+        // headShake do animate.css sem o rotateY (sem 3D): pedido recusado.
+        nudge: {
+          '0%, 100%': { transform: 'none' },
+          '20%': { transform: 'translateX(-4px)' },
+          '40%': { transform: 'translateX(3px)' },
+          '60%': { transform: 'translateX(-2px)' },
+          '80%': { transform: 'translateX(1px)' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both',
@@ -47,6 +78,19 @@ export default {
         'slide-down': 'slide-down 0.2s ease-out both',
         'grow-x': 'grow-x 0.7s cubic-bezier(0.22, 1, 0.36, 1) both',
         shimmer: 'shimmer 1.4s linear infinite',
+        'fade-out': 'fade-out 0.16s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'scale-out': 'scale-out 0.16s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'slide-out-down': 'slide-out-down 0.2s cubic-bezier(0.22, 1, 0.36, 1) both',
+        // Esqueleto so aparece se a carga passar de 150ms: SQLite local
+        // costuma responder antes, e ai nada pisca.
+        skeleton: 'fade-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) 150ms both, shimmer 1.4s linear 150ms infinite',
+        // Sem fill: depois do flash a linha volta ao proprio fundo.
+        'flash-emerald': 'flash-emerald 1.6s cubic-bezier(0.22, 1, 0.36, 1)',
+        'check-draw': 'check-draw 0.35s cubic-bezier(0.22, 1, 0.36, 1) 80ms both',
+        nudge: 'nudge 0.36s cubic-bezier(0.22, 1, 0.36, 1)',
+      },
+      transitionTimingFunction: {
+        'out-quint': 'cubic-bezier(0.22, 1, 0.36, 1)',
       },
     },
   },

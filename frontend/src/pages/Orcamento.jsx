@@ -54,7 +54,7 @@ function ProgressBar({ percent, status }) {
   const width = Math.min(Math.max(Number(percent || 0), 0), 100)
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
-      <div className={cx('bar-grow h-full rounded-full transition-all duration-700 ease-out', BAR_COLORS[status] || BAR_COLORS.OK)} style={{ width: `${width}%` }} />
+      <div className={cx('bar-grow h-full rounded-full transition-[width] duration-500 ease-out-quint', BAR_COLORS[status] || BAR_COLORS.OK)} style={{ width: `${width}%` }} />
     </div>
   )
 }

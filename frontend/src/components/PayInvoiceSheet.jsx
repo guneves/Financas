@@ -49,7 +49,13 @@ export default function PayInvoiceSheet({
       )}
     >
       <div className="space-y-4">
-        <AlertMessage message={error} />
+        {/* Recusa do servidor: o aviso balanca no lugar. O wrapper leva o
+            nudge (o AlertMessage ja tem a propria entrada); key repete a cada recusa nova. */}
+        {error ? (
+          <div key={error} className="animate-nudge">
+            <AlertMessage message={error} />
+          </div>
+        ) : null}
         <Field
           label="Debitar da conta"
           hint={allowPerCard && !accountId
