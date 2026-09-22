@@ -96,7 +96,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
       <Panel>
         <PanelHeader title="Alocação" description="Valor de mercado bruto por classe de ativo." />
         <div className="p-5">
-          <DonutChart data={allocation} centerLabel="Carteira" height={190} />
+          <DonutChart data={allocation} centerLabel="Carteira" height={190} stacked />
         </div>
       </Panel>
 

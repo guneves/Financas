@@ -24,12 +24,50 @@ import {
   quoteStatusLabel,
 } from './helpers'
 import useInvestments from './useInvestments'
-import { describeFixedIncome } from '../../lib/fixedIncome'
+import { FIXED_INCOME_TYPES, describeFixedIncome } from '../../lib/fixedIncome'
 
 const POSITION_TABS = [
   { value: 'VARIAVEL', label: 'Variável', icon: TrendingUp },
   { value: 'FIXA', label: 'Renda fixa', icon: Landmark },
 ]
+
+const VARIABLE_CLASS_ORDER = ['STOCKS', 'REIT', 'CATTLE', 'OTHER']
+const FIXED_INCOME_TYPE_ORDER = FIXED_INCOME_TYPES.map((type) => type.value)
+const NO_FIXED_INCOME_TYPE = 'SEM_TIPO'
+
+// Subdivide a aba: renda variavel por classe (Acoes, FIIs...), renda fixa pelo
+// tipo do titulo (CDB, LCI...). Aporte antigo sem tipo cai em "Sem tipo", no fim.
+function groupAssets(assets, activeTab) {
+  const isFixedTab = activeTab === 'FIXA'
+  const order = isFixedTab ? FIXED_INCOME_TYPE_ORDER : VARIABLE_CLASS_ORDER
+  const groups = new Map()
+
+  assets.forEach((asset) => {
+    const key = isFixedTab
+      ? (asset.metadata?.fixed_income_type || NO_FIXED_INCOME_TYPE)
+      : asset.class
+    if (!groups.has(key)) {
+      const label = isFixedTab
+        ? (FIXED_INCOME_TYPES.find((type) => type.value === key)?.label || (key === NO_FIXED_INCOME_TYPE ? 'Sem tipo' : key))
+        : getClassLabel(key)
+      groups.set(key, { key, label, assets: [], total: 0 })
+    }
+    const group = groups.get(key)
+    group.assets.push(asset)
+    group.total += Number(asset.current_value || 0)
+  })
+
+  const rank = (key) => {
+    const index = order.indexOf(key)
+    return index === -1 ? order.length : index
+  }
+  return [...groups.values()].sort((a, b) => rank(a.key) - rank(b.key) || a.label.localeCompare(b.label, 'pt-BR'))
+}
+
+function groupSummary(group) {
+  const count = group.assets.length
+  return `${count} ${count === 1 ? 'posição' : 'posições'} · ${formatCurrency(group.total)}`
+}
 
 export default function Posicao() {
   const {
@@ -168,6 +206,7 @@ export default function Posicao() {
     if (activeTab === 'FIXA') return asset.class === 'FIXED_INCOME'
     return true
   })
+  const assetGroups = groupAssets(filteredAssets, activeTab)
 
   const rowProps = (asset) => ({
     asset,
@@ -229,11 +268,21 @@ export default function Posicao() {
         ) : (
           <>
             {/* Celular: um cartao por ativo, acoes em botoes de 44px. */}
-            <ul className="divide-y divide-zinc-100 md:hidden">
-              {filteredAssets.map((asset) => (
-                <PositionCard key={asset.id} {...rowProps(asset)} />
+            <div className="md:hidden">
+              {assetGroups.map((group) => (
+                <section key={group.key} className="border-b border-zinc-200 last:border-0">
+                  <div className="flex items-baseline justify-between gap-3 bg-zinc-50 px-4 py-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</h3>
+                    <span className="text-xs text-zinc-500 tabular">{groupSummary(group)}</span>
+                  </div>
+                  <ul className="divide-y divide-zinc-100">
+                    {group.assets.map((asset) => (
+                      <PositionCard key={asset.id} {...rowProps(asset)} />
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
+            </div>
 
             <div className="hidden overflow-x-auto md:block">
               <table className="app-table min-w-[960px]">
@@ -248,11 +297,21 @@ export default function Posicao() {
                     <th className="text-right">Ações</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredAssets.map((asset) => (
-                    <PositionRow key={asset.id} {...rowProps(asset)} />
-                  ))}
-                </tbody>
+                {assetGroups.map((group) => (
+                  <tbody key={group.key}>
+                    <tr className="!border-b !border-zinc-200 bg-zinc-50 hover:!bg-zinc-50">
+                      <th colSpan={7} scope="rowgroup" className="py-2">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</span>
+                          <span className="text-xs font-normal text-zinc-500 tabular">{groupSummary(group)}</span>
+                        </div>
+                      </th>
+                    </tr>
+                    {group.assets.map((asset) => (
+                      <PositionRow key={asset.id} {...rowProps(asset)} />
+                    ))}
+                  </tbody>
+                ))}
               </table>
             </div>
           </>

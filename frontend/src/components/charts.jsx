@@ -4,7 +4,7 @@
 // que os graficos do app leiam como um sistema so. A paleta categorica segue uma
 // ordem fixa validada para daltonismo (azul, laranja, verde-agua, amarelo...) —
 // a cor segue a entidade, nunca a posicao no ranking, e nunca e "ciclada".
-import { useId, useMemo, useState } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { formatCurrency } from '../lib/format'
 import { cx } from './ui'
@@ -153,6 +153,49 @@ export function Sparkline({ data, dataKey = 'value', color = SERIES[0], formatte
 // fatia (ou numa linha da legenda) apaga as outras.
 //
 // `data`: [{ name, value, color? }]. Mais de `maxSlices` itens viram "Outros".
+// Texto que encolhe (nunca cresce) ate caber em maxWidth px. A largura do
+// texto e linear no tamanho da fonte, entao uma medicao basta.
+function FitText({ children, maxWidth, baseSize, minSize = 10, className = '' }) {
+  const ref = useRef(null)
+  const [fontSize, setFontSize] = useState(baseSize)
+
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (!node || !maxWidth) return
+    const current = parseFloat(getComputedStyle(node).fontSize) || baseSize
+    const widthPerPx = node.scrollWidth / current
+    if (!widthPerPx) return
+    const next = Math.max(minSize, Math.min(baseSize, Math.floor((maxWidth / widthPerPx) * 10) / 10))
+    if (Math.abs(next - current) > 0.1) setFontSize(next)
+  }, [children, maxWidth, baseSize, minSize])
+
+  return (
+    <span ref={ref} className={cx('whitespace-nowrap', className)} style={{ fontSize, lineHeight: 1.2 }}>
+      {children}
+    </span>
+  )
+}
+
+// Largura/altura de um elemento, atualizada no resize.
+function useElementSize() {
+  const ref = useRef(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (!node) return undefined
+    const measure = () => setSize({ width: node.clientWidth, height: node.clientHeight })
+    measure()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  return [ref, size]
+}
+
+// Espelha innerRadius="68%" / outerRadius="96%" do Pie abaixo.
+const DONUT_INNER_RATIO = 0.68 * 0.96
+
 export function DonutChart({
   data,
   centerLabel = 'Total',
@@ -160,6 +203,8 @@ export function DonutChart({
   maxSlices = 6,
   height = 220,
   legend = true,
+  // stacked: legenda embaixo do donut em qualquer largura (colunas estreitas).
+  stacked = false,
 }) {
   const [hovered, setHovered] = useState(null)
 
@@ -174,10 +219,13 @@ export function DonutChart({
 
   const total = slices.reduce((acc, item) => acc + item.value, 0)
   const focus = hovered !== null ? slices[hovered] : null
+  const [chartRef, chartSize] = useElementSize()
+  // Folga de 16% no diametro do furo: o texto e um retangulo dentro de um circulo.
+  const holeWidth = Math.min(chartSize.width, chartSize.height) * DONUT_INNER_RATIO * 0.84
 
   return (
-    <div className={cx('grid items-center gap-5', legend && 'sm:grid-cols-[minmax(0,220px)_1fr]')}>
-      <div className="relative" style={{ height }}>
+    <div className={cx('grid items-center gap-5', legend && !stacked && 'sm:grid-cols-[minmax(0,220px)_1fr]')}>
+      <div ref={chartRef} className="relative" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -209,16 +257,16 @@ export function DonutChart({
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="max-w-[60%] truncate text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <span className="truncate text-xs font-semibold uppercase tracking-wide text-zinc-500" style={{ maxWidth: holeWidth || '60%' }}>
             {focus ? focus.name : centerLabel}
           </span>
-          <span className="mt-0.5 text-lg font-bold tabular tracking-tight text-zinc-950">
+          <FitText maxWidth={holeWidth} baseSize={18} className="mt-0.5 font-bold tabular tracking-tight text-zinc-950">
             {formatter(focus ? focus.value : total)}
-          </span>
+          </FitText>
           {focus && total > 0 ? (
-            <span className="text-xs font-semibold tabular text-zinc-500">
+            <FitText maxWidth={holeWidth} baseSize={12} className="font-semibold tabular text-zinc-500">
               {((focus.value / total) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
-            </span>
+            </FitText>
           ) : null}
         </div>
       </div>
