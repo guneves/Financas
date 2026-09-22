@@ -175,3 +175,144 @@ def test_bcb_failure_fails_every_title_without_breaking_the_request(app_module, 
     body = refresh.get_json()
     assert body["updated_assets"] == []
     assert [asset["error"] for asset in body["failed_assets"]] == ["BCB respondeu 503"]
+
+
+class FakeBcbResponse:
+    def __init__(self, body):
+        self.body = body
+
+    def read(self):
+        return self.body.encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def fake_bcb_http_error(code, body):
+    import io
+    import urllib.error
+
+    return urllib.error.HTTPError("https://api.bcb.gov.br", code, "erro", {}, io.BytesIO(body.encode()))
+
+
+def test_bcb_not_found_is_an_empty_series(app_module, monkeypatch):
+    # Titulo comprado hoje: o SGS responde 404 "Value(s) not found".
+    def urlopen(req, timeout=None):
+        raise fake_bcb_http_error(404, '{"erro":{"statusCode":404,"detail":"SGSNegocioException: Value(s) not found"}}')
+
+    monkeypatch.setattr(app_module.urllib.request, "urlopen", urlopen)
+    assert app_module.fetch_bcb_series(12, datetime(2026, 9, 22), datetime(2026, 9, 22)) == []
+
+
+def test_bcb_error_object_fails_with_its_message(app_module, monkeypatch):
+    # Um objeto em vez de lista era iterado como chaves: "'str' object has no attribute 'get'".
+    monkeypatch.setattr(
+        app_module.urllib.request,
+        "urlopen",
+        lambda req, timeout=None: FakeBcbResponse('{"error": "Servico indisponivel"}'),
+    )
+    with pytest.raises(RuntimeError, match="Servico indisponivel"):
+        app_module.fetch_bcb_series(12, datetime(2025, 1, 1), datetime(2025, 2, 1))
+
+
+def test_bcb_other_http_errors_still_fail(app_module, monkeypatch):
+    def urlopen(req, timeout=None):
+        raise fake_bcb_http_error(500, "boom")
+
+    monkeypatch.setattr(app_module.urllib.request, "urlopen", urlopen)
+    with pytest.raises(RuntimeError, match="500"):
+        app_module.fetch_bcb_series(12, datetime(2025, 1, 1), datetime(2025, 2, 1))
+
+
+def test_bcb_windows_over_ten_years_are_split(app_module, monkeypatch):
+    windows = []
+
+    def urlopen(req, timeout=None):
+        query = req.full_url.split("?", 1)[1]
+        params = dict(part.split("=") for part in query.split("&"))
+        windows.append((params["dataInicial"], params["dataFinal"]))
+        return FakeBcbResponse(f'[{{"data": "{params["dataInicial"]}", "valor": "0.04"}}]')
+
+    monkeypatch.setattr(app_module.urllib.request, "urlopen", urlopen)
+    series = app_module.fetch_bcb_series(12, datetime(2010, 1, 1), datetime(2026, 9, 22))
+
+    assert windows == [
+        ("01/01/2010", "29/12/2019"),
+        ("30/12/2019", "22/09/2026"),
+    ]
+    assert [day for day, _ in series] == [datetime(2010, 1, 1), datetime(2019, 12, 30)]
+    assert series[0][1] == pytest.approx(0.0004)
+
+
+def test_refresh_of_a_title_bought_today_keeps_its_cost(app_module, client, auth, monkeypatch):
+    def urlopen(req, timeout=None):
+        raise fake_bcb_http_error(404, '{"erro":{"statusCode":404,"detail":"Value(s) not found"}}')
+
+    monkeypatch.setattr(app_module.urllib.request, "urlopen", urlopen)
+    created_id = create_fixed_income(client, auth, "CDB DE HOJE", {
+        "rate_type": "POS", "indexer": "CDI", "cdi_percentage": 1.0,
+        "purchase_date": datetime.now().strftime("%Y-%m-%d"),
+    })
+    refresh = client.post("/api/investments/update-prices", json={"investment_id": created_id}, headers=auth)
+    assert refresh.status_code == 200, refresh.get_data(as_text=True)
+    body = refresh.get_json()
+    assert body["failed_assets"] == []
+    assert [asset["price"] for asset in body["updated_assets"]] == [1000.0]
+
+
+def post_fixed_income(client, auth, metadata, quantity=1):
+    return client.post(
+        "/api/investments",
+        json=[{
+            "asset_class": "FIXED_INCOME",
+            "ticker_or_name": "CDB VALIDACAO",
+            "quantity": quantity,
+            "average_price": 1000,
+            "current_price": 1000,
+            "metadata": {"purchase_date": "2025-01-02", **metadata},
+        }],
+        headers=auth,
+    )
+
+
+@pytest.mark.parametrize("metadata, message", [
+    ({"rate_type": "POS", "indexer": "SELIC", "annual_rate": 0.1}, "Indexador"),
+    ({"rate_type": "FLUTUANTE", "annual_rate": 0.1}, "pos-fixada"),
+    ({"fixed_income_type": "POUPANCA", "rate_type": "PRE", "annual_rate": 0.1}, "Tipo de titulo"),
+    ({"rate_type": "PRE"}, "taxa anual"),
+    ({"rate_type": "POS", "indexer": "IPCA", "cdi_percentage": 1.1}, "taxa anual"),
+    ({"rate_type": "POS", "indexer": "CDI", "cdi_percentage": 0}, "percentual do CDI"),
+    ({"rate_type": "POS", "indexer": "CDI", "cdi_percentage": "abc"}, "percentual do CDI"),
+])
+def test_buy_with_unreadable_rate_is_refused(client, auth, metadata, message):
+    response = post_fixed_income(client, auth, metadata)
+    assert response.status_code == 400, response.get_data(as_text=True)
+    assert message in response.get_json()["error"]
+
+
+@pytest.mark.parametrize("metadata", [
+    {},  # titulo sem taxa: preco manual, como antes
+    {"cdi_percentage": 1.1},  # legado
+    {"fixed_income_type": "LCA", "rate_type": "POS", "indexer": "CDI", "cdi_percentage": 0.95},
+    {"fixed_income_type": "DEBENTURE", "rate_type": "POS", "indexer": "IPCA", "annual_rate": 0.065},
+    {"fixed_income_type": "CDB", "rate_type": "PRE", "annual_rate": 0.12},
+])
+def test_valid_or_legacy_buys_are_accepted(client, auth, metadata):
+    response = post_fixed_income(client, auth, metadata)
+    assert response.status_code in (200, 201), response.get_data(as_text=True)
+
+
+def test_edit_with_unreadable_rate_is_refused(client, auth):
+    created_id = create_fixed_income(client, auth, "CDB EDITADO", {
+        "rate_type": "POS", "indexer": "CDI", "cdi_percentage": 1.0, "purchase_date": "2025-01-02",
+    })
+    response = client.patch(
+        f"/api/investments/{created_id}",
+        json={"metadata": {"rate_type": "POS", "indexer": "CDI_PLUS", "purchase_date": "2025-01-02"}},
+        headers=auth,
+    )
+    assert response.status_code == 400
+    assert "taxa anual" in response.get_json()["error"]

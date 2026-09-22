@@ -22,6 +22,7 @@ import {
   parseInstallmentInfo,
 } from './helpers'
 import ProjectionHeader from './ProjectionHeader'
+import PayInvoiceSheet from '../../components/PayInvoiceSheet'
 import useLancamentos from './useLancamentos'
 
 function invoiceDueDate(invoice, dueDay) {
@@ -58,6 +59,7 @@ export default function Cartoes() {
     fetchData,
     balance,
     cards,
+    accounts,
     ccExpenses,
     projectedBalanceGlobal,
     projectedBalanceNextMonth,
@@ -65,6 +67,9 @@ export default function Cartoes() {
   } = useLancamentos()
 
   const [saving, setSaving] = useState(false)
+  // Fatura aguardando confirmacao no sheet de pagamento: { invoice, cardGroup }.
+  const [paying, setPaying] = useState(null)
+  const [payError, setPayError] = useState('')
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
 
@@ -175,23 +180,38 @@ export default function Cartoes() {
     setToggledInvoices((prev) => ({ ...prev, [key]: !isInvoiceExpanded(key) }))
   }
 
-  const handlePayInvoice = async (invoice, cardGroup) => {
+  const handlePayInvoice = (invoice, cardGroup) => {
     if (!invoice.closed) return
-    if (!window.confirm(`Deseja pagar a fatura ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} do cartão ${cardGroup.cardName} no valor de ${formatCurrency(invoice.total)}?`)) return
+    setPayError('')
+    setPaying({ invoice, cardGroup })
+  }
 
+  // Conta sugerida: a do debito automatico do cartao, senao a padrao — a
+  // mesma que o servidor usa quando account_id nao vem.
+  const suggestedPayAccountId = useMemo(() => {
+    const active = accounts.filter((account) => !account.archived_at)
+    const autopayId = paying?.cardGroup.autopayAccountId
+    if (autopayId && active.some((account) => account.id === autopayId)) return autopayId
+    return (active.find((account) => account.is_default) || active[0])?.id || ''
+  }, [accounts, paying])
+
+  const confirmPayInvoice = async (accountId) => {
+    if (!paying) return
+    const { invoice, cardGroup } = paying
     setSaving(true)
-    setDataError('')
+    setPayError('')
     try {
       // Um unico pedido: o servidor lanca a despesa e baixa a fatura juntos.
       await ccExpensesApi.payInvoice({
         card_id: cardGroup.cardId,
         invoice_month: invoice.invoiceMonth,
         invoice_year: invoice.invoiceYear,
+        account_id: accountId || undefined,
       })
-
+      setPaying(null)
       await fetchData()
     } catch (error) {
-      setDataError(error.message || 'Não foi possível pagar a fatura.')
+      setPayError(error.message || 'Não foi possível pagar a fatura.')
     } finally {
       setSaving(false)
     }
@@ -288,6 +308,21 @@ export default function Cartoes() {
       />
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
+
+      <PayInvoiceSheet
+        open={Boolean(paying)}
+        onClose={() => setPaying(null)}
+        title="Pagar fatura"
+        description={paying
+          ? `${paying.cardGroup.cardName} · ${formatInvoiceLabel(paying.invoice.invoiceMonth, paying.invoice.invoiceYear)}`
+          : undefined}
+        total={paying?.invoice.total || 0}
+        accounts={accounts}
+        defaultAccountId={suggestedPayAccountId}
+        saving={saving}
+        error={payError}
+        onConfirm={confirmPayInvoice}
+      />
 
       <ProjectionHeader
         balance={balance}

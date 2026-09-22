@@ -36,56 +36,46 @@
 | Invoice payment only after closing, server-side; "Débito automático" per card — migration 011 | 2026-09-22 |
 | Investimentos: "Evolução do Patrimônio" (monthly valor aplicado + ganho de capital, 6M–5A) replaces "Rentabilidade por ativo" | 2026-09-22 |
 | Username (display name) on signup, editable in Ajustes → Perfil; email no longer shown as the name; privacy toggle (eye) masks money and name — migration 012 | 2026-09-22 |
+| BCB fetch hardened (404 = no data yet, >10-year windows split, error payloads reported); fixed-income rate metadata validated on save; clearer provento error without a position | 2026-09-22 |
+| Invoice payment: account picker (card's autopay account, else default); Início warns when an autopay account will not cover upcoming debits | 2026-09-22 |
+| Statement filters in the URL; favicon; route-level `lazy()` (largest chunk 386 kB, was 737 kB) | 2026-09-22 |
 
 ---
 
 ## 2. Open work, in priority order
 
-### UX reorganization — follow-ups
-All six steps done (summary at `5faa425:docs/ux-reorganization.md`). Tested only on a scratch database so far.
-- [ ] **Owner walk-through in the real app**, then settle open decisions 6–8 below.
-- [ ] Keep statement filters in the URL — today a reload clears them.
-- [ ] Add a favicon to `frontend/index.html` — every first load logs a 404.
-- [ ] Split the bundle (737 kB, over Vite's 500 kB warning) with route-level `lazy()`.
+### Browser walk-through (owner) — everything below is backend-tested and `vite build` clean only
+The Chrome extension was offline again on 2026-09-22 and Playwright is not installed, so none of the
+recent frontend work has been clicked through. One pass in the real app covers all of it:
+- [ ] UX reorganization (all six steps), then settle open decisions 6–8 below.
+- [ ] Signup with username, the eye toggle on every page (charts, tooltips, "+ Novo" sheet),
+  Ajustes → Perfil. Existing accounts have `username = NULL` and show "Usuário" until they pick one.
+- [ ] Cartões and Início: Pagar opens a sheet with "Debitar da conta" (Cartões preselects the card's
+  autopay account, else the default; Início defaults to "Conta de cada cartão"); the sheet warns when
+  the chosen account's balance does not cover the invoice.
+- [ ] Início "Precisa de você": "Débito automático sem saldo" appears when autopay invoices due in the
+  next 31 days exceed the debit account's balance today.
+- [ ] Extrato: filters survive a reload and the filter panel opens when the URL carries them.
+- [ ] Each screen loads its own chunk now; first visit shows a skeleton in the page area.
 
-### Username and privacy mode (done 2026-09-22, follow-ups)
-- [ ] Not checked in a browser yet (the Chrome extension was offline). Walk through signup, the
-  eye toggle on every page (charts, tooltips, "+ Novo" sheet) and Ajustes → Perfil.
-- [ ] Existing accounts have `username = NULL` and show "Usuário" until they pick one.
-- [ ] Masking covers values formatted through `lib/format.js` / `compactCurrency`. Percentages and
-  share quantities stay visible on purpose; chart shapes still show relative sizes.
-
-### Bugs found during the UX work (pre-existing, backend)
-- [ ] Registering a provento against a fixed-income asset (CDB) returns a backend error.
-- [ ] Quote update on fixed-income assets fails with `'str' object has no attribute 'get'` (not
-  reproduced on 2026-09-22 against a scratch DB or a copy of the real one; the missing-rate case
-  reports "Taxa do titulo nao informada", and redemption rows are no longer refreshed, which was
-  the one spurious failure the real data produced).
-
-### Fixed income — type and indexer (done 2026-09-22, follow-ups)
-Buys carry `fixed_income_type`, `rate_type` (POS/PRE), `indexer` (CDI/CDI_PLUS/IPCA) and
-`cdi_percentage` or `annual_rate`; the quantity field is gone for fixed-income buys. Valuation in
-`refresh_fixed_income_prices` handles all four forms (tests: `test_fixed_income_indexers.py`).
-Since 2026-09-22 the refresh fetches each BCB series once for the whole portfolio, in parallel
-with yfinance (`start_/finish_fixed_income_refresh`).
-- [ ] IPCA+ is an **estimate**: the purchase month is pro rata by calendar days and the current,
+### Known limits, accepted for now
+- Privacy masking covers values formatted through `lib/format.js` / `compactCurrency`. Percentages
+  and share quantities stay visible on purpose; chart shapes still show relative sizes.
+- IPCA+ is an **estimate**: the purchase month is pro rata by calendar days and the current,
   unpublished month is missing until the BCB releases it. Real contracts use pro rata by business
   days and the projected IPCA — revisit if the owner holds IPCA+ papers and sees a gap.
-- [ ] The backend does not validate the new metadata keys on `POST /api/investments`; a bad
-  indexer surfaces only as a failed refresh.
-- [ ] Lancamentos from before this change have no `fixed_income_type`; the edit sheet asks for
-  one on first edit.
-
-### Credit card payment — closed-only + Débito automático (done 2026-09-22, follow-ups)
-Payment goes through `POST /api/cc-expenses/pay-invoice` (EXPENSE + PAID in one DB transaction),
-refused with 409 before the closing day; the status PATCHes refuse PAID the same way. A card with
-`autopay_account_id` is paid on its due date by `apply_due_autopay()`, which runs at the start of
-the GETs for transactions, accounts, cards and cc-expenses (tests: `test_invoice_payment.py`).
-- [ ] Manual payment always debits the **default account**; there is no account picker in the
-  Pagar confirmation. Use the card's autopay account when set, or ask?
-- [ ] Autopay does not check the balance — it debits even into the negative, as a real bank's
-  débito automático would try to. Warn on Início when the debit account will not cover it?
-- [ ] Not clicked through in a browser; verified by backend tests and `vite build`.
+- Lançamentos from before the fixed-income type change have no `fixed_income_type`; the edit sheet
+  asks for one on first edit. Validation on save (`validate_fixed_income_metadata`) only checks a
+  buy that carries rate keys, so a title without any rate (manual price) is still accepted.
+- Autopay still debits into the negative, as a real bank would try to; the Início warning is the
+  mitigation. The warning compares against today's balance, not a projected one, and counts a
+  not-yet-closed invoice at its current total.
+- The provento-on-CDB "backend error" did not reproduce as a 500, neither on current code nor at
+  `95f5eea` where it was logged. The one refusal is "no position on the Data com" (title bought after
+  it, or already redeemed); the message now names the date. Reopen with the exact steps if seen again.
+- The `'str' object has no attribute 'get'` quote failure matches iterating a BCB error object; the
+  fetch now rejects non-list payloads with the BCB's message, treats 404 "Value(s) not found" (title
+  bought today) as no accrual, and splits windows over BCB's 10-year limit (406).
 
 ### Phase 4 — Reduce friction
 - [ ] **CSV statement import** with configurable column mapping; dedupe by hash (date + amount +

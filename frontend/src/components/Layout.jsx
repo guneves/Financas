@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Eye, EyeOff, LogOut, Plus, Settings, Wallet } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, useCallback, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
 import { areValuesHidden, MASKED_TEXT, setValuesHidden } from '../lib/format'
@@ -8,7 +8,7 @@ import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
-import { Button, cx, Tabs } from './ui'
+import { Button, cx, Skeleton, Tabs } from './ui'
 
 const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD', 'INVESTMENT']
 
@@ -222,7 +222,9 @@ export default function Layout() {
             {/* Trocar o modo privado remonta a pagina: os formatadores de
                 lib/format.js leem o modo na renderizacao. */}
             <div key={`${location.pathname}:${valuesHidden}`} className="animate-fade-up">
-              <Outlet />
+              <Suspense fallback={<PageLoading />}>
+                <Outlet />
+              </Suspense>
             </div>
           </main>
         </div>
@@ -264,5 +266,16 @@ export default function Layout() {
       />
       </DataVersionContext.Provider>
     </NewEntryContext.Provider>
+  )
+}
+
+// Enquanto o chunk da tela carrega (primeira visita a cada tela).
+function PageLoading() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Carregando">
+      <Skeleton className="h-10 w-56" />
+      <Skeleton className="h-32 w-full" />
+      <Skeleton className="h-64 w-full" />
+    </div>
   )
 }

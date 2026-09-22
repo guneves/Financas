@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sqlite3
+import urllib.error
 import urllib.request
 import uuid
 import base64
@@ -1213,7 +1214,12 @@ def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
         if amount_per_unit is None:
             raise ValidationError("Informe valor por cota ou valor bruto.")
         if eligible_quantity <= 0:
-            raise ValidationError("Informe a quantidade elegivel ou cadastre uma posicao na data com.")
+            # Sem posicao na data com: titulo comprado depois dela ou ja resgatado.
+            record_label = datetime.strptime(record_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+            raise ValidationError(
+                f"Nenhuma posicao neste ativo na data com ({record_label}). "
+                "Confira a data com, informe o valor bruto ou a quantidade elegivel."
+            )
         gross_amount = amount_per_unit * eligible_quantity
 
     if amount_per_unit is None and eligible_quantity > 0:
@@ -4400,14 +4406,24 @@ def update_invoice_status(current_user_id):
     return jsonify({"updated": cursor.rowcount}), 200
 
 
+def invoice_payment_account_id(conn, current_user_id, card, payload):
+    """Conta do pagamento manual: a informada, a do debito automatico ou a padrao."""
+    if payload.get("account_id") in (None, "") and card["autopay_account_id"]:
+        autopay_account = fetch_account(conn, current_user_id, card["autopay_account_id"])
+        if autopay_account and not autopay_account["archived_at"]:
+            return autopay_account["id"]
+    return resolve_account_id(conn, current_user_id, payload)
+
+
 @app.route("/api/cc-expenses/pay-invoice", methods=["POST"])
 @token_required
 def pay_invoice(current_user_id):
     """Paga uma fatura fechada: debita a conta e baixa os itens, de uma vez.
 
     Fatura ainda aberta (antes do dia do fechamento) e recusada com 409 — o
-    valor dela ainda pode mudar. `account_id` omitido usa a conta padrao;
-    `date` omitido e hoje.
+    valor dela ainda pode mudar. `account_id` omitido usa a conta do debito
+    automatico do cartao, se houver e nao estiver arquivada, senao a conta
+    padrao; `date` omitido e hoje.
     """
     payload = parse_json_body()
     if not isinstance(payload, dict):
@@ -4430,7 +4446,7 @@ def pay_invoice(current_user_id):
             return jsonify({"error": "Cartao nao encontrado."}), 404
         try:
             ensure_invoice_closed(card, invoice_month, invoice_year)
-            account_id = resolve_account_id(conn, current_user_id, payload)
+            account_id = invoice_payment_account_id(conn, current_user_id, card, payload)
         except InvoiceStillOpenError as exc:
             return validation_error(str(exc), 409)
         except ValidationError as exc:
@@ -4785,6 +4801,7 @@ def investments(current_user_id):
                 if metadata not in (None, "") and not isinstance(metadata, (dict, str)):
                     raise ValidationError("Metadata deve ser um objeto valido.")
                 metadata_dict = investment_metadata_dict(metadata)
+                validate_fixed_income_metadata(asset_class, quantity, metadata_dict)
                 ticker_or_name = resolve_catalog_ticker(
                     conn,
                     current_user_id,
@@ -4940,6 +4957,10 @@ def investment_detail(current_user_id, investment_id):
             if "metadata" in payload
             else existing.get("metadata") or {}
         )
+        try:
+            validate_fixed_income_metadata(asset_class, quantity, metadata)
+        except ValidationError as exc:
+            return validation_error(str(exc))
         transaction_date = investment_transaction_date(metadata, existing.get("created_at"))
 
         if "quantity" in payload:
@@ -6117,6 +6138,40 @@ def fixed_income_rate_terms(metadata):
     return indexer, rate
 
 
+FIXED_INCOME_TYPES = {"CDB", "LCI", "LCA", "LC", "LF", "RDB", "DEBENTURE", "CRI", "CRA", "CCB"}
+FIXED_INCOME_RATE_KEYS = ("fixed_income_type", "rate_type", "indexer", "cdi_percentage", "annual_rate")
+
+
+def validate_fixed_income_metadata(asset_class, quantity, metadata):
+    """Recusa na gravacao a remuneracao que a atualizacao nao saberia ler.
+
+    So vale para compras de renda fixa que tragam alguma das chaves de
+    remuneracao: titulo sem taxa (preco manual) e resgates seguem livres.
+    Sem isso, um indexador errado so aparecia como falha em "Atualizar cotacoes".
+    """
+    metadata = metadata or {}
+    if asset_class != "FIXED_INCOME" or quantity <= 0 or metadata.get("is_redemption"):
+        return
+    if not any(metadata.get(key) not in (None, "") for key in FIXED_INCOME_RATE_KEYS):
+        return
+
+    fixed_income_type = metadata.get("fixed_income_type")
+    if fixed_income_type not in (None, "") and fixed_income_type not in FIXED_INCOME_TYPES:
+        raise ValidationError("Tipo de titulo de renda fixa invalido.")
+    rate_type = metadata.get("rate_type")
+    if rate_type not in (None, "", "POS", "PRE"):
+        raise ValidationError("Remuneracao deve ser pos-fixada ou pre-fixada.")
+    if rate_type != "PRE":
+        indexer = metadata.get("indexer") or "CDI"
+        if indexer not in FIXED_INCOME_INDEXERS:
+            raise ValidationError("Indexador deve ser CDI, CDI+ ou IPCA+.")
+    indexer, _ = fixed_income_rate_terms(metadata)
+    if indexer is None:
+        if rate_type == "PRE" or (metadata.get("indexer") or "CDI") != "CDI":
+            raise ValidationError("Informe a taxa anual do titulo.")
+        raise ValidationError("Informe o percentual do CDI do titulo.")
+
+
 def ipca_accrual_factor(ipca_monthly, purchase_date):
     """Fator do IPCA desde a compra, com o primeiro mes pro rata por dias corridos.
 
@@ -6163,23 +6218,56 @@ def fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca_monthly=None, pur
     raise ValueError(f"Indexador desconhecido: {indexer}")
 
 
-def fetch_bcb_series(series_code, start_date, end_date=None):
-    """Busca uma serie do SGS do BCB; devolve [(data, valor decimal)]."""
-    end_date = end_date or datetime.now()
+# O SGS recusa (HTTP 406) consultas de serie diaria com janela acima de 10 anos.
+BCB_MAX_WINDOW_DAYS = 3650
+
+
+def fetch_bcb_window(series_code, start_date, end_date):
+    """Uma consulta ao SGS; devolve a lista crua de {"data", "valor"}.
+
+    Sem valores no periodo (compra de hoje, CDI do dia ainda nao publicado) o
+    BCB responde 404 com {"erro": ...}: isso e uma serie vazia, nao uma falha.
+    Qualquer outra resposta que nao seja uma lista vira erro legivel -- iterar
+    o objeto de erro era o "'str' object has no attribute 'get'".
+    """
     url = (
         f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{series_code}/dados"
         f"?formato=json&dataInicial={start_date.strftime('%d/%m/%Y')}"
         f"&dataFinal={end_date.strftime('%d/%m/%Y')}"
     )
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=15) as response_bcb:
-        if response_bcb.status != 200:
-            raise RuntimeError(f"BCB respondeu {response_bcb.status}")
-        rows = json.loads(response_bcb.read().decode())
-    return [
-        (datetime.strptime(row["data"], "%d/%m/%Y"), safe_float(row.get("valor")) / 100)
-        for row in rows
-    ]
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response_bcb:
+            body = response_bcb.read().decode()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace") if exc.fp else ""
+        if exc.code == 404 and "not found" in detail.lower():
+            return []
+        raise RuntimeError(f"BCB respondeu {exc.code}") from exc
+
+    rows = json.loads(body) if body.strip() else []
+    if not isinstance(rows, list):
+        message = rows.get("error") or rows.get("erro") if isinstance(rows, dict) else None
+        if isinstance(message, dict):
+            message = message.get("detail")
+        raise RuntimeError(f"Resposta inesperada do BCB: {message or 'formato desconhecido'}")
+    return rows
+
+
+def fetch_bcb_series(series_code, start_date, end_date=None):
+    """Busca uma serie do SGS do BCB; devolve [(data, valor decimal)].
+
+    Periodos acima de 10 anos sao buscados em janelas consecutivas.
+    """
+    end_date = end_date or datetime.now()
+    series = []
+    window_start = start_date
+    while window_start <= end_date:
+        window_end = min(window_start + timedelta(days=BCB_MAX_WINDOW_DAYS - 1), end_date)
+        for row in fetch_bcb_window(series_code, window_start, window_end):
+            series.append((datetime.strptime(row["data"], "%d/%m/%Y"), safe_float(row.get("valor")) / 100))
+        window_start = window_end + timedelta(days=1)
+    return series
 
 
 def fixed_income_asset_result(inv, **fields):

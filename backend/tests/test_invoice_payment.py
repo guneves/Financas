@@ -220,6 +220,42 @@ class TestPayInvoice:
         assert payments(client, auth) == []
 
 
+    def test_without_an_account_the_autopay_account_is_used(self, client, auth, today):
+        # Pagar manualmente antes do vencimento sai da mesma conta do debito automatico.
+        account = create_account(client, auth, name="Conta do cartao")
+        card = create_card(client, auth, autopay_account_id=account["id"])
+        add_line(client, auth, card, 10, 2026)
+        today.set(date(2026, 10, 5))
+
+        response = pay(client, auth, card, 10, 2026)
+
+        assert response.status_code == 201, response.get_data(as_text=True)
+        assert response.get_json()["transaction"]["account_id"] == account["id"]
+
+    def test_an_explicit_account_wins_over_the_autopay_account(self, client, auth, today):
+        autopay = create_account(client, auth, name="Debito")
+        chosen = create_account(client, auth, name="Escolhida")
+        card = create_card(client, auth, autopay_account_id=autopay["id"])
+        add_line(client, auth, card, 10, 2026)
+        today.set(date(2026, 10, 5))
+
+        response = pay(client, auth, card, 10, 2026, account_id=chosen["id"])
+
+        assert response.get_json()["transaction"]["account_id"] == chosen["id"]
+
+    def test_an_archived_autopay_account_falls_back_to_the_default(self, client, auth, today):
+        autopay = create_account(client, auth, name="Encerrada")
+        card = create_card(client, auth, autopay_account_id=autopay["id"])
+        add_line(client, auth, card, 10, 2026)
+        assert client.delete(f"/api/accounts/{autopay['id']}", headers=auth).status_code == 200
+        today.set(date(2026, 10, 5))
+
+        response = pay(client, auth, card, 10, 2026)
+
+        assert response.status_code == 201, response.get_data(as_text=True)
+        default = next(row for row in client.get("/api/accounts", headers=auth).get_json() if row["is_default"])
+        assert response.get_json()["transaction"]["account_id"] == default["id"]
+
 class TestPaymentLancamentoIsLocked:
     """Editing or deleting only the payment would leave the invoice PAID with no
     money having left the account."""

@@ -1,17 +1,20 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { lazy, useEffect, useState } from 'react'
 import { getSession, onAuthStateChange } from './lib/auth'
 import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
-import Dashboard from './pages/Dashboard'
-import Extrato from './pages/lancamentos/Extrato'
-import Cartoes from './pages/lancamentos/Cartoes'
 import Layout from './components/Layout'
-import Investments from './pages/Investments'
-import Proventos from './pages/Proventos'
-import Orcamento from './pages/Orcamento'
-import Recorrentes from './pages/Recorrentes'
-import Ajustes from './pages/Ajustes'
+
+// Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
+// mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Extrato = lazy(() => import('./pages/lancamentos/Extrato'))
+const Cartoes = lazy(() => import('./pages/lancamentos/Cartoes'))
+const Investments = lazy(() => import('./pages/Investments'))
+const Proventos = lazy(() => import('./pages/Proventos'))
+const Orcamento = lazy(() => import('./pages/Orcamento'))
+const Recorrentes = lazy(() => import('./pages/Recorrentes'))
+const Ajustes = lazy(() => import('./pages/Ajustes'))
 
 export default function App() {
   const [session, setSession] = useState(null)

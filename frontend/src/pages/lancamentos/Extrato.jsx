@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Check, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { transactionsApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
@@ -21,6 +22,22 @@ import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
+
+// Os filtros moram na URL (?q=...&from=...): recarregar a pagina ou voltar
+// para ela mantem a busca. So as chaves de EMPTY_FILTERS sao lidas.
+function filtersFromParams(params) {
+  return Object.fromEntries(Object.keys(EMPTY_FILTERS).map((key) => [key, params.get(key) || '']))
+}
+
+function paramsFromFilters(filters, previous) {
+  const next = new URLSearchParams(previous)
+  Object.keys(EMPTY_FILTERS).forEach((key) => {
+    const value = String(filters[key] ?? '')
+    if (value.trim() !== '') next.set(key, value)
+    else next.delete(key)
+  })
+  return next
+}
 
 function hasActiveFilters(filters) {
   return Object.values(filters).some((value) => String(value).trim() !== '')
@@ -71,16 +88,25 @@ export default function Extrato() {
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
-  const [showFilters, setShowFilters] = useState(false)
 
   // Filtros do extrato: aplicados no backend (GET /api/transactions?...).
   // Sem filtro, o extrato usa a lista completa ja carregada por useLancamentos.
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  // replace: digitar na busca nao empilha uma entrada de historico por letra.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo(() => filtersFromParams(searchParams), [searchParams])
+  const setFilters = useCallback((next) => {
+    setSearchParams((previous) => {
+      const value = typeof next === 'function' ? next(filtersFromParams(previous)) : next
+      return paramsFromFilters(value, previous)
+    }, { replace: true })
+  }, [setSearchParams])
   const [filteredTransactions, setFilteredTransactions] = useState(null)
   const [filterError, setFilterError] = useState('')
   const [filtering, setFiltering] = useState(false)
   const filtersActive = hasActiveFilters(filters)
   const hiddenFilterCount = countHiddenFilters(filters)
+  // Chegando com filtros da URL, o painel ja abre mostrando-os.
+  const [showFilters, setShowFilters] = useState(() => hiddenFilterCount > 0)
 
   const updateFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }))
 

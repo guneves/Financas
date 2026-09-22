@@ -32,9 +32,10 @@ import {
   Wallet,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import { accountsApi, ccExpensesApi, recurringApi, transactionsApi } from '../lib/dataApi'
+import { accountsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../lib/newEntry'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
+import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
   AlertMessage,
   Badge,
@@ -159,7 +160,11 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState([])
   const [ccExpenses, setCcExpenses] = useState([])
   const [accounts, setAccounts] = useState([])
+  const [cards, setCards] = useState([])
   const [isPayingCurrentInvoice, setIsPayingCurrentInvoice] = useState(false)
+  // Pagamento aguardando confirmacao no sheet: { title, description, invoices, total }.
+  const [payRequest, setPayRequest] = useState(null)
+  const [payError, setPayError] = useState('')
   const [recurringItems, setRecurringItems] = useState([])
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
   const [notice, setNotice] = useState('')
@@ -200,6 +205,14 @@ export default function Dashboard() {
       setDataError(error.message || 'Não foi possível carregar movimentações e faturas.')
       setTransactions([])
       setCcExpenses([])
+    }
+
+    // Cartoes so para o aviso de debito automatico sem saldo; falhar esconde o aviso.
+    try {
+      setCards((await creditCardsApi.list()) || [])
+    } catch (error) {
+      console.warn('Erro ao buscar cartões:', error)
+      setCards([])
     }
 
     // Recorrencias vencidas para o "Precisa de voce". Falhar aqui so esconde o
@@ -408,6 +421,41 @@ export default function Dashboard() {
     ? `${overdueInvoices[0].card_name} · venceu em ${formatDateBR(overdueInvoices[0].due_date)}`
     : `${overdueInvoices.length} faturas · a mais antiga venceu em ${formatDateBR(overdueInvoices[0]?.due_date)}`
 
+  // Debito automatico que a conta nao cobre: faturas de cartoes com debito
+  // automatico que vencem nos proximos 31 dias, somadas por conta e comparadas
+  // ao saldo de hoje. O debito acontece mesmo assim (deixa a conta negativa),
+  // entao o aviso e para transferir antes. Fatura ainda aberta entra pelo
+  // total atual, que ainda pode crescer.
+  const autopayShortfalls = useMemo(() => {
+    const todayText = getLocalDateString()
+    const limit = new Date()
+    limit.setDate(limit.getDate() + 31)
+    const limitText = getLocalDateString(limit)
+    const autopayByCard = Object.fromEntries(
+      cards.filter((card) => card.autopay_account_id).map((card) => [card.id, card.autopay_account_id])
+    )
+    const byAccount = {}
+    openCcExpenses.forEach((item) => {
+      const accountId = autopayByCard[item.card_id]
+      const due = item.invoice_due_date
+      if (!accountId || !due || due < todayText || due > limitText) return
+      if (!byAccount[accountId]) byAccount[accountId] = { accountId, total: 0, firstDue: due }
+      byAccount[accountId].total += parseFloat(item.amount) || 0
+      if (due < byAccount[accountId].firstDue) byAccount[accountId].firstDue = due
+    })
+    return Object.values(byAccount)
+      .map((entry) => {
+        const account = accounts.find((row) => row.id === entry.accountId)
+        if (!account || account.archived_at) return null
+        const accountBalance = Number(account.balance) || 0
+        return accountBalance < entry.total
+          ? { ...entry, accountName: account.name, balance: accountBalance, missing: entry.total - accountBalance }
+          : null
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.firstDue.localeCompare(b.firstDue))
+  }, [cards, accounts, openCcExpenses])
+
   const nextClosingDate = useMemo(() => nextInvoiceItems
     .filter((item) => item.invoice_closed !== true && item.invoice_closing_date)
     .map((item) => item.invoice_closing_date)
@@ -474,51 +522,52 @@ export default function Dashboard() {
     0
   )
 
-  const handlePayCurrentMonthInvoice = async () => {
+  const handlePayCurrentMonthInvoice = () => {
     if (payableInvoices.length === 0 || payableTotal <= 0) return
-
-    const confirmed = window.confirm(`Deseja pagar a fatura fechada deste mês no valor de ${formatCurrency(payableTotal)}?`)
-    if (!confirmed) return
-
-    setIsPayingCurrentInvoice(true)
-
-    try {
-      for (const invoice of payableInvoices) {
-        await ccExpensesApi.payInvoice({
-          card_id: invoice.card_id,
-          invoice_month: invoice.invoice_month,
-          invoice_year: invoice.invoice_year,
-        })
-      }
-
-      await fetchAllData()
-    } catch (error) {
-      console.warn('Erro ao pagar a fatura do mês:', error)
-      setDataError(error.message || 'Não foi possível pagar a fatura do mês.')
-    } finally {
-      setIsPayingCurrentInvoice(false)
-    }
+    setPayError('')
+    setPayRequest({
+      title: 'Pagar fatura do mês',
+      description: payableInvoices.length === 1
+        ? 'Fatura fechada deste mês.'
+        : `${payableInvoices.length} faturas fechadas deste mês, uma por cartão.`,
+      invoices: payableInvoices,
+      total: payableTotal,
+    })
   }
 
-  const handlePayOverdueInvoices = async () => {
+  const handlePayOverdueInvoices = () => {
     if (overdueInvoices.length === 0) return
+    setPayError('')
+    setPayRequest({
+      title: overdueInvoices.length === 1 ? 'Pagar fatura vencida' : `Pagar ${overdueInvoices.length} faturas vencidas`,
+      description: overdueDetail,
+      invoices: overdueInvoices,
+      total: overdueTotal,
+    })
+  }
 
-    const confirmed = window.confirm(`Deseja pagar ${overdueInvoices.length === 1 ? 'a fatura vencida' : `as ${overdueInvoices.length} faturas vencidas`} no valor de ${formatCurrency(overdueTotal)}?`)
-    if (!confirmed) return
-
+  // Um pedido por fatura. Sem conta escolhida, o servidor usa a do debito
+  // automatico de cada cartao ou a conta padrao.
+  const confirmPayInvoices = async (accountId) => {
+    if (!payRequest) return
     setIsPayingCurrentInvoice(true)
+    setPayError('')
     try {
-      for (const invoice of overdueInvoices) {
+      for (const invoice of payRequest.invoices) {
         await ccExpensesApi.payInvoice({
           card_id: invoice.card_id,
           invoice_month: invoice.invoice_month,
           invoice_year: invoice.invoice_year,
+          account_id: accountId || undefined,
         })
       }
+      setPayRequest(null)
       await fetchAllData()
     } catch (error) {
-      console.warn('Erro ao pagar faturas vencidas:', error)
-      setDataError(error.message || 'Não foi possível pagar as faturas vencidas.')
+      console.warn('Erro ao pagar fatura:', error)
+      setPayError(error.message || 'Não foi possível pagar a fatura.')
+      // Algumas faturas podem ter sido pagas antes do erro.
+      await fetchAllData()
     } finally {
       setIsPayingCurrentInvoice(false)
     }
@@ -569,6 +618,20 @@ export default function Dashboard() {
         invoiceDetail={overdueDetail}
         onPayInvoice={handlePayOverdueInvoices}
         isPayingInvoice={isPayingCurrentInvoice}
+        autopayShortfalls={autopayShortfalls}
+      />
+
+      <PayInvoiceSheet
+        open={Boolean(payRequest)}
+        onClose={() => setPayRequest(null)}
+        title={payRequest?.title}
+        description={payRequest?.description}
+        total={payRequest?.total || 0}
+        accounts={accounts}
+        allowPerCard
+        saving={isPayingCurrentInvoice}
+        error={payError}
+        onConfirm={confirmPayInvoices}
       />
 
       <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1137,10 +1200,11 @@ function NeedsAttention({
   invoiceDetail,
   onPayInvoice,
   isPayingInvoice,
+  autopayShortfalls = [],
 }) {
   const hasRecurring = pendingRecurringCount > 0
   const hasInvoice = invoiceItemCount > 0 && invoiceAmount > 0
-  if (!hasRecurring && !hasInvoice) return null
+  if (!hasRecurring && !hasInvoice && autopayShortfalls.length === 0) return null
 
   return (
     <section aria-labelledby="precisa-de-voce" className="animate-fade-up rounded-xl border border-amber-200 bg-amber-50/60 p-4">
@@ -1177,6 +1241,19 @@ function NeedsAttention({
             )}
           />
         ) : null}
+        {autopayShortfalls.map((entry) => (
+          <AttentionItem
+            key={entry.accountId}
+            icon={Wallet}
+            title={`Débito automático sem saldo: faltam ${formatCurrency(entry.missing)}`}
+            detail={`${entry.accountName} tem ${formatCurrency(entry.balance)} para ${formatCurrency(entry.total)} a debitar · o primeiro em ${formatDateBR(entry.firstDue)}`}
+            action={(
+              <Link to="/lancamentos/cartoes" className="text-sm font-semibold text-emerald-700 underline-offset-2 hover:underline">
+                Ver faturas
+              </Link>
+            )}
+          />
+        ))}
       </ul>
     </section>
   )

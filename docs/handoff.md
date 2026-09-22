@@ -6,7 +6,64 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Faster "Atualizar cotações"
+## Session — 2026-09-22 (latest) · Follow-ups: fixed-income bugs, invoice account, UX debt
+
+### What was done
+
+Owner request: work the five follow-up sections of `next-steps.md` (UX, username/privacy, the two
+pre-existing backend bugs, fixed income, credit card payment).
+
+- **`'str' object has no attribute 'get'` on quote update.** Root cause found: BCB answers a JSON
+  *object* instead of a list on errors, and the old code iterated it (keys are strings). Checked
+  live: 404 `{"erro": ... "Value(s) not found"}` when the range has no data (title bought today,
+  today's CDI not out yet); 406 `{"error": "... no máximo, 10 anos ..."}` for daily windows over 10
+  years. `fetch_bcb_series` now calls `fetch_bcb_window` per ≤3650-day window; 404 "not found" is an
+  empty series (a title bought today keeps its cost instead of failing); any non-list payload raises
+  with the BCB's own message. Needed `import urllib.error`.
+- **Provento on a CDB.** Did **not** reproduce as a 500, neither on current code nor in a throwaway
+  worktree at `95f5eea` (where it was logged), nor against a copy of `finance.db` for all 7
+  fixed-income assets. The only refusal is 400 "no position on the Data com" (title bought after it,
+  or redeemed — the Banco Inter CDB). The message now names the date and suggests Valor bruto
+  (which is accepted without a position). `test_fixed_income_proceeds.py` (4).
+- **Fixed-income metadata validated on save.** `validate_fixed_income_metadata()` on POST and PATCH
+  `/api/investments`: only for buys (quantity > 0, not `is_redemption`) that carry a rate key;
+  checks type, POS/PRE, indexer, and that `fixed_income_rate_terms` can read the rate. Titles with
+  no rate at all (manual price) and legacy `cdi_percentage`-only rows still pass.
+- **Invoice payment account.** `POST /api/cc-expenses/pay-invoice` without `account_id` now uses the
+  card's autopay account when set and not archived, else the default (`invoice_payment_account_id`).
+  Frontend: `components/PayInvoiceSheet.jsx` replaces the `window.confirm`s in Cartões (preselects
+  the same account the server would pick) and Início (option "Conta de cada cartão" = let the server
+  decide per card, since Início pays several cards at once). Warns when the chosen account's balance
+  does not cover the total.
+- **Autopay balance warning.** Início "Precisa de você" shows "Débito automático sem saldo" per
+  account when autopay invoices due in the next 31 days exceed its balance today. Início now also
+  fetches `/api/credit-cards` (separate try; a failure only hides the warning).
+- **UX debt.** Extrato filters live in the URL (`useSearchParams`, `replace: true`, panel opens when
+  the URL carries hidden filters). Favicon `frontend/public/favicon.svg`. Pages are `lazy()` in
+  `App.jsx` with `Suspense` inside Layout's page wrapper; largest chunk is the shared `charts` at
+  386 kB (entry 238 kB), no Vite warning.
+- Tests: 461 passing (436 before). `vite build` clean.
+
+### Not done / worth knowing
+
+- **Nothing was clicked in a browser.** Chrome extension offline again; Playwright is not installed
+  and I did not download it without asking. I started a scratch backend (:5001, against a copy of
+  `finance.db` in the scratchpad, owner's password reset *in the copy only*) and Vite (:5174) and
+  then had no driver. The owner's own servers on :5000/:5173 were left running. `next-steps.md` now
+  has one consolidated "Browser walk-through" section.
+- The owner walk-through and decisions 6–8 are the owner's; untouched.
+- IPCA+ business-day pro rata: left as a known limit (conditional on the owner seeing a gap).
+- The autopay warning uses today's balance, not a projection, and counts a still-open invoice at its
+  current total.
+- If the provento error reappears, get the exact asset/dates — the code path has no 500 left that I
+  could find.
+- Editing files: `Layout.jsx`, `ui.jsx` etc. are LF, `Dashboard.jsx`/`Cartoes.jsx`/`Extrato.jsx`/
+  `App.jsx`/`app.py` are CRLF in the working tree — scripted replacements must match per file.
+- `finance-guard` ran via `subagent_type="finance-guard"` directly (discovery worked): no findings.
+
+---
+
+## Session — 2026-09-22 · Faster "Atualizar cotações"
 
 ### What was done
 
