@@ -32,14 +32,14 @@
 | Shared `frontend/src/lib/format.js` | 2026-09-16 |
 | B3 ticker catalog, autocomplete, and guard on buys | 2026-09-16 |
 | Statement search and filters (§3.7) — closes Phase 3 | 2026-09-21 |
-| UX reorganization: 4 sections + Ajustes, "+ Novo" sheet, Carteira merged away, phone layout (`docs/ux-reorganization.md`) | 2026-09-21 |
+| UX reorganization: 4 sections + Ajustes, "+ Novo" sheet, Carteira merged away, phone layout (spec in git at `9c186fe:docs/ux-reorganization.md`, file removed) | 2026-09-21 |
 
 ---
 
 ## 2. Open work, in priority order
 
 ### UX reorganization — follow-ups
-All six steps done (`docs/ux-reorganization.md`). Tested only on a scratch database so far.
+All six steps done (summary at `5faa425:docs/ux-reorganization.md`). Tested only on a scratch database so far.
 - [ ] **Owner walk-through in the real app**, then settle open decisions 6–8 below.
 - [ ] Keep statement filters in the URL — today a reload clears them.
 - [ ] Add a favicon to `frontend/index.html` — every first load logs a 404.
