@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from functools import wraps
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -59,6 +59,12 @@ MIGRATIONS_DIR = resolve_app_path(
 )
 DATABASE_BACKUP_DIR = resolve_app_path(
     os.getenv("DATABASE_BACKUP_DIR", os.path.join("backups")),
+    BASE_DIR,
+)
+# Comprovantes por lancamento (014). Fora do banco e fora do zip de backup:
+# fotos de recibo multiplicariam o tamanho de cada backup diario da retencao.
+ATTACHMENTS_DIR = resolve_app_path(
+    os.getenv("ATTACHMENTS_DIR", os.path.join("attachments")),
     BASE_DIR,
 )
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
@@ -173,6 +179,14 @@ AUTO_BACKUP_MIN_INTERVAL_HOURS = read_int_env(
     minimum=0,
     maximum=720,
 )
+ATTACHMENT_MAX_BYTES = read_int_env(
+    "ATTACHMENT_MAX_BYTES",
+    10 * 1024 * 1024,
+    minimum=64 * 1024,
+    maximum=50 * 1024 * 1024,
+)
+# Um lancamento com mais que isso nao e um lancamento, e uma pasta.
+ATTACHMENT_MAX_PER_TRANSACTION = 20
 # So os arquivos gerados automaticamente entram na rotacao. Backups com nome
 # proprio (ex.: "finance-before-normalized-investments-*.db") sao marcos feitos
 # a mao e nunca sao apagados pela retencao.
@@ -2515,7 +2529,13 @@ def transactions(current_user_id):
                 return validation_error(str(exc))
             rows = conn.execute(
                 f"""
-                SELECT * FROM transactions
+                SELECT transactions.*,
+                    (
+                        SELECT COUNT(*) FROM transaction_attachments ta
+                        WHERE ta.user_id = transactions.user_id
+                            AND ta.transaction_id = transactions.id
+                    ) AS attachment_count
+                FROM transactions
                 WHERE {where}
                 ORDER BY date DESC, created_at DESC
                 """,
@@ -2724,12 +2744,287 @@ def delete_transaction(current_user_id, item_id):
             }), 409
         if item["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES:
             return jsonify({"error": INVOICE_PAYMENT_LOCKED_MESSAGE}), 409
+        # As linhas de comprovante saem pelo ON DELETE CASCADE; os arquivos,
+        # depois do commit, para um DELETE que falhe nao levar o recibo.
+        stored_names = [
+            row["stored_name"]
+            for row in conn.execute(
+                """
+                SELECT stored_name FROM transaction_attachments
+                WHERE user_id = ? AND transaction_id = ?
+                """,
+                (current_user_id, item_id),
+            ).fetchall()
+        ]
         cursor = conn.execute(
             "DELETE FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),
         )
     if cursor.rowcount == 0:
         return jsonify({"deleted": False}), 404
+    remove_attachment_files(current_user_id, stored_names)
+    return jsonify({"deleted": True}), 200
+
+
+# ---------------------------------------------------------------------------
+# Comprovantes (014)
+# ---------------------------------------------------------------------------
+
+# O tipo vem dos primeiros bytes, nao da extensao nem do Content-Type que o
+# navegador manda: e o que e servido de volta, entao um .html renomeado para
+# .pdf nao pode sair como PDF — ele e recusado.
+ATTACHMENT_TYPES = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/heic": ".heic",
+}
+HEIC_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"mif1", b"msf1"}
+ATTACHMENT_TYPES_MESSAGE = "Envie um PDF ou uma imagem (JPG, PNG, WEBP, GIF ou HEIC)."
+
+
+def sniff_attachment_type(head):
+    if head.startswith(b"%PDF-"):
+        return "application/pdf"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[4:8] == b"ftyp" and head[8:12] in HEIC_BRANDS:
+        return "image/heic"
+    return None
+
+
+def attachment_user_dir(current_user_id):
+    return os.path.join(ATTACHMENTS_DIR, str(current_user_id))
+
+
+def attachment_path(current_user_id, stored_name):
+    return os.path.join(attachment_user_dir(current_user_id), os.path.basename(stored_name))
+
+
+def remove_attachment_files(current_user_id, stored_names):
+    for stored_name in stored_names:
+        path = attachment_path(current_user_id, stored_name)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print(f"Nao foi possivel remover o comprovante {path}: {exc}")
+
+
+def clean_attachment_name(raw_name, extension):
+    """Nome para exibir e baixar: sem pasta, sem caractere de controle, curto."""
+    name = os.path.basename(str(raw_name or "").replace("\\", "/")).strip()
+    name = "".join(char for char in name if char.isprintable()).strip(" .")
+    if not name:
+        name = f"comprovante{extension}"
+    if len(name) > 120:
+        stem, dot, ext = name.rpartition(".")
+        name = (stem[: 120 - len(ext) - 1] + dot + ext) if dot and len(ext) <= 10 else name[:120]
+    return name
+
+
+def serialize_attachment(row):
+    item = row_to_dict(row)
+    item.pop("stored_name", None)
+    item.pop("user_id", None)
+    return item
+
+
+def prune_orphan_attachment_files(min_age_seconds=600):
+    """Remove do disco o comprovante cuja linha ja nao existe.
+
+    O DELETE /api/transactions apaga os arquivos na hora, mas um lancamento
+    tambem sai por outros caminhos (movimentacao de investimento excluida leva
+    o espelho de caixa pelo CASCADE). Roda no boot; arquivos recentes ficam,
+    para nao disputar com um upload em andamento em outro processo.
+    """
+    if not os.path.isdir(ATTACHMENTS_DIR):
+        return []
+    cutoff = time.time() - min_age_seconds
+    removed = []
+    with get_db() as conn:
+        for user_dir in os.listdir(ATTACHMENTS_DIR):
+            full_dir = os.path.join(ATTACHMENTS_DIR, user_dir)
+            if not os.path.isdir(full_dir):
+                continue
+            known = {
+                row["stored_name"]
+                for row in conn.execute(
+                    "SELECT stored_name FROM transaction_attachments WHERE user_id = ?",
+                    (user_dir,),
+                ).fetchall()
+            }
+            for filename in os.listdir(full_dir):
+                path = os.path.join(full_dir, filename)
+                if filename in known or not os.path.isfile(path):
+                    continue
+                try:
+                    if os.path.getmtime(path) > cutoff:
+                        continue
+                    os.remove(path)
+                    removed.append(os.path.join(user_dir, filename))
+                except OSError as exc:
+                    print(f"Nao foi possivel remover o comprovante orfao {path}: {exc}")
+    return removed
+
+
+def require_owned_transaction(conn, current_user_id, transaction_id):
+    return conn.execute(
+        "SELECT id FROM transactions WHERE id = ? AND user_id = ?",
+        (transaction_id, current_user_id),
+    ).fetchone()
+
+
+def fetch_owned_attachment(conn, current_user_id, transaction_id, attachment_id):
+    return conn.execute(
+        """
+        SELECT * FROM transaction_attachments
+        WHERE id = ? AND transaction_id = ? AND user_id = ?
+        """,
+        (attachment_id, transaction_id, current_user_id),
+    ).fetchone()
+
+
+@app.route("/api/transactions/<item_id>/attachments", methods=["GET", "POST"])
+@token_required
+def transaction_attachments(current_user_id, item_id):
+    if request.method == "GET":
+        with get_db() as conn:
+            if not require_owned_transaction(conn, current_user_id, item_id):
+                return jsonify({"error": "Lancamento nao encontrado."}), 404
+            rows = conn.execute(
+                """
+                SELECT * FROM transaction_attachments
+                WHERE user_id = ? AND transaction_id = ?
+                ORDER BY created_at, id
+                """,
+                (current_user_id, item_id),
+            ).fetchall()
+        return jsonify([serialize_attachment(row) for row in rows]), 200
+
+    # Recusa pelo cabecalho antes de ler o corpo: um video de 2 GB escolhido
+    # por engano nao chega a ocupar a memoria do processo.
+    limit_mb = ATTACHMENT_MAX_BYTES / (1024 * 1024)
+    too_big = f"O arquivo passa do limite de {limit_mb:.0f} MB."
+    if request.content_length and request.content_length > ATTACHMENT_MAX_BYTES + 64 * 1024:
+        return validation_error(too_big, 413)
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return validation_error("Envie o arquivo no campo 'file'.")
+    data = upload.read(ATTACHMENT_MAX_BYTES + 1)
+    if not data:
+        return validation_error("O arquivo esta vazio.")
+    if len(data) > ATTACHMENT_MAX_BYTES:
+        return validation_error(too_big, 413)
+    content_type = sniff_attachment_type(data[:16])
+    if not content_type:
+        return validation_error(ATTACHMENT_TYPES_MESSAGE, 415)
+
+    extension = ATTACHMENT_TYPES[content_type]
+    attachment_id = new_id()
+    stored_name = f"{uuid.uuid4().hex}{extension}"
+    original_name = clean_attachment_name(upload.filename, extension)
+
+    with get_db() as conn:
+        if not require_owned_transaction(conn, current_user_id, item_id):
+            return jsonify({"error": "Lancamento nao encontrado."}), 404
+        count = conn.execute(
+            """
+            SELECT COUNT(*) FROM transaction_attachments
+            WHERE user_id = ? AND transaction_id = ?
+            """,
+            (current_user_id, item_id),
+        ).fetchone()[0]
+        if count >= ATTACHMENT_MAX_PER_TRANSACTION:
+            return validation_error(
+                f"Este lancamento ja tem {ATTACHMENT_MAX_PER_TRANSACTION} comprovantes."
+            )
+
+        # Arquivo primeiro, linha depois: se a gravacao da linha falhar, o
+        # arquivo sai; se o processo cair no meio, a varredura de boot o leva.
+        user_dir = attachment_user_dir(current_user_id)
+        os.makedirs(user_dir, exist_ok=True)
+        path = attachment_path(current_user_id, stored_name)
+        with open(path, "wb") as file:
+            file.write(data)
+        try:
+            conn.execute(
+                """
+                INSERT INTO transaction_attachments
+                (id, user_id, transaction_id, original_name, stored_name,
+                 content_type, size_bytes, sha256)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    attachment_id,
+                    current_user_id,
+                    item_id,
+                    original_name,
+                    stored_name,
+                    content_type,
+                    len(data),
+                    hashlib.sha256(data).hexdigest(),
+                ),
+            )
+            row = fetch_owned_attachment(conn, current_user_id, item_id, attachment_id)
+        except Exception:
+            remove_attachment_files(current_user_id, [stored_name])
+            raise
+    return jsonify(serialize_attachment(row)), 201
+
+
+@app.route("/api/transactions/<item_id>/attachments/<attachment_id>/file", methods=["GET"])
+@token_required
+def transaction_attachment_file(current_user_id, item_id, attachment_id):
+    with get_db() as conn:
+        row = fetch_owned_attachment(conn, current_user_id, item_id, attachment_id)
+    if not row:
+        return jsonify({"error": "Comprovante nao encontrado."}), 404
+    path = attachment_path(current_user_id, row["stored_name"])
+    if not os.path.isfile(path):
+        return jsonify({"error": "O arquivo deste comprovante sumiu da pasta de comprovantes."}), 410
+
+    as_download = str(request.args.get("download", "")).lower() in ("1", "true", "yes")
+    response = send_file(
+        path,
+        mimetype=row["content_type"],
+        as_attachment=as_download,
+        download_name=row["original_name"],
+        max_age=0,
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
+    return response
+
+
+@app.route("/api/transactions/<item_id>/attachments/<attachment_id>", methods=["DELETE"])
+@token_required
+def delete_transaction_attachment(current_user_id, item_id, attachment_id):
+    """Remove um comprovante.
+
+    A rota aninhada e a guarda: o id do lancamento tem que bater com o do
+    comprovante, entao um id trocado no cliente nao apaga o recibo de outro
+    lancamento. O arquivo sai do disco depois do commit.
+    """
+    with get_db() as conn:
+        row = fetch_owned_attachment(conn, current_user_id, item_id, attachment_id)
+        if not row:
+            return jsonify({"deleted": False, "error": "Comprovante nao encontrado."}), 404
+        conn.execute(
+            "DELETE FROM transaction_attachments WHERE id = ? AND user_id = ?",
+            (attachment_id, current_user_id),
+        )
+    remove_attachment_files(current_user_id, [row["stored_name"]])
     return jsonify({"deleted": True}), 200
 
 
@@ -7391,6 +7686,7 @@ def get_historical_portfolio(current_user_id):
 
 init_db()
 run_startup_backup()
+prune_orphan_attachment_files()
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG") == "1", port=5000)

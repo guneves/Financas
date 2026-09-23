@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Check, Download, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
+import { Check, Download, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { transactionsApi } from '../../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
@@ -19,6 +19,7 @@ import {
 import { formatSignedCurrency } from '../../lib/format'
 import { isInvestmentOutflow } from '../../lib/transactions'
 import { categoryLabel, formatDateBR, getNow } from './helpers'
+import AttachmentsSheet from '../../components/AttachmentsSheet'
 import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
 
@@ -111,6 +112,20 @@ function isEditableHere(transaction) {
   return !['INVESTMENT_TRANSACTION', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
 }
 
+// Clipe ao lado da descricao quando ha comprovante; so informa, nao e botao.
+function AttachmentMark({ transaction }) {
+  const count = Number(transaction.attachment_count || 0)
+  if (!count) return null
+  const label = count === 1 ? '1 comprovante' : `${count} comprovantes`
+  return (
+    <span className="inline-flex shrink-0 items-center gap-0.5 text-xs text-zinc-500" title={label}>
+      <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+      {count > 1 ? count : null}
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
 function originLabel(transaction) {
   if (transaction.source_type === 'INVESTMENT_TRANSACTION') return 'Pela carteira'
   if (transaction.source_type === 'CC_AUTOPAY') return 'Débito automático'
@@ -140,6 +155,7 @@ export default function Extrato() {
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [editingId, setEditingId] = useState('')
+  const [attachmentsFor, setAttachmentsFor] = useState(null)
   const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
 
   // Filtros do extrato: aplicados no backend (GET /api/transactions?...).
@@ -335,12 +351,22 @@ export default function Extrato() {
     }
   }
 
+  // Comprovante vale para qualquer linha — inclusive as geradas por outra
+  // tela (nota de corretagem, recibo da fatura): anexar nao mexe no lancamento.
+  const attachmentsButton = (transaction) => (
+    <IconButton label="Comprovantes" icon={Paperclip} size="sm" onClick={() => setAttachmentsFor(transaction)} />
+  )
+
   // Lancamento gerado por outra tela: sem editar aqui, so diz de onde veio.
   const rowActions = (transaction) => (
     !isEditableHere(transaction) ? (
-      <span className="whitespace-nowrap text-xs text-zinc-500">{originLabel(transaction)}</span>
+      <>
+        <span className="min-w-0 truncate self-center text-xs text-zinc-500" title={originLabel(transaction)}>{originLabel(transaction)}</span>
+        {attachmentsButton(transaction)}
+      </>
     ) : (
-      <div className="flex justify-end gap-1.5 transition-opacity duration-150 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
+      <div className="flex min-w-0 justify-end gap-1.5 transition-opacity duration-150 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
+        {attachmentsButton(transaction)}
         <IconButton label="Editar transação" icon={Pencil} size="sm" onClick={() => startEditing(transaction)} />
         <IconButton label="Excluir transação" icon={Trash2} size="sm" variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
       </div>
@@ -492,7 +518,7 @@ export default function Extrato() {
                   <col className="w-[18%]" />
                   <col />
                   <col className="w-40" />
-                  <col className="w-32" />
+                  <col className="w-44 lg:w-36" />
                 </colgroup>
                 <thead>
                   <tr>
@@ -512,7 +538,7 @@ export default function Extrato() {
                           <span className="flex items-baseline">
                             <span className="whitespace-nowrap text-sm font-semibold text-zinc-500 tabular">{formatSignedCurrency(group.total)}</span>
                             {/* Largura da coluna de acoes: o total cai embaixo da coluna Valor. */}
-                            <span className="w-32 shrink-0" aria-hidden="true" />
+                            <span className="w-44 shrink-0 lg:w-36" aria-hidden="true" />
                           </span>
                         </div>
                       </th>
@@ -542,11 +568,12 @@ export default function Extrato() {
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
                               <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
+                              <AttachmentMark transaction={transaction} />
                             </div>
                           </td>
                           <td className={cx('num font-semibold', amountClass(transaction))}>{amountText(transaction)}</td>
                           <td className="py-1.5 text-right">
-                            {rowActions(transaction)}
+                            <div className="flex min-w-0 justify-end gap-1.5">{rowActions(transaction)}</div>
                           </td>
                         </tr>
                       )
@@ -581,9 +608,12 @@ export default function Extrato() {
                         <Field label="Conta">{controls.account}</Field>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <Button type="button" variant="danger" size="lg" icon={Trash2} onClick={() => handleDeleteTransaction(transaction.id)}>
-                          Excluir
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button type="button" variant="danger" size="lg" icon={Trash2} onClick={() => handleDeleteTransaction(transaction.id)}>
+                            Excluir
+                          </Button>
+                          <IconButton label="Comprovantes" icon={Paperclip} onClick={() => setAttachmentsFor(transaction)} />
+                        </div>
                         <div className="flex gap-2">{controls.actions}</div>
                       </div>
                     </li>
@@ -600,6 +630,7 @@ export default function Extrato() {
                           {transaction.type === 'TRANSFER' ? accountLabel(transaction) : transaction.category}
                           {editable ? '' : ` · ${originLabel(transaction)}`}
                         </span>
+                        <AttachmentMark transaction={transaction} />
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-0.5">
@@ -620,7 +651,15 @@ export default function Extrato() {
                         {content}
                       </button>
                     ) : (
-                      <div className="flex min-h-[56px] items-center gap-3 px-4 py-2.5">{content}</div>
+                      // Gerado por outra tela: nao edita aqui, mas o toque abre os comprovantes.
+                      <button
+                        type="button"
+                        onClick={() => setAttachmentsFor(transaction)}
+                        aria-label={`Comprovantes de ${transaction.description || transaction.category}`}
+                        className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-zinc-50"
+                      >
+                        {content}
+                      </button>
                     )}
                   </li>
                 )
@@ -652,6 +691,12 @@ export default function Extrato() {
           </div>
         )}
       </Panel>
+
+      <AttachmentsSheet
+        transaction={attachmentsFor}
+        onClose={() => setAttachmentsFor(null)}
+        onChanged={fetchData}
+      />
     </div>
   )
 }

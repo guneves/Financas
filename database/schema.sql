@@ -190,6 +190,23 @@ ON import_rules(user_id, active, priority DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_import_rules_user_pattern
 ON import_rules(user_id, pattern, match_type, applies_to);
 
+-- 014: comprovantes por lancamento. O arquivo fica em
+-- ATTACHMENTS_DIR/<user_id>/<stored_name>; o banco guarda so a referencia.
+CREATE TABLE IF NOT EXISTS transaction_attachments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    original_name TEXT NOT NULL,
+    stored_name TEXT NOT NULL UNIQUE,
+    content_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+    sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_transaction_attachments_user_transaction
+ON transaction_attachments(user_id, transaction_id);
+
 CREATE TABLE IF NOT EXISTS investments (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

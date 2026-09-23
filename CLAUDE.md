@@ -131,10 +131,10 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-575 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
+602 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
-them to recorded lançamentos), CSV export, `user_id`
+them to recorded lançamentos), CSV export, receipts per lançamento, `user_id`
 isolation, and backup retention. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
@@ -228,6 +228,13 @@ docs/
   `POST /api/import-rules/apply` rewrites only the `transaction_ids` it is sent, and re-runs the
   rule on each before writing, so a stale list cannot recategorize a row the rule no longer matches.
   TRANSFER, investment cash and invoice payments are outside its reach.
+- **A receipt is a file on disk, referenced by a row.** `transaction_attachments` (migration 014)
+  holds the reference; the bytes live in `ATTACHMENTS_DIR/<user_id>/<stored_name>`, where
+  `stored_name` is generated — the uploaded name is only displayed, never a path. The type is
+  sniffed from the bytes, not trusted from the browser. Routes nest under the lançamento and check
+  both ids (that is the delete's guard). Write the file before the row and remove the file only
+  after the commit; `prune_orphan_attachment_files()` sweeps leftovers at boot. Receipts are **not**
+  in the backup zip.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/next-steps.md` §2 before touching it.
 
 ## Known sharp edges
