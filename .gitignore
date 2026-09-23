@@ -22,6 +22,8 @@ __pycache__/
 backend/backups/
 # Comprovantes anexados aos lancamentos (dados pessoais, nunca no git)
 backend/attachments/
+# Log estruturado com rotacao (app.log, app.log.1...)
+backend/logs/
 # Bancos de teste temporarios e logs de servidor
 tmp_*.db
 *.log

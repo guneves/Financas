@@ -23,6 +23,7 @@ except ImportError:
 
 from asset_classes import QUOTED_ASSET_CLASSES
 import brapi_client
+from integrations import record_provider_result
 from config import (
     HISTORY_CACHE_TTL_SECONDS,
     PRICE_CACHE_TTL_SECONDS,
@@ -35,6 +36,9 @@ from dates import parse_iso_date, parse_iso_datetime
 from db import encode_metadata, new_id, utc_timestamp
 from money import rounded_money
 from validators import safe_float
+from applog import get_logger
+
+logger = get_logger(__name__)
 
 
 _price_cache = {}
@@ -180,7 +184,7 @@ def update_price_cache(price_by_ticker):
     with _price_cache_lock:
         for ticker, price in price_by_ticker.items():
             try:
-                numeric_price = round(float(price), 2)
+                numeric_price = float(price)
             except (TypeError, ValueError):
                 continue
             if not math.isfinite(numeric_price) or numeric_price < 0:
@@ -196,7 +200,7 @@ def cache_market_prices_from_future(future):
     try:
         update_price_cache(future.result())
     except Exception as exc:
-        print(f"Erro ao finalizar cache de cotacoes: {exc}")
+        logger.exception(f"Erro ao finalizar cache de cotacoes: {exc}")
 
 
 def extract_close_values(data, yf_symbol):
@@ -274,7 +278,8 @@ def download_close_prices(yf_symbols, *, period, interval):
             timeout=PRICE_DOWNLOAD_TIMEOUT_SECONDS,
         )
     except Exception as exc:
-        print(f"Erro ao consultar yfinance ({period}/{interval}): {exc}")
+        logger.exception(f"Erro ao consultar yfinance ({period}/{interval}): {exc}")
+        record_provider_result("yfinance", False, exc)
         return {}
 
     prices = {}
@@ -282,6 +287,12 @@ def download_close_prices(yf_symbols, *, period, interval):
         price = extract_latest_close(data, yf_symbol)
         if price is not None:
             prices[yf_symbol] = price
+    # Nenhum preco para nenhum simbolo e falha do provedor (fora do ar, bloqueio);
+    # so parte deles e ticker que o Yahoo nao conhece.
+    if prices:
+        record_provider_result("yfinance", True)
+    else:
+        record_provider_result("yfinance", False, f"Sem cotacao para {', '.join(yf_symbols[:5])}")
     return prices
 
 
@@ -297,8 +308,10 @@ def download_brapi_prices(tickers):
     try:
         prices = brapi_client.get_market_prices(tickers)
     except brapi_client.BrapiError as exc:
-        print(f"Erro ao consultar cotacoes na brapi: {exc}")
+        logger.exception(f"Erro ao consultar cotacoes na brapi: {exc}")
+        record_provider_result("brapi", False, exc)
         return {}
+    record_provider_result("brapi", True)
 
     valid = {}
     for ticker, price in prices.items():
@@ -337,7 +350,7 @@ def download_market_prices(tickers):
     for ticker, yf_symbol in symbols_by_ticker.items():
         price = symbol_prices.get(yf_symbol)
         if price is not None:
-            prices[ticker] = round(price, 2)
+            prices[ticker] = rounded_money(price)
     return prices
 
 
@@ -361,7 +374,7 @@ def download_monthly_history(tickers, start_date):
             timeout=PRICE_DOWNLOAD_TIMEOUT_SECONDS,
         )
     except Exception as exc:
-        print(f"Erro ao consultar historico no yfinance: {exc}")
+        logger.exception(f"Erro ao consultar historico no yfinance: {exc}")
         return historical_prices
 
     for ticker, yf_symbol in symbols_by_ticker.items():
@@ -371,11 +384,11 @@ def download_monthly_history(tickers, start_date):
 
         for date, price in close_values.items():
             try:
-                numeric_price = round(float(price), 2)
+                numeric_price = float(price)
             except (TypeError, ValueError):
                 continue
             if math.isfinite(numeric_price):
-                historical_prices[ticker][date.strftime("%Y-%m")] = numeric_price
+                historical_prices[ticker][date.strftime("%Y-%m")] = rounded_money(numeric_price)
 
     return historical_prices
 
@@ -412,7 +425,7 @@ def get_market_prices(tickers, *, force=False):
     if not normalized_tickers:
         return {}
     if yf is None and not brapi_client.is_configured():
-        print("Nenhum provedor de cotacao disponivel (sem yfinance e sem BRAPI_TOKEN).")
+        logger.warning("Nenhum provedor de cotacao disponivel (sem yfinance e sem BRAPI_TOKEN).")
         return {}
 
     fresh_prices, fallback_prices, stale_tickers = read_price_cache(normalized_tickers)
@@ -426,7 +439,7 @@ def get_market_prices(tickers, *, force=False):
         fetched_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
     except FutureTimeoutError:
         future.add_done_callback(cache_market_prices_from_future)
-        print(
+        logger.warning(
             "Tempo limite ao consultar yfinance; usando cotacoes em cache "
             "ou valores ja gravados."
         )
@@ -435,7 +448,7 @@ def get_market_prices(tickers, *, force=False):
                 prices[ticker] = fallback_prices[ticker]
         return prices
     except Exception as exc:
-        print(f"Erro ao consultar cotacoes no yfinance: {exc}")
+        logger.exception(f"Erro ao consultar cotacoes no yfinance: {exc}")
         for ticker in tickers_to_fetch:
             if ticker in fallback_prices:
                 prices[ticker] = fallback_prices[ticker]
@@ -460,7 +473,7 @@ def get_market_prices_with_status(tickers, *, force=False):
     if not normalized_tickers:
         return result
     if yf is None and not brapi_client.is_configured():
-        print("Nenhum provedor de cotacao disponivel (sem yfinance e sem BRAPI_TOKEN).")
+        logger.warning("Nenhum provedor de cotacao disponivel (sem yfinance e sem BRAPI_TOKEN).")
         result["failed_tickers"] = normalized_tickers
         result["errors"] = {ticker: "Provedor de cotacao indisponivel" for ticker in normalized_tickers}
         return result
@@ -482,11 +495,11 @@ def get_market_prices_with_status(tickers, *, force=False):
     except FutureTimeoutError:
         future.add_done_callback(cache_market_prices_from_future)
         fetch_error = "Tempo limite ao consultar yfinance"
-        print("Tempo limite ao consultar yfinance; usando cache quando disponivel.")
+        logger.warning("Tempo limite ao consultar yfinance; usando cache quando disponivel.")
         fetched_prices = {}
     except Exception as exc:
         fetch_error = f"Erro ao consultar yfinance: {exc}"
-        print(fetch_error)
+        logger.warning(fetch_error)
         fetched_prices = {}
 
     update_price_cache(fetched_prices)

@@ -127,6 +127,12 @@ class StockQuote:
     def from_payload(cls, payload):
         if not isinstance(payload, dict):
             raise BrapiResponseError("Item de results[] nao e um objeto")
+        # Formato novo da brapi (visto em 2026-09-23): os campos da cotacao
+        # vem dentro de `data`, e o item so traz symbol/requestedSymbol/changed.
+        # O antigo trazia tudo no proprio item. Aceita os dois.
+        nested = payload.get("data")
+        if isinstance(nested, dict):
+            payload = {**nested, **{key: value for key, value in payload.items() if key != "data"}}
         symbol = normalize_symbol(payload.get("symbol"))
         if not symbol:
             raise BrapiResponseError("Item de results[] sem symbol")

@@ -70,6 +70,9 @@ from validators import (
     safe_float,
     validation_error,
 )
+from applog import get_logger
+
+logger = get_logger(__name__)
 
 bp = Blueprint("investments", __name__)
 
@@ -85,7 +88,7 @@ def export_portfolio(current_user_id):
     try:
         portfolio = build_portfolio_snapshot(current_user_id)
     except Exception as exc:
-        print(f"Erro ao exportar a carteira: {exc}")
+        logger.exception(f"Erro ao exportar a carteira: {exc}")
         return jsonify({"error": "Nao foi possivel exportar a carteira."}), 500
 
     return export_response(
@@ -627,7 +630,7 @@ def get_portfolio(current_user_id):
             try:
                 refresh_market_prices(current_user_id, force=False)
             except Exception as exc:
-                print(f"Erro ao atualizar cotacoes antes da carteira: {exc}")
+                logger.exception(f"Erro ao atualizar cotacoes antes da carteira: {exc}")
 
         refresh_realized_results(current_user_id)
         portfolio = build_portfolio_snapshot(current_user_id)
@@ -635,7 +638,7 @@ def get_portfolio(current_user_id):
         replace_materialized_positions(current_user_id, portfolio["assets"])
         return jsonify(portfolio), 200
     except Exception as exc:
-        print(f"Erro no calculo: {exc}")
+        logger.exception(f"Erro no calculo: {exc}")
         return jsonify({"error": "Nao foi possivel calcular a carteira."}), 500
 
 
@@ -682,7 +685,7 @@ def update_stock_prices(current_user_id):
         try:
             replace_materialized_positions(current_user_id, portfolio["assets"])
         except Exception as exc:
-            print(f"Nao foi possivel atualizar posicoes materializadas: {exc}")
+            logger.warning(f"Nao foi possivel atualizar posicoes materializadas: {exc}")
         scoped_asset_ids = {str(inv.get("asset_id")) for inv in investments_to_update if inv.get("asset_id")}
         stale_assets = [
             {
@@ -711,7 +714,7 @@ def update_stock_prices(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     except Exception as exc:
-        print(f"ERRO FATAL NA ROTA UPDATE-PRICES: {exc}")
+        logger.exception(f"ERRO FATAL NA ROTA UPDATE-PRICES: {exc}")
         return jsonify({"error": "Nao foi possivel atualizar os precos."}), 500
 
 
@@ -750,10 +753,10 @@ def get_historical_portfolio(current_user_id):
             try:
                 historical_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
             except FutureTimeoutError:
-                print("Tempo limite ao buscar historico no yfinance.")
+                logger.warning("Tempo limite ao buscar historico no yfinance.")
                 historical_prices = {ticker: {} for ticker in unique_tickers}
             except Exception as exc:
-                print(f"Erro ao buscar historico no yfinance: {exc}")
+                logger.exception(f"Erro ao buscar historico no yfinance: {exc}")
                 historical_prices = {ticker: {} for ticker in unique_tickers}
 
         evolution = build_portfolio_evolution(
@@ -767,5 +770,5 @@ def get_historical_portfolio(current_user_id):
             "evolution": evolution,
         }), 200
     except Exception as exc:
-        print(f"Erro no historico de investimentos: {exc}")
+        logger.exception(f"Erro no historico de investimentos: {exc}")
         return jsonify({"error": "Nao foi possivel carregar o historico de investimentos."}), 500

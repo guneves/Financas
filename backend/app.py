@@ -11,6 +11,7 @@ import os
 from flask import Flask
 from flask_cors import CORS
 
+from applog import configure_logging
 from config import CORS_ORIGINS
 from db import init_db, run_startup_backup
 from routes import (
@@ -52,6 +53,7 @@ for blueprint_module in (
     app.register_blueprint(blueprint_module.bp)
 
 
+configure_logging()
 init_db()
 run_startup_backup()
 prune_orphan_attachment_files()

@@ -108,3 +108,9 @@ ATTACHMENT_MAX_BYTES = read_int_env(
     minimum=64 * 1024,
     maximum=50 * 1024 * 1024,
 )
+
+# Log estruturado (applog.py): uma linha JSON por evento, no stderr e, com
+# LOG_TO_FILE ligado, em LOG_DIR/app.log com rotacao (5 arquivos de 1 MB).
+LOG_LEVEL = str(os.getenv("LOG_LEVEL", "INFO") or "INFO").strip().upper()
+LOG_DIR = resolve_app_path(os.getenv("LOG_DIR", "logs"), BASE_DIR)
+LOG_TO_FILE = str(os.getenv("LOG_TO_FILE", "1")).strip().lower() not in {"0", "false", "no"}

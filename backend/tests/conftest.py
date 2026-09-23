@@ -33,6 +33,8 @@ def app_module():
     # O backup automatico de boot e exercitado em test_backups.py, com controle explicito.
     os.environ["AUTO_BACKUP_ON_BOOT"] = "0"
     os.environ["CORS_ORIGINS"] = "*"
+    # Log so no stderr: os testes nao criam backend/logs.
+    os.environ["LOG_TO_FILE"] = "0"
 
     # config.py le o ambiente no import, e os modulos do app (db, auth...) copiam
     # os valores dele. Por isso nenhum teste importa esses modulos no topo do

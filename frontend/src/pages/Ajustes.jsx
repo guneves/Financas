@@ -5,6 +5,7 @@ import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
 import DemoDataSection from './ajustes/DemoDataSection'
+import IntegracoesSection from './ajustes/IntegracoesSection'
 import PerfilSection from './ajustes/PerfilSection'
 import RegrasSection from './ajustes/RegrasSection'
 import { invalidateServerData } from '../lib/queries'
@@ -14,6 +15,7 @@ const SECTION_LINKS = [
   { id: 'cartoes', label: 'Cartões' },
   { id: 'categorias', label: 'Categorias' },
   { id: 'regras-de-importacao', label: 'Regras de importação' },
+  { id: 'integracoes', label: 'Integrações' },
   { id: 'dados-de-exemplo', label: 'Dados de exemplo' },
   { id: 'perfil', label: 'Perfil' },
 ]
@@ -70,6 +72,7 @@ export default function Ajustes() {
       <CartoesSection />
       <CategoriasSection />
       <RegrasSection />
+      <IntegracoesSection />
       {/* Os dados de exemplo criam cartoes e mexem nos saldos: invalidar o
           cache faz as outras secoes buscarem de novo. */}
       <DemoDataSection onDataChanged={invalidateServerData} />

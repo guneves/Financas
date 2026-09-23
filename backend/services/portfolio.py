@@ -24,6 +24,9 @@ from services.prices import (
     ticker_key,
 )
 from validators import safe_float
+from applog import get_logger
+
+logger = get_logger(__name__)
 
 
 def investment_movement_date(investment):
@@ -498,4 +501,4 @@ def refresh_materialized_positions(current_user_id):
         portfolio = build_portfolio_snapshot(current_user_id)
         replace_materialized_positions(current_user_id, portfolio["assets"])
     except Exception as exc:
-        print(f"Nao foi possivel atualizar posicoes materializadas: {exc}")
+        logger.warning(f"Nao foi possivel atualizar posicoes materializadas: {exc}")

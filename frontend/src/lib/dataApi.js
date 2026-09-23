@@ -254,3 +254,8 @@ export const investmentProceedsApi = {
 export const exportsApi = {
   columns: () => apiFetch('/api/exports/columns')
 }
+
+// Saude das integracoes (yfinance, brapi, BCB). `refresh: 1` ignora o cache do backend.
+export const systemApi = {
+  integrations: (params = {}) => apiFetch(`/api/health/integrations${queryString(params)}`)
+}

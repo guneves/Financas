@@ -25,6 +25,9 @@ from config import (
     MIGRATIONS_DIR,
     SQLITE_BUSY_TIMEOUT_MS,
 )
+from applog import get_logger
+
+logger = get_logger(__name__)
 
 
 # So os arquivos gerados automaticamente entram na rotacao. Backups com nome
@@ -58,7 +61,7 @@ def configure_sqlite_database(conn):
     try:
         conn.execute("PRAGMA journal_mode = WAL")
     except sqlite3.DatabaseError as exc:
-        print(f"Nao foi possivel ativar WAL no SQLite: {exc}")
+        logger.warning(f"Nao foi possivel ativar WAL no SQLite: {exc}")
 
 
 def migration_version(filename):
@@ -222,7 +225,7 @@ def mirror_attachments(retention_days=None):
             shutil.copy2(source, target)
             copied += 1
         except OSError as exc:
-            print(f"Nao foi possivel copiar o comprovante {relative} para o backup: {exc}")
+            logger.warning(f"Nao foi possivel copiar o comprovante {relative} para o backup: {exc}")
 
     moved = 0
     today_dir = os.path.join(removed_root, datetime.now().strftime("%Y%m%d"))
@@ -233,7 +236,7 @@ def mirror_attachments(retention_days=None):
             shutil.move(os.path.join(mirror_dir, relative), target)
             moved += 1
         except OSError as exc:
-            print(f"Nao foi possivel mover o comprovante removido {relative}: {exc}")
+            logger.warning(f"Nao foi possivel mover o comprovante removido {relative}: {exc}")
 
     expired = []
     if os.path.isdir(removed_root):
@@ -300,7 +303,7 @@ def prune_database_backups(retention_days=None):
             os.remove(path)
             removed.append(os.path.basename(path))
         except OSError as exc:
-            print(f"Nao foi possivel remover o backup antigo {path}: {exc}")
+            logger.warning(f"Nao foi possivel remover o backup antigo {path}: {exc}")
 
     return removed
 
@@ -326,11 +329,11 @@ def run_startup_backup():
     try:
         backup = create_database_backup()
     except Exception as exc:
-        print(f"Backup automatico de boot falhou: {exc}")
+        logger.warning(f"Backup automatico de boot falhou: {exc}")
         return None
 
     removed = prune_database_backups()
-    print(
+    logger.info(
         f"Backup automatico criado em {backup['zip_path']}"
         + (f" ({len(removed)} arquivo(s) antigo(s) removido(s))" if removed else "")
     )

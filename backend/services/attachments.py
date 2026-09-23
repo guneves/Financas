@@ -11,6 +11,9 @@ import time
 
 from config import ATTACHMENTS_DIR
 from db import get_db, row_to_dict
+from applog import get_logger
+
+logger = get_logger(__name__)
 
 
 # O tipo vem dos primeiros bytes, nao da extensao nem do Content-Type que o
@@ -60,7 +63,7 @@ def remove_attachment_files(current_user_id, stored_names):
         except FileNotFoundError:
             pass
         except OSError as exc:
-            print(f"Nao foi possivel remover o comprovante {path}: {exc}")
+            logger.warning(f"Nao foi possivel remover o comprovante {path}: {exc}")
 
 
 def cc_purchase_expense_ids(conn, current_user_id, expense_id):
@@ -174,5 +177,5 @@ def prune_orphan_attachment_files(min_age_seconds=600):
                     os.remove(path)
                     removed.append(os.path.join(user_dir, filename))
                 except OSError as exc:
-                    print(f"Nao foi possivel remover o comprovante orfao {path}: {exc}")
+                    logger.warning(f"Nao foi possivel remover o comprovante orfao {path}: {exc}")
     return removed

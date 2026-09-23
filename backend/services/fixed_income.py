@@ -22,6 +22,10 @@ from db import get_db
 from money import rounded_money
 from services.prices import record_price_quote, ticker_key
 from validators import ValidationError, safe_float
+from applog import get_logger
+from integrations import record_provider_result
+
+logger = get_logger(__name__)
 
 
 # Separado do yfinance: um download travado la nao pode enfileirar o BCB.
@@ -221,11 +225,16 @@ def fetch_bcb_series(series_code, start_date, end_date=None):
     end_date = end_date or datetime.now()
     series = []
     window_start = start_date
-    while window_start <= end_date:
-        window_end = min(window_start + timedelta(days=BCB_MAX_WINDOW_DAYS - 1), end_date)
-        for row in fetch_bcb_window(series_code, window_start, window_end):
-            series.append((datetime.strptime(row["data"], "%d/%m/%Y"), safe_float(row.get("valor")) / 100))
-        window_start = window_end + timedelta(days=1)
+    try:
+        while window_start <= end_date:
+            window_end = min(window_start + timedelta(days=BCB_MAX_WINDOW_DAYS - 1), end_date)
+            for row in fetch_bcb_window(series_code, window_start, window_end):
+                series.append((datetime.strptime(row["data"], "%d/%m/%Y"), safe_float(row.get("valor")) / 100))
+            window_start = window_end + timedelta(days=1)
+    except Exception as exc:
+        record_provider_result("bcb", False, exc)
+        raise
+    record_provider_result("bcb", True)
     return series
 
 
@@ -268,7 +277,7 @@ def start_fixed_income_refresh(investments_to_update):
             date_str = meta.get("purchase_date") or (inv.get("created_at") or "")[:10]
             purchase_date = datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
-            print(f"Data invalida para {inv['ticker_or_name']}; pulando correcao.")
+            logger.warning(f"Data invalida para {inv['ticker_or_name']}; pulando correcao.")
             failed_assets.append(fixed_income_asset_result(
                 inv, status="failed", error="Data invalida para calculo da rentabilidade"
             ))
@@ -298,7 +307,7 @@ def finish_fixed_income_refresh(current_user_id, plan):
         try:
             return future.result(), None
         except Exception as exc:
-            print(f"Erro ao buscar indices no BCB: {exc}")
+            logger.exception(f"Erro ao buscar indices no BCB: {exc}")
             return None, str(exc) or "Erro ao buscar indices no BCB"
 
     cdi_series, cdi_error = series_result(plan["cdi"])
@@ -333,7 +342,7 @@ def finish_fixed_income_refresh(current_user_id, plan):
                     metadata=quote_metadata,
                 )
             except Exception as exc:
-                print(f"Erro ao corrigir {inv['ticker_or_name']} pelo BCB: {exc}")
+                logger.exception(f"Erro ao corrigir {inv['ticker_or_name']} pelo BCB: {exc}")
                 failed_assets.append(fixed_income_asset_result(
                     inv, status="failed", error=str(exc) or "Erro ao corrigir o titulo"
                 ))

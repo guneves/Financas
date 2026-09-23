@@ -235,6 +235,19 @@ def test_price_is_rounded_half_up(monkeypatch):
     assert prices["PETR4"] == 38.43
 
 
+def test_nested_data_payload_is_read(monkeypatch):
+    # Formato que a brapi passou a devolver: a cotacao dentro de `data`.
+    inner = quote_payload("PETR4", 49.6)
+    inner.pop("symbol")
+    calls = []
+    install(monkeypatch, calls, {"PETR4": {"symbol": "PETR4", "requestedSymbol": "PETR4", "changed": False, "data": inner}})
+
+    quote = brapi_client.get_stock_quote("PETR4")
+    assert quote.regular_market_price == 49.6
+    assert quote.short_name == "PETR4 ON"
+    assert brapi_client.get_market_prices(["PETR4"]) == {"PETR4": 49.6}
+
+
 def test_quote_without_price_stays_out_of_get_market_prices(monkeypatch):
     payload = quote_payload("PETR4", 38.42)
     payload["regularMarketPrice"] = None
