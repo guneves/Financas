@@ -4240,6 +4240,148 @@ def import_rule_detail(current_user_id, rule_id):
     return jsonify(serialize_import_rule(updated)), 200
 
 
+# Lancamentos que as regras nunca recategorizam: o dinheiro de um investimento e
+# o pagamento de uma fatura sao gerados pelo sistema e tem categoria propria.
+RULE_APPLY_SKIPPED_SOURCE_TYPES = (INVESTMENT_CASH_SOURCE_TYPE, *sorted(INVOICE_PAYMENT_SOURCE_TYPES))
+MAX_RULE_APPLY_ROWS = 2000
+
+
+def rule_apply_candidates(conn, current_user_id, rule_id=None, transaction_ids=None):
+    """Lancamentos ja gravados cuja categoria mudaria se a regra rodasse agora.
+
+    Com `rule_id`, so aquela regra (ativa ou nao — o dono escolheu ela); sem,
+    todas as ativas na ordem da importacao, e a primeira que casa decide. Uma
+    linha que a regra deixaria na mesma categoria nao e candidata.
+
+    Returns (candidatos, total) — `total` antes do corte de MAX_RULE_APPLY_ROWS.
+    """
+    if rule_id is not None:
+        row = fetch_import_rule(conn, current_user_id, rule_id)
+        if not row:
+            raise LookupError("Regra nao encontrada.")
+        rules = [row_to_dict(row)]
+    else:
+        rules = import_rules_for_matching(conn, current_user_id)
+    if not rules:
+        return [], 0
+
+    skipped = ", ".join("?" for _ in RULE_APPLY_SKIPPED_SOURCE_TYPES)
+    sql = f"""
+        SELECT t.id, t.date, t.amount, t.type, t.description, t.category,
+               t.category_id, a.name AS account_name
+        FROM transactions t
+        LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+        WHERE t.user_id = ?
+          AND t.type IN ('INCOME', 'EXPENSE')
+          AND COALESCE(t.source_type, '') NOT IN ({skipped})
+          AND TRIM(COALESCE(t.description, '')) <> ''
+    """
+    params = [current_user_id, *RULE_APPLY_SKIPPED_SOURCE_TYPES]
+    if transaction_ids is not None:
+        placeholders = ", ".join("?" for _ in transaction_ids)
+        sql += f" AND t.id IN ({placeholders})"
+        params.extend(transaction_ids)
+    sql += " ORDER BY t.date DESC, t.created_at DESC"
+
+    candidates = []
+    for row in conn.execute(sql, params).fetchall():
+        rule = statement_import.first_matching_rule(rules, row["description"], row["type"])
+        if not rule or rule["category"] == row["category"]:
+            continue
+        candidates.append({
+            "id": row["id"],
+            "date": row["date"],
+            "amount": row["amount"],
+            "type": row["type"],
+            "description": row["description"],
+            "account_name": row["account_name"],
+            "category": row["category"],
+            "new_category": rule["category"],
+            "new_category_id": rule["category_id"],
+            "rule_id": rule["id"],
+            "rule_pattern": rule["pattern"],
+        })
+    return candidates[:MAX_RULE_APPLY_ROWS], len(candidates)
+
+
+def read_rule_apply_scope(payload):
+    rule_id = payload.get("rule_id")
+    if rule_id in (None, ""):
+        return None
+    if not isinstance(rule_id, str):
+        raise ValidationError("Regra invalida.")
+    return rule_id
+
+
+@app.route("/api/import-rules/apply/preview", methods=["POST"])
+@token_required
+def import_rules_apply_preview(current_user_id):
+    """O que as regras mudariam nos lancamentos ja gravados — sem gravar nada.
+
+    As regras nascem para a importacao; rodar sobre o passado reescreve
+    categorias que o dono pode ter escolhido a mao, entao ele ve a lista antes
+    e confirma linha por linha no /apply.
+    """
+    payload = parse_json_body()
+    try:
+        rule_id = read_rule_apply_scope(payload)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    with get_db() as conn:
+        try:
+            items, total = rule_apply_candidates(conn, current_user_id, rule_id=rule_id)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+    return jsonify({"items": items, "total": total, "truncated": total > len(items)}), 200
+
+
+@app.route("/api/import-rules/apply", methods=["POST"])
+@token_required
+def import_rules_apply(current_user_id):
+    """Recategoriza os lancamentos confirmados na previa.
+
+    Guarda de confirmacao: so mexe nos `transaction_ids` enviados, e cada um e
+    conferido de novo contra a regra — um id que a regra ja nao muda (editado
+    depois da previa, de outro usuario, de investimento) e pulado, nao forcado.
+    """
+    payload = parse_json_body()
+    raw_ids = payload.get("transaction_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return validation_error("Escolha ao menos um lancamento em 'transaction_ids'.")
+    if len(raw_ids) > MAX_RULE_APPLY_ROWS:
+        return validation_error("Lancamentos demais de uma vez.")
+    if not all(isinstance(value, str) and value for value in raw_ids):
+        return validation_error("Lista de lancamentos invalida.")
+    transaction_ids = list(dict.fromkeys(raw_ids))
+    try:
+        rule_id = read_rule_apply_scope(payload)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
+    rule_hits = {}
+    with get_db() as conn:
+        try:
+            candidates, _ = rule_apply_candidates(
+                conn, current_user_id, rule_id=rule_id, transaction_ids=transaction_ids
+            )
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        for item in candidates:
+            conn.execute(
+                "UPDATE transactions SET category = ?, category_id = ? WHERE id = ? AND user_id = ?",
+                (item["new_category"], item["new_category_id"], item["id"], current_user_id),
+            )
+            rule_hits[item["rule_id"]] = rule_hits.get(item["rule_id"], 0) + 1
+        for hit_rule_id, count in rule_hits.items():
+            conn.execute(
+                "UPDATE import_rules SET hits = hits + ? WHERE id = ? AND user_id = ?",
+                (count, hit_rule_id, current_user_id),
+            )
+
+    updated = sum(rule_hits.values())
+    return jsonify({"updated": updated, "skipped": len(transaction_ids) - updated}), 200
+
+
 def import_default_category(conn, current_user_id, transaction_type):
     name = DEFAULT_IMPORT_CATEGORIES.get(transaction_type)
     if not name:

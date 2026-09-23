@@ -110,7 +110,17 @@ export const importRulesApi = {
     method: 'PATCH',
     body: JSON.stringify(payload)
   }),
-  remove: (id) => apiFetch(`/api/import-rules/${id}`, { method: 'DELETE' })
+  remove: (id) => apiFetch(`/api/import-rules/${id}`, { method: 'DELETE' }),
+  // Regras sobre lancamentos ja gravados: previa (nao grava) e aplicacao dos
+  // ids confirmados. `rule_id` opcional restringe a uma regra.
+  applyPreview: (payload = {}) => apiFetch('/api/import-rules/apply/preview', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  apply: (payload) => apiFetch('/api/import-rules/apply', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
 }
 
 export const transfersApi = {

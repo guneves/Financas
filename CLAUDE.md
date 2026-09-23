@@ -131,9 +131,10 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-561 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
+575 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
-transaction, monthly budgets, recurring entries, statement import and its rules, CSV export, `user_id`
+transaction, monthly budgets, recurring entries, statement import and its rules (including applying
+them to recorded lançamentos), CSV export, `user_id`
 isolation, and backup retention. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
@@ -223,6 +224,10 @@ docs/
   autopay. Two identical rows in one file get an occurrence suffix, so they are still two
   lançamentos. Parsing lives in `backend/statement_import.py` (pure functions, no DB) and
   `POST /api/import/preview` never writes.
+- **Rules touch the past only on confirmation.** `POST /api/import-rules/apply/preview` never writes;
+  `POST /api/import-rules/apply` rewrites only the `transaction_ids` it is sent, and re-runs the
+  rule on each before writing, so a stale list cannot recategorize a row the rule no longer matches.
+  TRANSFER, investment cash and invoice payments are outside its reach.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/next-steps.md` §2 before touching it.
 
 ## Known sharp edges

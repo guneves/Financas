@@ -46,15 +46,17 @@
 | Privacy mode rework: the eye no longer remounts the page (no refetch, no empty-state flash) and hides only account balances, net worth and the investment portfolio; name and e-mail stay visible — `lib/privacy.js` | 2026-09-22 |
 | Visual design pass (audit + items 1–7, decisions A–D): tabular figures and a real minus, pt-BR percentages, MetricCard that never truncates money, ~44 px table rows with right-aligned values and sticky headers, colour only with meaning, one-line chart axes, phone density, grey disabled buttons | 2026-09-22 |
 | Início "Orçamento do mês" strip: month total spent vs. available and the categories near or over their limit; shared `components/BudgetProgress.jsx` with Orçamento | 2026-09-22 |
+| Tables switch to cards below `xl` so they fit without sideways scroll; Proventos' empty calendar explains itself and opens the form | 2026-09-22 |
+| Import rules: edit a rule (pattern included) and apply rules to lançamentos already recorded, with a preview and per-row confirmation | 2026-09-22 |
 
 ---
 
 ## 2. Open work, in priority order
 
 ### Browser walk-through (owner) — everything below is backend-tested and `vite build` clean only
-The Chrome extension was offline again on 2026-09-22. Playwright turned out to be usable from the npx
-cache (see the handoff), so screenshots are possible now, but none of the items below has been
-clicked through by the owner. One pass in the real app covers all of it:
+The Chrome extension worked on 2026-09-22 (late) for clicks and DOM reads, but its screenshots timed
+out; Playwright from the npx cache covers screenshots (see the handoff). None of the items below has
+been clicked through by the owner. One pass in the real app covers all of it:
 - [ ] UX reorganization (all six steps), then settle open decisions 6–8 below.
 - [ ] Signup with username and Ajustes → Perfil. Existing accounts have `username = NULL` and show
   "Usuário" until they pick one.
@@ -84,6 +86,12 @@ clicked through by the owner. One pass in the real app covers all of it:
   and "Restam"/"Passou", badge with the month's status, up to four categories that are "Perto do
   limite" or "Estourou" (worst first), or a one-line "todas no plano". Hidden in a month with no
   budget. Not masked by the eye (orçamentos stay visible).
+- [ ] Ajustes → Regras de importação: the pencil edits a rule (pattern too); "Aplicar" on a rule and
+  "Aplicar ao extrato" list the lançamentos that would change category, all ticked — untick any you
+  categorized by hand on purpose, then "Recategorizar N". (Clicked through on scratch data
+  2026-09-22 via Chrome + Playwright; not yet on real data.)
+- [ ] Tables at 1024–1279 px (Extrato, Posição, Operações, Proventos) now show as cards below `xl`;
+  check that this is what you want at your usual window width.
 - [ ] Motion pass: every sheet ("+ Novo", Pagar fatura, investimento, editar operação) animates
   out, not just in, and shows its last content while leaving (no "Pagar R$ 0,00" flash). Tab pill
   slides between abas. Início numbers count up on the first visit only; leaving and coming back,
@@ -150,9 +158,16 @@ out of date — every item of this pass is done, so a remodel starts from here.
   row.
 - [x] **OFX import** — hand-rolled SGML reader in the same module (no `ofxparse` dependency); the
   bank's `FITID` becomes the dedupe key when the file carries one.
-- [ ] Not built: applying rules to lançamentos already recorded (rules only run on import), amount
-  and account conditions on a rule, and editing a rule's pattern after creation (toggle + delete
-  only). Import is capped at 2,000 rows per file.
+- [x] **Rules on lançamentos already recorded** — `POST /api/import-rules/apply/preview` lists what
+  would change category (never writes); `POST /api/import-rules/apply` rewrites `category` and
+  `category_id` only for the confirmed `transaction_ids`, re-checking each against the rule, and
+  adds to the rule's `hits`. With `rule_id` it runs just that rule (even inactive); without, all
+  active rules in import priority. TRANSFER, investment cash and invoice payments are never touched.
+  Ajustes → Regras: "Aplicar ao extrato" (all rules) and "Aplicar" per rule open a sheet with every
+  row ticked; the pencil edits a rule in the same form as "Nova regra". Tests in
+  `backend/tests/test_rule_apply.py`.
+- [ ] Not built: amount and account conditions on a rule. Import is capped at 2,000 rows per file,
+  and the apply preview at 2,000 rows (the sheet says so when it cuts).
 
 ### Smaller gaps
 - [x] **Export to CSV** — `GET /api/transactions/export` (the same filters as the statement list) and

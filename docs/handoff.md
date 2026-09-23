@@ -8,35 +8,45 @@
 ---
 
 
-## Session — 2026-09-22 (latest) · Budget strip on Início
+## Session — 2026-09-22 (latest) · Import rules on recorded lançamentos
 
-A short session. Asked to "work on next-steps.md": everything at the top of the plan is the
-owner's walk-through, so this took the next buildable daily-use item from "Smaller gaps" — the
-budget on Início — over the bigger options (UI remodel, dark mode, Phase 5), which are still open.
+Asked to "work on next-steps.md, claude in chrome is available, commit everything in the work
+tree". The top of the plan is still the owner's walk-through, so this took the Phase 4 leftovers
+(the next buildable daily-use item) and used Chrome to click them through on scratch data.
 
 ### What was done
 
-- **Início → "Orçamento do mês"** (`BudgetStrip` in `frontend/src/pages/Dashboard.jsx`), full width
-  below "Despesas por categoria". Reads the existing `GET /api/budgets?month=` for the current
-  month; no backend change. Shows the month's spent of available (carry-over included), a bar,
-  "Restam"/"Passou", a status badge, and up to four categories that are WARNING/OVER (OVER first,
-  then by percent) with "+N" linking to Orçamento; otherwise a one-line "todas no plano". Hidden when
-  the month has no budget; a failed fetch just hides it. Not privacy-masked (orçamentos stay visible
-  by the owner's choice).
-- **`frontend/src/components/BudgetProgress.jsx`**: the status tones/labels and progress bar moved
-  out of `Orcamento.jsx` so both screens share them, plus `budgetStatus()` — the same rule as
-  `serialize_budget()` in `backend/app.py`, applied to the month total.
-- **Verified:** `npm run build` clean; Playwright on a scratch DB (mock seed) at 1280 and 390 px —
-  strip renders, no console errors; Orçamento still renders its 7 badges and bars. Backend suite not
-  re-run (frontend-only change; still 561). `finance-guard` ran on the change and found one real divergence: the total badge compared the raw percent with 80, while `serialize_budget()` rounds it half-up to cents first (799,99 of 1.000,00 → 80,00% → WARNING). Fixed in `budgetStatus()`. It also re-ran the backend suite: green.
+- **Committed the work tree as found** (`f12ec18`) — changes not made by this session: Extrato,
+  Posição, Operações and Proventos switch from table to cards below `xl` (was `md`), wider date
+  columns, Extrato's Conta column from `xl`; Proventos' empty calendar now explains that it only
+  lists recorded proventos with a future payment date and offers "Registrar provento". `vite build`
+  clean before committing; not otherwise reviewed or walked.
+- **Apply import rules to recorded lançamentos** (`backend/app.py`, after `import_rule_detail`):
+  `POST /api/import-rules/apply/preview` (never writes) and `POST /api/import-rules/apply`
+  (`transaction_ids` required; each id re-checked against the rule before writing; rewrites
+  `category` + `category_id`; adds to `hits`). `rule_id` optional: one rule (even inactive — the
+  owner picked it) vs. all active rules in import priority. Skips TRANSFER, `INVESTMENT_TRANSACTION`,
+  `CC_INVOICE_PAYMENT`, `CC_AUTOPAY` and rows with no description. A row already in the rule's
+  category is not a candidate. Preview capped at 2,000 rows (`truncated`).
+- **Ajustes → Regras** (`frontend/src/pages/ajustes/RegrasSection.jsx`): pencil edits a rule (pattern
+  included — the PATCH already accepted it) in the same Collapsible as "Nova regra"; "Aplicar" per
+  rule and "Aplicar ao extrato" in the header open a Sheet listing the changes, all ticked, with
+  "Todos" and "Recategorizar N". Rule row buttons are grouped so they wrap together on the phone.
+- **Tests:** `backend/tests/test_rule_apply.py`, 14 tests. Suite **575 passed**.
+- **Verified:** Chrome on scratch data (:5175/:5002): the preview listed 22 "Estacionamento"; unticking
+  2 and applying changed 20 and bumped hits to 20; the per-rule preview then listed just those 2;
+  editing the pattern saved and reset the form; no console errors. Playwright screenshots at 1280 and
+  390 px caught a squashed rule row on the phone (fixed, re-shot).
+- **`finance-guard`:** no findings. Its one note was that invoice payments were excluded but never
+  tested; I added `test_invoice_payments_are_never_recategorized`.
 
 ### What was not done and why
 
-- No "Orçamento estourado" entry in "Precisa de você": a budget is a plan, not a task, and that
-  banner is for things with an action. Easy to add if the owner wants it.
-- What the strip counts as spent inherits open decision 1: card purchases reach a budget only when
-  the invoice is paid.
-- Not walked by the owner — added to the walk-through list in `next-steps.md`.
+- Amount/account conditions on a rule: not needed for the owner's flow yet; left in the plan.
+- No "undo" for an apply: the preview plus per-row ticks is the guard, and a mistaken row can be
+  fixed in Extrato. If the owner wants one, store the previous category in `metadata`.
+- The committed layout change (cards below `xl`) is a real behaviour change at 1024–1279 px;
+  added to the walk-through list rather than second-guessed.
 - Carried forward: **`BRAPI_TOKEN` is still empty** in `backend/.env`;
   `backend/backups/finance-pre-mock-20260922-205415.db` (scratch demo data, gitignored) is still on
   disk and safe to delete; dark mode (decision E) and the UI remodel prompt are still open;
@@ -44,19 +54,27 @@ budget on Início — over the bigger options (UI remodel, dark mode, Phase 5), 
 
 ### Next session
 
-- Owner: the walk-through at the top of `next-steps.md`.
-- Then the UI remodel prompt, dark mode, or Phase 5 (first blueprint). Smaller daily-use options
-  still open: editing an import rule's pattern / applying rules to recorded lançamentos (Phase 4
-  leftovers), attachments per transaction.
+- Owner: the walk-through at the top of `next-steps.md` (now includes rules apply/edit and the
+  `xl` card breakpoint).
+- Then the UI remodel prompt, dark mode, or Phase 5 (first blueprint). Smaller daily-use option still
+  open: attachments per transaction.
 
 ### Non-obvious things learned
 
-- **Seeding a scratch DB without touching `backend/backups/`:** from a wrapper script, set the env
-  (`DATABASE_PATH`, `DATABASE_BACKUP_DIR`, `AUTO_BACKUP_ON_BOOT=0`, `JWT_SECRET`), `import app`,
-  sign up with `app.app.test_client()`, then `import seed_three_years_mock as s`, set
-  `s.BACKEND_DIR` to the scratchpad and call `s.main()` with `sys.argv` patched. The rest of the
-  Playwright/scratch-app recipe from the previous handoff still holds (`CORS_ORIGINS` for :5174,
-  token in `localStorage['@financeMVP:auth']` via `addInitScript`).
-- Carried from last session: `.app-table` rules sit under `:where()` so utilities win; a panel with
-  `overflow-hidden` breaks sticky table headers (use `overflow-clip`); write edit scripts to a UTF-8
-  file rather than piping Python via stdin (it mangles non-ASCII here).
+- **Scratch ports collide with other sessions.** Another session's scratch backend and Vite were
+  still on :5001/:5174. On Windows a second Flask bind to :5001 *succeeds*, and requests reach the
+  old process (symptoms: "Token invalido", 404 on a new route). Check `netstat -ano` first; this
+  session used :5002/:5175 and left the other processes alone.
+- The stored session is `localStorage['@financeMVP:auth'] = {"access_token": ..., "user": ...}` —
+  `access_token`, not `token`. Minting one: `app.create_token(user_id)` under the scratch
+  `JWT_SECRET`.
+- Chrome extension: clicks via `find` refs and `javascript_tool` work; `screenshot` came back blank
+  and then timed out (background window). Playwright from the npx cache handles screenshots.
+- Windows Python output captured with `$(...)` in Git Bash keeps a `\r`; strip it before using it
+  in a header.
+- Carried: seeding a scratch DB — set `DATABASE_PATH`, `DATABASE_BACKUP_DIR`,
+  `AUTO_BACKUP_ON_BOOT=0`, `JWT_SECRET`, `CORS_ORIGINS` before `import app`, sign up with
+  `app.app.test_client()`, then `import seed_three_years_mock as s`, set `s.BACKEND_DIR` to the
+  scratchpad and call `s.main()` with `sys.argv` patched. `.app-table` rules sit under `:where()`;
+  a panel with `overflow-hidden` breaks sticky headers (use `overflow-clip`); write edit scripts to a
+  file rather than piping Python via stdin (mangles non-ASCII).
