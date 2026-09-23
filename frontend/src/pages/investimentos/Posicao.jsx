@@ -31,6 +31,7 @@ import {
 import useInvestments from './useInvestments'
 import { FIXED_INCOME_TYPES, describeFixedIncome } from '../../lib/fixedIncome'
 import { confirmAction } from '../../lib/confirm'
+import ExportSheet from '../../components/ExportSheet'
 
 const POSITION_TABS = [
   { value: 'VARIAVEL', label: 'Variável', icon: TrendingUp },
@@ -96,7 +97,7 @@ export default function Posicao() {
 
   const [activeTab, setActiveTab] = useState('VARIAVEL')
   const [loading, setLoading] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
   const [launchIntent, setLaunchIntent] = useState({ mode: 'BUY', assetId: '' })
   // Cotacao manual e resgate parcial: cada um num sheet (eram um campo em
@@ -105,17 +106,7 @@ export default function Posicao() {
   const [redeemFor, setRedeemFor] = useState(null)
 
   // Exporta a carteira como ela esta agora; nao forca atualizacao de cotacao.
-  const handleExportPortfolio = async () => {
-    setExporting(true)
-    try {
-      await investmentsApi.exportPortfolioCsv()
-      setDataError('')
-    } catch (error) {
-      setDataError(error.message || 'Não foi possível exportar a carteira.')
-    } finally {
-      setExporting(false)
-    }
-  }
+  const handleExportPortfolio = (options) => investmentsApi.exportPortfolio(options)
 
   const openBuyModal = () => {
     setLaunchIntent({ mode: 'BUY', assetId: '' })
@@ -238,9 +229,8 @@ export default function Posicao() {
               type="button"
               variant="secondary"
               icon={Download}
-              loading={exporting}
               disabled={assets.length === 0}
-              onClick={handleExportPortfolio}
+              onClick={() => setExportOpen(true)}
             >
               Exportar
             </Button>
@@ -350,6 +340,14 @@ export default function Posicao() {
 
       <QuoteSheet asset={quoteFor} onClose={() => setQuoteFor(null)} onSave={handleManualPrice} />
       <RedeemSheet asset={redeemFor} onClose={() => setRedeemFor(null)} onSave={handlePartialSale} />
+      <ExportSheet
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        exportName="portfolio"
+        title="Exportar carteira"
+        description="Posições como estão agora, com as últimas cotações salvas."
+        onExport={handleExportPortfolio}
+      />
     </div>
   )
 }

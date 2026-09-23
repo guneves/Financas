@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Pencil, Plus, Receipt, Trash2 } from 'lucide-react'
+import { Download, Pencil, Plus, Receipt, Trash2 } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import FixedIncomeFields from '../../components/FixedIncomeFields'
 import {
@@ -37,6 +37,7 @@ import {
 import useInvestments from './useInvestments'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
+import ExportSheet from '../../components/ExportSheet'
 
 const EDIT_FORM_ID = 'investment-movement-edit'
 
@@ -106,6 +107,7 @@ export default function Operacoes() {
   const [loading, setLoading] = useState(false)
   const [editModal, setEditModal] = useState(null)
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const openEditModal = (mov) => {
     const movementDate = movementDateValue(mov)
@@ -235,9 +237,14 @@ export default function Operacoes() {
         title="Operações"
         description="Compras, vendas, aportes e resgates, com o resultado realizado e o IR estimado."
         actions={(
-          <Button type="button" icon={Plus} onClick={() => setIsLaunchModalOpen(true)}>
-            Registrar operação
-          </Button>
+          <>
+            <Button type="button" variant="secondary" icon={Download} disabled={movements.length === 0} onClick={() => setExportOpen(true)}>
+              Exportar
+            </Button>
+            <Button type="button" icon={Plus} onClick={() => setIsLaunchModalOpen(true)}>
+              Registrar operação
+            </Button>
+          </>
         )}
       />
 
@@ -326,6 +333,15 @@ export default function Operacoes() {
           </>
         )}
       </Panel>
+
+      <ExportSheet
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        exportName="movements"
+        title="Exportar operações"
+        description="Todas as operações, da mais recente para a mais antiga, com o resultado realizado de cada venda."
+        onExport={(options) => investmentsApi.exportMovements(options)}
+      />
 
       <InvestmentLaunchModal
         open={isLaunchModalOpen}

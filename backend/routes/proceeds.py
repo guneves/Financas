@@ -14,7 +14,9 @@ from flask import Blueprint, jsonify, request
 from auth import token_required
 from dates import parse_iso_date
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
+from export_csv import ColumnError
 from money import rounded_money
+from responses import export_response, read_export_options
 from services.investments import ensure_asset_owner, investment_metadata_dict
 from validators import (
     ValidationError,
@@ -480,6 +482,22 @@ def investment_proceeds(current_user_id):
         return jsonify({"error": "Nao foi possivel registrar o provento."}), 400
 
     return jsonify(item), 201
+
+
+@bp.route("/api/investment-proceeds/export", methods=["GET"])
+@token_required
+def export_investment_proceeds(current_user_id):
+    """Proventos em CSV ou .xlsx, com os mesmos filtros de GET /api/investment-proceeds."""
+    try:
+        fmt, columns = read_export_options(request.args, "proceeds")
+        filters = parse_investment_proceeds_filters(request.args)
+    except (ColumnError, ValidationError) as exc:
+        return validation_error(str(exc))
+
+    with get_db() as conn:
+        rows = fetch_investment_proceeds(conn, current_user_id, filters)
+        items = [serialize_investment_proceed(row, conn, current_user_id) for row in rows]
+    return export_response(fmt, columns, items, basename="proventos", sheet_name="Proventos")
 
 
 @bp.route("/api/investment-proceeds/summary", methods=["GET"])

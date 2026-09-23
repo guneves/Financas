@@ -24,6 +24,7 @@ import AttachmentsSheet from '../../components/AttachmentsSheet'
 import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
+import ExportSheet from '../../components/ExportSheet'
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
@@ -171,7 +172,7 @@ export default function Extrato() {
   } = useLancamentos()
 
   const [saving, setSaving] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState(null)
   const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
@@ -241,17 +242,7 @@ export default function Extrato() {
 
   // Exporta exatamente o que a tela mostra: o backend refaz a mesma consulta
   // com os filtros da URL. Sem filtro, sai o extrato inteiro.
-  const handleExport = async () => {
-    setExporting(true)
-    try {
-      await transactionsApi.exportCsv(filters)
-      setDataError('')
-    } catch (error) {
-      setDataError(error.message || 'Não foi possível exportar o extrato.')
-    } finally {
-      setExporting(false)
-    }
-  }
+  const handleExport = (options) => transactionsApi.exportFile({ ...filters, ...options })
 
   const statementTotals = useMemo(() => {
     return statementTransactions.reduce((acc, item) => {
@@ -407,9 +398,8 @@ export default function Extrato() {
               type="button"
               variant="secondary"
               icon={Download}
-              loading={exporting}
               disabled={statementTransactions.length === 0}
-              onClick={handleExport}
+              onClick={() => setExportOpen(true)}
             >
               Exportar
             </Button>
@@ -719,6 +709,14 @@ export default function Extrato() {
         transaction={attachmentsFor}
         onClose={() => setAttachmentsFor(null)}
         onChanged={fetchData}
+      />
+      <ExportSheet
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        exportName="transactions"
+        title="Exportar extrato"
+        description="Com os filtros aplicados na tela; sem filtro, o extrato inteiro."
+        onExport={handleExport}
       />
     </div>
   )

@@ -22,8 +22,9 @@ export const transactionsApi = {
     body: JSON.stringify(payload)
   }),
   remove: (id) => apiFetch(`/api/transactions/${id}`, { method: 'DELETE' }),
-  // Baixa o extrato filtrado em CSV; aceita os mesmos filtros do list.
-  exportCsv: (params = {}) => apiDownload(`/api/transactions/export${queryString(params)}`, 'extrato.csv')
+  // Baixa o extrato filtrado; aceita os mesmos filtros do list, mais
+  // `format` ('csv' | 'xlsx') e `columns` ('data,valor').
+  exportFile: (params = {}) => apiDownload(`/api/transactions/export${queryString(params)}`, `extrato.${params.format || 'csv'}`)
 }
 
 // Comprovantes (PDF/imagem) de um lancamento. As rotas sao aninhadas no
@@ -216,7 +217,8 @@ export const investmentsApi = {
     method: 'PATCH',
     body: JSON.stringify({ asset_class: assetClass, current_price: currentPrice })
   }),
-  exportPortfolioCsv: () => apiDownload('/api/investments/portfolio/export', 'carteira.csv')
+  exportPortfolio: (params = {}) => apiDownload(`/api/investments/portfolio/export${queryString(params)}`, `carteira.${params.format || 'csv'}`),
+  exportMovements: (params = {}) => apiDownload(`/api/investments/export${queryString(params)}`, `operacoes.${params.format || 'csv'}`)
 }
 
 export const marketApi = {
@@ -236,5 +238,11 @@ export const investmentProceedsApi = {
     method: 'PATCH',
     body: JSON.stringify(payload)
   }),
-  remove: (id) => apiFetch(`/api/investment-proceeds/${id}`, { method: 'DELETE' })
+  remove: (id) => apiFetch(`/api/investment-proceeds/${id}`, { method: 'DELETE' }),
+  exportFile: (params = {}) => apiDownload(`/api/investment-proceeds/export${queryString(params)}`, `proventos.${params.format || 'csv'}`)
+}
+
+// Colunas de cada exportacao (extrato, carteira, operacoes, proventos).
+export const exportsApi = {
+  columns: () => apiFetch('/api/exports/columns')
 }

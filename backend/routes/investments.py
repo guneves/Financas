@@ -19,8 +19,9 @@ from auth import token_required
 from config import PRICE_FETCH_TIMEOUT_SECONDS
 from dates import subtract_months
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
-import export_csv
-from responses import csv_response
+from export_csv import ColumnError
+from money import rounded_money
+from responses import export_response, read_export_options
 from services.fixed_income import (
     finish_fixed_income_refresh,
     start_fixed_income_refresh,
@@ -76,16 +77,66 @@ bp = Blueprint("investments", __name__)
 @bp.route("/api/investments/portfolio/export", methods=["GET"])
 @token_required
 def export_portfolio(current_user_id):
-    """Carteira atual em CSV, sem forcar atualizacao de cotacao."""
+    """Carteira atual em CSV ou .xlsx, sem forcar atualizacao de cotacao."""
+    try:
+        fmt, columns = read_export_options(request.args, "portfolio")
+    except ColumnError as exc:
+        return validation_error(str(exc))
     try:
         portfolio = build_portfolio_snapshot(current_user_id)
     except Exception as exc:
         print(f"Erro ao exportar a carteira: {exc}")
         return jsonify({"error": "Nao foi possivel exportar a carteira."}), 500
 
-    text = export_csv.portfolio_csv(portfolio.get("assets"))
-    filename = f"carteira-{datetime.now().strftime('%Y-%m-%d')}.csv"
-    return csv_response(text, filename)
+    return export_response(
+        fmt, columns, portfolio.get("assets") or [], basename="carteira", sheet_name="Carteira",
+    )
+
+
+def movement_export_item(investment):
+    """Uma operacao como a tela Operacoes mostra: preco de venda/resgate na
+    venda, bruto = quantidade x preco, custos, e o resultado realizado (FIFO)."""
+    metadata = investment.get("metadata") or {}
+    movement_type = investment_movement_type(investment.get("quantity"), metadata)
+    quantity = abs(float(investment.get("quantity") or 0))
+    if metadata.get("is_redemption"):
+        unit_price = float(investment.get("current_price") or 0)
+    elif movement_type == "SELL" and metadata.get("sale_price"):
+        unit_price = float(metadata.get("sale_price") or 0)
+    else:
+        unit_price = float(investment.get("average_price") or 0)
+    realized_fee = investment.get("realized_fee_amount")
+    return {
+        "date": investment_transaction_date(metadata, investment.get("created_at")),
+        "movement_type": movement_type,
+        "ticker": investment.get("ticker_or_name"),
+        "asset_class": investment.get("asset_class"),
+        "quantity": quantity,
+        "unit_price": unit_price,
+        "gross_amount": rounded_money(investment_gross_amount(quantity, unit_price)),
+        "fees": realized_fee if realized_fee is not None else investment_fee_amount(metadata),
+        "realized_cost_basis": investment.get("realized_cost_basis"),
+        "realized_profit": investment.get("realized_profit"),
+        "realized_tax_amount": investment.get("realized_tax_amount"),
+        "realized_net_profit_after_tax": investment.get("realized_net_profit_after_tax"),
+    }
+
+
+@bp.route("/api/investments/export", methods=["GET"])
+@token_required
+def export_movements(current_user_id):
+    """Operacoes (compras, vendas, aportes, resgates) em CSV ou .xlsx, mais
+    recentes primeiro, com o resultado realizado de cada venda."""
+    try:
+        fmt, columns = read_export_options(request.args, "movements")
+    except ColumnError as exc:
+        return validation_error(str(exc))
+    refresh_realized_results(current_user_id)
+    with get_db() as conn:
+        rows = fetch_investment_rows(conn, current_user_id, order_by="it.created_at", direction="DESC")
+    items = [movement_export_item(serialize_investment(row)) for row in rows]
+    items.sort(key=lambda item: item["date"] or "", reverse=True)
+    return export_response(fmt, columns, items, basename="operacoes", sheet_name="Operações")
 
 
 @bp.route("/api/assets", methods=["GET"])

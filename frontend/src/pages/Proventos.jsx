@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarDays,
   Coins,
+  Download,
   Filter,
   Pencil,
   Plus,
@@ -29,6 +30,7 @@ import {
 import { toast } from '../lib/toast'
 import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString, monthLabel, shortMonthLabel } from '../lib/format'
 import { confirmAction } from '../lib/confirm'
+import ExportSheet from '../components/ExportSheet'
 
 const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos' },
@@ -102,6 +104,7 @@ export default function Proventos() {
   const [editingId, setEditingId] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [formError, setFormError] = useState('')
+  const [exportOpen, setExportOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -276,6 +279,9 @@ export default function Proventos() {
             <Button type="button" variant="secondary" icon={RefreshCw} loading={loading} onClick={fetchData}>
               Atualizar
             </Button>
+            <Button type="button" variant="secondary" icon={Download} disabled={proceeds.length === 0} onClick={() => setExportOpen(true)}>
+              Exportar
+            </Button>
             <Button type="button" icon={Plus} onClick={openNewProvento}>
               Registrar provento
             </Button>
@@ -284,6 +290,15 @@ export default function Proventos() {
       />
 
       <AlertMessage tone="danger" message={error} onDismiss={() => setError('')} />
+
+      <ExportSheet
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        exportName="proceeds"
+        title="Exportar proventos"
+        description="Com os filtros aplicados na tela."
+        onExport={(options) => investmentProceedsApi.exportFile({ ...filteredParams, ...options })}
+      />
 
       <Sheet
         open={formOpen}

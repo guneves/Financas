@@ -9,11 +9,11 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
-import export_csv
 from auth import token_required
 from db import get_db, new_id, serialize_transaction
 from money import rounded_money
-from responses import csv_response
+from export_csv import ColumnError
+from responses import export_response, read_export_options
 from services.accounts import require_account, resolve_account_id, resolve_category
 from services.attachments import remove_attachment_files
 from services.invoices import apply_due_autopay
@@ -199,7 +199,12 @@ def account_names_map(conn, current_user_id):
 @bp.route("/api/transactions/export", methods=["GET"])
 @token_required
 def export_transactions(current_user_id):
-    """Extrato filtrado em CSV — os mesmos filtros de GET /api/transactions."""
+    """Extrato filtrado em CSV ou .xlsx — os mesmos filtros de GET /api/transactions,
+    mais `format` e `columns` (responses.read_export_options)."""
+    try:
+        fmt, columns = read_export_options(request.args, "transactions")
+    except ColumnError as exc:
+        return validation_error(str(exc))
     with get_db() as conn:
         apply_due_autopay(conn, current_user_id)
         try:
@@ -217,9 +222,10 @@ def export_transactions(current_user_id):
         names = account_names_map(conn, current_user_id)
 
     items = [serialize_transaction(row) for row in rows]
-    text = export_csv.transactions_csv(items, names)
-    filename = f"extrato-{datetime.now().strftime('%Y-%m-%d')}.csv"
-    return csv_response(text, filename)
+    return export_response(
+        fmt, columns, items,
+        basename="extrato", sheet_name="Extrato", context={"account_names": names},
+    )
 
 
 @bp.route("/api/transactions/<item_id>", methods=["PATCH"])

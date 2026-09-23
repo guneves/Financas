@@ -63,7 +63,7 @@ def test_signed_amount_is_empty_for_transfers():
 
 def test_source_label_defaults_to_manual():
     assert export_csv.source_label(None) == "Manual"
-    assert export_csv.source_label("STATEMENT_IMPORT") == "Importacao de extrato"
+    assert export_csv.source_label("STATEMENT_IMPORT") == "Importação de extrato"
     assert export_csv.source_label("ALGO_NOVO") == "ALGO_NOVO"
 
 
@@ -123,7 +123,7 @@ def test_export_leaves_the_transfer_column_empty(client, auth):
     assert response.status_code == 201, response.get_data(as_text=True)
 
     line = [row for row in csv_lines(export(client, auth))[1:] if "Entre contas" in row][0].split(";")
-    assert line[1] == "Transferencia"
+    assert line[1] == "Transferência"
     assert line[4] == "Origem"
     assert line[5] == "Destino"
     assert line[6] == "250,00"
@@ -172,9 +172,9 @@ def test_portfolio_row_computes_the_invested_value():
         "quote": {"quoted_at": "2026-09-22T10:00:00Z"},
     })
     assert row[0] == "PETR4"
-    assert row[1] == "Acoes"
+    assert row[1] == "Ações"
     assert row[5] == "3000,00"
-    assert row[10] == "Nao"
+    assert row[10] == "Não"
     assert row[11] == "2026-09-22"
 
 

@@ -2,6 +2,7 @@
 
 from flask import Blueprint, jsonify
 
+import export_csv
 from auth import token_required
 from db import create_database_backup, database_status, prune_database_backups
 
@@ -33,3 +34,10 @@ def backup_database(current_user_id):
     except Exception as exc:
         print(f"Erro ao criar backup SQLite: {exc}")
         return jsonify({"error": "Nao foi possivel criar o backup do banco."}), 500
+
+
+@bp.route("/api/exports/columns", methods=["GET"])
+@token_required
+def export_columns(current_user_id):
+    """Colunas de cada exportacao, na ordem padrao, para o seletor do cliente."""
+    return jsonify(export_csv.column_catalog()), 200
