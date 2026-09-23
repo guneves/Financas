@@ -12,7 +12,9 @@ carry state between them. **Start every session by reading them in this order:**
    (`git log -p docs/handoff.md`). This is the fastest way into context.
 2. **`docs/next-steps.md`** — the active, prioritized work plan. Phases, functional gaps, technical
    debt. This is the source of truth for *what to work on*.
-3. **`ROADMAP.md`** — historical record of what has been built and the original direction. Read for
+3. **`docs/done-tasks.md`** — everything already completed, moved out of the plan. Read it when you
+   need to know whether something exists or how a finished feature behaves.
+4. **`ROADMAP.md`** — historical record of what has been built and the original direction. Read for
    background; it does not drive work anymore.
 
 Cheaper route for the same thing: run the **`session-scout` subagent** (see below) and let it read
@@ -21,8 +23,12 @@ instead of yours.
 
 **End every session by:**
 
-- Updating `docs/next-steps.md` — tick off what you completed, and rewrite the affected section
-  rather than appending a note to it. A stale plan is worse than no plan.
+- Updating `docs/next-steps.md` — **remove every task you completed from it and record it in
+  `docs/done-tasks.md`** (a row in the table, plus a note if the detail is worth keeping). The plan
+  holds only open work: no `[x]` boxes, no "done" sections, no struck-through decisions. What a
+  finished task left undone (a "not built", an owner walk-through) stays in `next-steps.md` as an
+  open item. Rewrite the affected section rather than appending a note to it. A stale plan is worse
+  than no plan.
 - Running the **`finance-guard` subagent** over the change (see below) and acting on what it finds.
 - Replacing the session entry in `docs/handoff.md` with a new one — the file holds only the latest
   session, so delete the previous entry rather than stacking on top of it. Carry forward anything
@@ -189,7 +195,8 @@ frontend/src/
   components/         # Layout (nav, "+ Novo" sheet host), NewEntrySheet, ui.jsx (the UI kit)
   lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js
 docs/
-  next-steps.md       # the plan
+  next-steps.md       # the plan — open work only
+  done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
@@ -257,7 +264,7 @@ docs/
   both ids (that is the delete's guard). Write the file before the row and remove the file only
   after the commit; `prune_orphan_attachment_files()` sweeps leftovers at boot. Receipts are **not**
   in the backup zip.
-- **`CATTLE` is a live asset class**, not dead code — see `docs/next-steps.md` §2 before touching it.
+- **`CATTLE` is a live asset class**, not dead code — see `docs/done-tasks.md` (decided 2026-09-15) before touching it.
 
 ## Known sharp edges
 

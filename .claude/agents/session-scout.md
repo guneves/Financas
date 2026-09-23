@@ -21,7 +21,8 @@ In this order, because each one narrows what matters in the next:
 
 ```bash
 cat docs/handoff.md                 # only the most recent session — read it in full
-cat docs/next-steps.md              # the active plan; §3 gaps, §4 debt, §5 phases
+cat docs/next-steps.md              # the active plan — open work only
+# docs/done-tasks.md holds completed work; grep it when checking whether something exists
 git log --oneline -8
 git status --short
 ls database/migrations/             # highest number = current schema version
@@ -59,7 +60,8 @@ A single page, in this shape, no preamble:
    only the ones relevant to the task in §3, and say why each one applies.
 
 **6. Drift.** Anything in the docs that the repository contradicts — a test count that no longer
-   matches, a "done" item whose code is not there, a file the plan names by a path that has moved.
+   matches, a `done-tasks.md` item whose code is not there, a completed task still sitting in
+   `next-steps.md` (it belongs in `done-tasks.md`), a file the plan names by a path that has moved.
    The plan being stale is worse than it being thin, so this section is worth the read even when it
    comes back empty.
 
