@@ -32,6 +32,7 @@ os.chdir(BACKEND_DIR)
 os.environ.setdefault("AUTO_BACKUP_ON_BOOT", "0")
 
 import app as finance_app  # noqa: E402
+import config  # noqa: E402
 
 TODAY = date.today()
 START = date(TODAY.year - 3, TODAY.month, 1)
@@ -119,7 +120,7 @@ class Api:
 # ---------------------------------------------------------------- preparo
 
 def backup_and_wipe(user_id):
-    db_path = finance_app.DATABASE_PATH
+    db_path = config.DATABASE_PATH
     backup_dir = os.path.join(BACKEND_DIR, "backups")
     os.makedirs(backup_dir, exist_ok=True)
     backup_path = os.path.join(
@@ -640,7 +641,7 @@ def main():
         raise SystemExit("Uso: python scripts/seed_three_years_mock.py <email> [--scale N]")
     email = args[0].strip().lower()
 
-    with sqlite3.connect(finance_app.DATABASE_PATH) as conn:
+    with sqlite3.connect(config.DATABASE_PATH) as conn:
         row = conn.execute("SELECT id FROM users WHERE lower(email) = ?", (email,)).fetchone()
     if not row:
         raise SystemExit(f"Usuario {email} nao encontrado.")

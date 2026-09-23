@@ -34,7 +34,13 @@ def app_module():
     os.environ["AUTO_BACKUP_ON_BOOT"] = "0"
     os.environ["CORS_ORIGINS"] = "*"
 
-    sys.modules.pop("app", None)
+    # config.py le o ambiente no import, e os modulos do app (db, auth...) copiam
+    # os valores dele. Por isso nenhum teste importa esses modulos no topo do
+    # arquivo: pegue-os por fixture (app_module, db_module), depois daqui.
+    # Os modulos puros (brapi_client, statement_import...) podem ser importados
+    # no topo — nao leem config e nao devem ser recarregados.
+    for name in ("app", "config"):
+        sys.modules.pop(name, None)
     module = importlib.import_module("app")
     module.app.config["TESTING"] = True
     return module
@@ -78,3 +84,9 @@ def other_user(client):
 @pytest.fixture()
 def auth(user):
     return user["headers"]
+
+
+@pytest.fixture(scope="session")
+def db_module(app_module):
+    """`backend/db.py` — conexao, migrations e backups. Patch aqui o que ele usa."""
+    return importlib.import_module("db")

@@ -1,6 +1,5 @@
 import json
 import os
-import re
 import sqlite3
 import urllib.error
 import urllib.request
@@ -12,7 +11,6 @@ import hmac
 import math
 import threading
 import time
-import zipfile
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -23,12 +21,6 @@ from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
 try:
-    from dotenv import load_dotenv
-except ImportError:
-    def load_dotenv():
-        return False
-
-try:
     import yfinance as yf
 except ImportError:
     yf = None
@@ -37,43 +29,29 @@ import brapi_client
 import export_csv
 import market_catalog
 import statement_import
-
-load_dotenv()
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.dirname(BASE_DIR)
-
-
-def resolve_app_path(raw_path, base_dir=BASE_DIR):
-    value = str(raw_path or "").strip()
-    if not value:
-        return base_dir
-    return value if os.path.isabs(value) else os.path.join(base_dir, value)
-
-
-RAW_DATABASE_PATH = os.getenv("DATABASE_PATH", os.path.join(BASE_DIR, "finance.db"))
-DATABASE_PATH = resolve_app_path(RAW_DATABASE_PATH, BASE_DIR)
-MIGRATIONS_DIR = resolve_app_path(
-    os.getenv("DATABASE_MIGRATIONS_DIR", os.path.join("database", "migrations")),
-    PROJECT_DIR,
+from config import (
+    ATTACHMENTS_DIR,
+    ATTACHMENT_MAX_BYTES,
+    CORS_ORIGINS,
+    HISTORY_CACHE_TTL_SECONDS,
+    JWT_EXP_DAYS,
+    JWT_SECRET,
+    PRICE_CACHE_TTL_SECONDS,
+    PRICE_DOWNLOAD_TIMEOUT_SECONDS,
+    PRICE_FETCH_TIMEOUT_SECONDS,
+    PRICE_FETCH_WORKERS,
+    PRICE_QUOTE_STALE_HOURS,
 )
-DATABASE_BACKUP_DIR = resolve_app_path(
-    os.getenv("DATABASE_BACKUP_DIR", os.path.join("backups")),
-    BASE_DIR,
+from db import (
+    create_database_backup,
+    database_status,
+    get_db,
+    init_db,
+    new_id,
+    prune_database_backups,
+    row_to_dict,
+    run_startup_backup,
 )
-# Comprovantes por lancamento (014). Fora do banco e fora do zip de backup:
-# fotos de recibo multiplicariam o tamanho de cada backup diario da retencao.
-ATTACHMENTS_DIR = resolve_app_path(
-    os.getenv("ATTACHMENTS_DIR", os.path.join("attachments")),
-    BASE_DIR,
-)
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
-
-try:
-    JWT_EXP_DAYS = max(1, int(os.getenv("JWT_EXP_DAYS", "30")))
-except ValueError:
-    JWT_EXP_DAYS = 30
 
 ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE", "TRANSFER"}
 ALLOWED_ACCOUNT_TYPES = {"CHECKING", "SAVINGS", "BROKERAGE", "CASH", "OTHER"}
@@ -130,67 +108,8 @@ DEFAULT_REALIZED_TAX_RATES = {
 }
 
 
-def read_int_env(name, default, *, minimum=None, maximum=None):
-    try:
-        value = int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        value = default
-    if minimum is not None:
-        value = max(minimum, value)
-    if maximum is not None:
-        value = min(maximum, value)
-    return value
-
-
-def read_float_env(name, default, *, minimum=None, maximum=None):
-    try:
-        value = float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        value = default
-    if minimum is not None:
-        value = max(minimum, value)
-    if maximum is not None:
-        value = min(maximum, value)
-    return value
-
-
-PRICE_CACHE_TTL_SECONDS = read_int_env("PRICE_CACHE_TTL_SECONDS", 60, minimum=5)
-PRICE_FETCH_TIMEOUT_SECONDS = read_float_env(
-    "PRICE_FETCH_TIMEOUT_SECONDS",
-    6.0,
-    minimum=1.0,
-    maximum=30.0,
-)
-PRICE_DOWNLOAD_TIMEOUT_SECONDS = read_float_env(
-    "PRICE_DOWNLOAD_TIMEOUT_SECONDS",
-    8.0,
-    minimum=1.0,
-    maximum=30.0,
-)
-PRICE_FETCH_WORKERS = read_int_env("PRICE_FETCH_WORKERS", 2, minimum=1, maximum=4)
-HISTORY_CACHE_TTL_SECONDS = read_int_env("HISTORY_CACHE_TTL_SECONDS", 900, minimum=60)
-SQLITE_BUSY_TIMEOUT_MS = read_int_env("SQLITE_BUSY_TIMEOUT_MS", 5000, minimum=1000, maximum=60000)
-PRICE_QUOTE_STALE_HOURS = read_int_env("PRICE_QUOTE_STALE_HOURS", 36, minimum=1, maximum=720)
-BACKUP_RETENTION_DAYS = read_int_env("BACKUP_RETENTION_DAYS", 7, minimum=1, maximum=365)
-AUTO_BACKUP_ON_BOOT = str(os.getenv("AUTO_BACKUP_ON_BOOT", "1")).strip().lower() not in {"0", "false", "no"}
-AUTO_BACKUP_MIN_INTERVAL_HOURS = read_int_env(
-    "AUTO_BACKUP_MIN_INTERVAL_HOURS",
-    12,
-    minimum=0,
-    maximum=720,
-)
-ATTACHMENT_MAX_BYTES = read_int_env(
-    "ATTACHMENT_MAX_BYTES",
-    10 * 1024 * 1024,
-    minimum=64 * 1024,
-    maximum=50 * 1024 * 1024,
-)
 # Um lancamento com mais que isso nao e um lancamento, e uma pasta.
 ATTACHMENT_MAX_PER_TRANSACTION = 20
-# So os arquivos gerados automaticamente entram na rotacao. Backups com nome
-# proprio (ex.: "finance-before-normalized-investments-*.db") sao marcos feitos
-# a mao e nunca sao apagados pela retencao.
-BACKUP_FILE_PATTERN = re.compile(r"^finance-\d{8}-\d{6}\.(db|sql|zip)$")
 
 _price_cache = {}
 _history_cache = {}
@@ -204,239 +123,6 @@ cors_origins = "*" if CORS_ORIGINS == "*" else [
     origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()
 ] or "*"
 CORS(app, resources={r"/api/*": {"origins": cors_origins}})
-
-
-def get_db():
-    database_dir = os.path.dirname(os.path.abspath(DATABASE_PATH))
-    if database_dir:
-        os.makedirs(database_dir, exist_ok=True)
-    conn = sqlite3.connect(DATABASE_PATH, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
-    return conn
-
-
-def configure_sqlite_database(conn):
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    try:
-        conn.execute("PRAGMA journal_mode = WAL")
-    except sqlite3.DatabaseError as exc:
-        print(f"Nao foi possivel ativar WAL no SQLite: {exc}")
-
-
-def migration_version(filename):
-    stem = filename.rsplit(".", 1)[0]
-    return stem.split("_", 1)[0]
-
-
-def sql_literal(value):
-    return "'" + str(value).replace("'", "''") + "'"
-
-
-def migration_files():
-    if not os.path.isdir(MIGRATIONS_DIR):
-        raise RuntimeError(f"Diretorio de migrations nao encontrado: {MIGRATIONS_DIR}")
-
-    files = [
-        filename
-        for filename in os.listdir(MIGRATIONS_DIR)
-        if filename.lower().endswith(".sql")
-    ]
-    return sorted(files)
-
-
-def ensure_migrations_table(conn):
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            version TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-        )
-        """
-    )
-
-
-def applied_migration_versions(conn):
-    rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
-    return {row["version"] for row in rows}
-
-
-def init_db():
-    with get_db() as conn:
-        configure_sqlite_database(conn)
-        ensure_migrations_table(conn)
-        applied_versions = applied_migration_versions(conn)
-
-        for filename in migration_files():
-            version = migration_version(filename)
-            if version in applied_versions:
-                continue
-
-            migration_path = os.path.join(MIGRATIONS_DIR, filename)
-            with open(migration_path, "r", encoding="utf-8") as file:
-                sql = file.read()
-
-            migration_script = (
-                "BEGIN IMMEDIATE;\n"
-                f"{sql}\n"
-                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES "
-                f"({sql_literal(version)}, {sql_literal(filename)});\n"
-                "COMMIT;"
-            )
-            try:
-                conn.executescript(migration_script)
-            except sqlite3.DatabaseError:
-                try:
-                    conn.execute("ROLLBACK")
-                except sqlite3.DatabaseError:
-                    pass
-                raise
-            applied_versions.add(version)
-
-
-def database_status():
-    with get_db() as conn:
-        configure_sqlite_database(conn)
-        ensure_migrations_table(conn)
-        migration_rows = conn.execute(
-            "SELECT version, name, applied_at FROM schema_migrations ORDER BY version"
-        ).fetchall()
-        page_size = conn.execute("PRAGMA page_size").fetchone()[0]
-        page_count = conn.execute("PRAGMA page_count").fetchone()[0]
-        journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-        foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
-        wal_checkpoint = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
-
-    return {
-        "path": DATABASE_PATH,
-        "journal_mode": journal_mode,
-        "foreign_keys": bool(foreign_keys),
-        "busy_timeout_ms": SQLITE_BUSY_TIMEOUT_MS,
-        "size_bytes": page_size * page_count,
-        "wal_log_pages": wal_checkpoint[1] if wal_checkpoint else 0,
-        "wal_checkpointed_pages": wal_checkpoint[2] if wal_checkpoint else 0,
-        "migrations": [row_to_dict(row) for row in migration_rows],
-    }
-
-
-def create_database_backup():
-    os.makedirs(DATABASE_BACKUP_DIR, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = os.path.join(DATABASE_BACKUP_DIR, f"finance-{timestamp}.db")
-
-    with sqlite3.connect(DATABASE_PATH, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000) as source:
-        with sqlite3.connect(backup_path) as target:
-            source.backup(target)
-
-    dump_path = os.path.join(DATABASE_BACKUP_DIR, f"finance-{timestamp}.sql")
-    with sqlite3.connect(DATABASE_PATH, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000) as source:
-        with open(dump_path, "w", encoding="utf-8") as dump_file:
-            for line in source.iterdump():
-                dump_file.write(f"{line}\n")
-
-    zip_path = os.path.join(DATABASE_BACKUP_DIR, f"finance-{timestamp}.zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.write(backup_path, arcname=os.path.basename(backup_path))
-        archive.write(dump_path, arcname=os.path.basename(dump_path))
-
-    return {
-        "database_path": backup_path,
-        "dump_path": dump_path,
-        "zip_path": zip_path,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-    }
-
-
-def backup_files():
-    """Backups automaticos (finance-AAAAMMDD-HHMMSS.*), do mais novo ao mais antigo."""
-    if not os.path.isdir(DATABASE_BACKUP_DIR):
-        return []
-
-    entries = []
-    for filename in os.listdir(DATABASE_BACKUP_DIR):
-        if not BACKUP_FILE_PATTERN.match(filename):
-            continue
-        path = os.path.join(DATABASE_BACKUP_DIR, filename)
-        if not os.path.isfile(path):
-            continue
-        try:
-            entries.append((path, os.path.getmtime(path)))
-        except OSError:
-            continue
-
-    entries.sort(key=lambda entry: entry[1], reverse=True)
-    return entries
-
-
-def last_backup_age_hours():
-    """Hours since the most recent backup, or None when there is none."""
-    entries = backup_files()
-    if not entries:
-        return None
-    return max(0.0, (time.time() - entries[0][1]) / 3600)
-
-
-def prune_database_backups(retention_days=None):
-    """Delete backup artifacts older than the retention window."""
-    retention_days = BACKUP_RETENTION_DAYS if retention_days is None else retention_days
-    cutoff = time.time() - retention_days * 86400
-
-    removed = []
-    for path, modified_at in backup_files():
-        if modified_at >= cutoff:
-            continue
-        try:
-            os.remove(path)
-            removed.append(os.path.basename(path))
-        except OSError as exc:
-            print(f"Nao foi possivel remover o backup antigo {path}: {exc}")
-
-    return removed
-
-
-def run_startup_backup():
-    """Back up the database on boot, then prune anything past retention.
-
-    Skipped when AUTO_BACKUP_ON_BOOT is off, when there is no database file yet,
-    or when a backup already ran inside AUTO_BACKUP_MIN_INTERVAL_HOURS - restarting
-    the app repeatedly should not fill the backup directory.
-    """
-    if not AUTO_BACKUP_ON_BOOT:
-        return None
-
-    if not os.path.isfile(DATABASE_PATH) or os.path.getsize(DATABASE_PATH) == 0:
-        return None
-
-    age_hours = last_backup_age_hours()
-    if age_hours is not None and age_hours < AUTO_BACKUP_MIN_INTERVAL_HOURS:
-        prune_database_backups()
-        return None
-
-    try:
-        backup = create_database_backup()
-    except Exception as exc:
-        print(f"Backup automatico de boot falhou: {exc}")
-        return None
-
-    removed = prune_database_backups()
-    print(
-        f"Backup automatico criado em {backup['zip_path']}"
-        + (f" ({len(removed)} arquivo(s) antigo(s) removido(s))" if removed else "")
-    )
-    backup["pruned"] = removed
-    return backup
-
-
-def new_id():
-    return str(uuid.uuid4())
-
-
-def row_to_dict(row):
-    return dict(row) if row else None
 
 
 def safe_float(value, default=0):
@@ -3787,7 +3473,6 @@ def copy_budgets(current_user_id):
         {"from_month": from_month, "created": created, "updated": updated, "skipped": skipped}
     )
     return jsonify(result), 200
-
 
 
 # --- Lancamentos recorrentes (3.4 de docs/next-steps.md) --------------------
