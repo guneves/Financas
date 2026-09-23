@@ -7,43 +7,36 @@
 
 ---
 
-## Session — 2026-09-23 (evening) · Browser walk-through on scratch data
+## Session — 2026-09-23 (late) · Segmented control pill on two rows
 
-Asked to "work on next-steps.md §1 using Claude in Chrome". The top item is the owner walk-through,
-so this session clicked through it on a seeded scratch copy and fixed what broke.
+Owner report: in "Novo lançamento" the indicator around the selected type had the wrong
+proportions. Small, frontend-only session.
 
 ### What was done
 
-- **Scratch app:** `run_scratch.py` in this session's scratchpad (signs up `scratch@example.com`,
-  runs `seed_three_years_mock` at scale 0.5, serves :5002), Vite on :5175 with
-  `VITE_API_BASE_URL`. Logged in by minting a token (`auth.create_token`) into
-  `localStorage['@financeMVP:auth']` — no password typed. `backend/finance.db` untouched (mtime
-  checked).
-- **Chrome** clicks, `find`/`form_input`, `file_upload` and **screenshots all worked** this time.
-  The window would not resize (maximized), so 390/900/1100/1300 px went through Playwright.
-- **Six bugs fixed** (details in `done-tasks.md`): OFX picked after a CSV was parsed as CSV
-  (stale `file` in `runPreview`); Extrato misaligned between `md` and `xl` (hidden `<col>` +
-  `colSpan={5}`); desktop header pushed "+ Novo" off-screen at 1024–1110 px; no scroll-to-top on
-  navigation; duplicate "Outros" donut slice when a real "Outros" category is big; 0% return shown
-  green. Also Regras panel padding and the doubled CSV `charset`.
-- **Verified:** 605 passed; `vite build` clean; throwaway ESLint (`no-undef`) clean on the changed
-  files; 1100 px sweep of all nine screens with no overflow and no console errors.
-- **Docs:** walk-through section in `next-steps.md` rewritten (what was covered on scratch data,
-  what was not), new small findings under "UI remodel leftovers", open decision 9 (privacy and the
-  "+R$ X no mês" chip); row + note in `done-tasks.md`.
-- **`finance-guard`** (by `subagent_type` directly): no findings. It confirmed Werkzeug appends the
-  charset exactly once and counted the Extrato columns in both branches (5 at `xl`, 4 below).
+- **Cause:** the five types wrap onto two rows in the sheet. `useSlidingPill()` in
+  `frontend/src/components/ui.jsx` measured only `left`/`width` and the pill was `top-1 bottom-1`,
+  so it stretched over both rows; the `rounded-full` container became a tall stadium.
+- **Fix (`975dedd`):** the pill measures `top`/`height` and moves with `translate(x, y)`;
+  `SegmentedControl` uses a fixed `rounded-[1.375rem]` (22px = h-9 + p-1), which equals
+  `rounded-full` on one row, so the other uses (Auth, Proventos, Posição, PortfolioOverview,
+  InvestmentLaunchModal) look unchanged. `Tabs` shares the hook and keeps `rounded-full`.
+- **Verified** in Chrome on the owner's running dev server (:5173) — only opened the sheet and
+  switched types, nothing saved: pill box equals the active button's box on the second row
+  (174×36), container radius 22px. No tests (frontend only; no frontend test suite).
+- **`finance-guard`** (by `subagent_type` directly): no findings — nothing in its checklist applies.
+- Docs: row + note in `done-tasks.md`. `next-steps.md` unchanged — the item was never in it.
 
 ### What was not done and why
 
-- **The owner walk-through itself** stays open: this was scratch data, and signup, Pagar from
-  Início, receipt "Abrir"/"Baixar", opening the CSV in Excel and the motion pass were not covered
-  (listed at the top of `next-steps.md`).
-- Small findings left for a later session (listed in `next-steps.md`, none blocking): no feedback
-  after "+ Novo" outside Extrato, empty space under Início's cash-flow chart, the native file input
-  in Importar, Cartões' pay banner vs. toast and its `window.confirm`, scroll not restored on back.
-- Carried:
-  - Open decisions 1 (card purchases vs. budget), 7, 8 and now 9 are unanswered.
+- No ESLint run: a three-line style change with no new identifiers; `vite build` is clean.
+- Carried from the previous session, all still open:
+  - The **owner walk-through** at the top of `next-steps.md` on real data (signup, Pagar from
+    Início, receipt "Abrir"/"Baixar", the CSV in Excel, the motion pass).
+  - Small walk-through findings in `next-steps.md` ("UI remodel leftovers"): no feedback after
+    "+ Novo" outside Extrato, empty space under Início's cash-flow chart, Importar's native file
+    input, Cartões' pay banner vs. toast and `window.confirm`, scroll not restored on back.
+  - Open decisions 1 (card purchases vs. budget), 7, 8 and 9 are unanswered.
   - `BRAPI_TOKEN` is empty in `backend/.env`.
   - `backend/backups/finance-pre-mock-20260922-205415.db` is safe to delete.
   - Receipts are not in the backup zip.
@@ -57,18 +50,16 @@ so this session clicked through it on a seeded scratch copy and fixed what broke
 
 ### Non-obvious things learned
 
-- **A `<col className="hidden">` does not hide a column** in a `table-fixed` table: cells in the
-  row shift left and any `colSpan` counting it adds a phantom column. Render the `<col>` and the
-  cells conditionally (Extrato's `useIsXl()`). Grep for `hidden xl:table-cell` before reusing it.
-- **State set in an event handler is not visible to a helper called in the same handler** —
-  `Importar` passed the old file name to the preview. Pass the fresh value as an argument.
-- **Fresh seeded scratch DB:** fixed income shows at cost with "0,00%" until "Atualizar cotações"
-  runs (the BCB accrual is only computed on refresh); the CRA IPCA+ fetch can time out.
-- The extension's `javascript_tool` refuses to return anything that looks like a token or cookie
-  (`[BLOCKED: Cookie/query string data]`) — fetch authenticated endpoints with `curl` from Bash.
-- `browser_batch` stops at the first error, and an invalid step (e.g. a `javascript:` URL in
-  `navigate`) fails the whole batch before anything runs.
-- Carried: pyflakes lives in an earlier scratchpad `pf/` (`pip install --target <scratch>/pf pyflakes`
-  if gone); `monkeypatch.setattr(app_module, …)` fails silently — grep when a name moves; check
-  `netstat -ano` before picking scratch ports; Vite does not catch undefined identifiers (a
-  throwaway ESLint with `no-undef` is in an earlier scratchpad's `lint/`).
+- **`cx()` does not merge Tailwind conflicts** — passing `rounded-3xl` next to a base
+  `rounded-full` does not reliably win; change the base class (or add a prop) instead.
+- **Chrome extension screenshots are flaky again:** the first full screenshot worked, then `zoom`
+  and a later screenshot timed out ("renderer may be frozen"). `javascript_tool` measuring
+  `getBoundingClientRect()` was the reliable check.
+- `find` for "Novo lançamento" returns the hidden mobile bottom-bar button; at desktop width click
+  the header "+ Novo" instead.
+- Carried: a `<col className="hidden">` does not hide a column in a `table-fixed` table; state set
+  in an event handler is not visible to a helper called in the same handler; a fresh seeded scratch
+  DB shows fixed income at cost until "Atualizar cotações"; `javascript_tool` blocks token-like
+  output (use `curl`); `browser_batch` stops at the first error; pyflakes and a throwaway ESLint
+  (`no-undef`) live in earlier scratchpads; `monkeypatch.setattr(app_module, …)` fails silently;
+  check `netstat -ano` before picking scratch ports.

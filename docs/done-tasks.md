@@ -56,6 +56,7 @@
 | Phase 5 finished: investments out of `app.py` into five services and three blueprints; `app.py` is 60 lines of boot | 2026-09-23 |
 | Phase 5 leftovers: the three pre-existing pyflakes warnings fixed (`create_app()` deliberately not built) | 2026-09-23 |
 | Browser walk-through on scratch data (Chrome + Playwright): six bugs fixed — OFX after CSV read as CSV, Extrato columns misaligned below `xl`, header clipping "+ Novo" at 1024–1110 px, no scroll-to-top between screens, duplicate "Outros" donut slice, 0% return shown green; plus Regras padding and a doubled CSV charset | 2026-09-23 |
+| `SegmentedControl` selection pill fits the active option when the options wrap onto two rows ("Novo lançamento"); container radius stays concentric | 2026-09-23 |
 
 ---
 
@@ -206,3 +207,14 @@ touched. What was clicked through is listed at the top of `next-steps.md`. Fixes
 - **Rentabilidade 0%** was green; now neutral in Posição and Operações (green means gain).
 - Ajustes → Regras had no panel padding; CSV exports sent `text/csv; charset=utf-8; charset=utf-8`
   (Flask appends the charset itself) — tests now assert the exact header.
+
+### Segmented control on two rows — 2026-09-23
+
+Reported by the owner: in "Novo lançamento" the selection pill had the wrong proportions. The five
+types wrap onto two rows in the sheet; `useSlidingPill()` measured only `left`/`width` and the
+pill ran `top-1 bottom-1`, so it spanned both rows, and the `rounded-full` container became a tall
+stadium. The pill now measures `top`/`height` too and moves with `translate(x, y)`; the
+`SegmentedControl` container uses a fixed 22px radius (h-9 button + p-1), identical to
+`rounded-full` on one row and concentric with the pill on two. `Tabs` shares the hook and still
+works (it never wraps). Checked in Chrome on the owner's dev server: pill and a second-row button
+measured the same box (174×36).
