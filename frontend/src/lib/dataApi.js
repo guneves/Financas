@@ -1,4 +1,4 @@
-import { apiDownload, apiFetch } from './api'
+import { apiBlob, apiDownload, apiFetch } from './api'
 
 const queryString = (params) => {
   const searchParams = new URLSearchParams()
@@ -24,6 +24,26 @@ export const transactionsApi = {
   remove: (id) => apiFetch(`/api/transactions/${id}`, { method: 'DELETE' }),
   // Baixa o extrato filtrado em CSV; aceita os mesmos filtros do list.
   exportCsv: (params = {}) => apiDownload(`/api/transactions/export${queryString(params)}`, 'extrato.csv')
+}
+
+// Comprovantes (PDF/imagem) de um lancamento. As rotas sao aninhadas no
+// lancamento: o backend confere que o comprovante e mesmo daquele lancamento.
+export const attachmentsApi = {
+  list: (transactionId) => apiFetch(`/api/transactions/${transactionId}/attachments`),
+  upload: (transactionId, file) => {
+    const body = new FormData()
+    body.append('file', file)
+    return apiFetch(`/api/transactions/${transactionId}/attachments`, { method: 'POST', body })
+  },
+  remove: (transactionId, attachmentId) => apiFetch(
+    `/api/transactions/${transactionId}/attachments/${attachmentId}`,
+    { method: 'DELETE' }
+  ),
+  // Blob do arquivo; quem chama decide entre abrir numa aba ou salvar.
+  file: async (transactionId, attachmentId) => {
+    const { blob } = await apiBlob(`/api/transactions/${transactionId}/attachments/${attachmentId}/file`)
+    return blob
+  }
 }
 
 export const accountsApi = {

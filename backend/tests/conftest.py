@@ -28,6 +28,7 @@ def app_module():
     os.environ["DATABASE_PATH"] = os.path.join(tmp_dir, "test.db")
     os.environ["DATABASE_MIGRATIONS_DIR"] = os.path.join(PROJECT_DIR, "database", "migrations")
     os.environ["DATABASE_BACKUP_DIR"] = os.path.join(tmp_dir, "backups")
+    os.environ["ATTACHMENTS_DIR"] = os.path.join(tmp_dir, "attachments")
     os.environ["JWT_SECRET"] = "test-secret"
     # O backup automatico de boot e exercitado em test_backups.py, com controle explicito.
     os.environ["AUTO_BACKUP_ON_BOOT"] = "0"

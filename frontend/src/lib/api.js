@@ -46,7 +46,8 @@ export async function apiFetch(path, options = {}) {
     headers.set('Authorization', `Bearer ${authData.access_token}`)
   }
 
-  if (fetchOptions.body && !headers.has('Content-Type')) {
+  // FormData (upload) leva o Content-Type com o boundary que o navegador gera.
+  if (fetchOptions.body && !(fetchOptions.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -90,7 +91,8 @@ function filenameFromDisposition(disposition, fallback) {
   return match ? decodeURIComponent(match[1]) : fallback
 }
 
-export async function apiDownload(path, fallbackName) {
+// Busca autenticada que devolve o Blob (comprovantes, extrato em CSV).
+export async function apiBlob(path) {
   const authData = getStoredAuth()
   if (!authData?.access_token) {
     clearStoredAuth()
@@ -118,8 +120,10 @@ export async function apiDownload(path, fallbackName) {
     throw new Error(message)
   }
 
-  const blob = await response.blob()
-  const filename = filenameFromDisposition(response.headers.get('content-disposition'), fallbackName)
+  return { blob: await response.blob(), disposition: response.headers.get('content-disposition') }
+}
+
+export function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -127,6 +131,13 @@ export async function apiDownload(path, fallbackName) {
   document.body.appendChild(link)
   link.click()
   link.remove()
-  URL.revokeObjectURL(url)
+  // Revogar no mesmo tique pode vencer o download: o arquivo sai sem nome.
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
+
+export async function apiDownload(path, fallbackName) {
+  const { blob, disposition } = await apiBlob(path)
+  const filename = filenameFromDisposition(disposition, fallbackName)
+  saveBlob(blob, filename)
   return filename
 }

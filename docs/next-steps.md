@@ -48,6 +48,7 @@
 | Início "Orçamento do mês" strip: month total spent vs. available and the categories near or over their limit; shared `components/BudgetProgress.jsx` with Orçamento | 2026-09-22 |
 | Tables switch to cards below `xl` so they fit without sideways scroll; Proventos' empty calendar explains itself and opens the form | 2026-09-22 |
 | Import rules: edit a rule (pattern included) and apply rules to lançamentos already recorded, with a preview and per-row confirmation | 2026-09-22 |
+| Receipts per lançamento (PDF/image, several per row) from Extrato — migration 014 | 2026-09-23 |
 
 ---
 
@@ -90,6 +91,12 @@ been clicked through by the owner. One pass in the real app covers all of it:
   "Aplicar ao extrato" list the lançamentos that would change category, all ticked — untick any you
   categorized by hand on purpose, then "Recategorizar N". (Clicked through on scratch data
   2026-09-22 via Chrome + Playwright; not yet on real data.)
+- [ ] Extrato → comprovantes: the paperclip on a row (on the phone: inside the edit form, or a tap
+  on a row from another screen, e.g. an invoice payment) opens "Comprovantes"; attach a PDF and a
+  phone photo (several at once works), "Abrir" shows it in a new tab, "Baixar" keeps the original
+  name, a row with receipts shows a clip beside the description. Try a photo straight from the
+  phone camera — iPhones may send HEIC, which only Safari can open (elsewhere "Abrir" downloads).
+  Clicked through on scratch data 2026-09-23 with Playwright at 1280 and 390 px, not on real data.
 - [ ] Tables at 1024–1279 px (Extrato, Posição, Operações, Proventos) now show as cards below `xl`;
   check that this is what you want at your usual window width.
 - [ ] Motion pass: every sheet ("+ Novo", Pagar fatura, investimento, editar operação) animates
@@ -178,7 +185,19 @@ out of date — every item of this pass is done, so a remodel starts from here.
   so summing it cannot turn moving money between your own accounts into an expense. Buttons:
   Extrato → "Exportar" (exports exactly what the filters show) and Investimentos → Posição →
   "Exportar". Not built: .xlsx proper, exporting Operações/Proventos, and a column picker.
-- [ ] Attachments/receipts per transaction (file stored locally, path in `metadata`).
+- [x] **Receipts per lançamento** — table `transaction_attachments` (migration 014) rather than a
+  path in `metadata`: several files per row, and `metadata` is rewritten by the investment cash sync.
+  Files live in `ATTACHMENTS_DIR/<user_id>/<generated name>` (default `backend/attachments/`,
+  gitignored); the type is sniffed from the bytes (PDF, JPG, PNG, GIF, WEBP, HEIC), 10 MB and 20
+  files per lançamento. Routes are nested under the lançamento (`/api/transactions/<id>/attachments`,
+  `.../<aid>/file`, `DELETE .../<aid>`), so the ids must match. Deleting a lançamento removes its
+  files; files orphaned by other paths (an investment movement deleted takes its cash row) are swept
+  at boot. `GET /api/transactions` carries `attachment_count`. Any row takes receipts, including
+  investment cash and invoice payments. Tests in `backend/tests/test_attachments.py`.
+  Not built: **receipts are not in the backup zip** (a year of photos in every daily zip × 7 days of
+  retention) — copy `backend/attachments/` alongside the database when moving it; no thumbnails
+  or inline preview; no receipts on card purchases (`cc_expenses`) — they reach the statement only
+  as the invoice payment, so a purchase receipt goes on that for now.
 - [x] **Budget strip on Início** — "Orçamento do mês" panel reading `GET /api/budgets` for the
   current month; status rule mirrors `serialize_budget()` (`budgetStatus()` in
   `components/BudgetProgress.jsx`). Not built: an "estourou" entry in "Precisa de você" (left out
