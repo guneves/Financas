@@ -431,3 +431,22 @@ ON cc_expenses(user_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_cc_expenses_card_invoice
 ON cc_expenses(user_id, card_id, invoice_year, invoice_month);
+
+-- 017: eventos corporativos (desdobramento, grupamento, bonificacao), ajustados na gravacao.
+CREATE TABLE IF NOT EXISTS corporate_actions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    action_type TEXT NOT NULL CHECK (action_type IN ('SPLIT', 'REVERSE_SPLIT', 'BONUS')),
+    ex_date TEXT NOT NULL,
+    ratio_from REAL NOT NULL CHECK (ratio_from > 0),
+    ratio_to REAL NOT NULL CHECK (ratio_to > 0),
+    bonus_unit_cost REAL CHECK (bonus_unit_cost IS NULL OR bonus_unit_cost >= 0),
+    bonus_transaction_id TEXT REFERENCES investment_transactions(id) ON DELETE SET NULL,
+    adjusted_ids TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_corporate_actions_user_asset_date
+ON corporate_actions(user_id, asset_id, ex_date);

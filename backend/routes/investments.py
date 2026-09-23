@@ -22,6 +22,13 @@ from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_
 from export_csv import ColumnError
 from money import rounded_money
 from responses import export_response, read_export_options
+from services.corporate_actions import (
+    create_corporate_action,
+    delete_corporate_action,
+    ensure_outside_corporate_actions,
+    is_bonus_movement,
+    list_corporate_actions,
+)
 from services.fixed_income import (
     finish_fixed_income_refresh,
     start_fixed_income_refresh,
@@ -75,6 +82,11 @@ from applog import get_logger
 logger = get_logger(__name__)
 
 bp = Blueprint("investments", __name__)
+
+BONUS_LOCKED_MESSAGE = (
+    "Esta operacao e a bonificacao de um evento corporativo; "
+    "para mudar ou tirar, exclua o evento em Operacoes."
+)
 
 
 @bp.route("/api/investments/portfolio/export", methods=["GET"])
@@ -291,6 +303,7 @@ def investments(current_user_id):
                 asset_id = get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name)
                 affected_asset_ids.add(asset_id)
                 transaction_date = investment_transaction_date(metadata_dict)
+                ensure_outside_corporate_actions(conn, current_user_id, asset_id, transaction_date)
                 conn.execute(
                     """
                     INSERT INTO investment_transactions
@@ -363,6 +376,8 @@ def investment_detail(current_user_id, investment_id):
                 return jsonify({"deleted": False}), 404
             existing_rows = fetch_investment_rows(conn, current_user_id, investment_id=investment_id)
             existing_item = serialize_investment(existing_rows[0]) if existing_rows else None
+            if existing_item and is_bonus_movement(existing_item.get("metadata")):
+                return validation_error(BONUS_LOCKED_MESSAGE, 409)
             if existing_item:
                 try:
                     validate_asset_transaction_backing(
@@ -415,6 +430,8 @@ def investment_detail(current_user_id, investment_id):
             return jsonify({"error": "Investimento nao encontrado."}), 404
 
         existing = serialize_investment(existing_row)
+        if is_bonus_movement(existing.get("metadata")):
+            return validation_error(BONUS_LOCKED_MESSAGE, 409)
         asset_class = existing["asset_class"]
         quantity = parsed_quantity if parsed_quantity is not None else safe_float(existing["quantity"])
         unit_price = (
@@ -427,11 +444,23 @@ def investment_detail(current_user_id, investment_id):
             if "metadata" in payload
             else existing.get("metadata") or {}
         )
+        # O ajuste de um desdobramento mora no metadata; um formulario que
+        # manda o metadata inteiro de volta nao pode apaga-lo.
+        existing_adjustments = (existing.get("metadata") or {}).get("corporate_adjustments")
+        if existing_adjustments and "corporate_adjustments" not in metadata:
+            metadata = {**metadata, "corporate_adjustments": existing_adjustments}
         try:
             validate_fixed_income_metadata(asset_class, quantity, metadata)
         except ValidationError as exc:
             return validation_error(str(exc))
         transaction_date = investment_transaction_date(metadata, existing.get("created_at"))
+        try:
+            ensure_outside_corporate_actions(
+                conn, current_user_id, existing["asset_id"], transaction_date,
+                previous_date=existing.get("transaction_date"),
+            )
+        except ValidationError as exc:
+            return validation_error(str(exc), 409)
 
         if "quantity" in payload:
             if asset_class != "FIXED_INCOME" and quantity < 0:
@@ -772,3 +801,47 @@ def get_historical_portfolio(current_user_id):
     except Exception as exc:
         logger.exception(f"Erro no historico de investimentos: {exc}")
         return jsonify({"error": "Nao foi possivel carregar o historico de investimentos."}), 500
+
+
+@bp.route("/api/corporate-actions", methods=["GET", "POST"])
+@token_required
+def corporate_actions(current_user_id):
+    """Desdobramentos, grupamentos e bonificacoes (services/corporate_actions.py)."""
+    if request.method == "GET":
+        with get_db() as conn:
+            items = list_corporate_actions(conn, current_user_id, request.args.get("asset_id"))
+        return jsonify(items), 200
+
+    payload = parse_json_body()
+    try:
+        with get_db() as conn:
+            item = create_corporate_action(conn, current_user_id, payload)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    # A cotacao do proprio dia ex pode ser de antes ou de depois do evento;
+    # busca uma nova no mercado. Sem rede, o cliente avisa para atualizar.
+    try:
+        refreshed = refresh_market_prices(current_user_id, force=True, asset_id=item["asset_id"])
+        item["price_refreshed"] = bool(refreshed.get("updated_count"))
+    except Exception as exc:  # cotacao e melhor esforco aqui
+        logger.warning(f"Cotacao nao atualizada depois do evento corporativo: {exc}")
+        item["price_refreshed"] = False
+    refresh_realized_results(current_user_id)
+    refresh_materialized_positions(current_user_id)
+    return jsonify(item), 201
+
+
+@bp.route("/api/corporate-actions/<action_id>", methods=["DELETE"])
+@token_required
+def delete_corporate_action_route(current_user_id, action_id):
+    """Desfaz o evento: so o ultimo do ativo e sem operacao depois da data ex."""
+    try:
+        with get_db() as conn:
+            delete_corporate_action(conn, current_user_id, action_id)
+    except LookupError as exc:
+        return jsonify({"deleted": False, "error": str(exc)}), 404
+    except ValidationError as exc:
+        return validation_error(str(exc), 409)
+    refresh_realized_results(current_user_id)
+    refresh_materialized_positions(current_user_id)
+    return jsonify({"deleted": True}), 200

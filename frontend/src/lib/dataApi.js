@@ -259,3 +259,10 @@ export const exportsApi = {
 export const systemApi = {
   integrations: (params = {}) => apiFetch(`/api/health/integrations${queryString(params)}`)
 }
+
+// Desdobramento, grupamento e bonificacao (017).
+export const corporateActionsApi = {
+  list: (params = {}) => apiFetch(`/api/corporate-actions${queryString(params)}`),
+  create: (payload) => apiFetch('/api/corporate-actions', { method: 'POST', body: JSON.stringify(payload) }),
+  remove: (id) => apiFetch(`/api/corporate-actions/${id}`, { method: 'DELETE' })
+}

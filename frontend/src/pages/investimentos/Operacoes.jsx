@@ -39,6 +39,7 @@ import useInvestments from './useInvestments'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
 import ExportSheet from '../../components/ExportSheet'
+import CorporateActionsPanel from './CorporateActionsPanel'
 
 const EDIT_FORM_ID = 'investment-movement-edit'
 
@@ -68,12 +69,20 @@ function describeMovement(mov) {
     ? new Date(`${String(dateValue).slice(0, 10)}T00:00:00`)
     : new Date(mov.created_at)
   const dateLabel = `${dateObj.toLocaleDateString('pt-BR')}${!hasCustomDate ? ` às ${dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}`
-  const kind = isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')
-  const kindDetail = isRedemption ? formatCurrency(totalValue) : isFixed ? '' : `${Math.abs(mov.quantity)} un.`
-  const kindLabel = `${kind} de ${isRedemption ? formatCurrency(totalValue) : Math.abs(mov.quantity)}`
+  // Evento corporativo (017): a bonificacao e uma operacao propria; as
+  // operacoes anteriores a um desdobramento aparecem na base nova, marcadas.
+  const isBonus = Boolean(mov.metadata?.corporate_action_id)
+  const adjusted = (mov.metadata?.corporate_adjustments || []).length > 0
+  const kind = isBonus ? 'Bonificação' : isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')
+  const quantityText = Math.abs(Number(mov.quantity)).toLocaleString('pt-BR', { maximumFractionDigits: 6 })
+  const kindDetail = isRedemption
+    ? formatCurrency(totalValue)
+    : isFixed ? '' : `${quantityText} un.${adjusted ? ' · ajustada por evento' : ''}`
+  const kindLabel = `${kind} de ${isRedemption ? formatCurrency(totalValue) : quantityText}`
 
   return {
     isSale,
+    isBonus,
     dateText: dateObj.toLocaleDateString('pt-BR'),
     timeText: hasCustomDate ? '' : dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     kind,
@@ -334,6 +343,8 @@ export default function Operacoes() {
         )}
       </Panel>
 
+      <CorporateActionsPanel assets={assets} />
+
       <ExportSheet
         open={exportOpen}
         onClose={() => setExportOpen(false)}
@@ -473,7 +484,7 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
         )}
       </td>
       <td className="py-1.5 text-right">
-        <Menu label={`Ações da operação de ${mov.ticker_or_name}`} items={movementMenuItems(onEdit, onDelete)} />
+        {info.isBonus ? null : <Menu label={`Ações da operação de ${mov.ticker_or_name}`} items={movementMenuItems(onEdit, onDelete)} />}
       </td>
     </tr>
   )
@@ -498,7 +509,7 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
           {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
           {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
         </div>
-        <Menu label={`Ações da operação de ${mov.ticker_or_name}`} size="md" items={movementMenuItems(onEdit, onDelete)} />
+        {info.isBonus ? null : <Menu label={`Ações da operação de ${mov.ticker_or_name}`} size="md" items={movementMenuItems(onEdit, onDelete)} />}
       </div>
       {info.hasResult ? (
         <div className="grid grid-cols-2 gap-3 rounded-lg bg-zinc-50 px-3 py-2 text-sm tabular">
