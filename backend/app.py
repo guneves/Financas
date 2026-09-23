@@ -4,21 +4,17 @@ import sqlite3
 import urllib.error
 import urllib.request
 import uuid
-import base64
 import calendar
 import hashlib
-import hmac
 import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
-from functools import wraps
+from decimal import Decimal, ROUND_HALF_UP
 
 from flask import Flask, Response, jsonify, request, send_file
 from flask_cors import CORS
-from werkzeug.security import check_password_hash, generate_password_hash
 
 try:
     import yfinance as yf
@@ -34,8 +30,6 @@ from config import (
     ATTACHMENT_MAX_BYTES,
     CORS_ORIGINS,
     HISTORY_CACHE_TTL_SECONDS,
-    JWT_EXP_DAYS,
-    JWT_SECRET,
     PRICE_CACHE_TTL_SECONDS,
     PRICE_DOWNLOAD_TIMEOUT_SECONDS,
     PRICE_FETCH_TIMEOUT_SECONDS,
@@ -43,33 +37,57 @@ from config import (
     PRICE_QUOTE_STALE_HOURS,
 )
 from db import (
-    create_database_backup,
-    database_status,
+    encode_metadata,
     get_db,
     init_db,
     new_id,
-    prune_database_backups,
+    parse_metadata_value,
     row_to_dict,
     run_startup_backup,
+    serialize_metadata_row,
+    serialize_transaction,
+    utc_timestamp,
+)
+from validators import (
+    ValidationError,
+    normalize_month,
+    optional_date,
+    optional_string,
+    parse_int_number,
+    parse_json_body,
+    parse_number,
+    parse_optional_number,
+    require_choice,
+    require_date,
+    require_id_list,
+    require_month,
+    require_string,
+    safe_float,
+    shift_month,
+    validation_error,
+)
+from auth import (
+    token_required,
+)
+from money import (
+    rounded_money,
+)
+from services.accounts import (
+    account_balance_rows,
+    ensure_default_account,
+    fetch_account,
+    fetch_category,
+    require_account,
+    resolve_account_id,
+    resolve_category,
+    seed_default_categories,
+    serialize_account,
 )
 
 ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE", "TRANSFER"}
 ALLOWED_ACCOUNT_TYPES = {"CHECKING", "SAVINGS", "BROKERAGE", "CASH", "OTHER"}
 ALLOWED_CATEGORY_KINDS = {"INCOME", "EXPENSE", "BOTH"}
-DEFAULT_ACCOUNT_NAME = "Conta Principal"
 TRANSFER_CATEGORY = "Transferencia"
-DEFAULT_CATEGORY_SEEDS = (
-    ("receita", "Receita", "INCOME"),
-    ("investimento", "Investimento", "BOTH"),
-    ("alimentacao", "Alimentação", "EXPENSE"),
-    ("moradia", "Moradia", "EXPENSE"),
-    ("transporte", "Transporte", "EXPENSE"),
-    ("saude", "Saúde", "EXPENSE"),
-    ("educacao", "Educação", "EXPENSE"),
-    ("lazer", "Lazer", "EXPENSE"),
-    ("servicos", "Serviços", "EXPENSE"),
-    ("outros", "Outros", "EXPENSE"),
-)
 ALLOWED_RECURRING_TYPES = {"INCOME", "EXPENSE"}
 ALLOWED_RECURRENCE_FREQUENCIES = {"WEEKLY", "MONTHLY", "YEARLY"}
 RECURRING_SOURCE_TYPE = "RECURRING_TRANSACTION"
@@ -124,124 +142,12 @@ cors_origins = "*" if CORS_ORIGINS == "*" else [
 ] or "*"
 CORS(app, resources={r"/api/*": {"origins": cors_origins}})
 
+# Blueprints ja extraidos do app.py (Fase 5). As rotas que ainda moram aqui
+# usam @app.route; cada area que sai vira um modulo em routes/.
+from routes import auth as auth_routes, system as system_routes  # noqa: E402
 
-def safe_float(value, default=0):
-    try:
-        return float(value) if value is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-class ValidationError(ValueError):
-    pass
-
-
-def validation_error(message, status=400):
-    return jsonify({"error": message}), status
-
-
-def require_string(payload, key, label, max_length=255):
-    value = str(payload.get(key, "") or "").strip()
-    if not value:
-        raise ValidationError(f"{label} e obrigatorio.")
-    if len(value) > max_length:
-        raise ValidationError(f"{label} deve ter no maximo {max_length} caracteres.")
-    return value
-
-
-def optional_string(payload, key, max_length=500):
-    value = payload.get(key)
-    if value is None:
-        return ""
-    value = str(value).strip()
-    if len(value) > max_length:
-        raise ValidationError(f"{key} deve ter no maximo {max_length} caracteres.")
-    return value
-
-
-def require_choice(payload, key, label, choices):
-    value = str(payload.get(key, "") or "").strip().upper()
-    if value not in choices:
-        raise ValidationError(f"{label} invalido.")
-    return value
-
-
-def parse_number(payload, key, label, *, minimum=None, maximum=None, allow_zero=True):
-    try:
-        value = float(payload.get(key))
-    except (TypeError, ValueError):
-        raise ValidationError(f"{label} deve ser um numero valido.")
-
-    if not math.isfinite(value):
-        raise ValidationError(f"{label} deve ser um numero valido.")
-    if minimum is not None and value < minimum:
-        raise ValidationError(f"{label} deve ser maior ou igual a {minimum}.")
-    if not allow_zero and value == 0:
-        raise ValidationError(f"{label} deve ser maior que zero.")
-    if maximum is not None and value > maximum:
-        raise ValidationError(f"{label} deve ser menor ou igual a {maximum}.")
-    return value
-
-
-def parse_optional_number(payload, key, label, *, minimum=None, maximum=None):
-    if key not in payload or payload.get(key) in (None, ""):
-        return None
-    return parse_number(payload, key, label, minimum=minimum, maximum=maximum)
-
-
-def parse_int_number(payload, key, label, *, minimum=None, maximum=None):
-    value = parse_number(payload, key, label, minimum=minimum, maximum=maximum)
-    if not float(value).is_integer():
-        raise ValidationError(f"{label} deve ser um numero inteiro.")
-    return int(value)
-
-
-def require_date(payload, key, label):
-    value = require_string(payload, key, label, max_length=10)
-    try:
-        datetime.strptime(value, "%Y-%m-%d")
-    except ValueError:
-        raise ValidationError(f"{label} deve estar no formato AAAA-MM-DD.")
-    return value
-
-
-def optional_date(payload, key, label):
-    if key not in payload or payload.get(key) in (None, ""):
-        return None
-    return require_date(payload, key, label)
-
-
-def require_month(payload, key, label):
-    value = require_string(payload, key, label, max_length=7)
-    return normalize_month(value, label)
-
-
-def normalize_month(value, label="Mes"):
-    """Valida e devolve um mes no formato AAAA-MM."""
-    text = str(value or "").strip()
-    try:
-        datetime.strptime(text, "%Y-%m")
-    except ValueError:
-        raise ValidationError(f"{label} deve estar no formato AAAA-MM.")
-    return text
-
-
-def shift_month(month, offset):
-    """Soma (ou subtrai) meses a um AAAA-MM, com virada de ano."""
-    year, _, raw_month = month.partition("-")
-    index = (int(year) * 12 + int(raw_month) - 1) + offset
-    return f"{index // 12:04d}-{index % 12 + 1:02d}"
-
-
-def require_id_list(payload, key="ids"):
-    raw_ids = payload.get(key)
-    if not isinstance(raw_ids, list):
-        raise ValidationError("Informe uma lista de ids.")
-
-    ids = [str(item).strip() for item in raw_ids if str(item).strip()]
-    if not ids:
-        raise ValidationError("Informe ao menos um id.")
-    return ids
+for blueprint_module in (system_routes, auth_routes):
+    app.register_blueprint(blueprint_module.bp)
 
 
 def ensure_credit_card_owner(conn, current_user_id, card_id):
@@ -267,24 +173,6 @@ def ensure_asset_owner(conn, current_user_id, asset_id):
     return asset
 
 
-def parse_metadata_value(value):
-    if not value:
-        return {}
-    if isinstance(value, dict):
-        return value
-    try:
-        parsed = json.loads(value)
-        return parsed if isinstance(parsed, dict) else {}
-    except (TypeError, json.JSONDecodeError):
-        return {}
-
-
-def encode_metadata(value):
-    if value in (None, ""):
-        return None
-    return json.dumps(value) if isinstance(value, dict) else value
-
-
 def serialize_investment(row):
     item = row_to_dict(row)
     if item:
@@ -294,21 +182,6 @@ def serialize_investment(row):
         if "realized_metadata" in item:
             item["realized_metadata"] = parse_metadata_value(item.get("realized_metadata"))
     return item
-
-
-def serialize_metadata_row(row):
-    item = row_to_dict(row)
-    if item and "metadata" in item:
-        item["metadata"] = parse_metadata_value(item.get("metadata"))
-    return item
-
-
-def serialize_transaction(row):
-    return serialize_metadata_row(row)
-
-
-def utc_timestamp():
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def quote_timestamp(date_value=None):
@@ -570,23 +443,6 @@ def investment_operation_date(investment):
         investment.get("metadata") or {},
         investment.get("transaction_date") or investment.get("created_at"),
     )
-
-
-def rounded_money(value):
-    """Arredonda valores monetarios para centavos com ROUND_HALF_UP.
-
-    O round() do Python usa banker's rounding (metade para o par), entao
-    0.125 virava 0.12 e 0.135 virava 0.14 — comportamento inconsistente para
-    dinheiro. A conversao via str() recupera a intencao decimal do float
-    antes de quantizar, evitando herdar o erro de representacao binaria.
-    """
-    numeric = safe_float(value)
-    if not math.isfinite(numeric):
-        return 0.0
-    try:
-        return float(Decimal(str(numeric)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-    except (InvalidOperation, ValueError):
-        return 0.0
 
 
 def quote_transaction_id(asset_class, transaction_id):
@@ -1473,94 +1329,6 @@ def apply_due_autopay(conn, current_user_id, today=None):
     return paid
 
 
-def create_token(user_id):
-    header = {"alg": "HS256", "typ": "JWT"}
-    payload = {
-        "sub": user_id,
-        "exp": int((datetime.now(timezone.utc) + timedelta(days=JWT_EXP_DAYS)).timestamp()),
-    }
-    header_part = base64url_encode(json.dumps(header, separators=(",", ":")).encode())
-    payload_part = base64url_encode(json.dumps(payload, separators=(",", ":")).encode())
-    signing_input = f"{header_part}.{payload_part}".encode()
-    signature = hmac.new(JWT_SECRET.encode(), signing_input, hashlib.sha256).digest()
-    return f"{header_part}.{payload_part}.{base64url_encode(signature)}"
-
-
-def base64url_encode(value):
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode()
-
-
-def base64url_decode(value):
-    padding = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(f"{value}{padding}")
-
-
-def decode_token(token):
-    try:
-        header_part, payload_part, signature_part = token.split(".")
-    except ValueError as exc:
-        raise ValueError("Token invalido.") from exc
-
-    signing_input = f"{header_part}.{payload_part}".encode()
-    expected_signature = hmac.new(JWT_SECRET.encode(), signing_input, hashlib.sha256).digest()
-    provided_signature = base64url_decode(signature_part)
-
-    if not hmac.compare_digest(expected_signature, provided_signature):
-        raise ValueError("Token invalido.")
-
-    payload = json.loads(base64url_decode(payload_part).decode())
-    if int(payload.get("exp", 0)) < int(datetime.now(timezone.utc).timestamp()):
-        raise TimeoutError("Sessao expirada.")
-
-    return payload
-
-
-PUBLIC_USER_COLUMNS = ("id", "email", "username", "created_at")
-USERNAME_MAX_LENGTH = 40
-
-
-def fetch_user_by_id(user_id):
-    with get_db() as conn:
-        return conn.execute(
-            f"SELECT {', '.join(PUBLIC_USER_COLUMNS)} FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
-
-
-def normalize_username(value):
-    """Devolve (username, erro). Espacos repetidos viram um so."""
-    username = " ".join(str(value or "").split())
-    if len(username) < 2:
-        return None, "Informe um nome de usuario com pelo menos 2 caracteres."
-    if len(username) > USERNAME_MAX_LENGTH:
-        return None, f"O nome de usuario pode ter no maximo {USERNAME_MAX_LENGTH} caracteres."
-    if "@" in username:
-        return None, "O nome de usuario nao pode ser um e-mail."
-    return username, None
-
-
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        header = request.headers.get("Authorization", "")
-        if not header.startswith("Bearer "):
-            return jsonify({"message": "Token ausente ou invalido."}), 401
-
-        token = header.split(" ", 1)[1]
-        try:
-            payload = decode_token(token)
-            user_id = payload.get("sub")
-            if not user_id or not fetch_user_by_id(user_id):
-                return jsonify({"message": "Usuario nao encontrado."}), 401
-        except TimeoutError as exc:
-            return jsonify({"message": str(exc)}), 401
-        except Exception:
-            return jsonify({"message": "Token invalido."}), 401
-
-        return f(user_id, *args, **kwargs)
-    return decorated
-
-
 def yahoo_symbol(ticker_symbol):
     yf_symbol = str(ticker_symbol or "").strip().upper()
     if not yf_symbol.endswith(".SA") and any(char.isdigit() for char in yf_symbol):
@@ -1856,268 +1624,9 @@ def build_portfolio_evolution(investments_data, historical_prices, months_back):
     return evolution
 
 
-def parse_json_body():
-    return request.get_json(silent=True) or {}
-
-
-@app.route("/api/health", methods=["GET"])
-def health_check():
-    return jsonify({
-        "status": "ok",
-        "database": "sqlite",
-        "journal_mode": database_status()["journal_mode"],
-    }), 200
-
-
-@app.route("/api/database/status", methods=["GET"])
-@token_required
-def get_database_status(current_user_id):
-    return jsonify(database_status()), 200
-
-
-@app.route("/api/database/backups", methods=["POST"])
-@token_required
-def backup_database(current_user_id):
-    try:
-        backup = create_database_backup()
-        backup["pruned"] = prune_database_backups()
-        return jsonify(backup), 201
-    except Exception as exc:
-        print(f"Erro ao criar backup SQLite: {exc}")
-        return jsonify({"error": "Nao foi possivel criar o backup do banco."}), 500
-
-
-@app.route("/api/auth/signup", methods=["POST"])
-def signup():
-    payload = parse_json_body()
-    email = str(payload.get("email", "")).strip().lower()
-    password = str(payload.get("password", ""))
-
-    if not email or "@" not in email or len(password) < 6:
-        return jsonify({"error": "Informe email valido e senha com pelo menos 6 caracteres."}), 400
-
-    username, username_error = normalize_username(payload.get("username"))
-    if username_error:
-        return jsonify({"error": username_error}), 400
-
-    user_id = new_id()
-    try:
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO users (id, email, username, password_hash) VALUES (?, ?, ?, ?)",
-                (user_id, email, username, generate_password_hash(password)),
-            )
-            ensure_default_account(conn, user_id)
-            seed_default_categories(conn, user_id)
-            user = conn.execute(
-                f"SELECT {', '.join(PUBLIC_USER_COLUMNS)} FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
-    except sqlite3.IntegrityError:
-        return jsonify({"error": "Ja existe uma conta com este email."}), 409
-
-    return jsonify({"user": row_to_dict(user), "access_token": create_token(user_id)}), 201
-
-
-@app.route("/api/auth/login", methods=["POST"])
-def login():
-    payload = parse_json_body()
-    email = str(payload.get("email", "")).strip().lower()
-    password = str(payload.get("password", ""))
-
-    with get_db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-
-    if not user or not check_password_hash(user["password_hash"], password):
-        return jsonify({"error": "Email ou senha invalidos."}), 401
-
-    public_user = {key: user[key] for key in PUBLIC_USER_COLUMNS}
-    return jsonify({"user": public_user, "access_token": create_token(user["id"])}), 200
-
-
-@app.route("/api/auth/me", methods=["GET", "PATCH"])
-@token_required
-def me(current_user_id):
-    if request.method == "PATCH":
-        payload = parse_json_body()
-        username, username_error = normalize_username(payload.get("username"))
-        if username_error:
-            return jsonify({"error": username_error}), 400
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE users SET username = ? WHERE id = ?",
-                (username, current_user_id),
-            )
-
-    return jsonify({"user": row_to_dict(fetch_user_by_id(current_user_id))}), 200
-
-
 # ---------------------------------------------------------------------------
 # Contas bancarias e categorias (3.1 / 3.2 de docs/next-steps.md)
 # ---------------------------------------------------------------------------
-
-
-def serialize_account(row):
-    item = serialize_metadata_row(row)
-    if item:
-        item["is_default"] = bool(item.get("is_default"))
-        for key in ("balance", "initial_balance"):
-            if key in item and item[key] is not None:
-                item[key] = rounded_money(item[key])
-    return item
-
-
-def default_account_id(current_user_id):
-    return f"acct:{current_user_id}"
-
-
-def ensure_default_account(conn, current_user_id):
-    """Garante que o usuario tenha ao menos uma conta e devolve o id dela.
-
-    Contas nasceram na migration 007, mas usuarios criados depois dela e
-    lancamentos vindos de outros fluxos (caixa de investimento, por exemplo)
-    ainda precisam de um destino. A conta padrao e sempre criada com o mesmo id
-    deterministico usado no backfill, para que nao existam duas "Conta
-    Principal" para o mesmo usuario.
-    """
-    existing = conn.execute(
-        """
-        SELECT id FROM accounts
-        WHERE user_id = ? AND archived_at IS NULL
-        ORDER BY is_default DESC, created_at ASC
-        LIMIT 1
-        """,
-        (current_user_id,),
-    ).fetchone()
-    if existing:
-        return existing["id"]
-
-    account_id = default_account_id(current_user_id)
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO accounts (id, user_id, name, type, is_default)
-        VALUES (?, ?, ?, 'CHECKING', 1)
-        """,
-        (account_id, current_user_id, DEFAULT_ACCOUNT_NAME),
-    )
-    return account_id
-
-
-def seed_default_categories(conn, current_user_id):
-    """Cria as 10 categorias iniciais para um usuario novo."""
-    conn.executemany(
-        """
-        INSERT OR IGNORE INTO categories (id, user_id, name, kind)
-        VALUES (?, ?, ?, ?)
-        """,
-        [
-            (f"cat:{current_user_id}:{slug}", current_user_id, name, kind)
-            for slug, name, kind in DEFAULT_CATEGORY_SEEDS
-        ],
-    )
-
-
-def fetch_account(conn, current_user_id, account_id):
-    if not account_id:
-        return None
-    return conn.execute(
-        "SELECT * FROM accounts WHERE id = ? AND user_id = ?",
-        (account_id, current_user_id),
-    ).fetchone()
-
-
-def require_account(conn, current_user_id, account_id, label="Conta"):
-    account = fetch_account(conn, current_user_id, account_id)
-    if not account:
-        raise ValidationError(f"{label} nao encontrada.")
-    if account["archived_at"]:
-        raise ValidationError(f"{label} esta arquivada.")
-    return account
-
-
-def resolve_account_id(conn, current_user_id, payload, key="account_id", label="Conta"):
-    """Conta informada no payload, ou a conta padrao quando omitida."""
-    raw = payload.get(key)
-    if raw in (None, ""):
-        return ensure_default_account(conn, current_user_id)
-    return require_account(conn, current_user_id, str(raw), label)["id"]
-
-
-def fetch_category(conn, current_user_id, category_id):
-    if not category_id:
-        return None
-    return conn.execute(
-        "SELECT * FROM categories WHERE id = ? AND user_id = ?",
-        (category_id, current_user_id),
-    ).fetchone()
-
-
-def resolve_category(conn, current_user_id, payload, required=True):
-    """Resolve (nome, id) da categoria de um lancamento.
-
-    Aceita `category_id` (novo) ou `category` em texto (o que o app sempre
-    mandou). O nome continua sendo gravado em transactions.category: e ele que
-    o Dashboard agrupa e e o fallback caso a categoria seja apagada depois.
-    """
-    category_id = payload.get("category_id")
-    if category_id not in (None, ""):
-        row = fetch_category(conn, current_user_id, str(category_id))
-        if not row:
-            raise ValidationError("Categoria nao encontrada.")
-        if row["archived_at"]:
-            raise ValidationError("Categoria esta arquivada.")
-        return row["name"], row["id"]
-
-    if required:
-        name = require_string(payload, "category", "Categoria")
-    else:
-        name = optional_string(payload, "category", max_length=255)
-        if not name:
-            return None, None
-
-    row = conn.execute(
-        "SELECT id FROM categories WHERE user_id = ? AND name = ? LIMIT 1",
-        (current_user_id, name),
-    ).fetchone()
-    return name, row["id"] if row else None
-
-
-def account_balance_rows(conn, current_user_id):
-    """Saldo por conta: inicial + receitas - despesas -/+ transferencias.
-
-    TRANSFER sai de account_id e entra em transfer_account_id, por isso aparece
-    duas vezes aqui com sinais opostos e some do consolidado.
-    """
-    return conn.execute(
-        """
-        SELECT
-            a.*,
-            a.initial_balance
-              + COALESCE((
-                    SELECT SUM(
-                        CASE t.type
-                            WHEN 'INCOME' THEN t.amount
-                            WHEN 'EXPENSE' THEN -t.amount
-                            WHEN 'TRANSFER' THEN -t.amount
-                            ELSE 0
-                        END
-                    )
-                    FROM transactions t
-                    WHERE t.user_id = a.user_id AND t.account_id = a.id
-                ), 0)
-              + COALESCE((
-                    SELECT SUM(t.amount)
-                    FROM transactions t
-                    WHERE t.user_id = a.user_id
-                      AND t.type = 'TRANSFER'
-                      AND t.transfer_account_id = a.id
-                ), 0) AS balance
-        FROM accounts a
-        WHERE a.user_id = ?
-        ORDER BY a.archived_at IS NOT NULL, a.is_default DESC, a.name COLLATE NOCASE
-        """,
-        (current_user_id,),
-    ).fetchall()
 
 
 def escape_like(value):

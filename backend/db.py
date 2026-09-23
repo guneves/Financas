@@ -5,13 +5,14 @@ nao constam em `schema_migrations`. Os backups automaticos seguem
 `finance-AAAAMMDD-HHMMSS.*` e so esses entram na retencao.
 """
 
+import json
 import os
 import re
 import sqlite3
 import time
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import (
     AUTO_BACKUP_MIN_INTERVAL_HOURS,
@@ -261,3 +262,36 @@ def new_id():
 
 def row_to_dict(row):
     return dict(row) if row else None
+
+
+def parse_metadata_value(value):
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def encode_metadata(value):
+    if value in (None, ""):
+        return None
+    return json.dumps(value) if isinstance(value, dict) else value
+
+
+def serialize_metadata_row(row):
+    item = row_to_dict(row)
+    if item and "metadata" in item:
+        item["metadata"] = parse_metadata_value(item.get("metadata"))
+    return item
+
+
+def serialize_transaction(row):
+    return serialize_metadata_row(row)
+
+
+def utc_timestamp():
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")

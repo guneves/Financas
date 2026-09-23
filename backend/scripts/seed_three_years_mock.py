@@ -33,6 +33,9 @@ os.environ.setdefault("AUTO_BACKUP_ON_BOOT", "0")
 
 import app as finance_app  # noqa: E402
 import config  # noqa: E402
+from auth import create_token  # noqa: E402
+from money import rounded_money  # noqa: E402
+from services.accounts import seed_default_categories  # noqa: E402
 
 TODAY = date.today()
 START = date(TODAY.year - 3, TODAY.month, 1)
@@ -61,7 +64,7 @@ USER_TABLES = [
 # ---------------------------------------------------------------- utilidades
 
 def money(value):
-    return float(finance_app.rounded_money(value))
+    return float(rounded_money(value))
 
 
 def scaled(value):
@@ -93,7 +96,7 @@ def iso(value):
 class Api:
     def __init__(self, user_id):
         self.client = finance_app.app.test_client()
-        self.headers = {"Authorization": f"Bearer {finance_app.create_token(user_id)}"}
+        self.headers = {"Authorization": f"Bearer {create_token(user_id)}"}
         self.calls = 0
 
     def _check(self, response, method, path, payload, allow_fail):
@@ -136,7 +139,7 @@ def backup_and_wipe(user_id):
             deleted = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,)).rowcount
             if deleted:
                 print(f"  apagado {table}: {deleted}")
-        finance_app.seed_default_categories(conn, user_id)
+        seed_default_categories(conn, user_id)
         conn.commit()
 
 
