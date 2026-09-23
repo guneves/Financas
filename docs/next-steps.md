@@ -121,19 +121,36 @@ one commit per theme (`a9d2422`..`d3a20be`), checked with Playwright screenshots
 - **Kit:** grey disabled `Button`, lighter `Badge`, `SegmentedControl` with the `Tabs` sliding pill
   (shared `useSlidingPill`), `Expand` with a `minmax(0,1fr)` column, `.app-table` rules under
   `:where()` so utilities win.
-Not done: **E** dark mode — folded into the UI remodel below.
+**E** dark mode shipped with the UI remodel below.
 
-### UI remodel — Stage 1 done 2026-09-23, waiting on the owner
-Run per `docs/ui-remodel-prompt.md` (its "state at writing" note is stale: the visual pass above is
-complete, so the remodel starts from here). Stage 1 — audit and three directions — is in
-`docs/ui-remodel-audit.md`, with mocks on the Claude Design canvas linked there.
-- [ ] **Owner:** pick a direction (A Sereno / B Painel / C Cartões / a mix) and answer decisions
-  E–J at the end of the audit.
-- [ ] Stage 2: replace this section with the numbered, commit-sized plan (kit first, then screens).
-- [ ] Stage 3: build, one commit per item.
-- [ ] **Backend, found during the audit:** the consolidated "Saldo em conta" leaves out
-  `accounts.initial_balance` while "Saldo por conta" includes it (R$ 247.500,00 apart on the seed).
-  Confirm which endpoint is wrong, fix it with a test, then re-check net worth.
+### UI remodel — direction C "Cartões" + dark mode, in progress
+Owner picked **C with dark mode** on 2026-09-23 (audit and mocks: `docs/ui-remodel-audit.md`). The
+plan was not written up as a separate stage-2 document; the owner asked to build, so these are the
+commit-sized items, kit first.
+- [x] **Tokens + dark mode + font.** Palettes on CSS variables, light = sage neutrals, dark = token
+  swap; `lib/theme.js` (system + manual toggle); Plus Jakarta Sans self-hosted; chart colours on
+  variables.
+- [x] **Shell + kit.** Top pill navigation on desktop (sidebar gone), theme toggle + eye + user menu
+  (Ajustes, Sair) + bright "Novo"; phone header gains the theme toggle, bottom bar keeps its shape.
+  Kit: pill buttons/tabs/segmented, flat 20 px tiles, heavier type; page and panel descriptions
+  hidden on phone.
+- [x] **Balance bug.** Consolidated "Saldo em conta" now includes accounts' opening balances
+  (Início, Extrato, Cartões, the Evolução curve). Was R$ 247.500,00 short on the seed.
+- [x] **Início.** Deep-green net-worth block (month result, entradas/despesas/aportes, conta ×
+  investido split, one chip per account), "Disponível por dia" and next-invoice tiles, "Precisa de
+  atenção" as cards (overdue or closed invoice with Pagar, autopay shortfall, overdue recurrences,
+  categories over budget). The Saldo por conta panel is gone (the accounts live in the block).
+- [x] **Extrato.** Grouped by day with the day's total; no Data column; row actions appear on
+  hover/focus on desktop; the three balance cards became one summary panel (shared with Cartões).
+- [ ] **Cartões:** invoice as the unit, one "Pagar" only where payment is allowed (the nine greyed
+  buttons for future invoices go), purchase delete behind a menu; drop the second row of four cards.
+- [ ] **Posição / Operações / Proventos:** positions grouped by class without the per-row quote
+  input (move quote editing into a sheet), ticker not truncated; MetricCard rows into one summary
+  panel like Extrato's.
+- [ ] **Orçamento, Recorrentes, Importar, Ajustes:** same treatment (Ajustes' sub-tabs still use
+  the old look), Importar as a stepper.
+- [ ] **Row menu + toast** in the kit (`Menu`, `Toast`) to replace per-row icon pairs everywhere.
+- [ ] Owner walk-through of the above in both themes, on the phone too.
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,

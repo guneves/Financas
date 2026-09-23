@@ -1,7 +1,11 @@
 # UI remodel — Stage 1: audit and direction
 
-> Stage 1 of `docs/ui-remodel-prompt.md`, done 2026-09-23. **Waiting on the owner to pick a
-> direction** (and answer the decisions at the end) before Stage 2 (the commit-sized plan) starts.
+> Stage 1 of `docs/ui-remodel-prompt.md`, done 2026-09-23. **Decided the same day: "Go with C, include
+> a dark mode."** That settles the direction and E. F (top pills), H (Plus Jakarta Sans,
+> self-hosted) and J (fix the balance with the remodel) were taken as C's defaults, not answered
+> separately; G (command palette) and I (exact attention items) are still open. What was built:
+> `docs/next-steps.md`. The canvas has a fourth
+> row with C in dark mode.
 >
 > Mocks: Claude Design canvas "Finanças — UI rework"
 > (https://claude.ai/artifact/DPSbd7JxFULWe4r9z36tto, private to the owner). Three directions,
@@ -53,15 +57,16 @@ What the screen is for → the one number or action the owner comes for → what
   the page says which of those numbers matters today.
 - Phone: the header, tabs and page title together use ~200 px before any content.
 
-### Found along the way (not a UI issue — for the backend/plan)
+### Found along the way
 
 **"Saldo em conta" does not equal the sum of "Saldo por conta".** On the seeded data Início and
 Extrato show R$ 1.061.007,88; the three accounts in Saldo por conta add up to R$ 1.308.507,88. The
 difference, R$ 247.500,00, is exactly the sum of the accounts' `initial_balance`
 (185.000 + 60.000 + 2.500). So the consolidated balance ignores opening balances while the per-account
-balance includes them, and net worth is understated by the same amount. Not fixed — backend is out
-of scope for the remodel — but it should be looked at before the owner trusts either number; the
-mocks use the per-account sum.
+balance includes them, and net worth is understated by the same amount. **Fixed with the remodel:**
+it turned out to be a frontend bug — Início and Extrato summed `transactions` on the client instead
+of using the per-account balances the server already computes (see `consolidatedBalance()` in
+`frontend/src/lib/transactions.js`).
 
 ## Three directions
 

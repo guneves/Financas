@@ -256,3 +256,17 @@ docs/
   must not sit inside an `overflow-x` / `overflow-hidden` wrapper, or the sticky header stops
   sticking (use `overflow-clip` on the panel for rounded corners). Row actions use
   `IconButton size="sm"`; a big money value in a card uses `FitValue`, never `truncate`.
+- **Theme and tokens** (2026-09-23 remodel, direction C "Cartões"): the palettes pages may use are
+  `zinc`, `emerald`, `rose`, `amber`, `sky`, `white` and `brand` — `tailwind.config.js` maps each
+  to a CSS variable in `index.css`, and **dark mode is only the `dark` class on `<html>` swapping
+  those variables** (the neutral scale inverts: `white` becomes the dark surface, `zinc-950` the
+  light text). So never write `dark:` classes and never use another Tailwind family (`slate`,
+  `red`, `blue`…) — it does not exist in the theme. `brand` is the deep green of the net-worth block
+  and the active nav pill, with `text-brand-ink` on it; text on the bright `emerald-500` fill is
+  `text-on-accent`. Charts take colours from `CHART` / `OTHER_COLOR` in `charts.jsx` (CSS
+  variables), never a hex literal. The theme lives in `lib/theme.js` (system by default, manual
+  toggle next to the eye) and `index.html` applies it before first paint. The font is Plus Jakarta
+  Sans served from `public/fonts` (the app must open offline) — no Google Fonts link.
+- **Consolidated balance = sum of `/api/accounts` balances**, fetched with `include_archived`
+  (`consolidatedBalance()` in `lib/transactions.js`). Summing `transactions` left each account's
+  `initial_balance` out; don't go back to it.
