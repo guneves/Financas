@@ -668,13 +668,13 @@ export default function Dashboard() {
         <Panel className="flex flex-col xl:col-span-3">
           <PanelHeader
             title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
-            description="Entradas, despesas e aportes da conta nos últimos 12 meses. Transferências entre contas não entram."
+            description="Receitas, despesas e aportes da conta nos últimos 12 meses. Transferências entre contas não entram."
           />
           <div className="flex flex-1 flex-col p-5">
             {flowSummary.hasData ? (
               <>
                 <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <InlineStat label="Média de entradas" value={formatCurrency(flowSummary.avgIncome)} />
+                  <InlineStat label="Média de receitas" value={formatCurrency(flowSummary.avgIncome)} />
                   <InlineStat label="Média de despesas" value={formatCurrency(flowSummary.avgExpense)} />
                   <InlineStat label="Média investida" value={formatCurrency(flowSummary.avgInvestment)} />
                   <InlineStat
@@ -686,7 +686,7 @@ export default function Dashboard() {
                 {/* Legenda junto do grafico, nao no cabecalho: la ela espremia a
                     descricao numa coluna estreita. */}
                 <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <LegendDot color={FLOW.income} label="Entradas" />
+                  <LegendDot color={FLOW.income} label="Receitas" />
                   <LegendDot color={FLOW.expense} label="Despesas" />
                   <LegendDot color={FLOW.investment} label="Investimentos" />
                   <LegendDot color={FLOW.net} label="Resultado" shape="line" />
@@ -703,7 +703,7 @@ export default function Dashboard() {
                         content={(
                           <ChartTooltip
                             absolute
-                            names={{ income: 'Entradas', expense: 'Despesas', investment: 'Investimentos', net: 'Resultado' }}
+                            names={{ income: 'Receitas', expense: 'Despesas', investment: 'Investimentos', net: 'Resultado' }}
                             labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
                           />
                         )}
@@ -726,7 +726,7 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver entradas, despesas ou aportes lançados." />
+              <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver receitas, despesas ou aportes lançados." />
             )}
           </div>
         </Panel>
@@ -1067,10 +1067,17 @@ function WealthHero({ total, cash, investments, accounts, monthName, income, exp
       </FitValue>
 
       <div className="flex flex-wrap gap-2">
-        <span className={cx('rounded-full px-3 py-1.5 text-sm font-bold tabular', result >= 0 ? 'bg-emerald-400 text-on-accent' : 'bg-rose-200 text-rose-950')}>
-          {formatSignedCurrency(result)} no mês
+        {/* O resultado do mes some com o olho (decisao 9): perto do patrimonio
+            ele diz quanto o patrimonio andou. A cor sai junto, senao o sinal vaza. */}
+        <span
+          className={cx(
+            'rounded-full px-3 py-1.5 text-sm font-bold tabular',
+            hidden ? 'bg-white/10' : result >= 0 ? 'bg-emerald-400 text-on-accent' : 'bg-rose-200 text-rose-950'
+          )}
+        >
+          {hidden ? MASKED_CURRENCY : formatSignedCurrency(result)} no mês
         </span>
-        <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Entradas {formatCurrency(income)}</span>
+        <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Receitas {formatCurrency(income)}</span>
         <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Despesas {formatCurrency(expense)}</span>
         {invested > 0 ? (
           <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Aportes {formatCurrency(invested)}</span>
