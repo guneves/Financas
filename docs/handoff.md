@@ -48,12 +48,16 @@ and kit for free but not their own rework.
   remodel prompt asks.
 - No `Menu`/`Toast` in the kit yet; Extrato's row actions are hover-revealed icons, not a "⋯" menu.
 - Decisions G (Ctrl K) and I (exact attention items) were never answered; I built I's proposed set.
-- **Not pushed:** GitHub returned 403 for `guneves/Financas` (the Claude GitHub App has no access).
-  The commits are local to this session's container.
+- **`finance-guard`:** no findings. It traced `consolidatedBalance()` against
+  `account_balance_rows()` (transfers cancel across accounts, archived accounts included, no double
+  count) and confirmed every touched balance goes through `usePrivateFormatter`. Its one note: the
+  net-worth block itemizes only active accounts while the total includes archived ones — deliberate
+  (archived, never deleted), left as is.
 
 ### Next session
 
-- Push first if the branch isn't on GitHub. Then the owner's walk-through in both themes.
+- The owner's walk-through in both themes (branch `claude/sleepy-feynman-nkzw99` is pushed; the
+  first push this session got a 403 until GitHub access was fixed).
 - Next build item: Cartões (invoice as the unit, one Pagar where allowed).
 
 ### Non-obvious things learned
