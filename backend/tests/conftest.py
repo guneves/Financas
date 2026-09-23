@@ -102,3 +102,9 @@ def invoices_module(app_module):
 def prices_module(app_module):
     """`backend/services/prices.py` — cotacoes. Patch aqui `yf` e `download_close_prices`."""
     return importlib.import_module("services.prices")
+
+
+@pytest.fixture(scope="session")
+def fixed_income_module(app_module):
+    """`backend/services/fixed_income.py` — patch aqui `fetch_bcb_series` e o `urllib`."""
+    return importlib.import_module("services.fixed_income")
