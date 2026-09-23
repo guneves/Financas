@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
-import { formatCurrency, formatDateBR, getLocalDateString } from '../lib/format'
+import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../lib/format'
 import { useDataVersion } from '../lib/newEntry'
 import { isInvestmentOutflow } from '../lib/transactions'
 import {
@@ -442,12 +442,11 @@ export default function Recorrentes() {
                       <span
                         className={
                           item.type === 'INCOME'
-                            ? 'mr-1 text-base font-bold text-emerald-600'
-                            : 'mr-1 text-base font-bold text-zinc-900'
+                            ? 'mr-1 whitespace-nowrap text-base font-semibold text-emerald-700'
+                            : 'mr-1 whitespace-nowrap text-base font-semibold text-zinc-950'
                         }
                       >
-                        {item.type === 'INCOME' ? '+' : '-'}
-                        {formatCurrency(item.amount)}
+                        {formatSignedCurrency(item.amount, item.type === 'INCOME' ? 1 : -1)}
                       </span>
                       <IconButton
                         label="Editar valor"
@@ -509,12 +508,11 @@ export default function Recorrentes() {
                 <span
                   className={
                     occurrence.type === 'INCOME'
-                      ? 'shrink-0 text-sm font-bold text-emerald-600'
-                      : 'shrink-0 text-sm font-bold text-zinc-900'
+                      ? 'shrink-0 whitespace-nowrap text-sm font-semibold text-emerald-700'
+                      : 'shrink-0 whitespace-nowrap text-sm font-semibold text-zinc-950'
                   }
                 >
-                  {occurrence.type === 'INCOME' ? '+' : '-'}
-                  {formatCurrency(occurrence.amount)}
+                  {formatSignedCurrency(occurrence.amount, occurrence.type === 'INCOME' ? 1 : -1)}
                 </span>
               </div>
             ))}

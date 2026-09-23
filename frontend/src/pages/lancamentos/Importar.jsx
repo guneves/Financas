@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FileUp, Upload, Wand2 } from 'lucide-react'
 import { accountsApi, categoriesApi, importApi, importRulesApi } from '../../lib/dataApi'
-import { formatCurrency } from '../../lib/format'
+import { formatSignedCurrency } from '../../lib/format'
 import {
   AlertMessage,
   Badge,
@@ -249,7 +249,7 @@ export default function Importar() {
           description="O banco exporta o extrato em CSV ou OFX; os dois servem."
           actions={file ? <Button variant="secondary" onClick={reset}>Trocar arquivo</Button> : null}
         />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
           <Field label="Conta de destino" hint="Todos os lançamentos do arquivo entram nesta conta.">
             {loading ? <Skeleton className="h-11 w-full" /> : (
               <select value={accountId} onChange={(event) => handleAccountChange(event.target.value)} className="app-select">
@@ -419,7 +419,7 @@ export default function Importar() {
                           Criar regra
                         </Button>
                         <span className={cx('w-28 text-right text-sm font-bold', row.type === 'INCOME' ? 'text-emerald-600' : 'text-zinc-950')}>
-                          {row.type === 'INCOME' ? '+' : '-'}{formatCurrency(row.amount)}
+                          {formatSignedCurrency(row.amount, row.type === 'INCOME' ? 1 : -1)}
                         </span>
                       </div>
                     ) : null}
