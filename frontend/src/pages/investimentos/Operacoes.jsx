@@ -278,7 +278,7 @@ export default function Operacoes() {
           </div>
         ) : (
           <>
-            <ul className="divide-y divide-zinc-100 md:hidden">
+            <ul className="divide-y divide-zinc-100 xl:hidden">
               {movements.map((mov) => (
                 <MovementCard
                   key={mov.id}
@@ -290,15 +290,15 @@ export default function Operacoes() {
               ))}
             </ul>
 
-            <div className="hidden md:block">
+            <div className="hidden xl:block">
               <table className="app-table table-fixed">
                 <colgroup>
-                  <col className="w-28" />
+                  <col className="w-32" />
                   <col />
                   <col className="w-28" />
                   <col className="w-36" />
-                  <col className="w-40" />
-                  <col className="w-36" />
+                  <col className="w-44" />
+                  <col className="w-44" />
                   <col className="w-24" />
                 </colgroup>
                 <thead>
@@ -435,7 +435,7 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
         {info.hasResult ? (
           <>
             <p className={cx('font-semibold', profitClass(info.realizedProfit))}>{formatSignedCurrency(info.realizedProfit)}</p>
-            <p className="truncate text-xs text-zinc-500">{realizedDetail(mov, info)}</p>
+            <p className="truncate text-xs text-zinc-500" title={realizedDetail(mov, info)}>{realizedDetail(mov, info)}</p>
           </>
         ) : (
           <span className="text-zinc-400">—</span>

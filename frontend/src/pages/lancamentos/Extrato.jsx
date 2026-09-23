@@ -450,8 +450,8 @@ export default function Extrato() {
             <div className="hidden md:block">
               <table className="app-table table-fixed">
                 <colgroup>
-                  <col className="w-28" />
-                  <col className="hidden w-[18%] lg:table-column" />
+                  <col className="w-32" />
+                  <col className="hidden w-[18%] xl:table-column" />
                   <col className="w-[18%]" />
                   <col />
                   <col className="w-40" />
@@ -460,7 +460,7 @@ export default function Extrato() {
                 <thead>
                   <tr>
                     <th>Data</th>
-                    <th className="hidden lg:table-cell">Conta</th>
+                    <th className="hidden xl:table-cell">Conta</th>
                     <th>Categoria</th>
                     <th>Descrição</th>
                     <th className="text-right">Valor</th>
@@ -474,7 +474,7 @@ export default function Extrato() {
                       return (
                         <tr key={transaction.id} className="bg-zinc-50">
                           <td>{controls.date}</td>
-                          <td className="hidden lg:table-cell">{controls.account}</td>
+                          <td className="hidden xl:table-cell">{controls.account}</td>
                           <td className="space-y-2">{controls.category}{controls.type}</td>
                           <td>{controls.description}</td>
                           <td>{controls.amount}</td>
@@ -489,7 +489,7 @@ export default function Extrato() {
                     return (
                       <tr key={transaction.id} className={arrived.has(transaction.id) ? 'animate-flash-emerald' : undefined}>
                         <td className="whitespace-nowrap text-zinc-600">{formatDateBR(transaction.date)}</td>
-                        <td className="hidden truncate text-zinc-600 lg:table-cell" title={account}>{account}</td>
+                        <td className="hidden truncate text-zinc-600 xl:table-cell" title={account}>{account}</td>
                         <td className="truncate font-medium text-zinc-800" title={transaction.category}>{transaction.category}</td>
                         <td>
                           <div className="flex min-w-0 items-center gap-2">

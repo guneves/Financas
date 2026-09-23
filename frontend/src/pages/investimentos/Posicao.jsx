@@ -296,7 +296,7 @@ export default function Posicao() {
         ) : (
           <>
             {/* Celular: um cartao por ativo, acoes em botoes de 44px. */}
-            <div className="md:hidden">
+            <div className="xl:hidden">
               {assetGroups.map((group) => (
                 <section key={group.key} className="border-b border-zinc-200 last:border-0">
                   <div className="flex items-baseline justify-between gap-3 bg-zinc-50 px-4 py-2">
@@ -312,7 +312,7 @@ export default function Posicao() {
               ))}
             </div>
 
-            <div className="hidden md:block">
+            <div className="hidden xl:block">
               <table className="app-table table-fixed">
                 <colgroup>
                   <col />

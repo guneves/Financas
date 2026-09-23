@@ -254,6 +254,12 @@ export default function Proventos() {
     if (!next && editingId) resetForm()
   }
 
+  const handleRegisterScheduled = () => {
+    resetForm()
+    setFormOpen(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const handleCancelEdit = () => {
     resetForm()
     setFormOpen(false)
@@ -336,7 +342,7 @@ export default function Proventos() {
         <Panel className={summary?.by_month?.length ? 'xl:col-span-2' : 'xl:col-span-5'}>
           <PanelHeader
             title="Calendário"
-            description="Próximos pagamentos por data."
+            description="Proventos registrados com pagamento nos próximos 180 dias."
             actions={<Badge>{calendarEvents.length} evento(s)</Badge>}
           />
           <div className="p-5">
@@ -358,7 +364,21 @@ export default function Proventos() {
                 ))}
               </div>
             ) : (
-              <EmptyState icon={CalendarDays} title="Sem agenda" message="Pagamentos futuros aparecem aqui." className="min-h-60" />
+              // A agenda nao busca anuncios em lugar nenhum: so lista o que foi
+              // registrado com pagamento futuro. O vazio diz isso e leva ao formulario.
+              <EmptyState
+                icon={CalendarDays}
+                title="Nenhum pagamento agendado"
+                message={filters.asset_id || filters.proceeds_type
+                  ? 'Nenhum provento futuro para o ativo ou tipo filtrado. A agenda mostra os proventos registrados com data de pagamento futura.'
+                  : 'A agenda mostra os proventos registrados com data de pagamento futura. Quando um provento for anunciado, registre-o com a data de pagamento.'}
+                action={(
+                  <Button type="button" variant="secondary" icon={Plus} onClick={handleRegisterScheduled}>
+                    Registrar provento
+                  </Button>
+                )}
+                className="min-h-60"
+              />
             )}
           </div>
         </Panel>
@@ -447,7 +467,7 @@ export default function Proventos() {
         />
         {proceeds.length > 0 ? (
           <>
-          <ul className="divide-y divide-zinc-100 md:hidden">
+          <ul className="divide-y divide-zinc-100 xl:hidden">
             {proceeds.map((item) => (
               <li key={item.id} className="space-y-2 px-4 py-4">
                 <div className="flex items-start justify-between gap-3">
@@ -476,15 +496,15 @@ export default function Proventos() {
           </ul>
           {/* Sem rolagem lateral: data com vai para baixo do pagamento, tipo e
               status para baixo do ativo, e os valores ficam a direita. */}
-          <div className="hidden md:block">
+          <div className="hidden xl:block">
             <table className="app-table table-fixed">
               <colgroup>
-                <col className="w-28" />
+                <col className="w-36" />
                 <col />
                 <col className="w-24" />
                 <col className="w-20" />
                 <col className="w-28" />
-                <col className="w-24" />
+                <col className="w-28" />
                 <col className="w-28" />
                 <col className="w-24" />
                 <col className="w-24" />
