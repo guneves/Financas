@@ -562,11 +562,14 @@ export function PageHeader({ title, description, actions, meta }) {
   )
 }
 
+// Raio fixo de 22px (botao h-9 + p-1): numa linha e igual a rounded-full, e
+// quando os itens quebram em duas linhas (flex-wrap) o canto continua
+// concentrico com a pilula em vez de virar um estadio alongado.
 export function SegmentedControl({ items, value, onChange, className = '' }) {
   const containerRef = useRef(null)
   const pill = useSlidingPill(containerRef, '[aria-pressed="true"]', [value, items])
   return (
-    <div ref={containerRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white p-1', className)}>
+    <div ref={containerRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-[1.375rem] border border-zinc-200 bg-white p-1', className)}>
       <PillBackground pill={pill} />
       {items.map((item) => {
         const Icon = item.icon
@@ -699,7 +702,7 @@ function useSlidingPill(containerRef, activeSelector, deps) {
     if (!container) return undefined
     const measure = () => {
       const active = container.querySelector(activeSelector)
-      setBox(active ? { left: active.offsetLeft, width: active.offsetWidth } : null)
+      setBox(active ? { left: active.offsetLeft, top: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight } : null)
     }
     measure()
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
@@ -724,10 +727,10 @@ function PillBackground({ pill }) {
     <span
       aria-hidden="true"
       className={cx(
-        'absolute bottom-1 left-0 top-1 rounded-full bg-zinc-100',
-        pill.ready && 'transition-[transform,width] duration-200 ease-out-quint'
+        'absolute left-0 top-0 rounded-full bg-zinc-100',
+        pill.ready && 'transition-[transform,width,height] duration-200 ease-out-quint'
       )}
-      style={{ width: pill.box.width, transform: `translateX(${pill.box.left}px)` }}
+      style={{ width: pill.box.width, height: pill.box.height, transform: `translate(${pill.box.left}px, ${pill.box.top}px)` }}
     />
   )
 }
