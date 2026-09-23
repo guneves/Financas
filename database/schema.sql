@@ -450,3 +450,14 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
 
 CREATE INDEX IF NOT EXISTS idx_corporate_actions_user_asset_date
 ON corporate_actions(user_id, asset_id, ex_date);
+
+-- 018: PTAX por dia (BRL por unidade da moeda) para converter ativos e contas.
+CREATE TABLE IF NOT EXISTS fx_rates (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    currency TEXT NOT NULL,
+    rate_date TEXT NOT NULL,
+    rate REAL NOT NULL CHECK (rate > 0),
+    source TEXT NOT NULL DEFAULT 'bcb_ptax',
+    fetched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (user_id, currency, rate_date)
+);

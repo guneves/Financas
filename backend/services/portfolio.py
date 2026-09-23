@@ -220,6 +220,7 @@ def unique_market_asset_targets(investments, open_ids=None):
             "asset_class": asset_class,
             "ticker": ticker,
             "name": inv.get("ticker_or_name") or ticker,
+            "currency": inv.get("native_currency") or inv.get("asset_currency") or "BRL",
         }
     return list(targets.values())
 
@@ -283,7 +284,8 @@ def refresh_market_prices(current_user_id, investment_id=None, *, force=False, a
     )
     tickers = sorted({asset["ticker"] for asset in target_assets})
 
-    market_result = get_market_prices_with_status(tickers, force=force)
+    foreign = {asset["ticker"] for asset in target_assets if asset.get("currency", "BRL") != "BRL"}
+    market_result = get_market_prices_with_status(tickers, force=force, foreign=foreign)
     updated_assets = update_current_prices_for_assets(current_user_id, target_assets, market_result)
     failed_tickers = set(market_result.get("failed_tickers", []))
     source_by_ticker = market_result.get("source_by_ticker", {})
@@ -356,6 +358,11 @@ def build_portfolio_snapshot(current_user_id):
                 "current_price": curr_price,
                 "quote": quote_info,
                 "metadata": metadata,
+                # Ativo em moeda estrangeira: valores acima ja em reais; a
+                # cotacao na moeda dele so para exibir.
+                "currency": asset.get("native_currency") or "BRL",
+                "native_current_price": asset.get("native_current_price"),
+                "fx_rate_today": asset.get("fx_rate_today"),
             }
 
         grouped_assets[group_key]["total_invested"] += invested_value
@@ -372,6 +379,7 @@ def build_portfolio_snapshot(current_user_id):
             if asset.get("current_price") is not None:
                 grouped_assets[group_key]["current_price"] = curr_price
                 grouped_assets[group_key]["quote"] = quote_info
+                grouped_assets[group_key]["native_current_price"] = asset.get("native_current_price")
 
     processed_assets = []
     total_invested_all = 0
@@ -436,6 +444,13 @@ def build_portfolio_snapshot(current_user_id):
             "profitability_percent": round(profitability, 2),
             "quote": data.get("quote") or {},
             "metadata": data.get("metadata") or {},
+            "currency": data.get("currency") or "BRL",
+            "native_current_price": (
+                rounded_money(data["native_current_price"])
+                if data.get("currency", "BRL") != "BRL" and data.get("native_current_price") is not None
+                else None
+            ),
+            "fx_rate_today": data.get("fx_rate_today") if data.get("currency", "BRL") != "BRL" else None,
         })
 
     for key, value in distribution.items():

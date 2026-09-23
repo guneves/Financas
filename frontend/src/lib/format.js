@@ -21,6 +21,15 @@ export function formatCurrency(value) {
   }).format(Number(value || 0)))
 }
 
+// Valor em outra moeda (ativo ou conta no exterior): "US$ 1.234,56".
+export function formatMoney(value, currency = 'BRL') {
+  if (!currency || currency === 'BRL') return formatCurrency(value)
+  return withTrueMinus(new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency,
+  }).format(Number(value || 0)))
+}
+
 // Valor com sinal explicito, para listas de entradas e saidas: "+R$ 8.500,00",
 // "−R$ 1.048,22". `sign` (1, -1 ou 0) vale quando o valor vem sempre positivo
 // e o sentido esta no tipo do lancamento; zero sai sem sinal. O espaco depois

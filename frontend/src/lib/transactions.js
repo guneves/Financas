@@ -15,8 +15,15 @@ export const isInvestmentOutflow = (transaction) =>
 // as arquivadas (`include_archived`): o lancamento de uma conta arquivada
 // continua existindo e continua no consolidado. Somar `transactions` direto
 // deixava o saldo inicial das contas de fora.
+//
+// Conta em moeda estrangeira entra pelo `balance_brl` (PTAX de hoje, no
+// servidor); sem cambio disponivel ela fica de fora em vez de somar dolar
+// como real.
 export const consolidatedBalance = (accounts = []) =>
-  accounts.reduce((acc, account) => acc + (Number(account.balance) || 0), 0)
+  accounts.reduce((acc, account) => {
+    const value = account.balance_brl !== undefined ? account.balance_brl : account.balance
+    return acc + (Number(value) || 0)
+  }, 0)
 
 export const openingBalanceTotal = (accounts = []) =>
   accounts.reduce((acc, account) => acc + (Number(account.initial_balance) || 0), 0)

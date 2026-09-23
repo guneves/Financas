@@ -105,9 +105,13 @@ def record_price_quote(
     return quote_id
 
 
-def yahoo_symbol(ticker_symbol):
+def yahoo_symbol(ticker_symbol, foreign=False):
+    """PETR4 -> PETR4.SA. Ticker estrangeiro (ou que ja traz a bolsa, como
+    7203.T) vai como veio."""
     yf_symbol = str(ticker_symbol or "").strip().upper()
-    if not yf_symbol.endswith(".SA") and any(char.isdigit() for char in yf_symbol):
+    if foreign or "." in yf_symbol:
+        return yf_symbol
+    if any(char.isdigit() for char in yf_symbol):
         return f"{yf_symbol}.SA"
     return yf_symbol
 
@@ -329,17 +333,19 @@ def market_price_provider(ticker):
     return "yfinance"
 
 
-def download_market_prices(tickers):
+def download_market_prices(tickers, foreign=()):
     # A brapi e o provedor primario quando ha token; o yfinance cobre o resto
-    # (ticker fora da B3, token ausente, brapi fora do ar).
-    prices = download_brapi_prices(tickers)
+    # (ticker fora da B3, token ausente, brapi fora do ar). Ativo em moeda
+    # estrangeira (`foreign`) vai direto ao yfinance: a brapi e so B3.
+    foreign = set(foreign or ())
+    prices = download_brapi_prices([ticker for ticker in tickers if ticker not in foreign])
     tickers = [ticker for ticker in tickers if ticker not in prices]
     if not tickers:
         return prices
     if yf is None:
         return prices
 
-    symbols_by_ticker = {ticker: yahoo_symbol(ticker) for ticker in tickers}
+    symbols_by_ticker = {ticker: yahoo_symbol(ticker, foreign=ticker in foreign) for ticker in tickers}
     yf_symbols = sorted(set(symbols_by_ticker.values()))
 
     symbol_prices = download_close_prices(yf_symbols, period="1d", interval="1m")
@@ -462,7 +468,7 @@ def get_market_prices(tickers, *, force=False):
     return prices
 
 
-def get_market_prices_with_status(tickers, *, force=False):
+def get_market_prices_with_status(tickers, *, force=False, foreign=()):
     normalized_tickers = sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)})
     result = {
         "prices": {},
@@ -489,7 +495,7 @@ def get_market_prices_with_status(tickers, *, force=False):
         return result
 
     fetch_error = None
-    future = _price_fetch_executor.submit(download_market_prices, tickers_to_fetch)
+    future = _price_fetch_executor.submit(download_market_prices, tickers_to_fetch, foreign)
     try:
         fetched_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
     except FutureTimeoutError:

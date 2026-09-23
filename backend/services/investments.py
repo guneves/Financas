@@ -7,6 +7,14 @@ lancamento em `transactions` com `source_type = INVESTMENT_CASH_SOURCE_TYPE`
 (`sync_investment_cash_transaction()`), para o saldo da conta ver o dinheiro.
 `validate_asset_transaction_backing()` recusa a mudanca que deixaria uma venda
 ou resgate sem compra que a cubra.
+
+Moeda (018): um ativo em moeda estrangeira guarda quantidade, precos e
+cotacoes na moeda dele, e cada operacao o cambio da data em
+`metadata.fx_rate`. `fetch_investments()` — o fluxo que FIFO, carteira e
+evolucao leem — entrega tudo convertido para reais: custo pelo cambio de cada
+compra, valor atual pelo cambio de hoje (a regra do IR para ativo no
+exterior). O caixa ligado tambem sai em reais. As telas de operacao leem
+`fetch_investment_rows()`, na moeda original.
 """
 
 from datetime import datetime
@@ -18,6 +26,7 @@ from db import encode_metadata, get_db, new_id, parse_metadata_value, row_to_dic
 import market_catalog
 from money import rounded_money
 from services.accounts import ensure_default_account
+from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from services.prices import ticker_key
 from source_types import INVESTMENT_CASH_SOURCE_TYPE
 from validators import ValidationError, safe_float
@@ -157,6 +166,10 @@ def investment_cash_metadata(investment):
 
 
 def sync_investment_cash_transaction(conn, current_user_id, investment):
+    # O caixa e em reais: operacao em moeda estrangeira converte pelo cambio dela.
+    if normalize_currency(investment.get("asset_currency")) != BASE_CURRENCY:
+        rate = movement_fx_rate(conn, current_user_id, investment)
+        investment = convert_movement_to_brl(investment, rate, rate)
     amount = investment_cash_amount(investment)
     cash_type = investment_cash_type(investment)
     investment_id = investment.get("id")
@@ -268,28 +281,94 @@ def investment_operation_date(investment):
     )
 
 
-def get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name):
+def get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name, currency=BASE_CURRENCY):
     ticker = ticker_key(ticker_or_name)
+    currency = normalize_currency(currency)
     row = conn.execute(
         """
-        SELECT id FROM assets
+        SELECT id, currency FROM assets
         WHERE user_id = ? AND asset_class = ? AND ticker = ?
         """,
         (current_user_id, asset_class, ticker),
     ).fetchone()
     if row:
+        if normalize_currency(row["currency"]) != currency:
+            raise ValidationError(
+                f"{ticker} ja esta na carteira em {normalize_currency(row['currency'])}; "
+                "lance a operacao na mesma moeda."
+            )
         return row["id"]
 
     asset_id = new_id()
     conn.execute(
         """
         INSERT INTO assets
-        (id, user_id, asset_class, ticker, name)
-        VALUES (?, ?, ?, ?, ?)
+        (id, user_id, asset_class, ticker, name, currency)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (asset_id, current_user_id, asset_class, ticker, ticker or ticker_or_name),
+        (asset_id, current_user_id, asset_class, ticker, ticker or ticker_or_name, currency),
     )
     return asset_id
+
+
+def movement_fx_rate(conn, current_user_id, investment, fallback=None):
+    """Cambio da operacao: o informado (metadata.fx_rate) ou a PTAX da data."""
+    currency = normalize_currency(investment.get("asset_currency"))
+    if currency == BASE_CURRENCY:
+        return 1.0
+    stored = safe_float((investment.get("metadata") or {}).get("fx_rate"), None)
+    if stored and stored > 0:
+        return stored
+    try:
+        return rate_on(conn, current_user_id, currency, investment_operation_date(investment))
+    except FxUnavailable:
+        if fallback:
+            return fallback
+        raise
+
+
+def convert_movement_to_brl(investment, movement_rate, today_rate):
+    """A mesma operacao em reais. Os valores originais ficam em native_*."""
+    item = dict(investment)
+    metadata = dict(item.get("metadata") or {})
+    item["native_currency"] = normalize_currency(item.get("asset_currency"))
+    item["native_average_price"] = item.get("average_price")
+    item["native_current_price"] = item.get("current_price")
+    item["fx_rate"] = movement_rate
+    item["fx_rate_today"] = today_rate
+    item["average_price"] = safe_float(item.get("average_price")) * movement_rate
+    if item.get("current_price") is not None:
+        # No resgate o "preco atual" e o valor resgatado: cambio da data dele.
+        rate = movement_rate if metadata.get("is_redemption") else today_rate
+        item["current_price"] = safe_float(item.get("current_price")) * rate
+    for key in ("gross_amount", "fee_amount"):
+        if item.get(key) is not None:
+            item[key] = safe_float(item.get(key)) * movement_rate
+    for key in ("sale_price", "other_costs", "fee_amount"):
+        if metadata.get(key) not in (None, ""):
+            metadata[key] = safe_float(metadata.get(key)) * movement_rate
+    item["metadata"] = metadata
+    return item
+
+
+def investments_in_brl(conn, current_user_id, investments):
+    """Converte a lista inteira; um cambio de hoje por moeda."""
+    today_rates = {}
+    converted = []
+    for investment in investments:
+        currency = normalize_currency(investment.get("asset_currency"))
+        if currency == BASE_CURRENCY:
+            converted.append(investment)
+            continue
+        if currency not in today_rates:
+            try:
+                today_rates[currency] = rate_on(conn, current_user_id, currency)
+            except FxUnavailable:
+                today_rates[currency] = None
+        movement_rate = movement_fx_rate(conn, current_user_id, investment, fallback=today_rates[currency])
+        today_rate = today_rates[currency] or movement_rate
+        converted.append(convert_movement_to_brl(investment, movement_rate, today_rate))
+    return converted
 
 
 def fetch_investment_rows(conn, current_user_id, *, investment_id=None, order_by="it.created_at", direction="ASC"):
@@ -300,6 +379,7 @@ def fetch_investment_rows(conn, current_user_id, *, investment_id=None, order_by
             it.asset_id,
             a.asset_class,
             a.ticker AS ticker_or_name,
+            a.currency AS asset_currency,
             it.quantity,
             it.unit_price AS average_price,
             COALESCE(
@@ -440,6 +520,7 @@ def fetch_investment_rows(conn, current_user_id, *, investment_id=None, order_by
 
 
 def fetch_investments(current_user_id, investment_id=None):
+    """As operacoes em reais (ver o topo do modulo): o que os calculos leem."""
     with get_db() as conn:
         rows = fetch_investment_rows(
             conn,
@@ -448,7 +529,7 @@ def fetch_investments(current_user_id, investment_id=None):
             order_by="it.created_at",
             direction="ASC",
         )
-    return [serialize_investment(row) for row in rows]
+        return investments_in_brl(conn, current_user_id, [serialize_investment(row) for row in rows])
 
 
 def fetch_position_quantity(conn, current_user_id, asset_class, ticker, exclude_id=None):

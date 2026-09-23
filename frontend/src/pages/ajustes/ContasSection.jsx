@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Archive, Landmark, Plus } from 'lucide-react'
 import { accountsApi } from '../../lib/dataApi'
-import { formatCurrency } from '../../lib/format'
-import { usePrivateFormatter } from '../../lib/privacy'
+import { formatCurrency, formatMoney } from '../../lib/format'
+import { MASKED_CURRENCY, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import {
   AlertMessage,
   Badge,
@@ -27,7 +27,15 @@ export const ACCOUNT_TYPE_LABELS = {
   OTHER: 'Outra',
 }
 
-const emptyAccountForm = () => ({ name: '', type: 'CHECKING', institution: '', initial_balance: '' })
+const emptyAccountForm = () => ({ name: '', type: 'CHECKING', institution: '', initial_balance: '', currency: 'BRL' })
+
+// Conta no exterior (018): saldo na moeda dela, e em reais pela PTAX de hoje.
+const CURRENCIES = [
+  { value: 'BRL', label: 'Real' },
+  { value: 'USD', label: 'Dólar' },
+  { value: 'EUR', label: 'Euro' },
+  { value: 'GBP', label: 'Libra' },
+]
 
 const NO_ITEMS = []
 
@@ -35,6 +43,8 @@ const NO_ITEMS = []
 // Conta nunca e apagada: DELETE /api/accounts/<id> so preenche archived_at.
 export default function ContasSection() {
   const privateMoney = usePrivateFormatter(formatCurrency)
+  const hidden = useValuesHidden()
+  const privateForeign = (value, currency) => (hidden ? MASKED_CURRENCY : formatMoney(value, currency))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
@@ -56,6 +66,7 @@ export default function ContasSection() {
         type: accountForm.type,
         institution: accountForm.institution,
         initial_balance: Number(accountForm.initial_balance || 0),
+        currency: accountForm.currency,
       })
       await fetchAccounts()
       toast(`Conta "${accountForm.name}" criada.`)
@@ -109,8 +120,15 @@ export default function ContasSection() {
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <span className={cx('whitespace-nowrap font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
-                    {privateMoney(account.balance)}
+                  <span className={cx('whitespace-nowrap text-right font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
+                    {account.currency && account.currency !== 'BRL' ? (
+                      <>
+                        {privateForeign(account.balance, account.currency)}
+                        <span className="block text-xs font-medium text-zinc-500">
+                          {account.balance_brl == null ? 'sem câmbio hoje' : `≈ ${privateMoney(account.balance_brl)}`}
+                        </span>
+                      </>
+                    ) : privateMoney(account.balance)}
                   </span>
                   <IconButton label="Arquivar conta" icon={Archive} onClick={() => handleArchiveAccount(account)} />
                 </div>
@@ -122,7 +140,7 @@ export default function ContasSection() {
         )}
 
         <Collapsible label="Nova conta" icon={Plus} open={formOpen} onOpenChange={setFormOpen}>
-          <form onSubmit={handleCreateAccount} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
+          <form onSubmit={handleCreateAccount} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-6">
             <Field label="Nome">
               <input type="text" placeholder="Ex: Nubank" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} className="app-input" required />
             </Field>
@@ -135,6 +153,13 @@ export default function ContasSection() {
             </Field>
             <Field label="Instituição">
               <input type="text" placeholder="Opcional" value={accountForm.institution} onChange={(event) => setAccountForm({ ...accountForm, institution: event.target.value })} className="app-input" />
+            </Field>
+            <Field label="Moeda">
+              <select value={accountForm.currency} onChange={(event) => setAccountForm({ ...accountForm, currency: event.target.value })} className="app-select">
+                {CURRENCIES.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Saldo inicial">
               <input type="number" step="0.01" placeholder="0,00" value={accountForm.initial_balance} onChange={(event) => setAccountForm({ ...accountForm, initial_balance: event.target.value })} className="app-input" />

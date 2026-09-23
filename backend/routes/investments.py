@@ -29,6 +29,14 @@ from services.corporate_actions import (
     is_bonus_movement,
     list_corporate_actions,
 )
+from services.fx import (
+    BASE_CURRENCY,
+    SUPPORTED_CURRENCIES,
+    FxUnavailable,
+    monthly_rates,
+    normalize_currency,
+    rate_on,
+)
 from services.fixed_income import (
     finish_fixed_income_refresh,
     start_fixed_income_refresh,
@@ -82,6 +90,33 @@ from applog import get_logger
 logger = get_logger(__name__)
 
 bp = Blueprint("investments", __name__)
+
+# Moeda estrangeira: acoes/ETFs de fora e "outros" (cripto, conta no
+# exterior). Renda fixa, FII e gado sao em reais.
+FOREIGN_CURRENCY_CLASSES = {"STOCKS", "OTHER"}
+
+
+def read_movement_currency(item, asset_class):
+    currency = normalize_currency(item.get("currency"))
+    if currency not in SUPPORTED_CURRENCIES:
+        raise ValidationError(f"Moeda nao suportada: {currency}. Use BRL, USD, EUR ou GBP.")
+    if currency != BASE_CURRENCY and asset_class not in FOREIGN_CURRENCY_CLASSES:
+        raise ValidationError("So acoes do exterior e 'outros' podem ser em moeda estrangeira.")
+    return currency
+
+
+def with_fx_rate(conn, current_user_id, currency, metadata):
+    """Guarda o cambio da operacao: o informado (o da corretora) ou a PTAX da data."""
+    informed = metadata.get("fx_rate")
+    if informed not in (None, ""):
+        rate = parse_number(metadata, "fx_rate", "Cambio", minimum=0, allow_zero=False)
+        return {**metadata, "fx_rate": rate, "fx_source": "informado"}
+    try:
+        rate = rate_on(conn, current_user_id, currency, investment_transaction_date(metadata))
+    except FxUnavailable as exc:
+        raise ValidationError(f"{exc} Informe o cambio da operacao.")
+    return {**metadata, "fx_rate": rate, "fx_source": "ptax"}
+
 
 BONUS_LOCKED_MESSAGE = (
     "Esta operacao e a bonificacao de um evento corporativo; "
@@ -284,13 +319,20 @@ def investments(current_user_id):
                     raise ValidationError("Metadata deve ser um objeto valido.")
                 metadata_dict = investment_metadata_dict(metadata)
                 validate_fixed_income_metadata(asset_class, quantity, metadata_dict)
-                ticker_or_name = resolve_catalog_ticker(
-                    conn,
-                    current_user_id,
-                    asset_class,
-                    ticker_or_name,
-                    quantity,
-                )
+                currency = read_movement_currency(item, asset_class)
+                if currency == BASE_CURRENCY:
+                    ticker_or_name = resolve_catalog_ticker(
+                        conn,
+                        current_user_id,
+                        asset_class,
+                        ticker_or_name,
+                        quantity,
+                    )
+                else:
+                    # Fora do catalogo da B3; o cambio da data fica na operacao.
+                    ticker_or_name = ticker_key(ticker_or_name)
+                    metadata_dict = with_fx_rate(conn, current_user_id, currency, metadata_dict)
+                    metadata = metadata_dict
                 validate_investment_movement(
                     conn,
                     current_user_id,
@@ -300,7 +342,7 @@ def investments(current_user_id):
                 )
 
                 item_id = new_id()
-                asset_id = get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name)
+                asset_id = get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name, currency)
                 affected_asset_ids.add(asset_id)
                 transaction_date = investment_transaction_date(metadata_dict)
                 ensure_outside_corporate_actions(conn, current_user_id, asset_id, transaction_date)
@@ -787,6 +829,22 @@ def get_historical_portfolio(current_user_id):
             except Exception as exc:
                 logger.exception(f"Erro ao buscar historico no yfinance: {exc}")
                 historical_prices = {ticker: {} for ticker in unique_tickers}
+
+        # Historico de ativo em moeda estrangeira vem na moeda dele: cada mes
+        # vira reais pelo cambio do fim daquele mes.
+        foreign_currency = {
+            ticker_key(asset.get("ticker_or_name")): asset.get("native_currency")
+            for asset in quoted_assets
+            if asset.get("native_currency") and asset.get("native_currency") != BASE_CURRENCY
+        }
+        if foreign_currency:
+            with get_db() as conn:
+                for ticker, currency in foreign_currency.items():
+                    months = historical_prices.get(ticker) or {}
+                    rates = monthly_rates(conn, current_user_id, currency, sorted(months))
+                    historical_prices[ticker] = {
+                        key: price * rates[key] for key, price in months.items() if rates.get(key)
+                    }
 
         evolution = build_portfolio_evolution(
             filtered_investments,

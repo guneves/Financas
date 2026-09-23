@@ -23,6 +23,7 @@ from services.accounts import (
     seed_default_categories,
     serialize_account,
 )
+from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from services.invoices import apply_due_autopay
 from validators import (
     ValidationError,
@@ -33,6 +34,7 @@ from validators import (
     require_choice,
     require_date,
     require_string,
+    safe_float,
     validation_error,
 )
 
@@ -44,6 +46,26 @@ ALLOWED_CATEGORY_KINDS = {"INCOME", "EXPENSE", "BOTH"}
 TRANSFER_CATEGORY = "Transferencia"
 
 
+def with_balance_in_brl(conn, current_user_id, item):
+    """Conta em moeda estrangeira: saldo tambem em reais, pela PTAX de hoje.
+
+    O consolidado soma balance_brl; sem cambio disponivel, ele fica de fora
+    (None) e a tela avisa, em vez de somar dolar como real.
+    """
+    currency = normalize_currency(item.get("currency"))
+    if currency == BASE_CURRENCY:
+        item["balance_brl"] = item.get("balance")
+        return item
+    try:
+        rate = rate_on(conn, current_user_id, currency)
+        item["fx_rate"] = rate
+        item["balance_brl"] = rounded_money(safe_float(item.get("balance")) * rate)
+    except FxUnavailable:
+        item["fx_rate"] = None
+        item["balance_brl"] = None
+    return item
+
+
 @bp.route("/api/accounts", methods=["GET", "POST"])
 @token_required
 def accounts(current_user_id):
@@ -53,7 +75,7 @@ def accounts(current_user_id):
             ensure_default_account(conn, current_user_id)
             apply_due_autopay(conn, current_user_id)
             rows = account_balance_rows(conn, current_user_id)
-        items = [serialize_account(row) for row in rows]
+            items = [with_balance_in_brl(conn, current_user_id, serialize_account(row)) for row in rows]
         if not include_archived:
             items = [item for item in items if not item.get("archived_at")]
         return jsonify(items), 200
@@ -209,6 +231,13 @@ def create_transfer(current_user_id):
             )
             if origin["id"] == destination["id"]:
                 raise ValidationError("Origem e destino devem ser contas diferentes.")
+            if normalize_currency(origin["currency"]) != normalize_currency(destination["currency"]):
+                # Uma transferencia e uma linha com um valor so; entre moedas
+                # o valor que sai e o que entra sao diferentes.
+                raise ValidationError(
+                    "Contas em moedas diferentes: lance uma despesa na origem e uma receita no destino, "
+                    "cada uma na moeda da conta."
+                )
             category, category_id = resolve_category(conn, current_user_id, payload, required=False)
         except ValidationError as exc:
             return validation_error(str(exc))

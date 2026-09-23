@@ -18,7 +18,7 @@ import {
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
-import { formatCurrency, formatPercent, formatSignedCurrency, getLocalDateString } from '../../lib/format'
+import { formatCurrency, formatMoney, formatPercent, formatSignedCurrency, getLocalDateString } from '../../lib/format'
 import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import { toast } from '../../lib/toast'
 import PortfolioOverview from './PortfolioOverview'
@@ -569,7 +569,13 @@ function QuoteValue({ asset, isUpdatingThisAsset }) {
         <span className={cx('h-2 w-2 shrink-0 rounded-full', quoteIsFresh ? 'bg-emerald-500' : 'bg-amber-500')} aria-hidden="true" />
       )}
       <span className="sr-only">{statusText}</span>
-      <span className="text-zinc-700">{masked ? MASKED_CURRENCY : formatCurrency(asset.current_price)}</span>
+      <span className="text-zinc-700">
+        {masked ? MASKED_CURRENCY : formatCurrency(asset.current_price)}
+        {/* Ativo do exterior: a cotacao na moeda dele, que e o que a corretora mostra. */}
+        {asset.currency && asset.currency !== 'BRL' && asset.native_current_price != null ? (
+          <span className="block text-xs text-zinc-500">{formatMoney(asset.native_current_price, asset.currency)}</span>
+        ) : null}
+      </span>
     </span>
   )
 }
