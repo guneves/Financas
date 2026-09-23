@@ -3,38 +3,10 @@
 // formatCurrency estava copiado em cinco paginas e formatDateBR em tres. Aqui
 // eles ficam em um lugar so; as paginas importam daqui.
 
-// Modo privado: o botao do olho (Layout) esconde todo valor em dinheiro e o
-// nome de usuario. Fica no localStorage do navegador e vale para todas as telas,
-// porque todo valor monetario passa por formatCurrency/formatUnitCurrency ou por
-// compactCurrency (charts.jsx). Quem troca o modo remonta a pagina — os
-// formatadores leem o estado na hora de renderizar.
-const HIDE_VALUES_KEY = '@financeMVP:hideValues'
-export const MASKED_CURRENCY = 'R$ ••••••'
-export const MASKED_TEXT = '••••••'
-
-let valuesHidden = (() => {
-  try {
-    return localStorage.getItem(HIDE_VALUES_KEY) === '1'
-  } catch {
-    return false
-  }
-})()
-
-export function areValuesHidden() {
-  return valuesHidden
-}
-
-export function setValuesHidden(hidden) {
-  valuesHidden = Boolean(hidden)
-  try {
-    localStorage.setItem(HIDE_VALUES_KEY, valuesHidden ? '1' : '0')
-  } catch {
-    // Sem localStorage o modo so dura ate recarregar a pagina.
-  }
-}
+// O modo privado (lib/privacy.js) nao passa por aqui: os formatadores sempre
+// mostram o valor, e quem exibe um valor sensivel usa usePrivateFormatter().
 
 export function formatCurrency(value) {
-  if (valuesHidden) return MASKED_CURRENCY
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
@@ -43,7 +15,6 @@ export function formatCurrency(value) {
 
 // Preco unitario de ativo aceita mais casas: R$ 0,000001 e um preco valido.
 export function formatUnitCurrency(value) {
-  if (valuesHidden) return MASKED_CURRENCY
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',

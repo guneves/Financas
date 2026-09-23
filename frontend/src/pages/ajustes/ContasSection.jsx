@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Landmark, Plus, Trash2 } from 'lucide-react'
 import { accountsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
+import { usePrivateFormatter } from '../../lib/privacy'
 import {
   AlertMessage,
   Badge,
@@ -28,6 +29,7 @@ const emptyAccountForm = () => ({ name: '', type: 'CHECKING', institution: '', i
 // Contas bancarias: lista com saldo, arquivar e criar. Veio de Transactions.jsx.
 // Conta nunca e apagada: DELETE /api/accounts/<id> so preenche archived_at.
 export default function ContasSection({ refreshKey = 0 }) {
+  const privateMoney = usePrivateFormatter(formatCurrency)
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -118,7 +120,7 @@ export default function ContasSection({ refreshKey = 0 }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   <span className={cx('whitespace-nowrap font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
-                    {formatCurrency(account.balance)}
+                    {privateMoney(account.balance)}
                   </span>
                   <IconButton label="Arquivar conta" icon={Trash2} variant="danger" onClick={() => handleArchiveAccount(account)} />
                 </div>

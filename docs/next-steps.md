@@ -43,17 +43,25 @@
 | Export to CSV (Excel pt-BR) of the filtered statement and of the portfolio | 2026-09-22 |
 | brapi as the primary quote provider (batch + 5-min cache + dedupe + market-hours TTL), yfinance as fallback | 2026-09-22 |
 | Motion pass: sheet/collapsible exit animations, sliding tab pill, count-up and chart draw-in once per page per session, reduced motion honoured in JS, new-row flash in Extrato, invoice-paid confirmation — zero new dependencies | 2026-09-22 |
+| Privacy mode rework: the eye no longer remounts the page (no refetch, no empty-state flash) and hides only account balances, net worth and the investment portfolio; name and e-mail stay visible — `lib/privacy.js` | 2026-09-22 |
 
 ---
 
 ## 2. Open work, in priority order
 
 ### Browser walk-through (owner) — everything below is backend-tested and `vite build` clean only
-The Chrome extension was offline again on 2026-09-22 and Playwright is not installed, so none of the
-recent frontend work has been clicked through. One pass in the real app covers all of it:
+The Chrome extension was offline again on 2026-09-22. Playwright turned out to be usable from the npx
+cache (see the handoff), so screenshots are possible now, but none of the items below has been
+clicked through by the owner. One pass in the real app covers all of it:
 - [ ] UX reorganization (all six steps), then settle open decisions 6–8 below.
-- [ ] Signup with username, the eye toggle on every page (charts, tooltips, "+ Novo" sheet),
-  Ajustes → Perfil. Existing accounts have `username = NULL` and show "Usuário" until they pick one.
+- [ ] Signup with username and Ajustes → Perfil. Existing accounts have `username = NULL` and show
+  "Usuário" until they pick one.
+- [ ] Eye toggle (reworked 2026-09-22, checked by script only): the page stays put — no reload, no
+  skeleton, numbers do not recount. Hidden: Início's four top cards, "Evolução do saldo" (badge, axis,
+  tooltip), "Saldo por conta", the autopay-shortfall warning; the three balance cards on Extrato and
+  Cartões plus Cartões' two "Saldo…" cards; Ajustes → Contas; the balance in Pagar fatura's account
+  picker; all of Posição (allocation, Evolução do Patrimônio, group totals, quantities, values, the
+  fixed-income principal) and the position values in the sale picker. Everything else stays visible.
 - [ ] Cartões and Início: Pagar opens a sheet with "Debitar da conta" (Cartões preselects the card's
   autopay account, else the default; Início defaults to "Conta de cada cartão"); the sheet warns when
   the chosen account's balance does not cover the invoice.
@@ -74,9 +82,37 @@ recent frontend work has been clicked through. One pass in the real app covers a
   in Extrato. Paying an invoice shows a green confirmation with a drawn check; a refused payment
   shakes the error. With Windows "animation effects" off, nothing moves (charts included).
 
+### Visual design pass — audit done, plan waiting for the owner's approval
+A full screen-by-screen audit (1280 px and 390 px, before-screenshots in the 2026-09-22 session
+scratchpad) found, in order of daily-use cost: MetricCard values truncated at 1280 px ("R$ 1.99…" on
+Início, Operações, Recorrentes, Proventos, Orçamento); money left-aligned and not tabular in every
+table, the sign wrapping onto its own line in Extrato, three sign styles, `formatPercent` printing
+"1.29%"; colour used without meaning (red "Despesa" on every Extrato row, every open invoice in red,
+green/red Compra/Venda, amber JCP); 65–120 px rows (Extrato, Posição, Cartões); horizontal overflow
+in Posição and Proventos; three header layers plus a duplicate "+ Novo"; chart axes wrapping
+("R$ 900 / mil") at ~3.4:1 contrast; `text-zinc-400` text at 2.6:1. Proposed, one commit each:
+- [ ] 1. Tokens and money type — `index.css`, `tailwind.config.js`, `lib/format.js`: tabular-nums
+  everywhere, zinc-500 as the lightest text, pt-BR `formatPercent`, `formatSignedCurrency` (real minus,
+  non-breaking space).
+- [ ] 2. `MetricCard` never truncates money — inline icon, one type step down at 4 columns,
+  shrink-to-fit, no hover lift.
+- [ ] 3. Tables — right-aligned numbers, sticky header, ~44 px rows, truncated descriptions; Posição
+  inline quote; Cartões purchases as rows; overflow fixed.
+- [ ] 4. Colour meaning — green/red/amber/sky only for gain/loss/warning/info.
+- [ ] 5. Charts — one-line axes, AA ticks, one month-label format. (Privacy axes: done.)
+- [ ] 6. Phone density — Extrato rows, Cartões invoice row, metric cards two across.
+- [ ] 7. States and leftovers — real disabled button, hand-built alert → `AlertMessage`, Ajustes
+  sub-nav → `Tabs` look, `SegmentedControl` sliding pill.
+Decisions for the owner: **A** drop the background gradients; **B** drop the eyebrow and the
+page-level "+ Novo" (see decision 6 below); **C** sidebar 288 → 256 px; **D** Extrato shows ~100
+rows + "Mostrar mais" (it renders all 804 today); **E** dark mode, separately scoped, optional.
+
 ### Known limits, accepted for now
-- Privacy masking covers values formatted through `lib/format.js` / `compactCurrency`. Percentages
-  and share quantities stay visible on purpose; chart shapes still show relative sizes.
+- Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
+  operações and proventos stay visible by the owner's choice. Percentages (allocation shares,
+  Conta/Investido split, rentabilidade) stay visible; chart shapes still show relative sizes. A
+  sensitive value must go through `usePrivateFormatter()` (`lib/privacy.js`) — the plain formatters
+  never mask.
 - IPCA+ is an **estimate**: the purchase month is pro rata by calendar days and the current,
   unpublished month is missing until the BCB releases it. Real contracts use pro rata by business
   days and the projected IPCA — revisit if the owner holds IPCA+ papers and sees a gap.

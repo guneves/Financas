@@ -15,6 +15,7 @@ import {
   cx,
 } from '../../components/ui'
 import { formatCurrency } from '../../lib/format'
+import { usePrivateFormatter } from '../../lib/privacy'
 import {
   formatDateBR,
   formatInvoiceLabel,
@@ -53,6 +54,8 @@ function SummaryStat({ icon: Icon, label, value, hint, tone = 'neutral' }) {
 }
 
 export default function Cartoes() {
+  // Saldos da conta somem no modo privado; totais de cartao ficam.
+  const privateMoney = usePrivateFormatter(formatCurrency)
   const { openNewEntry } = useNewEntry()
   const {
     dataError,
@@ -339,8 +342,8 @@ export default function Cartoes() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryStat icon={CreditCard} label="Total aberto" value={formatCurrency(walletSummary.openCreditTotal)} tone="info" />
         <SummaryStat icon={Receipt} label="Fatura do mês" value={formatCurrency(walletSummary.currentInvoiceTotal)} tone={walletSummary.currentInvoiceTotal > 0 ? 'danger' : 'success'} />
-        <SummaryStat icon={Wallet} label="Saldo após a fatura atual" value={formatCurrency(walletSummary.availableAfterCurrentInvoice)} tone={walletSummary.availableAfterCurrentInvoice >= 0 ? 'neutral' : 'danger'} />
-        <SummaryStat icon={Wallet} label="Saldo projetado" value={formatCurrency(walletSummary.projectedBalance)} hint="Conta menos cartões abertos" tone={walletSummary.projectedBalance >= 0 ? 'neutral' : 'danger'} />
+        <SummaryStat icon={Wallet} label="Saldo após a fatura atual" value={privateMoney(walletSummary.availableAfterCurrentInvoice)} tone={walletSummary.availableAfterCurrentInvoice >= 0 ? 'neutral' : 'danger'} />
+        <SummaryStat icon={Wallet} label="Saldo projetado" value={privateMoney(walletSummary.projectedBalance)} hint="Conta menos cartões abertos" tone={walletSummary.projectedBalance >= 0 ? 'neutral' : 'danger'} />
       </div>
 
       {cards.length === 0 ? (

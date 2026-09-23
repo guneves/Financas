@@ -5,6 +5,7 @@ import { apiFetch } from '../lib/api'
 import { investmentsApi, marketApi } from '../lib/dataApi'
 import { AlertMessage, Button, Field, SegmentedControl, Sheet } from './ui'
 import { formatCurrency, getLocalDateString } from '../lib/format'
+import { usePrivateFormatter } from '../lib/privacy'
 import TickerAutocomplete from './TickerAutocomplete'
 import FixedIncomeFields from './FixedIncomeFields'
 import { emptyFixedIncomeForm, fixedIncomeMetadataFromForm } from '../lib/fixedIncome'
@@ -60,6 +61,8 @@ export default function InvestmentLaunchModal({
   initialMode = 'BUY',
   initialAssetId = '',
 }) {
+  // Venda: o valor de cada posicao some no modo privado.
+  const privateMoney = usePrivateFormatter(formatCurrency)
   const [mode, setMode] = useState('BUY')
   const [form, setForm] = useState(() => initialForm())
   const [saving, setSaving] = useState(false)
@@ -342,7 +345,7 @@ export default function InvestmentLaunchModal({
                 <option value="">Selecionar</option>
                 {saleAssets.map((asset) => (
                   <option key={asset.id} value={asset.id}>
-                    {asset.name} - {formatCurrency(asset.current_value)}
+                    {asset.name} - {privateMoney(asset.current_value)}
                   </option>
                 ))}
               </select>

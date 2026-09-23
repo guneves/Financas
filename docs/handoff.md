@@ -7,85 +7,79 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Motion pass
+## Session — 2026-09-22 (latest) · Visual audit + privacy-mode rework
 
-The owner asked for research across seven animation sources (tailwindcss-motion, motion.dev, Magic
-UI, Aceternity, animate.css, Recharts, animations.dev/easings.net) and a plan under hard
-constraints: extend the existing Tailwind vocabulary, emerald only, legibility over decoration,
-≤2 deps under ~15 kB each, reduced motion everywhere, animation in `ui.jsx` primitives. The plan was
-approved with one addition ("rework it" — the privacy-mode remount in `Layout.jsx`), then built.
+The owner asked for a visual design pass in three steps: audit (report first), plan (wait for
+approval), build. Steps 1 and 2 were delivered; the owner has **not approved the plan yet**. In
+between, they asked for one concrete change — privacy mode should not remount the screen and should
+hide only the main account values and the investment portfolio — which was built, verified and
+committed.
 
 ### What was done
 
-- **Zero new dependencies.** Motion's smallest bundle with exit animations (`LazyMotion` +
-  `domAnimation`) is ~19.6 kB, over the budget; everything below is CSS keyframes plus small hooks.
-- **`tailwind.config.js` (additive):** keyframes `fade-out`, `scale-out`, `slide-out-down`,
-  `flash-emerald`, `check-draw`, `nudge` (animate.css `headShake` without `rotateY`); animations for
-  each plus `skeleton` (fade-in after 150 ms + shimmer); `transitionTimingFunction.out-quint`. The
-  app curve `cubic-bezier(0.22, 1, 0.36, 1)` is easings.net's `easeOutQuint` — kept as the only
-  curve; exits use it at ~60% of the enter duration.
-- **`ui.jsx` primitives:**
-  - `prefersReducedMotion()`; `usePresence(open, exitMs)` keeps a node mounted through its exit.
-  - `Sheet` animates out (desktop `scale-out`, phone `slide-out-down`, backdrop `fade-out`) and
-    renders the **last open content** while leaving — callers null their state with `open`
-    (`paying` → null) and it would otherwise flash "Pagar R$ 0,00".
-  - `Expand` (new, exported): height via `grid-template-rows 0fr → 1fr`, unmounts after the exit
-    like the old Collapsible did (form-reset behaviour unchanged); `overflow` turns visible once
-    settled so focus rings are not clipped. `Collapsible` uses it; so do Cartões invoices.
-  - `Tabs`: one white pill measured from `aria-current="page"` slides between tabs.
-  - `useCountUp(target, { duration, cacheKey })`: 500 ms easeOutQuint, and a module-level cache of
-    the last value per `pathname|title` — only the first visit of a session counts from 0; a real
-    change animates old → new. Also fixed a one-frame flash of the final value before the count.
-    `MetricCard` value is now `tabular`.
-  - `useArrivals(items, version)`: ids that appear after a `DataVersion` bump; Extrato rows flash
-    `flash-emerald` once. Disarms on the first list change so a later filter never flashes.
-  - Success `AlertMessage` draws its check (`check-draw`).
-- **`charts.jsx`:** `useChartAnimation()` replaces spreading the static `ANIMATION`. It honours
-  reduced motion (recharts' `isAnimationActive` is JS — the CSS media query never reached it, and
-  recharts' own `'auto'` only means "off in SSR") and draws a page's charts once per session (marks
-  the path on unmount so charts mounting after the data load still draw). 600 ms, app curve; the
-  hardcoded 1200 ms / 1000 ms overrides are gone. Used in Dashboard, PortfolioOverview, Proventos,
-  Sparkline, DonutChart.
-- **`Layout.jsx` (the rework):** the page wrapper is keyed by `pathname` only; the privacy toggle
-  remounts through an inner `<Fragment key={valuesHidden}>`, so it no longer replays the page
-  fade-up (and, with the caches above, numbers and charts do not re-animate). Moving between tabs of
-  the same section uses `fade-in`; changing section keeps `fade-up`.
-- **Pages:** Cartões and Início show a success notice after paying an invoice; `PayInvoiceSheet`
-  nudges a refused-payment error; Orçamento bars transition `width` on the app curve.
-- **`index.css`:** reduced-motion block adds `animation-iteration-count: 1` — the infinite shimmer
-  at 0.01 ms was a busy repaint loop, not a static skeleton.
+- **Audit, with real screenshots.** 48+ before-shots of every screen at 1280 px and 390 px, plus
+  privacy mode, the "+ Novo" sheet and an empty account, taken with Playwright against a scratch app
+  (see "Non-obvious" below for how). The findings and the 7-item plan with decisions A–E are in
+  `docs/next-steps.md` → "Visual design pass". The screenshots lived in the session scratchpad and
+  are not in the repo.
+- **Privacy mode rework** (`frontend/src/lib/privacy.js`, new):
+  - The state lives outside React; `useValuesHidden()` subscribes with `useSyncExternalStore`, so a
+    toggle re-renders only the components that show a sensitive value. `Layout.jsx` no longer keys
+    an inner `<Fragment>` on the mode — nothing remounts, nothing refetches.
+  - `formatCurrency`, `formatUnitCurrency` and `compactCurrency` no longer mask anything. Sensitive
+    spots opt in: `usePrivateFormatter(format)`, `usePrivateAxisFormatter(format)` (blank ticks rather
+    than a column of "R$ ••••••") and `MetricCard sensitive` (the count-up stays mounted underneath,
+    so revealing does not recount).
+  - Hidden: Início's four top cards, "Evolução do saldo" (badge, axis, tooltip), "Saldo por conta",
+    the autopay-shortfall warning (balance and "faltam", which reveals it); `ProjectionHeader` on
+    Extrato/Cartões and Cartões' two "Saldo…" cards; Ajustes → Contas; the balance in
+    `PayInvoiceSheet`'s account picker and its shortfall message; all of Posição — allocation donut,
+    Evolução do Patrimônio, group totals, quantities, values, and for fixed income the principal
+    (PM) and the price field (quantity 1, so the "price" is the value); the position values in
+    `InvestmentLaunchModal`'s sale picker.
+  - Visible on purpose: lançamentos, faturas, orçamentos, recorrências, operações, proventos,
+    percentages. **Username and e-mail are no longer masked** (sidebar, Perfil) — "only hide" read
+    literally; the Perfil name field is editable in privacy mode again.
+- **Verified by script** at 1280 and 390 px on Início, Extrato, Cartões, Posição, Operações, Ajustes:
+  0 API calls on toggle, a DOM marker on the page title survives (no remount), no console errors, and
+  the masked counts match the list above (Operações: 0, as intended). Screenshots checked by eye.
+- `CLAUDE.md`: test count 533 → 561; a frontend-convention line on privacy mode.
+- `frontend/package-lock.json` is committed as found: a browserslist/caniuse-lite bump that appeared
+  during the session from a process outside this one (not from any command run here). The owner said
+  "commit everything".
 
 ### What was not done and why
 
-- **Not clicked through.** The Chrome extension was offline again; Playwright not installed. Only
-  `vite build` (clean) and a check that every new keyframe is emitted. The walk-through list in
-  `next-steps.md` has a "Motion pass" item.
-- **Deviation from the plan, E (list rows):** no whole-table fade on filter change. Filtering is
-  typing; animating the table on every keystroke violates the frequency-of-use rule. Only the
-  new-row flash shipped.
-- **`fade-in-late`** from the plan became the `skeleton` animation entry instead (one class carries
-  both the delay and the shimmer).
-- `SegmentedControl` does not get the sliding pill yet — it could reuse the `Tabs` logic.
-- Rejected on purpose (see the plan): Magic UI BorderBeam/AnimatedBeam/NumberTicker, Aceternity
-  Focus/Wobble/Glare/3D cards, Text Generate, Sticky Scroll, Multi Step Loader, animate.css
-  attention seekers, tailwindcss-motion presets, Motion `layoutId`.
-- Carried forward from the previous session: **`BRAPI_TOKEN` is still empty** in `backend/.env`,
-  so quotes still come from yfinance (brapi integration inert, not broken).
+- **The design pass itself (plan items 1–7).** Waiting for the owner's approval and decisions A–E.
+  The plan in `next-steps.md` is the brief; its item 5 already lost "privacy axes" (done here).
+- **Not clicked through by a human.** Playwright drove a real Chromium, but the owner has not walked
+  the new privacy behaviour; it is on the walk-through list.
+- `backend/backups/finance-pre-mock-20260922-205415.db` was left on disk: the seed script writes its
+  pre-seed backup there regardless of `DATABASE_BACKUP_DIR`, and deleting it was refused by the
+  permission classifier. It holds only the scratch demo user; `backups/` is gitignored. Safe to delete.
+- Carried forward: **`BRAPI_TOKEN` is still empty** in `backend/.env` (quotes come from yfinance).
 
 ### Next session
 
-- Owner: the browser walk-through at the top of `next-steps.md`, including the motion item.
-- Paste the brapi token into `backend/.env`, hit "Atualizar cotações" once, and confirm the quote
-  metadata says `provider: brapi` and that a second refresh within 5 minutes spends no credit.
-- Phase 5 (splitting `app.py`).
+- Get the owner's go on the visual plan (items + decisions A–E), then build it kit-first, one commit
+  per theme, with before/after screenshots at both widths using the scratch setup below.
+- Owner: the browser walk-through at the top of `next-steps.md` (now includes the eye toggle).
 
 ### Non-obvious things learned
 
-- Tailwind emits utilities in config order, so `animate-slide-down` comes after `animate-nudge` in
-  the CSS: two `animate-*` classes on one element → the later-defined one wins. `PayInvoiceSheet`
-  puts the nudge on a wrapper div for that reason.
-- Recharts 3.7 parses `cubic-bezier(...)` easing strings (`es6/animation/easing.js`).
-- The invoice-payment path unmounted the sheet and dropped the paid invoice from the list with no
-  confirmation at all — hence the success notices.
-- The bash tool mangles `${...}` template literals inside a double-quoted `python -c`; use the
-  Edit tool or a script file in the scratchpad for JSX with template strings.
+- **Playwright works without installing anything:** 1.62.1 is in the npx cache
+  (`~/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/node_modules/playwright`) with its Chromium
+  (rev 1234) in `~/AppData/Local/ms-playwright`. `require()` the absolute path from a `.cjs` script.
+- **Scratch app:** a runner in the scratchpad sets `DATABASE_PATH`, `DATABASE_BACKUP_DIR`,
+  `AUTO_BACKUP_ON_BOOT=0`, `JWT_SECRET` and **`CORS_ORIGINS=http://localhost:5174`** (the `.env`
+  only allows :5173 — without it every login fails with a CORS error) before `import app`, then
+  `app.app.run(port=5001)`. Users via `POST /api/auth/signup` (`email`, `password`, `username`), data
+  via `scripts/seed_three_years_mock.py <email>` run with the same env (~R$ 2M net worth, 804
+  lançamentos). Frontend: PowerShell `$env:VITE_API_BASE_URL='http://localhost:5001'; npm run dev --
+  --port 5174 --strictPort` (`npx vite` was refused by the classifier).
+- Full-page Playwright screenshots resize the viewport, and Recharts' `ResponsiveContainer` then
+  draws charts wider than their panels. That is a capture artifact — use viewport shots to judge
+  charts.
+- The old privacy remount re-ran every fetch, and the pages render their *empty* state (not a
+  skeleton) while data is missing — that was the "Sem movimentações" flash. Other remounts (route
+  changes) still have that shape; plan item 7 covers loading vs. empty.

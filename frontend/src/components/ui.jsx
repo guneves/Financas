@@ -10,6 +10,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react'
+import { MASKED_CURRENCY, useValuesHidden } from '../lib/privacy'
 
 export function cx(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -228,9 +229,11 @@ export function useCountUp(target, { duration = 500, cacheKey } = {}) {
   return display
 }
 
-export function AnimatedNumber({ value, format = (v) => v, cacheKey, className = '' }) {
+// `masked`: modo privado. A contagem segue montada por baixo, entao revelar
+// mostra o valor direto, sem recontar.
+export function AnimatedNumber({ value, format = (v) => v, cacheKey, masked = false, className = '' }) {
   const display = useCountUp(value, { cacheKey })
-  return <span className={className}>{format(display)}</span>
+  return <span className={className}>{masked ? MASKED_CURRENCY : format(display)}</span>
 }
 
 // Variacao percentual com seta. `inverse` para metricas em que subir e ruim
@@ -267,8 +270,11 @@ export function MetricCard({
   className = '',
   delta,
   chart,
+  // Saldo ou carteira: some no modo privado (lib/privacy.js).
+  sensitive = false,
 }) {
   const animated = typeof amount === 'number' && typeof format === 'function'
+  const masked = useValuesHidden() && sensitive
   return (
     <Panel interactive className={cx('relative overflow-hidden p-5', className)}>
       <div className="flex items-start justify-between gap-4">
@@ -279,9 +285,10 @@ export function MetricCard({
               <AnimatedNumber
                 value={amount}
                 format={format}
+                masked={masked}
                 cacheKey={typeof title === 'string' ? `${window.location.pathname}|${title}` : undefined}
               />
-            ) : value}
+            ) : masked ? MASKED_CURRENCY : value}
           </p>
           {subtitle || delta ? (
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-500">

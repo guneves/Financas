@@ -131,7 +131,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-533 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
+561 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules, CSV export, `user_id`
 isolation, and backup retention. They run
@@ -241,3 +241,7 @@ docs/
   pieces (`AlertMessage`, `Collapsible`, `Sheet`, `Tabs`…), emerald is the only accent, section
   tabs come from the URL, and a page that shows data saved by "+ Novo" puts `useDataVersion()`
   (`lib/newEntry.js`) in its fetch effect's dependencies.
+- **Privacy mode** (the eye) hides balances, net worth and the portfolio only, and never remounts
+  the page. `formatCurrency` and friends always show the value; a sensitive spot uses
+  `usePrivateFormatter()` / `usePrivateAxisFormatter()` or `MetricCard sensitive` from
+  `lib/privacy.js`, which re-render on toggle through `useSyncExternalStore`.

@@ -62,6 +62,7 @@ import {
   compactCurrency,
 } from '../components/charts'
 import { formatCurrency, formatDateBR, getLocalDateString, monthKey, monthLabel, shiftMonth } from '../lib/format'
+import { usePrivateAxisFormatter, usePrivateFormatter } from '../lib/privacy'
 import { isInvestmentOutflow } from '../lib/transactions'
 
 const ACCOUNT_TYPE_LABELS = {
@@ -154,6 +155,9 @@ function buildSpending(transactions, ccExpenses, key) {
 }
 
 export default function Dashboard() {
+  // Modo privado: saldos, patrimonio e carteira somem; fluxo, gastos e faturas ficam.
+  const privateMoney = usePrivateFormatter(formatCurrency)
+  const privateAxis = usePrivateAxisFormatter(compactCurrency)
   const chartAnimation = useChartAnimation()
   const [portfolio, setPortfolio] = useState(null)
   const [portfolioError, setPortfolioError] = useState('')
@@ -643,6 +647,7 @@ export default function Dashboard() {
           icon={Landmark}
           tone="dark"
           title="Patrimônio total"
+          sensitive
           amount={totalWealth}
           format={formatCurrency}
           subtitle="Conta corrente + investimentos"
@@ -652,17 +657,19 @@ export default function Dashboard() {
           icon={Wallet}
           tone={bankBalance >= 0 ? 'success' : 'danger'}
           title="Saldo em conta"
+          sensitive
           amount={bankBalance}
           format={formatCurrency}
           valueClassName={bankBalance >= 0 ? 'text-zinc-950' : 'text-rose-600'}
           delta={<DeltaBadge value={percentChange(bankBalance, previousMonthBalance)} />}
           subtitle="vs. fim do mês passado"
-          chart={<Sparkline data={monthlyHistory} dataKey="balance" color={SERIES[0]} />}
+          chart={<Sparkline data={monthlyHistory} dataKey="balance" color={SERIES[0]} formatter={privateMoney} />}
         />
         <MetricCard
           icon={PiggyBank}
           tone="info"
           title="Investimentos"
+          sensitive
           amount={investmentsNetBalance}
           format={formatCurrency}
           valueClassName="text-sky-700"
@@ -672,6 +679,7 @@ export default function Dashboard() {
           icon={CalendarDays}
           tone={dailyAvailable >= 0 ? 'success' : 'danger'}
           title="Disponível por dia"
+          sensitive
           amount={dailyAvailable}
           format={formatCurrency}
           valueClassName={dailyAvailable >= 0 ? 'text-emerald-700' : 'text-rose-600'}
@@ -753,7 +761,7 @@ export default function Dashboard() {
           <PanelHeader
             title="Evolução do saldo"
             description="Saldo consolidado no fim de cada mês."
-            actions={<Badge tone={bankBalance >= 0 ? 'success' : 'danger'}>{formatCurrency(bankBalance)}</Badge>}
+            actions={<Badge tone={bankBalance >= 0 ? 'success' : 'danger'}>{privateMoney(bankBalance)}</Badge>}
           />
           <div className="p-5">
             {flowSummary.hasData ? (
@@ -768,13 +776,14 @@ export default function Dashboard() {
                     </defs>
                     <CartesianGrid vertical={false} stroke={CHART.grid} />
                     <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={16} />
-                    <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                    <YAxis tickFormatter={privateAxis} {...axisProps} width={76} />
                     <ReferenceLine y={0} stroke={CHART.axis} />
                     <Tooltip
                       cursor={{ stroke: CHART.axis }}
                       content={(
                         <ChartTooltip
                           names={{ balance: 'Saldo' }}
+                          valueFormatter={privateMoney}
                           labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
                         />
                       )}
@@ -911,7 +920,7 @@ export default function Dashboard() {
                   </p>
                   <p className="mt-1 font-medium text-zinc-900">{account.name}</p>
                   <p className={cx('mt-1 text-lg font-bold tabular', balance >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
-                    {formatCurrency(balance)}
+                    {privateMoney(balance)}
                   </p>
                   <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-100">
                     <div
@@ -1205,6 +1214,8 @@ function NeedsAttention({
   isPayingInvoice,
   autopayShortfalls = [],
 }) {
+  // Saldo da conta (e o que falta, que o revela) somem no modo privado.
+  const privateMoney = usePrivateFormatter(formatCurrency)
   const hasRecurring = pendingRecurringCount > 0
   const hasInvoice = invoiceItemCount > 0 && invoiceAmount > 0
   if (!hasRecurring && !hasInvoice && autopayShortfalls.length === 0) return null
@@ -1248,8 +1259,8 @@ function NeedsAttention({
           <AttentionItem
             key={entry.accountId}
             icon={Wallet}
-            title={`Débito automático sem saldo: faltam ${formatCurrency(entry.missing)}`}
-            detail={`${entry.accountName} tem ${formatCurrency(entry.balance)} para ${formatCurrency(entry.total)} a debitar · o primeiro em ${formatDateBR(entry.firstDue)}`}
+            title={`Débito automático sem saldo: faltam ${privateMoney(entry.missing)}`}
+            detail={`${entry.accountName} tem ${privateMoney(entry.balance)} para ${formatCurrency(entry.total)} a debitar · o primeiro em ${formatDateBR(entry.firstDue)}`}
             action={(
               <Link to="/lancamentos/cartoes" className="text-sm font-semibold text-emerald-700 underline-offset-2 hover:underline">
                 Ver faturas

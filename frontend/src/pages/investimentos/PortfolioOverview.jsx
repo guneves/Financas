@@ -4,6 +4,7 @@ import { CHART, ChartTooltip, DonutChart, FLOW, LegendDot, axisProps, compactCur
 import { AlertMessage, Panel, PanelHeader, SegmentedControl, Skeleton } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
+import { usePrivateAxisFormatter, usePrivateFormatter } from '../../lib/privacy'
 import { useDataVersion } from '../../lib/newEntry'
 
 // O backend limita o historico a 60 meses (GET /api/investments/history).
@@ -32,6 +33,9 @@ function readStoredPeriod() {
 // a barra ate o valor aplicado — a altura total nunca esconde o prejuizo.
 export default function PortfolioOverview({ assets, getClassLabel }) {
   const chartAnimation = useChartAnimation()
+  // A carteira inteira some no modo privado; as proporcoes (%) ficam.
+  const privateMoney = usePrivateFormatter(formatCurrency)
+  const privateAxis = usePrivateAxisFormatter(compactCurrency)
   const allocation = useMemo(() => {
     const byClass = {}
     assets.forEach((asset) => {
@@ -97,7 +101,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
       <Panel>
         <PanelHeader title="Alocação" description="Valor de mercado bruto por classe de ativo." />
         <div className="p-5">
-          <DonutChart data={allocation} centerLabel="Carteira" height={190} stacked />
+          <DonutChart data={allocation} centerLabel="Carteira" height={190} stacked formatter={privateMoney} />
         </div>
       </Panel>
 
@@ -122,7 +126,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
                 <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke={CHART.grid} />
                   <XAxis dataKey="month" {...axisProps} interval="preserveStartEnd" minTickGap={12} />
-                  <YAxis {...axisProps} width={72} tickFormatter={compactCurrency} />
+                  <YAxis {...axisProps} width={72} tickFormatter={privateAxis} />
                   <Tooltip
                     cursor={{ fill: 'rgba(24,24,27,0.04)' }}
                     content={({ active, payload, label }) => {
@@ -137,8 +141,8 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
                             { dataKey: 'gain', value: row.gain, color: row.gain >= 0 ? FLOW.income : FLOW.expense },
                           ]}
                           names={{ applied: 'Valor aplicado', gain: row.gain >= 0 ? 'Ganho de capital' : 'Perda de capital' }}
-                          valueFormatter={(value) => formatCurrency(Math.abs(value))}
-                          footer={() => `Patrimônio: ${formatCurrency(row.patrimonio)}`}
+                          valueFormatter={(value) => privateMoney(Math.abs(value))}
+                          footer={() => `Patrimônio: ${privateMoney(row.patrimonio)}`}
                         />
                       )
                     }}

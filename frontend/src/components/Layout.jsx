@@ -1,11 +1,11 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Eye, EyeOff, LogOut, Plus, Settings, Wallet } from 'lucide-react'
-import { Fragment, Suspense, useCallback, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
-import { areValuesHidden, MASKED_TEXT, setValuesHidden } from '../lib/format'
 import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
+import { setValuesHidden, useValuesHidden } from '../lib/privacy'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
 import { Button, cx, Skeleton, Tabs } from './ui'
@@ -55,7 +55,7 @@ function SidebarItem({ to, name, icon: Icon }) {
   )
 }
 
-// Olho da barra lateral (e do cabecalho no celular): esconde valores e nome.
+// Olho da barra lateral (e do cabecalho no celular): esconde saldos e carteira.
 function PrivacyToggle({ hidden, onToggle, className = '' }) {
   const label = hidden ? 'Mostrar valores' : 'Ocultar valores'
   const Icon = hidden ? EyeOff : Eye
@@ -119,12 +119,11 @@ export default function Layout() {
   const [sheetType, setSheetType] = useState('EXPENSE')
   const [investmentOpen, setInvestmentOpen] = useState(false)
   const [investmentAssets, setInvestmentAssets] = useState([])
-  const [valuesHidden, setValuesHiddenState] = useState(areValuesHidden)
+  const valuesHidden = useValuesHidden()
 
   const toggleValuesHidden = useCallback(() => {
-    setValuesHidden(!areValuesHidden())
-    setValuesHiddenState(areValuesHidden())
-  }, [])
+    setValuesHidden(!valuesHidden)
+  }, [valuesHidden])
 
   const bumpDataVersion = useCallback(() => {
     setDataVersion((version) => version + 1)
@@ -188,10 +187,10 @@ export default function Layout() {
             <SidebarItem to={SETTINGS_PATH} name="Ajustes" icon={Settings} />
             <div className="my-2 flex items-center gap-3 rounded-lg bg-zinc-50 p-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-sm font-bold text-emerald-700">
-                {valuesHidden ? '•' : initials || 'FM'}
+                {initials || 'FM'}
               </div>
               <p className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">
-                {valuesHidden ? MASKED_TEXT : name}
+                {name}
               </p>
               <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} className="h-9 w-9" />
             </div>
@@ -231,16 +230,13 @@ export default function Layout() {
               <Tabs items={section.tabs} className="mb-5" />
             ) : null}
 
-            {/* Trocar de pagina remonta e anima a entrada. Trocar o modo
-                privado tambem remonta (os formatadores de lib/format.js leem
-                o modo na renderizacao), mas pelo Fragment de dentro: sem
-                animacao, e numeros e graficos voltam sem recontar. */}
+            {/* Trocar de pagina remonta e anima a entrada. O modo privado nao
+                remonta nada: so os valores sensiveis re-renderizam
+                (lib/privacy.js). */}
             <div key={location.pathname} className={pageEnter.current.className}>
-              <Fragment key={String(valuesHidden)}>
-                <Suspense fallback={<PageLoading />}>
-                  <Outlet />
-                </Suspense>
-              </Fragment>
+              <Suspense fallback={<PageLoading />}>
+                <Outlet />
+              </Suspense>
             </div>
           </main>
         </div>

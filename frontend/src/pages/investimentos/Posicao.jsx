@@ -15,6 +15,7 @@ import {
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
 import { formatCurrency, getLocalDateString } from '../../lib/format'
+import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import PortfolioOverview from './PortfolioOverview'
 import {
   formatDateTime,
@@ -64,12 +65,15 @@ function groupAssets(assets, activeTab) {
   return [...groups.values()].sort((a, b) => rank(a.key) - rank(b.key) || a.label.localeCompare(b.label, 'pt-BR'))
 }
 
-function groupSummary(group) {
+function groupSummary(group, money) {
   const count = group.assets.length
-  return `${count} ${count === 1 ? 'posição' : 'posições'} · ${formatCurrency(group.total)}`
+  return `${count} ${count === 1 ? 'posição' : 'posições'} · ${money(group.total)}`
 }
 
 export default function Posicao() {
+  // Modo privado: valores, quantidades e o principal da renda fixa somem;
+  // preco medio de acao, cotacao e rentabilidade (%) ficam.
+  const privateMoney = usePrivateFormatter(formatCurrency)
   const {
     assets,
     dataError,
@@ -297,7 +301,7 @@ export default function Posicao() {
                 <section key={group.key} className="border-b border-zinc-200 last:border-0">
                   <div className="flex items-baseline justify-between gap-3 bg-zinc-50 px-4 py-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</h3>
-                    <span className="text-xs text-zinc-500 tabular">{groupSummary(group)}</span>
+                    <span className="text-xs text-zinc-500 tabular">{groupSummary(group, privateMoney)}</span>
                   </div>
                   <ul className="divide-y divide-zinc-100">
                     {group.assets.map((asset) => (
@@ -327,7 +331,7 @@ export default function Posicao() {
                       <th colSpan={7} scope="rowgroup" className="py-2">
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</span>
-                          <span className="text-xs font-normal text-zinc-500 tabular">{groupSummary(group)}</span>
+                          <span className="text-xs font-normal text-zinc-500 tabular">{groupSummary(group, privateMoney)}</span>
                         </div>
                       </th>
                     </tr>
@@ -395,10 +399,16 @@ function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPri
   const quoteStatus = quote.status || 'missing'
   const quoteIsFresh = quoteStatus === 'fresh'
   const isFixed = asset.class === 'FIXED_INCOME'
+  // Na renda fixa a "cotacao" e o valor do titulo (quantidade 1).
+  const masked = useValuesHidden() && isFixed
 
   return (
     <div>
       <div className="flex items-center gap-2">
+        {masked ? (
+          <span className="w-32 py-2 text-sm font-medium tabular text-zinc-500">{MASKED_CURRENCY}</span>
+        ) : (
+          <>
         <span className="text-sm text-zinc-600">R$</span>
         <input
           key={`${asset.id}-${asset.current_price}`}
@@ -412,6 +422,8 @@ function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPri
           className={cx('app-input w-32 py-2', isFixed && 'cursor-not-allowed bg-zinc-100 text-zinc-500')}
           title={isFixed ? 'Valor calculado automaticamente pela taxa do título' : 'Digite o novo preço e clique fora para salvar'}
         />
+          </>
+        )}
         <IconButton
           label="Atualizar cotação deste ativo"
           icon={RefreshCw}
@@ -431,13 +443,14 @@ function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPri
 }
 
 function ValueCell({ asset }) {
+  const money = usePrivateFormatter(formatCurrency)
   return (
     <>
-      <p className="font-medium text-zinc-900">Bruto: {formatCurrency(asset.current_value)}</p>
+      <p className="font-medium text-zinc-900">Bruto: {money(asset.current_value)}</p>
       {asset.class === 'FIXED_INCOME' && (
         asset.is_tax_free
-          ? <p className="text-xs font-medium text-emerald-700">Líquido: {formatCurrency(asset.current_value)} (Isento)</p>
-          : <p className="text-xs text-zinc-600">Líquido: {formatCurrency(asset.net_value)}</p>
+          ? <p className="text-xs font-medium text-emerald-700">Líquido: {money(asset.current_value)} (Isento)</p>
+          : <p className="text-xs text-zinc-600">Líquido: {money(asset.net_value)}</p>
       )}
     </>
   )
@@ -453,6 +466,7 @@ function ProfitBadge({ value }) {
 
 function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
   const isFixed = asset.class === 'FIXED_INCOME'
+  const hidden = useValuesHidden()
   return (
     <tr>
       <td>
@@ -462,8 +476,8 @@ function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
           <p className="text-xs text-zinc-500">{describeFixedIncome(asset.metadata)}</p>
         ) : null}
       </td>
-      <td className="tabular text-zinc-800">{isFixed ? '-' : asset.quantity}</td>
-      <td className="tabular text-zinc-800">{formatCurrency(asset.average_price)}</td>
+      <td className="tabular text-zinc-800">{isFixed ? '-' : hidden ? MASKED_TEXT : asset.quantity}</td>
+      <td className="tabular text-zinc-800">{hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}</td>
       <td><PriceEditor asset={asset} {...priceProps} /></td>
       <td className="tabular"><ValueCell asset={asset} /></td>
       <td><ProfitBadge value={asset.profitability_percent} /></td>
@@ -486,6 +500,7 @@ function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
 
 function PositionCard({ asset, busy, onSell, onDelete, ...priceProps }) {
   const isFixed = asset.class === 'FIXED_INCOME'
+  const hidden = useValuesHidden()
   return (
     <li className="space-y-3 px-4 py-4">
       <div className="flex items-start justify-between gap-3">
@@ -494,8 +509,8 @@ function PositionCard({ asset, busy, onSell, onDelete, ...priceProps }) {
           <p className="text-xs text-zinc-600">
             {getClassLabel(asset.class)}
             {isFixed && describeFixedIncome(asset.metadata) ? ` · ${describeFixedIncome(asset.metadata)}` : ''}
-            {isFixed ? '' : ` · ${asset.quantity} un.`}
-            {` · PM ${formatCurrency(asset.average_price)}`}
+            {isFixed ? '' : ` · ${hidden ? MASKED_TEXT : asset.quantity} un.`}
+            {` · PM ${hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}`}
           </p>
         </div>
         <ProfitBadge value={asset.profitability_percent} />

@@ -3,7 +3,7 @@ import { MetricCard } from '../../components/ui'
 import { formatCurrency } from '../../lib/format'
 
 // Cabecalho comum a Extrato e Cartoes. Os valores vem da lista completa
-// (useLancamentos), nunca do extrato filtrado.
+// (useLancamentos), nunca do extrato filtrado. Sao saldos: somem no modo privado.
 export default function ProjectionHeader({ balance, projectedBalanceNextMonth, projectedBalanceGlobal }) {
   return (
     <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -11,6 +11,7 @@ export default function ProjectionHeader({ balance, projectedBalanceNextMonth, p
         icon={Landmark}
         tone={balance >= 0 ? 'success' : 'danger'}
         title="Saldo atual"
+        sensitive
         value={formatCurrency(balance)}
         valueClassName={balance >= 0 ? 'text-zinc-950' : 'text-rose-600'}
         subtitle="Movimentações confirmadas"
@@ -19,6 +20,7 @@ export default function ProjectionHeader({ balance, projectedBalanceNextMonth, p
         icon={Banknote}
         tone={projectedBalanceNextMonth >= 0 ? 'info' : 'danger'}
         title="Projeção próximo mês"
+        sensitive
         value={formatCurrency(projectedBalanceNextMonth)}
         valueClassName={projectedBalanceNextMonth >= 0 ? 'text-sky-700' : 'text-rose-600'}
         subtitle="Inclui faturas próximas"
@@ -27,6 +29,7 @@ export default function ProjectionHeader({ balance, projectedBalanceNextMonth, p
         icon={Receipt}
         tone={projectedBalanceGlobal >= 0 ? 'neutral' : 'danger'}
         title="Projeção global"
+        sensitive
         value={formatCurrency(projectedBalanceGlobal)}
         valueClassName={projectedBalanceGlobal >= 0 ? 'text-zinc-950' : 'text-rose-600'}
         subtitle="Inclui parcelamentos futuros"

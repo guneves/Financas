@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle } from 'lucide-react'
 import { AlertMessage, Button, Field, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
+import { useValuesHidden } from '../lib/privacy'
 
 // Confirmacao do pagamento de fatura, com a conta de onde sai o dinheiro.
 //
@@ -22,6 +23,8 @@ export default function PayInvoiceSheet({
   error = '',
   onConfirm,
 }) {
+  // Modo privado: a conta aparece sem o saldo.
+  const hidden = useValuesHidden()
   const activeAccounts = (accounts || []).filter((account) => !account.archived_at)
   const [accountId, setAccountId] = useState(defaultAccountId)
 
@@ -66,7 +69,7 @@ export default function PayInvoiceSheet({
             {allowPerCard ? <option value="">Conta de cada cartão</option> : null}
             {activeAccounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}{account.is_default ? ' (padrão)' : ''} · {formatCurrency(account.balance)}
+                {account.name}{account.is_default ? ' (padrão)' : ''}{hidden ? '' : ` · ${formatCurrency(account.balance)}`}
               </option>
             ))}
           </select>
@@ -74,7 +77,7 @@ export default function PayInvoiceSheet({
         {shortfall ? (
           <AlertMessage
             tone="warning"
-            message={`O saldo de ${selected.name} (${formatCurrency(selectedBalance)}) não cobre a fatura; a conta ficará negativa.`}
+            message={`O saldo de ${selected.name}${hidden ? '' : ` (${formatCurrency(selectedBalance)})`} não cobre a fatura; a conta ficará negativa.`}
           />
         ) : null}
       </div>
