@@ -30,8 +30,9 @@ import {
   cx,
 } from '../components/ui'
 
+// "No plano" e o normal: sem cor. Ambar e vermelho so quando pede atencao.
 const STATUS_TONES = {
-  OK: 'success',
+  OK: 'neutral',
   WARNING: 'warning',
   OVER: 'danger',
 }
@@ -211,19 +212,19 @@ export default function Orcamento() {
       <AlertMessage message={error} onDismiss={() => setError('')} />
 
       <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} tone="info" />
+        <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} />
         <MetricCard
           title="Disponível"
           value={formatCurrency(totals.available)}
           subtitle={totals.carryover ? `Inclui ${formatCurrency(totals.carryover)} do mês anterior` : null}
           tone="neutral"
         />
-        <MetricCard title="Realizado" value={formatCurrency(totals.spent)} tone="warning" />
+        <MetricCard title="Realizado" value={formatCurrency(totals.spent)} />
         <MetricCard
           title="Saldo do plano"
           value={formatCurrency(totals.remaining)}
           subtitle={totals.over_count ? `${totals.over_count} categoria(s) estourada(s)` : 'Nenhuma categoria estourada'}
-          valueClassName={Number(totals.remaining || 0) < 0 ? 'text-rose-600' : 'text-emerald-600'}
+          valueClassName={Number(totals.remaining || 0) < 0 ? 'text-rose-600' : 'text-emerald-700'}
           tone={totals.over_count ? 'danger' : 'success'}
         />
       </div>
@@ -362,7 +363,7 @@ export default function Orcamento() {
                           className={cx(
                             'inline-flex h-11 items-center rounded-full border px-3 text-xs font-semibold transition lg:h-8',
                             item.rollover
-                              ? 'border-sky-200 bg-sky-50 text-sky-700'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                               : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
                           )}
                           title="Acumular a sobra do mês anterior"

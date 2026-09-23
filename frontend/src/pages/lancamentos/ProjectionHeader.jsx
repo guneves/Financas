@@ -18,11 +18,11 @@ export default function ProjectionHeader({ balance, projectedBalanceNextMonth, p
       />
       <MetricCard
         icon={Banknote}
-        tone={projectedBalanceNextMonth >= 0 ? 'info' : 'danger'}
+        tone={projectedBalanceNextMonth >= 0 ? 'neutral' : 'danger'}
         title="Projeção próximo mês"
         sensitive
         value={formatCurrency(projectedBalanceNextMonth)}
-        valueClassName={projectedBalanceNextMonth >= 0 ? 'text-sky-700' : 'text-rose-600'}
+        valueClassName={projectedBalanceNextMonth >= 0 ? 'text-zinc-950' : 'text-rose-600'}
         subtitle="Inclui faturas próximas"
       />
       <MetricCard

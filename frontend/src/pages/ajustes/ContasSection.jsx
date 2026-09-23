@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Landmark, Plus, Trash2 } from 'lucide-react'
+import { Archive, Landmark, Plus } from 'lucide-react'
 import { accountsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
 import { usePrivateFormatter } from '../../lib/privacy'
@@ -122,7 +122,7 @@ export default function ContasSection({ refreshKey = 0 }) {
                   <span className={cx('whitespace-nowrap font-bold', Number(account.balance) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
                     {privateMoney(account.balance)}
                   </span>
-                  <IconButton label="Arquivar conta" icon={Trash2} variant="danger" onClick={() => handleArchiveAccount(account)} />
+                  <IconButton label="Arquivar conta" icon={Archive} onClick={() => handleArchiveAccount(account)} />
                 </div>
               </div>
             ))}

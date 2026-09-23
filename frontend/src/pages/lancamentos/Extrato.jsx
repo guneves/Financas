@@ -269,7 +269,7 @@ export default function Extrato() {
       ),
       description: <input type="text" value={editForm.description} onChange={setEditField('description')} className="app-input" />,
       type: isTransfer ? (
-        <Badge tone="info">Transferência</Badge>
+        <Badge>Transferência</Badge>
       ) : (
         <select value={editForm.type} onChange={setEditField('type')} className="app-select">
           <option value="EXPENSE">Despesa</option>

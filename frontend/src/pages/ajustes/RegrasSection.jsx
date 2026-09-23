@@ -131,7 +131,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
                   <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                     <span>{APPLIES_LABELS[rule.applies_to]}</span>
                     <span>prioridade {rule.priority}</span>
-                    {rule.hits ? <Badge tone="success">{rule.hits} lançamento(s)</Badge> : null}
+                    {rule.hits ? <Badge>{rule.hits} lançamento(s)</Badge> : null}
                   </p>
                 </div>
                 <Button variant="secondary" size="sm" onClick={() => handleToggle(rule)}>

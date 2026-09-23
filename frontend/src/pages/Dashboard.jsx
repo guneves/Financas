@@ -597,7 +597,7 @@ export default function Dashboard() {
       <PageHeader
         title="Início"
         description="Patrimônio, saldo disponível, despesas do mês e compromissos em aberto."
-        meta={<Badge tone="success">{monthLabel(currentKey)}</Badge>}
+        meta={<Badge>{monthLabel(currentKey)}</Badge>}
       />
 
       {portfolioError ? (
@@ -660,22 +660,20 @@ export default function Dashboard() {
         />
         <MetricCard
           icon={PiggyBank}
-          tone="info"
           title="Investimentos"
           sensitive
           amount={investmentsNetBalance}
           format={formatCurrency}
-          valueClassName="text-sky-700"
           subtitle="Saldo líquido estimado"
         />
         <MetricCard
           icon={CalendarDays}
-          tone={dailyAvailable >= 0 ? 'success' : 'danger'}
+          tone={dailyAvailable >= 0 ? 'neutral' : 'danger'}
           title="Disponível por dia"
           sensitive
           amount={dailyAvailable}
           format={formatCurrency}
-          valueClassName={dailyAvailable >= 0 ? 'text-emerald-700' : 'text-rose-600'}
+          valueClassName={dailyAvailable >= 0 ? 'text-zinc-950' : 'text-rose-600'}
           subtitle={`${daysRemainingInMonth} dia(s) restantes no mês`}
           footer={(
             <MonthProgress day={today.getDate()} daysLeft={daysRemainingInMonth} />
@@ -754,7 +752,7 @@ export default function Dashboard() {
           <PanelHeader
             title="Evolução do saldo"
             description="Saldo consolidado no fim de cada mês."
-            actions={<Badge tone={bankBalance >= 0 ? 'success' : 'danger'}>{privateMoney(bankBalance)}</Badge>}
+            actions={<Badge tone={bankBalance >= 0 ? 'neutral' : 'danger'}>{privateMoney(bankBalance)}</Badge>}
           />
           <div className="p-5">
             {flowSummary.hasData ? (
@@ -934,7 +932,7 @@ export default function Dashboard() {
             title={<PanelLink to="/lancamentos/cartoes">Próximas faturas</PanelLink>}
             description="O que já está comprometido no cartão para os próximos meses, parcelas incluídas."
             actions={(
-              <p className={cx('text-xl font-bold tabular', currentMonthInvoice > 0 ? 'text-rose-600' : 'text-emerald-700')}>
+              <p className="text-xl font-bold tabular text-zinc-950">
                 {formatCurrency(currentMonthInvoice)}
               </p>
             )}
@@ -1034,7 +1032,7 @@ export default function Dashboard() {
           <PanelHeader
             title={<PanelLink to="/lancamentos/cartoes">Parcelamentos abertos</PanelLink>}
             description="Compras agrupadas por cartão e compra original."
-            actions={<Badge tone="warning">{formatCurrency(installmentTotal)}</Badge>}
+            actions={<Badge>{formatCurrency(installmentTotal)}</Badge>}
           />
 
           <div className="p-5">
@@ -1049,7 +1047,7 @@ export default function Dashboard() {
                         <div className="min-w-0">
                           <p className="truncate font-semibold text-zinc-900">{expense.description}</p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <Badge tone="info">{expense.cardName}</Badge>
+                            <Badge>{expense.cardName}</Badge>
                             <Badge>{expense.remainingInstallments}x de {formatCurrency(expense.installmentAmount)}</Badge>
                           </div>
                         </div>
@@ -1062,7 +1060,7 @@ export default function Dashboard() {
                       </div>
                       <div className="mt-3 flex items-center gap-3">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100">
-                          <div className="bar-grow h-full rounded-full bg-amber-500" style={{ width: `${progress}%` }} />
+                          <div className="bar-grow h-full rounded-full bg-zinc-800" style={{ width: `${progress}%` }} />
                         </div>
                         <span className="text-xs font-semibold tabular text-zinc-600">
                           {paid}/{expense.totalInstallments} pagas

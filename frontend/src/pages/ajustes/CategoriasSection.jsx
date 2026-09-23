@@ -243,7 +243,6 @@ export default function CategoriasSection({ refreshKey = 0 }) {
                             <IconButton
                               label="Arquivar"
                               icon={Archive}
-                              variant="danger"
                               onClick={() => handleArchiveCategory(category)}
                             />
                           </>

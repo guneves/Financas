@@ -32,9 +32,9 @@ import {
 import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString } from '../lib/format'
 
 const PROCEEDS_TYPES = [
-  { value: 'DIVIDEND', label: 'Dividendos', tone: 'success' },
-  { value: 'JCP', label: 'JCP', tone: 'warning' },
-  { value: 'AMORTIZATION', label: 'Amortização', tone: 'info' },
+  { value: 'DIVIDEND', label: 'Dividendos' },
+  { value: 'JCP', label: 'JCP' },
+  { value: 'AMORTIZATION', label: 'Amortização' },
 ]
 
 const STATUS_ITEMS = [
@@ -78,7 +78,6 @@ const blankForm = () => ({
 })
 
 const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.label || value
-const typeTone = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.tone || 'neutral'
 
 export default function Proventos() {
   const chartAnimation = useChartAnimation()
@@ -313,15 +312,13 @@ export default function Proventos() {
         />
         <MetricCard
           icon={Landmark}
-          tone="info"
           title="Yield on cost"
           value={formatPercent(summary?.yield_on_cost_percent)}
-          valueClassName="text-sky-700"
           subtitle="Líquido / custo elegível"
         />
         <MetricCard
           icon={CalendarDays}
-          tone="warning"
+          tone="info"
           title="Agendado"
           value={formatCurrency(summary?.scheduled_net_amount)}
           subtitle="Pagamentos futuros"
@@ -340,7 +337,7 @@ export default function Proventos() {
           <PanelHeader
             title="Calendário"
             description="Próximos pagamentos por data."
-            actions={<Badge tone="warning">{calendarEvents.length} evento(s)</Badge>}
+            actions={<Badge>{calendarEvents.length} evento(s)</Badge>}
           />
           <div className="p-5">
             {calendarEvents.length > 0 ? (
@@ -350,13 +347,13 @@ export default function Proventos() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-zinc-950">{formatDateBR(item.payment_date)}</p>
-                        <Badge tone={typeTone(item.proceeds_type)}>{typeLabel(item.proceeds_type)}</Badge>
+                        <span className="text-sm text-zinc-500">{typeLabel(item.proceeds_type)}</span>
                       </div>
                       <p className="mt-1 truncate text-sm text-zinc-600">
                         {item.asset?.ticker} - {formatCurrency(item.net_amount)}
                       </p>
                     </div>
-                    <CalendarDays className="h-5 w-5 shrink-0 text-amber-600" />
+                    <CalendarDays className="h-5 w-5 shrink-0 text-zinc-400" />
                   </div>
                 ))}
               </div>

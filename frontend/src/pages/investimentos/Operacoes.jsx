@@ -254,7 +254,6 @@ export default function Operacoes() {
         />
         <MetricCard
           icon={Calculator}
-          tone="warning"
           title="IR estimado"
           value={formatCurrency(realizedSummary.taxAmount)}
         />

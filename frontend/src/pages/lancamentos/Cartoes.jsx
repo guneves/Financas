@@ -340,8 +340,8 @@ export default function Cartoes() {
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryStat icon={CreditCard} label="Total aberto" value={formatCurrency(walletSummary.openCreditTotal)} tone="info" />
-        <SummaryStat icon={Receipt} label="Fatura do mês" value={formatCurrency(walletSummary.currentInvoiceTotal)} tone={walletSummary.currentInvoiceTotal > 0 ? 'danger' : 'success'} />
+        <SummaryStat icon={CreditCard} label="Total aberto" value={formatCurrency(walletSummary.openCreditTotal)} />
+        <SummaryStat icon={Receipt} label="Fatura do mês" value={formatCurrency(walletSummary.currentInvoiceTotal)} />
         <SummaryStat icon={Wallet} label="Saldo após a fatura atual" value={privateMoney(walletSummary.availableAfterCurrentInvoice)} tone={walletSummary.availableAfterCurrentInvoice >= 0 ? 'neutral' : 'danger'} />
         <SummaryStat icon={Wallet} label="Saldo projetado" value={privateMoney(walletSummary.projectedBalance)} hint="Conta menos cartões abertos" tone={walletSummary.projectedBalance >= 0 ? 'neutral' : 'danger'} />
       </div>

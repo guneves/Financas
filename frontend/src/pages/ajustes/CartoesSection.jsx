@@ -142,7 +142,7 @@ export default function CartoesSection({ refreshKey = 0 }) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate font-medium text-zinc-900">{card.name}</p>
-                    {card.autopay_account_id ? <Badge tone="success">Débito automático</Badge> : null}
+                    {card.autopay_account_id ? <Badge>Débito automático</Badge> : null}
                   </div>
                   <p className="text-sm text-zinc-600">Vence dia {card.due_day} • Fecha dia {card.closing_day}</p>
                 </div>

@@ -36,9 +36,11 @@ const FREQUENCY_LABELS = {
   YEARLY: 'Anual',
 }
 
+// Estado da recorrencia e rotulo, nao alerta: sem cor. Pendente (venceu) e
+// que pede atencao, e tem o seu badge ambar.
 const STATUS_TONES = {
-  ACTIVE: 'success',
-  PAUSED: 'info',
+  ACTIVE: 'neutral',
+  PAUSED: 'neutral',
   FINISHED: 'neutral',
 }
 
@@ -248,9 +250,8 @@ export default function Recorrentes() {
         <MetricCard
           title="Saldo previsto (30d)"
           value={formatCurrency(window30.net)}
-          valueClassName={Number(window30.net || 0) < 0 ? 'text-rose-600' : 'text-emerald-600'}
+          valueClassName={Number(window30.net || 0) < 0 ? 'text-rose-600' : 'text-emerald-700'}
           subtitle={windows['90'] ? `Em 90 dias: ${formatCurrency(windows['90'].net)}` : null}
-          tone="info"
         />
         <MetricCard
           title="Pendentes"

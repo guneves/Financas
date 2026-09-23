@@ -249,12 +249,14 @@ export function DeltaBadge({ value, inverse = false, suffix = '', className = ''
   if (value === null || value === undefined || !Number.isFinite(value)) return null
   const isUp = value >= 0
   const isGood = inverse ? !isUp : isUp
+  // Arredondado para 0% nao e nem bom nem ruim: sem cor.
+  const isFlat = Math.abs(value) < 0.05
   const Icon = isUp ? ArrowUpRight : ArrowDownRight
   return (
     <span
       className={cx(
         'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-semibold tabular',
-        isGood ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700',
+        isFlat ? 'bg-zinc-100 text-zinc-600' : isGood ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700',
         className
       )}
     >

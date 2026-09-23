@@ -3,11 +3,8 @@ import { Loader2, Search } from 'lucide-react'
 import { marketApi } from '../lib/dataApi'
 import { cx } from './ui'
 
+// Tipo do papel e so rotulo: sem cor (verde, ambar e azul tem significado no app).
 const KIND_TONES = {
-  ACAO: 'bg-emerald-50 text-emerald-700',
-  ETF: 'bg-sky-50 text-sky-700',
-  FII: 'bg-amber-50 text-amber-700',
-  BDR: 'bg-violet-50 text-violet-700',
   CARTEIRA: 'bg-zinc-100 text-zinc-600',
 }
 
@@ -193,7 +190,7 @@ export default function TickerAutocomplete({
                 </span>
                 <span
                   className={cx(
-                    'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                    'shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
                     KIND_TONES[option.kind] || KIND_TONES.CARTEIRA
                   )}
                 >
