@@ -293,7 +293,6 @@ export default function Extrato() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Operação"
         title="Extrato"
         description="Entradas, saídas e transferências das suas contas."
         actions={(
@@ -308,7 +307,6 @@ export default function Extrato() {
             >
               Exportar
             </Button>
-            <Button type="button" icon={Plus} onClick={() => openNewEntry()}>Novo</Button>
           </>
         )}
       />
@@ -522,7 +520,12 @@ export default function Extrato() {
           </>
         ) : (
           <div className="p-5">
-            <EmptyState icon={Receipt} title="Nenhuma movimentação" message={filtersActive ? 'Nenhum lançamento atende aos filtros.' : 'Os lançamentos bancários aparecerão no extrato.'} />
+            <EmptyState
+              icon={Receipt}
+              title="Nenhuma movimentação"
+              message={filtersActive ? 'Nenhum lançamento atende aos filtros.' : 'Os lançamentos bancários aparecerão no extrato.'}
+              action={filtersActive ? null : <Button type="button" icon={Plus} onClick={() => openNewEntry()}>Novo lançamento</Button>}
+            />
           </div>
         )}
       </Panel>

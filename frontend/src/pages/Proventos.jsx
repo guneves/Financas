@@ -263,7 +263,6 @@ export default function Proventos() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Investimentos"
         title="Proventos"
         description="Dividendos, JCP, amortizações, yield on cost e agenda de pagamentos."
         actions={(

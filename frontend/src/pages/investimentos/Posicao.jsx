@@ -240,7 +240,6 @@ export default function Posicao() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Investimentos"
         title="Posição"
         description="O que você tem, quanto vale e como está rendendo."
         actions={(

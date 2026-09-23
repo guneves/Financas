@@ -222,7 +222,6 @@ export default function Operacoes() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Investimentos"
         title="Operações"
         description="Compras, vendas, aportes e resgates, com o resultado realizado e o IR estimado."
         actions={(

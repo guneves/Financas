@@ -313,12 +313,11 @@ export function Skeleton({ className = '' }) {
   return <div className={cx('skeleton', className)} />
 }
 
-export function PageHeader({ eyebrow, title, description, actions, meta }) {
+export function PageHeader({ title, description, actions, meta }) {
   return (
     <div className="flex animate-fade-up flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        {eyebrow ? <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">{eyebrow}</p> : null}
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-950 sm:text-3xl">{title}</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-950">{title}</h1>
         {description ? <p className="mt-2 max-w-3xl text-sm text-zinc-500">{description}</p> : null}
         {meta ? <div className="mt-3 flex flex-wrap gap-2">{meta}</div> : null}
       </div>

@@ -288,7 +288,7 @@ export default function Cartoes() {
 
   const headerActions = nearestInvoice ? (
     <>
-      <Button type="button" variant="secondary" icon={Plus} onClick={() => openNewEntry('CARD')}>Novo</Button>
+      <Button type="button" variant="secondary" icon={Plus} onClick={() => openNewEntry('CARD')}>Nova compra</Button>
       <Button
         type="button"
         icon={CheckCircle}
@@ -301,13 +301,12 @@ export default function Cartoes() {
       </Button>
     </>
   ) : (
-    <Button type="button" icon={Plus} onClick={() => openNewEntry('CARD')}>Novo</Button>
+    <Button type="button" variant="secondary" icon={Plus} onClick={() => openNewEntry('CARD')}>Nova compra</Button>
   )
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Operação"
         title="Cartões"
         description={nearestInvoice
           ? `Próxima fatura: ${nearestInvoice.cardGroup.cardName} ${formatInvoiceLabel(nearestInvoice.invoice.invoiceMonth, nearestInvoice.invoice.invoiceYear)} · ${formatCurrency(nearestInvoice.invoice.total)}`

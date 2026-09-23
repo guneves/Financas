@@ -220,7 +220,6 @@ export default function Recorrentes() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Planejamento"
         title="Recorrentes"
         description="Aluguel, salário, mensalidade, assinatura: o molde fica aqui e o lançamento é gerado quando vence."
         actions={

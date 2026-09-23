@@ -166,7 +166,7 @@ export default function Layout() {
     <NewEntryContext.Provider value={newEntryValue}>
       <DataVersionContext.Provider value={dataVersion}>
       <div className="min-h-screen text-zinc-950">
-        <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-zinc-200/80 bg-white/90 backdrop-blur lg:flex lg:flex-col">
+        <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-zinc-200/80 bg-white/90 backdrop-blur lg:flex lg:flex-col">
           <div className="border-b border-zinc-100 px-5 py-5">
             <BrandMark />
           </div>
@@ -224,7 +224,7 @@ export default function Layout() {
           </div>
         </header>
 
-        <div className="lg:pl-72">
+        <div className="lg:pl-64">
           <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:py-8">
             {section?.tabs.length ? (
               <Tabs items={section.tabs} className="mb-5" />

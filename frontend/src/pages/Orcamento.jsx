@@ -195,7 +195,6 @@ export default function Orcamento() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Planejamento"
         title="Orçamento"
         description="Quanto você planejou gastar em cada categoria neste mês, e quanto já saiu."
         actions={

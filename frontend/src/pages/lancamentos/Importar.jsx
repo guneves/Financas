@@ -230,7 +230,6 @@ export default function Importar() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Lançamentos"
         title="Importar extrato"
         description="CSV ou OFX do banco. Nada é gravado antes de você conferir a prévia."
       />

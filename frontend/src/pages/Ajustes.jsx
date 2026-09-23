@@ -49,7 +49,6 @@ export default function Ajustes() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Configuração"
         title="Ajustes"
         description="Contas, cartões e categorias — o que se configura uma vez e raramente muda."
         meta={SECTION_LINKS.map((section) => (

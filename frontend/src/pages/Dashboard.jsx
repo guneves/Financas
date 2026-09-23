@@ -26,14 +26,13 @@ import {
   LineChart as LineChartIcon,
   ListChecks,
   PiggyBank,
-  Plus,
   Receipt,
   Repeat,
   Wallet,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { accountsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
-import { useDataVersion, useNewEntry } from '../lib/newEntry'
+import { useDataVersion } from '../lib/newEntry'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
@@ -173,7 +172,6 @@ export default function Dashboard() {
   const [recurringItems, setRecurringItems] = useState([])
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
   const [notice, setNotice] = useState('')
-  const { openNewEntry } = useNewEntry()
   // Recarrega depois de um "+ Novo" salvo no Layout.
   const dataVersion = useDataVersion()
 
@@ -596,15 +594,9 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Painel"
         title="Início"
         description="Patrimônio, saldo disponível, despesas do mês e compromissos em aberto."
         meta={<Badge tone="success">{monthLabel(currentKey)}</Badge>}
-        actions={(
-          <Button type="button" icon={Plus} onClick={() => openNewEntry()}>
-            Novo
-          </Button>
-        )}
       />
 
       {portfolioError ? (
