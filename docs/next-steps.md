@@ -50,6 +50,7 @@
 | Import rules: edit a rule (pattern included) and apply rules to lançamentos already recorded, with a preview and per-row confirmation | 2026-09-22 |
 | Receipts per lançamento (PDF/image, several per row) from Extrato — migration 014 | 2026-09-23 |
 | UI remodel, direction C, with dark mode: tokens, shell, Início, Extrato, Cartões, then Posição/Operações/Proventos, Orçamento/Recorrentes, Importar (stepper), Ajustes; kit `SummaryPanel`, `Menu`, `Toast` | 2026-09-23 |
+| Phase 5 started: foundation modules, services and nine blueprints out of `app.py` (7,692 → 3,603 lines); URL-map test | 2026-09-23 |
 
 ---
 
@@ -238,9 +239,23 @@ canvas https://claude.ai/artifact/DPSbd7JxFULWe4r9z36tto). Every screen is on th
   on purpose — a budget is a plan, not a task), and the card-purchases gap in open decision 1 still
   applies to what the strip counts as spent.
 
-### Phase 5 — Backend refactor
-- [ ] Split `backend/app.py` into blueprints (config, db, auth, validators, services/portfolio,
-  prices, invoices, routes/*), one at a time, suite green between steps.
+### Phase 5 — Backend refactor — in progress (started 2026-09-23)
+Split `backend/app.py` one area at a time, code moved verbatim, suite green and one commit per step.
+`tests/test_route_map.py` pins the 60 routes (rule, methods, token) from before the split.
+- [x] Foundation: `config.py`, `db.py`, `validators.py`, `auth.py`, `money.py`, `dates.py`,
+  `source_types.py`.
+- [x] Services: `services/accounts.py`, `services/invoices.py`, `services/attachments.py`.
+- [x] Blueprints: system, auth, accounts (+ transfers, categories), transactions (+ CSV export),
+  attachments, budgets, recurring, imports (+ rules), cards (+ cc-expenses, pay-invoice).
+  `app.py` 7,692 → 3,603 lines.
+- [ ] Investments — everything left in `app.py`. Suggested cut, bottom-up (details in the handoff):
+  `services/prices.py` (cache, brapi/yfinance, history), `services/fixed_income.py` (BCB, accrual,
+  rate terms), `services/investments.py` (movements, cash sync, FIFO, realized results, tax),
+  `services/portfolio.py` (snapshot, materialized positions, evolution), then `routes/investments.py`,
+  `routes/proceeds.py`, `routes/market.py`. The tests patch many of these names — retarget each
+  patch to the module that *reads* the name.
+- [ ] Then `app.py` is only the factory + boot; consider a `create_app()` so tests stop depending
+  on import-time side effects.
 
 ### Frontend debt
 - [ ] Centralized server state (TanStack Query). A small `DataVersionContext` covers "+ Novo" refetch for now.

@@ -131,7 +131,8 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-602 tests in `backend/tests/`, covering FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
+605 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV export, receipts per lançamento, `user_id`
@@ -139,11 +140,21 @@ isolation, and backup retention. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
 
-`app.py` reads config and calls `init_db()` at import time, so `conftest.py` sets `DATABASE_PATH` and
-friends in `os.environ` *before* importing it. If you add a test that needs different config, set it
-there, not inside the test.
+`config.py` reads the environment once, at import, and `app.py` calls `init_db()` at import time,
+so `conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* importing `app` (it drops
+`app` and `config` from `sys.modules` first). If you add a test that needs different config, set it
+there, not inside the test. A test never imports an app module (`db`, `routes.*`, `services.*`) at
+the top of the file — reach it through a fixture or `importlib.import_module` inside the test, after
+`app_module` has loaded. The pure modules (`brapi_client`, `statement_import`, `export_csv`,
+`market_catalog`) are fine at the top.
 
-Fixtures: `client`, `user`, `other_user`, `auth`.
+**Patch where the name is read, not where it is defined.** Modules import settings and helpers by
+name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
+whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
+and *both* `services.invoices` and `routes.cards` for the `local_today` clock. A patch on the wrong
+module does not fail — it silently does nothing.
+
+Fixtures: `client`, `user`, `other_user`, `auth`, `app_module`, `db_module`, `invoices_module`.
 
 **Add tests for financial rules you touch.** That is the whole reason they exist — the plan calls for
 refactoring `app.py`, and that refactor is only safe with the suite in place.
@@ -152,7 +163,18 @@ refactoring `app.py`, and that refactor is only safe with the suite in place.
 
 ```
 backend/
-  app.py              # ~7,100 lines: routes, SQL, auth, budgets, portfolio, tax, FIFO, yfinance
+  app.py              # Flask app + blueprint registration + boot; still holds all of investments
+                      # (~3,600 lines: FIFO, tax, proceeds, prices, fixed income, portfolio)
+  config.py           # env / .env, read once at import
+  db.py               # connection, migrations, backups, row helpers
+  validators.py       # ValidationError + require_* / parse_* for request payloads
+  auth.py             # hand-rolled JWT, token_required
+  money.py            # rounded_money()
+  dates.py            # ISO parsing and month arithmetic
+  source_types.py     # transactions.source_type values (who wrote the row)
+  services/           # domain rules shared by several blueprints: accounts, invoices, attachments
+  routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
+                      # attachments, budgets, recurring, imports, cards
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # geracao dos CSV de extrato e carteira (funcoes puras, sem banco)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
@@ -176,7 +198,7 @@ docs/
 
 ## Conventions
 
-- **Money.** Always round through `rounded_money()` (`backend/app.py:823`) — it is ROUND_HALF_UP via
+- **Money.** Always round through `rounded_money()` (`backend/money.py`) — it is ROUND_HALF_UP via
   `Decimal`. Python's built-in `round()` is banker's rounding and is wrong for currency. Never
   introduce a bare `round()` on a monetary value.
 - **`user_id` on everything.** Every table carries it and every query must filter on it. There are
@@ -208,7 +230,7 @@ docs/
   `source_id = '<recurrence>:<AAAA-MM-DD>'`, so the unique index `idx_transactions_user_source`
   makes a second run a no-op. Keep that shape for anything else that materializes rows on demand —
   it is what makes the button safe to press twice. Deleting a recurrence keeps its lançamentos.
-- **An invoice is paid only once it has closed.** `invoice_closing_date()` in `backend/app.py`
+- **An invoice is paid only once it has closed.** `invoice_closing_date()` in `backend/services/invoices.py`
   is the rule (same shift as `compute_invoice_start()`; closed *on* the closing day). Every path
   that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is
   `POST /api/cc-expenses/pay-invoice` — don't go back to a client-side EXPENSE + status PATCH.
@@ -239,10 +261,14 @@ docs/
 
 ## Known sharp edges
 
-- `backend/app.py` is one ~7,120-line file. Splitting it is planned (Phase 5) but should happen
-  incrementally, one blueprint at a time, with the suite green between steps.
+- **Phase 5 is half done.** Everything but investments is out of `backend/app.py` (see Layout);
+  investments are the next step — plan in `docs/handoff.md`. The layering is strict: `config` ←
+  `db` ← `validators`/`money`/`dates`/`auth` ← `services/*` ← `routes/*` ← `app`. Nothing imports
+  `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
+  blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
+  fails `test_route_map.py` by name.
 - The credit card **invoice-month rule now lives in the backend** (`compute_invoice_start()` in
-  `backend/app.py`, behind `POST /api/cc-expenses/purchases`), covered by
+  `backend/services/invoices.py`, behind `POST /api/cc-expenses/purchases`), covered by
   `backend/tests/test_invoice_month.py`. The "+ Novo" card form calls it (`ccExpensesApi.createPurchase`); don't reintroduce a
   client-side copy.
 - `formatCurrency` and the date helpers now live in `frontend/src/lib/format.js`. One local
