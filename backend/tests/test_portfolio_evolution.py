@@ -5,6 +5,7 @@ yfinance is stubbed out, so a quoted asset falls back to its current price —
 the series is deterministic and the suite never touches the network.
 """
 
+import importlib
 from datetime import datetime
 
 import pytest
@@ -13,13 +14,14 @@ import pytest
 @pytest.fixture()
 def no_market(app_module, prices_module, monkeypatch):
     # A rota le `yf` para decidir se busca historico; o download tambem. Os dois.
-    monkeypatch.setattr(app_module, "yf", None)
+    monkeypatch.setattr(importlib.import_module("routes.investments"), "yf", None)
     monkeypatch.setattr(prices_module, "yf", None)
     return app_module
 
 
 def months_ago(app_module, months):
-    return app_module.subtract_months(datetime.now(), months).replace(day=1).strftime("%Y-%m-%d")
+    subtract_months = importlib.import_module("dates").subtract_months
+    return subtract_months(datetime.now(), months).replace(day=1).strftime("%Y-%m-%d")
 
 
 def post_buy(client, auth, *, ticker, quantity, price, current_price, date):

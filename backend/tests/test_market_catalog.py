@@ -8,12 +8,13 @@ from the catalog, or with an asset the user already held before the catalog
 existed.
 """
 
+import importlib
 import pytest
 
 
 @pytest.fixture()
 def catalog(app_module):
-    return app_module.market_catalog
+    return importlib.import_module("market_catalog")
 
 
 class TestCatalogSearch:
@@ -175,7 +176,7 @@ class TestPurchaseGuard:
 
 
 def _seed_legacy_asset(app_module, user_id, asset_id, ticker):
-    with app_module.get_db() as conn:
+    with importlib.import_module("db").get_db() as conn:
         conn.execute(
             "INSERT INTO assets (id, user_id, asset_class, ticker, name) VALUES (?, ?, ?, ?, ?)",
             (asset_id, user_id, "STOCKS", ticker, ticker),

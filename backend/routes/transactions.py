@@ -7,12 +7,13 @@ caixa de investimento nascem de outros fluxos e nao sao editados por aqui.
 
 from datetime import datetime
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, jsonify, request
 
 import export_csv
 from auth import token_required
 from db import get_db, new_id, serialize_transaction
 from money import rounded_money
+from responses import csv_response
 from services.accounts import require_account, resolve_account_id, resolve_category
 from services.attachments import remove_attachment_files
 from services.invoices import apply_due_autopay
@@ -185,19 +186,6 @@ def transactions(current_user_id):
         )
         item = conn.execute("SELECT * FROM transactions WHERE id = ?", (item_id,)).fetchone()
     return jsonify(serialize_transaction(item)), 201
-
-
-def csv_response(text, filename):
-    """Resposta de download de CSV.
-
-    Content-Disposition fica exposto no CORS para o navegador poder ler o nome
-    do arquivo; o cliente busca com o Bearer no cabecalho, entao o download nao
-    pode ser um link simples.
-    """
-    response = Response(text, mimetype="text/csv; charset=utf-8")
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
-    return response
 
 
 def account_names_map(conn, current_user_id):

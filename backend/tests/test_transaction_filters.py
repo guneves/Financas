@@ -5,6 +5,8 @@ categoria, texto livre, faixa de valor). Sem nenhum, devolve tudo — e o
 que a pagina usa para o saldo consolidado, entao esse caminho nao pode mudar.
 """
 
+import importlib
+
 
 def create_transaction(client, headers, **overrides):
     payload = {
@@ -114,7 +116,7 @@ def test_filter_by_category_includes_subcategories(client, auth):
 def test_filter_by_category_matches_legacy_rows_by_name(client, auth, app_module):
     food = create_category(client, auth, "Comida")
     legacy = create_transaction(client, auth, category="Comida", description="antigo")
-    with app_module.get_db() as conn:
+    with importlib.import_module("db").get_db() as conn:
         conn.execute("UPDATE transactions SET category_id = NULL WHERE id = ?", (legacy["id"],))
     assert descriptions(search(client, auth, category_id=food["id"])) == ["antigo"]
 

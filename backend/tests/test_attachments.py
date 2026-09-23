@@ -59,7 +59,7 @@ def upload(client, headers, transaction_id, content=PDF, filename="nota.pdf"):
 
 
 def stored_path(app_module, user_id, attachment_id):
-    with app_module.get_db() as conn:
+    with importlib.import_module("db").get_db() as conn:
         row = conn.execute(
             "SELECT stored_name FROM transaction_attachments WHERE id = ?",
             (attachment_id,),
@@ -69,7 +69,7 @@ def stored_path(app_module, user_id, attachment_id):
 
 
 def attachment_rows(app_module, transaction_id):
-    with app_module.get_db() as conn:
+    with importlib.import_module("db").get_db() as conn:
         return conn.execute(
             "SELECT * FROM transaction_attachments WHERE transaction_id = ?",
             (transaction_id,),
