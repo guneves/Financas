@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
-import { useDataVersion } from '../lib/newEntry'
+import { invalidateServerData, queryErrorMessage, useQuery } from '../lib/queries'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
@@ -145,90 +145,66 @@ function buildSpending(transactions, ccExpenses, key) {
   return { byDay, byCategory, total }
 }
 
+const NO_ITEMS = []
+
 export default function Dashboard() {
   // Modo privado: saldos, patrimonio e carteira somem; fluxo, gastos e faturas ficam.
   const privateMoney = usePrivateFormatter(formatCurrency)
   const privateAxis = usePrivateAxisFormatter(compactAxis)
   const chartAnimation = useChartAnimation()
-  const [portfolio, setPortfolio] = useState(null)
-  const [portfolioError, setPortfolioError] = useState('')
   const [dataError, setDataError] = useState('')
-  const [transactions, setTransactions] = useState([])
-  const [ccExpenses, setCcExpenses] = useState([])
-  // Todas as contas, arquivadas inclusive: o consolidado soma todas.
-  const [allAccounts, setAllAccounts] = useState([])
-  const [cards, setCards] = useState([])
   const [isPayingCurrentInvoice, setIsPayingCurrentInvoice] = useState(false)
   // Pagamento aguardando confirmacao no sheet: { title, description, invoices, total }.
   const [payRequest, setPayRequest] = useState(null)
   const [payError, setPayError] = useState('')
-  const [recurringItems, setRecurringItems] = useState([])
-  const [budget, setBudget] = useState(null)
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
-  // Recarrega depois de um "+ Novo" salvo no Layout.
-  const dataVersion = useDataVersion()
 
-  useEffect(() => {
-    fetchAllData()
-  }, [dataVersion])
-
-  const fetchAllData = async () => {
-    setDataError('')
-
-    try {
-      setPortfolioError('')
-      const data = await apiFetch('/api/investments/portfolio?refresh_prices=false')
-      setPortfolio(data)
-    } catch (error) {
-      console.warn('Erro ao buscar portfólio:', error)
-      setPortfolioError(error.message || 'Não foi possível carregar a carteira.')
-      setPortfolio(EMPTY_PORTFOLIO)
-    }
-
-    try {
-      // Todas as compras do cartao, nao so as abertas: o ritmo de gastos do mes
-      // passado precisa das compras que ja foram pagas.
-      const [transactionData, creditExpenses, accountData] = await Promise.all([
+  // Cinco queries independentes: uma que falha nao derruba as outras. Carteira
+  // e movimentacoes mostram erro; cartoes, recorrencias e orcamento so
+  // escondem o aviso ou a faixa que dependem deles.
+  const portfolioQuery = useQuery({
+    queryKey: ['inicio', 'carteira'],
+    queryFn: () => apiFetch('/api/investments/portfolio?refresh_prices=false'),
+  })
+  // Todas as compras do cartao, nao so as abertas: o ritmo de gastos do mes
+  // passado precisa das compras que ja foram pagas.
+  const movementsQuery = useQuery({
+    queryKey: ['inicio', 'movimentos'],
+    queryFn: async () => {
+      const [transactions, ccExpenses, accounts] = await Promise.all([
         transactionsApi.list(),
         ccExpensesApi.list(),
         accountsApi.list({ include_archived: 1 }),
       ])
-      setTransactions(transactionData || [])
-      setCcExpenses(creditExpenses || [])
-      setAllAccounts(accountData || [])
-    } catch (error) {
-      console.warn('Erro ao buscar movimentações:', error)
-      setDataError(error.message || 'Não foi possível carregar movimentações e faturas.')
-      setTransactions([])
-      setCcExpenses([])
-    }
+      return { transactions: transactions || [], ccExpenses: ccExpenses || [], allAccounts: accounts || [] }
+    },
+  })
+  // Cartoes so para o aviso de debito automatico sem saldo.
+  const cardsQuery = useQuery({ queryKey: ['inicio', 'cartoes'], queryFn: () => creditCardsApi.list() })
+  // Recorrencias vencidas para o "Precisa de voce".
+  const recurringQuery = useQuery({ queryKey: ['inicio', 'recorrencias'], queryFn: () => recurringApi.list() })
+  // Orcamento do mes para a faixa de orcamento.
+  const budgetMonth = monthKey(new Date())
+  const budgetQuery = useQuery({ queryKey: ['inicio', 'orcamento', budgetMonth], queryFn: () => budgetsApi.month(budgetMonth) })
 
-    // Cartoes so para o aviso de debito automatico sem saldo; falhar esconde o aviso.
-    try {
-      setCards((await creditCardsApi.list()) || [])
-    } catch (error) {
-      console.warn('Erro ao buscar cartões:', error)
-      setCards([])
-    }
+  const portfolioError = queryErrorMessage(portfolioQuery, 'Não foi possível carregar a carteira.')
+  const portfolio = portfolioQuery.data || (portfolioQuery.error ? EMPTY_PORTFOLIO : null)
+  const transactions = movementsQuery.data?.transactions || NO_ITEMS
+  const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
+  // Todas as contas, arquivadas inclusive: o consolidado soma todas.
+  const allAccounts = movementsQuery.data?.allAccounts || NO_ITEMS
+  const cards = cardsQuery.data || NO_ITEMS
+  const recurringItems = recurringQuery.data?.items || NO_ITEMS
+  const budget = budgetQuery.data || null
 
-    // Recorrencias vencidas para o "Precisa de voce". Falhar aqui so esconde o
-    // aviso: nao deve derrubar o resto do painel.
-    try {
-      const recurringData = await recurringApi.list()
-      setRecurringItems(recurringData?.items || [])
-    } catch (error) {
-      console.warn('Erro ao buscar recorrências:', error)
-      setRecurringItems([])
+  useEffect(() => {
+    if (movementsQuery.error) {
+      console.warn('Erro ao buscar movimentações:', movementsQuery.error)
+      setDataError(queryErrorMessage(movementsQuery, 'Não foi possível carregar movimentações e faturas.'))
     }
+  }, [movementsQuery.error])
 
-    // Orcamento do mes para a faixa de orcamento; falhar so esconde a faixa.
-    try {
-      setBudget(await budgetsApi.month(monthKey(new Date())))
-    } catch (error) {
-      console.warn('Erro ao buscar orçamento:', error)
-      setBudget(null)
-    }
-  }
+  const fetchAllData = () => invalidateServerData()
 
   // Mesma conta da tela Recorrentes: soma do pending_count de cada recorrencia.
   const pendingRecurringCount = useMemo(
@@ -579,7 +555,9 @@ export default function Dashboard() {
     }
   }
 
-  if (!portfolio) {
+  // Esqueleto ate carteira e movimentacoes chegarem: com so uma delas, os
+  // numeros de cima piscariam zerados.
+  if (!portfolio || movementsQuery.isPending) {
     return <DashboardSkeleton />
   }
 

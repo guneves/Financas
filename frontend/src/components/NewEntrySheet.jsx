@@ -19,6 +19,7 @@ import {
 import { AlertMessage, Button, EmptyState, Field, SegmentedControl, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
 import { toast } from '../lib/toast'
+import { useQuery } from '../lib/queries'
 
 const FORM_ID = 'new-entry-form'
 
@@ -36,6 +37,8 @@ const settingsLink = (hash, text) => (
 
 // Defaults (docs/ux-reorganization.md D6): data = hoje, conta = conta padrao,
 // cartao = primeiro cartao, 1 parcela.
+const NO_ITEMS = []
+
 const emptyBankForm = (type, accountId) => ({ amount: '', date: getLocalDateString(), category: '', description: '', type, account_id: accountId })
 const emptyTransferForm = (accountId) => ({ amount: '', date: getLocalDateString(), account_id: accountId, transfer_account_id: '', description: '' })
 const emptyExpenseForm = (cardId) => ({ card_id: cardId, category: '', description: '', total_amount: '', purchase_date: getLocalDateString(), installments: '1' })
@@ -49,11 +52,16 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
   const [type, setType] = useState(initialType)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const [accounts, setAccounts] = useState([])
-  const [categories, setCategories] = useState([])
-  const [cards, setCards] = useState([])
+  // Contas, cartoes e categorias pelo cache compartilhado (lib/queries.js):
+  // qualquer gravacao o invalida, entao o que mudou em Ajustes ja chega aqui.
+  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list(), enabled: open })
+  const categoriesQuery = useQuery({ queryKey: ['categorias', 'ativas'], queryFn: () => categoriesApi.list(), enabled: open })
+  const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list(), enabled: open })
+  const accounts = accountsQuery.data || NO_ITEMS
+  const categories = categoriesQuery.data || NO_ITEMS
+  const cards = cardsQuery.data || NO_ITEMS
+  const loading = open && (accountsQuery.isPending || categoriesQuery.isPending || cardsQuery.isPending)
+  const loadError = accountsQuery.error || categoriesQuery.error || cardsQuery.error
 
   const [transForm, setTransForm] = useState(() => emptyBankForm('EXPENSE', ''))
   const [transferForm, setTransferForm] = useState(() => emptyTransferForm(''))
@@ -62,43 +70,27 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
   const defaultAccountId = useMemo(() => pickDefaultAccountId(accounts), [accounts])
   const categoryOptions = useMemo(() => buildCategoryOptions(categories), [categories])
 
-  // Ao abrir: tipo pedido, formularios limpos com a data de hoje, e contas,
-  // cartoes e categorias frescos (podem ter mudado em Ajustes).
+  // Ao abrir: tipo pedido e formularios limpos com a data de hoje.
   useEffect(() => {
-    if (!open) return undefined
-    let cancelled = false
-
+    if (!open) return
     setType(initialType === 'INVESTMENT' ? 'EXPENSE' : initialType || 'EXPENSE')
     setError('')
     setTransForm(emptyBankForm(initialType === 'INCOME' ? 'INCOME' : 'EXPENSE', ''))
     setTransferForm(emptyTransferForm(''))
     setExpenseForm(emptyExpenseForm(''))
-    setLoading(true)
-
-    Promise.all([accountsApi.list(), categoriesApi.list(), creditCardsApi.list()])
-      .then(([accountData, categoryData, cardData]) => {
-        if (cancelled) return
-        const safeAccounts = accountData || []
-        const safeCards = cardData || []
-        const accountId = pickDefaultAccountId(safeAccounts)
-        setAccounts(safeAccounts)
-        setCategories(categoryData || [])
-        setCards(safeCards)
-        setTransForm((current) => ({ ...current, account_id: current.account_id || accountId }))
-        setTransferForm((current) => ({ ...current, account_id: current.account_id || accountId }))
-        setExpenseForm((current) => ({ ...current, card_id: current.card_id || safeCards[0]?.id || '' }))
-      })
-      .catch((loadError) => {
-        if (!cancelled) setError(loadError.message || 'Não foi possível carregar contas, cartões e categorias.')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
   }, [open, initialType])
+
+  // Conta e cartao padrao assim que a lista chega (ou ja estava no cache).
+  useEffect(() => {
+    if (!open) return
+    setTransForm((current) => ({ ...current, account_id: current.account_id || defaultAccountId }))
+    setTransferForm((current) => ({ ...current, account_id: current.account_id || defaultAccountId }))
+    setExpenseForm((current) => ({ ...current, card_id: current.card_id || cards[0]?.id || '' }))
+  }, [open, initialType, defaultAccountId, cards])
+
+  useEffect(() => {
+    if (open && loadError) setError(loadError.message || 'Não foi possível carregar contas, cartões e categorias.')
+  }, [open, loadError])
 
   const handleTypeChange = (nextType) => {
     if (nextType === 'INVESTMENT') {

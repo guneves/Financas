@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  ListSkeleton,
   Expand,
   Menu,
   PageHeader,
@@ -36,6 +37,7 @@ function invoiceDueDate(invoice, dueDay) {
 export default function Cartoes() {
   const { openNewEntry } = useNewEntry()
   const {
+    loading,
     dataError,
     setDataError,
     fetchData,
@@ -395,7 +397,11 @@ export default function Cartoes() {
         projectedBalanceGlobal={projectedBalanceGlobal}
       />
 
-      {cards.length === 0 ? (
+      {loading ? (
+        <Panel className="overflow-clip">
+          <ListSkeleton rows={4} />
+        </Panel>
+      ) : cards.length === 0 ? (
         <Panel className="p-5">
           <EmptyState
             icon={CreditCard}

@@ -174,8 +174,9 @@ export default function Layout() {
   useScrollRestoration()
 
   // "+ Novo" (docs/ux-reorganization.md D5): o sheet e o modal de investimento
-  // moram aqui, fora das paginas. Cada gravacao bem-sucedida incrementa
-  // dataVersion, e as paginas montadas recarregam (useDataVersion()).
+  // moram aqui, fora das paginas. A gravacao invalida o cache de dados
+  // (lib/queries.js, pelo apiFetch); dataVersion so conta as gravacoes do
+  // "+ Novo", para o Extrato piscar a linha nova (useArrivals).
   const [dataVersion, setDataVersion] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState('EXPENSE')

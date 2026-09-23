@@ -5,6 +5,7 @@ import {
   AlertMessage,
   Button,
   EmptyState,
+  ListSkeleton,
   Field,
   IconButton,
   Menu,
@@ -81,12 +82,11 @@ export default function Posicao() {
   // preco medio de acao, cotacao e rentabilidade (%) ficam.
   const privateMoney = usePrivateFormatter(formatCurrency)
   const {
+    loading: portfolioLoading,
     assets,
     totals,
     dataError,
     setDataError,
-    fetchPortfolio,
-    fetchMovements,
     refreshAll,
     handleUpdateStockPrices,
     isUpdatingPrices,
@@ -149,8 +149,7 @@ export default function Posicao() {
 
       setRedeemFor(null)
       toast(`Resgate de ${formatCurrency(amount)} registrado nas operações.`)
-      await fetchPortfolio()
-      await fetchMovements()
+      await refreshAll()
     } finally {
       setLoading(false)
     }
@@ -172,8 +171,7 @@ export default function Posicao() {
           await investmentsApi.removeByAsset(assetId, asset.class)
         }
 
-        await fetchPortfolio()
-        await fetchMovements()
+        await refreshAll()
       } catch (error) {
         setDataError(error.message || 'Não foi possível excluir a posição.')
       }
@@ -188,7 +186,7 @@ export default function Posicao() {
     setQuoteFor(null)
     setDataError('')
     toast(`Cotação de ${asset.name} salva.`)
-    await fetchPortfolio()
+    await refreshAll()
   }
 
   const filteredAssets = assets.filter((asset) => {
@@ -258,7 +256,9 @@ export default function Posicao() {
       {/* overflow-clip, nao hidden: hidden faria do painel o conteiner do
           cabecalho grudento, e ele pararia de grudar ao rolar a pagina. */}
       <Panel className="overflow-clip">
-        {filteredAssets.length === 0 ? (
+        {portfolioLoading ? (
+          <ListSkeleton rows={6} />
+        ) : filteredAssets.length === 0 ? (
           <div className="p-5">
             <EmptyState
               icon={Briefcase}

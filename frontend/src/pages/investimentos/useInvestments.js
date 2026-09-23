@@ -1,59 +1,58 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { investmentsApi } from '../../lib/dataApi'
-import { useDataVersion } from '../../lib/newEntry'
-import { readStoredJson } from './helpers'
+import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/queries'
+
+async function fetchPortfolio() {
+  const data = await apiFetch('/api/investments/portfolio?refresh_prices=false')
+  return {
+    assets: data.assets || [],
+    // Totais da carteira como o backend soma (bruto, aplicado, liquido de IR).
+    totals: {
+      invested: Number(data.total_invested || 0),
+      value: Number(data.current_balance || 0),
+      netValue: Number(data.current_net_balance || 0),
+    },
+  }
+}
+
+const NO_ASSETS = []
+const NO_MOVEMENTS = []
 
 // Estado e carga compartilhados por Posicao e Operacoes: posicoes, historico,
-// erro e a atualizacao de cotacoes. Movido de Investments.jsx sem mudanca de payload.
+// erro e a atualizacao de cotacoes. Duas queries (carteira e operacoes);
+// gravar qualquer coisa invalida as duas (lib/queries.js).
 export default function useInvestments() {
-  const [assets, setAssets] = useState(() => {
-    return readStoredJson('@financeMVP:assets', [])
+  const portfolioQuery = useQuery({ queryKey: ['investimentos', 'carteira'], queryFn: fetchPortfolio })
+  const movementsQuery = useQuery({
+    queryKey: ['investimentos', 'operacoes'],
+    queryFn: () => investmentsApi.list({ order: 'created_at', ascending: false }),
   })
-  // Totais da carteira como o backend soma (bruto, aplicado, liquido de IR).
-  // Sem cache: so aparecem depois da primeira busca.
-  const [totals, setTotals] = useState(null)
-  const [movements, setMovements] = useState([])
-  const [dataError, setDataError] = useState('')
+  const assets = portfolioQuery.data?.assets || NO_ASSETS
+  const totals = portfolioQuery.data?.totals || null
+  const movements = movementsQuery.data || NO_MOVEMENTS
 
+  const [dataError, setDataError] = useState('')
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false)
   const [updatingAssetId, setUpdatingAssetId] = useState('')
   const [quoteUpdateResult, setQuoteUpdateResult] = useState(null)
 
-  const fetchPortfolio = async () => {
-    try {
-      setDataError('')
-      const data = await apiFetch('/api/investments/portfolio?refresh_prices=false')
-      const fetchedAssets = data.assets || []
-
-      setAssets(fetchedAssets)
-      setTotals({
-        invested: Number(data.total_invested || 0),
-        value: Number(data.current_balance || 0),
-        netValue: Number(data.current_net_balance || 0),
-      })
-      localStorage.setItem('@financeMVP:assets', JSON.stringify(fetchedAssets))
-    } catch (error) {
-      console.warn('Erro ao buscar portfólio:', error)
-      setDataError(error.message || 'Não foi possível carregar os investimentos.')
+  useEffect(() => {
+    if (portfolioQuery.error) {
+      console.warn('Erro ao buscar portfólio:', portfolioQuery.error)
+      setDataError(queryErrorMessage(portfolioQuery, 'Não foi possível carregar os investimentos.'))
     }
-  }
+  }, [portfolioQuery.error])
 
-  const fetchMovements = async () => {
-    try {
-      const data = await investmentsApi.list({ order: 'created_at', ascending: false })
-      setMovements(data || [])
-    } catch (error) {
-      console.warn('Erro ao buscar operações:', error)
-      setMovements([])
-      setDataError(error.message || 'Não foi possível carregar o histórico de operações.')
+  useEffect(() => {
+    if (movementsQuery.error) {
+      console.warn('Erro ao buscar operações:', movementsQuery.error)
+      setDataError(queryErrorMessage(movementsQuery, 'Não foi possível carregar o histórico de operações.'))
     }
-  }
+  }, [movementsQuery.error])
 
-  const refreshAll = async () => {
-    await fetchPortfolio()
-    await fetchMovements()
-  }
+  // Depois de gravar: tudo que estava em cache busca de novo.
+  const refreshAll = () => invalidateServerData()
 
   const handleUpdateStockPrices = async (silent = false, investmentId = null, asset = null) => {
     setIsUpdatingPrices(true)
@@ -74,7 +73,7 @@ export default function useInvestments() {
       if (!silent) {
         setQuoteUpdateResult(data)
       }
-      await fetchPortfolio()
+      await invalidateServerData()
     } catch (error) {
       console.warn('Erro ao atualizar preços:', error)
       if (!silent) setDataError(error.message || 'Erro de conexão ao tentar atualizar os preços.')
@@ -84,22 +83,14 @@ export default function useInvestments() {
     }
   }
 
-  // dataVersion: recarrega depois de um "+ Novo" (ex.: Investimento) salvo no Layout.
-  const dataVersion = useDataVersion()
-  useEffect(() => {
-    fetchPortfolio()
-    fetchMovements()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataVersion])
-
   return {
+    loading: portfolioQuery.isPending,
+    movementsLoading: movementsQuery.isPending,
     assets,
     totals,
     movements,
     dataError,
     setDataError,
-    fetchPortfolio,
-    fetchMovements,
     refreshAll,
     handleUpdateStockPrices,
     isUpdatingPrices,

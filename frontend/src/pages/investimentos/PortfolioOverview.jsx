@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CHART, ChartTooltip, DonutChart, FLOW, LegendDot, axisProps, compactAxis, useChartAnimation } from '../../components/charts'
 import { AlertMessage, Panel, PanelHeader, SegmentedControl, Skeleton } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
 import { formatCurrency, shortMonthLabel } from '../../lib/format'
 import { usePrivateAxisFormatter, usePrivateFormatter } from '../../lib/privacy'
-import { useDataVersion } from '../../lib/newEntry'
+import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 
 // O backend limita o historico a 60 meses (GET /api/investments/history).
 const PERIODS = [
@@ -27,6 +27,8 @@ function readStoredPeriod() {
   }
 }
 
+const NO_POINTS = []
+
 // Alocacao por classe (valor bruto de mercado) e evolucao mensal do patrimonio.
 // A barra de cada mes e o valor aplicado com o ganho de capital empilhado em
 // cima; num mes de perda, a base vira o patrimonio e a perda (vermelha) completa
@@ -46,9 +48,15 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
   }, [assets, getClassLabel])
 
   const [months, setMonths] = useState(readStoredPeriod)
-  const [evolution, setEvolution] = useState([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState('')
+  // Uma query por periodo: trocar de 12 para 24 meses e voltar nao busca de novo.
+  const historyQuery = useQuery({
+    queryKey: ['investimentos', 'historico', months],
+    queryFn: () => investmentsApi.history({ months }),
+    placeholderData: keepPreviousData,
+  })
+  const evolution = historyQuery.data?.evolution || NO_POINTS
+  const isLoading = historyQuery.isFetching
+  const error = queryErrorMessage(historyQuery, 'Não foi possível carregar a evolução do patrimônio.')
 
   const changePeriod = (value) => {
     setMonths(value)
@@ -59,24 +67,6 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
     }
   }
 
-  // dataVersion: recarrega depois de um "+ Novo" (ex.: Investimento) salvo no Layout.
-  const dataVersion = useDataVersion()
-  useEffect(() => {
-    let cancelled = false
-    setIsLoading(true)
-    setError('')
-    investmentsApi.history({ months })
-      .then((data) => {
-        if (!cancelled) setEvolution(data?.evolution || [])
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message || 'Não foi possível carregar a evolução do patrimônio.')
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [months, dataVersion])
 
   const chartData = useMemo(() => evolution.map((item) => {
     const applied = Number(item.valorAplicado || 0)

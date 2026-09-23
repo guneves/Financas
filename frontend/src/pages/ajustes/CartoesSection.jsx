@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CreditCard, Plus, Trash2 } from 'lucide-react'
 import { accountsApi, creditCardsApi } from '../../lib/dataApi'
@@ -15,8 +15,11 @@ import {
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
+import { invalidateServerData, useQuery, useReportQueryError } from '../../lib/queries'
 
 const emptyCardForm = () => ({ name: '', due_day: '', closing_day: '', autopay_account_id: '' })
+
+const NO_ITEMS = []
 
 // Cartoes de credito: lista, excluir e criar. Veio de Transactions.jsx.
 // As compras e faturas continuam em Lancamentos > Cartoes.
@@ -24,31 +27,20 @@ const emptyCardForm = () => ({ name: '', due_day: '', closing_day: '', autopay_a
 // Debito automatico: com uma conta escolhida, cada fatura e paga sozinha no
 // dia do vencimento, debitando essa conta. So vale para faturas que vencem a
 // partir do dia em que foi ligado; as anteriores seguem para pagamento manual.
-export default function CartoesSection({ refreshKey = 0 }) {
-  const [cards, setCards] = useState([])
-  const [accounts, setAccounts] = useState([])
+export default function CartoesSection() {
   const [savingAutopayId, setSavingAutopayId] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [cardForm, setCardForm] = useState(emptyCardForm)
 
-  const fetchCards = async () => {
-    try {
-      const [data, accountData] = await Promise.all([creditCardsApi.list(), accountsApi.list()])
-      setCards(data || [])
-      setAccounts(accountData || [])
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível carregar os cartões.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchCards()
-  }, [refreshKey])
+  const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
+  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
+  useReportQueryError(cardsQuery, setError, 'Não foi possível carregar os cartões.')
+  const cards = cardsQuery.data || NO_ITEMS
+  const accounts = accountsQuery.data || NO_ITEMS
+  const loading = cardsQuery.isPending
+  const fetchCards = () => invalidateServerData()
 
   const handleDueDayChange = (event) => {
     const due = parseInt(event.target.value)

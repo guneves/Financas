@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ListChecks, PauseCircle, Pencil, PlayCircle, Plus, Trash2, Wand2 } from 'lucide-react'
 import { accountsApi, categoriesApi, importRulesApi } from '../../lib/dataApi'
 import {
@@ -17,6 +17,7 @@ import {
 import { toast } from '../../lib/toast'
 import { formatCurrency, formatDateBR, formatSignedCurrency } from '../../lib/format'
 import { confirmAction } from '../../lib/confirm'
+import { invalidateServerData, useQuery, useReportQueryError } from '../../lib/queries'
 
 const MATCH_LABELS = {
   CONTAINS: 'contém',
@@ -71,15 +72,13 @@ function parseAmountInput(value) {
   return Number.isFinite(number) ? number : NaN
 }
 
+const NO_ITEMS = []
+
 // Regras de categorizacao da importacao de extrato (Fase 4). Sozinhas elas so
 // rodam na previa da importacao: mudar uma regra nao reescreve o passado. Para
 // o passado existe "Aplicar": mostra o que mudaria e so grava as linhas que o
 // dono deixou marcadas.
-export default function RegrasSection({ refreshKey = 0 }) {
-  const [rules, setRules] = useState([])
-  const [categories, setCategories] = useState([])
-  const [accounts, setAccounts] = useState([])
-  const [loading, setLoading] = useState(true)
+export default function RegrasSection() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
@@ -91,27 +90,27 @@ export default function RegrasSection({ refreshKey = 0 }) {
   const [applySaving, setApplySaving] = useState(false)
   const [applyError, setApplyError] = useState('')
 
-  const loadAll = async () => {
-    setError('')
-    try {
+  const rulesQuery = useQuery({
+    queryKey: ['regras'],
+    queryFn: async () => {
       const [ruleData, categoryData, accountData] = await Promise.all([
         importRulesApi.list(),
         categoriesApi.list(),
         accountsApi.list({ include_archived: true }),
       ])
-      setRules(ruleData?.items || [])
-      setAccounts(accountData || [])
-      setCategories((categoryData || []).filter((category) => !category.archived_at))
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível carregar as regras.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadAll()
-  }, [refreshKey])
+      return {
+        rules: ruleData?.items || [],
+        categories: (categoryData || []).filter((category) => !category.archived_at),
+        accounts: accountData || [],
+      }
+    },
+  })
+  useReportQueryError(rulesQuery, setError, 'Não foi possível carregar as regras.')
+  const rules = rulesQuery.data?.rules || NO_ITEMS
+  const categories = rulesQuery.data?.categories || NO_ITEMS
+  const accounts = rulesQuery.data?.accounts || NO_ITEMS
+  const loading = rulesQuery.isPending
+  const loadAll = () => invalidateServerData()
 
   const handleSubmit = async (event) => {
     event.preventDefault()

@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  ListSkeleton,
   Field,
   IconButton,
   Menu,
@@ -19,12 +20,14 @@ import {
 } from '../../components/ui'
 import { formatSignedCurrency } from '../../lib/format'
 import { isInvestmentOutflow } from '../../lib/transactions'
-import { categoryLabel, formatDateBR, getNow } from './helpers'
+import { categoryLabel, getNow } from './helpers'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
 import ExportSheet from '../../components/ExportSheet'
+import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
+import useDebouncedValue from '../../lib/useDebouncedValue'
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
@@ -157,9 +160,9 @@ export default function Extrato() {
   const showAccount = useIsXl()
   const { openNewEntry } = useNewEntry()
   const {
+    loading,
     dataError,
     setDataError,
-    reloadCount,
     fetchData,
     transactions,
     balance,
@@ -188,9 +191,6 @@ export default function Extrato() {
       return paramsFromFilters(value, previous)
     }, { replace: true })
   }, [setSearchParams])
-  const [filteredTransactions, setFilteredTransactions] = useState(null)
-  const [filterError, setFilterError] = useState('')
-  const [filtering, setFiltering] = useState(false)
   const filtersActive = hasActiveFilters(filters)
   const hiddenFilterCount = countHiddenFilters(filters)
   // Chegando com filtros da URL, o painel ja abre mostrando-os.
@@ -198,35 +198,19 @@ export default function Extrato() {
 
   const updateFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }))
 
-  useEffect(() => {
-    if (!filtersActive) {
-      setFilteredTransactions(null)
-      setFilterError('')
-      setFiltering(false)
-      return undefined
-    }
-
-    let cancelled = false
-    setFiltering(true)
-    const timer = setTimeout(async () => {
-      try {
-        const rows = await transactionsApi.list(filters)
-        if (!cancelled) {
-          setFilteredTransactions(rows || [])
-          setFilterError('')
-        }
-      } catch (error) {
-        if (!cancelled) setFilterError(error.message || 'Não foi possível aplicar os filtros.')
-      } finally {
-        if (!cancelled) setFiltering(false)
-      }
-    }, 250)
-
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [filters, filtersActive, reloadCount])
+  // Extrato filtrado: uma query por combinacao de filtros, 250 ms depois da
+  // ultima tecla. A chave comeca com 'lancamentos', entao gravar algo tambem a
+  // invalida (lib/queries.js).
+  const debouncedFilters = useDebouncedValue(filters, 250)
+  const filteredQuery = useQuery({
+    queryKey: ['lancamentos', 'filtrado', debouncedFilters],
+    queryFn: () => transactionsApi.list(debouncedFilters),
+    enabled: filtersActive && hasActiveFilters(debouncedFilters),
+    placeholderData: keepPreviousData,
+  })
+  const filtering = filtersActive && (filteredQuery.isFetching || debouncedFilters !== filters)
+  const filterError = filtersActive ? queryErrorMessage(filteredQuery, 'Não foi possível aplicar os filtros.') : ''
+  const filteredTransactions = filtersActive && filteredQuery.data ? filteredQuery.data : null
 
   const statementTransactions = filteredTransactions ?? transactions
   // Sem cascata nas linhas: um extrato se le de cima para baixo, e filtrar e
@@ -519,7 +503,9 @@ export default function Extrato() {
           {filterError ? <p className="text-sm text-rose-600">{filterError}</p> : null}
         </div>
 
-        {statementTransactions.length > 0 ? (
+        {loading || (filtersActive && !filteredTransactions && filtering) ? (
+          <ListSkeleton rows={8} />
+        ) : statementTransactions.length > 0 ? (
           <>
             {/* >= md: tabela com edicao inline. Largura fixa por coluna e texto
                 cortado com reticencias: a linha fica em uma altura so, e sem

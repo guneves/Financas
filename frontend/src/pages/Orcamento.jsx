@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronLeft,
@@ -14,13 +14,14 @@ import {
 } from 'lucide-react'
 import { budgetsApi, categoriesApi } from '../lib/dataApi'
 import { formatCurrency, monthKey, monthLabel, shiftMonth } from '../lib/format'
-import { useDataVersion } from '../lib/newEntry'
+import { invalidateServerData, keepPreviousData, useQuery, useReportQueryError } from '../lib/queries'
 import {
   AlertMessage,
   Badge,
   Button,
   Collapsible,
   EmptyState,
+  ListSkeleton,
   Field,
   IconButton,
   Menu,
@@ -39,12 +40,12 @@ import { confirmAction } from '../lib/confirm'
 
 const emptyBudgetForm = () => ({ category_id: '', planned_amount: '', rollover: false, note: '' })
 
+const EMPTY_BUDGET = { items: [], totals: {} }
+const NO_CATEGORIES = []
+
 export default function Orcamento() {
   const [month, setMonth] = useState(() => monthKey())
-  const [budget, setBudget] = useState({ month: monthKey(), items: [], totals: {} })
-  const [categories, setCategories] = useState([])
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const [budgetForm, setBudgetForm] = useState(emptyBudgetForm)
@@ -52,30 +53,24 @@ export default function Orcamento() {
   const [editingId, setEditingId] = useState('')
   const [editValue, setEditValue] = useState('')
 
-  // Sobe quando o "+ Novo" do Layout salva um lançamento: o realizado do mês muda.
-  const dataVersion = useDataVersion()
+  // Orcamento do mes e categorias (arquivadas inclusive: um orcamento antigo
+  // pode apontar para uma). Qualquer gravacao invalida o cache (lib/queries.js).
+  const budgetQuery = useQuery({
+    queryKey: ['orcamento', month],
+    queryFn: () => budgetsApi.month(month),
+    placeholderData: keepPreviousData,
+  })
+  const categoriesQuery = useQuery({
+    queryKey: ['categorias', 'todas'],
+    queryFn: () => categoriesApi.list({ include_archived: 1 }),
+  })
+  useReportQueryError(budgetQuery, setError, 'Não foi possível carregar o orçamento.')
+  useReportQueryError(categoriesQuery, setError, 'Não foi possível carregar as categorias.')
+  const budget = budgetQuery.data || EMPTY_BUDGET
+  const categories = categoriesQuery.data || NO_CATEGORIES
+  const loading = budgetQuery.isPending || categoriesQuery.isPending
 
-  useEffect(() => {
-    loadAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, dataVersion])
-
-  const loadAll = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [budgetData, categoryData] = await Promise.all([
-        budgetsApi.month(month),
-        categoriesApi.list({ include_archived: 1 }),
-      ])
-      setBudget(budgetData || { month, items: [], totals: {} })
-      setCategories(categoryData || [])
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível carregar o orçamento.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const loadAll = () => invalidateServerData()
 
   const activeCategories = useMemo(
     () => categories.filter((category) => !category.archived_at),
@@ -295,7 +290,7 @@ export default function Orcamento() {
         </div>
 
         {loading ? (
-          <p className="px-5 py-8 text-center text-sm text-zinc-600">Carregando...</p>
+          <ListSkeleton rows={5} />
         ) : !budget.items?.length ? (
           <EmptyState
             icon={Target}

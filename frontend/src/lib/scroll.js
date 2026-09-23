@@ -37,21 +37,18 @@ export function useScrollRestoration() {
   if (positions.current === null) positions.current = readPositions()
   const currentKey = useRef(location.key)
 
+  // Grava a cada evento de rolagem (uma atribuicao, barato). Sem
+  // requestAnimationFrame de proposito: aba em segundo plano nao desenha
+  // quadros, e a posicao ficava sem gravar.
   useEffect(() => {
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual'
-    let frame = 0
     const onScroll = () => {
-      if (frame) return
-      frame = requestAnimationFrame(() => {
-        frame = 0
-        positions.current[currentKey.current] = window.scrollY
-      })
+      positions.current[currentKey.current] = window.scrollY
     }
     const onHide = () => writePositions(positions.current)
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('pagehide', onHide)
     return () => {
-      cancelAnimationFrame(frame)
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('pagehide', onHide)
     }
@@ -73,12 +70,12 @@ export function useScrollRestoration() {
       return undefined
     }
 
-    let frame = 0
+    let timer = 0
     let stopped = false
     const started = performance.now()
     const stop = () => {
       stopped = true
-      cancelAnimationFrame(frame)
+      clearTimeout(timer)
       window.removeEventListener('wheel', stop)
       window.removeEventListener('touchstart', stop)
       window.removeEventListener('keydown', stop)
@@ -87,15 +84,19 @@ export function useScrollRestoration() {
     window.addEventListener('wheel', stop, { passive: true })
     window.addEventListener('touchstart', stop, { passive: true })
     window.addEventListener('keydown', stop)
+    // Tenta de novo a cada 50 ms ate a pagina ter altura para a posicao.
+    // O scrollTo parcial dispara 'scroll' e gravaria a posicao errada na
+    // entrada: a gravacao volta ao alvo enquanto o restauro esta em curso.
     const attempt = () => {
       if (stopped) return
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight
       window.scrollTo(0, Math.min(target, maxScroll))
+      positions.current[location.key] = target
       if (maxScroll >= target || performance.now() - started > RESTORE_TIMEOUT_MS) {
         stop()
         return
       }
-      frame = requestAnimationFrame(attempt)
+      timer = setTimeout(attempt, 50)
     }
     attempt()
     return stop

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   CalendarClock,
   Check,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../lib/format'
-import { useDataVersion } from '../lib/newEntry'
+import { invalidateServerData, useQuery, useReportQueryError } from '../lib/queries'
 import { isInvestmentOutflow } from '../lib/transactions'
 import {
   AlertMessage,
@@ -20,6 +20,7 @@ import {
   Button,
   Collapsible,
   EmptyState,
+  ListSkeleton,
   Field,
   IconButton,
   Menu,
@@ -72,46 +73,41 @@ function frequencyLabel(item) {
   return `A cada ${interval} meses`
 }
 
+const NO_ITEMS = []
+
 export default function Recorrentes() {
-  const [items, setItems] = useState([])
-  const [forecast, setForecast] = useState(null)
-  const [categories, setCategories] = useState([])
-  const [accounts, setAccounts] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [editValue, setEditValue] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // Sobe quando o "+ Novo" do Layout salva algo (uma conta nova, por exemplo).
-  const dataVersion = useDataVersion()
-
-  useEffect(() => {
-    loadAll()
-  }, [dataVersion])
-
-  const loadAll = async () => {
-    setLoading(true)
-    setError('')
-    try {
+  const recurringQuery = useQuery({
+    queryKey: ['recorrentes'],
+    queryFn: async () => {
       const [listData, forecastData, categoryData, accountData] = await Promise.all([
         recurringApi.list(),
         recurringApi.forecast({ days: 90 }),
         categoriesApi.list(),
         accountsApi.list(),
       ])
-      setItems(listData?.items || [])
-      setForecast(forecastData || null)
-      setCategories(categoryData || [])
-      setAccounts(accountData || [])
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível carregar os lançamentos recorrentes.')
-    } finally {
-      setLoading(false)
-    }
-  }
+      return {
+        items: listData?.items || [],
+        forecast: forecastData || null,
+        categories: categoryData || [],
+        accounts: accountData || [],
+      }
+    },
+  })
+  useReportQueryError(recurringQuery, setError, 'Não foi possível carregar os lançamentos recorrentes.')
+  const items = recurringQuery.data?.items || NO_ITEMS
+  const forecast = recurringQuery.data?.forecast || null
+  const categories = recurringQuery.data?.categories || NO_ITEMS
+  const accounts = recurringQuery.data?.accounts || NO_ITEMS
+  const loading = recurringQuery.isPending
+
+  const loadAll = () => invalidateServerData()
 
   const pendingCount = useMemo(
     () => items.reduce((total, item) => total + Number(item.pending_count || 0), 0),
@@ -374,7 +370,7 @@ export default function Recorrentes() {
         </div>
 
         {loading ? (
-          <p className="px-5 py-8 text-center text-sm text-zinc-600">Carregando...</p>
+          <ListSkeleton rows={5} />
         ) : !items.length ? (
           <EmptyState
             icon={Repeat}

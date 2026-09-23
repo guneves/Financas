@@ -33,6 +33,20 @@ export function clearStoredAuth() {
   window.dispatchEvent(new CustomEvent('finance-auth-change', { detail: null }))
 }
 
+// Quem quer saber que uma gravacao deu certo (lib/queries.js invalida o
+// cache). Fica aqui, e nao em cada tela, para que nenhuma gravacao esqueca.
+let mutationListener = null
+export function setMutationListener(listener) {
+  mutationListener = listener
+}
+
+// Metodo que grava, menos as previas (POST que so calcula e nao muda nada).
+function isWrite(method, path) {
+  const verb = String(method || 'GET').toUpperCase()
+  if (verb === 'GET' || verb === 'HEAD') return false
+  return !/\/preview(\?|$)/.test(path) && !path.startsWith('/api/auth/login') && !path.startsWith('/api/auth/signup')
+}
+
 export async function apiFetch(path, options = {}) {
   const { auth = true, ...fetchOptions } = options
   const headers = new Headers(fetchOptions.headers || {})
@@ -78,6 +92,7 @@ export async function apiFetch(path, options = {}) {
     throw new Error(message || `Erro HTTP ${response.status}`)
   }
 
+  if (mutationListener && isWrite(fetchOptions.method, normalizePath(path))) mutationListener()
   return payload
 }
 

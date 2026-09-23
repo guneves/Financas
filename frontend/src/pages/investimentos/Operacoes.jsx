@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  ListSkeleton,
   Field,
   Menu,
   PageHeader,
@@ -94,12 +95,11 @@ function describeMovement(mov) {
 
 export default function Operacoes() {
   const {
+    movementsLoading,
     assets,
     movements,
     dataError,
     setDataError,
-    fetchPortfolio,
-    fetchMovements,
     refreshAll,
     handleUpdateStockPrices,
   } = useInvestments()
@@ -189,8 +189,7 @@ export default function Operacoes() {
 
       setEditModal(null)
       toast('Operação atualizada.')
-      await fetchPortfolio()
-      await fetchMovements()
+      await refreshAll()
 
       await handleUpdateStockPrices(true, editModal.id)
     } catch (error) {
@@ -205,8 +204,7 @@ export default function Operacoes() {
       try {
         await investmentsApi.remove(id)
         toast('Operação excluída.')
-        await fetchPortfolio()
-        await fetchMovements()
+        await refreshAll()
       } catch (error) {
         setDataError(error.message || 'Não foi possível excluir a operação.')
       }
@@ -277,7 +275,9 @@ export default function Operacoes() {
           description="Compras e vendas da sua carteira."
           actions={<Badge>{movements.length} registro(s)</Badge>}
         />
-        {movements.length === 0 ? (
+        {movementsLoading ? (
+          <ListSkeleton rows={6} />
+        ) : movements.length === 0 ? (
           <div className="p-5">
             <EmptyState icon={Receipt} title="Nenhum histórico encontrado." message="As compras, vendas e resgates registrados aparecem aqui." />
           </div>

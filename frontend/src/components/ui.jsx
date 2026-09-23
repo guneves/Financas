@@ -549,6 +549,18 @@ export function Skeleton({ className = '' }) {
   return <div className={cx('skeleton', className)} />
 }
 
+// Lista carregando: linhas cinzas no lugar das linhas de verdade, em vez de um
+// "Nenhum registro" que some meio segundo depois.
+export function ListSkeleton({ rows = 6, className = '' }) {
+  return (
+    <div className={cx('space-y-2 p-5', className)} aria-busy="true" aria-label="Carregando">
+      {Array.from({ length: rows }, (_, index) => (
+        <Skeleton key={index} className="h-12 w-full" />
+      ))}
+    </div>
+  )
+}
+
 export function PageHeader({ title, description, actions, meta }) {
   return (
     <div className="flex animate-fade-up flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

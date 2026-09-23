@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Archive, Check, Pencil, Plus, Tags, X } from 'lucide-react'
 import { categoriesApi } from '../../lib/dataApi'
 import {
@@ -15,6 +15,7 @@ import {
   cx,
 } from '../../components/ui'
 import { confirmAction } from '../../lib/confirm'
+import { invalidateServerData, useQuery, useReportQueryError } from '../../lib/queries'
 
 const KIND_LABELS = {
   INCOME: 'Receita',
@@ -24,12 +25,12 @@ const KIND_LABELS = {
 
 const emptyCategoryForm = () => ({ name: '', kind: 'EXPENSE', parent_id: '' })
 
+const NO_ITEMS = []
+
 // Categorias: criar (raiz ou subcategoria), renomear, arquivar e reativar.
 // Veio da aba Categorias de Orcamento.jsx. Categoria nunca e apagada:
 // DELETE /api/categories/<id> so preenche archived_at.
-export default function CategoriasSection({ refreshKey = 0 }) {
-  const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(true)
+export default function CategoriasSection() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
@@ -37,21 +38,14 @@ export default function CategoriasSection({ refreshKey = 0 }) {
   const [editingCategoryId, setEditingCategoryId] = useState('')
   const [categoryEdit, setCategoryEdit] = useState({ name: '', kind: 'EXPENSE' })
 
-  const loadAll = async () => {
-    setError('')
-    try {
-      const categoryData = await categoriesApi.list({ include_archived: 1 })
-      setCategories(categoryData || [])
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível carregar as categorias.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadAll()
-  }, [refreshKey])
+  const categoriesQuery = useQuery({
+    queryKey: ['categorias', 'todas'],
+    queryFn: () => categoriesApi.list({ include_archived: 1 }),
+  })
+  useReportQueryError(categoriesQuery, setError, 'Não foi possível carregar as categorias.')
+  const categories = categoriesQuery.data || NO_ITEMS
+  const loading = categoriesQuery.isPending
+  const loadAll = () => invalidateServerData()
 
   const rootCategories = useMemo(
     () => categories.filter((category) => !category.archived_at && !category.parent_id),

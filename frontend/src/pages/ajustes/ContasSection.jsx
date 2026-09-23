@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Archive, Landmark, Plus } from 'lucide-react'
 import { accountsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
@@ -17,6 +17,7 @@ import {
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
+import { invalidateServerData, useQuery, useReportQueryError } from '../../lib/queries'
 
 export const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
@@ -28,31 +29,22 @@ export const ACCOUNT_TYPE_LABELS = {
 
 const emptyAccountForm = () => ({ name: '', type: 'CHECKING', institution: '', initial_balance: '' })
 
+const NO_ITEMS = []
+
 // Contas bancarias: lista com saldo, arquivar e criar. Veio de Transactions.jsx.
 // Conta nunca e apagada: DELETE /api/accounts/<id> so preenche archived_at.
-export default function ContasSection({ refreshKey = 0 }) {
+export default function ContasSection() {
   const privateMoney = usePrivateFormatter(formatCurrency)
-  const [accounts, setAccounts] = useState([])
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [accountForm, setAccountForm] = useState(emptyAccountForm)
 
-  const fetchAccounts = async () => {
-    try {
-      const data = await accountsApi.list()
-      setAccounts(data || [])
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível carregar as contas.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchAccounts()
-  }, [refreshKey])
+  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
+  useReportQueryError(accountsQuery, setError, 'Não foi possível carregar as contas.')
+  const accounts = accountsQuery.data || NO_ITEMS
+  const loading = accountsQuery.isPending
+  const fetchAccounts = () => invalidateServerData()
 
   const handleCreateAccount = async (event) => {
     event.preventDefault()

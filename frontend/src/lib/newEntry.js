@@ -10,7 +10,8 @@ export function useNewEntry() {
 }
 
 // Contador incrementado pelo Layout depois de cada gravacao feita pelo "+ Novo".
-// Paginas o colocam nas dependencias do efeito de busca para recarregar.
+// Nao serve para recarregar (o cache de lib/queries.js cuida disso): marca o
+// momento de uma gravacao, para o Extrato piscar a linha que chegou.
 export const DataVersionContext = createContext(0)
 
 export function useDataVersion() {

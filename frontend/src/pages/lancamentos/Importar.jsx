@@ -15,6 +15,7 @@ import {
   Skeleton,
   cx,
 } from '../../components/ui'
+import { useQuery, useReportQueryError } from '../../lib/queries'
 
 const COLUMN_ROLES = [
   { key: 'date', label: 'Data' },
@@ -98,9 +99,9 @@ function Stepper({ current }) {
   )
 }
 
+const NO_ITEMS = []
+
 export default function Importar() {
-  const [accounts, setAccounts] = useState([])
-  const [categories, setCategories] = useState([])
   const [accountId, setAccountId] = useState('')
   const [options, setOptions] = useState(defaultOptions)
   const [optionsOpen, setOptionsOpen] = useState(false)
@@ -110,7 +111,6 @@ export default function Importar() {
   const [preview, setPreview] = useState(null)
   const [selected, setSelected] = useState({})
   const [overrides, setOverrides] = useState({})
-  const [loading, setLoading] = useState(true)
   const [parsing, setParsing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -118,26 +118,19 @@ export default function Importar() {
   const fileInput = useRef(null)
   const [dragging, setDragging] = useState(false)
 
+  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
+  const categoriesQuery = useQuery({ queryKey: ['categorias', 'ativas'], queryFn: () => categoriesApi.list() })
+  useReportQueryError(accountsQuery, setError, 'Não foi possível carregar contas e categorias.')
+  useReportQueryError(categoriesQuery, setError, 'Não foi possível carregar contas e categorias.')
+  const accounts = accountsQuery.data || NO_ITEMS
+  const categories = categoriesQuery.data || NO_ITEMS
+  const loading = accountsQuery.isPending || categoriesQuery.isPending
+
+  // Conta de destino padrao assim que a lista chega.
   useEffect(() => {
-    let active = true
-    Promise.all([accountsApi.list(), categoriesApi.list()])
-      .then(([accountData, categoryData]) => {
-        if (!active) return
-        const list = accountData || []
-        setAccounts(list)
-        setCategories(categoryData || [])
-        setAccountId((current) => current || list.find((item) => item.is_default)?.id || list[0]?.id || '')
-      })
-      .catch((requestError) => {
-        if (active) setError(requestError.message || 'Não foi possível carregar contas e categorias.')
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
+    if (!accounts.length) return
+    setAccountId((current) => current || accounts.find((item) => item.is_default)?.id || accounts[0]?.id || '')
+  }, [accounts])
 
   // `filename` vem explicito de handleFile: ali `file` ainda e o arquivo
   // anterior (setFile so vale no proximo render), e o nome decide CSV x OFX.

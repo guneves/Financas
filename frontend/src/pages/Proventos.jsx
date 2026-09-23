@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CHART, ChartTooltip, FLOW, axisProps, compactAxis, useChartAnimation } from '../components/charts'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarDays,
   Coins,
@@ -12,12 +12,13 @@ import {
   Trash2,
 } from 'lucide-react'
 import { investmentProceedsApi, investmentsApi } from '../lib/dataApi'
-import { useDataVersion } from '../lib/newEntry'
+import { invalidateServerData, keepPreviousData, useQuery, useReportQueryError } from '../lib/queries'
 import {
   AlertMessage,
   Badge,
   Button,
   EmptyState,
+  ListSkeleton,
   Field,
   Menu,
   PageHeader,
@@ -87,12 +88,10 @@ function proventoMenuItems(item, onEdit, onDelete) {
 
 const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.label || value
 
+const NO_ITEMS = []
+
 export default function Proventos() {
   const chartAnimation = useChartAnimation()
-  const [assets, setAssets] = useState([])
-  const [proceeds, setProceeds] = useState([])
-  const [calendarEvents, setCalendarEvents] = useState([])
-  const [summary, setSummary] = useState(null)
   const [filters, setFilters] = useState({
     date_from: `${currentYear}-01-01`,
     date_to: `${currentYear}-12-31`,
@@ -105,16 +104,8 @@ export default function Proventos() {
   const [formOpen, setFormOpen] = useState(false)
   const [formError, setFormError] = useState('')
   const [exportOpen, setExportOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const requestRef = useRef(0)
-
-  useEffect(() => {
-    if (!form.asset_id && assets[0]?.id && !editingId) {
-      setForm((current) => ({ ...current, asset_id: assets[0].id }))
-    }
-  }, [assets, form.asset_id, editingId])
 
   const filteredParams = useMemo(() => ({
     date_from: filters.date_from,
@@ -124,45 +115,44 @@ export default function Proventos() {
     status: filters.status,
   }), [filters])
 
-  // Os filtros valem ao mudar, como no extrato: cada mudanca refaz a busca.
-  // So a resposta da ultima busca e aplicada, para uma lenta nao sobrescrever a nova.
-  const fetchData = async () => {
-    const requestId = ++requestRef.current
-    setLoading(true)
-    setError('')
-    try {
+  // Os filtros valem ao mudar, como no extrato: cada combinacao e uma query
+  // (a resposta de uma busca velha nunca sobrescreve a nova).
+  const proceedsQuery = useQuery({
+    queryKey: ['proventos', filteredParams],
+    queryFn: async () => {
       const [assetData, proceedData, summaryData, calendarData] = await Promise.all([
         investmentsApi.assets(),
         investmentProceedsApi.list(filteredParams),
         investmentProceedsApi.summary(filteredParams),
         investmentProceedsApi.calendar({
-          asset_id: filters.asset_id,
-          proceeds_type: filters.proceeds_type,
+          asset_id: filteredParams.asset_id,
+          proceeds_type: filteredParams.proceeds_type,
           status: 'SCHEDULED',
         }),
       ])
-      if (requestId !== requestRef.current) return
-      setAssets(assetData || [])
-      setProceeds(proceedData || [])
-      setSummary(summaryData || null)
-      setCalendarEvents(calendarData || [])
-    } catch (err) {
-      if (requestId !== requestRef.current) return
-      console.warn('Erro ao carregar proventos:', err)
-      setError(err.message || 'Não foi possível carregar os proventos.')
-      setProceeds([])
-      setCalendarEvents([])
-      setSummary(null)
-    } finally {
-      if (requestId === requestRef.current) setLoading(false)
-    }
-  }
+      return {
+        assets: assetData || [],
+        proceeds: proceedData || [],
+        summary: summaryData || null,
+        calendarEvents: calendarData || [],
+      }
+    },
+    placeholderData: keepPreviousData,
+  })
+  useReportQueryError(proceedsQuery, setError, 'Não foi possível carregar os proventos.')
+  const assets = proceedsQuery.data?.assets || NO_ITEMS
+  const proceeds = proceedsQuery.data?.proceeds || NO_ITEMS
+  const summary = proceedsQuery.data?.summary || null
+  const calendarEvents = proceedsQuery.data?.calendarEvents || NO_ITEMS
+  const loading = proceedsQuery.isFetching
 
-  const dataVersion = useDataVersion()
+  const fetchData = () => invalidateServerData()
+
   useEffect(() => {
-    fetchData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredParams, dataVersion])
+    if (!form.asset_id && assets[0]?.id && !editingId) {
+      setForm((current) => ({ ...current, asset_id: assets[0].id }))
+    }
+  }, [assets, form.asset_id, editingId])
 
   const resetForm = () => {
     setEditingId('')
@@ -462,7 +452,9 @@ export default function Proventos() {
           description="Eventos registrados com YOC e impostos."
           actions={<Badge>{proceeds.length} registro(s)</Badge>}
         />
-        {proceeds.length > 0 ? (
+        {proceedsQuery.isPending ? (
+          <ListSkeleton rows={5} />
+        ) : proceeds.length > 0 ? (
           <>
           <ul className="divide-y divide-zinc-100 xl:hidden">
             {proceeds.map((item) => (

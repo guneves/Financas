@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import ContasSection from './ajustes/ContasSection'
@@ -7,6 +7,7 @@ import CategoriasSection from './ajustes/CategoriasSection'
 import DemoDataSection from './ajustes/DemoDataSection'
 import PerfilSection from './ajustes/PerfilSection'
 import RegrasSection from './ajustes/RegrasSection'
+import { invalidateServerData } from '../lib/queries'
 
 const SECTION_LINKS = [
   { id: 'contas', label: 'Contas' },
@@ -40,9 +41,6 @@ function useHashScroll() {
 
 // Configuracao feita uma vez: contas, cartoes, categorias, dados de exemplo, perfil.
 export default function Ajustes() {
-  // Os dados de exemplo criam cartoes e mexem nos saldos: as outras secoes
-  // recarregam quando esse numero muda.
-  const [dataVersion, setDataVersion] = useState(0)
   useHashScroll()
   // Os chips do cabecalho rolam tambem no clique: repetir a mesma ancora nao muda a URL.
 
@@ -68,11 +66,13 @@ export default function Ajustes() {
         )}
       />
 
-      <ContasSection refreshKey={dataVersion} />
-      <CartoesSection refreshKey={dataVersion} />
-      <CategoriasSection refreshKey={dataVersion} />
-      <RegrasSection refreshKey={dataVersion} />
-      <DemoDataSection onDataChanged={() => setDataVersion((version) => version + 1)} />
+      <ContasSection />
+      <CartoesSection />
+      <CategoriasSection />
+      <RegrasSection />
+      {/* Os dados de exemplo criam cartoes e mexem nos saldos: invalidar o
+          cache faz as outras secoes buscarem de novo. */}
+      <DemoDataSection onDataChanged={invalidateServerData} />
 
       <PerfilSection />
     </div>
