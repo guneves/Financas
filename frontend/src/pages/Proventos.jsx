@@ -302,7 +302,7 @@ export default function Proventos() {
         </Panel>
       </Collapsible>
 
-      <div className="stagger grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard
           icon={Coins}
           tone="success"

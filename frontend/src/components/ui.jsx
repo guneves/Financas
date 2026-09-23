@@ -287,10 +287,12 @@ export function FitValue({ children, measure, baseSize = 24, minSize = 15, class
       setSize(Math.max(minSize, Math.min(baseSize, Math.floor((baseSize * available * 10) / needed) / 10)))
     }
     fit()
-    // A medida muda quando a Inter termina de carregar.
+    // A medida muda quando a Inter termina de carregar: observar a copia
+    // invisivel pega isso (o fonts.ready pode resolver antes do peso usado).
     document.fonts?.ready?.then(fit)
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null
     if (boxRef.current) observer?.observe(boxRef.current)
+    if (probeRef.current) observer?.observe(probeRef.current)
     return () => {
       active = false
       observer?.disconnect()
@@ -334,7 +336,7 @@ export function MetricCard({
     ? MASKED_CURRENCY
     : animated ? format(amount) : (typeof value === 'string' || typeof value === 'number' ? String(value) : null)
   return (
-    <Panel className={cx('relative overflow-hidden p-5', className)}>
+    <Panel className={cx('relative overflow-hidden p-4 sm:p-5', className)}>
       {/* Icone ao lado do rotulo, nao do valor: o valor fica com a largura
           toda do cartao e nunca vira "R$ 1.99…". */}
       <div className="flex items-center gap-2.5">

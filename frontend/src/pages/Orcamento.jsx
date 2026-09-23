@@ -211,7 +211,7 @@ export default function Orcamento() {
 
       <AlertMessage message={error} onDismiss={() => setError('')} />
 
-      <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} />
         <MetricCard
           title="Disponível"

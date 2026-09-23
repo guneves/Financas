@@ -239,7 +239,7 @@ export default function Operacoes() {
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 
-      <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard
           icon={History}
           title="Operações realizadas"

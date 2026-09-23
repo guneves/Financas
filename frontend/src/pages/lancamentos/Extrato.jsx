@@ -69,6 +69,17 @@ function amountText(transaction) {
   return formatSignedCurrency(transaction.amount, sign)
 }
 
+// Lancamentos criados por outra tela (carteira, fatura) so se editam la.
+function isEditableHere(transaction) {
+  return !['INVESTMENT_TRANSACTION', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
+}
+
+function originLabel(transaction) {
+  if (transaction.source_type === 'INVESTMENT_TRANSACTION') return 'Pela carteira'
+  if (transaction.source_type === 'CC_AUTOPAY') return 'Débito automático'
+  return 'Pela fatura'
+}
+
 // Linhas por vez: 800+ lancamentos de uma vez davam uma pagina de 54 mil px.
 const PAGE_SIZE = 100
 
@@ -288,12 +299,8 @@ export default function Extrato() {
 
   // Lancamento gerado por outra tela: sem editar aqui, so diz de onde veio.
   const rowActions = (transaction) => (
-    transaction.source_type === 'INVESTMENT_TRANSACTION' ? (
-      <span className="whitespace-nowrap text-xs text-zinc-500">Pela carteira</span>
-    ) : transaction.source_type === 'CC_INVOICE_PAYMENT' || transaction.source_type === 'CC_AUTOPAY' ? (
-      <span className="whitespace-nowrap text-xs text-zinc-500">
-        {transaction.source_type === 'CC_AUTOPAY' ? 'Débito automático' : 'Pela fatura'}
-      </span>
+    !isEditableHere(transaction) ? (
+      <span className="whitespace-nowrap text-xs text-zinc-500">{originLabel(transaction)}</span>
     ) : (
       <>
         <IconButton label="Editar transação" icon={Pencil} size="sm" onClick={() => startEditing(transaction)} />
@@ -518,26 +525,48 @@ export default function Extrato() {
                         <Field label="Tipo">{controls.type}</Field>
                         <Field label="Conta">{controls.account}</Field>
                       </div>
-                      <div className="flex justify-end gap-2">{controls.actions}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <Button type="button" variant="danger" size="lg" icon={Trash2} onClick={() => handleDeleteTransaction(transaction.id)}>
+                          Excluir
+                        </Button>
+                        <div className="flex gap-2">{controls.actions}</div>
+                      </div>
                     </li>
                   )
                 }
 
-                return (
-                  <li key={transaction.id} className={cx('px-4 py-3', arrived.has(transaction.id) && 'animate-flash-emerald')}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-zinc-900">{transaction.description || transaction.category}</p>
-                        <p className="mt-0.5 truncate text-sm text-zinc-600">
+                const editable = isEditableHere(transaction)
+                const content = (
+                  <>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-zinc-900">{transaction.description || transaction.category}</p>
+                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
+                        <span className="truncate">
                           {formatDateBR(transaction.date)} · {transaction.type === 'TRANSFER' ? accountLabel(transaction) : transaction.category}
-                        </p>
-                      </div>
-                      <p className={cx('shrink-0 whitespace-nowrap font-bold', amountClass(transaction))}>{amountText(transaction)}</p>
+                          {editable ? '' : ` · ${originLabel(transaction)}`}
+                        </span>
+                      </p>
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
+                    <div className="flex shrink-0 flex-col items-end gap-0.5">
+                      <p className={cx('whitespace-nowrap font-semibold', amountClass(transaction))}>{amountText(transaction)}</p>
                       <TypeBadge transaction={transaction} />
-                      <div className="flex gap-2">{rowActions(transaction)}</div>
                     </div>
+                  </>
+                )
+                return (
+                  <li key={transaction.id} className={cx(arrived.has(transaction.id) && 'animate-flash-emerald')}>
+                    {editable ? (
+                      <button
+                        type="button"
+                        onClick={() => startEditing(transaction)}
+                        aria-label={`Editar ${transaction.description || transaction.category}`}
+                        className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-zinc-50"
+                      >
+                        {content}
+                      </button>
+                    ) : (
+                      <div className="flex min-h-[56px] items-center gap-3 px-4 py-2.5">{content}</div>
+                    )}
                   </li>
                 )
               })}

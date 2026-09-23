@@ -234,7 +234,7 @@ export default function Recorrentes() {
       <AlertMessage message={error} onDismiss={() => setError('')} />
       <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
 
-      <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard
           title="Receitas previstas (30d)"
           value={formatCurrency(window30.income)}

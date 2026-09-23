@@ -42,7 +42,7 @@ function SummaryStat({ icon: Icon, label, value, hint, tone = 'neutral' }) {
 
   return (
     <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-card">
-      <div className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', toneClasses[tone] || toneClasses.neutral)}>
+      <div className={cx('hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:flex', toneClasses[tone] || toneClasses.neutral)}>
         <Icon className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
@@ -339,7 +339,7 @@ export default function Cartoes() {
         projectedBalanceGlobal={projectedBalanceGlobal}
       />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <SummaryStat icon={CreditCard} label="Total aberto" value={formatCurrency(walletSummary.openCreditTotal)} />
         <SummaryStat icon={Receipt} label="Fatura do mês" value={formatCurrency(walletSummary.currentInvoiceTotal)} />
         <SummaryStat icon={Wallet} label="Saldo após a fatura atual" value={privateMoney(walletSummary.availableAfterCurrentInvoice)} tone={walletSummary.availableAfterCurrentInvoice >= 0 ? 'neutral' : 'danger'} />
