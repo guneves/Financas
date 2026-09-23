@@ -4,6 +4,7 @@ import { attachmentsApi } from '../lib/dataApi'
 import { saveBlob } from '../lib/api'
 import { formatDateBR, formatSignedCurrency, getLocalDateString } from '../lib/format'
 import { AlertMessage, Button, EmptyState, IconButton, Sheet } from './ui'
+import { confirmAction } from '../lib/confirm'
 
 // Espelha ATTACHMENT_MAX_BYTES do backend (10 MB por padrao). O backend e quem
 // decide; o aviso aqui so evita subir um video de 200 MB para ouvir "nao".
@@ -130,7 +131,7 @@ export default function AttachmentsSheet({ transaction, onClose, onChanged }) {
   }
 
   const handleDelete = async (item) => {
-    if (!window.confirm(`Excluir o comprovante “${item.original_name}”? O arquivo será apagado.`)) return
+    if (!(await confirmAction({ title: 'Excluir o comprovante?', message: `“${item.original_name}” será apagado.`, confirmLabel: 'Excluir' }))) return
     setBusyId(item.id)
     setError('')
     try {

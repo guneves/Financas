@@ -1,15 +1,16 @@
-import { NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun } from 'lucide-react'
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
 import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
 import { setValuesHidden, useValuesHidden } from '../lib/privacy'
+import { useScrollRestoration } from '../lib/scroll'
 import { toggleTheme, useIsDark } from '../lib/theme'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
-import { cx, Skeleton, Tabs, Toaster } from './ui'
+import { ConfirmHost, cx, Skeleton, Tabs, Toaster } from './ui'
 
 const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD', 'INVESTMENT']
 
@@ -169,13 +170,8 @@ export default function Layout() {
     }
   }
 
-  // Tela nova comeca do topo: sem isto a janela guardava a rolagem da tela
-  // anterior. Voltar/avancar (POP) e link com #ancora ficam com o navegador.
-  const navigationType = useNavigationType()
-  useLayoutEffect(() => {
-    if (navigationType !== 'POP' && !location.hash) window.scrollTo(0, 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname])
+  // Tela nova comeca do topo; voltar/avancar devolve a rolagem (lib/scroll.js).
+  useScrollRestoration()
 
   // "+ Novo" (docs/ux-reorganization.md D5): o sheet e o modal de investimento
   // moram aqui, fora das paginas. Cada gravacao bem-sucedida incrementa
@@ -330,6 +326,7 @@ export default function Layout() {
         onSaved={bumpDataVersion}
       />
       <Toaster />
+      <ConfirmHost />
       </DataVersionContext.Provider>
     </NewEntryContext.Provider>
   )

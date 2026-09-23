@@ -14,6 +14,7 @@ import {
   PanelHeader,
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
+import { confirmAction } from '../../lib/confirm'
 
 const emptyCardForm = () => ({ name: '', due_day: '', closing_day: '', autopay_account_id: '' })
 
@@ -106,7 +107,11 @@ export default function CartoesSection({ refreshKey = 0 }) {
   }
 
   const handleDeleteCard = async (id, name) => {
-    if (!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas vinculadas a ele. Esta ação não pode ser desfeita.`)) return
+    if (!(await confirmAction({
+      title: `Excluir o cartão "${name}"?`,
+      message: 'Isso apaga TODAS as faturas e compras vinculadas a ele. Esta ação não pode ser desfeita.',
+      confirmLabel: 'Excluir cartão',
+    }))) return
 
     setError('')
     try {

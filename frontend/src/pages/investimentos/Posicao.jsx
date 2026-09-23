@@ -30,6 +30,7 @@ import {
 } from './helpers'
 import useInvestments from './useInvestments'
 import { FIXED_INCOME_TYPES, describeFixedIncome } from '../../lib/fixedIncome'
+import { confirmAction } from '../../lib/confirm'
 
 const POSITION_TABS = [
   { value: 'VARIAVEL', label: 'Variável', icon: TrendingUp },
@@ -167,7 +168,11 @@ export default function Posicao() {
   // A guarda do backend exige a classe junto do ativo: um DELETE por ativo sem
   // a asset_class correspondente e recusado.
   const handleDeleteFullPosition = async (asset) => {
-    if (window.confirm(`Tem certeza que deseja excluir ${asset.class === 'FIXED_INCOME' ? 'este aporte de' : 'TODA a posição de'} ${asset.name}?`)) {
+    if (await confirmAction({
+      title: `Excluir ${asset.class === 'FIXED_INCOME' ? 'este aporte de' : 'toda a posição de'} ${asset.name}?`,
+      message: asset.class === 'FIXED_INCOME' ? 'O aporte sai das operações.' : 'Todas as operações deste ativo saem do histórico.',
+      confirmLabel: 'Excluir',
+    })) {
       try {
         if (asset.class === 'FIXED_INCOME') {
           await investmentsApi.remove(asset.id)

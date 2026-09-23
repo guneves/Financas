@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { MASKED_CURRENCY, useValuesHidden } from '../lib/privacy'
 import { dismissToast, useToasts } from '../lib/toast'
+import { settleConfirm, useConfirmRequest } from '../lib/confirm'
 
 export function cx(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -678,7 +679,17 @@ export function Toaster() {
             )}
           >
             <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="min-w-0 flex-1">{item.message}</p>
+            <p className="min-w-0 flex-1">
+              {item.message}
+              {item.action ? (
+                <>
+                  {' '}
+                  <Link to={item.action.to} onClick={() => dismissToast(item.id)} className="underline underline-offset-2">
+                    {item.action.label}
+                  </Link>
+                </>
+              ) : null}
+            </p>
             <button type="button" onClick={() => dismissToast(item.id)} aria-label="Fechar aviso" className="-m-1 rounded p-1 opacity-70 hover:opacity-100">
               <X className="h-4 w-4" />
             </button>
@@ -920,5 +931,36 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
       </div>
     </div>,
     document.body
+  )
+}
+
+// As perguntas de lib/confirm.js. Montado uma vez, no Layout, ao lado do
+// Toaster. Fechar (Esc, fora, X, Cancelar) responde "nao".
+export function ConfirmHost() {
+  const request = useConfirmRequest()
+  return (
+    <Sheet
+      open={Boolean(request)}
+      onClose={() => settleConfirm(false)}
+      title={request?.title}
+      footer={(
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" size="lg" onClick={() => settleConfirm(false)}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            variant={request?.tone === 'neutral' ? 'primary' : 'danger'}
+            size="lg"
+            autoFocus
+            onClick={() => settleConfirm(true)}
+          >
+            {request?.confirmLabel}
+          </Button>
+        </div>
+      )}
+    >
+      <p className="whitespace-pre-line text-sm text-zinc-700">{request?.message}</p>
+    </Sheet>
   )
 }

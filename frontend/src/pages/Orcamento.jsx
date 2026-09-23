@@ -35,6 +35,7 @@ import {
   BUDGET_STATUS_TONES as STATUS_TONES,
   BudgetProgressBar as ProgressBar,
 } from '../components/BudgetProgress'
+import { confirmAction } from '../lib/confirm'
 
 const emptyBudgetForm = () => ({ category_id: '', planned_amount: '', rollover: false, note: '' })
 
@@ -143,7 +144,7 @@ export default function Orcamento() {
   }
 
   const handleRemoveBudget = async (item) => {
-    if (!window.confirm(`Remover o orçamento de "${item.category_name}" em ${monthLabel(month)}?`)) return
+    if (!(await confirmAction({ title: `Remover o orçamento de "${item.category_name}"?`, message: `Só o plano de ${monthLabel(month)} sai; nenhum lançamento muda.`, confirmLabel: 'Remover' }))) return
     setSaving(true)
     try {
       await budgetsApi.remove(item.id)

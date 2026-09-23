@@ -36,6 +36,7 @@ import {
 } from './helpers'
 import useInvestments from './useInvestments'
 import { toast } from '../../lib/toast'
+import { confirmAction } from '../../lib/confirm'
 
 const EDIT_FORM_ID = 'investment-movement-edit'
 
@@ -198,7 +199,7 @@ export default function Operacoes() {
   }
 
   const handleDeleteMovement = async (id) => {
-    if (window.confirm('Tem certeza que deseja excluir APENAS essa operação do histórico?')) {
+    if (await confirmAction({ title: 'Excluir esta operação?', message: 'Só esta operação sai do histórico; as outras do ativo continuam.', confirmLabel: 'Excluir' })) {
       try {
         await investmentsApi.remove(id)
         toast('Operação excluída.')

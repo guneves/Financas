@@ -9,7 +9,6 @@ import {
   Plus,
   RefreshCw,
   Trash2,
-  X,
 } from 'lucide-react'
 import { investmentProceedsApi, investmentsApi } from '../lib/dataApi'
 import { useDataVersion } from '../lib/newEntry'
@@ -17,7 +16,6 @@ import {
   AlertMessage,
   Badge,
   Button,
-  Collapsible,
   EmptyState,
   Field,
   Menu,
@@ -25,10 +23,12 @@ import {
   Panel,
   PanelHeader,
   SegmentedControl,
+  Sheet,
   SummaryPanel,
 } from '../components/ui'
 import { toast } from '../lib/toast'
 import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString, monthLabel, shortMonthLabel } from '../lib/format'
+import { confirmAction } from '../lib/confirm'
 
 const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos' },
@@ -101,6 +101,7 @@ export default function Proventos() {
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState('')
   const [formOpen, setFormOpen] = useState(false)
+  const [formError, setFormError] = useState('')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -199,7 +200,7 @@ export default function Proventos() {
   const handleSubmit = async (event) => {
     event.preventDefault()
     setSaving(true)
-    setError('')
+    setFormError('')
     try {
       const payload = buildPayload()
       if (editingId) {
@@ -209,11 +210,10 @@ export default function Proventos() {
         await investmentProceedsApi.create(payload)
         toast('Provento registrado.')
       }
-      resetForm()
       setFormOpen(false)
       await fetchData()
     } catch (err) {
-      setError(err.message || 'Não foi possível salvar o provento.')
+      setFormError(err.message || 'Não foi possível salvar o provento.')
     } finally {
       setSaving(false)
     }
@@ -234,12 +234,16 @@ export default function Proventos() {
       tax_amount: item.tax_amount ?? '',
       notes: item.notes || '',
     })
+    setFormError('')
     setFormOpen(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const handleDelete = async (item) => {
-    const confirmed = window.confirm(`Excluir provento de ${item.asset?.ticker || 'ativo'} pago em ${formatDateBR(item.payment_date)}?`)
+    const confirmed = await confirmAction({
+      title: 'Excluir este provento?',
+      message: `${item.asset?.ticker || 'Ativo'}, pago em ${formatDateBR(item.payment_date)}.`,
+      confirmLabel: 'Excluir',
+    })
     if (!confirmed) return
 
     setError('')
@@ -252,21 +256,15 @@ export default function Proventos() {
     }
   }
 
-  const handleFormOpenChange = (next) => {
-    setFormOpen(next)
-    if (!next && editingId) resetForm()
-  }
-
-  const handleRegisterScheduled = () => {
+  // O sheet mostra o ultimo conteudo enquanto some; o formulario so e
+  // zerado na proxima abertura.
+  const openNewProvento = () => {
     resetForm()
+    setFormError('')
     setFormOpen(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleCancelEdit = () => {
-    resetForm()
-    setFormOpen(false)
-  }
+  const closeForm = () => setFormOpen(false)
 
   return (
     <div className="space-y-6">
@@ -274,41 +272,40 @@ export default function Proventos() {
         title="Proventos"
         description="Dividendos, JCP, amortizações, yield on cost e agenda de pagamentos."
         actions={(
-          <Button type="button" variant="secondary" icon={RefreshCw} loading={loading} onClick={fetchData}>
-            Atualizar
-          </Button>
+          <>
+            <Button type="button" variant="secondary" icon={RefreshCw} loading={loading} onClick={fetchData}>
+              Atualizar
+            </Button>
+            <Button type="button" icon={Plus} onClick={openNewProvento}>
+              Registrar provento
+            </Button>
+          </>
         )}
       />
 
       <AlertMessage tone="danger" message={error} onDismiss={() => setError('')} />
 
-      <Collapsible
-        label={editingId ? 'Editar provento' : 'Registrar provento'}
-        icon={editingId ? Pencil : Plus}
+      <Sheet
         open={formOpen}
-        onOpenChange={handleFormOpenChange}
-        buttonClassName="w-full sm:w-auto"
+        onClose={closeForm}
+        title={editingId ? 'Editar provento' : 'Registrar provento'}
+        description="Informe datas, tipo e valores para calcular o yield on cost."
+        footer={(
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" size="lg" onClick={closeForm}>
+              Cancelar
+            </Button>
+            <Button type="submit" form="provento-form" size="lg" icon={editingId ? Pencil : Plus} loading={saving}>
+              Salvar
+            </Button>
+          </div>
+        )}
       >
-        <Panel>
-          <PanelHeader
-            title={editingId ? 'Editar provento' : 'Registrar provento'}
-            description="Informe datas, tipo e valores para calcular o yield on cost."
-            actions={editingId ? (
-              <Button type="button" variant="secondary" icon={X} onClick={handleCancelEdit}>
-                Cancelar edição
-              </Button>
-            ) : null}
-          />
-          <ProventoForm
-            form={form}
-            setForm={setForm}
-            assets={assets}
-            editingId={editingId}
-            saving={saving}
-            onSubmit={handleSubmit}
-          />
-        </Panel>
-      </Collapsible>
+        <div className="space-y-4">
+          <AlertMessage tone="danger" message={formError} onDismiss={() => setFormError('')} />
+          <ProventoForm form={form} setForm={setForm} assets={assets} onSubmit={handleSubmit} />
+        </div>
+      </Sheet>
 
       <SummaryPanel
         lead={{
@@ -358,7 +355,7 @@ export default function Proventos() {
                   ? 'Nenhum provento futuro para o ativo ou tipo filtrado. A agenda mostra os proventos registrados com data de pagamento futura.'
                   : 'A agenda mostra os proventos registrados com data de pagamento futura. Quando um provento for anunciado, registre-o com a data de pagamento.'}
                 action={(
-                  <Button type="button" variant="secondary" icon={Plus} onClick={handleRegisterScheduled}>
+                  <Button type="button" variant="secondary" icon={Plus} onClick={openNewProvento}>
                     Registrar provento
                   </Button>
                 )}
@@ -552,10 +549,10 @@ export default function Proventos() {
   )
 }
 
-function ProventoForm({ form, setForm, assets, editingId, saving, onSubmit }) {
+function ProventoForm({ form, setForm, assets, onSubmit }) {
   return (
-    <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-6">
-      <Field label="Ativo" className="xl:col-span-2">
+    <form id="provento-form" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <Field label="Ativo">
         <select value={form.asset_id} onChange={(event) => setForm({ ...form, asset_id: event.target.value })} className="app-select" required>
           <option value="">Selecione...</option>
           {assets.map((asset) => (
@@ -596,14 +593,9 @@ function ProventoForm({ form, setForm, assets, editingId, saving, onSubmit }) {
       <Field label="Imposto">
         <input type="text" inputMode="decimal" placeholder="auto" value={form.tax_amount} onChange={(event) => setForm({ ...form, tax_amount: event.target.value })} className="app-input" />
       </Field>
-      <Field label="Observações" className="md:col-span-2 xl:col-span-2">
+      <Field label="Observações" className="sm:col-span-2">
         <input type="text" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="app-input" />
       </Field>
-      <div className="flex items-end md:col-span-2 xl:col-span-6">
-        <Button type="submit" icon={editingId ? Pencil : Plus} loading={saving} className="w-full sm:w-auto">
-          Salvar
-        </Button>
-      </div>
     </form>
   )
 }

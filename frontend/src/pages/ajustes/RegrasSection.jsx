@@ -16,6 +16,7 @@ import {
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
 import { formatDateBR, formatSignedCurrency } from '../../lib/format'
+import { confirmAction } from '../../lib/confirm'
 
 const MATCH_LABELS = {
   CONTAINS: 'contém',
@@ -203,7 +204,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
   }
 
   const handleRemove = async (rule) => {
-    if (!window.confirm(`Apagar a regra "${rule.pattern}"? Os lançamentos já categorizados continuam como estão.`)) return
+    if (!(await confirmAction({ title: `Apagar a regra "${rule.pattern}"?`, message: 'Os lançamentos já categorizados continuam como estão.', confirmLabel: 'Apagar' }))) return
     setError('')
     try {
       await importRulesApi.remove(rule.id)

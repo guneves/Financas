@@ -67,6 +67,7 @@ import {
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
 import { activeAccounts, consolidatedBalance, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { toast } from '../lib/toast'
 
 const HISTORY_MONTHS = 12
 const INVOICE_MONTHS = 6
@@ -164,7 +165,6 @@ export default function Dashboard() {
   const [recurringItems, setRecurringItems] = useState([])
   const [budget, setBudget] = useState(null)
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
-  const [notice, setNotice] = useState('')
   // Recarrega depois de um "+ Novo" salvo no Layout.
   const dataVersion = useDataVersion()
 
@@ -240,13 +240,13 @@ export default function Dashboard() {
   const handleRunRecurring = async () => {
     setIsRunningRecurring(true)
     setDataError('')
-    setNotice('')
     try {
       const result = await recurringApi.run()
-      setNotice(
+      toast(
         result?.created
           ? `${result.created} lançamento(s) recorrente(s) gerado(s).`
-          : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.'
+          : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.',
+        { tone: result?.created ? 'success' : 'info' }
       )
       await fetchAllData()
     } catch (error) {
@@ -556,7 +556,6 @@ export default function Dashboard() {
     if (!payRequest) return
     setIsPayingCurrentInvoice(true)
     setPayError('')
-    setNotice('')
     try {
       for (const invoice of payRequest.invoices) {
         await ccExpensesApi.payInvoice({
@@ -568,7 +567,7 @@ export default function Dashboard() {
       }
       const paid = payRequest.invoices.length
       setPayRequest(null)
-      setNotice(`${paid === 1 ? 'Fatura paga' : `${paid} faturas pagas`} — ${formatCurrency(payRequest.total)} debitado.`)
+      toast(`${paid === 1 ? 'Fatura paga' : `${paid} faturas pagas`} — ${formatCurrency(payRequest.total)} debitado.`)
       await fetchAllData()
     } catch (error) {
       console.warn('Erro ao pagar fatura:', error)
@@ -607,7 +606,6 @@ export default function Dashboard() {
         <AlertMessage tone="danger" message={`Movimentações indisponíveis no momento. Detalhe: ${dataError}`} />
       ) : null}
 
-      {notice ? <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} /> : null}
 
       <PayInvoiceSheet
         open={Boolean(payRequest)}
@@ -665,12 +663,14 @@ export default function Dashboard() {
       />
 
       <div className="stagger grid grid-cols-1 gap-5 xl:grid-cols-5">
-        <Panel className="xl:col-span-3">
+        {/* A linha estica os dois paineis ate a altura de "Despesas por
+            categoria"; o grafico cresce junto em vez de deixar um vazio embaixo. */}
+        <Panel className="flex flex-col xl:col-span-3">
           <PanelHeader
             title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
             description="Entradas, despesas e aportes da conta nos últimos 12 meses. Transferências entre contas não entram."
           />
-          <div className="p-5">
+          <div className="flex flex-1 flex-col p-5">
             {flowSummary.hasData ? (
               <>
                 <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -691,7 +691,7 @@ export default function Dashboard() {
                   <LegendDot color={FLOW.investment} label="Investimentos" />
                   <LegendDot color={FLOW.net} label="Resultado" shape="line" />
                 </div>
-                <div className="h-72">
+                <div className="h-72 xl:h-auto xl:min-h-72 xl:flex-1">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={monthlyHistory} stackOffset="sign" margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <CartesianGrid vertical={false} stroke={CHART.grid} />

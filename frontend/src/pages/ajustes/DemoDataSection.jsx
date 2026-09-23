@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 import { ccExpensesApi, creditCardsApi, transactionsApi } from '../../lib/dataApi'
 import { AlertMessage, Button, Panel, PanelHeader } from '../../components/ui'
+import { confirmAction } from '../../lib/confirm'
+import { toast } from '../../lib/toast'
 
 // Dados de exemplo. O handler e os dados vieram de Carteira.jsx sem mudanca de
-// payload; o que muda e o window.confirm (D2 em docs/ux-reorganization.md):
+// payload; o que muda e a confirmacao (D2 em docs/ux-reorganization.md):
 // isto grava linhas de verdade no banco do usuario.
 
 function getNow() {
@@ -148,14 +149,12 @@ const CONFIRM_MESSAGE = 'Criar dados de exemplo?\n\n'
 export default function DemoDataSection({ onDataChanged }) {
   const [mockLoading, setMockLoading] = useState(false)
   const [dataError, setDataError] = useState('')
-  const [notice, setNotice] = useState('')
 
   const handleCreateMockData = async () => {
-    if (!window.confirm(CONFIRM_MESSAGE)) return
+    if (!(await confirmAction({ title: 'Criar dados de exemplo?', message: CONFIRM_MESSAGE, confirmLabel: 'Criar dados', tone: 'neutral' }))) return
 
     setMockLoading(true)
     setDataError('')
-    setNotice('')
 
     try {
       let latestCards = await creditCardsApi.list()
@@ -210,8 +209,9 @@ export default function DemoDataSection({ onDataChanged }) {
       }
 
       onDataChanged?.()
-      setNotice(
-        `Dados de exemplo aplicados: ${createdCounts.cards} cartão(ões), ${createdCounts.transactions} lançamento(s) bancário(s) e ${createdCounts.expenses} parcela(s) de cartão.`
+      toast(
+        `Dados de exemplo aplicados: ${createdCounts.cards} cartão(ões), ${createdCounts.transactions} lançamento(s) bancário(s) e ${createdCounts.expenses} parcela(s) de cartão.`,
+        { action: { label: 'Ver faturas', to: '/lancamentos/cartoes' }, duration: 8000 }
       )
     } catch (error) {
       setDataError(error.message || 'Não foi possível criar os dados de exemplo.')
@@ -228,14 +228,6 @@ export default function DemoDataSection({ onDataChanged }) {
       />
       <div className="space-y-4 p-5">
         <AlertMessage message={dataError} onDismiss={() => setDataError('')} />
-        <AlertMessage tone="success" onDismiss={() => setNotice('')}>
-          {notice ? (
-            <>
-              {notice}{' '}
-              <Link to="/lancamentos/cartoes" className="underline underline-offset-2">Ver faturas</Link>
-            </>
-          ) : null}
-        </AlertMessage>
         <AlertMessage tone="warning">
           Os dados de exemplo são gravados no seu banco de dados real, junto com os seus lançamentos. Use numa base de teste.
         </AlertMessage>

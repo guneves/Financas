@@ -6,6 +6,7 @@ import { investmentsApi, marketApi } from '../lib/dataApi'
 import { AlertMessage, Button, Field, SegmentedControl, Sheet } from './ui'
 import { formatCurrency, getLocalDateString } from '../lib/format'
 import { usePrivateFormatter } from '../lib/privacy'
+import { toast } from '../lib/toast'
 import TickerAutocomplete from './TickerAutocomplete'
 import FixedIncomeFields from './FixedIncomeFields'
 import { emptyFixedIncomeForm, fixedIncomeMetadataFromForm } from '../lib/fixedIncome'
@@ -166,6 +167,8 @@ export default function InvestmentLaunchModal({
 
       await onSaved?.()
       onClose()
+      const assetName = normalizeAssetName(form.ticker_or_name)
+      toast(mode === 'BUY' ? `Compra de ${assetName} registrada.` : `Venda de ${assetName} registrada.`)
     } catch (submitError) {
       setError(submitError.message || 'Não foi possível salvar o lançamento.')
     } finally {

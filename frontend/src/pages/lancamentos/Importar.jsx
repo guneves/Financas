@@ -116,6 +116,7 @@ export default function Importar() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const fileInput = useRef(null)
+  const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -174,7 +175,16 @@ export default function Importar() {
   }
 
   const handleFile = async (event) => {
-    const picked = event.target.files?.[0]
+    await loadFile(event.target.files?.[0])
+  }
+
+  const handleDrop = async (event) => {
+    event.preventDefault()
+    setDragging(false)
+    await loadFile(event.dataTransfer?.files?.[0])
+  }
+
+  const loadFile = async (picked) => {
     if (!picked) return
     setFile(picked)
     setMapping({})
@@ -305,14 +315,34 @@ export default function Importar() {
               </select>
             )}
           </Field>
-          <Field label="Arquivo" hint={file ? file.name : 'Formatos aceitos: .csv, .txt, .ofx'}>
+          {/* Input nativo escondido: o botao do navegador vem no idioma dele
+              ("Choose File") e repetia o nome do arquivo abaixo. */}
+          <Field label="Arquivo" hint="Formatos aceitos: .csv, .txt, .ofx">
             <input
               ref={fileInput}
               type="file"
               accept=".csv,.txt,.ofx,.ofc"
               onChange={handleFile}
-              className="app-input file:mr-3 file:rounded-md file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-zinc-700"
+              className="sr-only"
             />
+            {/* O Field ja e um <label>: clicar aqui abre o seletor do input. */}
+            <div
+              onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={handleDrop}
+              className={cx(
+                'flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-dashed px-3 py-2 text-sm transition',
+                dragging ? 'border-emerald-500 bg-emerald-50' : 'border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50'
+              )}
+            >
+              <FileUp className="h-4 w-4 shrink-0 text-zinc-500" />
+              {file ? (
+                <span className="min-w-0 flex-1 truncate font-medium text-zinc-900" title={file.name}>{file.name}</span>
+              ) : (
+                <span className="min-w-0 flex-1 text-zinc-600">Escolher arquivo ou arrastar para cá</span>
+              )}
+              <span className="shrink-0 font-semibold text-zinc-700">{file ? 'Trocar' : 'Escolher'}</span>
+            </div>
           </Field>
         </div>
 

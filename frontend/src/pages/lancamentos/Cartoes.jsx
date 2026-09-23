@@ -25,6 +25,8 @@ import {
 import ProjectionHeader from './ProjectionHeader'
 import PayInvoiceSheet from '../../components/PayInvoiceSheet'
 import useLancamentos from './useLancamentos'
+import { confirmAction } from '../../lib/confirm'
+import { toast } from '../../lib/toast'
 
 function invoiceDueDate(invoice, dueDay) {
   return new Date(invoice.invoiceYear, invoice.invoiceMonth - 1, dueDay || 1)
@@ -49,7 +51,6 @@ export default function Cartoes() {
   // Fatura aguardando confirmacao no sheet de pagamento: { invoice, cardGroup }.
   const [paying, setPaying] = useState(null)
   const [payError, setPayError] = useState('')
-  const [payNotice, setPayNotice] = useState('')
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
   // Cartoes com as faturas futuras desdobradas, por card_id.
@@ -162,7 +163,6 @@ export default function Cartoes() {
     const { invoice, cardGroup } = paying
     setSaving(true)
     setPayError('')
-    setPayNotice('')
     try {
       // Um unico pedido: o servidor lanca a despesa e baixa a fatura juntos.
       await ccExpensesApi.payInvoice({
@@ -173,7 +173,7 @@ export default function Cartoes() {
       })
       setPaying(null)
       const payer = accountId ? ` saiu de ${accountName(accountId)}` : ' foi debitado'
-      setPayNotice(`Fatura ${cardGroup.cardName} ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} paga — ${formatCurrency(invoice.total)}${payer}.`)
+      toast(`Fatura ${cardGroup.cardName} ${formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)} paga — ${formatCurrency(invoice.total)}${payer}.`)
       await fetchData()
     } catch (error) {
       setPayError(error.message || 'Não foi possível pagar a fatura.')
@@ -183,7 +183,7 @@ export default function Cartoes() {
   }
 
   const handleDeleteCCPurchase = async (purchase) => {
-    if (!window.confirm(`Deseja excluir a compra "${purchase.description}" e eliminar todas as faturas vinculadas a ela?`)) return
+    if (!(await confirmAction({ title: `Excluir a compra "${purchase.description}"?`, message: 'Todas as parcelas dela saem das faturas.', confirmLabel: 'Excluir compra' }))) return
 
     let candidates = []
     try {
@@ -212,7 +212,7 @@ export default function Cartoes() {
       .map((item) => item.id)
 
     if (idsToDelete.length === 0) {
-      alert('Nenhuma fatura vinculada foi encontrada para essa compra.')
+      setDataError('Nenhuma fatura vinculada foi encontrada para essa compra.')
       return
     }
 
@@ -352,7 +352,6 @@ export default function Cartoes() {
       />
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
-      <AlertMessage tone="success" message={payNotice} onDismiss={() => setPayNotice('')} />
 
       <PayInvoiceSheet
         open={Boolean(paying)}

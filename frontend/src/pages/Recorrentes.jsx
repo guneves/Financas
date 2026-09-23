@@ -29,6 +29,7 @@ import {
   SummaryPanel,
 } from '../components/ui'
 import { toast } from '../lib/toast'
+import { confirmAction } from '../lib/confirm'
 
 const FREQUENCY_LABELS = {
   WEEKLY: 'Semanal',
@@ -194,9 +195,11 @@ export default function Recorrentes() {
   }
 
   const handleDelete = async (item) => {
-    const confirmed = window.confirm(
-      `Excluir a recorrência "${item.description || item.category}"? Os lançamentos já gerados continuam no extrato.`
-    )
+    const confirmed = await confirmAction({
+      title: `Excluir a recorrência "${item.description || item.category}"?`,
+      message: 'Os lançamentos já gerados continuam no extrato.',
+      confirmLabel: 'Excluir',
+    })
     if (!confirmed) return
 
     setSaving(true)

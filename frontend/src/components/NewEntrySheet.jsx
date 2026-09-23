@@ -17,6 +17,8 @@ import {
   pickDefaultAccountId,
 } from '../pages/lancamentos/helpers'
 import { AlertMessage, Button, EmptyState, Field, SegmentedControl, Sheet } from './ui'
+import { formatCurrency } from '../lib/format'
+import { toast } from '../lib/toast'
 
 const FORM_ID = 'new-entry-form'
 
@@ -111,9 +113,11 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
     }
   }
 
-  const finish = async () => {
+  // Fora do Extrato nada na tela muda depois de salvar; o toast confirma.
+  const finish = async (message) => {
     await onSaved?.()
     onClose()
+    toast(message)
   }
 
   const handleBankSubmit = async (event) => {
@@ -135,7 +139,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
         type: transForm.type,
         account_id: transForm.account_id || defaultAccountId || undefined,
       })
-      await finish()
+      await finish(`${transForm.type === 'INCOME' ? 'Receita' : 'Despesa'} de ${formatCurrency(amount)} registrada.`)
     } catch (submitError) {
       setError(submitError.message || 'Não foi possível criar o lançamento.')
     } finally {
@@ -165,7 +169,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
         transfer_account_id: transferForm.transfer_account_id,
         description: transferForm.description,
       })
-      await finish()
+      await finish(`Transferência de ${formatCurrency(amount)} registrada.`)
     } catch (submitError) {
       setError(submitError.message || 'Não foi possível registrar a transferência.')
     } finally {
@@ -198,7 +202,9 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
         purchase_date: expenseForm.purchase_date,
         installments: installmentsCount,
       })
-      await finish()
+      await finish(installmentsCount > 1
+        ? `Compra de ${formatCurrency(totalAmount)} em ${installmentsCount}x registrada no cartão.`
+        : `Compra de ${formatCurrency(totalAmount)} registrada no cartão.`)
     } catch (submitError) {
       setError(submitError.message || 'Não foi possível criar a compra no cartão.')
     } finally {

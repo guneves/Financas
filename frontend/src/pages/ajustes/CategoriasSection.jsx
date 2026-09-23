@@ -14,6 +14,7 @@ import {
   PanelHeader,
   cx,
 } from '../../components/ui'
+import { confirmAction } from '../../lib/confirm'
 
 const KIND_LABELS = {
   INCOME: 'Receita',
@@ -92,7 +93,7 @@ export default function CategoriasSection({ refreshKey = 0 }) {
   }
 
   const handleArchiveCategory = async (category) => {
-    if (!window.confirm(`Arquivar "${category.name}"? Os lançamentos continuam, e dá para reativar depois.`)) return
+    if (!(await confirmAction({ title: `Arquivar "${category.name}"?`, message: 'Os lançamentos continuam, e dá para reativar depois.', confirmLabel: 'Arquivar', tone: 'neutral' }))) return
     setSaving(true)
     setError('')
     try {

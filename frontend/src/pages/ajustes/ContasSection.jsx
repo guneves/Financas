@@ -16,6 +16,7 @@ import {
   cx,
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
+import { confirmAction } from '../../lib/confirm'
 
 export const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
@@ -76,7 +77,7 @@ export default function ContasSection({ refreshKey = 0 }) {
   }
 
   const handleArchiveAccount = async (account) => {
-    if (!window.confirm(`Arquivar a conta "${account.name}"? Os lançamentos dela continuam no extrato.`)) return
+    if (!(await confirmAction({ title: `Arquivar a conta "${account.name}"?`, message: 'Os lançamentos dela continuam no extrato.', confirmLabel: 'Arquivar', tone: 'neutral' }))) return
 
     setError('')
     try {

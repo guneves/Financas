@@ -37,11 +37,12 @@ export function dismissToast(id) {
   }, EXIT_MS)
 }
 
-// tone: 'success' (padrao) ou 'info'.
-export function toast(message, { tone = 'success', duration = 4000 } = {}) {
+// tone: 'success' (padrao) ou 'info'. action: { label, to } vira um link
+// depois da mensagem ("Ver faturas").
+export function toast(message, { tone = 'success', duration = 4000, action = null } = {}) {
   if (!message) return null
   const id = nextId++
-  toasts = [...toasts, { id, message, tone, leaving: false }].slice(-MAX_TOASTS)
+  toasts = [...toasts, { id, message, tone, action, leaving: false }].slice(-MAX_TOASTS)
   emit()
   setTimeout(() => dismissToast(id), duration)
   return id

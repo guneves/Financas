@@ -23,6 +23,7 @@ import { categoryLabel, formatDateBR, getNow } from './helpers'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
+import { confirmAction } from '../../lib/confirm'
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
@@ -311,7 +312,7 @@ export default function Extrato() {
   }
 
   const handleDeleteTransaction = async (id) => {
-    if (!window.confirm('Deseja realmente excluir esta transação? O saldo será recalculado.')) return
+    if (!(await confirmAction({ title: 'Excluir este lançamento?', message: 'O saldo da conta é recalculado.', confirmLabel: 'Excluir' }))) return
     try {
       await transactionsApi.remove(id)
       await fetchData()
