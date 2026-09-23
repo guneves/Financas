@@ -121,9 +121,19 @@ one commit per theme (`a9d2422`..`d3a20be`), checked with Playwright screenshots
 - **Kit:** grey disabled `Button`, lighter `Badge`, `SegmentedControl` with the `Tabs` sliding pill
   (shared `useSlidingPill`), `Expand` with a `minmax(0,1fr)` column, `.app-table` rules under
   `:where()` so utilities win.
-Not done: **E** dark mode (separately scoped, still optional). `docs/ui-remodel-prompt.md` was
-written by a parallel session while items 1–3 were in flight; its "state at writing" note is now
-out of date — every item of this pass is done, so a remodel starts from here.
+Not done: **E** dark mode — folded into the UI remodel below.
+
+### UI remodel — Stage 1 done 2026-09-23, waiting on the owner
+Run per `docs/ui-remodel-prompt.md` (its "state at writing" note is stale: the visual pass above is
+complete, so the remodel starts from here). Stage 1 — audit and three directions — is in
+`docs/ui-remodel-audit.md`, with mocks on the Claude Design canvas linked there.
+- [ ] **Owner:** pick a direction (A Sereno / B Painel / C Cartões / a mix) and answer decisions
+  E–J at the end of the audit.
+- [ ] Stage 2: replace this section with the numbered, commit-sized plan (kit first, then screens).
+- [ ] Stage 3: build, one commit per item.
+- [ ] **Backend, found during the audit:** the consolidated "Saldo em conta" leaves out
+  `accounts.initial_balance` while "Saldo por conta" includes it (R$ 247.500,00 apart on the seed).
+  Confirm which endpoint is wrong, fix it with a test, then re-check net worth.
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,

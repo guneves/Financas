@@ -8,73 +8,56 @@
 ---
 
 
-## Session — 2026-09-22 (latest) · Import rules on recorded lançamentos
+## Session — 2026-09-23 (latest) · UI remodel, Stage 1 (audit + three directions)
 
-Asked to "work on next-steps.md, claude in chrome is available, commit everything in the work
-tree". The top of the plan is still the owner's walk-through, so this took the Phase 4 leftovers
-(the next buildable daily-use item) and used Chrome to click them through on scratch data.
+Asked to "work on a whole rework of the UI of the app" with Claude Design. Ran Stage 1 of
+`docs/ui-remodel-prompt.md`, which by its own rules stops for the owner to pick a direction before
+anything is built. **No frontend or backend code changed this session.**
 
 ### What was done
 
-- **Committed the work tree as found** (`f12ec18`) — changes not made by this session: Extrato,
-  Posição, Operações and Proventos switch from table to cards below `xl` (was `md`), wider date
-  columns, Extrato's Conta column from `xl`; Proventos' empty calendar now explains that it only
-  lists recorded proventos with a future payment date and offers "Registrar provento". `vite build`
-  clean before committing; not otherwise reviewed or walked.
-- **Apply import rules to recorded lançamentos** (`backend/app.py`, after `import_rule_detail`):
-  `POST /api/import-rules/apply/preview` (never writes) and `POST /api/import-rules/apply`
-  (`transaction_ids` required; each id re-checked against the rule before writing; rewrites
-  `category` + `category_id`; adds to `hits`). `rule_id` optional: one rule (even inactive — the
-  owner picked it) vs. all active rules in import priority. Skips TRANSFER, `INVESTMENT_TRANSACTION`,
-  `CC_INVOICE_PAYMENT`, `CC_AUTOPAY` and rows with no description. A row already in the rule's
-  category is not a candidate. Preview capped at 2,000 rows (`truncated`).
-- **Ajustes → Regras** (`frontend/src/pages/ajustes/RegrasSection.jsx`): pencil edits a rule (pattern
-  included — the PATCH already accepted it) in the same Collapsible as "Nova regra"; "Aplicar" per
-  rule and "Aplicar ao extrato" in the header open a Sheet listing the changes, all ticked, with
-  "Todos" and "Recategorizar N". Rule row buttons are grouped so they wrap together on the phone.
-- **Tests:** `backend/tests/test_rule_apply.py`, 14 tests. Suite **575 passed**.
-- **Verified:** Chrome on scratch data (:5175/:5002): the preview listed 22 "Estacionamento"; unticking
-  2 and applying changed 20 and bumped hits to 20; the per-rule preview then listed just those 2;
-  editing the pattern saved and reset the form; no console errors. Playwright screenshots at 1280 and
-  390 px caught a squashed rule row on the phone (fixed, re-shot).
-- **`finance-guard`:** no findings. Its one note was that invoice payments were excluded but never
-  tested; I added `test_invoice_payments_are_never_recategorized`.
+- **Before screenshots** of all ten screens at 1280 and 390 px, Playwright on a scratch DB seeded
+  by `seed_three_years_mock.py` (Linux cloud container, not the owner's machine). Kept out of git.
+- **Audit + three directions** in `docs/ui-remodel-audit.md`: per-screen audit, directions
+  A Sereno / B Painel / C Cartões, a recommendation (A's look + B's keyboard layer, dark as a token
+  swap) and decisions E–J for the owner.
+- **Claude Design canvas** "Finanças — UI rework" (https://claude.ai/artifact/DPSbd7JxFULWe4r9z36tto,
+  private): nine artboards — Início, Extrato and phone Início for each direction — filled with the
+  seed's real figures. The generator script lived in the session scratchpad; the canvas files are
+  the source of truth now (edit them there, not from a script).
+- `docs/next-steps.md`: new "UI remodel" section with Stage 1 ticked and the owner's pick pending.
 
 ### What was not done and why
 
-- Amount/account conditions on a rule: not needed for the owner's flow yet; left in the plan.
-- No "undo" for an apply: the preview plus per-row ticks is the guard, and a mistaken row can be
-  fixed in Extrato. If the owner wants one, store the previous category in `metadata`.
-- The committed layout change (cards below `xl`) is a real behaviour change at 1024–1279 px;
-  added to the walk-through list rather than second-guessed.
-- Carried forward: **`BRAPI_TOKEN` is still empty** in `backend/.env`;
-  `backend/backups/finance-pre-mock-20260922-205415.db` (scratch demo data, gitignored) is still on
-  disk and safe to delete; dark mode (decision E) and the UI remodel prompt are still open;
-  `docs/ui-remodel-prompt.md`'s "state at writing" note is stale.
+- Stages 2 and 3 (plan, build): the prompt requires the owner's pick first.
+- **Balance mismatch found, not fixed:** consolidated "Saldo em conta" (R$ 1.061.007,88 on the
+  seed) ≠ sum of "Saldo por conta" (R$ 1.308.507,88); the gap is exactly the accounts'
+  `initial_balance`. Backend is out of the remodel's scope and it needs its own test — it is in
+  `next-steps.md`. The mocks use the per-account sum.
+- `finance-guard` not run: no backend or financial-rule change.
+- Carried forward: the owner's walk-through at the top of `next-steps.md`; `BRAPI_TOKEN` still
+  empty in `backend/.env`; `backend/backups/finance-pre-mock-20260922-205415.db` safe to delete.
 
 ### Next session
 
-- Owner: the walk-through at the top of `next-steps.md` (now includes rules apply/edit and the
-  `xl` card breakpoint).
-- Then the UI remodel prompt, dark mode, or Phase 5 (first blueprint). Smaller daily-use option still
-  open: attachments per transaction.
+- If the owner has answered: Stage 2 — write the numbered plan into `next-steps.md` (replacing the
+  "UI remodel" section), kit and tokens first. Otherwise the balance mismatch is a good small task.
 
 ### Non-obvious things learned
 
-- **Scratch ports collide with other sessions.** Another session's scratch backend and Vite were
-  still on :5001/:5174. On Windows a second Flask bind to :5001 *succeeds*, and requests reach the
-  old process (symptoms: "Token invalido", 404 on a new route). Check `netstat -ano` first; this
-  session used :5002/:5175 and left the other processes alone.
-- The stored session is `localStorage['@financeMVP:auth'] = {"access_token": ..., "user": ...}` —
-  `access_token`, not `token`. Minting one: `app.create_token(user_id)` under the scratch
-  `JWT_SECRET`.
-- Chrome extension: clicks via `find` refs and `javascript_tool` work; `screenshot` came back blank
-  and then timed out (background window). Playwright from the npx cache handles screenshots.
-- Windows Python output captured with `$(...)` in Git Bash keeps a `\r`; strip it before using it
-  in a header.
+- **Scratch app on Linux** (cloud sessions have no `.venv`/`start.ps1`): `pip install -r
+  backend/requirements.txt`, `npm ci` in `frontend/`; the seed needs a `username` on signup
+  (`/api/auth/signup` rejects without one); run the backend with `python3 -c "import app;
+  app.app.run(port=5001)"` and the env vars from the recipe below, and Vite with
+  `VITE_API_BASE_URL=http://localhost:5001 npx vite --port 5174`. Playwright: `playwright-core`
+  with `executablePath: '/opt/pw-browsers/chromium'`; auth goes in
+  `localStorage['@financeMVP:auth']`.
+- In the sandbox Google Fonts fail TLS, so screenshots render in the fallback font, and yfinance has
+  no network, so Evolução do Patrimônio stays a skeleton — neither is an app bug.
 - Carried: seeding a scratch DB — set `DATABASE_PATH`, `DATABASE_BACKUP_DIR`,
   `AUTO_BACKUP_ON_BOOT=0`, `JWT_SECRET`, `CORS_ORIGINS` before `import app`, sign up with
   `app.app.test_client()`, then `import seed_three_years_mock as s`, set `s.BACKEND_DIR` to the
-  scratchpad and call `s.main()` with `sys.argv` patched. `.app-table` rules sit under `:where()`;
-  a panel with `overflow-hidden` breaks sticky headers (use `overflow-clip`); write edit scripts to a
-  file rather than piping Python via stdin (mangles non-ASCII).
+  scratchpad and call `s.main()` with `sys.argv` patched. On Windows, check `netstat -ano` for
+  scratch ports left by other sessions (a second Flask bind succeeds and hits the old process).
+  `.app-table` rules sit under `:where()`; a panel with `overflow-hidden` breaks sticky headers
+  (use `overflow-clip`).
