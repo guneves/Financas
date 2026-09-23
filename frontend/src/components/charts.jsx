@@ -23,10 +23,11 @@ export const FLOW = {
   net: '#18181b',
 }
 
+// tick = zinc-500: 4,8:1 no branco (o cinza anterior, 3,4:1, nao passava no AA).
 export const CHART = {
   grid: '#eeeeec',
   axis: '#d4d4d8',
-  tick: '#8a8a93',
+  tick: '#71717a',
   ink: '#18181b',
 }
 
@@ -56,10 +57,27 @@ export function useChartAnimation() {
   return animate ? ANIMATION : NO_ANIMATION
 }
 
+// `width` no tick e so a largura de quebra do texto: o recharts quebra o
+// rotulo na largura do eixo ("900 / mil"); com folga, fica numa linha.
 export const axisProps = {
-  tick: { fill: CHART.tick, fontSize: 12 },
+  tick: { fill: CHART.tick, fontSize: 12, width: 160 },
   tickLine: false,
   axisLine: false,
+}
+
+// Eixo de valores: sem o "R$" (o titulo do grafico ja diz que e dinheiro), para
+// o rotulo caber numa linha — "R$ 900 mil" quebrava em duas na largura do eixo.
+export function compactAxis(value) {
+  const numeric = Number(value || 0)
+  const absolute = Math.abs(numeric)
+  const sign = numeric < 0 ? '\u2212' : ''
+  if (absolute >= 1_000_000) {
+    return `${sign}${(absolute / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`
+  }
+  if (absolute >= 1000) {
+    return `${sign}${(absolute / 1000).toLocaleString('pt-BR', { maximumFractionDigits: absolute >= 10000 ? 0 : 1 })} mil`
+  }
+  return `${sign}${absolute.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
 }
 
 export function compactCurrency(value) {
@@ -246,7 +264,7 @@ export function DonutChart({
   const holeWidth = Math.min(chartSize.width, chartSize.height) * DONUT_INNER_RATIO * 0.84
 
   return (
-    <div className={cx('grid items-center gap-5', legend && !stacked && 'sm:grid-cols-[minmax(0,220px)_1fr]')}>
+    <div className={cx('grid grid-cols-[minmax(0,1fr)] items-center gap-5', legend && !stacked && 'sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)]')}>
       <div ref={chartRef} className="relative" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>

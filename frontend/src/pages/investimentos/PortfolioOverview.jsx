@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { CHART, ChartTooltip, DonutChart, FLOW, LegendDot, axisProps, compactCurrency, useChartAnimation } from '../../components/charts'
+import { CHART, ChartTooltip, DonutChart, FLOW, LegendDot, axisProps, compactAxis, useChartAnimation } from '../../components/charts'
 import { AlertMessage, Panel, PanelHeader, SegmentedControl, Skeleton } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
-import { formatCurrency } from '../../lib/format'
+import { formatCurrency, shortMonthLabel } from '../../lib/format'
 import { usePrivateAxisFormatter, usePrivateFormatter } from '../../lib/privacy'
 import { useDataVersion } from '../../lib/newEntry'
 
@@ -35,7 +35,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
   const chartAnimation = useChartAnimation()
   // A carteira inteira some no modo privado; as proporcoes (%) ficam.
   const privateMoney = usePrivateFormatter(formatCurrency)
-  const privateAxis = usePrivateAxisFormatter(compactCurrency)
+  const privateAxis = usePrivateAxisFormatter(compactAxis)
   const allocation = useMemo(() => {
     const byClass = {}
     assets.forEach((asset) => {
@@ -125,8 +125,8 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke={CHART.grid} />
-                  <XAxis dataKey="month" {...axisProps} interval="preserveStartEnd" minTickGap={12} />
-                  <YAxis {...axisProps} width={72} tickFormatter={privateAxis} />
+                  <XAxis dataKey="month" {...axisProps} tickFormatter={shortMonthLabel} interval="preserveStartEnd" minTickGap={12} />
+                  <YAxis {...axisProps} width={56} tickFormatter={privateAxis} />
                   <Tooltip
                     cursor={{ fill: 'rgba(24,24,27,0.04)' }}
                     content={({ active, payload, label }) => {
@@ -135,7 +135,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
                       return (
                         <ChartTooltip
                           active={active}
-                          label={label}
+                          label={shortMonthLabel(label)}
                           payload={[
                             { dataKey: 'applied', value: row.applied, color: FLOW.investment },
                             { dataKey: 'gain', value: row.gain, color: row.gain >= 0 ? FLOW.income : FLOW.expense },

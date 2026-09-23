@@ -1,5 +1,5 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { CHART, ChartTooltip, FLOW, axisProps, compactCurrency, useChartAnimation } from '../components/charts'
+import { CHART, ChartTooltip, FLOW, axisProps, compactAxis, useChartAnimation } from '../components/charts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarDays,
@@ -29,7 +29,7 @@ import {
   SegmentedControl,
   cx,
 } from '../components/ui'
-import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString } from '../lib/format'
+import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString, monthLabel, shortMonthLabel } from '../lib/format'
 
 const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos' },
@@ -375,13 +375,14 @@ export default function Proventos() {
                     margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
                   >
                     <CartesianGrid vertical={false} stroke={CHART.grid} />
-                    <XAxis dataKey="month" {...axisProps} />
-                    <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                    <XAxis dataKey="month" {...axisProps} tickFormatter={shortMonthLabel} interval="preserveStartEnd" minTickGap={12} />
+                    <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                     <Tooltip
                       cursor={{ fill: 'rgba(24,24,27,0.04)' }}
                       content={(
                         <ChartTooltip
                           names={{ net: 'Líquido' }}
+                          labelFormatter={(label) => monthLabel(label)}
                           footer={(payload) => `${payload?.[0]?.payload?.event_count || 0} evento(s)`}
                         />
                       )}

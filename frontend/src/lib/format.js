@@ -89,6 +89,25 @@ export function monthLabel(key) {
   })
 }
 
+// Rotulo curto de mes para eixos e legendas: 'AAAA-MM' ou 'MM/AA' -> 'out/25'.
+// Um formato so no app (eram tres: 'out/25', '10/25' e '2026-01').
+export function shortMonthLabel(key) {
+  const text = String(key || '')
+  let year
+  let month
+  if (/^\d{4}-\d{2}/.test(text)) {
+    [year, month] = text.split('-').map(Number)
+  } else if (/^\d{2}\/\d{2}$/.test(text)) {
+    const [mm, yy] = text.split('/').map(Number)
+    month = mm
+    year = 2000 + yy
+  } else {
+    return text
+  }
+  const name = new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+  return `${name}/${String(year).slice(2)}`
+}
+
 export function shiftMonth(key, offset) {
   const [year, month] = String(key).split('-').map(Number)
   const index = year * 12 + (month - 1) + offset

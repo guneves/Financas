@@ -59,9 +59,9 @@ import {
   Sparkline,
   useChartAnimation,
   axisProps,
-  compactCurrency,
+  compactAxis,
 } from '../components/charts'
-import { formatCurrency, formatDateBR, getLocalDateString, monthKey, monthLabel, shiftMonth } from '../lib/format'
+import { formatCurrency, formatDateBR, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { usePrivateAxisFormatter, usePrivateFormatter } from '../lib/privacy'
 import { isInvestmentOutflow } from '../lib/transactions'
 
@@ -106,12 +106,7 @@ const getPurchaseGroupKey = (expense) => {
   ].join('|')
 }
 
-// 'AAAA-MM' -> 'set/26'
-const shortMonth = (key) => {
-  const [year, month] = String(key).split('-').map(Number)
-  const name = new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-  return `${name}/${String(year).slice(2)}`
-}
+const shortMonth = shortMonthLabel
 
 const isInvoicePayment = (transaction) => transaction.category?.startsWith('Pagamento Fatura')
 
@@ -157,7 +152,7 @@ function buildSpending(transactions, ccExpenses, key) {
 export default function Dashboard() {
   // Modo privado: saldos, patrimonio e carteira somem; fluxo, gastos e faturas ficam.
   const privateMoney = usePrivateFormatter(formatCurrency)
-  const privateAxis = usePrivateAxisFormatter(compactCurrency)
+  const privateAxis = usePrivateAxisFormatter(compactAxis)
   const chartAnimation = useChartAnimation()
   const [portfolio, setPortfolio] = useState(null)
   const [portfolioError, setPortfolioError] = useState('')
@@ -686,14 +681,6 @@ export default function Dashboard() {
           <PanelHeader
             title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
             description="Entradas, despesas e aportes da conta nos últimos 12 meses. Transferências entre contas não entram."
-            actions={(
-              <div className="flex flex-wrap items-center gap-3">
-                <LegendDot color={FLOW.income} label="Entradas" />
-                <LegendDot color={FLOW.expense} label="Despesas" />
-                <LegendDot color={FLOW.investment} label="Investimentos" />
-                <LegendDot color={FLOW.net} label="Resultado" shape="line" />
-              </div>
-            )}
           />
           <div className="p-5">
             {flowSummary.hasData ? (
@@ -708,12 +695,20 @@ export default function Dashboard() {
                     valueClassName={flowSummary.savingsRate !== null && flowSummary.savingsRate < 0 ? 'text-rose-600' : 'text-emerald-700'}
                   />
                 </div>
+                {/* Legenda junto do grafico, nao no cabecalho: la ela espremia a
+                    descricao numa coluna estreita. */}
+                <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <LegendDot color={FLOW.income} label="Entradas" />
+                  <LegendDot color={FLOW.expense} label="Despesas" />
+                  <LegendDot color={FLOW.investment} label="Investimentos" />
+                  <LegendDot color={FLOW.net} label="Resultado" shape="line" />
+                </div>
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={monthlyHistory} stackOffset="sign" margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                       <CartesianGrid vertical={false} stroke={CHART.grid} />
                       <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" />
-                      <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                      <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                       <ReferenceLine y={0} stroke={CHART.axis} />
                       <Tooltip
                         cursor={{ fill: 'rgba(24,24,27,0.04)' }}
@@ -767,7 +762,7 @@ export default function Dashboard() {
                     </defs>
                     <CartesianGrid vertical={false} stroke={CHART.grid} />
                     <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={16} />
-                    <YAxis tickFormatter={privateAxis} {...axisProps} width={76} />
+                    <YAxis tickFormatter={privateAxis} {...axisProps} width={56} />
                     <ReferenceLine y={0} stroke={CHART.axis} />
                     <Tooltip
                       cursor={{ stroke: CHART.axis }}
@@ -799,7 +794,7 @@ export default function Dashboard() {
         </Panel>
       </div>
 
-      <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
+      <div className="stagger grid grid-cols-1 items-start gap-6 xl:grid-cols-5">
         <Panel className="xl:col-span-3">
           <PanelHeader
             title="Ritmo de gastos"
@@ -826,7 +821,7 @@ export default function Dashboard() {
                     <LineChart data={spendingPace.rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid vertical={false} stroke={CHART.grid} />
                       <XAxis dataKey="day" {...axisProps} interval={4} />
-                      <YAxis tickFormatter={compactCurrency} {...axisProps} width={76} />
+                      <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                       <ReferenceLine
                         x={spendingPace.todayDay}
                         stroke={CHART.axis}
@@ -901,7 +896,7 @@ export default function Dashboard() {
             description="O consolidado acima é a soma destas contas."
             actions={<Badge>{accounts.length} conta(s)</Badge>}
           />
-          <div className="stagger grid grid-cols-1 gap-px bg-zinc-100 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="stagger grid grid-cols-1 gap-px bg-zinc-100 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
             {accounts.map((account) => {
               const balance = Number(account.balance) || 0
               return (
@@ -946,7 +941,7 @@ export default function Dashboard() {
                     <BarChart data={invoiceProjection} margin={{ top: 20, right: 4, left: 0, bottom: 0 }}>
                       <CartesianGrid vertical={false} stroke={CHART.grid} />
                       <XAxis dataKey="label" {...axisProps} />
-                      <YAxis tickFormatter={compactCurrency} {...axisProps} width={70} />
+                      <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                       <Tooltip
                         cursor={{ fill: 'rgba(24,24,27,0.04)' }}
                         content={(
