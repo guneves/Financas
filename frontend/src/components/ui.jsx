@@ -257,6 +257,51 @@ export function DeltaBadge({ value, inverse = false, suffix = '', className = ''
   )
 }
 
+// Valor em uma linha que encolhe (nunca cresce) ate caber na largura. Mede
+// `measure` — o texto final — numa copia invisivel no tamanho base, e reduz a
+// fonte na proporcao que falta; a altura da linha fica a do tamanho base, para
+// o cartao nao mudar de altura. Sem `measure`, so nao quebra a linha.
+export function FitValue({ children, measure, baseSize = 24, minSize = 15, className = '' }) {
+  const boxRef = useRef(null)
+  const probeRef = useRef(null)
+  const [size, setSize] = useState(baseSize)
+
+  useLayoutEffect(() => {
+    let active = true
+    const fit = () => {
+      const box = boxRef.current
+      const probe = probeRef.current
+      if (!active || !box || !probe) return
+      const available = box.clientWidth
+      const needed = probe.scrollWidth
+      if (!available || !needed) return
+      setSize(Math.max(minSize, Math.min(baseSize, Math.floor((baseSize * available * 10) / needed) / 10)))
+    }
+    fit()
+    // A medida muda quando a Inter termina de carregar.
+    document.fonts?.ready?.then(fit)
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null
+    if (boxRef.current) observer?.observe(boxRef.current)
+    return () => {
+      active = false
+      observer?.disconnect()
+    }
+  }, [measure, baseSize, minSize])
+
+  return (
+    <div ref={boxRef} className={cx('relative min-w-0', className)} style={{ lineHeight: `${Math.round(baseSize * 1.25)}px` }}>
+      {measure ? (
+        <span ref={probeRef} aria-hidden="true" className="invisible absolute left-0 top-0 whitespace-nowrap" style={{ fontSize: baseSize }}>
+          {measure}
+        </span>
+      ) : null}
+      <span className="block overflow-hidden text-ellipsis whitespace-nowrap" style={{ fontSize: measure ? size : baseSize }}>
+        {children}
+      </span>
+    </div>
+  )
+}
+
 export function MetricCard({
   title,
   value,
@@ -275,34 +320,38 @@ export function MetricCard({
 }) {
   const animated = typeof amount === 'number' && typeof format === 'function'
   const masked = useValuesHidden() && sensitive
+  // O valor final, para medir: durante a contagem o texto muda a cada quadro.
+  const finalText = masked
+    ? MASKED_CURRENCY
+    : animated ? format(amount) : (typeof value === 'string' || typeof value === 'number' ? String(value) : null)
   return (
-    <Panel interactive className={cx('relative overflow-hidden p-5', className)}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</p>
-          <p className={cx('tabular mt-2 truncate text-2xl font-bold tracking-tight text-zinc-950', valueClassName)}>
-            {animated ? (
-              <AnimatedNumber
-                value={amount}
-                format={format}
-                masked={masked}
-                cacheKey={typeof title === 'string' ? `${window.location.pathname}|${title}` : undefined}
-              />
-            ) : masked ? MASKED_CURRENCY : value}
-          </p>
-          {subtitle || delta ? (
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-500">
-              {delta}
-              {subtitle ? <span>{subtitle}</span> : null}
-            </div>
-          ) : null}
-        </div>
+    <Panel className={cx('relative overflow-hidden p-5', className)}>
+      {/* Icone ao lado do rotulo, nao do valor: o valor fica com a largura
+          toda do cartao e nunca vira "R$ 1.99…". */}
+      <div className="flex items-center gap-2.5">
         {Icon ? (
-          <div className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', metricTones[tone])}>
-            <Icon className="h-5 w-5" />
-          </div>
+          <span className={cx('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', metricTones[tone])}>
+            <Icon className="h-4 w-4" />
+          </span>
         ) : null}
+        <p className="min-w-0 text-xs font-semibold uppercase leading-4 tracking-wide text-zinc-500">{title}</p>
       </div>
+      <FitValue measure={finalText} className={cx('mt-3 font-bold tracking-tight text-zinc-950', valueClassName)}>
+        {animated ? (
+          <AnimatedNumber
+            value={amount}
+            format={format}
+            masked={masked}
+            cacheKey={typeof title === 'string' ? `${window.location.pathname}|${title}` : undefined}
+          />
+        ) : masked ? MASKED_CURRENCY : value}
+      </FitValue>
+      {subtitle || delta ? (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-500">
+          {delta}
+          {subtitle ? <span>{subtitle}</span> : null}
+        </div>
+      ) : null}
       {chart ? <div className="-mx-1 mt-3 h-12">{chart}</div> : null}
       {footer ? <div className="mt-4 border-t border-zinc-100 pt-3 text-sm text-zinc-500">{footer}</div> : null}
     </Panel>

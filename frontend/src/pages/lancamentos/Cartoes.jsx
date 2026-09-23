@@ -9,6 +9,7 @@ import {
   Button,
   EmptyState,
   Expand,
+  FitValue,
   IconButton,
   PageHeader,
   Panel,
@@ -44,9 +45,9 @@ function SummaryStat({ icon: Icon, label, value, hint, tone = 'neutral' }) {
       <div className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', toneClasses[tone] || toneClasses.neutral)}>
         <Icon className="h-5 w-5" />
       </div>
-      <div className="min-w-0">
-        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{label}</p>
-        <p className="truncate text-lg font-bold text-zinc-950">{value}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold uppercase leading-4 tracking-wide text-zinc-500">{label}</p>
+        <FitValue measure={value} baseSize={18} minSize={13} className="mt-0.5 font-bold text-zinc-950">{value}</FitValue>
         {hint ? <p className="truncate text-xs text-zinc-600">{hint}</p> : null}
       </div>
     </div>

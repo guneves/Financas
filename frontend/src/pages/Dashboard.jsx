@@ -41,6 +41,7 @@ import {
   Button,
   DeltaBadge,
   EmptyState,
+  FitValue,
   MetricCard,
   PageHeader,
   Panel,
@@ -1285,8 +1286,8 @@ function AttentionItem({ icon: Icon, title, detail, action }) {
 function InlineStat({ label, value, valueClassName = 'text-zinc-950' }) {
   return (
     <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-3 py-2.5">
-      <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className={cx('mt-0.5 truncate text-base font-bold tabular', valueClassName)}>{value}</p>
+      <p className="text-xs font-semibold leading-4 text-zinc-500">{label}</p>
+      <FitValue measure={value} baseSize={16} minSize={12} className={cx('mt-1 font-bold', valueClassName)}>{value}</FitValue>
     </div>
   )
 }
