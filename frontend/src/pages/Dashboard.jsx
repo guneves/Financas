@@ -1064,7 +1064,7 @@ export default function Dashboard() {
                           <p className="whitespace-nowrap font-bold tabular text-zinc-950">
                             {formatCurrency(expense.installmentAmount * expense.remainingInstallments)}
                           </p>
-                          <p className="mt-1 text-xs font-medium uppercase tracking-wide text-zinc-400">Restante</p>
+                          <p className="mt-1 text-xs font-medium uppercase tracking-wide text-zinc-500">Restante</p>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center gap-3">
@@ -1154,7 +1154,7 @@ function CategoryList({ items }) {
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-100">
                 <div className="bar-grow h-full rounded-full" style={{ width: `${total > 0 ? (item.value / total) * 100 : 0}%`, backgroundColor: color }} />
               </div>
-              <span className="w-24 text-right text-[11px] text-zinc-400">
+              <span className="w-24 text-right text-xs text-zinc-500">
                 {item.credit > 0 && item.cash > 0
                   ? `${cashShare.toFixed(0)}% conta`
                   : item.credit > 0 ? 'cartão' : 'conta'}

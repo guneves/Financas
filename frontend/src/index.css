@@ -11,13 +11,12 @@
     text-rendering: optimizeLegibility;
   }
 
+  /* Fundo liso: os gradientes radiais so tingiam o canto e nao ajudavam a ler.
+     Algarismos tabulares no app inteiro: valores em coluna alinham pela casa. */
   body {
     @apply bg-zinc-50 font-sans text-zinc-950 antialiased;
-    background-image:
-      radial-gradient(1200px 500px at 100% -10%, rgba(16, 185, 129, 0.07), transparent 60%),
-      radial-gradient(900px 400px at -10% 0%, rgba(14, 165, 233, 0.05), transparent 60%);
-    background-attachment: fixed;
-    font-feature-settings: 'cv11', 'ss01';
+    font-feature-settings: 'cv11', 'ss01', 'tnum';
+    font-variant-numeric: tabular-nums;
   }
 
   ::selection {
@@ -70,17 +69,24 @@
     @apply w-full border-collapse text-left text-sm;
   }
 
-  .app-table thead tr {
-    @apply border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500;
+  /* Cabecalho gruda no topo ao rolar a pagina (abaixo da barra do celular,
+     que tem 64px). A tabela nao pode estar dentro de um overflow-x: auto,
+     senao o sticky passa a valer para aquele conteiner. */
+  .app-table thead th {
+    @apply sticky top-16 z-10 border-b border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-zinc-500 lg:top-0;
   }
 
-  .app-table th,
   .app-table td {
-    @apply px-4 py-3;
+    @apply px-4 py-2.5;
   }
 
   .app-table tbody tr {
     @apply border-b border-zinc-100 transition-colors last:border-0 hover:bg-zinc-50/80;
+  }
+
+  /* Coluna de valor: a direita, sem quebrar o sinal do numero. */
+  .app-table .num {
+    @apply whitespace-nowrap text-right;
   }
 
   .tabular {

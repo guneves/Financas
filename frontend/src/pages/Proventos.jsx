@@ -29,7 +29,7 @@ import {
   SegmentedControl,
   cx,
 } from '../components/ui'
-import { formatCurrency, formatDateBR, formatUnitCurrency, getLocalDateString } from '../lib/format'
+import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString } from '../lib/format'
 
 const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos', tone: 'success' },
@@ -53,7 +53,6 @@ const ASSET_CLASS_LABELS = {
 
 const currentYear = new Date().getFullYear()
 
-const formatPercent = (value, digits = 2) => `${Number(value || 0).toFixed(digits)}%`
 
 const parseNumberInput = (value) => {
   if (value === '' || value === null || value === undefined) return null

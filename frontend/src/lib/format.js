@@ -6,25 +6,51 @@
 // O modo privado (lib/privacy.js) nao passa por aqui: os formatadores sempre
 // mostram o valor, e quem exibe um valor sensivel usa usePrivateFormatter().
 
+// Sinal de menos de verdade (U+2212): o hifen do Intl e mais curto que o "+",
+// e com numeros tabulares as colunas deixam de alinhar pelo sinal.
+const MINUS = '−'
+
+function withTrueMinus(text) {
+  return text.replace('-', MINUS)
+}
+
 export function formatCurrency(value) {
-  return new Intl.NumberFormat('pt-BR', {
+  return withTrueMinus(new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
-  }).format(Number(value || 0))
+  }).format(Number(value || 0)))
+}
+
+// Valor com sinal explicito, para listas de entradas e saidas: "+R$ 8.500,00",
+// "−R$ 1.048,22". `sign` (1, -1 ou 0) vale quando o valor vem sempre positivo
+// e o sentido esta no tipo do lancamento; zero sai sem sinal. O espaco depois
+// do "R$" e inquebravel (Intl), entao sinal e numero nunca se separam.
+export function formatSignedCurrency(value, sign) {
+  const amount = Math.abs(Number(value || 0))
+  const direction = sign ?? Math.sign(Number(value || 0))
+  const body = formatCurrency(amount)
+  if (!direction || amount === 0) return body
+  return `${direction > 0 ? '+' : MINUS}${body}`
 }
 
 // Preco unitario de ativo aceita mais casas: R$ 0,000001 e um preco valido.
 export function formatUnitCurrency(value) {
-  return new Intl.NumberFormat('pt-BR', {
+  return withTrueMinus(new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: 2,
     maximumFractionDigits: 6,
-  }).format(Number(value || 0))
+  }).format(Number(value || 0)))
 }
 
-export function formatPercent(value, digits = 2) {
-  return `${Number(value || 0).toFixed(digits)}%`
+// "12,50%", com virgula. `signed` poe "+" nos positivos (rentabilidade).
+export function formatPercent(value, digits = 2, { signed = false } = {}) {
+  const number = Number(value || 0)
+  const text = withTrueMinus(number.toLocaleString('pt-BR', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }))
+  return `${signed && number > 0 ? '+' : ''}${text}%`
 }
 
 // Data vem do backend como 'AAAA-MM-DD'. Fatiar e montar com new Date(y, m, d)

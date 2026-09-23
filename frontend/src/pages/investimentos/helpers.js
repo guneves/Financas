@@ -11,9 +11,7 @@ export function readStoredJson(key, fallback) {
   }
 }
 
-export function formatPercent(value) {
-  return `${Number(value || 0).toFixed(2)}%`
-}
+export { formatPercent } from '../../lib/format'
 
 export function formatDateTime(value) {
   if (!value) return 'Sem atualização'

@@ -14,7 +14,7 @@ import {
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
-import { formatCurrency, getLocalDateString } from '../../lib/format'
+import { formatCurrency, formatPercent, getLocalDateString } from '../../lib/format'
 import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import PortfolioOverview from './PortfolioOverview'
 import {
@@ -459,7 +459,7 @@ function ValueCell({ asset }) {
 function ProfitBadge({ value }) {
   return (
     <Badge tone={value >= 0 ? 'success' : 'danger'}>
-      {value > 0 ? '+' : ''}{value}%
+      {formatPercent(value, 2, { signed: true })}
     </Badge>
   )
 }

@@ -312,7 +312,7 @@ export function DonutChart({
                     <span className="truncate">{slice.name}</span>
                   </span>
                   <span className="flex shrink-0 items-baseline gap-2">
-                    <span className="text-xs font-semibold tabular text-zinc-400">
+                    <span className="text-xs font-semibold tabular text-zinc-500">
                       {share.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
                     </span>
                     <span className="font-semibold tabular text-zinc-950">{formatter(slice.value)}</span>

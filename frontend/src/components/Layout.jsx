@@ -47,7 +47,7 @@ function SidebarItem({ to, name, icon: Icon }) {
               isActive ? 'opacity-100' : 'opacity-0'
             )}
           />
-          <Icon className={cx('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-emerald-300' : 'text-zinc-400 group-hover:text-zinc-700')} />
+          <Icon className={cx('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-emerald-300' : 'text-zinc-500 group-hover:text-zinc-700')} />
           <span className="truncate">{name}</span>
         </>
       )}

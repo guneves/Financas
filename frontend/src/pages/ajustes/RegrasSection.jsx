@@ -125,7 +125,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
             {rules.map((rule) => (
               <div key={rule.id} className="flex flex-wrap items-center gap-3 p-3">
                 <div className="min-w-0 flex-1">
-                  <p className={cx('truncate text-sm font-semibold', rule.active ? 'text-zinc-900' : 'text-zinc-400 line-through')}>
+                  <p className={cx('truncate text-sm font-semibold', rule.active ? 'text-zinc-900' : 'text-zinc-500 line-through')}>
                     {MATCH_LABELS[rule.match_type]} “{rule.pattern}” → {rule.category}
                   </p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
