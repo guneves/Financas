@@ -4,8 +4,8 @@ import pytest
 
 
 @pytest.fixture()
-def mod(app_module):
-    return app_module
+def mod(realized_results_module):
+    return realized_results_module
 
 
 class TestRegressiveFixedIncomeTax:

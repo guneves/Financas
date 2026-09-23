@@ -37,8 +37,8 @@ def make_sale(quantity, sale_price, *, asset_class="STOCKS", fee=0, date="2026-0
 
 
 @pytest.fixture()
-def build(app_module):
-    return app_module.build_variable_realized_result
+def build(realized_results_module):
+    return realized_results_module.build_variable_realized_result
 
 
 class TestLotConsumption:

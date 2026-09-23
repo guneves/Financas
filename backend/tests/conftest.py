@@ -108,3 +108,9 @@ def prices_module(app_module):
 def fixed_income_module(app_module):
     """`backend/services/fixed_income.py` — patch aqui `fetch_bcb_series` e o `urllib`."""
     return importlib.import_module("services.fixed_income")
+
+
+@pytest.fixture(scope="session")
+def realized_results_module(app_module):
+    """`backend/services/realized_results.py` — FIFO, aliquotas e resultado realizado."""
+    return importlib.import_module("services.realized_results")
