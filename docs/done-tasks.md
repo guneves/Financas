@@ -54,6 +54,7 @@
 | UI remodel, direction C, with dark mode: tokens, shell, Início, Extrato, Cartões, then Posição/Operações/Proventos, Orçamento/Recorrentes, Importar (stepper), Ajustes; kit `SummaryPanel`, `Menu`, `Toast` | 2026-09-23 |
 | Phase 5 started: foundation modules, services and nine blueprints out of `app.py` (7,692 → 3,603 lines); URL-map test | 2026-09-23 |
 | Phase 5 finished: investments out of `app.py` into five services and three blueprints; `app.py` is 60 lines of boot | 2026-09-23 |
+| Phase 5 leftovers: the three pre-existing pyflakes warnings fixed (`create_app()` deliberately not built) | 2026-09-23 |
 
 ---
 
@@ -180,3 +181,7 @@ edit `@app.route` → `@bp.route`; suite green and one commit per step (`93fe66a
 - Tests reach moved code through fixtures `prices_module`, `fixed_income_module`,
   `realized_results_module`, `portfolio_module`; `yf` is patched in `services.prices` *and*
   `routes.investments` (the history route reads it too).
+- Leftovers, same day: removed the unused `time` import in `brapi_client.py` and the `f` prefix
+  from two strings without placeholders (`fetch_investment_rows`, a budgets test). pyflakes is
+  now clean over every tracked `.py`. `create_app()` was left out on purpose — see the known
+  limits in `next-steps.md`.

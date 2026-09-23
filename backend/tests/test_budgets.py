@@ -489,7 +489,7 @@ def test_another_users_budget_cannot_be_edited_or_deleted(client, user, other_us
         == 404
     )
     assert client.delete(f"/api/budgets/{created['id']}", headers=other_user["headers"]).status_code == 404
-    assert client.get(f"/api/budgets", headers=user["headers"], query_string={"month": "2026-09"}).get_json()[
+    assert client.get("/api/budgets", headers=user["headers"], query_string={"month": "2026-09"}).get_json()[
         "items"
     ]
 

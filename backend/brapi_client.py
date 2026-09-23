@@ -23,7 +23,6 @@ quem fala com a brapi e o backend, o frontend so ve o preco.
 import json
 import os
 import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request

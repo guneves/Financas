@@ -95,6 +95,10 @@ changed is in `docs/done-tasks.md`):
 - The `'str' object has no attribute 'get'` quote failure matches iterating a BCB error object; the
   fetch now rejects non-list payloads with the BCB's message, treats 404 "Value(s) not found" (title
   bought today) as no accrual, and splits windows over BCB's 10-year limit (406).
+- No `create_app()` factory: `app.py` builds one module-level app at import. A factory alone buys
+  little while `config.py` reads the environment at import (tests would still set `os.environ`
+  first); do it only together with moving config into the app object, and only if something needs
+  two apps in one process.
 
 ### Smaller gaps
 - [ ] Import rules: amount and account conditions on a rule. Import is capped at 2,000 rows per
@@ -106,16 +110,6 @@ changed is in `docs/done-tasks.md`):
   the invoice payment, so a purchase receipt goes on that for now.
 - Budget strip on Início: an "estourou" entry in "Precisa de você" was left out on purpose (a
   budget is a plan, not a task); open decision 1 still applies to what the strip counts as spent.
-
-### Phase 5 leftovers — backend refactor
-The split itself is done (`docs/done-tasks.md`); `app.py` is 60 lines of boot. What is left is
-optional and low value for a single-user app:
-- [ ] `create_app()` factory. On its own it buys little: `config.py` still reads the environment at
-  import, so tests would keep setting `os.environ` before importing. Worth it only together with
-  moving config into the app object — skip unless something needs two apps in one process.
-- [ ] Pre-existing pyflakes warnings, left alone under the "verbatim" rule: f-string without
-  placeholders in `services/investments.py` and `tests/test_budgets.py`, unused `time` import in
-  `brapi_client.py`.
 
 ### Frontend debt
 - [ ] Centralized server state (TanStack Query). A small `DataVersionContext` covers "+ Novo" refetch for now.

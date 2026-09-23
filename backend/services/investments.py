@@ -293,7 +293,7 @@ def get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name):
 
 
 def fetch_investment_rows(conn, current_user_id, *, investment_id=None, order_by="it.created_at", direction="ASC"):
-    query = f"""
+    query = """
         SELECT
             it.id,
             it.user_id,
