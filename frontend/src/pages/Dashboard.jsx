@@ -18,14 +18,11 @@ import {
 } from 'recharts'
 import {
   BellRing,
-  CalendarDays,
   CheckCircle2,
   ChevronRight,
   CreditCard,
-  Landmark,
   LineChart as LineChartIcon,
   ListChecks,
-  PiggyBank,
   Receipt,
   Repeat,
   Target,
@@ -44,13 +41,12 @@ import {
 } from '../components/BudgetProgress'
 import {
   AlertMessage,
+  AnimatedNumber,
   Badge,
   Button,
   DeltaBadge,
   EmptyState,
   FitValue,
-  MetricCard,
-  PageHeader,
   Panel,
   PanelHeader,
   Skeleton,
@@ -62,23 +58,15 @@ import {
   DonutChart,
   FLOW,
   LegendDot,
+  OTHER_COLOR,
   SERIES,
-  Sparkline,
   useChartAnimation,
   axisProps,
   compactAxis,
 } from '../components/charts'
-import { formatCurrency, formatDateBR, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
-import { usePrivateAxisFormatter, usePrivateFormatter } from '../lib/privacy'
-import { isInvestmentOutflow } from '../lib/transactions'
-
-const ACCOUNT_TYPE_LABELS = {
-  CHECKING: 'Conta corrente',
-  SAVINGS: 'Poupança',
-  BROKERAGE: 'Corretora',
-  CASH: 'Dinheiro',
-  OTHER: 'Outra',
-}
+import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
+import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
+import { activeAccounts, consolidatedBalance, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 
 const HISTORY_MONTHS = 12
 const INVOICE_MONTHS = 6
@@ -166,7 +154,8 @@ export default function Dashboard() {
   const [dataError, setDataError] = useState('')
   const [transactions, setTransactions] = useState([])
   const [ccExpenses, setCcExpenses] = useState([])
-  const [accounts, setAccounts] = useState([])
+  // Todas as contas, arquivadas inclusive: o consolidado soma todas.
+  const [allAccounts, setAllAccounts] = useState([])
   const [cards, setCards] = useState([])
   const [isPayingCurrentInvoice, setIsPayingCurrentInvoice] = useState(false)
   // Pagamento aguardando confirmacao no sheet: { title, description, invoices, total }.
@@ -202,11 +191,11 @@ export default function Dashboard() {
       const [transactionData, creditExpenses, accountData] = await Promise.all([
         transactionsApi.list(),
         ccExpensesApi.list(),
-        accountsApi.list(),
+        accountsApi.list({ include_archived: 1 }),
       ])
       setTransactions(transactionData || [])
       setCcExpenses(creditExpenses || [])
-      setAccounts(accountData || [])
+      setAllAccounts(accountData || [])
     } catch (error) {
       console.warn('Erro ao buscar movimentações:', error)
       setDataError(error.message || 'Não foi possível carregar movimentações e faturas.')
@@ -275,12 +264,10 @@ export default function Dashboard() {
 
   const openCcExpenses = useMemo(() => ccExpenses.filter((expense) => expense.status === 'OPEN'), [ccExpenses])
 
-  // TRANSFER nao entra: ela so move dinheiro entre contas proprias, o
-  // consolidado nao muda. O saldo de cada conta vem de /api/accounts.
-  const bankBalance = useMemo(() => transactions.reduce((acc, curr) => {
-    if (curr.type === 'TRANSFER') return acc
-    return curr.type === 'INCOME' ? acc + parseFloat(curr.amount) : acc - parseFloat(curr.amount)
-  }, 0), [transactions])
+  const accounts = useMemo(() => activeAccounts(allAccounts), [allAccounts])
+  // A soma dos saldos de /api/accounts: inclui o saldo inicial de cada conta,
+  // que a soma dos lancamentos deixava de fora (lib/transactions.js).
+  const bankBalance = useMemo(() => consolidatedBalance(allAccounts), [allAccounts])
 
   // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses. As saidas se
   // dividem em despesa e aporte: investir tira dinheiro da conta, mas nao e gasto.
@@ -288,7 +275,9 @@ export default function Dashboard() {
     const keys = Array.from({ length: HISTORY_MONTHS }, (_, index) => shiftMonth(currentKey, index - (HISTORY_MONTHS - 1)))
     const firstKey = keys[0]
     const byKey = Object.fromEntries(keys.map((key) => [key, { income: 0, expense: 0, investment: 0 }]))
-    let openingBalance = 0
+    // Saldo inicial das contas + tudo antes da janela: a curva termina no
+    // mesmo saldo do topo da pagina.
+    let openingBalance = openingBalanceTotal(allAccounts)
 
     transactions.forEach((transaction) => {
       if (transaction.type === 'TRANSFER') return
@@ -320,7 +309,7 @@ export default function Dashboard() {
         balance: Number(running.toFixed(2)),
       }
     })
-  }, [transactions, currentKey])
+  }, [transactions, allAccounts, currentKey])
 
   const flowSummary = useMemo(() => {
     const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0 || item.investment !== 0)
@@ -599,18 +588,17 @@ export default function Dashboard() {
   const totalWealth = (bankBalance || 0) + investmentsNetBalance
   const daysRemainingInMonth = getDaysRemainingInMonth()
   const dailyAvailable = (bankBalance - currentMonthInvoice) / daysRemainingInMonth
-  const previousMonthBalance = monthlyHistory[monthlyHistory.length - 2]?.balance
   const spendingVsLastMonth = percentChange(currentSpending.total, spendingPace.previousAtSameDay)
-  const maxAccountBalance = Math.max(...accounts.map((account) => Math.abs(Number(account.balance) || 0)), 1)
+  // Resultado do mes: entradas menos despesas. Aporte nao e despesa
+  // (lib/transactions.js) — aparece a parte.
+  const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, investment: 0 }
+  const monthIncome = currentMonth.income
+  const monthExpense = -currentMonth.expense
+  const monthInvested = -currentMonth.investment
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Início"
-        description="Patrimônio, saldo disponível, despesas do mês e compromissos em aberto."
-        meta={<Badge>{monthLabel(currentKey)}</Badge>}
-      />
-
+    <div className="space-y-5">
+      <h1 className="sr-only">Início</h1>
       {portfolioError ? (
         <AlertMessage tone="warning" message={`Não foi possível carregar os investimentos agora. Detalhe: ${portfolioError}`} />
       ) : null}
@@ -620,18 +608,6 @@ export default function Dashboard() {
       ) : null}
 
       {notice ? <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} /> : null}
-
-      <NeedsAttention
-        pendingRecurringCount={pendingRecurringCount}
-        onRunRecurring={handleRunRecurring}
-        isRunningRecurring={isRunningRecurring}
-        invoiceAmount={overdueTotal}
-        invoiceItemCount={overdueItemCount}
-        invoiceDetail={overdueDetail}
-        onPayInvoice={handlePayOverdueInvoices}
-        isPayingInvoice={isPayingCurrentInvoice}
-        autopayShortfalls={autopayShortfalls}
-      />
 
       <PayInvoiceSheet
         open={Boolean(payRequest)}
@@ -646,53 +622,49 @@ export default function Dashboard() {
         onConfirm={confirmPayInvoices}
       />
 
-      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <MetricCard
-          icon={Landmark}
-          tone="dark"
-          title="Patrimônio total"
-          sensitive
-          amount={totalWealth}
-          format={formatCurrency}
-          subtitle="Conta corrente + investimentos"
-          chart={<WealthSplit cash={bankBalance} investments={investmentsNetBalance} />}
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
+        <WealthHero
+          className="xl:col-span-8"
+          total={totalWealth}
+          cash={bankBalance}
+          investments={investmentsNetBalance}
+          accounts={accounts}
+          monthName={monthLabel(currentKey)}
+          income={monthIncome}
+          expense={monthExpense}
+          invested={monthInvested}
         />
-        <MetricCard
-          icon={Wallet}
-          tone={bankBalance >= 0 ? 'success' : 'danger'}
-          title="Saldo em conta"
-          sensitive
-          amount={bankBalance}
-          format={formatCurrency}
-          valueClassName={bankBalance >= 0 ? 'text-zinc-950' : 'text-rose-600'}
-          delta={<DeltaBadge value={percentChange(bankBalance, previousMonthBalance)} />}
-          subtitle="vs. fim do mês passado"
-          chart={<Sparkline data={monthlyHistory} dataKey="balance" color={SERIES[0]} formatter={privateMoney} />}
-        />
-        <MetricCard
-          icon={PiggyBank}
-          title="Investimentos"
-          sensitive
-          amount={investmentsNetBalance}
-          format={formatCurrency}
-          subtitle="Saldo líquido estimado"
-        />
-        <MetricCard
-          icon={CalendarDays}
-          tone={dailyAvailable >= 0 ? 'neutral' : 'danger'}
-          title="Disponível por dia"
-          sensitive
-          amount={dailyAvailable}
-          format={formatCurrency}
-          valueClassName={dailyAvailable >= 0 ? 'text-zinc-950' : 'text-rose-600'}
-          subtitle={`${daysRemainingInMonth} dia(s) restantes no mês`}
-          footer={(
-            <MonthProgress day={today.getDate()} daysLeft={daysRemainingInMonth} />
-          )}
-        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:col-span-4 xl:grid-cols-1">
+          <DailyTile
+            value={dailyAvailable}
+            day={today.getDate()}
+            daysLeft={daysRemainingInMonth}
+          />
+          <NextInvoiceTile
+            total={currentMonthInvoice}
+            closingDate={nextClosingDate}
+            payable={payableInvoices.length > 0}
+            label={monthLabel(nextKey)}
+          />
+        </div>
       </div>
 
-      <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
+      <NeedsAttention
+        pendingRecurringCount={pendingRecurringCount}
+        onRunRecurring={handleRunRecurring}
+        isRunningRecurring={isRunningRecurring}
+        invoiceAmount={overdueTotal}
+        invoiceItemCount={overdueItemCount}
+        invoiceDetail={overdueDetail}
+        onPayInvoice={handlePayOverdueInvoices}
+        isPayingInvoice={isPayingCurrentInvoice}
+        autopayShortfalls={autopayShortfalls}
+        budget={budget}
+        payableTotal={payableTotal}
+        onPayPayable={handlePayCurrentMonthInvoice}
+      />
+
+      <div className="stagger grid grid-cols-1 gap-5 xl:grid-cols-5">
         <Panel className="xl:col-span-3">
           <PanelHeader
             title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
@@ -727,7 +699,7 @@ export default function Dashboard() {
                       <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                       <ReferenceLine y={0} stroke={CHART.axis} />
                       <Tooltip
-                        cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                        cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
                         content={(
                           <ChartTooltip
                             absolute
@@ -744,8 +716,8 @@ export default function Dashboard() {
                         dataKey="net"
                         stroke={FLOW.net}
                         strokeWidth={2}
-                        dot={{ r: 3, fill: FLOW.net, strokeWidth: 2, stroke: '#fff' }}
-                        activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
+                        dot={{ r: 3, fill: FLOW.net, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
+                        activeDot={{ r: 5, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
                         {...chartAnimation}
                         animationBegin={160}
                       />
@@ -755,130 +727,6 @@ export default function Dashboard() {
               </>
             ) : (
               <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver entradas, despesas ou aportes lançados." />
-            )}
-          </div>
-        </Panel>
-
-        <Panel className="xl:col-span-2">
-          <PanelHeader
-            title="Evolução do saldo"
-            description="Saldo consolidado no fim de cada mês."
-            actions={<Badge tone={bankBalance >= 0 ? 'neutral' : 'danger'}>{privateMoney(bankBalance)}</Badge>}
-          />
-          <div className="p-5">
-            {flowSummary.hasData ? (
-              <div className="h-[22rem]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={monthlyHistory} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="balanceFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={SERIES[0]} stopOpacity={0.2} />
-                        <stop offset="100%" stopColor={SERIES[0]} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid vertical={false} stroke={CHART.grid} />
-                    <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={16} />
-                    <YAxis tickFormatter={privateAxis} {...axisProps} width={56} />
-                    <ReferenceLine y={0} stroke={CHART.axis} />
-                    <Tooltip
-                      cursor={{ stroke: CHART.axis }}
-                      content={(
-                        <ChartTooltip
-                          names={{ balance: 'Saldo' }}
-                          valueFormatter={privateMoney}
-                          labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
-                        />
-                      )}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="balance"
-                      stroke={SERIES[0]}
-                      strokeWidth={2}
-                      fill="url(#balanceFill)"
-                      dot={false}
-                      activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
-                      {...chartAnimation}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <EmptyState icon={LineChartIcon} title="Sem histórico" message="O saldo mês a mês aparece depois dos primeiros lançamentos." />
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      <div className="stagger grid grid-cols-1 items-start gap-6 xl:grid-cols-5">
-        <Panel className="xl:col-span-3">
-          <PanelHeader
-            title="Ritmo de gastos"
-            description="Gasto acumulado dia a dia: conta corrente e compras no cartão, contra o mês passado."
-            actions={(
-              <div className="text-right">
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Até hoje</p>
-                <div className="flex items-center justify-end gap-2">
-                  <DeltaBadge value={spendingVsLastMonth} inverse />
-                  <p className="text-lg font-bold tabular text-zinc-950">{formatCurrency(currentSpending.total)}</p>
-                </div>
-              </div>
-            )}
-          />
-          <div className="p-5">
-            {currentSpending.total > 0 || previousSpending.total > 0 ? (
-              <>
-                <div className="mb-3 flex flex-wrap gap-4">
-                  <LegendDot color={SERIES[0]} label={`Este mês (${shortMonth(currentKey)})`} shape="line" />
-                  <LegendDot color="#a1a1aa" label={`Mês passado (${shortMonth(previousKey)})`} shape="line" />
-                </div>
-                <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={spendingPace.rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                      <CartesianGrid vertical={false} stroke={CHART.grid} />
-                      <XAxis dataKey="day" {...axisProps} interval={4} />
-                      <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
-                      <ReferenceLine
-                        x={spendingPace.todayDay}
-                        stroke={CHART.axis}
-                        label={{ value: 'hoje', position: 'insideTopRight', fill: CHART.tick, fontSize: 11 }}
-                      />
-                      <Tooltip
-                        cursor={{ stroke: CHART.axis }}
-                        content={(
-                          <ChartTooltip
-                            names={{ current: 'Este mês', previous: 'Mês passado' }}
-                            labelFormatter={(day) => `Dia ${day}`}
-                          />
-                        )}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="previous"
-                        stroke="#a1a1aa"
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
-                        connectNulls={false}
-                        {...chartAnimation}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="current"
-                        stroke={SERIES[0]}
-                        strokeWidth={2.5}
-                        dot={false}
-                        activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }}
-                        connectNulls={false}
-                        {...chartAnimation}
-                        animationBegin={80}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </>
-            ) : (
-              <EmptyState icon={Receipt} title="Nenhum gasto registrado" message="O ritmo aparece com os primeiros gastos deste mês ou do anterior." />
             )}
           </div>
         </Panel>
@@ -907,39 +755,7 @@ export default function Dashboard() {
 
       <BudgetStrip budget={budget} />
 
-      {accounts.length > 0 ? (
-        <Panel className="animate-fade-up">
-          <PanelHeader
-            title={<PanelLink to="/ajustes#contas">Saldo por conta</PanelLink>}
-            description="O consolidado acima é a soma destas contas."
-            actions={<Badge>{accounts.length} conta(s)</Badge>}
-          />
-          <div className="stagger grid grid-cols-1 gap-px bg-zinc-100 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
-            {accounts.map((account) => {
-              const balance = Number(account.balance) || 0
-              return (
-                <div key={account.id} className="bg-white px-5 py-4 transition-colors hover:bg-zinc-50/70">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    {ACCOUNT_TYPE_LABELS[account.type] || account.type}
-                  </p>
-                  <p className="mt-1 font-medium text-zinc-900">{account.name}</p>
-                  <p className={cx('mt-1 text-lg font-bold tabular', balance >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
-                    {privateMoney(balance)}
-                  </p>
-                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-100">
-                    <div
-                      className={cx('bar-grow h-full rounded-full', balance >= 0 ? 'bg-emerald-500' : 'bg-rose-500')}
-                      style={{ width: `${(Math.abs(balance) / maxAccountBalance) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </Panel>
-      ) : null}
-
-      <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-5">
+      <div className="stagger grid grid-cols-1 gap-5 xl:grid-cols-5">
         <Panel className="xl:col-span-3">
           <PanelHeader
             title={<PanelLink to="/lancamentos/cartoes">Próximas faturas</PanelLink>}
@@ -961,7 +777,7 @@ export default function Dashboard() {
                       <XAxis dataKey="label" {...axisProps} />
                       <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                       <Tooltip
-                        cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                        cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
                         content={(
                           <ChartTooltip
                             names={{ value: 'Fatura' }}
@@ -971,7 +787,7 @@ export default function Dashboard() {
                       />
                       <Bar dataKey="value" maxBarSize={28} radius={[4, 4, 0, 0]} {...chartAnimation}>
                         {invoiceProjection.map((item, index) => (
-                          <Cell key={item.key} fill={index === 0 ? SERIES[1] : '#f6c3ad'} />
+                          <Cell key={item.key} fill={SERIES[1]} fillOpacity={index === 0 ? 1 : 0.35} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -1090,29 +906,246 @@ export default function Dashboard() {
           </div>
         </Panel>
       </div>
+
+      <div className="stagger grid grid-cols-1 gap-5 xl:grid-cols-5">
+        <Panel className="xl:col-span-3">
+          <PanelHeader
+            title="Ritmo de gastos"
+            description="Gasto acumulado dia a dia: conta corrente e compras no cartão, contra o mês passado."
+            actions={(
+              <div className="text-right">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Até hoje</p>
+                <div className="flex items-center justify-end gap-2">
+                  <DeltaBadge value={spendingVsLastMonth} inverse />
+                  <p className="text-lg font-bold tabular text-zinc-950">{formatCurrency(currentSpending.total)}</p>
+                </div>
+              </div>
+            )}
+          />
+          <div className="p-5">
+            {currentSpending.total > 0 || previousSpending.total > 0 ? (
+              <>
+                <div className="mb-3 flex flex-wrap gap-4">
+                  <LegendDot color={SERIES[0]} label={`Este mês (${shortMonth(currentKey)})`} shape="line" />
+                  <LegendDot color={OTHER_COLOR} label={`Mês passado (${shortMonth(previousKey)})`} shape="line" />
+                </div>
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={spendingPace.rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <CartesianGrid vertical={false} stroke={CHART.grid} />
+                      <XAxis dataKey="day" {...axisProps} interval={4} />
+                      <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
+                      <ReferenceLine
+                        x={spendingPace.todayDay}
+                        stroke={CHART.axis}
+                        label={{ value: 'hoje', position: 'insideTopRight', fill: CHART.tick, fontSize: 11 }}
+                      />
+                      <Tooltip
+                        cursor={{ stroke: CHART.axis }}
+                        content={(
+                          <ChartTooltip
+                            names={{ current: 'Este mês', previous: 'Mês passado' }}
+                            labelFormatter={(day) => `Dia ${day}`}
+                          />
+                        )}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="previous"
+                        stroke={OTHER_COLOR}
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
+                        connectNulls={false}
+                        {...chartAnimation}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="current"
+                        stroke={SERIES[0]}
+                        strokeWidth={2.5}
+                        dot={false}
+                        activeDot={{ r: 5, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
+                        connectNulls={false}
+                        {...chartAnimation}
+                        animationBegin={80}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            ) : (
+              <EmptyState icon={Receipt} title="Nenhum gasto registrado" message="O ritmo aparece com os primeiros gastos deste mês ou do anterior." />
+            )}
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-2">
+          <PanelHeader
+            title="Evolução do saldo"
+            description="Saldo consolidado no fim de cada mês."
+            actions={<Badge tone={bankBalance >= 0 ? 'neutral' : 'danger'}>{privateMoney(bankBalance)}</Badge>}
+          />
+          <div className="p-5">
+            {flowSummary.hasData ? (
+              <div className="h-[22rem]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyHistory} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="balanceFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={SERIES[0]} stopOpacity={0.2} />
+                        <stop offset="100%" stopColor={SERIES[0]} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} stroke={CHART.grid} />
+                    <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={16} />
+                    <YAxis tickFormatter={privateAxis} {...axisProps} width={56} />
+                    <ReferenceLine y={0} stroke={CHART.axis} />
+                    <Tooltip
+                      cursor={{ stroke: CHART.axis }}
+                      content={(
+                        <ChartTooltip
+                          names={{ balance: 'Saldo' }}
+                          valueFormatter={privateMoney}
+                          labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
+                        />
+                      )}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="balance"
+                      stroke={SERIES[0]}
+                      strokeWidth={2}
+                      fill="url(#balanceFill)"
+                      dot={false}
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
+                      {...chartAnimation}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <EmptyState icon={LineChartIcon} title="Sem histórico" message="O saldo mês a mês aparece depois dos primeiros lançamentos." />
+            )}
+          </div>
+        </Panel>
+      </div>
     </div>
   )
 }
 
-// Barra fina conta x investimentos dentro do card de patrimonio.
-function WealthSplit({ cash, investments }) {
+// Bloco de patrimonio (direcao C): o numero que se abre o app para ver, o
+// resultado do mes e as contas. Patrimonio, contas e investido sao saldos e
+// somem no modo privado; o resultado do mes vem dos lancamentos, que ficam
+// visiveis (lib/privacy.js).
+function WealthHero({ total, cash, investments, accounts, monthName, income, expense, invested, className = '' }) {
+  const hidden = useValuesHidden()
+  const privateMoney = usePrivateFormatter(formatCurrency)
+  const result = income - expense
   const positiveCash = Math.max(cash, 0)
   const positiveInvestments = Math.max(investments, 0)
-  const total = positiveCash + positiveInvestments
-  if (total <= 0) return null
-  const cashShare = (positiveCash / total) * 100
+  const split = positiveCash + positiveInvestments
+  const cashShare = split > 0 ? (positiveCash / split) * 100 : 0
 
   return (
-    <div className="flex h-full flex-col justify-end gap-2 px-1">
-      <div className="flex h-2 gap-0.5 overflow-hidden rounded-full">
-        <div className="bar-grow h-full rounded-l-full" style={{ width: `${cashShare}%`, backgroundColor: SERIES[0] }} />
-        <div className="bar-grow h-full flex-1 rounded-r-full" style={{ backgroundColor: SERIES[2], animationDelay: '120ms' }} />
+    <section
+      aria-labelledby="patrimonio"
+      className={cx('flex min-w-0 flex-col gap-5 rounded-[1.75rem] bg-brand p-5 text-brand-ink sm:p-8', className)}
+    >
+      <div className="flex items-center gap-3">
+        <h2 id="patrimonio" className="flex-1 text-sm font-semibold text-brand-soft">Patrimônio</h2>
+        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">{sentenceCase(monthName)}</span>
       </div>
-      <div className="flex justify-between text-xs">
-        <LegendDot color={SERIES[0]} label={`Conta ${cashShare.toFixed(0)}%`} />
-        <LegendDot color={SERIES[2]} label={`Investido ${(100 - cashShare).toFixed(0)}%`} />
+
+      <FitValue
+        measure={hidden ? MASKED_CURRENCY : formatCurrency(total)}
+        baseSize={56}
+        minSize={30}
+        className="font-extrabold tracking-tight"
+      >
+        <AnimatedNumber value={total} format={formatCurrency} masked={hidden} cacheKey="inicio|patrimonio" />
+      </FitValue>
+
+      <div className="flex flex-wrap gap-2">
+        <span className={cx('rounded-full px-3 py-1.5 text-sm font-bold tabular', result >= 0 ? 'bg-emerald-400 text-on-accent' : 'bg-rose-200 text-rose-950')}>
+          {formatSignedCurrency(result)} no mês
+        </span>
+        <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Entradas {formatCurrency(income)}</span>
+        <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Despesas {formatCurrency(expense)}</span>
+        {invested > 0 ? (
+          <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Aportes {formatCurrency(invested)}</span>
+        ) : null}
       </div>
-    </div>
+
+      {split > 0 ? (
+        <div className="space-y-2">
+          <div className="flex h-2 gap-1 overflow-hidden rounded-full" aria-hidden="true">
+            <div className="bar-grow h-full rounded-full bg-brand-soft" style={{ width: `${cashShare}%` }} />
+            <div className="bar-grow h-full flex-1 rounded-full bg-emerald-400" style={{ animationDelay: '120ms' }} />
+          </div>
+          <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm">
+            <span className="text-brand-soft">Em conta <b className="font-bold text-brand-ink tabular">{privateMoney(cash)}</b></span>
+            <span className="text-brand-soft">Investido <b className="font-bold text-brand-ink tabular">{privateMoney(investments)}</b></span>
+          </div>
+        </div>
+      ) : null}
+
+      {accounts.length > 0 ? (
+        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
+          {accounts.map((account) => {
+            const balance = Number(account.balance) || 0
+            return (
+              <li key={account.id} className="min-w-0 rounded-2xl bg-white/[0.08] px-4 py-3">
+                <p className="truncate text-xs font-medium text-brand-soft" title={account.name}>{account.name}</p>
+                <p className={cx('mt-0.5 whitespace-nowrap text-[15px] font-bold tabular', balance < 0 && 'text-rose-200')}>
+                  {privateMoney(balance)}
+                </p>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </section>
+  )
+}
+
+// "setembro de 2026" -> "Setembro de 2026" (o capitalize do CSS pega o "De").
+const sentenceCase = (text = '') => text.charAt(0).toUpperCase() + text.slice(1)
+
+function DailyTile({ value, day, daysLeft }) {
+  const privateMoney = usePrivateFormatter(formatCurrency)
+  return (
+    <Panel className="flex flex-col justify-between gap-4 p-5 sm:p-6">
+      <div>
+        <p className="text-sm font-semibold text-zinc-600">Disponível por dia</p>
+        <p className={cx('mt-1 whitespace-nowrap text-3xl font-extrabold tracking-tight tabular', value < 0 ? 'text-rose-600' : 'text-zinc-950')}>
+          {privateMoney(value)}
+        </p>
+        <p className="mt-1 text-sm text-zinc-500">Saldo menos a próxima fatura, por {daysLeft} dia(s)</p>
+      </div>
+      <MonthProgress day={day} daysLeft={daysLeft} />
+    </Panel>
+  )
+}
+
+function NextInvoiceTile({ total, closingDate, payable, label }) {
+  return (
+    <Panel as={Link} to="/lancamentos/cartoes" interactive className="flex items-center gap-4 p-5 sm:p-6">
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
+        <CreditCard className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-zinc-600">Fatura de {label}</p>
+        <p className="mt-0.5 whitespace-nowrap text-2xl font-extrabold tracking-tight tabular text-zinc-950">{formatCurrency(total)}</p>
+      </div>
+      <div className="shrink-0 text-right text-sm text-zinc-600">
+        {payable ? (
+          <Badge tone="warning">Fechada</Badge>
+        ) : closingDate ? (
+          <>fecha<br /><b className="text-zinc-950 tabular">{formatDateBR(closingDate).slice(0, 5)}</b></>
+        ) : null}
+      </div>
+    </Panel>
   )
 }
 
@@ -1137,7 +1170,7 @@ function CategoryList({ items }) {
   return (
     <ul className="stagger space-y-2">
       {sorted.map((item, index) => {
-        const color = index < 5 || sorted.length <= 6 ? SERIES[index] : '#a1a1aa'
+        const color = index < 5 || sorted.length <= 6 ? SERIES[index] : OTHER_COLOR
         const cashShare = item.value > 0 ? (item.cash / item.value) * 100 : 0
         return (
           <li key={item.name} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-zinc-50">
@@ -1275,7 +1308,9 @@ function PanelLink({ to, children }) {
   )
 }
 
-// "Precisa de voce": so aparece quando ha algo a fazer.
+// "Precisa de atencao": so aparece quando ha algo a fazer. Um cartao por
+// item, cada um com a sua acao; nenhum item e calculado aqui — todos vem do
+// que o painel ja carrega.
 function NeedsAttention({
   pendingRecurringCount,
   onRunRecurring,
@@ -1286,59 +1321,74 @@ function NeedsAttention({
   onPayInvoice,
   isPayingInvoice,
   autopayShortfalls = [],
+  budget,
+  payableTotal = 0,
+  onPayPayable,
 }) {
   // Saldo da conta (e o que falta, que o revela) somem no modo privado.
   const privateMoney = usePrivateFormatter(formatCurrency)
+  const overBudget = (budget?.items || [])
+    .filter((item) => item.status === 'OVER')
+    .sort((a, b) => (b.spent - b.available) - (a.spent - a.available))
   const hasRecurring = pendingRecurringCount > 0
   const hasInvoice = invoiceItemCount > 0 && invoiceAmount > 0
-  if (!hasRecurring && !hasInvoice && autopayShortfalls.length === 0) return null
+  const hasPayable = !hasInvoice && payableTotal > 0
+  const count = (hasRecurring ? 1 : 0) + (hasInvoice ? 1 : 0) + (hasPayable ? 1 : 0) + autopayShortfalls.length + overBudget.length
+  if (count === 0) return null
+  const categoryName = (item) => (item.parent_name ? `${item.parent_name} › ${item.category_name}` : item.category_name)
 
   return (
-    <section aria-labelledby="precisa-de-voce" className="animate-fade-up rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-      <h2 id="precisa-de-voce" className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+    <section aria-labelledby="precisa-de-atencao" className="animate-fade-up">
+      <h2 id="precisa-de-atencao" className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-600">
         <BellRing className="h-4 w-4" />
-        Precisa de você
+        Precisa de atenção · {count}
       </h2>
-      <ul className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-        {hasRecurring ? (
-          <AttentionItem
-            icon={Repeat}
-            title={`${pendingRecurringCount} ${pendingRecurringCount === 1 ? 'recorrência vencida' : 'recorrências vencidas'}`}
-            detail={(
-              <Link to="/planejamento/recorrentes" className="underline-offset-2 hover:text-emerald-700 hover:underline">
-                Ver recorrentes
-              </Link>
-            )}
-            action={(
-              <Button type="button" size="lg" icon={Repeat} loading={isRunningRecurring} onClick={onRunRecurring}>
-                Lançar
-              </Button>
-            )}
-          />
-        ) : null}
+      <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {hasInvoice ? (
           <AttentionItem
+            tone="danger"
             icon={CreditCard}
             title={`Fatura vencida: ${formatCurrency(invoiceAmount)}`}
             detail={`${invoiceDetail} · ${invoiceItemCount} lançamento(s)`}
-            action={(
-              <Button type="button" size="lg" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayInvoice}>
-                Pagar
-              </Button>
-            )}
+            action={<Button type="button" size="sm" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayInvoice}>Pagar</Button>}
+          />
+        ) : null}
+        {hasPayable ? (
+          <AttentionItem
+            tone="warning"
+            icon={CreditCard}
+            title={`Fatura fechada: ${formatCurrency(payableTotal)}`}
+            detail="O pagamento já está liberado."
+            action={<Button type="button" size="sm" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayPayable}>Pagar</Button>}
           />
         ) : null}
         {autopayShortfalls.map((entry) => (
           <AttentionItem
             key={entry.accountId}
+            tone="danger"
             icon={Wallet}
             title={`Débito automático sem saldo: faltam ${privateMoney(entry.missing)}`}
             detail={`${entry.accountName} tem ${privateMoney(entry.balance)} para ${formatCurrency(entry.total)} a debitar · o primeiro em ${formatDateBR(entry.firstDue)}`}
-            action={(
-              <Link to="/lancamentos/cartoes" className="text-sm font-semibold text-emerald-700 underline-offset-2 hover:underline">
-                Ver faturas
-              </Link>
-            )}
+            action={<AttentionLink to="/lancamentos/cartoes">Ver faturas</AttentionLink>}
+          />
+        ))}
+        {hasRecurring ? (
+          <AttentionItem
+            tone="info"
+            icon={Repeat}
+            title={`${pendingRecurringCount} ${pendingRecurringCount === 1 ? 'recorrência vencida' : 'recorrências vencidas'}`}
+            detail={<AttentionLink to="/planejamento/recorrentes">Ver recorrentes</AttentionLink>}
+            action={<Button type="button" size="sm" icon={Repeat} loading={isRunningRecurring} onClick={onRunRecurring}>Lançar</Button>}
+          />
+        ) : null}
+        {overBudget.map((item) => (
+          <AttentionItem
+            key={item.id}
+            tone="warning"
+            icon={Target}
+            title={`${categoryName(item)} passou do orçamento`}
+            detail={`${formatCurrency(item.spent)} de ${formatCurrency(item.available)}`}
+            action={<AttentionLink to="/planejamento/orcamento">Ver orçamento</AttentionLink>}
           />
         ))}
       </ul>
@@ -1346,20 +1396,33 @@ function NeedsAttention({
   )
 }
 
-function AttentionItem({ icon: Icon, title, detail, action }) {
+const attentionTones = {
+  danger: 'bg-rose-100 text-rose-700',
+  warning: 'bg-amber-100 text-amber-800',
+  info: 'bg-sky-100 text-sky-700',
+}
+
+function AttentionItem({ icon: Icon, title, detail, action, tone = 'warning' }) {
   return (
-    <li className="flex items-center justify-between gap-3 rounded-lg border border-amber-200/80 bg-white px-4 py-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-          <Icon className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-zinc-900">{title}</p>
-          <p className="mt-0.5 text-sm text-zinc-600">{detail}</p>
-        </div>
+    <li className="flex min-w-0 flex-col gap-3 rounded-[1.25rem] border border-zinc-200/60 bg-white p-4">
+      <span className={cx('flex h-9 w-9 items-center justify-center rounded-xl', attentionTones[tone])}>
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold text-zinc-950">{title}</p>
+        <div className="mt-1 text-sm text-zinc-600">{detail}</div>
       </div>
-      <div className="shrink-0">{action}</div>
+      <div>{action}</div>
     </li>
+  )
+}
+
+function AttentionLink({ to, children }) {
+  return (
+    <Link to={to} className="inline-flex min-h-9 items-center gap-1 text-sm font-bold text-emerald-700 underline-offset-2 hover:underline">
+      {children}
+      <ChevronRight className="h-4 w-4" aria-hidden="true" />
+    </Link>
   )
 }
 
