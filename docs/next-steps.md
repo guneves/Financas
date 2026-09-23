@@ -9,12 +9,19 @@
 
 ## 1. Open work, in priority order
 
-### Browser walk-through (owner) — everything below is backend-tested and `vite build` clean only
-The Chrome extension worked on 2026-09-22 (late) for clicks and DOM reads, but its screenshots timed
-out; Playwright from the npx cache covers screenshots (see the handoff). None of the items below has
-been clicked through by the owner. One pass in the real app covers all of it (what each feature
-changed is in `docs/done-tasks.md`):
-- [ ] UX reorganization (all six steps), then settle open decisions 7–8 below.
+### Browser walk-through (owner) — clicked through on scratch data, not yet on real data
+On 2026-09-23 Claude clicked through most of the list below in Chrome on a seeded scratch database
+(screenshots worked this time), plus 390/900/1100/1300 px with Playwright, and fixed what broke (see
+`docs/done-tasks.md`). Clicked through and working: eye toggle on Início/Extrato/Cartões/Posição/
+Ajustes (no reload), Cartões → Pagar sheet and its banner, the Início autopay-shortfall card,
+Extrato filters and search surviving a reload, Importar with a Latin-1 CSV and an OFX (mapping,
+statuses, override, "Criar regra", re-import = nothing new), both CSV exports (content checked, not
+opened in Excel), the Orçamento strip, rules "Aplicar" + "Recategorizar", receipts (PNG + PDF at
+once, clip on the row), light theme, phone layouts. **Not** covered: signup, Pagar from Início (no
+closed invoice on Início's side), "Abrir"/"Baixar" a receipt, Excel opening the CSV, and the motion
+pass. None of it has been done by the owner on real data. One pass in the real app covers all of it
+(what each feature changed is in `docs/done-tasks.md`):
+- [ ] UX reorganization (all six steps), then settle open decisions 7–9 below.
 - [ ] Signup with username and Ajustes → Perfil. Existing accounts have `username = NULL` and show
   "Usuário" until they pick one.
 - [ ] Eye toggle (reworked 2026-09-22, checked by script only): the page stays put — no reload, no
@@ -73,6 +80,16 @@ changed is in `docs/done-tasks.md`):
 ### UI remodel leftovers
 - [ ] `DemoDataSection` keeps its success banner (it carries a link) instead of a toast.
 - [ ] Proventos' form is still a collapsible at the top of the page rather than a sheet.
+- [ ] Found in the 2026-09-23 walk-through, not fixed (small):
+  - Saving from "+ Novo" gives no feedback outside Extrato (no toast; the sheet just closes).
+  - Início: the "Fluxo de caixa" panel stretches to the height of "Despesas por categoria", leaving
+    a large empty area under its chart.
+  - Importar: the file input is the browser's native one ("Choose File / No file chosen", in the
+    browser's language) and the file name shows twice.
+  - Cartões: paying an invoice shows a persistent green banner rather than a toast (the motion pass
+    describes it as intended — confirm), and deleting a purchase still uses `window.confirm`.
+  - Back/forward does not restore the scroll position (the page loads its data after the browser
+    tries); forward navigation now always starts at the top.
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
@@ -149,3 +166,6 @@ changed is in `docs/done-tasks.md`):
 8. **Wording and fit.** The Início cash-flow legend still says "Entradas/Saídas" (the glossary allows
    plurals for aggregates) — switch to Receitas/Despesas? The "+ Novo" type selector wraps onto two
    lines so "Investimento" stays visible — acceptable, or shorten the labels?
+9. **Privacy mode and the month's net-worth change.** With the eye on, Início still shows the
+   "+R$ X no mês" chip on the Patrimônio block (and Entradas/Despesas/Aportes, which are
+   lançamentos and stay visible by choice). The chip is a change in net worth — hide it too?

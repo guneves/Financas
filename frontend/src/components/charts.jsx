@@ -255,7 +255,10 @@ export function DonutChart({
     if (colored.length <= maxSlices) return colored
     const head = colored.slice(0, maxSlices - 1)
     const rest = colored.slice(maxSlices - 1).reduce((acc, item) => acc + item.value, 0)
-    return [...head, { name: 'Outros', value: rest, color: OTHER_COLOR }]
+    // Uma categoria de verdade chamada "Outros" (o padrao da importacao) pode
+    // estar entre as maiores: o agrupamento nao pode repetir o nome (chave).
+    const restName = head.some((item) => item.name === 'Outros') ? 'Demais' : 'Outros'
+    return [...head, { name: restName, value: rest, color: OTHER_COLOR }]
   }, [data, maxSlices])
 
   const total = slices.reduce((acc, item) => acc + item.value, 0)

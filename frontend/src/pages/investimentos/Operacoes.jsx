@@ -400,7 +400,7 @@ function movementMenuItems(onEdit, onDelete) {
 }
 
 function profitClass(value) {
-  return value >= 0 ? 'text-emerald-700' : 'text-rose-600'
+  return value > 0 ? 'text-emerald-700' : value < 0 ? 'text-rose-600' : 'text-zinc-500'
 }
 
 const COST_METHOD_LABELS = {

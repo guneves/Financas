@@ -78,7 +78,7 @@ def test_export_returns_a_csv_attachment(client, auth):
     create_transaction(client, auth)
     response = export(client, auth)
     assert response.status_code == 200
-    assert "text/csv" in response.headers["Content-Type"]
+    assert response.headers["Content-Type"] == "text/csv; charset=utf-8"
     assert "attachment" in response.headers["Content-Disposition"]
     assert ".csv" in response.headers["Content-Disposition"]
 
@@ -181,7 +181,7 @@ def test_portfolio_row_computes_the_invested_value():
 def test_portfolio_export_is_a_csv_with_the_header(client, auth):
     response = client.get("/api/investments/portfolio/export", headers=auth)
     assert response.status_code == 200
-    assert "text/csv" in response.headers["Content-Type"]
+    assert response.headers["Content-Type"] == "text/csv; charset=utf-8"
     lines = csv_lines(response)
     assert lines[0] == ";".join(export_csv.PORTFOLIO_HEADER)
 

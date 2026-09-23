@@ -224,7 +224,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
           </Button>
         ) : null}
       />
-      <div className="space-y-4">
+      <div className="space-y-4 p-5">
         <AlertMessage message={error} onDismiss={() => setError('')} />
 
         {loading ? (

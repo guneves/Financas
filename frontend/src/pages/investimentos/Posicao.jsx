@@ -581,10 +581,11 @@ function NetValue({ asset, money }) {
   )
 }
 
-// Rentabilidade: a cor segue ganho/perda.
+// Rentabilidade: a cor segue ganho/perda; zero fica neutro.
 function Profit({ value }) {
+  const tone = value > 0 ? 'text-emerald-700' : value < 0 ? 'text-rose-600' : 'text-zinc-500'
   return (
-    <span className={cx('font-semibold', value >= 0 ? 'text-emerald-700' : 'text-rose-600')}>
+    <span className={cx('font-semibold', tone)}>
       {formatPercent(value, 2, { signed: true })}
     </span>
   )

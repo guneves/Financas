@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Check, Download, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { transactionsApi } from '../../lib/dataApi'
@@ -136,7 +136,23 @@ function originLabel(transaction) {
 // Linhas por vez: 800+ lancamentos de uma vez davam uma pagina de 54 mil px.
 const PAGE_SIZE = 100
 
+// A coluna Conta so existe a partir de xl. Um <col> com `hidden` nao sai da
+// tabela (table-fixed), e o colSpan do dia criava uma coluna fantasma entre
+// md e xl: cabecalho curto e total do dia fora da coluna Valor.
+const XL_QUERY = '(min-width: 1280px)'
+
+function subscribeXl(onChange) {
+  const media = window.matchMedia(XL_QUERY)
+  media.addEventListener('change', onChange)
+  return () => media.removeEventListener('change', onChange)
+}
+
+function useIsXl() {
+  return useSyncExternalStore(subscribeXl, () => window.matchMedia(XL_QUERY).matches, () => true)
+}
+
 export default function Extrato() {
+  const showAccount = useIsXl()
   const { openNewEntry } = useNewEntry()
   const {
     dataError,
@@ -520,7 +536,7 @@ export default function Extrato() {
             <div className="hidden md:block">
               <table className="app-table table-fixed">
                 <colgroup>
-                  <col className="hidden w-[18%] xl:table-column" />
+                  {showAccount ? <col className="w-[18%]" /> : null}
                   <col className="w-[18%]" />
                   <col />
                   <col className="w-40" />
@@ -528,7 +544,7 @@ export default function Extrato() {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th className="hidden xl:table-cell">Conta</th>
+                    {showAccount ? <th>Conta</th> : null}
                     <th>Categoria</th>
                     <th>Descrição</th>
                     <th className="text-right">Valor</th>
@@ -538,7 +554,7 @@ export default function Extrato() {
                 {visibleDays.map((group) => (
                   <tbody key={group.date}>
                     <tr className="hover:bg-transparent">
-                      <th colSpan={5} scope="colgroup" className="bg-zinc-50/70 !py-2">
+                      <th colSpan={showAccount ? 5 : 4} scope="colgroup" className="bg-zinc-50/70 !py-2">
                         <div className="flex items-baseline justify-between gap-4">
                           <span className="text-sm font-bold text-zinc-700 first-letter:uppercase">{dayLabel(group.date)}</span>
                           <span className="flex items-baseline">
@@ -554,7 +570,7 @@ export default function Extrato() {
                         const controls = editControls(transaction)
                         return (
                           <tr key={transaction.id} className="bg-zinc-50">
-                            <td className="hidden xl:table-cell">{controls.account}</td>
+                            {showAccount ? <td>{controls.account}</td> : null}
                             <td className="space-y-2">{controls.category}{controls.type}</td>
                             <td className="space-y-2">{controls.date}{controls.description}</td>
                             <td>{controls.amount}</td>
@@ -568,7 +584,7 @@ export default function Extrato() {
                       const account = accountLabel(transaction)
                       return (
                         <tr key={transaction.id} className={cx('group', arrived.has(transaction.id) && 'animate-flash-emerald')}>
-                          <td className="hidden truncate text-zinc-600 xl:table-cell" title={account}>{account}</td>
+                          {showAccount ? <td className="truncate text-zinc-600" title={account}>{account}</td> : null}
                           <td className="truncate font-medium text-zinc-800" title={transaction.category}>{transaction.category}</td>
                           <td>
                             <div className="flex min-w-0 items-center gap-2">

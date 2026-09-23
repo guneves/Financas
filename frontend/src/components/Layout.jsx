@@ -1,6 +1,6 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom'
 import { Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun } from 'lucide-react'
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
 import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
@@ -169,6 +169,14 @@ export default function Layout() {
     }
   }
 
+  // Tela nova comeca do topo: sem isto a janela guardava a rolagem da tela
+  // anterior. Voltar/avancar (POP) e link com #ancora ficam com o navegador.
+  const navigationType = useNavigationType()
+  useLayoutEffect(() => {
+    if (navigationType !== 'POP' && !location.hash) window.scrollTo(0, 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname])
+
   // "+ Novo" (docs/ux-reorganization.md D5): o sheet e o modal de investimento
   // moram aqui, fora das paginas. Cada gravacao bem-sucedida incrementa
   // dataVersion, e as paginas montadas recarregam (useDataVersion()).
@@ -226,10 +234,11 @@ export default function Layout() {
       <div className="min-h-screen text-zinc-950">
         {/* Desktop: uma faixa so, fixa no topo — marca, secoes, e a direita
             tema, olho, conta e "+ Novo". A altura (h-[4.5rem]) e o top do
-            cabecalho das tabelas em index.css. */}
+            cabecalho das tabelas em index.css. Entre 1024 e ~1110 px a faixa
+            nao cabe com a marca em w-44 e folga larga: "+ Novo" saia da tela. */}
         <header className="sticky top-0 z-30 hidden border-b border-zinc-200/70 bg-zinc-50/90 backdrop-blur lg:block">
-          <div className="mx-auto flex h-[4.5rem] w-full max-w-[1500px] items-center gap-4 px-8">
-            <div className="w-44 shrink-0">
+          <div className="mx-auto flex h-[4.5rem] w-full max-w-[1500px] items-center gap-3 px-6 xl:gap-4 xl:px-8">
+            <div className="shrink-0 xl:w-44">
               <BrandMark />
             </div>
             <nav aria-label="Seções" className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1">
@@ -270,7 +279,7 @@ export default function Layout() {
           </div>
         </header>
 
-        <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:py-8">
+        <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:py-8 xl:px-8">
           {section?.tabs.length ? (
             <Tabs items={section.tabs} className="mb-5" />
           ) : null}

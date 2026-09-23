@@ -55,6 +55,7 @@
 | Phase 5 started: foundation modules, services and nine blueprints out of `app.py` (7,692 → 3,603 lines); URL-map test | 2026-09-23 |
 | Phase 5 finished: investments out of `app.py` into five services and three blueprints; `app.py` is 60 lines of boot | 2026-09-23 |
 | Phase 5 leftovers: the three pre-existing pyflakes warnings fixed (`create_app()` deliberately not built) | 2026-09-23 |
+| Browser walk-through on scratch data (Chrome + Playwright): six bugs fixed — OFX after CSV read as CSV, Extrato columns misaligned below `xl`, header clipping "+ Novo" at 1024–1110 px, no scroll-to-top between screens, duplicate "Outros" donut slice, 0% return shown green; plus Regras padding and a doubled CSV charset | 2026-09-23 |
 
 ---
 
@@ -185,3 +186,23 @@ edit `@app.route` → `@bp.route`; suite green and one commit per step (`93fe66a
   from two strings without placeholders (`fetch_investment_rows`, a budgets test). pyflakes is
   now clean over every tracked `.py`. `create_app()` was left out on purpose — see the known
   limits in `next-steps.md`.
+
+### Browser walk-through on scratch data — 2026-09-23
+Seeded scratch DB (`seed_three_years_mock`, scale 0.5) on :5002/:5175; the real `finance.db` was not
+touched. What was clicked through is listed at the top of `next-steps.md`. Fixes:
+- **Importar:** `runPreview` read `file?.name` from the render *before* `setFile`, so a second file
+  was previewed under the first file's name — an `.ofx` picked after a `.csv` went through the CSV
+  parser (17 "lines", 15 errors). `handleFile` now passes `picked.name`.
+- **Extrato between `md` and `xl`:** `<col className="hidden …">` does not remove a column from a
+  `table-fixed` table, and the day row's `colSpan={5}` added a phantom column — header cut short and
+  the day total outside the Valor column. The Conta column is now rendered only at `xl`
+  (`useIsXl()`, `matchMedia` through `useSyncExternalStore`) and the colSpan follows it.
+- **Header 1024–1110 px:** brand `w-44` + `px-8`/`gap-4` did not fit; "+ Novo" was cut off (79 px at
+  1024). Below `xl` the brand takes its natural width, `gap-3 px-6`; `main` uses the same gutter.
+- **Scroll between screens:** nothing reset it, so a new screen opened at the old scroll offset.
+  `Layout` scrolls to the top on a new pathname, except on back/forward and `#anchor` links.
+- **Donut:** a real category named "Outros" (the importer's default) collided with the grouped
+  "Outros" slice (duplicate React key, two identical legend entries). The bucket is "Demais" then.
+- **Rentabilidade 0%** was green; now neutral in Posição and Operações (green means gain).
+- Ajustes → Regras had no panel padding; CSV exports sent `text/csv; charset=utf-8; charset=utf-8`
+  (Flask appends the charset itself) — tests now assert the exact header.

@@ -138,7 +138,9 @@ export default function Importar() {
     }
   }, [])
 
-  const runPreview = async (nextContent, nextOptions = options, nextMapping = mapping, nextAccountId = accountId) => {
+  // `filename` vem explicito de handleFile: ali `file` ainda e o arquivo
+  // anterior (setFile so vale no proximo render), e o nome decide CSV x OFX.
+  const runPreview = async (nextContent, nextOptions = options, nextMapping = mapping, nextAccountId = accountId, filename = file?.name) => {
     if (!nextContent) return
     setParsing(true)
     setError('')
@@ -146,7 +148,7 @@ export default function Importar() {
     try {
       const body = await importApi.preview({
         content: nextContent,
-        filename: file?.name,
+        filename,
         account_id: nextAccountId || undefined,
         mapping: Object.keys(nextMapping).length ? nextMapping : undefined,
         delimiter: nextOptions.delimiter || undefined,
@@ -178,7 +180,7 @@ export default function Importar() {
     setMapping({})
     const text = await readFileText(picked)
     setContent(text)
-    await runPreview(text, options, {}, accountId)
+    await runPreview(text, options, {}, accountId, picked.name)
   }
 
   const handleOptionChange = (patch) => {

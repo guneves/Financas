@@ -10,7 +10,8 @@ def csv_response(text, filename):
     do arquivo; o cliente busca com o Bearer no cabecalho, entao o download nao
     pode ser um link simples.
     """
-    response = Response(text, mimetype="text/csv; charset=utf-8")
+    # mimetype sem charset: o Flask ja acrescenta "; charset=utf-8" a text/*.
+    response = Response(text, mimetype="text/csv")
     response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
     return response
