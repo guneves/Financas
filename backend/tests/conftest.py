@@ -90,3 +90,9 @@ def auth(user):
 def db_module(app_module):
     """`backend/db.py` — conexao, migrations e backups. Patch aqui o que ele usa."""
     return importlib.import_module("db")
+
+
+@pytest.fixture(scope="session")
+def invoices_module(app_module):
+    """`backend/services/invoices.py` — regras de fatura e o relogio `local_today`."""
+    return importlib.import_module("services.invoices")

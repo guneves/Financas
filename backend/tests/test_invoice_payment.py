@@ -8,16 +8,18 @@ that its total can still change, so every path that marks it PAID refuses.
 With a debit account set on the card, each invoice is paid by itself on its due
 date, from that account, the first time the app reads its data on or after it.
 
-The clock is frozen through `app.local_today`.
+The clock is frozen through `local_today`, in `services/invoices.py` and in
+`routes/cards.py` — the two modules that call it.
 """
 
+import importlib
 from datetime import date, timedelta
 
 import pytest
 
 
 @pytest.fixture()
-def today(app_module, monkeypatch):
+def today(invoices_module, monkeypatch):
     """Set the app's "today": `today.set(date(...))`."""
 
     class Clock:
@@ -27,7 +29,8 @@ def today(app_module, monkeypatch):
             self.value = value
 
     clock = Clock()
-    monkeypatch.setattr(app_module, "local_today", lambda: clock.value)
+    for module in (invoices_module, importlib.import_module("routes.cards")):
+        monkeypatch.setattr(module, "local_today", lambda: clock.value)
     return clock
 
 
@@ -106,20 +109,20 @@ class TestClosingDate:
             (10, 10, (3, 2026), date(2026, 2, 10)),    # same day counts as "after"
         ],
     )
-    def test_closing_date(self, app_module, due_day, closing_day, invoice, expected):
-        assert app_module.invoice_closing_date(*invoice, due_day, closing_day) == expected
+    def test_closing_date(self, invoices_module, due_day, closing_day, invoice, expected):
+        assert invoices_module.invoice_closing_date(*invoice, due_day, closing_day) == expected
 
     @pytest.mark.parametrize("due_day, closing_day", [(10, 3), (5, 25), (15, 8), (1, 24)])
-    def test_matches_the_purchase_rule(self, app_module, due_day, closing_day):
+    def test_matches_the_purchase_rule(self, invoices_module, due_day, closing_day):
         """A purchase always lands in an invoice that has not closed yet, and the
         invoice before it had already closed on the purchase day."""
         day = date(2026, 1, 1)
         while day < date(2027, 1, 1):
-            start = app_module.compute_invoice_start(day, due_day, closing_day)
+            start = invoices_module.compute_invoice_start(day, due_day, closing_day)
             month, year = start["invoice_month"], start["invoice_year"]
-            assert app_module.invoice_closing_date(month, year, due_day, closing_day) > day
-            prev_month, prev_year = app_module.add_invoice_months(month, year, -1)
-            assert app_module.invoice_closing_date(prev_month, prev_year, due_day, closing_day) <= day
+            assert invoices_module.invoice_closing_date(month, year, due_day, closing_day) > day
+            prev_month, prev_year = invoices_module.add_invoice_months(month, year, -1)
+            assert invoices_module.invoice_closing_date(prev_month, prev_year, due_day, closing_day) <= day
             day += timedelta(days=1)
 
     def test_lines_carry_the_invoice_dates(self, client, auth, today):

@@ -49,85 +49,85 @@ def create_purchase(client, auth, card, **overrides):
 
 # --- compute_invoice_start ---------------------------------------------------
 
-def test_purchase_before_closing_stays_in_the_current_invoice(app_module):
-    assert app_module.compute_invoice_start("2026-03-01", due_day=10, closing_day=3) == {
+def test_purchase_before_closing_stays_in_the_current_invoice(invoices_module):
+    assert invoices_module.compute_invoice_start("2026-03-01", due_day=10, closing_day=3) == {
         "invoice_month": 3,
         "invoice_year": 2026,
     }
 
 
-def test_purchase_on_closing_day_rolls_to_the_next_invoice(app_module):
-    assert app_module.compute_invoice_start("2026-03-03", due_day=10, closing_day=3) == {
+def test_purchase_on_closing_day_rolls_to_the_next_invoice(invoices_module):
+    assert invoices_module.compute_invoice_start("2026-03-03", due_day=10, closing_day=3) == {
         "invoice_month": 4,
         "invoice_year": 2026,
     }
 
 
-def test_purchase_after_closing_rolls_to_the_next_invoice(app_module):
-    assert app_module.compute_invoice_start("2026-03-20", due_day=10, closing_day=3) == {
+def test_purchase_after_closing_rolls_to_the_next_invoice(invoices_module):
+    assert invoices_module.compute_invoice_start("2026-03-20", due_day=10, closing_day=3) == {
         "invoice_month": 4,
         "invoice_year": 2026,
     }
 
 
-def test_december_purchase_rolls_into_january_of_the_next_year(app_module):
-    assert app_module.compute_invoice_start("2026-12-20", due_day=10, closing_day=3) == {
+def test_december_purchase_rolls_into_january_of_the_next_year(invoices_module):
+    assert invoices_module.compute_invoice_start("2026-12-20", due_day=10, closing_day=3) == {
         "invoice_month": 1,
         "invoice_year": 2027,
     }
 
 
-def test_closing_after_due_shifts_the_cycle_one_month_forward(app_module):
+def test_closing_after_due_shifts_the_cycle_one_month_forward(invoices_module):
     """Fechamento depois do vencimento: o ciclo ja esta deslocado."""
-    assert app_module.compute_invoice_start("2026-03-10", due_day=5, closing_day=28) == {
+    assert invoices_module.compute_invoice_start("2026-03-10", due_day=5, closing_day=28) == {
         "invoice_month": 4,
         "invoice_year": 2026,
     }
 
 
-def test_closing_after_due_and_purchase_past_closing_skips_two_months(app_module):
-    assert app_module.compute_invoice_start("2026-03-28", due_day=5, closing_day=28) == {
+def test_closing_after_due_and_purchase_past_closing_skips_two_months(invoices_module):
+    assert invoices_module.compute_invoice_start("2026-03-28", due_day=5, closing_day=28) == {
         "invoice_month": 5,
         "invoice_year": 2026,
     }
 
 
-def test_missing_closing_day_falls_back_to_seven_days_before_due(app_module):
-    assert app_module.default_closing_day(10) == 3
-    assert app_module.compute_invoice_start("2026-03-01", due_day=10, closing_day=None) == {
+def test_missing_closing_day_falls_back_to_seven_days_before_due(invoices_module):
+    assert invoices_module.default_closing_day(10) == 3
+    assert invoices_module.compute_invoice_start("2026-03-01", due_day=10, closing_day=None) == {
         "invoice_month": 3,
         "invoice_year": 2026,
     }
 
 
-def test_missing_closing_day_wraps_when_due_day_is_early(app_module):
+def test_missing_closing_day_wraps_when_due_day_is_early(invoices_module):
     """Vencimento no dia 3: o fechamento presumido cai no mes anterior, dia 26."""
-    assert app_module.default_closing_day(3) == 26
+    assert invoices_module.default_closing_day(3) == 26
 
 
-def test_add_invoice_months_normalizes_the_year(app_module):
-    assert app_module.add_invoice_months(11, 2026, 3) == (2, 2027)
-    assert app_module.add_invoice_months(1, 2026, 12) == (1, 2027)
-    assert app_module.add_invoice_months(12, 2026, 0) == (12, 2026)
+def test_add_invoice_months_normalizes_the_year(invoices_module):
+    assert invoices_module.add_invoice_months(11, 2026, 3) == (2, 2027)
+    assert invoices_module.add_invoice_months(1, 2026, 12) == (1, 2027)
+    assert invoices_module.add_invoice_months(12, 2026, 0) == (12, 2026)
 
 
 # --- split_installments ------------------------------------------------------
 
-def test_installments_divide_exactly_when_they_can(app_module):
-    assert app_module.split_installments(300.0, 3) == [100.0, 100.0, 100.0]
+def test_installments_divide_exactly_when_they_can(invoices_module):
+    assert invoices_module.split_installments(300.0, 3) == [100.0, 100.0, 100.0]
 
 
-def test_installment_remainder_goes_to_the_first_installments(app_module):
-    parcels = app_module.split_installments(100.0, 3)
+def test_installment_remainder_goes_to_the_first_installments(invoices_module):
+    parcels = invoices_module.split_installments(100.0, 3)
     assert parcels == [33.34, 33.33, 33.33]
-    assert app_module.rounded_money(sum(parcels)) == 100.0
+    assert invoices_module.rounded_money(sum(parcels)) == 100.0
 
 
-def test_installments_never_lose_a_cent(app_module):
+def test_installments_never_lose_a_cent(invoices_module):
     for total, count in ((0.01, 1), (10.0, 7), (1234.56, 12), (99.99, 6)):
-        parcels = app_module.split_installments(total, count)
+        parcels = invoices_module.split_installments(total, count)
         assert len(parcels) == count
-        assert app_module.rounded_money(sum(parcels)) == app_module.rounded_money(total)
+        assert invoices_module.rounded_money(sum(parcels)) == invoices_module.rounded_money(total)
 
 
 # --- POST /api/cc-expenses/purchases ----------------------------------------
