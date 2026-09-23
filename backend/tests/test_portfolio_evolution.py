@@ -11,8 +11,10 @@ import pytest
 
 
 @pytest.fixture()
-def no_market(app_module, monkeypatch):
+def no_market(app_module, prices_module, monkeypatch):
+    # A rota le `yf` para decidir se busca historico; o download tambem. Os dois.
     monkeypatch.setattr(app_module, "yf", None)
+    monkeypatch.setattr(prices_module, "yf", None)
     return app_module
 
 

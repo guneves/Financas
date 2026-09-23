@@ -96,3 +96,9 @@ def db_module(app_module):
 def invoices_module(app_module):
     """`backend/services/invoices.py` — regras de fatura e o relogio `local_today`."""
     return importlib.import_module("services.invoices")
+
+
+@pytest.fixture(scope="session")
+def prices_module(app_module):
+    """`backend/services/prices.py` — cotacoes. Patch aqui `yf` e `download_close_prices`."""
+    return importlib.import_module("services.prices")
