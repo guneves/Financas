@@ -463,19 +463,27 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
 
 function MovementCard({ mov, info, onEdit, onDelete }) {
   return (
-    <li className="space-y-3 px-4 py-4">
+    <li className="space-y-2 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-semibold text-zinc-950">{mov.ticker_or_name}</p>
-          <p className="text-xs text-zinc-600">{getClassLabel(mov.asset_class)} · {info.dateLabel}</p>
+          <p className="text-xs text-zinc-500">{getClassLabel(mov.asset_class)} · {info.dateLabel}</p>
         </div>
-        <p className="shrink-0 font-semibold tabular text-zinc-950">{formatCurrency(info.totalValue)}</p>
+        <p className="shrink-0 font-semibold text-zinc-950">{formatCurrency(info.totalValue)}</p>
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-        <span className="font-medium text-zinc-800">{info.kindLabel}</span>
-        <span>a {formatCurrency(info.unitPrice)}</span>
-        {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
-        {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
+      {/* Acoes na mesma linha da operacao: uma fileira so para dois botoes
+          dobrava a altura do cartao. */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-600">
+          <span className="font-medium text-zinc-800">{info.kindLabel}</span>
+          <span>a {formatCurrency(info.unitPrice)}</span>
+          {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
+          {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <IconButton label="Editar operação" icon={Pencil} onClick={onEdit} />
+          <IconButton label="Excluir apenas esta operação" icon={Trash2} variant="danger" onClick={onDelete} />
+        </div>
       </div>
       {info.hasResult ? (
         <div className="grid grid-cols-2 gap-3 rounded-lg bg-zinc-50 px-3 py-2 text-sm tabular">
@@ -493,10 +501,6 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
           </div>
         </div>
       ) : null}
-      <div className="flex justify-end gap-2">
-        <IconButton label="Editar operação" icon={Pencil} onClick={onEdit} />
-        <IconButton label="Excluir apenas esta operação" icon={Trash2} variant="danger" onClick={onDelete} />
-      </div>
     </li>
   )
 }
