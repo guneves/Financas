@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Info,
   Loader2,
+  MoreHorizontal,
   X,
 } from 'lucide-react'
 import { MASKED_CURRENCY, useValuesHidden } from '../lib/privacy'
@@ -139,6 +140,127 @@ export function IconButton({ label, icon: Icon, className = '', variant = 'secon
     >
       <Icon className="h-4 w-4" />
     </button>
+  )
+}
+
+// Menu "⋯" de linha: junta acoes raras (excluir, editar) atras de um botao so.
+// items: [{ label, icon, onSelect, tone: 'danger' }]. Vai para document.body
+// via portal, com posicao fixa medida no botao: dentro de um Expand ou de um
+// painel com overflow cortado ele ficaria escondido. Abre para cima quando nao
+// cabe embaixo. Fecha com Esc (foco volta ao botao), clique fora, rolagem ou
+// ao escolher; setas navegam entre os itens.
+export function Menu({ label = 'Mais ações', items, size = 'sm', className = '' }) {
+  const [position, setPosition] = useState(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+  const open = position !== null
+
+  const close = (restoreFocus = false) => {
+    setPosition(null)
+    if (restoreFocus) buttonRef.current?.focus()
+  }
+
+  const toggle = () => {
+    if (open) {
+      close()
+      return
+    }
+    const rect = buttonRef.current.getBoundingClientRect()
+    const estimatedHeight = items.length * 44 + 12
+    const up = rect.bottom + estimatedHeight + 8 > window.innerHeight && rect.top > estimatedHeight + 8
+    setPosition({
+      right: Math.max(8, window.innerWidth - rect.right),
+      ...(up ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+    })
+  }
+
+  useEffect(() => {
+    if (!open) return undefined
+    menuRef.current?.querySelector('[role="menuitem"]')?.focus()
+    const onPointer = (event) => {
+      if (!menuRef.current?.contains(event.target) && !buttonRef.current?.contains(event.target)) close()
+    }
+    const onKey = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        close(true)
+        return
+      }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      event.preventDefault()
+      const options = [...(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])]
+      const index = options.indexOf(document.activeElement)
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      options[(index + step + options.length) % options.length]?.focus()
+    }
+    const onScroll = () => close()
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={label}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={toggle}
+        className={cx(
+          'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition active:scale-95',
+          iconButtonSizes[size],
+          buttonVariants.secondary,
+          open && 'bg-zinc-100',
+          className
+        )}
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open ? createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={label}
+          style={position}
+          className="fixed z-50 min-w-[12rem] animate-slide-down rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-lift"
+        >
+          {items.map((item) => {
+            const ItemIcon = item.icon
+            return (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close()
+                  item.onSelect()
+                }}
+                className={cx(
+                  'flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium outline-none lg:h-10',
+                  item.tone === 'danger'
+                    ? 'text-rose-600 hover:bg-rose-50 focus-visible:bg-rose-50'
+                    : 'text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950 focus-visible:bg-zinc-100'
+                )}
+              >
+                {ItemIcon ? <ItemIcon className="h-4 w-4 shrink-0" /> : null}
+                {item.label}
+              </button>
+            )
+          })}
+        </div>,
+        document.body
+      ) : null}
+    </>
   )
 }
 

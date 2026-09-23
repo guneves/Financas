@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle, ChevronDown, CreditCard, Plus, Receipt, Trash2, Wallet } from 'lucide-react'
+import { CheckCircle, ChevronDown, CreditCard, Plus, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ccExpensesApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
@@ -9,14 +9,12 @@ import {
   Button,
   EmptyState,
   Expand,
-  FitValue,
-  IconButton,
+  Menu,
   PageHeader,
   Panel,
   cx,
 } from '../../components/ui'
 import { formatCurrency } from '../../lib/format'
-import { usePrivateFormatter } from '../../lib/privacy'
 import {
   formatDateBR,
   formatInvoiceLabel,
@@ -32,31 +30,7 @@ function invoiceDueDate(invoice, dueDay) {
   return new Date(invoice.invoiceYear, invoice.invoiceMonth - 1, dueDay || 1)
 }
 
-function SummaryStat({ icon: Icon, label, value, hint, tone = 'neutral' }) {
-  const toneClasses = {
-    neutral: 'bg-zinc-100 text-zinc-700',
-    success: 'bg-emerald-100 text-emerald-700',
-    info: 'bg-sky-100 text-sky-700',
-    danger: 'bg-rose-100 text-rose-700',
-  }
-
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 shadow-card">
-      <div className={cx('hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:flex', toneClasses[tone] || toneClasses.neutral)}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold uppercase leading-4 tracking-wide text-zinc-500">{label}</p>
-        <FitValue measure={value} baseSize={18} minSize={13} className="mt-0.5 font-bold text-zinc-950">{value}</FitValue>
-        {hint ? <p className="truncate text-xs text-zinc-600">{hint}</p> : null}
-      </div>
-    </div>
-  )
-}
-
 export default function Cartoes() {
-  // Saldos da conta somem no modo privado; totais de cartao ficam.
-  const privateMoney = usePrivateFormatter(formatCurrency)
   const { openNewEntry } = useNewEntry()
   const {
     dataError,
@@ -78,26 +52,8 @@ export default function Cartoes() {
   const [payNotice, setPayNotice] = useState('')
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
-
-  // Portado de Carteira.jsx (walletSummary). O saldo e o mesmo do cabecalho
-  // (lista completa, TRANSFER fora). ccExpenses ja vem so com status OPEN.
-  const walletSummary = useMemo(() => {
-    const today = getNow()
-    const currentMonth = today.getMonth() + 1
-    const currentYear = today.getFullYear()
-
-    const openCreditTotal = ccExpenses.reduce((acc, expense) => acc + Number(expense.amount || 0), 0)
-    const currentInvoiceTotal = ccExpenses
-      .filter((expense) => expense.invoice_month === currentMonth && expense.invoice_year === currentYear)
-      .reduce((acc, expense) => acc + Number(expense.amount || 0), 0)
-
-    return {
-      openCreditTotal,
-      currentInvoiceTotal,
-      projectedBalance: balance - openCreditTotal,
-      availableAfterCurrentInvoice: balance - currentInvoiceTotal,
-    }
-  }, [balance, ccExpenses])
+  // Cartoes com as faturas futuras desdobradas, por card_id.
+  const [showFuture, setShowFuture] = useState({})
 
   const openInvoicesByCard = useMemo(() => {
     const groupedByCard = ccExpenses.reduce((acc, expense) => {
@@ -276,10 +232,14 @@ export default function Cartoes() {
     return <Badge>Aberta</Badge>
   }
 
-  // Por que o botao Pagar esta (ou nao) liberado, numa linha.
-  const paymentHint = (invoice, cardGroup) => {
+  // Por que o botao Pagar esta (ou nao) ali, numa linha. Numa fatura futura
+  // basta a data do fechamento; o "liberado depois" ja esta dito na primeira.
+  const paymentHint = (invoice, cardGroup, future = false) => {
     if (!invoice.closed) {
-      return invoice.closingDate ? `Fecha em ${formatDateBR(invoice.closingDate)} · pagamento liberado depois` : 'Pagamento liberado após o fechamento'
+      if (!invoice.closingDate) return 'Pagamento liberado após o fechamento'
+      return future
+        ? `Fecha em ${formatDateBR(invoice.closingDate)}`
+        : `Fecha em ${formatDateBR(invoice.closingDate)} · pagamento liberado depois`
     }
     if (cardGroup.autopayAccountId && invoice.dueDate) {
       return `Débito automático em ${formatDateBR(invoice.dueDate)}`
@@ -287,30 +247,106 @@ export default function Cartoes() {
     return null
   }
 
-  const headerActions = nearestInvoice ? (
+  const openCreditTotal = openInvoicesByCard.reduce(
+    (acc, cardGroup) => acc + cardGroup.invoices.reduce((sum, invoice) => sum + invoice.total, 0),
+    0
+  )
+
+  // "Pagar fatura" no cabecalho so quando a fatura mais proxima pode ser paga;
+  // um botao cinza ali so repetia "ainda nao".
+  const canPayNearest = Boolean(nearestInvoice?.invoice.closed)
+  const headerActions = (
     <>
       <Button type="button" variant="secondary" icon={Plus} onClick={() => openNewEntry('CARD')}>Nova compra</Button>
-      <Button
-        type="button"
-        icon={CheckCircle}
-        loading={saving}
-        disabled={!nearestInvoice.invoice.closed}
-        title={nearestInvoice.invoice.closed ? undefined : paymentHint(nearestInvoice.invoice, nearestInvoice.cardGroup)}
-        onClick={() => handlePayInvoice(nearestInvoice.invoice, nearestInvoice.cardGroup)}
-      >
-        Pagar fatura
-      </Button>
+      {canPayNearest ? (
+        <Button
+          type="button"
+          icon={CheckCircle}
+          loading={saving}
+          onClick={() => handlePayInvoice(nearestInvoice.invoice, nearestInvoice.cardGroup)}
+        >
+          Pagar fatura
+        </Button>
+      ) : null}
     </>
-  ) : (
-    <Button type="button" variant="secondary" icon={Plus} onClick={() => openNewEntry('CARD')}>Nova compra</Button>
   )
+
+  const renderInvoice = (invoice, cardGroup, { future = false } = {}) => {
+    const key = `${cardGroup.cardId}|${invoice.invoiceKey}`
+    const expanded = isInvoiceExpanded(key)
+    const isNearest = key === nearestInvoice?.key
+    const hint = paymentHint(invoice, cardGroup, future)
+
+    return (
+      <div key={invoice.invoiceKey}>
+        <div className="flex items-center gap-3 px-5 py-2">
+          <button
+            type="button"
+            onClick={() => toggleInvoice(key)}
+            aria-expanded={expanded}
+            className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left"
+          >
+            <ChevronDown className={cx('h-5 w-5 shrink-0 text-zinc-500 transition-transform', expanded && 'rotate-180')} />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p className="font-semibold text-zinc-950">{formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
+                {future ? null : getInvoiceStatus(invoice, cardGroup.dueDay)}
+                {isNearest ? <Badge>Próxima</Badge> : null}
+              </div>
+              {hint ? <p className="mt-0.5 truncate text-xs text-zinc-500">{hint}</p> : null}
+            </div>
+          </button>
+          <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(invoice.total)}</p>
+          {invoice.closed ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={isNearest ? 'primary' : 'secondary'}
+              icon={CheckCircle}
+              loading={saving}
+              onClick={() => handlePayInvoice(invoice, cardGroup)}
+              className="h-11 lg:h-9"
+            >
+              Pagar
+            </Button>
+          ) : null}
+        </div>
+
+        <Expand open={expanded} innerClassName="px-5 pb-4">
+          <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200/70">
+            {invoice.purchases.map((purchase) => (
+              <li key={purchase.purchaseKey} className="flex items-center gap-3 py-1.5 pl-4 pr-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-zinc-900" title={purchase.description}>{purchase.description}</p>
+                  <p className="truncate text-xs text-zinc-500">
+                    {purchase.category} · {formatDateBR(purchase.purchase_date)}
+                    {purchase.installmentTotal > 1 ? ` · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}` : ''}
+                  </p>
+                </div>
+                <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
+                <Menu
+                  label={`Ações de ${purchase.description}`}
+                  items={[{
+                    label: purchase.installmentTotal > 1 ? 'Excluir compra e parcelas' : 'Excluir compra',
+                    icon: Trash2,
+                    tone: 'danger',
+                    onSelect: () => handleDeleteCCPurchase(purchase),
+                  }]}
+                />
+              </li>
+            ))}
+          </ul>
+        </Expand>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Cartões"
         description={nearestInvoice
-          ? `Próxima fatura: ${nearestInvoice.cardGroup.cardName} ${formatInvoiceLabel(nearestInvoice.invoice.invoiceMonth, nearestInvoice.invoice.invoiceYear)} · ${formatCurrency(nearestInvoice.invoice.total)}`
+          ? `Próxima fatura: ${nearestInvoice.cardGroup.cardName} ${formatInvoiceLabel(nearestInvoice.invoice.invoiceMonth, nearestInvoice.invoice.invoiceYear)} · ${formatCurrency(nearestInvoice.invoice.total)} · ${formatCurrency(openCreditTotal)} em aberto nos cartões`
           : 'Faturas em aberto por cartão.'}
         actions={headerActions}
       />
@@ -339,13 +375,6 @@ export default function Cartoes() {
         projectedBalanceGlobal={projectedBalanceGlobal}
       />
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <SummaryStat icon={CreditCard} label="Total aberto" value={formatCurrency(walletSummary.openCreditTotal)} />
-        <SummaryStat icon={Receipt} label="Fatura do mês" value={formatCurrency(walletSummary.currentInvoiceTotal)} />
-        <SummaryStat icon={Wallet} label="Saldo após a fatura atual" value={privateMoney(walletSummary.availableAfterCurrentInvoice)} tone={walletSummary.availableAfterCurrentInvoice >= 0 ? 'neutral' : 'danger'} />
-        <SummaryStat icon={Wallet} label="Saldo projetado" value={privateMoney(walletSummary.projectedBalance)} hint="Conta menos cartões abertos" tone={walletSummary.projectedBalance >= 0 ? 'neutral' : 'danger'} />
-      </div>
-
       {cards.length === 0 ? (
         <Panel className="p-5">
           <EmptyState
@@ -356,81 +385,62 @@ export default function Cartoes() {
           />
         </Panel>
       ) : openInvoicesByCard.length > 0 ? (
-        <div className="space-y-4">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-2 xl:items-start">
           {openInvoicesByCard.map((cardGroup) => {
             const cardTotal = cardGroup.invoices.reduce((acc, invoice) => acc + invoice.total, 0)
+            // A fatura e a unidade: ficam a mostra as que pedem algo (em atraso
+            // ou fechadas) e a que esta correndo; as futuras, que so repetem as
+            // parcelas, ficam dobradas com o total delas.
+            const firstOpenIndex = cardGroup.invoices.findIndex((invoice) => !invoice.closed)
+            const splitAt = firstOpenIndex === -1 ? cardGroup.invoices.length : firstOpenIndex + 1
+            const current = cardGroup.invoices.slice(0, splitAt)
+            const future = cardGroup.invoices.slice(splitAt)
+            const futureTotal = future.reduce((acc, invoice) => acc + invoice.total, 0)
+            const futureOpen = Boolean(showFuture[cardGroup.cardId])
+            const lastFuture = future[future.length - 1]
 
             return (
-              <Panel key={cardGroup.cardId} className="overflow-hidden">
-                <div className="flex flex-col gap-1 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <Panel key={cardGroup.cardId} className="overflow-clip">
+                <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-5">
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-bold text-zinc-950">{cardGroup.cardName}</h3>
-                      <Badge>{cardGroup.invoices.length} fatura(s)</Badge>
-                      {cardGroup.autopayAccountId ? (
-                        <Badge>Débito automático · {accountName(cardGroup.autopayAccountId)}</Badge>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 text-sm text-zinc-600">Vence dia {cardGroup.dueDay} • Fecha dia {cardGroup.closingDay}</p>
+                    <h3 className="truncate text-lg font-bold text-zinc-950">{cardGroup.cardName}</h3>
+                    <p className="mt-0.5 text-sm text-zinc-500">
+                      Fecha dia {cardGroup.closingDay} · vence dia {cardGroup.dueDay}
+                      {cardGroup.autopayAccountId ? ` · débito automático em ${accountName(cardGroup.autopayAccountId)}` : ''}
+                    </p>
                   </div>
-                  <p className="whitespace-nowrap text-sm text-zinc-600">Em aberto: <span className="font-semibold text-zinc-950">{formatCurrency(cardTotal)}</span></p>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs font-semibold text-zinc-500">Em aberto</p>
+                    <p className="num text-lg font-bold text-zinc-950">{formatCurrency(cardTotal)}</p>
+                  </div>
                 </div>
 
-                <div className="divide-y divide-zinc-100">
-                  {cardGroup.invoices.map((invoice) => {
-                    const key = `${cardGroup.cardId}|${invoice.invoiceKey}`
-                    const expanded = isInvoiceExpanded(key)
-                    const isNearest = key === nearestInvoice?.key
-                    const hint = paymentHint(invoice, cardGroup)
+                <div className="divide-y divide-zinc-100 border-t border-zinc-100">
+                  {current.map((invoice) => renderInvoice(invoice, cardGroup))}
+                </div>
 
-                    return (
-                      <div key={invoice.invoiceKey}>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
-                          <button
-                            type="button"
-                            onClick={() => toggleInvoice(key)}
-                            aria-expanded={expanded}
-                            className="flex min-h-[44px] min-w-[14rem] flex-1 items-center gap-3 text-left"
-                          >
-                            <ChevronDown className={cx('h-5 w-5 shrink-0 text-zinc-500 transition-transform', expanded && 'rotate-180')} />
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-semibold text-zinc-950">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
-                                {getInvoiceStatus(invoice, cardGroup.dueDay)}
-                                {isNearest ? <Badge>Próxima</Badge> : null}
-                              </div>
-                              {hint ? <p className="mt-0.5 text-xs text-zinc-500">{hint}</p> : null}
-                            </div>
-                          </button>
-                          <div className="ml-auto flex items-center gap-3">
-                            <p className="whitespace-nowrap text-base font-semibold text-zinc-950">{formatCurrency(invoice.total)}</p>
-                            <Button type="button" variant={isNearest && invoice.closed ? 'primary' : 'secondary'} icon={CheckCircle} loading={saving} disabled={!invoice.closed} title={invoice.closed ? undefined : hint} onClick={() => handlePayInvoice(invoice, cardGroup)} className="h-11 lg:h-9">
-                              Pagar
-                            </Button>
-                          </div>
-                        </div>
-
-                        <Expand open={expanded} innerClassName="px-5 pb-4">
-                          <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
-                            {invoice.purchases.map((purchase) => (
-                              <li key={purchase.purchaseKey} className="flex items-center gap-3 py-1.5 pl-4 pr-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate font-medium text-zinc-900" title={purchase.description}>{purchase.description}</p>
-                                  <p className="truncate text-xs text-zinc-500">
-                                    {purchase.category} · {formatDateBR(purchase.purchase_date)}
-                                    {purchase.installmentTotal > 1 ? ` · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}` : ''}
-                                  </p>
-                                </div>
-                                <p className="whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
-                                <IconButton label="Excluir compra parcelada" icon={Trash2} size="sm" variant="danger" onClick={() => handleDeleteCCPurchase(purchase)} />
-                              </li>
-                            ))}
-                          </ul>
-                        </Expand>
+                {future.length > 0 ? (
+                  <div className="border-t border-zinc-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowFuture((prev) => ({ ...prev, [cardGroup.cardId]: !futureOpen }))}
+                      aria-expanded={futureOpen}
+                      className="flex min-h-[44px] w-full items-center gap-3 px-5 py-2 text-left text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+                    >
+                      <ChevronDown className={cx('h-5 w-5 shrink-0 text-zinc-500 transition-transform', futureOpen && 'rotate-180')} />
+                      <span className="min-w-0 flex-1">
+                        {future.length === 1 ? 'Fatura seguinte' : `Próximas ${future.length} faturas`}
+                        <span className="font-normal text-zinc-500"> · até {formatInvoiceLabel(lastFuture.invoiceMonth, lastFuture.invoiceYear)}</span>
+                      </span>
+                      <span className="num whitespace-nowrap">{formatCurrency(futureTotal)}</span>
+                    </button>
+                    <Expand open={futureOpen}>
+                      <div className="divide-y divide-zinc-100 border-t border-zinc-100 bg-zinc-50/60">
+                        {future.map((invoice) => renderInvoice(invoice, cardGroup, { future: true }))}
                       </div>
-                    )
-                  })}
-                </div>
+                    </Expand>
+                  </div>
+                ) : null}
               </Panel>
             )
           })}

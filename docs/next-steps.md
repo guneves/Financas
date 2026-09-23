@@ -131,7 +131,9 @@ one commit per theme (`a9d2422`..`d3a20be`), checked with Playwright screenshots
 **E** dark mode shipped with the UI remodel below.
 
 ### UI remodel — direction C "Cartões" + dark mode, in progress
-Owner picked **C with dark mode** on 2026-09-23 (audit and mocks: `docs/ui-remodel-audit.md`). The
+Owner picked **C with dark mode** on 2026-09-23 (audit and mocks were in `docs/ui-remodel-audit.md`,
+removed by the owner — `git show 36e0164:docs/ui-remodel-audit.md`; canvas
+https://claude.ai/artifact/DPSbd7JxFULWe4r9z36tto). The
 plan was not written up as a separate stage-2 document; the owner asked to build, so these are the
 commit-sized items, kit first.
 - [x] **Tokens + dark mode + font.** Palettes on CSS variables, light = sage neutrals, dark = token
@@ -149,14 +151,21 @@ commit-sized items, kit first.
   categories over budget). The Saldo por conta panel is gone (the accounts live in the block).
 - [x] **Extrato.** Grouped by day with the day's total; no Data column; row actions appear on
   hover/focus on desktop; the three balance cards became one summary panel (shared with Cartões).
-- [ ] **Cartões:** invoice as the unit, one "Pagar" only where payment is allowed (the nine greyed
-  buttons for future invoices go), purchase delete behind a menu; drop the second row of four cards.
+- [x] **Cartões.** One panel per card (two across on `xl`) with its "Em aberto" total; the overdue
+  and closed invoices plus the running one are shown, the future ones fold into "Próximas N faturas
+  · até MM/AAAA" with their total. "Pagar" exists only on a closed invoice (no greyed buttons), and
+  the header's "Pagar fatura" only when the nearest invoice is payable. Purchase delete moved into a
+  "⋯" `Menu` (the `window.confirm` and the candidate matching are unchanged). The four summary
+  cards are gone; the open total across cards is in the page description.
 - [ ] **Posição / Operações / Proventos:** positions grouped by class without the per-row quote
   input (move quote editing into a sheet), ticker not truncated; MetricCard rows into one summary
   panel like Extrato's.
 - [ ] **Orçamento, Recorrentes, Importar, Ajustes:** same treatment (Ajustes' sub-tabs still use
   the old look), Importar as a stepper.
-- [ ] **Row menu + toast** in the kit (`Menu`, `Toast`) to replace per-row icon pairs everywhere.
+- [ ] **Row menu + toast** in the kit. `Menu` is built (`ui.jsx`: portal + fixed position so an
+  `Expand` or clipped panel cannot hide it, opens upward near the bottom, Esc returns focus, arrows
+  move) and used on Cartões only; still to adopt on Extrato, Posição, Operações, Proventos,
+  Recorrentes and Ajustes. `Toast` not built.
 - [ ] Owner walk-through of the above in both themes, on the phone too.
 
 ### Known limits, accepted for now
