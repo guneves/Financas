@@ -10,7 +10,7 @@ import { formatCurrency } from '../lib/format'
 import { cx, prefersReducedMotion } from './ui'
 
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948']
-export const OTHER_COLOR = '#a1a1aa'
+export const OTHER_COLOR = 'var(--chart-other)'
 
 // Entradas e saidas: verde/vermelho por convencao, mas o par fica na faixa de
 // alerta para daltonismo — por isso os graficos de fluxo desenham as saidas
@@ -20,15 +20,16 @@ export const FLOW = {
   income: '#1baf7a',
   expense: '#e34948',
   investment: '#2a78d6',
-  net: '#18181b',
+  net: 'var(--chart-ink)',
 }
 
-// tick = zinc-500: 4,8:1 no branco (o cinza anterior, 3,4:1, nao passava no AA).
+// Variaveis de index.css: acompanham o modo escuro sem redesenhar o grafico.
+// tick = zinc-500, AA no fundo claro e no escuro.
 export const CHART = {
-  grid: '#eeeeec',
-  axis: '#d4d4d8',
-  tick: '#71717a',
-  ink: '#18181b',
+  grid: 'var(--chart-grid)',
+  axis: 'var(--chart-axis)',
+  tick: 'var(--chart-tick)',
+  ink: 'var(--chart-ink)',
 }
 
 // A curva do app (tailwind.config.js); o recharts aceita cubic-bezier em texto.
@@ -180,7 +181,7 @@ export function Sparkline({ data, dataKey = 'value', color = SERIES[0], formatte
           strokeWidth={2}
           fill={`url(#${gradientId})`}
           dot={false}
-          activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff' }}
+          activeDot={{ r: 4, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
           {...animation}
         />
       </AreaChart>
@@ -276,7 +277,7 @@ export function DonutChart({
               outerRadius="96%"
               paddingAngle={slices.length > 1 ? 2 : 0}
               cornerRadius={4}
-              stroke="#fff"
+              stroke="rgb(var(--white))"
               strokeWidth={2}
               startAngle={90}
               endAngle={-270}

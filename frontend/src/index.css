@@ -2,9 +2,168 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Plus Jakarta Sans servida pelo proprio app (public/fonts, licenca OFL ao lado):
+   o app roda local e tem de abrir sem internet. */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url(/fonts/plus-jakarta-sans-latin-wght-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url(/fonts/plus-jakarta-sans-latin-ext-wght-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 @layer base {
+  /* Tokens de cor. As paletas que as paginas usam (zinc, emerald, rose, amber,
+     sky e white) apontam para estas variaveis no tailwind.config.js, entao o
+     modo escuro e so a troca do bloco abaixo — nenhuma pagina tem classe dark:.
+     Claro: neutros com um fundo verde-salvia (direcao C). Escuro: a escala de
+     neutros se inverte (zinc-950 vira o texto claro, white vira a superficie)
+     e as cores de sentido sobem de luminosidade para manter o AA no fundo
+     escuro. `brand` e o verde profundo do bloco de patrimonio e da navegacao. */
   :root {
     color-scheme: light;
+    --zinc-50: 239 242 237;
+    --zinc-100: 230 234 227;
+    --zinc-200: 220 226 216;
+    --zinc-300: 201 209 197;
+    --zinc-400: 153 165 156;
+    --zinc-500: 102 115 107;
+    --zinc-600: 79 93 85;
+    --zinc-700: 60 72 65;
+    --zinc-800: 39 50 44;
+    --zinc-900: 26 38 32;
+    --zinc-950: 18 32 26;
+    --emerald-50: 236 253 245;
+    --emerald-100: 209 250 229;
+    --emerald-200: 167 243 208;
+    --emerald-300: 110 231 183;
+    --emerald-400: 52 211 153;
+    --emerald-500: 16 185 129;
+    --emerald-600: 5 150 105;
+    --emerald-700: 4 120 87;
+    --emerald-800: 6 95 70;
+    --emerald-900: 6 78 59;
+    --emerald-950: 2 44 34;
+    --rose-50: 255 241 242;
+    --rose-100: 255 228 230;
+    --rose-200: 254 205 211;
+    --rose-300: 253 164 175;
+    --rose-400: 251 113 133;
+    --rose-500: 244 63 94;
+    --rose-600: 225 29 72;
+    --rose-700: 190 18 60;
+    --rose-800: 159 18 57;
+    --rose-900: 136 19 55;
+    --rose-950: 76 5 25;
+    --amber-50: 255 251 235;
+    --amber-100: 254 243 199;
+    --amber-200: 253 230 138;
+    --amber-300: 252 211 77;
+    --amber-400: 251 191 36;
+    --amber-500: 245 158 11;
+    --amber-600: 217 119 6;
+    --amber-700: 180 83 9;
+    --amber-800: 146 64 14;
+    --amber-900: 120 53 15;
+    --amber-950: 69 26 3;
+    --sky-50: 240 249 255;
+    --sky-100: 224 242 254;
+    --sky-200: 186 230 253;
+    --sky-300: 125 211 252;
+    --sky-400: 56 189 248;
+    --sky-500: 14 165 233;
+    --sky-600: 2 132 199;
+    --sky-700: 3 105 161;
+    --sky-800: 7 89 133;
+    --sky-900: 12 74 110;
+    --sky-950: 8 47 73;
+    --white: 255 255 255;
+    --brand: 11 59 44;
+    --brand-soft: 185 215 200;
+    --brand-ink: 242 251 246;
+    --on-accent: 5 46 31;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+    --zinc-50: 11 18 16;
+    --zinc-100: 27 38 33;
+    --zinc-200: 38 51 44;
+    --zinc-300: 51 65 58;
+    --zinc-400: 95 110 102;
+    --zinc-500: 133 147 138;
+    --zinc-600: 169 182 174;
+    --zinc-700: 195 206 199;
+    --zinc-800: 213 222 216;
+    --zinc-900: 227 234 229;
+    --zinc-950: 238 243 239;
+    --emerald-50: 15 42 31;
+    --emerald-100: 19 53 38;
+    --emerald-200: 27 74 53;
+    --emerald-300: 35 105 74;
+    --emerald-400: 47 154 108;
+    --emerald-500: 52 211 153;
+    --emerald-600: 52 211 153;
+    --emerald-700: 110 231 183;
+    --emerald-800: 167 243 208;
+    --emerald-900: 209 250 229;
+    --emerald-950: 236 253 245;
+    --rose-50: 42 20 22;
+    --rose-100: 58 26 29;
+    --rose-200: 90 35 40;
+    --rose-300: 138 48 56;
+    --rose-400: 224 99 107;
+    --rose-500: 240 113 120;
+    --rose-600: 248 113 113;
+    --rose-700: 252 165 165;
+    --rose-800: 254 202 202;
+    --rose-900: 254 226 226;
+    --rose-950: 255 241 242;
+    --amber-50: 42 32 12;
+    --amber-100: 58 44 14;
+    --amber-200: 90 66 18;
+    --amber-300: 138 100 24;
+    --amber-400: 224 163 58;
+    --amber-500: 245 185 74;
+    --amber-600: 245 185 74;
+    --amber-700: 252 210 122;
+    --amber-800: 253 227 167;
+    --amber-900: 254 240 207;
+    --amber-950: 255 251 235;
+    --sky-50: 14 34 49;
+    --sky-100: 16 40 58;
+    --sky-200: 23 59 85;
+    --sky-300: 31 90 128;
+    --sky-400: 74 163 218;
+    --sky-500: 124 196 245;
+    --sky-600: 124 196 245;
+    --sky-700: 165 216 250;
+    --sky-800: 200 231 252;
+    --sky-900: 224 242 254;
+    --sky-950: 240 249 255;
+    --white: 19 28 24;
+    --brand: 31 90 68;
+    --brand-soft: 185 215 200;
+    --brand-ink: 242 251 246;
+    --on-accent: 5 46 31;
+  }
+
+  :root {
+    --chart-grid: rgb(var(--zinc-100));
+    --chart-axis: rgb(var(--zinc-300));
+    --chart-tick: rgb(var(--zinc-500));
+    --chart-ink: rgb(var(--zinc-900));
+    --chart-other: rgb(var(--zinc-400));
   }
 
   html {
@@ -25,7 +184,7 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #d4d4d8 transparent;
+    scrollbar-color: rgb(var(--zinc-300)) transparent;
   }
 
   button,
@@ -40,13 +199,13 @@
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
-    @apply outline-none ring-2 ring-emerald-500 ring-offset-2 ring-offset-white;
+    @apply outline-none ring-2 ring-emerald-500 ring-offset-2 ring-offset-zinc-50;
   }
 
   input:not([type="checkbox"]):not([type="radio"]),
   select,
   textarea {
-    @apply rounded-lg border-zinc-300 bg-white text-zinc-900 shadow-sm transition;
+    @apply rounded-xl border-zinc-300 bg-white text-zinc-900 shadow-sm transition;
   }
 
   input:not([type="checkbox"]):not([type="radio"]):focus,
@@ -58,11 +217,11 @@
 
 @layer components {
   .app-input {
-    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 shadow-sm transition placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20;
+    @apply w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 shadow-sm transition placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20;
   }
 
   .app-select {
-    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800 shadow-sm transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20;
+    @apply w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800 shadow-sm transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20;
   }
 
   .app-table {
@@ -70,11 +229,11 @@
   }
 
   /* :where() zera a especificidade: um py-1.5 ou text-left na celula vence.
-     Cabecalho gruda no topo ao rolar a pagina (abaixo da barra do celular,
-     que tem 64px). A tabela nao pode estar dentro de um overflow-x: auto,
+     Cabecalho gruda no topo ao rolar a pagina (abaixo da barra do topo:
+     64px no celular, 72px no desktop). A tabela nao pode estar dentro de um overflow-x: auto,
      senao o sticky passa a valer para aquele conteiner. */
   :where(.app-table) thead th {
-    @apply sticky top-16 z-10 border-b border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-zinc-500 lg:top-0;
+    @apply sticky top-16 z-10 border-b border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-zinc-500 lg:top-[4.5rem];
   }
 
   :where(.app-table) td,
@@ -116,7 +275,7 @@
 
   .skeleton {
     @apply rounded-lg bg-zinc-100 animate-skeleton;
-    background-image: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, 0.7) 50%, transparent 100%);
+    background-image: linear-gradient(90deg, transparent 0, rgb(var(--white) / 0.7) 50%, transparent 100%);
     background-size: 400px 100%;
     background-repeat: no-repeat;
   }

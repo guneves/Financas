@@ -128,7 +128,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
                   <XAxis dataKey="month" {...axisProps} tickFormatter={shortMonthLabel} interval="preserveStartEnd" minTickGap={12} />
                   <YAxis {...axisProps} width={56} tickFormatter={privateAxis} />
                   <Tooltip
-                    cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                    cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
                     content={({ active, payload, label }) => {
                       const row = payload?.[0]?.payload
                       if (!row) return null

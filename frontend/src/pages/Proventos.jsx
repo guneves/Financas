@@ -398,7 +398,7 @@ export default function Proventos() {
                     <XAxis dataKey="month" {...axisProps} tickFormatter={shortMonthLabel} interval="preserveStartEnd" minTickGap={12} />
                     <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                     <Tooltip
-                      cursor={{ fill: 'rgba(24,24,27,0.04)' }}
+                      cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
                       content={(
                         <ChartTooltip
                           names={{ net: 'Líquido' }}

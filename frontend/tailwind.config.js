@@ -1,13 +1,41 @@
+// Paletas ligadas as variaveis de index.css: o modo escuro troca as variaveis,
+// nao as classes. So estas familias existem — uma cor fora delas (slate, red,
+// blue...) nao muda no escuro, por isso o tema nao as oferece.
+const shades = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+const palette = (name) => Object.fromEntries(
+  shades.map((shade) => [shade, `rgb(var(--${name}-${shade}) / <alpha-value>)`])
+)
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
+    colors: {
+      transparent: 'transparent',
+      current: 'currentColor',
+      inherit: 'inherit',
+      white: 'rgb(var(--white) / <alpha-value>)',
+      black: '#000',
+      zinc: palette('zinc'),
+      emerald: palette('emerald'),
+      rose: palette('rose'),
+      amber: palette('amber'),
+      sky: palette('sky'),
+      brand: {
+        DEFAULT: 'rgb(var(--brand) / <alpha-value>)',
+        soft: 'rgb(var(--brand-soft) / <alpha-value>)',
+        ink: 'rgb(var(--brand-ink) / <alpha-value>)',
+      },
+      // Texto sobre o verde vivo (emerald-500) — escuro nos dois temas.
+      'on-accent': 'rgb(var(--on-accent) / <alpha-value>)',
+    },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
       },
       boxShadow: {
         card: '0 1px 2px rgba(24, 24, 27, 0.04), 0 1px 3px rgba(24, 24, 27, 0.06)',
@@ -54,7 +82,7 @@ export default {
         },
         // Linha recem-criada: lavagem emerald-100 que some.
         'flash-emerald': {
-          '0%': { backgroundColor: 'rgb(209 250 229)' },
+          '0%': { backgroundColor: 'rgb(var(--emerald-100))' },
           '100%': { backgroundColor: 'transparent' },
         },
         // Traco do check; o path usa pathLength="1" e stroke-dasharray 1.
