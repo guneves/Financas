@@ -13,6 +13,8 @@ O que estes testes fixam:
 - nenhum orcamento de outro usuario aparece, nem pode ser lido ou editado.
 """
 
+import importlib
+
 import pytest
 
 
@@ -518,3 +520,60 @@ def test_copy_only_sees_my_own_budgets(client, user, other_user):
     ).get_json()
     assert body["created"] == 0
     assert body["items"] == []
+
+
+# --- cartao no orcamento (decisao 1) ------------------------------------------
+
+def create_card_purchase(client, headers, *, total, date, category, installments=1, card_name="Cartao Orcamento"):
+    card = client.post(
+        "/api/credit-cards", headers=headers, json={"name": card_name, "due_day": 10, "closing_day": 3},
+    ).get_json()
+    card = card[0] if isinstance(card, list) else card
+    response = client.post(
+        "/api/cc-expenses/purchases",
+        headers=headers,
+        json={
+            "card_id": card["id"],
+            "category": category,
+            "description": "Compra no cartao",
+            "total_amount": total,
+            "purchase_date": date,
+            "installments": installments,
+        },
+    )
+    assert response.status_code == 201, response.get_data(as_text=True)
+    return card
+
+
+def test_a_card_purchase_counts_in_full_in_its_purchase_month(client, auth):
+    alimentacao = categories_of(client, auth)["Alimentação"]
+    create_budget(client, auth, alimentacao["id"], "2026-09", 1000)
+    create_budget(client, auth, alimentacao["id"], "2026-10", 1000)
+    create_card_purchase(client, auth, total=600, date="2026-09-28", category="Alimentação", installments=3)
+
+    assert item_for(get_month(client, auth, "2026-09"), "Alimentação")["spent"] == 600
+    # As parcelas seguintes nao contam de novo no mes da fatura delas.
+    assert item_for(get_month(client, auth, "2026-10"), "Alimentação")["spent"] == 0
+
+
+def test_the_invoice_payment_is_not_spending(client, auth, app_module):
+    moradia = categories_of(client, auth)["Moradia"]
+    create_budget(client, auth, moradia["id"], "2026-09", 1000)
+    add_expense(client, auth, 300, "2026-09-10", "Moradia", moradia["id"])
+    payment = add_expense(client, auth, 900, "2026-09-10", "Moradia", moradia["id"])
+    legacy = add_expense(client, auth, 400, "2026-09-10", "Pagamento Fatura Nubank")
+    with importlib.import_module("db").get_db() as conn:
+        conn.execute(
+            "UPDATE transactions SET source_type = 'CC_INVOICE_PAYMENT', source_id = 'x:2026-09' WHERE id = ?",
+            (payment["id"],),
+        )
+
+    assert item_for(get_month(client, auth, "2026-09"), "Moradia")["spent"] == 300
+    assert legacy["category"].startswith("Pagamento Fatura")
+
+
+def test_another_users_card_purchases_do_not_count(client, user, other_user):
+    alimentacao = categories_of(client, user["headers"])["Alimentação"]
+    create_budget(client, user["headers"], alimentacao["id"], "2026-09", 1000)
+    create_card_purchase(client, other_user["headers"], total=500, date="2026-09-05", category="Alimentação")
+    assert item_for(get_month(client, user["headers"], "2026-09"), "Alimentação")["spent"] == 0

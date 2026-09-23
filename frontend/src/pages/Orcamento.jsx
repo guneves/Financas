@@ -211,7 +211,7 @@ export default function Orcamento() {
       <Panel>
         <PanelHeader
           title="Categorias do mês"
-          description={`Plano de ${monthLabel(month)}. O realizado vem das movimentações em conta; compras no cartão só entram no mês em que a fatura é paga, na categoria "Pagamento Fatura".`}
+          description={`Plano de ${monthLabel(month)}. O realizado soma as movimentações em conta e as compras no cartão, inteiras, no mês da compra; o pagamento da fatura não conta de novo.`}
         />
 
         <div className="flex flex-col gap-3 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">

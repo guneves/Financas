@@ -15,6 +15,7 @@ from dates import month_key
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from services.accounts import fetch_category
+from source_types import INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
     ValidationError,
     normalize_month,
@@ -37,6 +38,13 @@ def budget_spend_by_category(conn, current_user_id, month):
     (categoria livre, ou lancamento anterior a migration 008) sao resolvidos
     pelo nome. TRANSFER fica de fora: mover dinheiro entre contas proprias nao e
     gasto nem receita.
+
+    Cartao (decisao 1, 2026-09-23): a compra conta inteira, na categoria dela,
+    no mes em que foi feita — todas as parcelas, a mesma regra de "Despesas por
+    categoria" no Inicio. Por isso o pagamento da fatura nao conta: ele e a soma
+    de compras ja contadas. Pagamento de fatura e o lancamento com source_type
+    de fatura, ou, nos anteriores ao pagamento pelo servidor, a categoria
+    "Pagamento Fatura...".
     """
     name_to_id = {}
     for row in conn.execute(
@@ -49,19 +57,33 @@ def budget_spend_by_category(conn, current_user_id, month):
     ).fetchall():
         name_to_id.setdefault(row["name"], row["id"])
 
+    invoice_types = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
+    invoice_placeholders = ", ".join("?" for _ in invoice_types)
     totals = {}
     rows = conn.execute(
-        """
+        f"""
         SELECT type, category_id, category, SUM(amount) AS total
         FROM transactions
         WHERE user_id = ?
           AND type <> 'TRANSFER'
           AND substr(date, 1, 7) = ?
+          AND COALESCE(source_type, '') NOT IN ({invoice_placeholders})
+          AND COALESCE(category, '') NOT LIKE 'Pagamento Fatura%'
         GROUP BY type, category_id, category
+        """,
+        (current_user_id, month, *invoice_types),
+    ).fetchall()
+    card_rows = conn.execute(
+        """
+        SELECT 'EXPENSE' AS type, NULL AS category_id, category, SUM(amount) AS total
+        FROM cc_expenses
+        WHERE user_id = ?
+          AND substr(purchase_date, 1, 7) = ?
+        GROUP BY category
         """,
         (current_user_id, month),
     ).fetchall()
-    for row in rows:
+    for row in [*rows, *card_rows]:
         category_id = row["category_id"] or name_to_id.get(row["category"])
         if not category_id:
             continue
