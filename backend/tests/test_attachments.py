@@ -14,10 +14,21 @@ O que estes testes fixam:
 - o extrato traz `attachment_count` por linha.
 """
 
+import importlib
 import io
 import os
 
 import pytest
+
+
+def attachment_files():
+    """`services/attachments.py`: caminhos no disco e a varredura de orfaos."""
+    return importlib.import_module("services.attachments")
+
+
+def attachment_routes():
+    """`routes/attachments.py`: onde os limites de upload sao lidos (patch aqui)."""
+    return importlib.import_module("routes.attachments")
 
 PDF = b"%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n"
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
@@ -54,7 +65,7 @@ def stored_path(app_module, user_id, attachment_id):
             (attachment_id,),
         ).fetchone()
     assert row is not None
-    return app_module.attachment_path(user_id, row["stored_name"])
+    return attachment_files().attachment_path(user_id, row["stored_name"])
 
 
 def attachment_rows(app_module, transaction_id):
@@ -123,14 +134,14 @@ class TestUpload:
         assert response.status_code == 400
 
     def test_a_file_over_the_limit_is_refused(self, client, auth, app_module, monkeypatch):
-        monkeypatch.setattr(app_module, "ATTACHMENT_MAX_BYTES", len(PDF) - 1)
+        monkeypatch.setattr(attachment_routes(), "ATTACHMENT_MAX_BYTES", len(PDF) - 1)
         transaction = create_transaction(client, auth)
         response = upload(client, auth, transaction["id"])
         assert response.status_code == 413
         assert attachment_rows(app_module, transaction["id"]) == []
 
     def test_the_per_transaction_cap(self, client, auth, app_module, monkeypatch):
-        monkeypatch.setattr(app_module, "ATTACHMENT_MAX_PER_TRANSACTION", 2)
+        monkeypatch.setattr(attachment_routes(), "ATTACHMENT_MAX_PER_TRANSACTION", 2)
         transaction = create_transaction(client, auth)
         assert upload(client, auth, transaction["id"]).status_code == 201
         assert upload(client, auth, transaction["id"]).status_code == 201
@@ -145,7 +156,7 @@ class TestUpload:
         body = response.get_json()
         assert body["original_name"] == "finance.db.pdf"
         path = stored_path(app_module, user["id"], body["id"])
-        assert os.path.dirname(path) == app_module.attachment_user_dir(user["id"])
+        assert os.path.dirname(path) == attachment_files().attachment_user_dir(user["id"])
         assert "finance" not in os.path.basename(path)
 
     def test_an_unknown_transaction_is_404(self, client, auth):
@@ -309,10 +320,10 @@ class TestDelete:
         assert os.path.exists(path)
 
         # Recente demais: a varredura respeita a folga de um upload em andamento.
-        assert app_module.prune_orphan_attachment_files() == []
+        assert attachment_files().prune_orphan_attachment_files() == []
         assert os.path.exists(path)
 
-        removed = app_module.prune_orphan_attachment_files(min_age_seconds=-1)
+        removed = attachment_files().prune_orphan_attachment_files(min_age_seconds=-1)
         assert any(entry.endswith(os.path.basename(path)) for entry in removed)
         assert not os.path.exists(path)
 
@@ -320,7 +331,7 @@ class TestDelete:
         transaction = create_transaction(client, auth)
         attachment = upload(client, auth, transaction["id"]).get_json()
         path = stored_path(app_module, user["id"], attachment["id"])
-        app_module.prune_orphan_attachment_files(min_age_seconds=-1)
+        attachment_files().prune_orphan_attachment_files(min_age_seconds=-1)
         assert os.path.exists(path)
 
 

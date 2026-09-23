@@ -3,16 +3,14 @@ import os
 import sqlite3
 import urllib.error
 import urllib.request
-import uuid
 import calendar
-import hashlib
 import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
 
-from flask import Flask, Response, jsonify, request, send_file
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 try:
@@ -24,8 +22,6 @@ import brapi_client
 import export_csv
 import market_catalog
 from config import (
-    ATTACHMENTS_DIR,
-    ATTACHMENT_MAX_BYTES,
     CORS_ORIGINS,
     HISTORY_CACHE_TTL_SECONDS,
     PRICE_CACHE_TTL_SECONDS,
@@ -43,7 +39,6 @@ from db import (
     row_to_dict,
     run_startup_backup,
     serialize_metadata_row,
-    serialize_transaction,
     utc_timestamp,
 )
 from validators import (
@@ -67,9 +62,6 @@ from money import (
 )
 from services.accounts import (
     ensure_default_account,
-    require_account,
-    resolve_account_id,
-    resolve_category,
 )
 from dates import (
     month_end,
@@ -81,14 +73,14 @@ from dates import (
 )
 from source_types import (
     INVESTMENT_CASH_SOURCE_TYPE,
-    INVOICE_PAYMENT_LOCKED_MESSAGE,
-    INVOICE_PAYMENT_SOURCE_TYPES,
 )
-from services.invoices import (
-    apply_due_autopay,
+from services.attachments import (
+    prune_orphan_attachment_files,
+)
+from routes.transactions import (
+    csv_response,
 )
 
-ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE", "TRANSFER"}
 ALLOWED_ASSET_CLASSES = {"STOCKS", "FIXED_INCOME", "REIT", "CATTLE", "OTHER"}
 ALLOWED_PROCEEDS_TYPES = {"DIVIDEND", "JCP", "AMORTIZATION"}
 QUOTED_ASSET_CLASSES = {"STOCKS", "REIT"}
@@ -109,9 +101,6 @@ DEFAULT_REALIZED_TAX_RATES = {
     "FIXED_INCOME": 0.15,
 }
 
-
-# Um lancamento com mais que isso nao e um lancamento, e uma pasta.
-ATTACHMENT_MAX_PER_TRANSACTION = 20
 
 _price_cache = {}
 _history_cache = {}
@@ -136,6 +125,8 @@ from routes import (  # noqa: E402
     imports as import_routes,
     recurring as recurring_routes,
     system as system_routes,
+    transactions as transaction_routes,
+    attachments as attachment_routes,
 )
 
 for blueprint_module in (
@@ -146,6 +137,8 @@ for blueprint_module in (
     import_routes,
     card_routes,
     account_routes,
+    transaction_routes,
+    attachment_routes,
 ):
     app.register_blueprint(blueprint_module.bp)
 
@@ -1284,206 +1277,6 @@ def build_portfolio_evolution(investments_data, historical_prices, months_back):
     return evolution
 
 
-# ---------------------------------------------------------------------------
-# Contas bancarias e categorias (3.1 / 3.2 de docs/next-steps.md)
-# ---------------------------------------------------------------------------
-
-
-def escape_like(value):
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-def transaction_filter_clause(conn, current_user_id, args):
-    """Monta o WHERE dos filtros do extrato. Todo filtro e opcional.
-
-    - from / to: periodo inclusivo (AAAA-MM-DD)
-    - type: INCOME | EXPENSE | TRANSFER
-    - account_id: a conta de origem ou, numa transferencia, a de destino
-    - category_id: a categoria e as subcategorias dela; lancamentos que so
-      carregam o nome (texto livre ou anteriores a 008) casam pelo nome
-    - q: texto livre em descricao e categoria
-    - min_amount / max_amount: faixa de valor, inclusiva
-    """
-    clauses = ["user_id = ?"]
-    params = [current_user_id]
-
-    date_from = optional_date(args, "from", "Data inicial")
-    date_to = optional_date(args, "to", "Data final")
-    if date_from and date_to and date_from > date_to:
-        raise ValidationError("Data inicial deve ser anterior ou igual a data final.")
-    if date_from:
-        clauses.append("date >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("date <= ?")
-        params.append(date_to)
-
-    if args.get("type"):
-        transaction_type = require_choice(args, "type", "Tipo", ALLOWED_TRANSACTION_TYPES)
-        clauses.append("type = ?")
-        params.append(transaction_type)
-
-    account_id = str(args.get("account_id") or "").strip()
-    if account_id:
-        clauses.append("(account_id = ? OR transfer_account_id = ?)")
-        params.extend([account_id, account_id])
-
-    category_id = str(args.get("category_id") or "").strip()
-    if category_id:
-        category_rows = conn.execute(
-            """
-            SELECT id, name FROM categories
-            WHERE user_id = ? AND (id = ? OR parent_id = ?)
-            """,
-            (current_user_id, category_id, category_id),
-        ).fetchall()
-        if not category_rows:
-            raise ValidationError("Categoria nao encontrada.")
-        ids = [row["id"] for row in category_rows]
-        names = [row["name"] for row in category_rows]
-        id_marks = ", ".join("?" for _ in ids)
-        name_marks = ", ".join("?" for _ in names)
-        clauses.append(
-            f"(category_id IN ({id_marks}) OR (category_id IS NULL AND category IN ({name_marks})))"
-        )
-        params.extend(ids + names)
-
-    text = str(args.get("q") or "").strip()
-    if len(text) > 100:
-        raise ValidationError("Busca deve ter no maximo 100 caracteres.")
-    if text:
-        pattern = f"%{escape_like(text)}%"
-        clauses.append(
-            "(description LIKE ? ESCAPE '\\' OR category LIKE ? ESCAPE '\\')"
-        )
-        params.extend([pattern, pattern])
-
-    min_amount = parse_optional_number(args, "min_amount", "Valor minimo", minimum=0)
-    max_amount = parse_optional_number(args, "max_amount", "Valor maximo", minimum=0)
-    if min_amount is not None and max_amount is not None and min_amount > max_amount:
-        raise ValidationError("Valor minimo deve ser menor ou igual ao valor maximo.")
-    if min_amount is not None:
-        clauses.append("amount >= ?")
-        params.append(rounded_money(min_amount))
-    if max_amount is not None:
-        clauses.append("amount <= ?")
-        params.append(rounded_money(max_amount))
-
-    return " AND ".join(clauses), params
-
-
-@app.route("/api/transactions", methods=["GET", "POST"])
-@token_required
-def transactions(current_user_id):
-    if request.method == "GET":
-        with get_db() as conn:
-            apply_due_autopay(conn, current_user_id)
-            try:
-                where, params = transaction_filter_clause(conn, current_user_id, request.args)
-            except ValidationError as exc:
-                return validation_error(str(exc))
-            rows = conn.execute(
-                f"""
-                SELECT transactions.*,
-                    (
-                        SELECT COUNT(*) FROM transaction_attachments ta
-                        WHERE ta.user_id = transactions.user_id
-                            AND ta.transaction_id = transactions.id
-                    ) AS attachment_count
-                FROM transactions
-                WHERE {where}
-                ORDER BY date DESC, created_at DESC
-                """,
-                params,
-            ).fetchall()
-        return jsonify([serialize_transaction(row) for row in rows]), 200
-
-    payload = parse_json_body()
-    item_id = new_id()
-    with get_db() as conn:
-        try:
-            amount = parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
-            date_value = require_date(payload, "date", "Data")
-            description = optional_string(payload, "description")
-            transaction_type = require_choice(payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES)
-            if transaction_type == "TRANSFER":
-                raise ValidationError(
-                    "Use POST /api/transfers para registrar uma transferencia entre contas."
-                )
-            category, category_id = resolve_category(conn, current_user_id, payload)
-            account_id = resolve_account_id(conn, current_user_id, payload)
-        except ValidationError as exc:
-            return validation_error(str(exc))
-
-        conn.execute(
-            """
-            INSERT INTO transactions
-            (id, user_id, account_id, amount, date, category, category_id, description, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                item_id,
-                current_user_id,
-                account_id,
-                rounded_money(amount),
-                date_value,
-                category,
-                category_id,
-                description,
-                transaction_type,
-            ),
-        )
-        item = conn.execute("SELECT * FROM transactions WHERE id = ?", (item_id,)).fetchone()
-    return jsonify(serialize_transaction(item)), 201
-
-
-def csv_response(text, filename):
-    """Resposta de download de CSV.
-
-    Content-Disposition fica exposto no CORS para o navegador poder ler o nome
-    do arquivo; o cliente busca com o Bearer no cabecalho, entao o download nao
-    pode ser um link simples.
-    """
-    response = Response(text, mimetype="text/csv; charset=utf-8")
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
-    return response
-
-
-def account_names_map(conn, current_user_id):
-    rows = conn.execute(
-        "SELECT id, name FROM accounts WHERE user_id = ?",
-        (current_user_id,),
-    ).fetchall()
-    return {row["id"]: row["name"] for row in rows}
-
-
-@app.route("/api/transactions/export", methods=["GET"])
-@token_required
-def export_transactions(current_user_id):
-    """Extrato filtrado em CSV — os mesmos filtros de GET /api/transactions."""
-    with get_db() as conn:
-        apply_due_autopay(conn, current_user_id)
-        try:
-            where, params = transaction_filter_clause(conn, current_user_id, request.args)
-        except ValidationError as exc:
-            return validation_error(str(exc))
-        rows = conn.execute(
-            f"""
-            SELECT * FROM transactions
-            WHERE {where}
-            ORDER BY date DESC, created_at DESC
-            """,
-            params,
-        ).fetchall()
-        names = account_names_map(conn, current_user_id)
-
-    items = [serialize_transaction(row) for row in rows]
-    text = export_csv.transactions_csv(items, names)
-    filename = f"extrato-{datetime.now().strftime('%Y-%m-%d')}.csv"
-    return csv_response(text, filename)
-
-
 @app.route("/api/investments/portfolio/export", methods=["GET"])
 @token_required
 def export_portfolio(current_user_id):
@@ -1497,390 +1290,6 @@ def export_portfolio(current_user_id):
     text = export_csv.portfolio_csv(portfolio.get("assets"))
     filename = f"carteira-{datetime.now().strftime('%Y-%m-%d')}.csv"
     return csv_response(text, filename)
-
-
-@app.route("/api/transactions/<item_id>", methods=["PATCH"])
-@token_required
-def update_transaction(current_user_id, item_id):
-    """Editar um lancamento (3.7 de docs/next-steps.md).
-
-    Ate aqui so existia DELETE: corrigir um digito significava apagar e digitar
-    de novo. Lancamentos espelhados de investimento continuam bloqueados — eles
-    sao derivados da movimentacao e sao reescritos por
-    sync_investment_cash_transaction().
-    """
-    payload = parse_json_body()
-    with get_db() as conn:
-        item = conn.execute(
-            "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
-            (item_id, current_user_id),
-        ).fetchone()
-        if not item:
-            return jsonify({"error": "Lancamento nao encontrado."}), 404
-        if item["source_type"] == INVESTMENT_CASH_SOURCE_TYPE:
-            return jsonify({
-                "error": "Este lancamento de caixa esta vinculado a uma movimentacao de investimento. Edite a movimentacao de investimento para manter o patrimonio consistente."
-            }), 409
-        if item["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES:
-            return jsonify({"error": INVOICE_PAYMENT_LOCKED_MESSAGE}), 409
-
-        updates = {}
-        try:
-            if "amount" in payload:
-                updates["amount"] = rounded_money(
-                    parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
-                )
-            if "date" in payload:
-                updates["date"] = require_date(payload, "date", "Data")
-            if "description" in payload:
-                updates["description"] = optional_string(payload, "description")
-            if "type" in payload:
-                transaction_type = require_choice(
-                    payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES
-                )
-                if (transaction_type == "TRANSFER") != (item["type"] == "TRANSFER"):
-                    raise ValidationError(
-                        "Nao e possivel converter um lancamento comum em transferencia."
-                    )
-                updates["type"] = transaction_type
-            if "category" in payload or "category_id" in payload:
-                category, category_id = resolve_category(conn, current_user_id, payload)
-                updates["category"] = category
-                updates["category_id"] = category_id
-            if "account_id" in payload:
-                updates["account_id"] = resolve_account_id(conn, current_user_id, payload)
-            if "transfer_account_id" in payload:
-                if item["type"] != "TRANSFER":
-                    raise ValidationError(
-                        "Conta de destino so se aplica a transferencias."
-                    )
-                updates["transfer_account_id"] = require_account(
-                    conn,
-                    current_user_id,
-                    str(payload.get("transfer_account_id") or ""),
-                    "Conta de destino",
-                )["id"]
-        except ValidationError as exc:
-            return validation_error(str(exc))
-
-        if not updates:
-            return validation_error("Informe ao menos um campo para atualizar.")
-
-        origin = updates.get("account_id", item["account_id"])
-        destination = updates.get("transfer_account_id", item["transfer_account_id"])
-        if item["type"] == "TRANSFER" and origin == destination:
-            return validation_error("Origem e destino devem ser contas diferentes.")
-
-        assignments = ", ".join(f"{column} = ?" for column in updates)
-        conn.execute(
-            f"UPDATE transactions SET {assignments} WHERE id = ? AND user_id = ?",
-            (*updates.values(), item_id, current_user_id),
-        )
-        updated = conn.execute(
-            "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
-            (item_id, current_user_id),
-        ).fetchone()
-    return jsonify(serialize_transaction(updated)), 200
-
-
-@app.route("/api/transactions/<item_id>", methods=["DELETE"])
-@token_required
-def delete_transaction(current_user_id, item_id):
-    with get_db() as conn:
-        item = conn.execute(
-            "SELECT source_type FROM transactions WHERE id = ? AND user_id = ?",
-            (item_id, current_user_id),
-        ).fetchone()
-        if not item:
-            return jsonify({"deleted": False}), 404
-        if item["source_type"] == INVESTMENT_CASH_SOURCE_TYPE:
-            return jsonify({
-                "error": "Este lancamento de caixa esta vinculado a uma movimentacao de investimento. Exclua a movimentacao de investimento para manter o patrimonio consistente."
-            }), 409
-        if item["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES:
-            return jsonify({"error": INVOICE_PAYMENT_LOCKED_MESSAGE}), 409
-        # As linhas de comprovante saem pelo ON DELETE CASCADE; os arquivos,
-        # depois do commit, para um DELETE que falhe nao levar o recibo.
-        stored_names = [
-            row["stored_name"]
-            for row in conn.execute(
-                """
-                SELECT stored_name FROM transaction_attachments
-                WHERE user_id = ? AND transaction_id = ?
-                """,
-                (current_user_id, item_id),
-            ).fetchall()
-        ]
-        cursor = conn.execute(
-            "DELETE FROM transactions WHERE id = ? AND user_id = ?",
-            (item_id, current_user_id),
-        )
-    if cursor.rowcount == 0:
-        return jsonify({"deleted": False}), 404
-    remove_attachment_files(current_user_id, stored_names)
-    return jsonify({"deleted": True}), 200
-
-
-# ---------------------------------------------------------------------------
-# Comprovantes (014)
-# ---------------------------------------------------------------------------
-
-# O tipo vem dos primeiros bytes, nao da extensao nem do Content-Type que o
-# navegador manda: e o que e servido de volta, entao um .html renomeado para
-# .pdf nao pode sair como PDF — ele e recusado.
-ATTACHMENT_TYPES = {
-    "application/pdf": ".pdf",
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-    "image/heic": ".heic",
-}
-HEIC_BRANDS = {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"mif1", b"msf1"}
-ATTACHMENT_TYPES_MESSAGE = "Envie um PDF ou uma imagem (JPG, PNG, WEBP, GIF ou HEIC)."
-
-
-def sniff_attachment_type(head):
-    if head.startswith(b"%PDF-"):
-        return "application/pdf"
-    if head.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if head.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if head.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
-        return "image/webp"
-    if head[4:8] == b"ftyp" and head[8:12] in HEIC_BRANDS:
-        return "image/heic"
-    return None
-
-
-def attachment_user_dir(current_user_id):
-    return os.path.join(ATTACHMENTS_DIR, str(current_user_id))
-
-
-def attachment_path(current_user_id, stored_name):
-    return os.path.join(attachment_user_dir(current_user_id), os.path.basename(stored_name))
-
-
-def remove_attachment_files(current_user_id, stored_names):
-    for stored_name in stored_names:
-        path = attachment_path(current_user_id, stored_name)
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            print(f"Nao foi possivel remover o comprovante {path}: {exc}")
-
-
-def clean_attachment_name(raw_name, extension):
-    """Nome para exibir e baixar: sem pasta, sem caractere de controle, curto."""
-    name = os.path.basename(str(raw_name or "").replace("\\", "/")).strip()
-    name = "".join(char for char in name if char.isprintable()).strip(" .")
-    if not name:
-        name = f"comprovante{extension}"
-    if len(name) > 120:
-        stem, dot, ext = name.rpartition(".")
-        name = (stem[: 120 - len(ext) - 1] + dot + ext) if dot and len(ext) <= 10 else name[:120]
-    return name
-
-
-def serialize_attachment(row):
-    item = row_to_dict(row)
-    item.pop("stored_name", None)
-    item.pop("user_id", None)
-    return item
-
-
-def prune_orphan_attachment_files(min_age_seconds=600):
-    """Remove do disco o comprovante cuja linha ja nao existe.
-
-    O DELETE /api/transactions apaga os arquivos na hora, mas um lancamento
-    tambem sai por outros caminhos (movimentacao de investimento excluida leva
-    o espelho de caixa pelo CASCADE). Roda no boot; arquivos recentes ficam,
-    para nao disputar com um upload em andamento em outro processo.
-    """
-    if not os.path.isdir(ATTACHMENTS_DIR):
-        return []
-    cutoff = time.time() - min_age_seconds
-    removed = []
-    with get_db() as conn:
-        for user_dir in os.listdir(ATTACHMENTS_DIR):
-            full_dir = os.path.join(ATTACHMENTS_DIR, user_dir)
-            if not os.path.isdir(full_dir):
-                continue
-            known = {
-                row["stored_name"]
-                for row in conn.execute(
-                    "SELECT stored_name FROM transaction_attachments WHERE user_id = ?",
-                    (user_dir,),
-                ).fetchall()
-            }
-            for filename in os.listdir(full_dir):
-                path = os.path.join(full_dir, filename)
-                if filename in known or not os.path.isfile(path):
-                    continue
-                try:
-                    if os.path.getmtime(path) > cutoff:
-                        continue
-                    os.remove(path)
-                    removed.append(os.path.join(user_dir, filename))
-                except OSError as exc:
-                    print(f"Nao foi possivel remover o comprovante orfao {path}: {exc}")
-    return removed
-
-
-def require_owned_transaction(conn, current_user_id, transaction_id):
-    return conn.execute(
-        "SELECT id FROM transactions WHERE id = ? AND user_id = ?",
-        (transaction_id, current_user_id),
-    ).fetchone()
-
-
-def fetch_owned_attachment(conn, current_user_id, transaction_id, attachment_id):
-    return conn.execute(
-        """
-        SELECT * FROM transaction_attachments
-        WHERE id = ? AND transaction_id = ? AND user_id = ?
-        """,
-        (attachment_id, transaction_id, current_user_id),
-    ).fetchone()
-
-
-@app.route("/api/transactions/<item_id>/attachments", methods=["GET", "POST"])
-@token_required
-def transaction_attachments(current_user_id, item_id):
-    if request.method == "GET":
-        with get_db() as conn:
-            if not require_owned_transaction(conn, current_user_id, item_id):
-                return jsonify({"error": "Lancamento nao encontrado."}), 404
-            rows = conn.execute(
-                """
-                SELECT * FROM transaction_attachments
-                WHERE user_id = ? AND transaction_id = ?
-                ORDER BY created_at, id
-                """,
-                (current_user_id, item_id),
-            ).fetchall()
-        return jsonify([serialize_attachment(row) for row in rows]), 200
-
-    # Recusa pelo cabecalho antes de ler o corpo: um video de 2 GB escolhido
-    # por engano nao chega a ocupar a memoria do processo.
-    limit_mb = ATTACHMENT_MAX_BYTES / (1024 * 1024)
-    too_big = f"O arquivo passa do limite de {limit_mb:.0f} MB."
-    if request.content_length and request.content_length > ATTACHMENT_MAX_BYTES + 64 * 1024:
-        return validation_error(too_big, 413)
-
-    upload = request.files.get("file")
-    if upload is None or not upload.filename:
-        return validation_error("Envie o arquivo no campo 'file'.")
-    data = upload.read(ATTACHMENT_MAX_BYTES + 1)
-    if not data:
-        return validation_error("O arquivo esta vazio.")
-    if len(data) > ATTACHMENT_MAX_BYTES:
-        return validation_error(too_big, 413)
-    content_type = sniff_attachment_type(data[:16])
-    if not content_type:
-        return validation_error(ATTACHMENT_TYPES_MESSAGE, 415)
-
-    extension = ATTACHMENT_TYPES[content_type]
-    attachment_id = new_id()
-    stored_name = f"{uuid.uuid4().hex}{extension}"
-    original_name = clean_attachment_name(upload.filename, extension)
-
-    with get_db() as conn:
-        if not require_owned_transaction(conn, current_user_id, item_id):
-            return jsonify({"error": "Lancamento nao encontrado."}), 404
-        count = conn.execute(
-            """
-            SELECT COUNT(*) FROM transaction_attachments
-            WHERE user_id = ? AND transaction_id = ?
-            """,
-            (current_user_id, item_id),
-        ).fetchone()[0]
-        if count >= ATTACHMENT_MAX_PER_TRANSACTION:
-            return validation_error(
-                f"Este lancamento ja tem {ATTACHMENT_MAX_PER_TRANSACTION} comprovantes."
-            )
-
-        # Arquivo primeiro, linha depois: se a gravacao da linha falhar, o
-        # arquivo sai; se o processo cair no meio, a varredura de boot o leva.
-        user_dir = attachment_user_dir(current_user_id)
-        os.makedirs(user_dir, exist_ok=True)
-        path = attachment_path(current_user_id, stored_name)
-        with open(path, "wb") as file:
-            file.write(data)
-        try:
-            conn.execute(
-                """
-                INSERT INTO transaction_attachments
-                (id, user_id, transaction_id, original_name, stored_name,
-                 content_type, size_bytes, sha256)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    attachment_id,
-                    current_user_id,
-                    item_id,
-                    original_name,
-                    stored_name,
-                    content_type,
-                    len(data),
-                    hashlib.sha256(data).hexdigest(),
-                ),
-            )
-            row = fetch_owned_attachment(conn, current_user_id, item_id, attachment_id)
-        except Exception:
-            remove_attachment_files(current_user_id, [stored_name])
-            raise
-    return jsonify(serialize_attachment(row)), 201
-
-
-@app.route("/api/transactions/<item_id>/attachments/<attachment_id>/file", methods=["GET"])
-@token_required
-def transaction_attachment_file(current_user_id, item_id, attachment_id):
-    with get_db() as conn:
-        row = fetch_owned_attachment(conn, current_user_id, item_id, attachment_id)
-    if not row:
-        return jsonify({"error": "Comprovante nao encontrado."}), 404
-    path = attachment_path(current_user_id, row["stored_name"])
-    if not os.path.isfile(path):
-        return jsonify({"error": "O arquivo deste comprovante sumiu da pasta de comprovantes."}), 410
-
-    as_download = str(request.args.get("download", "")).lower() in ("1", "true", "yes")
-    response = send_file(
-        path,
-        mimetype=row["content_type"],
-        as_attachment=as_download,
-        download_name=row["original_name"],
-        max_age=0,
-    )
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
-    return response
-
-
-@app.route("/api/transactions/<item_id>/attachments/<attachment_id>", methods=["DELETE"])
-@token_required
-def delete_transaction_attachment(current_user_id, item_id, attachment_id):
-    """Remove um comprovante.
-
-    A rota aninhada e a guarda: o id do lancamento tem que bater com o do
-    comprovante, entao um id trocado no cliente nao apaga o recibo de outro
-    lancamento. O arquivo sai do disco depois do commit.
-    """
-    with get_db() as conn:
-        row = fetch_owned_attachment(conn, current_user_id, item_id, attachment_id)
-        if not row:
-            return jsonify({"deleted": False, "error": "Comprovante nao encontrado."}), 404
-        conn.execute(
-            "DELETE FROM transaction_attachments WHERE id = ? AND user_id = ?",
-            (attachment_id, current_user_id),
-        )
-    remove_attachment_files(current_user_id, [row["stored_name"]])
-    return jsonify({"deleted": True}), 200
 
 
 @app.route("/api/assets", methods=["GET"])
