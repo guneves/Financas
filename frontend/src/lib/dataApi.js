@@ -29,23 +29,31 @@ export const transactionsApi = {
 
 // Comprovantes (PDF/imagem) de um lancamento. As rotas sao aninhadas no
 // lancamento: o backend confere que o comprovante e mesmo daquele lancamento.
-export const attachmentsApi = {
-  list: (transactionId) => apiFetch(`/api/transactions/${transactionId}/attachments`),
-  upload: (transactionId, file) => {
-    const body = new FormData()
-    body.append('file', file)
-    return apiFetch(`/api/transactions/${transactionId}/attachments`, { method: 'POST', body })
-  },
-  remove: (transactionId, attachmentId) => apiFetch(
-    `/api/transactions/${transactionId}/attachments/${attachmentId}`,
-    { method: 'DELETE' }
-  ),
-  // Blob do arquivo; quem chama decide entre abrir numa aba ou salvar.
-  file: async (transactionId, attachmentId) => {
-    const { blob } = await apiBlob(`/api/transactions/${transactionId}/attachments/${attachmentId}/file`)
-    return blob
+function attachmentsApiFor(base) {
+  return {
+    list: (ownerId) => apiFetch(`${base}/${ownerId}/attachments`),
+    upload: (ownerId, file) => {
+      const body = new FormData()
+      body.append('file', file)
+      return apiFetch(`${base}/${ownerId}/attachments`, { method: 'POST', body })
+    },
+    remove: (ownerId, attachmentId) => apiFetch(
+      `${base}/${ownerId}/attachments/${attachmentId}`,
+      { method: 'DELETE' }
+    ),
+    // Blob do arquivo; quem chama decide entre abrir numa aba ou salvar.
+    file: async (ownerId, attachmentId) => {
+      const { blob } = await apiBlob(`${base}/${ownerId}/attachments/${attachmentId}/file`)
+      return blob
+    }
   }
 }
+
+export const attachmentsApi = attachmentsApiFor('/api/transactions')
+
+// Comprovantes de compra no cartao: anexados numa parcela, listados pela
+// compra inteira (todas as parcelas).
+export const ccExpenseAttachmentsApi = attachmentsApiFor('/api/cc-expenses')
 
 export const accountsApi = {
   list: (params = {}) => apiFetch(`/api/accounts${queryString(params)}`),

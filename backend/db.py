@@ -8,6 +8,7 @@ nao constam em `schema_migrations`. Os backups automaticos seguem
 import json
 import os
 import re
+import shutil
 import sqlite3
 import time
 import uuid
@@ -15,6 +16,7 @@ import zipfile
 from datetime import datetime, timezone
 
 from config import (
+    ATTACHMENTS_DIR,
     AUTO_BACKUP_MIN_INTERVAL_HOURS,
     AUTO_BACKUP_ON_BOOT,
     BACKUP_RETENTION_DAYS,
@@ -29,6 +31,13 @@ from config import (
 # proprio (ex.: "finance-before-normalized-investments-*.db") sao marcos feitos
 # a mao e nunca sao apagados pela retencao.
 BACKUP_FILE_PATTERN = re.compile(r"^finance-\d{8}-\d{6}\.(db|sql|zip)$")
+
+# Comprovantes nao entram no zip (um ano de fotos x 7 zips diarios): o backup
+# mantem um espelho, uma copia so de cada arquivo. Um comprovante apagado sai
+# do espelho para uma pasta datada e fica la pela mesma retencao dos zips.
+ATTACHMENTS_MIRROR_NAME = "attachments"
+ATTACHMENTS_REMOVED_NAME = "attachments-removed"
+REMOVED_DAY_PATTERN = re.compile(r"^\d{8}$")
 
 
 def get_db():
@@ -172,7 +181,80 @@ def create_database_backup():
         "database_path": backup_path,
         "dump_path": dump_path,
         "zip_path": zip_path,
+        "attachments": mirror_attachments(),
         "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def relative_files(root):
+    """Caminhos relativos (usuario/arquivo) de todo arquivo abaixo de `root`."""
+    found = set()
+    if not os.path.isdir(root):
+        return found
+    for directory, _dirs, files in os.walk(root):
+        for filename in files:
+            found.add(os.path.relpath(os.path.join(directory, filename), root))
+    return found
+
+
+def mirror_attachments(retention_days=None):
+    """Sincroniza ATTACHMENTS_DIR com backups/attachments.
+
+    Copia o que e novo ou mudou de tamanho (o nome guardado e gerado e o
+    arquivo nunca e reescrito, entao tamanho basta). O que sumiu da origem vai
+    para backups/attachments-removed/AAAAMMDD/, e pastas datadas alem da
+    retencao sao apagadas. Restaurar: copiar backups/attachments de volta.
+    """
+    retention_days = BACKUP_RETENTION_DAYS if retention_days is None else retention_days
+    mirror_dir = os.path.join(DATABASE_BACKUP_DIR, ATTACHMENTS_MIRROR_NAME)
+    removed_root = os.path.join(DATABASE_BACKUP_DIR, ATTACHMENTS_REMOVED_NAME)
+    source_files = relative_files(ATTACHMENTS_DIR)
+    mirror_files = relative_files(mirror_dir)
+
+    copied = 0
+    for relative in sorted(source_files):
+        source = os.path.join(ATTACHMENTS_DIR, relative)
+        target = os.path.join(mirror_dir, relative)
+        try:
+            if relative in mirror_files and os.path.getsize(source) == os.path.getsize(target):
+                continue
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(source, target)
+            copied += 1
+        except OSError as exc:
+            print(f"Nao foi possivel copiar o comprovante {relative} para o backup: {exc}")
+
+    moved = 0
+    today_dir = os.path.join(removed_root, datetime.now().strftime("%Y%m%d"))
+    for relative in sorted(mirror_files - source_files):
+        target = os.path.join(today_dir, relative)
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.move(os.path.join(mirror_dir, relative), target)
+            moved += 1
+        except OSError as exc:
+            print(f"Nao foi possivel mover o comprovante removido {relative}: {exc}")
+
+    expired = []
+    if os.path.isdir(removed_root):
+        cutoff = datetime.now().date().toordinal() - retention_days
+        for name in os.listdir(removed_root):
+            if not REMOVED_DAY_PATTERN.match(name):
+                continue
+            try:
+                day = datetime.strptime(name, "%Y%m%d").date().toordinal()
+            except ValueError:
+                continue
+            if day < cutoff:
+                shutil.rmtree(os.path.join(removed_root, name), ignore_errors=True)
+                expired.append(name)
+
+    return {
+        "mirror_dir": mirror_dir,
+        "files": len(source_files),
+        "copied": copied,
+        "removed": moved,
+        "expired_days": expired,
     }
 
 

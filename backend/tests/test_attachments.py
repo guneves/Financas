@@ -380,3 +380,115 @@ class TestIsolation:
         transaction = create_transaction(client, auth)
         response = client.get(f"/api/transactions/{transaction['id']}/attachments")
         assert response.status_code == 401
+
+
+# --- comprovantes de compra no cartao (016) ---------------------------------
+
+def create_card_purchase(client, headers, installments=3, description="Geladeira"):
+    card = client.post(
+        "/api/credit-cards", headers=headers,
+        json={"name": f"Cartao {description}", "due_day": 10, "closing_day": 3},
+    ).get_json()
+    card = card[0] if isinstance(card, list) else card
+    response = client.post(
+        "/api/cc-expenses/purchases",
+        headers=headers,
+        json={
+            "card_id": card["id"],
+            "category": "Casa",
+            "description": description,
+            "total_amount": 3000,
+            "purchase_date": "2026-09-05",
+            "installments": installments,
+        },
+    )
+    assert response.status_code == 201, response.get_data(as_text=True)
+    return card, response.get_json()
+
+
+def upload_to_expense(client, headers, expense_id, content=PDF, filename="nota.pdf"):
+    return client.post(
+        f"/api/cc-expenses/{expense_id}/attachments",
+        data={"file": (io.BytesIO(content), filename)},
+        headers=headers,
+        content_type="multipart/form-data",
+    )
+
+
+def expense_stored_path(user_id, attachment_id):
+    with importlib.import_module("db").get_db() as conn:
+        row = conn.execute(
+            "SELECT stored_name FROM cc_expense_attachments WHERE id = ?", (attachment_id,),
+        ).fetchone()
+    return attachment_files().attachment_path(user_id, row["stored_name"])
+
+
+class TestCardPurchaseReceipts:
+    def test_a_receipt_on_one_installment_shows_on_every_installment(self, client, auth):
+        _card, installments = create_card_purchase(client, auth)
+        first, last = installments[0]["id"], installments[-1]["id"]
+        created = upload_to_expense(client, auth, first)
+        assert created.status_code == 201, created.get_data(as_text=True)
+
+        listed = client.get(f"/api/cc-expenses/{last}/attachments", headers=auth).get_json()
+        assert [item["id"] for item in listed] == [created.get_json()["id"]]
+
+        file = client.get(f"/api/cc-expenses/{last}/attachments/{listed[0]['id']}/file", headers=auth)
+        assert file.status_code == 200
+        assert file.data == PDF
+
+    def test_cc_expenses_carry_the_purchase_attachment_count(self, client, auth):
+        _card, installments = create_card_purchase(client, auth)
+        create_card_purchase(client, auth, description="Outra compra")
+        upload_to_expense(client, auth, installments[1]["id"])
+        rows = client.get("/api/cc-expenses", headers=auth).get_json()
+        counts = {row["description"]: set() for row in rows}
+        for row in rows:
+            counts[row["description"]].add(row["attachment_count"])
+        assert counts == {"Geladeira": {1}, "Outra compra": {0}}
+
+    def test_the_route_guard_refuses_another_purchase(self, client, auth):
+        _card, installments = create_card_purchase(client, auth)
+        _card2, other = create_card_purchase(client, auth, description="Outra compra")
+        attachment = upload_to_expense(client, auth, installments[0]["id"]).get_json()
+        response = client.delete(
+            f"/api/cc-expenses/{other[0]['id']}/attachments/{attachment['id']}", headers=auth,
+        )
+        assert response.status_code == 404
+
+    def test_deleting_the_purchase_removes_rows_and_files(self, client, auth, user):
+        _card, installments = create_card_purchase(client, auth)
+        attachment = upload_to_expense(client, auth, installments[0]["id"]).get_json()
+        path = expense_stored_path(user["id"], attachment["id"])
+        assert os.path.isfile(path)
+
+        response = client.delete(
+            "/api/cc-expenses", headers=auth, json={"ids": [item["id"] for item in installments]},
+        )
+        assert response.status_code == 200
+        assert not os.path.exists(path)
+
+    def test_deleting_the_card_removes_the_files(self, client, auth, user):
+        card, installments = create_card_purchase(client, auth)
+        attachment = upload_to_expense(client, auth, installments[0]["id"]).get_json()
+        path = expense_stored_path(user["id"], attachment["id"])
+
+        assert client.delete(f"/api/credit-cards/{card['id']}", headers=auth).status_code == 200
+        assert not os.path.exists(path)
+
+    def test_orphan_sweep_keeps_card_receipts(self, client, auth, user):
+        _card, installments = create_card_purchase(client, auth)
+        attachment = upload_to_expense(client, auth, installments[0]["id"]).get_json()
+        path = expense_stored_path(user["id"], attachment["id"])
+        old = os.path.getmtime(path) - 3600
+        os.utime(path, (old, old))
+
+        attachment_files().prune_orphan_attachment_files(min_age_seconds=0)
+        assert os.path.isfile(path)
+
+    def test_another_user_cannot_see_or_attach(self, client, auth, other_user):
+        _card, installments = create_card_purchase(client, auth)
+        upload_to_expense(client, auth, installments[0]["id"])
+        foreign = other_user["headers"]
+        assert client.get(f"/api/cc-expenses/{installments[0]['id']}/attachments", headers=foreign).status_code == 404
+        assert upload_to_expense(client, foreign, installments[0]["id"]).status_code == 404

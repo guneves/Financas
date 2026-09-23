@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle, ChevronDown, CreditCard, Plus, Trash2 } from 'lucide-react'
+import { CheckCircle, ChevronDown, CreditCard, Paperclip, Plus, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ccExpensesApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
@@ -24,6 +24,7 @@ import {
 } from './helpers'
 import ProjectionHeader from './ProjectionHeader'
 import PayInvoiceSheet from '../../components/PayInvoiceSheet'
+import AttachmentsSheet from '../../components/AttachmentsSheet'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
 import { toast } from '../../lib/toast'
@@ -51,6 +52,7 @@ export default function Cartoes() {
   // Fatura aguardando confirmacao no sheet de pagamento: { invoice, cardGroup }.
   const [paying, setPaying] = useState(null)
   const [payError, setPayError] = useState('')
+  const [attachmentsFor, setAttachmentsFor] = useState(null)
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
   // Cartoes com as faturas futuras desdobradas, por card_id.
@@ -95,6 +97,8 @@ export default function Cartoes() {
       if (!acc[cardKey].invoices[invoiceKey].purchases[purchaseKey]) {
         acc[cardKey].invoices[invoiceKey].purchases[purchaseKey] = {
           purchaseKey,
+          id: expense.id,
+          attachmentCount: Number(expense.attachment_count || 0),
           card_id: expense.card_id,
           description: expense.description,
           category: expense.category || 'Outros',
@@ -317,7 +321,12 @@ export default function Cartoes() {
             {invoice.purchases.map((purchase) => (
               <li key={purchase.purchaseKey} className="flex items-center gap-3 py-1.5 pl-4 pr-2">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-zinc-900" title={purchase.description}>{purchase.description}</p>
+                  <p className="flex min-w-0 items-center gap-1.5 font-medium text-zinc-900" title={purchase.description}>
+                    <span className="truncate">{purchase.description}</span>
+                    {purchase.attachmentCount > 0 ? (
+                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-label={`${purchase.attachmentCount} comprovante(s)`} />
+                    ) : null}
+                  </p>
                   <p className="truncate text-xs text-zinc-500">
                     {purchase.category} · {formatDateBR(purchase.purchase_date)}
                     {purchase.installmentTotal > 1 ? ` · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}` : ''}
@@ -326,12 +335,19 @@ export default function Cartoes() {
                 <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
                 <Menu
                   label={`Ações de ${purchase.description}`}
-                  items={[{
-                    label: purchase.installmentTotal > 1 ? 'Excluir compra e parcelas' : 'Excluir compra',
-                    icon: Trash2,
-                    tone: 'danger',
-                    onSelect: () => handleDeleteCCPurchase(purchase),
-                  }]}
+                  items={[
+                    {
+                      label: purchase.attachmentCount > 0 ? `Comprovantes (${purchase.attachmentCount})` : 'Comprovantes',
+                      icon: Paperclip,
+                      onSelect: () => setAttachmentsFor(purchase),
+                    },
+                    {
+                      label: purchase.installmentTotal > 1 ? 'Excluir compra e parcelas' : 'Excluir compra',
+                      icon: Trash2,
+                      tone: 'danger',
+                      onSelect: () => handleDeleteCCPurchase(purchase),
+                    },
+                  ]}
                 />
               </li>
             ))}
@@ -353,6 +369,11 @@ export default function Cartoes() {
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 
+      <AttachmentsSheet
+        purchase={attachmentsFor}
+        onClose={() => setAttachmentsFor(null)}
+        onChanged={fetchData}
+      />
       <PayInvoiceSheet
         open={Boolean(paying)}
         onClose={() => setPaying(null)}

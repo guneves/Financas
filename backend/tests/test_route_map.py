@@ -71,6 +71,9 @@ EXPECTED_ROUTES = {
     ("/api/transactions/<item_id>/attachments", "GET,POST"),
     ("/api/transactions/<item_id>/attachments/<attachment_id>", "DELETE"),
     ("/api/transactions/<item_id>/attachments/<attachment_id>/file", "GET"),
+    ("/api/cc-expenses/<item_id>/attachments", "GET,POST"),
+    ("/api/cc-expenses/<item_id>/attachments/<attachment_id>", "DELETE"),
+    ("/api/cc-expenses/<item_id>/attachments/<attachment_id>/file", "GET"),
     ("/api/transactions/export", "GET"),
     ("/api/transfers", "POST"),
 }

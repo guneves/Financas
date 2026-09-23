@@ -195,3 +195,63 @@ def test_backup_endpoint_also_prunes(client, auth, db_module, backup_dir, monkey
 
 def test_backup_endpoint_requires_authentication(client):
     assert client.post("/api/database/backups").status_code == 401
+
+
+# --- espelho dos comprovantes ------------------------------------------------
+
+@pytest.fixture()
+def attachments_dir(db_module, monkeypatch, test_dir):
+    target = test_dir / "attachments"
+    monkeypatch.setattr(db_module, "ATTACHMENTS_DIR", str(target))
+    return target
+
+
+def write_receipt(directory, user_id, name, content=b"%PDF-1.4 recibo"):
+    folder = directory / user_id
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / name
+    path.write_bytes(content)
+    return path
+
+
+def test_mirror_copies_new_receipts_once(db_module, backup_dir, attachments_dir):
+    write_receipt(attachments_dir, "u1", "a.pdf")
+    first = db_module.mirror_attachments()
+    second = db_module.mirror_attachments()
+
+    assert first["copied"] == 1
+    assert second["copied"] == 0
+    assert (backup_dir / "attachments" / "u1" / "a.pdf").read_bytes() == b"%PDF-1.4 recibo"
+
+
+def test_a_deleted_receipt_moves_to_a_dated_folder(db_module, backup_dir, attachments_dir):
+    receipt = write_receipt(attachments_dir, "u1", "a.pdf")
+    db_module.mirror_attachments()
+    receipt.unlink()
+
+    result = db_module.mirror_attachments()
+
+    assert result["removed"] == 1
+    assert not (backup_dir / "attachments" / "u1" / "a.pdf").exists()
+    removed = list((backup_dir / "attachments-removed").glob("*/u1/a.pdf"))
+    assert len(removed) == 1
+
+
+def test_removed_receipts_expire_after_retention(db_module, backup_dir, attachments_dir):
+    old_day = backup_dir / "attachments-removed" / "20200101" / "u1"
+    old_day.mkdir(parents=True)
+    (old_day / "velho.pdf").write_bytes(b"x")
+
+    result = db_module.mirror_attachments(retention_days=7)
+
+    assert result["expired_days"] == ["20200101"]
+    assert not (backup_dir / "attachments-removed" / "20200101").exists()
+
+
+def test_backup_runs_the_mirror(db_module, backup_dir, attachments_dir):
+    write_receipt(attachments_dir, "u1", "a.pdf")
+    backup = db_module.create_database_backup()
+    assert backup["attachments"]["copied"] == 1
+    assert (backup_dir / "attachments" / "u1" / "a.pdf").exists()
+    # O espelho nao entra na retencao dos zips.
+    assert all("attachments" not in os.path.basename(path) for path, _ in db_module.backup_files())

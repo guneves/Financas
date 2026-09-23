@@ -44,6 +44,7 @@ DATABASE_BACKUP_DIR = resolve_app_path(
 )
 # Comprovantes por lancamento (014). Fora do banco e fora do zip de backup:
 # fotos de recibo multiplicariam o tamanho de cada backup diario da retencao.
+# O backup guarda um espelho, uma copia de cada arquivo (db.mirror_attachments).
 ATTACHMENTS_DIR = resolve_app_path(
     os.getenv("ATTACHMENTS_DIR", os.path.join("attachments")),
     BASE_DIR,

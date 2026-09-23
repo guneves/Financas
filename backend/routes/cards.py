@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction
 from services.accounts import fetch_account, require_account, resolve_account_id
+from services.attachments import cc_expense_attachment_names, remove_attachment_files
 from services.invoices import (
     InvoiceStillOpenError,
     apply_due_autopay,
@@ -153,12 +154,14 @@ def update_credit_card(current_user_id, card_id):
 @token_required
 def delete_credit_card(current_user_id, card_id):
     with get_db() as conn:
+        stored_names = cc_expense_attachment_names(conn, current_user_id, card_id=card_id)
         cursor = conn.execute(
             "DELETE FROM credit_cards WHERE id = ? AND user_id = ?",
             (card_id, current_user_id),
         )
     if cursor.rowcount == 0:
         return jsonify({"deleted": False}), 404
+    remove_attachment_files(current_user_id, stored_names)
     return jsonify({"deleted": True}), 200
 
 
@@ -184,7 +187,17 @@ def cc_expenses(current_user_id):
                     cce.*,
                     cc.name AS card_name,
                     cc.due_day AS card_due_day,
-                    cc.closing_day AS card_closing_day
+                    cc.closing_day AS card_closing_day,
+                    (
+                        -- Comprovantes da compra inteira (todas as parcelas), 016.
+                        SELECT COUNT(*) FROM cc_expense_attachments a
+                        JOIN cc_expenses sib ON sib.id = a.cc_expense_id AND sib.user_id = a.user_id
+                        WHERE a.user_id = cce.user_id
+                          AND sib.card_id = cce.card_id
+                          AND sib.description = cce.description
+                          AND sib.purchase_date = cce.purchase_date
+                          AND sib.category = cce.category
+                    ) AS attachment_count
                 FROM cc_expenses cce
                 LEFT JOIN credit_cards cc ON cc.id = cce.card_id
                 WHERE cce.user_id = ?
@@ -204,10 +217,13 @@ def cc_expenses(current_user_id):
 
         placeholders = ",".join("?" for _ in ids)
         with get_db() as conn:
+            # Os comprovantes saem pelo CASCADE; os arquivos, depois do commit.
+            stored_names = cc_expense_attachment_names(conn, current_user_id, expense_ids=ids)
             cursor = conn.execute(
                 f"DELETE FROM cc_expenses WHERE user_id = ? AND id IN ({placeholders})",
                 [current_user_id, *ids],
             )
+        remove_attachment_files(current_user_id, stored_names)
         return jsonify({"deleted": cursor.rowcount}), 200
 
     payload = parse_json_body()
