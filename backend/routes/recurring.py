@@ -16,6 +16,7 @@ from dates import parse_iso_date
 from db import get_db, new_id, serialize_metadata_row, serialize_transaction, utc_timestamp
 from money import rounded_money
 from services.accounts import ensure_default_account, resolve_account_id, resolve_category
+from source_types import RECURRING_SOURCE_TYPE
 from validators import (
     ValidationError,
     optional_date,
@@ -33,7 +34,6 @@ bp = Blueprint("recurring", __name__)
 
 ALLOWED_RECURRING_TYPES = {"INCOME", "EXPENSE"}
 ALLOWED_RECURRENCE_FREQUENCIES = {"WEEKLY", "MONTHLY", "YEARLY"}
-RECURRING_SOURCE_TYPE = "RECURRING_TRANSACTION"
 # Teto por recorrencia numa unica chamada de /api/recurring/run: uma semanal
 # esquecida por anos nao pode gerar milhares de lancamentos de uma vez.
 RECURRING_MAX_OCCURRENCES = 400
