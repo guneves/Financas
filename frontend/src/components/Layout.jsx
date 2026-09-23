@@ -1,79 +1,131 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Eye, EyeOff, LogOut, Plus, Settings, Wallet } from 'lucide-react'
-import { Suspense, useCallback, useMemo, useRef, useState } from 'react'
+import { Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun } from 'lucide-react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
 import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
 import { setValuesHidden, useValuesHidden } from '../lib/privacy'
+import { toggleTheme, useIsDark } from '../lib/theme'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
-import { Button, cx, Skeleton, Tabs } from './ui'
+import { cx, Skeleton, Tabs } from './ui'
 
 const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD', 'INVESTMENT']
 
-function BrandMark() {
+export function BrandMark({ compact = false }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-glow">
-        <Wallet className="h-5 w-5" />
+    <div className="flex items-center gap-2.5">
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-base font-extrabold text-brand-ink">
+        F
       </div>
-      <div>
-        <p className="text-sm font-bold leading-5 text-zinc-950">FinanceMVP</p>
-        <p className="text-xs text-zinc-600">Painel financeiro</p>
-      </div>
+      {compact ? null : <span className="text-lg font-extrabold tracking-tight text-zinc-950">Finanças</span>}
     </div>
   )
 }
 
-function SidebarItem({ to, name, icon: Icon }) {
+// Navegacao de secoes no desktop: pilulas numa faixa branca; a ativa e o
+// verde profundo da marca.
+function SectionPill({ to, name, icon: Icon }) {
   return (
     <NavLink
       to={to}
       className={({ isActive }) =>
         cx(
-          'group relative flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition duration-200',
-          isActive
-            ? 'bg-zinc-950 text-white shadow-lift'
-            : 'text-zinc-600 hover:translate-x-0.5 hover:bg-zinc-100 hover:text-zinc-950'
+          'flex h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold transition duration-150',
+          isActive ? 'bg-brand text-brand-ink' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950'
         )
       }
     >
-      {({ isActive }) => (
-        <>
-          <span
-            className={cx(
-              'absolute left-0 top-2.5 h-6 w-1 -translate-x-2 rounded-r-full bg-emerald-400 transition-all duration-300',
-              isActive ? 'opacity-100' : 'opacity-0'
-            )}
-          />
-          <Icon className={cx('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-emerald-300' : 'text-zinc-500 group-hover:text-zinc-700')} />
-          <span className="truncate">{name}</span>
-        </>
-      )}
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span>{name}</span>
     </NavLink>
   )
 }
 
-// Olho da barra lateral (e do cabecalho no celular): esconde saldos e carteira.
-function PrivacyToggle({ hidden, onToggle, className = '' }) {
+const roundButton = 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition'
+const roundIdle = 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950'
+const roundOn = 'border-emerald-200 bg-emerald-50 text-emerald-700'
+
+// Olho: esconde saldos e carteira (lib/privacy.js).
+function PrivacyToggle({ hidden, onToggle }) {
   const label = hidden ? 'Mostrar valores' : 'Ocultar valores'
   const Icon = hidden ? EyeOff : Eye
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={label}
-      aria-pressed={hidden}
-      title={label}
-      className={cx(
-        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition',
-        hidden ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50',
-        className
-      )}
-    >
+    <button type="button" onClick={onToggle} aria-label={label} aria-pressed={hidden} title={label} className={cx(roundButton, hidden ? roundOn : roundIdle)}>
       <Icon className="h-5 w-5" />
     </button>
+  )
+}
+
+// Claro/escuro (lib/theme.js). Segue o sistema ate o primeiro clique.
+function ThemeToggle() {
+  const dark = useIsDark()
+  const label = dark ? 'Usar tema claro' : 'Usar tema escuro'
+  const Icon = dark ? Sun : Moon
+  return (
+    <button type="button" onClick={toggleTheme} aria-label={label} title={label} className={cx(roundButton, roundIdle)}>
+      <Icon className="h-5 w-5" />
+    </button>
+  )
+}
+
+// Menu do usuario: Ajustes e Sair. Fecha com Esc, clique fora ou ao navegar.
+function UserMenu({ initials, name }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef(null)
+  const buttonRef = useRef(null)
+  const location = useLocation()
+
+  useEffect(() => { setOpen(false) }, [location.pathname])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const onPointer = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    const onKey = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Conta de ${name}`}
+        title={name}
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-800 transition hover:ring-2 hover:ring-emerald-200"
+      >
+        {initials || 'F'}
+      </button>
+      {open ? (
+        <div role="menu" className="absolute right-0 top-full z-40 mt-2 w-56 animate-slide-down rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-lift">
+          <p className="truncate px-3 py-2 text-sm font-semibold text-zinc-950">{name}</p>
+          <NavLink role="menuitem" to={SETTINGS_PATH} className="flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950">
+            <Settings className="h-4 w-4" />
+            Ajustes
+          </NavLink>
+          <button role="menuitem" type="button" onClick={signOut} className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-zinc-700 hover:bg-rose-50 hover:text-rose-700">
+            <LogOut className="h-4 w-4" />
+            Sair
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -84,12 +136,18 @@ function BottomTab({ to, name, icon: Icon }) {
       className={({ isActive }) =>
         cx(
           'flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition',
-          isActive ? 'text-emerald-700' : 'text-zinc-500 hover:text-zinc-900'
+          isActive ? 'text-zinc-950' : 'text-zinc-500 hover:text-zinc-900'
         )
       }
     >
-      <Icon className="h-5 w-5" />
-      <span className="max-w-full truncate px-1">{name}</span>
+      {({ isActive }) => (
+        <>
+          <span className={cx('flex h-7 w-12 items-center justify-center rounded-full transition', isActive && 'bg-emerald-100 text-emerald-800')}>
+            <Icon className="h-5 w-5" />
+          </span>
+          <span className="max-w-full truncate px-1">{name}</span>
+        </>
+      )}
     </NavLink>
   )
 }
@@ -166,57 +224,45 @@ export default function Layout() {
     <NewEntryContext.Provider value={newEntryValue}>
       <DataVersionContext.Provider value={dataVersion}>
       <div className="min-h-screen text-zinc-950">
-        <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-zinc-200/80 bg-white/90 backdrop-blur lg:flex lg:flex-col">
-          <div className="border-b border-zinc-100 px-5 py-5">
-            <BrandMark />
-          </div>
-
-          <div className="px-4 pt-5">
-            <Button icon={Plus} size="lg" className="w-full" onClick={() => openNewEntry()}>
-              Novo
-            </Button>
-          </div>
-
-          <nav className="stagger flex-1 space-y-1 px-4 py-5">
-            {sections.map((item) => (
-              <SidebarItem key={item.path} to={item.path} name={item.name} icon={item.icon} />
-            ))}
-          </nav>
-
-          <div className="space-y-1 border-t border-zinc-100 p-4">
-            <SidebarItem to={SETTINGS_PATH} name="Ajustes" icon={Settings} />
-            <div className="my-2 flex items-center gap-3 rounded-lg bg-zinc-50 p-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-sm font-bold text-emerald-700">
-                {initials || 'FM'}
-              </div>
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">
-                {name}
-              </p>
-              <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} className="h-9 w-9" />
+        {/* Desktop: uma faixa so, fixa no topo — marca, secoes, e a direita
+            tema, olho, conta e "+ Novo". A altura (h-[4.5rem]) e o top do
+            cabecalho das tabelas em index.css. */}
+        <header className="sticky top-0 z-30 hidden border-b border-zinc-200/70 bg-zinc-50/90 backdrop-blur lg:block">
+          <div className="mx-auto flex h-[4.5rem] w-full max-w-[1500px] items-center gap-4 px-8">
+            <div className="w-44 shrink-0">
+              <BrandMark />
             </div>
+            <nav aria-label="Seções" className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1">
+              {sections.map((item) => (
+                <SectionPill key={item.path} to={item.path} name={item.name} icon={item.icon} />
+              ))}
+            </nav>
+            <div className="flex-1" />
+            <ThemeToggle />
+            <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
+            <UserMenu initials={initials} name={name} />
             <button
-              onClick={signOut}
-              className="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold text-zinc-600 transition hover:bg-rose-50 hover:text-rose-700"
+              type="button"
+              onClick={() => openNewEntry()}
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-emerald-500 px-5 text-sm font-bold text-on-accent transition hover:bg-emerald-400 active:scale-[0.97]"
             >
-              <LogOut className="h-4 w-4" />
-              Sair
+              <Plus className="h-5 w-5" strokeWidth={2.4} />
+              Novo
             </button>
           </div>
-        </aside>
+        </header>
 
-        <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur lg:hidden">
-          <div className="flex h-16 items-center justify-between px-4">
+        <header className="sticky top-0 z-20 border-b border-zinc-200/70 bg-zinc-50/95 backdrop-blur lg:hidden">
+          <div className="flex h-16 items-center justify-between gap-2 px-4">
             <BrandMark />
             <div className="flex items-center gap-2">
+              <ThemeToggle />
               <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
               <NavLink
                 to={SETTINGS_PATH}
                 aria-label="Ajustes"
                 title="Ajustes"
-                className={({ isActive }) => cx(
-                  'inline-flex h-11 w-11 items-center justify-center rounded-lg border transition',
-                  isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
-                )}
+                className={({ isActive }) => cx(roundButton, isActive ? roundOn : roundIdle)}
               >
                 <Settings className="h-5 w-5" />
               </NavLink>
@@ -224,25 +270,23 @@ export default function Layout() {
           </div>
         </header>
 
-        <div className="lg:pl-64">
-          <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:py-8">
-            {section?.tabs.length ? (
-              <Tabs items={section.tabs} className="mb-5" />
-            ) : null}
+        <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:py-8">
+          {section?.tabs.length ? (
+            <Tabs items={section.tabs} className="mb-5" />
+          ) : null}
 
-            {/* Trocar de pagina remonta e anima a entrada. O modo privado nao
-                remonta nada: so os valores sensiveis re-renderizam
-                (lib/privacy.js). */}
-            <div key={location.pathname} className={pageEnter.current.className}>
-              <Suspense fallback={<PageLoading />}>
-                <Outlet />
-              </Suspense>
-            </div>
-          </main>
-        </div>
+          {/* Trocar de pagina remonta e anima a entrada. O modo privado e o
+              tema nao remontam nada: so o que depende deles re-renderiza
+              (lib/privacy.js, lib/theme.js). */}
+          <div key={location.pathname} className={pageEnter.current.className}>
+            <Suspense fallback={<PageLoading />}>
+              <Outlet />
+            </Suspense>
+          </div>
+        </main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-          <div className="mx-auto flex max-w-lg items-stretch px-2">
+        <nav aria-label="Seções" className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-lg items-stretch px-2 py-1">
             {sections.slice(0, 2).map((item) => (
               <BottomTab key={item.path} to={item.path} name={item.name} icon={item.icon} />
             ))}
@@ -251,9 +295,9 @@ export default function Layout() {
                 type="button"
                 onClick={() => openNewEntry()}
                 aria-label="Novo lançamento"
-                className="-mt-5 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-glow ring-4 ring-white transition active:scale-95"
+                className="flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-2xl bg-emerald-500 text-on-accent transition active:scale-95"
               >
-                <Plus className="h-6 w-6" />
+                <Plus className="h-6 w-6" strokeWidth={2.4} />
               </button>
             </div>
             {sections.slice(2).map((item) => (

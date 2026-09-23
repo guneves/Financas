@@ -74,15 +74,16 @@ export function useArrivals(items, version, getId = defaultGetId) {
 }
 
 const buttonVariants = {
-  primary: 'bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600 shadow-sm hover:shadow-glow',
-  secondary: 'bg-white text-zinc-800 hover:bg-zinc-50 border-zinc-300',
+  // Primario no verde profundo da marca (direcao C); o verde vivo fica para "+ Novo".
+  primary: 'bg-brand text-brand-ink hover:bg-brand/90 border-brand',
+  secondary: 'bg-white text-zinc-800 hover:bg-zinc-100 border-zinc-200',
   dark: 'bg-zinc-900 text-white hover:bg-zinc-800 border-zinc-900',
   danger: 'bg-white text-rose-600 hover:bg-rose-50 border-rose-200',
   subtle: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 border-zinc-100',
 }
 
 const buttonSizes = {
-  sm: 'h-9 px-3 text-sm',
+  sm: 'h-9 px-3.5 text-sm',
   md: 'h-10 px-4 text-sm',
   lg: 'h-11 px-5 text-sm',
 }
@@ -100,7 +101,7 @@ export function Button({
   return (
     <button
       className={cx(
-        'inline-flex items-center justify-center gap-2 rounded-lg border font-semibold transition duration-150',
+        'inline-flex items-center justify-center gap-2 rounded-full border font-semibold transition duration-150',
         'active:scale-[0.97]',
         'disabled:pointer-events-none disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400 disabled:shadow-none',
         buttonVariants[variant],
@@ -129,7 +130,7 @@ export function IconButton({ label, icon: Icon, className = '', variant = 'secon
       aria-label={label}
       title={label}
       className={cx(
-        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition active:scale-95',
+        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition active:scale-95',
         iconButtonSizes[size],
         buttonVariants[variant],
         className
@@ -162,7 +163,9 @@ export function Panel({ children, className = '', as: Component = 'section', int
     <Component
       {...props}
       className={cx(
-        'rounded-xl border border-zinc-200/80 bg-white shadow-card',
+        // Bloco liso e arredondado (direcao C): sem sombra; a borda fica para o
+        // escuro nao virar uma massa unica.
+        'rounded-[1.25rem] border border-zinc-200/60 bg-white',
         interactive && 'transition duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift',
         className
       )}
@@ -174,10 +177,10 @@ export function Panel({ children, className = '', as: Component = 'section', int
 
 export function PanelHeader({ title, description, actions, className = '' }) {
   return (
-    <div className={cx('flex flex-col gap-3 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between', className)}>
+    <div className={cx('flex flex-col gap-3 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6', className)}>
       <div className="min-w-0">
-        <h2 className="text-base font-semibold text-zinc-950">{title}</h2>
-        {description ? <p className="mt-1 text-sm text-zinc-500">{description}</p> : null}
+        <h2 className="text-[17px] font-bold tracking-tight text-zinc-950">{title}</h2>
+        {description ? <p className="mt-1 hidden text-sm text-zinc-500 sm:block">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -287,7 +290,7 @@ export function FitValue({ children, measure, baseSize = 24, minSize = 15, class
       setSize(Math.max(minSize, Math.min(baseSize, Math.floor((baseSize * available * 10) / needed) / 10)))
     }
     fit()
-    // A medida muda quando a Inter termina de carregar: observar a copia
+    // A medida muda quando a fonte termina de carregar: observar a copia
     // invisivel pega isso (o fonts.ready pode resolver antes do peso usado).
     document.fonts?.ready?.then(fit)
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null
@@ -300,7 +303,9 @@ export function FitValue({ children, measure, baseSize = 24, minSize = 15, class
   }, [measure, baseSize, minSize])
 
   return (
-    <div ref={boxRef} className={cx('relative min-w-0', className)} style={{ lineHeight: `${Math.round(baseSize * 1.25)}px` }}>
+    // overflow-hidden: a copia invisivel e mais larga que a caixa e, sem
+    // isto, alarga a pagina quando o pai nao corta (bloco de patrimonio).
+    <div ref={boxRef} className={cx('relative min-w-0 overflow-hidden', className)} style={{ lineHeight: `${Math.round(baseSize * 1.25)}px` }}>
       {measure ? (
         <span ref={probeRef} aria-hidden="true" className="invisible absolute left-0 top-0 whitespace-nowrap" style={{ fontSize: baseSize }}>
           {measure}
@@ -336,18 +341,18 @@ export function MetricCard({
     ? MASKED_CURRENCY
     : animated ? format(amount) : (typeof value === 'string' || typeof value === 'number' ? String(value) : null)
   return (
-    <Panel className={cx('relative overflow-hidden p-4 sm:p-5', className)}>
+    <Panel className={cx('relative overflow-hidden p-4 sm:p-6', className)}>
       {/* Icone ao lado do rotulo, nao do valor: o valor fica com a largura
           toda do cartao e nunca vira "R$ 1.99…". */}
       <div className="flex items-center gap-2.5">
         {Icon ? (
-          <span className={cx('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', metricTones[tone])}>
+          <span className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-xl', metricTones[tone])}>
             <Icon className="h-4 w-4" />
           </span>
         ) : null}
-        <p className="min-w-0 text-xs font-semibold uppercase leading-4 tracking-wide text-zinc-500">{title}</p>
+        <p className="min-w-0 text-sm font-semibold leading-5 text-zinc-600">{title}</p>
       </div>
-      <FitValue measure={finalText} className={cx('mt-3 font-bold tracking-tight text-zinc-950', valueClassName)}>
+      <FitValue measure={finalText} className={cx('mt-3 font-extrabold tracking-tight text-zinc-950', valueClassName)}>
         {animated ? (
           <AnimatedNumber
             value={amount}
@@ -377,8 +382,9 @@ export function PageHeader({ title, description, actions, meta }) {
   return (
     <div className="flex animate-fade-up flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-950">{title}</h1>
-        {description ? <p className="mt-2 max-w-3xl text-sm text-zinc-500">{description}</p> : null}
+        <h1 className="text-3xl font-extrabold tracking-tight text-zinc-950">{title}</h1>
+        {/* No celular a descricao sai: o conteudo sobe para a primeira dobra. */}
+        {description ? <p className="mt-2 hidden max-w-3xl text-sm text-zinc-500 sm:block">{description}</p> : null}
         {meta ? <div className="mt-3 flex flex-wrap gap-2">{meta}</div> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
@@ -390,7 +396,7 @@ export function SegmentedControl({ items, value, onChange, className = '' }) {
   const containerRef = useRef(null)
   const pill = useSlidingPill(containerRef, '[aria-pressed="true"]', [value, items])
   return (
-    <div ref={containerRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
+    <div ref={containerRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white p-1', className)}>
       <PillBackground pill={pill} />
       {items.map((item) => {
         const Icon = item.icon
@@ -402,10 +408,10 @@ export function SegmentedControl({ items, value, onChange, className = '' }) {
             aria-pressed={isActive}
             onClick={() => onChange(item.value)}
             className={cx(
-              'relative inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200',
+              'relative inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold transition duration-200',
               isActive
-                ? cx('text-zinc-950', !pill.box && 'bg-white shadow-card ring-1 ring-zinc-200/70')
-                : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
+                ? cx('text-zinc-950', !pill.box && 'bg-zinc-100')
+                : 'text-zinc-600 hover:text-zinc-950'
             )}
           >
             {Icon ? <Icon className="h-4 w-4" /> : null}
@@ -429,7 +435,7 @@ export function Field({ label, children, className = '', hint }) {
 
 export function EmptyState({ icon: Icon, title, message, action, className = '' }) {
   return (
-    <div className={cx('flex min-h-52 animate-fade-in flex-col items-center justify-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-6 py-10 text-center', className)}>
+    <div className={cx('flex min-h-52 animate-fade-in flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-6 py-10 text-center', className)}>
       {Icon ? (
         <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-white text-zinc-500 shadow-sm">
           <Icon className="h-5 w-5" />
@@ -465,7 +471,7 @@ export function AlertMessage({ tone = 'danger', message, children, onDismiss, cl
   if (!content) return null
   const { classes, icon: Icon } = alertTones[tone] || alertTones.danger
   return (
-    <div role={tone === 'danger' ? 'alert' : 'status'} className={cx('flex animate-slide-down items-start gap-3 rounded-lg border px-4 py-3 text-sm font-medium', classes, className)}>
+    <div role={tone === 'danger' ? 'alert' : 'status'} className={cx('flex animate-slide-down items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-medium', classes, className)}>
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
       <div className="min-w-0 flex-1">{content}</div>
       {onDismiss ? (
@@ -514,7 +520,7 @@ function PillBackground({ pill }) {
     <span
       aria-hidden="true"
       className={cx(
-        'absolute bottom-1 left-0 top-1 rounded-md bg-white shadow-card ring-1 ring-zinc-200/70',
+        'absolute bottom-1 left-0 top-1 rounded-full bg-zinc-100',
         pill.ready && 'transition-[transform,width] duration-200 ease-out-quint'
       )}
       style={{ width: pill.box.width, transform: `translateX(${pill.box.left}px)` }}
@@ -530,7 +536,7 @@ export function Tabs({ items, className = '' }) {
   const pill = useSlidingPill(navRef, '[aria-current="page"]', [pathname, items])
 
   return (
-    <nav ref={navRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
+    <nav ref={navRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white p-1', className)}>
       <PillBackground pill={pill} />
       {items.map((item) => {
         const Icon = item.icon
@@ -539,10 +545,10 @@ export function Tabs({ items, className = '' }) {
             key={item.to}
             to={item.to}
             className={({ isActive }) => cx(
-              'relative inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200 lg:h-9',
+              'relative inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition duration-200 lg:h-9',
               isActive
-                ? cx('text-zinc-950', !pill.box && 'bg-white shadow-card ring-1 ring-zinc-200/70')
-                : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
+                ? cx('text-zinc-950', !pill.box && 'bg-zinc-100')
+                : 'text-zinc-600 hover:text-zinc-950'
             )}
           >
             {Icon ? <Icon className="h-4 w-4" /> : null}
@@ -688,8 +694,8 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
       <div className={cx('absolute inset-0 bg-zinc-950/40 backdrop-blur-sm', closing ? 'animate-fade-out' : 'animate-fade-in')} onClick={onClose} />
       <div
         className={cx(
-          'relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-lift',
-          'sm:max-w-xl sm:rounded-2xl',
+          'relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[1.75rem] bg-white shadow-lift',
+          'sm:max-w-xl sm:rounded-[1.75rem]',
           closing ? 'animate-slide-out-down sm:animate-scale-out' : 'animate-fade-up sm:animate-scale-in',
           className
         )}
@@ -697,7 +703,7 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
         <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-zinc-200 sm:hidden" />
         <div className="flex items-start justify-between gap-4 border-b border-zinc-100 px-5 py-4">
           <div className="min-w-0">
-            {shown.title ? <h2 className="text-lg font-bold text-zinc-950">{shown.title}</h2> : null}
+            {shown.title ? <h2 className="text-lg font-extrabold tracking-tight text-zinc-950">{shown.title}</h2> : null}
             {shown.description ? <p className="mt-1 text-sm text-zinc-600">{shown.description}</p> : null}
           </div>
           <IconButton label="Fechar" icon={X} variant="subtle" onClick={onClose} />
