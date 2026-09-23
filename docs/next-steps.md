@@ -107,18 +107,15 @@ changed is in `docs/done-tasks.md`):
 - Budget strip on Início: an "estourou" entry in "Precisa de você" was left out on purpose (a
   budget is a plan, not a task); open decision 1 still applies to what the strip counts as spent.
 
-### Phase 5 — Backend refactor — in progress (started 2026-09-23)
-Split `backend/app.py` one area at a time, code moved verbatim, suite green and one commit per step.
-Foundation, services and nine blueprints are out (see `docs/done-tasks.md`); `tests/test_route_map.py`
-pins the 60 routes.
-- [ ] Investments — everything left in `app.py`. Suggested cut, bottom-up (details in the handoff):
-  `services/prices.py` (cache, brapi/yfinance, history), `services/fixed_income.py` (BCB, accrual,
-  rate terms), `services/investments.py` (movements, cash sync, FIFO, realized results, tax),
-  `services/portfolio.py` (snapshot, materialized positions, evolution), then `routes/investments.py`,
-  `routes/proceeds.py`, `routes/market.py`. The tests patch many of these names — retarget each
-  patch to the module that *reads* the name.
-- [ ] Then `app.py` is only the factory + boot; consider a `create_app()` so tests stop depending
-  on import-time side effects.
+### Phase 5 leftovers — backend refactor
+The split itself is done (`docs/done-tasks.md`); `app.py` is 60 lines of boot. What is left is
+optional and low value for a single-user app:
+- [ ] `create_app()` factory. On its own it buys little: `config.py` still reads the environment at
+  import, so tests would keep setting `os.environ` before importing. Worth it only together with
+  moving config into the app object — skip unless something needs two apps in one process.
+- [ ] Pre-existing pyflakes warnings, left alone under the "verbatim" rule: f-string without
+  placeholders in `services/investments.py` and `tests/test_budgets.py`, unused `time` import in
+  `brapi_client.py`.
 
 ### Frontend debt
 - [ ] Centralized server state (TanStack Query). A small `DataVersionContext` covers "+ Novo" refetch for now.

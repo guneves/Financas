@@ -157,20 +157,23 @@ the top of the file — reach it through a fixture or `importlib.import_module` 
 **Patch where the name is read, not where it is defined.** Modules import settings and helpers by
 name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
 whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
-and *both* `services.invoices` and `routes.cards` for the `local_today` clock. A patch on the wrong
-module does not fail — it silently does nothing.
+*both* `services.invoices` and `routes.cards` for the `local_today` clock, `services.prices` for
+`download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, and *both*
+`services.prices` and `routes.investments` for `yf`. A patch on the wrong module does not fail — it
+silently does nothing. `app.py` itself exposes almost nothing now; reach code through the module
+that defines it.
 
-Fixtures: `client`, `user`, `other_user`, `auth`, `app_module`, `db_module`, `invoices_module`.
+Fixtures: `client`, `user`, `other_user`, `auth`, `app_module`, `db_module`, `invoices_module`,
+`prices_module`, `fixed_income_module`, `realized_results_module`, `portfolio_module`.
 
-**Add tests for financial rules you touch.** That is the whole reason they exist — the plan calls for
-refactoring `app.py`, and that refactor is only safe with the suite in place.
+**Add tests for financial rules you touch.** That is the whole reason they exist — the Phase 5 split
+of `app.py` was only safe because the suite was in place.
 
 ## Layout
 
 ```
 backend/
-  app.py              # Flask app + blueprint registration + boot; still holds all of investments
-                      # (~3,600 lines: FIFO, tax, proceeds, prices, fixed income, portfolio)
+  app.py              # Flask app + CORS + blueprint registration + boot (~60 lines)
   config.py           # env / .env, read once at import
   db.py               # connection, migrations, backups, row helpers
   validators.py       # ValidationError + require_* / parse_* for request payloads
@@ -178,9 +181,14 @@ backend/
   money.py            # rounded_money()
   dates.py            # ISO parsing and month arithmetic
   source_types.py     # transactions.source_type values (who wrote the row)
-  services/           # domain rules shared by several blueprints: accounts, invoices, attachments
+  asset_classes.py    # asset-class constants and the class filter
+  responses.py        # csv_response() — HTTP helpers shared by blueprints
+  services/           # domain rules: accounts, invoices, attachments, prices (quotes, caches),
+                      # fixed_income (BCB, accrual), investments (movements, cash link, backing),
+                      # realized_results (FIFO, tax), portfolio (positions, evolution)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
-                      # attachments, budgets, recurring, imports, cards
+                      # attachments, budgets, recurring, imports, cards, investments,
+                      # proceeds, market
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # geracao dos CSV de extrato e carteira (funcoes puras, sem banco)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
@@ -268,9 +276,10 @@ docs/
 
 ## Known sharp edges
 
-- **Phase 5 is half done.** Everything but investments is out of `backend/app.py` (see Layout);
-  investments are the next step — plan in `docs/handoff.md`. The layering is strict: `config` ←
-  `db` ← `validators`/`money`/`dates`/`auth` ← `services/*` ← `routes/*` ← `app`. Nothing imports
+- **The layering is strict** (Phase 5, done 2026-09-23): `config` ← `db` ←
+  `validators`/`money`/`dates`/`auth`/`asset_classes`/`responses` ← `services/*` ← `routes/*` ←
+  `app`. Among the investment services: `prices` ← `fixed_income` ← `investments` ←
+  `realized_results` / `portfolio`. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
   fails `test_route_map.py` by name.
