@@ -29,36 +29,13 @@ import {
   PanelHeader,
   cx,
 } from '../components/ui'
-
-// "No plano" e o normal: sem cor. Ambar e vermelho so quando pede atencao.
-const STATUS_TONES = {
-  OK: 'neutral',
-  WARNING: 'warning',
-  OVER: 'danger',
-}
-
-const STATUS_LABELS = {
-  OK: 'No plano',
-  WARNING: 'Perto do limite',
-  OVER: 'Estourou',
-}
-
-const BAR_COLORS = {
-  OK: 'bg-emerald-500',
-  WARNING: 'bg-amber-500',
-  OVER: 'bg-rose-500',
-}
+import {
+  BUDGET_STATUS_LABELS as STATUS_LABELS,
+  BUDGET_STATUS_TONES as STATUS_TONES,
+  BudgetProgressBar as ProgressBar,
+} from '../components/BudgetProgress'
 
 const emptyBudgetForm = () => ({ category_id: '', planned_amount: '', rollover: false, note: '' })
-
-function ProgressBar({ percent, status }) {
-  const width = Math.min(Math.max(Number(percent || 0), 0), 100)
-  return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
-      <div className={cx('bar-grow h-full rounded-full transition-[width] duration-500 ease-out-quint', BAR_COLORS[status] || BAR_COLORS.OK)} style={{ width: `${width}%` }} />
-    </div>
-  )
-}
 
 export default function Orcamento() {
   const [month, setMonth] = useState(() => monthKey())

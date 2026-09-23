@@ -7,79 +7,56 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Visual design pass + privacy-mode rework
 
-Three steps, all in one session: an audit with screenshots, a 7-item plan with decisions A–E, and —
-after the owner said "go-ahead with the decisions" — the build. In between, the owner asked for the
-privacy mode to stop remounting the screen and to hide only account values and the portfolio; that
-shipped first (`a85b5de`).
+## Session — 2026-09-22 (latest) · Budget strip on Início
+
+A short session. Asked to "work on next-steps.md": everything at the top of the plan is the
+owner's walk-through, so this took the next buildable daily-use item from "Smaller gaps" — the
+budget on Início — over the bigger options (UI remodel, dark mode, Phase 5), which are still open.
 
 ### What was done
 
-- **Privacy mode** (`a85b5de`, `frontend/src/lib/privacy.js`): state outside React, subscribed with
-  `useSyncExternalStore`; no remount, no refetch. Plain formatters never mask; sensitive spots use
-  `usePrivateFormatter()`, `usePrivateAxisFormatter()` or `MetricCard sensitive`. Hidden: account
-  balances, net worth, "Disponível por dia", the balance chart, Ajustes → Contas, the balance in
-  `PayInvoiceSheet`, all of Posição (incl. fixed-income principal and price field) and position
-  values in the sale picker. Name and e-mail are no longer masked ("only hide" read literally).
-- **Visual pass** — one commit per theme, `a9d2422`..`d3a20be` (see `next-steps.md` → "Visual design
-  pass" for the full list): tokens and money type (tabular figures, U+2212 minus,
-  `formatSignedCurrency`, pt-BR `formatPercent`, flat background); chrome (no eyebrow, no page-level
-  "+ Novo", 256 px sidebar); `MetricCard` + `FitValue`; tables (Extrato, Posição, Operações,
-  Proventos, Cartões purchases) with right-aligned values, ~44 px rows, sticky headers, Extrato 100
-  rows + "Mostrar mais"; colour only with meaning; charts (one-line axes via `compactAxis`, AA
-  ticks, `shortMonthLabel`); phone density (metric cards two across, Extrato tap-to-edit, Operações
-  actions inline); states and kit leftovers (grey disabled buttons, lighter badges,
-  `SegmentedControl` sliding pill via shared `useSlidingPill`, `AlertMessage` for the Início invoice
-  note, Ajustes section links in the tabs look).
-- **Verified:** `npm run build` clean after every commit; backend suite 561 passed (frontend-only
-  change); Playwright before/after screenshots of every screen at 1280 and 390 px on a scratch
-  database, plus the privacy script (0 API calls on toggle, no remount, no console errors, same
-  masked counts) re-run after the last visual commit. `finance-guard` ran on both changes.
-- `CLAUDE.md`: test count 561, a privacy-mode line and a visual-rules line in the frontend
-  conventions. `next-steps.md`: the pass section rewritten as done, decisions 6–7 updated, a
-  walk-through item added.
+- **Início → "Orçamento do mês"** (`BudgetStrip` in `frontend/src/pages/Dashboard.jsx`), full width
+  below "Despesas por categoria". Reads the existing `GET /api/budgets?month=` for the current
+  month; no backend change. Shows the month's spent of available (carry-over included), a bar,
+  "Restam"/"Passou", a status badge, and up to four categories that are WARNING/OVER (OVER first,
+  then by percent) with "+N" linking to Orçamento; otherwise a one-line "todas no plano". Hidden when
+  the month has no budget; a failed fetch just hides it. Not privacy-masked (orçamentos stay visible
+  by the owner's choice).
+- **`frontend/src/components/BudgetProgress.jsx`**: the status tones/labels and progress bar moved
+  out of `Orcamento.jsx` so both screens share them, plus `budgetStatus()` — the same rule as
+  `serialize_budget()` in `backend/app.py`, applied to the month total.
+- **Verified:** `npm run build` clean; Playwright on a scratch DB (mock seed) at 1280 and 390 px —
+  strip renders, no console errors; Orçamento still renders its 7 badges and bars. Backend suite not
+  re-run (frontend-only change; still 561). `finance-guard` ran on the change and found one real divergence: the total badge compared the raw percent with 80, while `serialize_budget()` rounds it half-up to cents first (799,99 of 1.000,00 → 80,00% → WARNING). Fixed in `budgetStatus()`. It also re-ran the backend suite: green.
 
 ### What was not done and why
 
-- **Dark mode (decision E)** — optional and separately scoped by the owner's own brief.
-- **Not walked by the owner.** Playwright drove a real Chromium, but nobody clicked through the
-  inline edit in the new Extrato table, the phone tap-to-edit, or a real invoice payment with the new
-  disabled style. Those are on the walk-through list.
-- Rows of Extrato's inline-edit mode were not restyled beyond fitting the new columns (the type
-  select now sits under the category select).
-- `docs/ui-remodel-prompt.md` (written by a parallel session while items 1–3 were in flight) was left
-  as its author wrote it; `next-steps.md` notes that its "state at writing" is stale.
-- Carried forward: **`BRAPI_TOKEN` is still empty** in `backend/.env`; and
-  `backend/backups/finance-pre-mock-20260922-205415.db` (scratch demo data only, gitignored) is still
-  on disk — the seed script writes its backup there regardless of `DATABASE_BACKUP_DIR`, and deleting
-  it was refused by the permission classifier. Safe to delete.
+- No "Orçamento estourado" entry in "Precisa de você": a budget is a plan, not a task, and that
+  banner is for things with an action. Easy to add if the owner wants it.
+- What the strip counts as spent inherits open decision 1: card purchases reach a budget only when
+  the invoice is paid.
+- Not walked by the owner — added to the walk-through list in `next-steps.md`.
+- Carried forward: **`BRAPI_TOKEN` is still empty** in `backend/.env`;
+  `backend/backups/finance-pre-mock-20260922-205415.db` (scratch demo data, gitignored) is still on
+  disk and safe to delete; dark mode (decision E) and the UI remodel prompt are still open;
+  `docs/ui-remodel-prompt.md`'s "state at writing" note is stale.
 
 ### Next session
 
-- Owner: the walk-through at the top of `next-steps.md` (visual pass and eye toggle are on it).
-- Then either the UI remodel prompt (starting from this pass, not before it), dark mode, or Phase 5.
+- Owner: the walk-through at the top of `next-steps.md`.
+- Then the UI remodel prompt, dark mode, or Phase 5 (first blueprint). Smaller daily-use options
+  still open: editing an import rule's pattern / applying rules to recorded lançamentos (Phase 4
+  leftovers), attachments per transaction.
 
 ### Non-obvious things learned
 
-- **Playwright works without installing:** 1.62.1 is in the npx cache
-  (`~/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/node_modules/playwright`) with its Chromium in
-  `~/AppData/Local/ms-playwright`; `require()` the absolute path from a `.cjs` script. Git Bash
-  rewrites a leading `/route` argument into a Windows path — pass routes without the slash.
-- **Scratch app:** runner sets `DATABASE_PATH`, `DATABASE_BACKUP_DIR`, `AUTO_BACKUP_ON_BOOT=0`,
-  `JWT_SECRET` and **`CORS_ORIGINS=http://localhost:5174`** before `import app`, then
-  `app.app.run(port=5001)`; users via `POST /api/auth/signup`, data via
-  `scripts/seed_three_years_mock.py <email>`. Frontend: PowerShell
-  `$env:VITE_API_BASE_URL='http://localhost:5001'; npm run dev -- --port 5174 --strictPort`.
-- Full-page Playwright screenshots resize the viewport and Recharts draws past its panels; judge
-  charts from viewport shots.
-- `.app-table td { … }` beats a `py-1.5` utility on specificity (class + element vs class), so the
-  table rules now sit under `:where(.app-table)`. Same trap for any future component-layer rule.
-- `overflow-hidden` on a panel makes it the sticky container, and a sticky `thead` inside stops
-  sticking to the page; `overflow-clip` keeps the rounded corners without that.
-- Recharts wraps tick text at the axis width ("R$ 900 / mil"); the shared `axisProps.tick.width`
-  gives it room.
-- `document.fonts.ready` can resolve before the Inter weight in use has loaded; `FitValue` also
-  observes its hidden measuring copy so it re-measures when the font arrives.
-- The Python-via-stdin route mangled non-ASCII (`Operação`) on this machine — write edit scripts to
-  a UTF-8 file in the scratchpad and run that.
+- **Seeding a scratch DB without touching `backend/backups/`:** from a wrapper script, set the env
+  (`DATABASE_PATH`, `DATABASE_BACKUP_DIR`, `AUTO_BACKUP_ON_BOOT=0`, `JWT_SECRET`), `import app`,
+  sign up with `app.app.test_client()`, then `import seed_three_years_mock as s`, set
+  `s.BACKEND_DIR` to the scratchpad and call `s.main()` with `sys.argv` patched. The rest of the
+  Playwright/scratch-app recipe from the previous handoff still holds (`CORS_ORIGINS` for :5174,
+  token in `localStorage['@financeMVP:auth']` via `addInitScript`).
+- Carried from last session: `.app-table` rules sit under `:where()` so utilities win; a panel with
+  `overflow-hidden` breaks sticky table headers (use `overflow-clip`); write edit scripts to a UTF-8
+  file rather than piping Python via stdin (it mangles non-ASCII here).

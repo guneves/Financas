@@ -45,6 +45,7 @@
 | Motion pass: sheet/collapsible exit animations, sliding tab pill, count-up and chart draw-in once per page per session, reduced motion honoured in JS, new-row flash in Extrato, invoice-paid confirmation — zero new dependencies | 2026-09-22 |
 | Privacy mode rework: the eye no longer remounts the page (no refetch, no empty-state flash) and hides only account balances, net worth and the investment portfolio; name and e-mail stay visible — `lib/privacy.js` | 2026-09-22 |
 | Visual design pass (audit + items 1–7, decisions A–D): tabular figures and a real minus, pt-BR percentages, MetricCard that never truncates money, ~44 px table rows with right-aligned values and sticky headers, colour only with meaning, one-line chart axes, phone density, grey disabled buttons | 2026-09-22 |
+| Início "Orçamento do mês" strip: month total spent vs. available and the categories near or over their limit; shared `components/BudgetProgress.jsx` with Orçamento | 2026-09-22 |
 
 ---
 
@@ -79,6 +80,10 @@ clicked through by the owner. One pass in the real app covers all of it:
   window width; Extrato right-aligned signed values, sticky header while scrolling, "Mostrar mais";
   on the phone, tap a lançamento to edit it; Posição rows with the quote dot (hover for source and
   time); every percentage with a comma; no chart axis label on two lines.
+- [ ] Início → "Orçamento do mês" (below "Despesas por categoria"): spent of available with a bar
+  and "Restam"/"Passou", badge with the month's status, up to four categories that are "Perto do
+  limite" or "Estourou" (worst first), or a one-line "todas no plano". Hidden in a month with no
+  budget. Not masked by the eye (orçamentos stay visible).
 - [ ] Motion pass: every sheet ("+ Novo", Pagar fatura, investimento, editar operação) animates
   out, not just in, and shows its last content while leaving (no "Pagar R$ 0,00" flash). Tab pill
   slides between abas. Início numbers count up on the first visit only; leaving and coming back,
@@ -159,7 +164,11 @@ out of date — every item of this pass is done, so a remodel starts from here.
   Extrato → "Exportar" (exports exactly what the filters show) and Investimentos → Posição →
   "Exportar". Not built: .xlsx proper, exporting Operações/Proventos, and a column picker.
 - [ ] Attachments/receipts per transaction (file stored locally, path in `metadata`).
-- [ ] Dashboard strip for the budget (overdue recurrences and the open invoice are now on Início).
+- [x] **Budget strip on Início** — "Orçamento do mês" panel reading `GET /api/budgets` for the
+  current month; status rule mirrors `serialize_budget()` (`budgetStatus()` in
+  `components/BudgetProgress.jsx`). Not built: an "estourou" entry in "Precisa de você" (left out
+  on purpose — a budget is a plan, not a task), and the card-purchases gap in open decision 1 still
+  applies to what the strip counts as spent.
 
 ### Phase 5 — Backend refactor
 - [ ] Split `backend/app.py` into blueprints (config, db, auth, validators, services/portfolio,

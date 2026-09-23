@@ -28,13 +28,20 @@ import {
   PiggyBank,
   Receipt,
   Repeat,
+  Target,
   Wallet,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import { accountsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
+import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
 import { useDataVersion } from '../lib/newEntry'
 import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
+import {
+  BUDGET_STATUS_LABELS,
+  BUDGET_STATUS_TONES,
+  BudgetProgressBar,
+  budgetStatus,
+} from '../components/BudgetProgress'
 import {
   AlertMessage,
   Badge,
@@ -166,6 +173,7 @@ export default function Dashboard() {
   const [payRequest, setPayRequest] = useState(null)
   const [payError, setPayError] = useState('')
   const [recurringItems, setRecurringItems] = useState([])
+  const [budget, setBudget] = useState(null)
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
   const [notice, setNotice] = useState('')
   // Recarrega depois de um "+ Novo" salvo no Layout.
@@ -222,6 +230,14 @@ export default function Dashboard() {
     } catch (error) {
       console.warn('Erro ao buscar recorrências:', error)
       setRecurringItems([])
+    }
+
+    // Orcamento do mes para a faixa de orcamento; falhar so esconde a faixa.
+    try {
+      setBudget(await budgetsApi.month(monthKey(new Date())))
+    } catch (error) {
+      console.warn('Erro ao buscar orçamento:', error)
+      setBudget(null)
     }
   }
 
@@ -889,6 +905,8 @@ export default function Dashboard() {
         </Panel>
       </div>
 
+      <BudgetStrip budget={budget} />
+
       {accounts.length > 0 ? (
         <Panel className="animate-fade-up">
           <PanelHeader
@@ -1147,6 +1165,78 @@ function CategoryList({ items }) {
         )
       })}
     </ul>
+  )
+}
+
+// Faixa do orcamento do mes: total gasto contra o planejado e as categorias que
+// pedem atencao. Sem orcamento no mes, nao aparece.
+function BudgetStrip({ budget }) {
+  const items = budget?.items || []
+  if (items.length === 0) return null
+
+  const totals = budget.totals || {}
+  const available = Number(totals.available) || 0
+  const spent = Number(totals.spent) || 0
+  const remaining = Number(totals.remaining) || 0
+  const status = budgetStatus(spent, available)
+  const percent = available > 0 ? (spent / available) * 100 : 0
+  const statusRank = { OVER: 0, WARNING: 1, OK: 2 }
+  const flagged = items
+    .filter((item) => item.status !== 'OK')
+    .sort((a, b) => statusRank[a.status] - statusRank[b.status] || b.percent - a.percent)
+  const shown = flagged.slice(0, 4)
+  const categoryName = (item) => (item.parent_name ? `${item.parent_name} › ${item.category_name}` : item.category_name)
+
+  return (
+    <Panel className="animate-fade-up">
+      <PanelHeader
+        title={<PanelLink to="/planejamento/orcamento">Orçamento do mês</PanelLink>}
+        description="Gasto nas categorias com orçamento, contra o planejado (sobras acumuladas incluídas)."
+        actions={<Badge tone={BUDGET_STATUS_TONES[status]}>{BUDGET_STATUS_LABELS[status]}</Badge>}
+      />
+      <div className="grid grid-cols-1 gap-5 p-5 lg:grid-cols-2">
+        <div className="min-w-0">
+          <p className="text-sm text-zinc-600">
+            <span className="text-xl font-bold tabular text-zinc-950">{formatCurrency(spent)}</span>
+            {' '}de <span className="tabular">{formatCurrency(available)}</span>
+          </p>
+          <BudgetProgressBar percent={percent} status={status} className="mt-3 h-2.5" />
+          <p className={cx('mt-2 text-sm font-semibold tabular', remaining < 0 ? 'text-rose-600' : 'text-zinc-700')}>
+            {remaining < 0 ? `Passou ${formatCurrency(-remaining)} do planejado` : `Restam ${formatCurrency(remaining)}`}
+          </p>
+        </div>
+        {shown.length > 0 ? (
+          <ul className="min-w-0 space-y-3">
+            {shown.map((item) => (
+              <li key={item.id}>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate font-medium text-zinc-700" title={categoryName(item)}>{categoryName(item)}</span>
+                  <span className="shrink-0 tabular text-zinc-600">
+                    <span className={cx('font-semibold', item.status === 'OVER' ? 'text-rose-600' : 'text-zinc-950')}>
+                      {formatCurrency(item.spent)}
+                    </span>
+                    {' '}/ {formatCurrency(item.available)}
+                  </span>
+                </div>
+                <BudgetProgressBar percent={item.percent} status={item.status} className="mt-1.5 h-1.5" />
+              </li>
+            ))}
+            {flagged.length > shown.length ? (
+              <li className="text-sm text-zinc-500">
+                <Link to="/planejamento/orcamento" className="underline-offset-2 hover:text-emerald-700 hover:underline">
+                  +{flagged.length - shown.length} categoria(s) perto do limite ou acima
+                </Link>
+              </li>
+            ) : null}
+          </ul>
+        ) : (
+          <p className="flex items-center gap-2 self-center text-sm text-zinc-600">
+            <Target className="h-4 w-4 shrink-0 text-zinc-400" />
+            {items.length === 1 ? 'A categoria com orçamento está no plano.' : `As ${items.length} categorias com orçamento estão no plano.`}
+          </p>
+        )}
+      </div>
+    </Panel>
   )
 }
 
