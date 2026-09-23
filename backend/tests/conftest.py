@@ -114,3 +114,9 @@ def fixed_income_module(app_module):
 def realized_results_module(app_module):
     """`backend/services/realized_results.py` — FIFO, aliquotas e resultado realizado."""
     return importlib.import_module("services.realized_results")
+
+
+@pytest.fixture(scope="session")
+def portfolio_module(app_module):
+    """`backend/services/portfolio.py` — posicoes, alvos de cotacao e evolucao."""
+    return importlib.import_module("services.portfolio")
