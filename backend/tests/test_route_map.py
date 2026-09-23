@@ -58,6 +58,8 @@ EXPECTED_ROUTES = {
     ("/api/exports/columns", "GET"),
     ("/api/health/integrations", "GET"),
     ("/api/corporate-actions", "GET,POST"),
+    ("/api/tax-report", "GET"),
+    ("/api/tax-report/export", "GET"),
     ("/api/corporate-actions/<action_id>", "DELETE"),
     ("/api/investments/price-by-asset/<asset_id>", "PATCH"),
     ("/api/investments/price-by-ticker", "PATCH"),

@@ -42,8 +42,7 @@ CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+{sheet_overrides}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>"""
 
 ROOT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -53,8 +52,7 @@ ROOT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 WORKBOOK_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+{sheet_relationships}<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>"""
 
 # numFmtId 4 = "#,##0.00" e 10 = "0.00%" sao embutidos; 164/165 sao nossos.
@@ -183,26 +181,61 @@ def sheet_xml(columns, rows):
     )
 
 
-def workbook_xml(sheet_name):
-    name = escape(clean_text(sheet_name))[:MAX_SHEET_NAME] or "Planilha"
+def sheet_title(name):
+    """Nome de aba valido: sem []:*?/ nem barra invertida, e com ate 31 caracteres."""
+    cleaned = "".join(ch for ch in clean_text(name) if ch not in "[]:*?/\\").strip()
+    return (cleaned or "Planilha")[:MAX_SHEET_NAME]
+
+
+def workbook_xml(sheet_names):
+    sheets = "".join(
+        f'<sheet name="{escape(name)}" sheetId="{index}" r:id="rId{index}"/>'
+        for index, name in enumerate(sheet_names, start=1)
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        f'<sheets><sheet name="{name}" sheetId="1" r:id="rId1"/></sheets>'
+        f"<sheets>{sheets}</sheets>"
         "</workbook>"
     )
 
 
-def table_xlsx(sheet_name, columns, items, context=None):
-    """Bytes de um .xlsx com uma aba: cabecalho + uma linha por item."""
-    rows = table_values(columns, items, context)
+def workbook_xlsx(sheets):
+    """Bytes de um .xlsx com varias abas: [(nome, colunas, itens, contexto)]."""
+    names = []
+    for name, *_rest in sheets:
+        title = sheet_title(name)
+        # Duas abas com o mesmo nome invalidam o arquivo.
+        base, suffix = title, 2
+        while title in names:
+            title = f"{base[:MAX_SHEET_NAME - 3]} {suffix}"
+            suffix += 1
+        names.append(title)
+    count = len(sheets)
+    content_types = CONTENT_TYPES.replace("{sheet_overrides}", "".join(
+        f'<Override PartName="/xl/worksheets/sheet{index}.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>\n'
+        for index in range(1, count + 1)
+    ))
+    relationships = WORKBOOK_RELS.replace("{sheet_relationships}", "".join(
+        f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        f'Target="worksheets/sheet{index}.xml"/>\n'
+        for index in range(1, count + 1)
+    ))
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", CONTENT_TYPES)
+        archive.writestr("[Content_Types].xml", content_types)
         archive.writestr("_rels/.rels", ROOT_RELS)
-        archive.writestr("xl/workbook.xml", workbook_xml(sheet_name))
-        archive.writestr("xl/_rels/workbook.xml.rels", WORKBOOK_RELS)
+        archive.writestr("xl/workbook.xml", workbook_xml(names))
+        archive.writestr("xl/_rels/workbook.xml.rels", relationships)
         archive.writestr("xl/styles.xml", STYLES)
-        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml(columns, rows))
+        for index, (_name, columns, items, context) in enumerate(sheets, start=1):
+            rows = table_values(columns, items, context)
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", sheet_xml(columns, rows))
     return buffer.getvalue()
+
+
+def table_xlsx(sheet_name, columns, items, context=None):
+    """Bytes de um .xlsx com uma aba: cabecalho + uma linha por item."""
+    return workbook_xlsx([(sheet_name, columns, items, context)])

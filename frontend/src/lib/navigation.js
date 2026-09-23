@@ -2,6 +2,7 @@ import {
   Briefcase,
   CalendarDays,
   CreditCard,
+  FileText,
   History,
   Home,
   PieChart,
@@ -42,6 +43,7 @@ export const sections = [
       { to: '/investimentos/posicao', label: 'Posição', icon: PieChart },
       { to: '/investimentos/operacoes', label: 'Operações', icon: History },
       { to: '/investimentos/proventos', label: 'Proventos', icon: CalendarDays },
+      { to: '/investimentos/ir', label: 'IR', icon: FileText },
     ],
   },
 ]

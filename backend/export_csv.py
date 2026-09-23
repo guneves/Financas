@@ -295,3 +295,42 @@ def portfolio_row(asset):
 
 def portfolio_csv(assets):
     return table_csv(PORTFOLIO_COLUMNS, assets or [])
+
+
+# --- relatorio anual de IR (services/tax_report.py) -----------------------------
+# Um .xlsx com uma aba por secao; os itens chegam achatados pela rota.
+
+TAX_BENS_COLUMNS = [
+    Column("grupo", "Grupo", "text", lambda b, c: b.get("group")),
+    Column("codigo", "Código", "text", lambda b, c: b.get("code")),
+    Column("tipo", "Tipo", "text", lambda b, c: b.get("code_label")),
+    Column("ativo", "Ativo", "text", lambda b, c: b.get("ticker")),
+    Column("moeda", "Moeda", "text", lambda b, c: b.get("currency")),
+    Column("quantidade_anterior", "Quantidade 31/12 anterior", "quantity", lambda b, c: b.get("quantity_previous")),
+    Column("custo_anterior", "Situação 31/12 anterior (R$)", "money", lambda b, c: b.get("cost_previous")),
+    Column("quantidade", "Quantidade 31/12", "quantity", lambda b, c: b.get("quantity")),
+    Column("custo", "Situação 31/12 (R$)", "money", lambda b, c: b.get("cost")),
+    Column("discriminacao", "Discriminação", "text", lambda b, c: b.get("description")),
+]
+
+TAX_MONTH_COLUMNS = [
+    Column("mes", "Mês", "text", lambda m, c: m.get("month")),
+    Column("vendas_acoes", "Vendas de ações", "money", lambda m, c: m["stocks"]["sales"]),
+    Column("resultado_acoes", "Resultado ações", "money", lambda m, c: m["stocks"]["result"]),
+    Column("isento", "Isento (até R$ 20 mil)", "text", lambda m, c: "Sim" if m["stocks"]["exempt"] else "Não"),
+    Column("prejuizo_acoes", "Prejuízo compensado (ações)", "money", lambda m, c: m["stocks"]["loss_used"]),
+    Column("ir_acoes", "IR ações (15%)", "money", lambda m, c: m["stocks"]["tax"]),
+    Column("vendas_fii", "Vendas de FII", "money", lambda m, c: m["reits"]["sales"]),
+    Column("resultado_fii", "Resultado FII", "money", lambda m, c: m["reits"]["result"]),
+    Column("prejuizo_fii", "Prejuízo compensado (FII)", "money", lambda m, c: m["reits"]["loss_used"]),
+    Column("ir_fii", "IR FII (20%)", "money", lambda m, c: m["reits"]["tax"]),
+    Column("darf", "DARF do mês", "money", lambda m, c: m.get("darf")),
+    Column("darf_acumulado", "Abaixo de R$ 10 (acumula)", "money", lambda m, c: m.get("darf_carried")),
+]
+
+TAX_INCOME_COLUMNS = [
+    Column("ficha", "Ficha", "text", lambda i, c: i.get("section")),
+    Column("linha", "Linha", "text", lambda i, c: i.get("line")),
+    Column("valor", "Valor (R$)", "money", lambda i, c: i.get("amount")),
+    Column("ir_retido", "IR retido (R$)", "money", lambda i, c: i.get("withheld")),
+]

@@ -266,3 +266,9 @@ export const corporateActionsApi = {
   create: (payload) => apiFetch('/api/corporate-actions', { method: 'POST', body: JSON.stringify(payload) }),
   remove: (id) => apiFetch(`/api/corporate-actions/${id}`, { method: 'DELETE' })
 }
+
+// Relatorio anual de IR (padrao no servidor: o ano passado).
+export const taxReportApi = {
+  get: (year) => apiFetch(`/api/tax-report${queryString({ year })}`),
+  exportFile: (year) => apiDownload(`/api/tax-report/export${queryString({ year })}`, `ir-${year}.xlsx`)
+}

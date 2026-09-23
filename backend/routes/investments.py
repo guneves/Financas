@@ -21,6 +21,9 @@ from dates import subtract_months
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
 from money import rounded_money
+import export_csv
+import export_xlsx
+from responses import XLSX_MIMETYPE, download_response
 from responses import export_response, read_export_options
 from services.corporate_actions import (
     create_corporate_action,
@@ -37,6 +40,7 @@ from services.fx import (
     normalize_currency,
     rate_on,
 )
+from services.tax_report import build_tax_report
 from services.fixed_income import (
     finish_fixed_income_refresh,
     start_fixed_income_refresh,
@@ -903,3 +907,55 @@ def delete_corporate_action_route(current_user_id, action_id):
     refresh_realized_results(current_user_id)
     refresh_materialized_positions(current_user_id)
     return jsonify({"deleted": True}), 200
+
+
+def read_report_year(args):
+    try:
+        year = int(args.get("year") or datetime.now().year - 1)
+    except (TypeError, ValueError):
+        raise ValidationError("Ano invalido.")
+    if year < 2000 or year > datetime.now().year:
+        raise ValidationError("Ano fora do intervalo.")
+    return year
+
+
+@bp.route("/api/tax-report", methods=["GET"])
+@token_required
+def tax_report(current_user_id):
+    """Relatorio anual de IR (services/tax_report.py); padrao: o ano passado."""
+    try:
+        year = read_report_year(request.args)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    return jsonify(build_tax_report(current_user_id, year)), 200
+
+
+@bp.route("/api/tax-report/export", methods=["GET"])
+@token_required
+def tax_report_export(current_user_id):
+    """O mesmo relatorio em .xlsx, uma aba por secao."""
+    try:
+        year = read_report_year(request.args)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    report = build_tax_report(current_user_id, year)
+    exterior = report["exterior"]
+    income = (
+        [{"section": "Rendimentos isentos", **item} for item in report["rendimentos_isentos"]]
+        + [
+            {"section": "Tributação exclusiva", "line": item["line"], "amount": item["gross"], "withheld": item["withheld"]}
+            for item in report["tributacao_exclusiva"]
+        ]
+        + [{
+            "section": "Exterior (Lei 14.754/2023)",
+            "line": "Resultado do ano / imposto estimado (15%)",
+            "amount": exterior["result"],
+            "withheld": exterior["tax"],
+        }]
+    )
+    body = export_xlsx.workbook_xlsx([
+        ("Bens e Direitos", export_csv.TAX_BENS_COLUMNS, report["bens_e_direitos"], None),
+        ("Renda variável", export_csv.TAX_MONTH_COLUMNS, report["renda_variavel"]["months"], None),
+        ("Rendimentos", export_csv.TAX_INCOME_COLUMNS, income, None),
+    ])
+    return download_response(body, XLSX_MIMETYPE, f"ir-{year}.xlsx")

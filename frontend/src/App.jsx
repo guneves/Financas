@@ -14,6 +14,7 @@ const Cartoes = lazy(() => import('./pages/lancamentos/Cartoes'))
 const Importar = lazy(() => import('./pages/lancamentos/Importar'))
 const Investments = lazy(() => import('./pages/Investments'))
 const Proventos = lazy(() => import('./pages/Proventos'))
+const ImpostoRenda = lazy(() => import('./pages/investimentos/ImpostoRenda'))
 const Orcamento = lazy(() => import('./pages/Orcamento'))
 const Recorrentes = lazy(() => import('./pages/Recorrentes'))
 const Ajustes = lazy(() => import('./pages/Ajustes'))
@@ -59,6 +60,7 @@ export default function App() {
             <Route path="/investimentos/posicao" element={<Investments tab="posicao" />} />
             <Route path="/investimentos/operacoes" element={<Investments tab="operacoes" />} />
             <Route path="/investimentos/proventos" element={<Proventos />} />
+            <Route path="/investimentos/ir" element={<ImpostoRenda />} />
 
             <Route path="/ajustes" element={<Ajustes />} />
 
