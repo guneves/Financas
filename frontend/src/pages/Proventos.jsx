@@ -404,7 +404,9 @@ export default function Proventos() {
           description="Período, status, ativo e tipo de provento. Valem ao mudar."
           actions={loading ? <Badge>Atualizando...</Badge> : null}
         />
-        <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-6">
+        {/* Status com a largura que precisa (auto): em 6 colunas iguais o
+            ultimo botao era cortado. */}
+        <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
           <Field label="Início">
             <input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} className="app-input" />
           </Field>
@@ -427,7 +429,7 @@ export default function Proventos() {
               ))}
             </select>
           </Field>
-          <div className="md:col-span-2 xl:col-span-2">
+          <div className="md:col-span-2 xl:col-span-1">
             <p className="mb-1.5 text-sm font-medium text-zinc-700">Status</p>
             <SegmentedControl
               value={filters.status}
@@ -459,12 +461,10 @@ export default function Proventos() {
                   </div>
                   <p className="shrink-0 font-bold tabular text-emerald-700">{formatCurrency(item.net_amount)}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={item.status === 'PAID' ? 'success' : 'warning'}>
-                    {item.status === 'PAID' ? 'Pago' : 'Agendado'}
-                  </Badge>
-                  <Badge tone={typeTone(item.proceeds_type)}>{typeLabel(item.proceeds_type)}</Badge>
-                </div>
+                <p className="text-sm text-zinc-700">
+                  {typeLabel(item.proceeds_type)}
+                  {item.status === 'PAID' ? '' : <span className="font-medium text-sky-700"> · agendado</span>}
+                </p>
                 <p className="text-xs text-zinc-600 tabular">
                   {formatUnitCurrency(item.amount_per_unit)}/cota · {Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} cotas ·
                   {' '}Bruto {formatCurrency(item.gross_amount)} · Imposto {formatCurrency(item.tax_amount)} · YOC {formatPercent(item.yield_on_cost_percent, 4)}
@@ -476,58 +476,65 @@ export default function Proventos() {
               </li>
             ))}
           </ul>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="app-table min-w-[1120px]">
+          {/* Sem rolagem lateral: data com vai para baixo do pagamento, tipo e
+              status para baixo do ativo, e os valores ficam a direita. */}
+          <div className="hidden md:block">
+            <table className="app-table table-fixed">
+              <colgroup>
+                <col className="w-28" />
+                <col />
+                <col className="w-24" />
+                <col className="w-20" />
+                <col className="w-28" />
+                <col className="w-24" />
+                <col className="w-28" />
+                <col className="w-24" />
+                <col className="w-24" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Pagamento</th>
                   <th>Ativo</th>
-                  <th>Tipo</th>
-                  <th>Data com</th>
-                  <th>Valor/cota</th>
-                  <th>Qtd.</th>
-                  <th>Bruto</th>
-                  <th>Imposto</th>
-                  <th>Líquido</th>
-                  <th>YOC</th>
-                  <th className="text-right">Ações</th>
+                  <th className="text-right">Valor/cota</th>
+                  <th className="text-right">Qtd.</th>
+                  <th className="text-right">Bruto</th>
+                  <th className="text-right">Imposto</th>
+                  <th className="text-right">Líquido</th>
+                  <th className="text-right">YOC</th>
+                  <th><span className="sr-only">Ações</span></th>
                 </tr>
               </thead>
               <tbody>
                 {proceeds.map((item) => (
                   <tr key={item.id}>
-                    <td className="font-medium text-zinc-800">
-                      {formatDateBR(item.payment_date)}
-                      <div className="mt-1">
-                        <Badge tone={item.status === 'PAID' ? 'success' : 'warning'}>
-                          {item.status === 'PAID' ? 'Pago' : 'Agendado'}
-                        </Badge>
-                      </div>
+                    <td>
+                      <p className="whitespace-nowrap font-medium text-zinc-800">{formatDateBR(item.payment_date)}</p>
+                      <p className="whitespace-nowrap text-xs text-zinc-500">com {formatDateBR(item.record_date)}</p>
                     </td>
                     <td>
-                      <p className="font-semibold text-zinc-950">{item.asset?.ticker}</p>
-                      <p className="text-xs text-zinc-500">{ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}</p>
+                      <p className="truncate font-semibold text-zinc-950" title={ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}>
+                        {item.asset?.ticker}
+                      </p>
+                      <p className="truncate text-xs text-zinc-500">
+                        {typeLabel(item.proceeds_type)}
+                        {item.status === 'PAID' ? '' : <span className="font-medium text-sky-700"> · agendado</span>}
+                      </p>
                     </td>
-                    <td><Badge tone={typeTone(item.proceeds_type)}>{typeLabel(item.proceeds_type)}</Badge></td>
-                    <td className="text-zinc-600">{formatDateBR(item.record_date)}</td>
-                    <td>{formatUnitCurrency(item.amount_per_unit)}</td>
-                    <td>{Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}</td>
-                    <td>{formatCurrency(item.gross_amount)}</td>
-                    <td>
-                      <p>{formatCurrency(item.tax_amount)}</p>
+                    <td className="num text-zinc-700">{formatUnitCurrency(item.amount_per_unit)}</td>
+                    <td className="num text-zinc-700">{Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}</td>
+                    <td className="num text-zinc-700">{formatCurrency(item.gross_amount)}</td>
+                    <td className="num">
+                      <p className="text-zinc-700">{formatCurrency(item.tax_amount)}</p>
                       <p className="text-xs text-zinc-500">{formatPercent(item.effective_tax_rate_percent)}</p>
                     </td>
-                    <td className="font-bold text-emerald-700">{formatCurrency(item.net_amount)}</td>
-                    <td>
-                      <p className={cx('font-bold', item.yield_on_cost_percent > 0 ? 'text-sky-700' : 'text-zinc-500')}>
-                        {formatPercent(item.yield_on_cost_percent, 4)}
-                      </p>
-                      <p className="text-xs text-zinc-500">Custo: {formatCurrency(item.cost_basis_at_record_date)}</p>
+                    <td className="num font-semibold text-emerald-700">{formatCurrency(item.net_amount)}</td>
+                    <td className="num" title={`Custo na data com: ${formatCurrency(item.cost_basis_at_record_date)}`}>
+                      <p className="font-medium text-zinc-800">{formatPercent(item.yield_on_cost_percent, 4)}</p>
                     </td>
-                    <td className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <IconButton label="Editar provento" icon={Pencil} onClick={() => handleEdit(item)} />
-                        <IconButton label="Excluir provento" icon={Trash2} variant="danger" onClick={() => handleDelete(item)} />
+                    <td className="py-1.5 text-right">
+                      <div className="flex justify-end gap-1.5">
+                        <IconButton label="Editar provento" icon={Pencil} size="sm" onClick={() => handleEdit(item)} />
+                        <IconButton label="Excluir provento" icon={Trash2} size="sm" variant="danger" onClick={() => handleDelete(item)} />
                       </div>
                     </td>
                   </tr>

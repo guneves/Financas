@@ -3,7 +3,6 @@ import { Briefcase, Download, Landmark, Plus, RefreshCw, Trash2, TrendingUp, X }
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import {
   AlertMessage,
-  Badge,
   Button,
   EmptyState,
   IconButton,
@@ -282,7 +281,9 @@ export default function Posicao() {
 
       <SegmentedControl items={POSITION_TABS} value={activeTab} onChange={setActiveTab} />
 
-      <Panel className="overflow-hidden">
+      {/* overflow-clip, nao hidden: hidden faria do painel o conteiner do
+          cabecalho grudento, e ele pararia de grudar ao rolar a pagina. */}
+      <Panel className="overflow-clip">
         {filteredAssets.length === 0 ? (
           <div className="p-5">
             <EmptyState
@@ -311,17 +312,26 @@ export default function Posicao() {
               ))}
             </div>
 
-            <div className="hidden overflow-x-auto md:block">
-              <table className="app-table min-w-[960px]">
+            <div className="hidden md:block">
+              <table className="app-table table-fixed">
+                <colgroup>
+                  <col />
+                  <col className="w-24" />
+                  <col className="w-32" />
+                  <col className="w-52" />
+                  <col className="w-40" />
+                  <col className="w-28" />
+                  <col className="w-40" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Ativo</th>
-                    <th>Qtd total</th>
-                    <th>Preço médio / aporte</th>
-                    <th>Cotação atual (editável)</th>
-                    <th>Valor total</th>
-                    <th>Rentabilidade</th>
-                    <th className="text-right">Ações</th>
+                    <th className="text-right">Qtd</th>
+                    <th className="text-right">Preço médio</th>
+                    <th className="text-right">Cotação</th>
+                    <th className="text-right">Valor</th>
+                    <th className="text-right">Rentab.</th>
+                    <th><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
                 {assetGroups.map((group) => (
@@ -393,22 +403,28 @@ function QuoteUpdateResult({ result, onClose }) {
   )
 }
 
-function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPrice, onRefresh }) {
+// Cotacao em uma linha: campo, atualizar e um ponto de status (verde = atual,
+// ambar = desatualizada ou sem cotacao). Fonte e horario ficam no title do
+// ponto e para leitor de tela.
+function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPrice, onRefresh, compact = false }) {
   const quote = asset.quote || {}
   const quoteStatus = quote.status || 'missing'
   const quoteIsFresh = quoteStatus === 'fresh'
   const isFixed = asset.class === 'FIXED_INCOME'
   // Na renda fixa a "cotacao" e o valor do titulo (quantidade 1).
   const masked = useValuesHidden() && isFixed
+  const statusText = `${quoteStatusLabel(quoteStatus)} · ${quoteSourceLabel(quote.source)} · ${formatDateTime(quote.quoted_at)}`
 
   return (
-    <div>
-      <div className="flex items-center gap-2">
-        {masked ? (
-          <span className="w-32 py-2 text-sm font-medium tabular text-zinc-500">{MASKED_CURRENCY}</span>
-        ) : (
-          <>
-        <span className="text-sm text-zinc-600">R$</span>
+    <div className={cx('flex items-center gap-1.5', compact && 'justify-end')}>
+      <span
+        className={cx('h-2 w-2 shrink-0 rounded-full', quoteIsFresh ? 'bg-emerald-500' : 'bg-amber-500')}
+        title={statusText}
+      />
+      <span className="sr-only">{statusText}</span>
+      {masked ? (
+        <span className="w-28 text-right text-sm font-medium text-zinc-500">{MASKED_CURRENCY}</span>
+      ) : (
         <input
           key={`${asset.id}-${asset.current_price}`}
           type="number"
@@ -418,76 +434,69 @@ function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPri
           defaultValue={asset.current_price}
           disabled={isFixed}
           onBlur={(e) => onManualPrice(asset, e)}
-          className={cx('app-input w-32 py-2', isFixed && 'cursor-not-allowed bg-zinc-100 text-zinc-500')}
+          className={cx('app-input h-9 w-28 py-1 text-right lg:h-8', isFixed && 'cursor-not-allowed bg-zinc-100 text-zinc-500')}
           title={isFixed ? 'Valor calculado automaticamente pela taxa do título' : 'Digite o novo preço e clique fora para salvar'}
         />
-          </>
-        )}
-        <IconButton
-          label="Atualizar cotação deste ativo"
-          icon={RefreshCw}
-          onClick={onRefresh}
-          disabled={isUpdatingPrices}
-          className={cx('disabled:opacity-50', isUpdatingThisAsset && '[&>svg]:animate-spin')}
-        />
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-        <span>{quoteSourceLabel(quote.source)} · {formatDateTime(quote.quoted_at)}</span>
-        <Badge tone={quoteIsFresh ? 'success' : 'warning'} className="px-2 py-0.5">
-          {quoteStatusLabel(quoteStatus)}
-        </Badge>
-      </div>
+      )}
+      <IconButton
+        label="Atualizar cotação deste ativo"
+        icon={RefreshCw}
+        size="sm"
+        onClick={onRefresh}
+        disabled={isUpdatingPrices}
+        className={cx('disabled:opacity-50', isUpdatingThisAsset && '[&>svg]:animate-spin')}
+      />
     </div>
   )
 }
 
-function ValueCell({ asset }) {
-  const money = usePrivateFormatter(formatCurrency)
+// Liquido so existe na renda fixa (IR regressivo); acao e FII mostram o bruto.
+function NetValue({ asset, money }) {
+  if (asset.class !== 'FIXED_INCOME') return null
   return (
-    <>
-      <p className="font-medium text-zinc-900">Bruto: {money(asset.current_value)}</p>
-      {asset.class === 'FIXED_INCOME' && (
-        asset.is_tax_free
-          ? <p className="text-xs font-medium text-emerald-700">Líquido: {money(asset.current_value)} (Isento)</p>
-          : <p className="text-xs text-zinc-600">Líquido: {money(asset.net_value)}</p>
-      )}
-    </>
+    <p className="text-xs text-zinc-500">
+      líq. {money(asset.is_tax_free ? asset.current_value : asset.net_value)}{asset.is_tax_free ? ' · isento' : ''}
+    </p>
   )
 }
 
-function ProfitBadge({ value }) {
+// Rentabilidade: a cor segue ganho/perda.
+function Profit({ value }) {
   return (
-    <Badge tone={value >= 0 ? 'success' : 'danger'}>
+    <span className={cx('font-semibold', value >= 0 ? 'text-emerald-700' : 'text-rose-600')}>
       {formatPercent(value, 2, { signed: true })}
-    </Badge>
+    </span>
   )
 }
 
 function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
   const isFixed = asset.class === 'FIXED_INCOME'
   const hidden = useValuesHidden()
+  const money = usePrivateFormatter(formatCurrency)
+  const fixedDescription = isFixed ? describeFixedIncome(asset.metadata) : ''
   return (
     <tr>
       <td>
-        <p className="font-semibold text-zinc-950">{asset.name}</p>
-        <p className="text-xs text-zinc-600">{getClassLabel(asset.class)}</p>
-        {isFixed && describeFixedIncome(asset.metadata) ? (
-          <p className="text-xs text-zinc-500">{describeFixedIncome(asset.metadata)}</p>
-        ) : null}
+        <p className="truncate font-semibold text-zinc-950" title={asset.name}>{asset.name}</p>
+        {fixedDescription ? <p className="truncate text-xs text-zinc-500">{fixedDescription}</p> : null}
       </td>
-      <td className="tabular text-zinc-800">{isFixed ? '-' : hidden ? MASKED_TEXT : asset.quantity}</td>
-      <td className="tabular text-zinc-800">{hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}</td>
-      <td><PriceEditor asset={asset} {...priceProps} /></td>
-      <td className="tabular"><ValueCell asset={asset} /></td>
-      <td><ProfitBadge value={asset.profitability_percent} /></td>
-      <td className="text-right">
-        <div className="flex justify-end gap-2">
-          <Button type="button" size="sm" variant="secondary" onClick={onSell} disabled={busy}>
+      <td className="num text-zinc-700">{isFixed ? '—' : hidden ? MASKED_TEXT : asset.quantity}</td>
+      <td className="num text-zinc-700">{hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}</td>
+      <td className="py-1.5"><PriceEditor asset={asset} compact {...priceProps} /></td>
+      <td className="num">
+        <p className="font-semibold text-zinc-950">{money(asset.current_value)}</p>
+        <NetValue asset={asset} money={money} />
+      </td>
+      <td className="num"><Profit value={asset.profitability_percent} /></td>
+      <td className="py-1.5 text-right">
+        <div className="flex justify-end gap-1.5">
+          <Button type="button" size="sm" variant="secondary" onClick={onSell} disabled={busy} className="lg:h-8">
             {isFixed ? 'Resgatar' : 'Vender'}
           </Button>
           <IconButton
             label={isFixed ? 'Excluir este aporte' : 'Excluir toda a posição'}
             icon={Trash2}
+            size="sm"
             variant="danger"
             onClick={onDelete}
           />
@@ -500,32 +509,35 @@ function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
 function PositionCard({ asset, busy, onSell, onDelete, ...priceProps }) {
   const isFixed = asset.class === 'FIXED_INCOME'
   const hidden = useValuesHidden()
+  const money = usePrivateFormatter(formatCurrency)
   return (
-    <li className="space-y-3 px-4 py-4">
+    <li className="space-y-3 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-semibold text-zinc-950">{asset.name}</p>
-          <p className="text-xs text-zinc-600">
-            {getClassLabel(asset.class)}
-            {isFixed && describeFixedIncome(asset.metadata) ? ` · ${describeFixedIncome(asset.metadata)}` : ''}
-            {isFixed ? '' : ` · ${hidden ? MASKED_TEXT : asset.quantity} un.`}
+          <p className="truncate text-xs text-zinc-500">
+            {isFixed ? describeFixedIncome(asset.metadata) || getClassLabel(asset.class) : `${hidden ? MASKED_TEXT : asset.quantity} un.`}
             {` · PM ${hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}`}
           </p>
         </div>
-        <ProfitBadge value={asset.profitability_percent} />
+        <div className="shrink-0 text-right">
+          <p className="font-semibold text-zinc-950">{money(asset.current_value)}</p>
+          <p className="text-sm"><Profit value={asset.profitability_percent} /></p>
+        </div>
       </div>
-      <div className="text-sm tabular"><ValueCell asset={asset} /></div>
-      <PriceEditor asset={asset} {...priceProps} />
-      <div className="flex gap-2">
-        <Button type="button" size="lg" variant="secondary" onClick={onSell} disabled={busy} className="flex-1">
-          {isFixed ? 'Resgatar' : 'Vender'}
-        </Button>
-        <IconButton
-          label={isFixed ? 'Excluir este aporte' : 'Excluir toda a posição'}
-          icon={Trash2}
-          variant="danger"
-          onClick={onDelete}
-        />
+      <div className="flex items-center justify-between gap-2">
+        <PriceEditor asset={asset} {...priceProps} />
+        <div className="flex gap-2">
+          <Button type="button" size="lg" variant="secondary" onClick={onSell} disabled={busy}>
+            {isFixed ? 'Resgatar' : 'Vender'}
+          </Button>
+          <IconButton
+            label={isFixed ? 'Excluir este aporte' : 'Excluir toda a posição'}
+            icon={Trash2}
+            variant="danger"
+            onClick={onDelete}
+          />
+        </div>
       </div>
     </li>
   )

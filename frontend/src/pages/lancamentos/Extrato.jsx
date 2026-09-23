@@ -16,7 +16,7 @@ import {
   cx,
   useArrivals,
 } from '../../components/ui'
-import { formatCurrency } from '../../lib/format'
+import { formatSignedCurrency } from '../../lib/format'
 import { isInvestmentOutflow } from '../../lib/transactions'
 import { categoryLabel, formatDateBR } from './helpers'
 import ProjectionHeader from './ProjectionHeader'
@@ -49,13 +49,13 @@ function countHiddenFilters(filters) {
   return Object.entries(filters).filter(([key, value]) => key !== 'q' && String(value).trim() !== '').length
 }
 
+// So o que nao e receita nem despesa comum ganha etiqueta: o sinal e a cor
+// do valor ja dizem entrada ou saida, e um "Despesa" vermelho em quase toda
+// linha era alarme sem motivo.
 function TypeBadge({ transaction }) {
-  const { type } = transaction
-  if (type === 'TRANSFER') return <Badge tone="info">Transferência</Badge>
-  if (type === 'INCOME') return <Badge tone="success">Receita</Badge>
+  if (transaction.type === 'TRANSFER') return <Badge>Transferência</Badge>
   // Aporte sai da conta, mas nao e despesa.
-  if (isInvestmentOutflow(transaction)) return <Badge tone="info">Investimento</Badge>
-  if (type === 'EXPENSE') return <Badge tone="danger">Despesa</Badge>
+  if (isInvestmentOutflow(transaction)) return <Badge>Investimento</Badge>
   return null
 }
 
@@ -65,9 +65,12 @@ function amountClass(transaction) {
 }
 
 function amountText(transaction) {
-  const prefix = transaction.type === 'TRANSFER' ? '' : transaction.type === 'INCOME' ? '+ ' : '- '
-  return `${prefix}${formatCurrency(transaction.amount)}`
+  const sign = transaction.type === 'TRANSFER' ? 0 : transaction.type === 'INCOME' ? 1 : -1
+  return formatSignedCurrency(transaction.amount, sign)
 }
+
+// Linhas por vez: 800+ lancamentos de uma vez davam uma pagina de 54 mil px.
+const PAGE_SIZE = 100
 
 export default function Extrato() {
   const { openNewEntry } = useNewEntry()
@@ -146,6 +149,12 @@ export default function Extrato() {
   // Sem cascata nas linhas: um extrato se le de cima para baixo, e filtrar e
   // digitar. So o que acabou de ser gravado pisca, para ser achado.
   const arrived = useArrivals(statementTransactions, useDataVersion())
+
+  // "Mostrar mais": volta a 100 linhas a cada filtro novo.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  useEffect(() => setVisibleCount(PAGE_SIZE), [filters])
+  const visibleTransactions = statementTransactions.slice(0, visibleCount)
+  const hiddenCount = statementTransactions.length - visibleTransactions.length
 
   // Exporta exatamente o que a tela mostra: o backend refaz a mesma consulta
   // com os filtros da URL. Sem filtro, sai o extrato inteiro.
@@ -277,15 +286,18 @@ export default function Extrato() {
     }
   }
 
+  // Lancamento gerado por outra tela: sem editar aqui, so diz de onde veio.
   const rowActions = (transaction) => (
     transaction.source_type === 'INVESTMENT_TRANSACTION' ? (
-      <Badge>Pela carteira</Badge>
+      <span className="whitespace-nowrap text-xs text-zinc-500">Pela carteira</span>
     ) : transaction.source_type === 'CC_INVOICE_PAYMENT' || transaction.source_type === 'CC_AUTOPAY' ? (
-      <Badge>{transaction.source_type === 'CC_AUTOPAY' ? 'Débito automático' : 'Pela fatura'}</Badge>
+      <span className="whitespace-nowrap text-xs text-zinc-500">
+        {transaction.source_type === 'CC_AUTOPAY' ? 'Débito automático' : 'Pela fatura'}
+      </span>
     ) : (
       <>
-        <IconButton label="Editar transação" icon={Pencil} onClick={() => startEditing(transaction)} />
-        <IconButton label="Excluir transação" icon={Trash2} variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
+        <IconButton label="Editar transação" icon={Pencil} size="sm" onClick={() => startEditing(transaction)} />
+        <IconButton label="Excluir transação" icon={Trash2} size="sm" variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
       </>
     )
   )
@@ -327,10 +339,10 @@ export default function Extrato() {
             <div className="flex flex-wrap items-center gap-2">
               {filtersActive ? (
                 <>
-                  <Badge tone="success">+ {formatCurrency(statementTotals.income)}</Badge>
-                  <Badge tone="danger">- {formatCurrency(statementTotals.expense)}</Badge>
+                  <Badge tone="success">{formatSignedCurrency(statementTotals.income, 1)}</Badge>
+                  <Badge>{formatSignedCurrency(statementTotals.expense, -1)}</Badge>
                   {statementTotals.investment > 0 ? (
-                    <Badge tone="info">Investido {formatCurrency(statementTotals.investment)}</Badge>
+                    <Badge>Investido {formatSignedCurrency(statementTotals.investment, 0)}</Badge>
                   ) : null}
                 </>
               ) : null}
@@ -425,31 +437,39 @@ export default function Extrato() {
 
         {statementTransactions.length > 0 ? (
           <>
-            {/* >= md: tabela com edicao inline */}
-            <div className="hidden overflow-x-auto md:block">
-              <table className="app-table min-w-[900px]">
+            {/* >= md: tabela com edicao inline. Largura fixa por coluna e texto
+                cortado com reticencias: a linha fica em uma altura so, e sem
+                overflow-x o cabecalho gruda no topo da pagina. */}
+            <div className="hidden md:block">
+              <table className="app-table table-fixed">
+                <colgroup>
+                  <col className="w-28" />
+                  <col className="hidden w-[18%] lg:table-column" />
+                  <col className="w-[18%]" />
+                  <col />
+                  <col className="w-40" />
+                  <col className="w-32" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Data</th>
-                    <th>Conta</th>
+                    <th className="hidden lg:table-cell">Conta</th>
                     <th>Categoria</th>
                     <th>Descrição</th>
-                    <th>Tipo</th>
-                    <th>Valor</th>
-                    <th className="text-right">Ações</th>
+                    <th className="text-right">Valor</th>
+                    <th className="text-right"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {statementTransactions.map((transaction) => {
+                  {visibleTransactions.map((transaction) => {
                     if (editingId === transaction.id) {
                       const controls = editControls(transaction)
                       return (
                         <tr key={transaction.id} className="bg-zinc-50">
                           <td>{controls.date}</td>
-                          <td>{controls.account}</td>
-                          <td>{controls.category}</td>
+                          <td className="hidden lg:table-cell">{controls.account}</td>
+                          <td className="space-y-2">{controls.category}{controls.type}</td>
                           <td>{controls.description}</td>
-                          <td>{controls.type}</td>
                           <td>{controls.amount}</td>
                           <td className="text-right">
                             <div className="flex justify-end gap-2">{controls.actions}</div>
@@ -458,16 +478,21 @@ export default function Extrato() {
                       )
                     }
 
+                    const account = accountLabel(transaction)
                     return (
                       <tr key={transaction.id} className={arrived.has(transaction.id) ? 'animate-flash-emerald' : undefined}>
-                        <td className="text-zinc-600">{formatDateBR(transaction.date)}</td>
-                        <td className="text-zinc-700">{accountLabel(transaction)}</td>
-                        <td className="font-medium text-zinc-800">{transaction.category}</td>
-                        <td className="text-zinc-700">{transaction.description}</td>
-                        <td><TypeBadge transaction={transaction} /></td>
-                        <td className={cx('font-bold', amountClass(transaction))}>{amountText(transaction)}</td>
-                        <td className="text-right">
-                          <div className="flex justify-end gap-2">{rowActions(transaction)}</div>
+                        <td className="whitespace-nowrap text-zinc-600">{formatDateBR(transaction.date)}</td>
+                        <td className="hidden truncate text-zinc-600 lg:table-cell" title={account}>{account}</td>
+                        <td className="truncate font-medium text-zinc-800" title={transaction.category}>{transaction.category}</td>
+                        <td>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
+                            <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
+                          </div>
+                        </td>
+                        <td className={cx('num font-semibold', amountClass(transaction))}>{amountText(transaction)}</td>
+                        <td className="py-1.5 text-right">
+                          <div className="flex justify-end gap-1.5">{rowActions(transaction)}</div>
                         </td>
                       </tr>
                     )
@@ -478,7 +503,7 @@ export default function Extrato() {
 
             {/* < md: lista de cartoes; editar abre os mesmos campos empilhados */}
             <ul className="divide-y divide-zinc-100 md:hidden">
-              {statementTransactions.map((transaction) => {
+              {visibleTransactions.map((transaction) => {
                 if (editingId === transaction.id) {
                   const controls = editControls(transaction)
                   return (
@@ -517,6 +542,17 @@ export default function Extrato() {
                 )
               })}
             </ul>
+
+            {hiddenCount > 0 ? (
+              <div className="flex flex-col items-center gap-2 border-t border-zinc-100 px-5 py-4 sm:flex-row sm:justify-between">
+                <p className="text-sm text-zinc-500">
+                  Mostrando {visibleTransactions.length} de {statementTransactions.length}
+                </p>
+                <Button type="button" variant="secondary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+                  Mostrar mais {Math.min(PAGE_SIZE, hiddenCount)}
+                </Button>
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="p-5">

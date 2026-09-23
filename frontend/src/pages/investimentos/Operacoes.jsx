@@ -18,7 +18,7 @@ import {
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
-import { formatCurrency } from '../../lib/format'
+import { formatCurrency, formatSignedCurrency } from '../../lib/format'
 import {
   FIXED_INCOME_METADATA_KEYS,
   fixedIncomeFormFromMetadata,
@@ -64,10 +64,16 @@ function describeMovement(mov) {
     ? new Date(`${String(dateValue).slice(0, 10)}T00:00:00`)
     : new Date(mov.created_at)
   const dateLabel = `${dateObj.toLocaleDateString('pt-BR')}${!hasCustomDate ? ` às ${dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}`
-  const kindLabel = `${isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')} de ${isRedemption ? formatCurrency(totalValue) : Math.abs(mov.quantity)}`
+  const kind = isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')
+  const kindDetail = isRedemption ? formatCurrency(totalValue) : isFixed ? '' : `${Math.abs(mov.quantity)} un.`
+  const kindLabel = `${kind} de ${isRedemption ? formatCurrency(totalValue) : Math.abs(mov.quantity)}`
 
   return {
     isSale,
+    dateText: dateObj.toLocaleDateString('pt-BR'),
+    timeText: hasCustomDate ? '' : dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    kind,
+    kindDetail,
     unitPrice,
     totalValue,
     fees,
@@ -261,7 +267,7 @@ export default function Operacoes() {
         />
       </div>
 
-      <Panel className="overflow-hidden">
+      <Panel className="overflow-clip">
         <PanelHeader
           title="Operações"
           description="Compras e vendas da sua carteira."
@@ -285,18 +291,26 @@ export default function Operacoes() {
               ))}
             </ul>
 
-            <div className="hidden overflow-x-auto md:block">
-              <table className="app-table min-w-[1040px]">
+            <div className="hidden md:block">
+              <table className="app-table table-fixed">
+                <colgroup>
+                  <col className="w-28" />
+                  <col />
+                  <col className="w-28" />
+                  <col className="w-36" />
+                  <col className="w-40" />
+                  <col className="w-36" />
+                  <col className="w-24" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>Data / hora</th>
+                    <th>Data</th>
                     <th>Ativo</th>
-                    <th>Operação</th>
-                    <th>Preço registrado</th>
-                    <th>Total</th>
-                    <th>Resultado realizado</th>
-                    <th>IR estimado</th>
-                    <th className="text-right">Ações</th>
+                    <th className="text-right">Preço</th>
+                    <th className="text-right">Total</th>
+                    <th className="text-right">Resultado</th>
+                    <th className="text-right">IR estimado</th>
+                    <th><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -386,58 +400,62 @@ function profitClass(value) {
   return value >= 0 ? 'text-emerald-700' : 'text-rose-600'
 }
 
+const COST_METHOD_LABELS = {
+  FIFO: 'FIFO',
+  LOT_REDEMPTION: 'resgate do lote',
+}
+
+// "−11,90% · FIFO, 3 lotes"
+function realizedDetail(mov, info) {
+  const method = COST_METHOD_LABELS[info.realizedMetadata.cost_method] || info.realizedMetadata.cost_method || 'FIFO'
+  const lots = info.allocationCount ? `, ${info.allocationCount} lote${info.allocationCount > 1 ? 's' : ''}` : ''
+  return `${formatPercent(mov.realized_profitability_percent, 2, { signed: true })} · ${method}${lots}`
+}
+
+// Duas linhas no maximo: o valor e um detalhe. O resto (base de custo,
+// aliquota) fica no title da celula.
 function MovementRow({ mov, info, onEdit, onDelete }) {
   return (
     <tr>
-      <td className="whitespace-nowrap text-zinc-600">{info.dateLabel}</td>
-      <td>
-        <p className="font-semibold text-zinc-950">{mov.ticker_or_name}</p>
-        <p className="text-xs text-zinc-600">{getClassLabel(mov.asset_class)}</p>
+      <td className="text-zinc-600">
+        <p className="whitespace-nowrap">{info.dateText}</p>
+        {info.timeText ? <p className="text-xs text-zinc-500">{info.timeText}</p> : null}
       </td>
       <td>
-        <Badge tone={info.isSale ? 'danger' : 'success'}>{info.kindLabel}</Badge>
+        <p className="truncate font-semibold text-zinc-950" title={`${mov.ticker_or_name} · ${getClassLabel(mov.asset_class)}`}>{mov.ticker_or_name}</p>
+        <p className="truncate text-xs text-zinc-500">
+          <span className="font-medium text-zinc-700">{info.kind}</span>{info.kindDetail ? ` · ${info.kindDetail}` : ''}
+        </p>
       </td>
-      <td className="tabular text-zinc-800">{formatCurrency(info.unitPrice)}</td>
-      <td className="tabular font-medium text-zinc-900">
-        <p>{formatCurrency(info.totalValue)}</p>
-        {info.fees > 0 ? <p className="text-xs font-normal text-zinc-600">Custos: {formatCurrency(info.fees)}</p> : null}
-        {info.isSale ? <p className="text-xs font-normal text-zinc-600">Líquido: {formatCurrency(info.netProceeds)}</p> : null}
+      <td className="num text-zinc-700">{formatCurrency(info.unitPrice)}</td>
+      <td className="num">
+        <p className="font-semibold text-zinc-950">{formatCurrency(info.totalValue)}</p>
+        {info.fees > 0 ? <p className="text-xs text-zinc-500">custos {formatCurrency(info.fees)}</p> : null}
       </td>
-      <td className="tabular">
+      <td className="num" title={info.hasResult ? `Base de custo: ${formatCurrency(mov.realized_cost_basis)} · Líquido da venda: ${formatCurrency(info.netProceeds)}` : undefined}>
         {info.hasResult ? (
-          <div>
-            <p className={cx('font-bold', profitClass(info.realizedProfit))}>
-              {info.realizedProfit > 0 ? '+' : ''}{formatCurrency(info.realizedProfit)}
-            </p>
-            <p className="text-xs text-zinc-600">Base: {formatCurrency(mov.realized_cost_basis)}</p>
-            <p className="text-xs text-zinc-600">
-              {formatPercent(mov.realized_profitability_percent)} via {info.realizedMetadata.cost_method || 'FIFO'}
-              {info.allocationCount ? ` (${info.allocationCount} lote${info.allocationCount > 1 ? 's' : ''})` : ''}
-            </p>
-          </div>
+          <>
+            <p className={cx('font-semibold', profitClass(info.realizedProfit))}>{formatSignedCurrency(info.realizedProfit)}</p>
+            <p className="truncate text-xs text-zinc-500">{realizedDetail(mov, info)}</p>
+          </>
         ) : (
-          <span className="text-zinc-400">-</span>
+          <span className="text-zinc-400">—</span>
         )}
       </td>
-      <td className="tabular">
+      <td className="num" title={info.hasResult ? `Alíquota: ${formatPercent(Number(mov.realized_tax_rate || 0) * 100)}` : undefined}>
         {info.hasResult ? (
-          <div>
+          <>
             <p className="font-medium text-zinc-900">{formatCurrency(info.realizedTax)}</p>
-            <p className={cx('text-xs font-medium', profitClass(info.afterTax))}>
-              Pós-IR: {formatCurrency(info.afterTax)}
-            </p>
-            <p className="text-xs text-zinc-600">
-              Alíq.: {formatPercent(Number(mov.realized_tax_rate || 0) * 100)}
-            </p>
-          </div>
+            <p className={cx('truncate text-xs', profitClass(info.afterTax))}>pós-IR {formatSignedCurrency(info.afterTax)}</p>
+          </>
         ) : (
-          <span className="text-zinc-400">-</span>
+          <span className="text-zinc-400">—</span>
         )}
       </td>
-      <td className="text-right">
-        <div className="flex justify-end gap-2">
-          <IconButton label="Editar operação" icon={Pencil} onClick={onEdit} />
-          <IconButton label="Excluir apenas esta operação" icon={Trash2} variant="danger" onClick={onDelete} />
+      <td className="py-1.5 text-right">
+        <div className="flex justify-end gap-1.5">
+          <IconButton label="Editar operação" icon={Pencil} size="sm" onClick={onEdit} />
+          <IconButton label="Excluir apenas esta operação" icon={Trash2} size="sm" variant="danger" onClick={onDelete} />
         </div>
       </td>
     </tr>
@@ -455,7 +473,7 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
         <p className="shrink-0 font-semibold tabular text-zinc-950">{formatCurrency(info.totalValue)}</p>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-        <Badge tone={info.isSale ? 'danger' : 'success'}>{info.kindLabel}</Badge>
+        <span className="font-medium text-zinc-800">{info.kindLabel}</span>
         <span>a {formatCurrency(info.unitPrice)}</span>
         {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
         {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
@@ -464,19 +482,14 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
         <div className="grid grid-cols-2 gap-3 rounded-lg bg-zinc-50 px-3 py-2 text-sm tabular">
           <div>
             <p className="text-xs text-zinc-600">Resultado</p>
-            <p className={cx('font-bold', profitClass(info.realizedProfit))}>
-              {info.realizedProfit > 0 ? '+' : ''}{formatCurrency(info.realizedProfit)}
-            </p>
+            <p className={cx('font-semibold', profitClass(info.realizedProfit))}>{formatSignedCurrency(info.realizedProfit)}</p>
             <p className="text-xs text-zinc-600">Base: {formatCurrency(mov.realized_cost_basis)}</p>
-            <p className="text-xs text-zinc-600">
-              {formatPercent(mov.realized_profitability_percent)} via {info.realizedMetadata.cost_method || 'FIFO'}
-              {info.allocationCount ? ` (${info.allocationCount} lote${info.allocationCount > 1 ? 's' : ''})` : ''}
-            </p>
+            <p className="text-xs text-zinc-600">{realizedDetail(mov, info)}</p>
           </div>
           <div>
             <p className="text-xs text-zinc-600">IR estimado</p>
             <p className="font-medium text-zinc-900">{formatCurrency(info.realizedTax)}</p>
-            <p className={cx('text-xs font-medium', profitClass(info.afterTax))}>Pós-IR: {formatCurrency(info.afterTax)}</p>
+            <p className={cx('text-xs font-medium', profitClass(info.afterTax))}>Pós-IR: {formatSignedCurrency(info.afterTax)}</p>
             <p className="text-xs text-zinc-600">Alíq.: {formatPercent(Number(mov.realized_tax_rate || 0) * 100)}</p>
           </div>
         </div>

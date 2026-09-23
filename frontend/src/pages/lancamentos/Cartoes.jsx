@@ -272,8 +272,8 @@ export default function Cartoes() {
     const today = getNow()
     const dueDate = new Date(invoice.invoiceYear, invoice.invoiceMonth - 1, dueDay)
     if (today > dueDate) return <Badge tone="danger">Em atraso</Badge>
-    if (invoice.closed) return <Badge tone="info">Fechada</Badge>
-    return <Badge tone="warning">Aberta</Badge>
+    if (invoice.closed) return <Badge tone="warning">Fechada</Badge>
+    return <Badge>Aberta</Badge>
   }
 
   // Por que o botao Pagar esta (ou nao) liberado, numa linha.
@@ -366,14 +366,14 @@ export default function Cartoes() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-lg font-bold text-zinc-950">{cardGroup.cardName}</h3>
-                      <Badge tone="info">{cardGroup.invoices.length} fatura(s)</Badge>
+                      <Badge>{cardGroup.invoices.length} fatura(s)</Badge>
                       {cardGroup.autopayAccountId ? (
-                        <Badge tone="success">Débito automático · {accountName(cardGroup.autopayAccountId)}</Badge>
+                        <Badge>Débito automático · {accountName(cardGroup.autopayAccountId)}</Badge>
                       ) : null}
                     </div>
                     <p className="mt-1 text-sm text-zinc-600">Vence dia {cardGroup.dueDay} • Fecha dia {cardGroup.closingDay}</p>
                   </div>
-                  <p className="text-sm text-zinc-600">Em aberto: <span className="font-bold text-zinc-950">{formatCurrency(cardTotal)}</span></p>
+                  <p className="whitespace-nowrap text-sm text-zinc-600">Em aberto: <span className="font-semibold text-zinc-950">{formatCurrency(cardTotal)}</span></p>
                 </div>
 
                 <div className="divide-y divide-zinc-100">
@@ -385,49 +385,47 @@ export default function Cartoes() {
 
                     return (
                       <div key={invoice.invoiceKey}>
-                        <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
                           <button
                             type="button"
                             onClick={() => toggleInvoice(key)}
                             aria-expanded={expanded}
-                            className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left"
+                            className="flex min-h-[44px] min-w-[14rem] flex-1 items-center gap-3 text-left"
                           >
                             <ChevronDown className={cx('h-5 w-5 shrink-0 text-zinc-500 transition-transform', expanded && 'rotate-180')} />
                             <div className="min-w-0">
-                              <p className="font-bold text-zinc-950">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
-                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-semibold text-zinc-950">Fatura {formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
                                 {getInvoiceStatus(invoice, cardGroup.dueDay)}
-                                {isNearest ? <Badge tone="success">Próxima</Badge> : null}
+                                {isNearest ? <Badge>Próxima</Badge> : null}
                               </div>
-                              {hint ? <p className="mt-1 text-xs text-zinc-600">{hint}</p> : null}
+                              {hint ? <p className="mt-0.5 text-xs text-zinc-500">{hint}</p> : null}
                             </div>
                           </button>
-                          <div className="flex items-center gap-3">
-                            <p className="whitespace-nowrap text-lg font-bold text-rose-600">{formatCurrency(invoice.total)}</p>
-                            <Button type="button" variant={isNearest && invoice.closed ? 'primary' : 'secondary'} icon={CheckCircle} loading={saving} disabled={!invoice.closed} title={invoice.closed ? undefined : hint} onClick={() => handlePayInvoice(invoice, cardGroup)} className="h-11 lg:h-10">
+                          <div className="ml-auto flex items-center gap-3">
+                            <p className="whitespace-nowrap text-base font-semibold text-zinc-950">{formatCurrency(invoice.total)}</p>
+                            <Button type="button" variant={isNearest && invoice.closed ? 'primary' : 'secondary'} icon={CheckCircle} loading={saving} disabled={!invoice.closed} title={invoice.closed ? undefined : hint} onClick={() => handlePayInvoice(invoice, cardGroup)} className="h-11 lg:h-9">
                               Pagar
                             </Button>
                           </div>
                         </div>
 
-                        <Expand open={expanded} innerClassName="space-y-2 px-5 pb-5">
-                          {invoice.purchases.map((purchase) => (
-                            <div key={purchase.purchaseKey} className="flex flex-col gap-3 rounded-lg border border-zinc-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-                              <div className="min-w-0">
-                                <p className="font-semibold text-zinc-900">{purchase.description}</p>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  <Badge tone="info">{purchase.category}</Badge>
-                                  <Badge>Compra em {formatDateBR(purchase.purchase_date)}</Badge>
-                                  <Badge tone="warning">Parcela {purchase.installmentCurrent}/{purchase.installmentTotal}</Badge>
+                        <Expand open={expanded} innerClassName="px-5 pb-4">
+                          <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+                            {invoice.purchases.map((purchase) => (
+                              <li key={purchase.purchaseKey} className="flex items-center gap-3 py-1.5 pl-4 pr-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-medium text-zinc-900" title={purchase.description}>{purchase.description}</p>
+                                  <p className="truncate text-xs text-zinc-500">
+                                    {purchase.category} · {formatDateBR(purchase.purchase_date)}
+                                    {purchase.installmentTotal > 1 ? ` · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}` : ''}
+                                  </p>
                                 </div>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-4 md:justify-end">
-                                <p className="whitespace-nowrap font-bold text-zinc-950">{formatCurrency(purchase.amount)}</p>
-                                <IconButton label="Excluir compra parcelada" icon={Trash2} variant="danger" onClick={() => handleDeleteCCPurchase(purchase)} />
-                              </div>
-                            </div>
-                          ))}
+                                <p className="whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
+                                <IconButton label="Excluir compra parcelada" icon={Trash2} size="sm" variant="danger" onClick={() => handleDeleteCCPurchase(purchase)} />
+                              </li>
+                            ))}
+                          </ul>
                         </Expand>
                       </div>
                     )

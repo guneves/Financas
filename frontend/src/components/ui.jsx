@@ -116,14 +116,21 @@ export function Button({
   )
 }
 
-export function IconButton({ label, icon: Icon, className = '', variant = 'secondary', ...props }) {
+// 44px no toque; no desktop, onde o ponteiro e preciso, 36px — ou 32px com
+// size="sm", para acoes dentro de linha de tabela (a linha fica em ~44px).
+const iconButtonSizes = {
+  md: 'lg:h-9 lg:w-9',
+  sm: 'lg:h-8 lg:w-8',
+}
+
+export function IconButton({ label, icon: Icon, className = '', variant = 'secondary', size = 'md', ...props }) {
   return (
     <button
       aria-label={label}
       title={label}
       className={cx(
-        // 44px no toque; volta a 36px no desktop, onde o ponteiro e preciso.
-        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition active:scale-95 lg:h-9 lg:w-9',
+        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition active:scale-95',
+        iconButtonSizes[size],
         buttonVariants[variant],
         className
       )}
@@ -602,7 +609,9 @@ export function Expand({ open, id, className = '', innerClassName = '', children
   return (
     <div
       id={id}
-      className={cx('grid transition-[grid-template-rows] duration-200 ease-out-quint', className)}
+      // minmax(0, 1fr): sem isso a coluna cresce ate o conteudo e um texto
+      // com truncate/nowrap la dentro vaza para fora da tela.
+      className={cx('grid grid-cols-[minmax(0,1fr)] transition-[grid-template-rows] duration-200 ease-out-quint', className)}
       style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
       onTransitionEnd={(event) => {
         if (event.target === event.currentTarget && event.propertyName === 'grid-template-rows') {

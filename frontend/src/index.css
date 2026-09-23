@@ -69,23 +69,25 @@
     @apply w-full border-collapse text-left text-sm;
   }
 
-  /* Cabecalho gruda no topo ao rolar a pagina (abaixo da barra do celular,
+  /* :where() zera a especificidade: um py-1.5 ou text-left na celula vence.
+     Cabecalho gruda no topo ao rolar a pagina (abaixo da barra do celular,
      que tem 64px). A tabela nao pode estar dentro de um overflow-x: auto,
      senao o sticky passa a valer para aquele conteiner. */
-  .app-table thead th {
+  :where(.app-table) thead th {
     @apply sticky top-16 z-10 border-b border-zinc-200 bg-zinc-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-zinc-500 lg:top-0;
   }
 
-  .app-table td {
-    @apply px-4 py-2.5;
+  :where(.app-table) td,
+  :where(.app-table) tbody th {
+    @apply px-4 py-2.5 text-left;
   }
 
-  .app-table tbody tr {
+  :where(.app-table) tbody tr {
     @apply border-b border-zinc-100 transition-colors last:border-0 hover:bg-zinc-50/80;
   }
 
   /* Coluna de valor: a direita, sem quebrar o sinal do numero. */
-  .app-table .num {
+  :where(.app-table) .num {
     @apply whitespace-nowrap text-right;
   }
 
