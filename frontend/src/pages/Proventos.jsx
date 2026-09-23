@@ -5,7 +5,6 @@ import {
   CalendarDays,
   Coins,
   Filter,
-  Landmark,
   Pencil,
   Plus,
   RefreshCw,
@@ -21,14 +20,14 @@ import {
   Collapsible,
   EmptyState,
   Field,
-  IconButton,
-  MetricCard,
+  Menu,
   PageHeader,
   Panel,
   PanelHeader,
   SegmentedControl,
-  cx,
+  SummaryPanel,
 } from '../components/ui'
+import { toast } from '../lib/toast'
 import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString, monthLabel, shortMonthLabel } from '../lib/format'
 
 const PROCEEDS_TYPES = [
@@ -77,6 +76,13 @@ const blankForm = () => ({
   notes: '',
 })
 
+function proventoMenuItems(item, onEdit, onDelete) {
+  return [
+    { label: 'Editar provento', icon: Pencil, onSelect: () => onEdit(item) },
+    { label: 'Excluir provento', icon: Trash2, tone: 'danger', onSelect: () => onDelete(item) },
+  ]
+}
+
 const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.label || value
 
 export default function Proventos() {
@@ -98,7 +104,6 @@ export default function Proventos() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const requestRef = useRef(0)
 
   useEffect(() => {
@@ -195,15 +200,14 @@ export default function Proventos() {
     event.preventDefault()
     setSaving(true)
     setError('')
-    setNotice('')
     try {
       const payload = buildPayload()
       if (editingId) {
         await investmentProceedsApi.update(editingId, payload)
-        setNotice('Provento atualizado.')
+        toast('Provento atualizado.')
       } else {
         await investmentProceedsApi.create(payload)
-        setNotice('Provento registrado.')
+        toast('Provento registrado.')
       }
       resetForm()
       setFormOpen(false)
@@ -239,10 +243,9 @@ export default function Proventos() {
     if (!confirmed) return
 
     setError('')
-    setNotice('')
     try {
       await investmentProceedsApi.remove(item.id)
-      setNotice('Provento excluído.')
+      toast('Provento excluído.')
       await fetchData()
     } catch (err) {
       setError(err.message || 'Não foi possível excluir o provento.')
@@ -278,7 +281,6 @@ export default function Proventos() {
       />
 
       <AlertMessage tone="danger" message={error} onDismiss={() => setError('')} />
-      <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
 
       <Collapsible
         label={editingId ? 'Editar provento' : 'Registrar provento'}
@@ -308,35 +310,18 @@ export default function Proventos() {
         </Panel>
       </Collapsible>
 
-      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <MetricCard
-          icon={Coins}
-          tone="success"
-          title="Líquido no período"
-          value={formatCurrency(summary?.net_amount)}
-          subtitle={`${summary?.event_count || 0} evento(s)`}
-        />
-        <MetricCard
-          icon={Landmark}
-          title="Yield on cost"
-          value={formatPercent(summary?.yield_on_cost_percent)}
-          subtitle="Líquido / custo elegível"
-        />
-        <MetricCard
-          icon={CalendarDays}
-          tone="info"
-          title="Agendado"
-          value={formatCurrency(summary?.scheduled_net_amount)}
-          subtitle="Pagamentos futuros"
-        />
-        <MetricCard
-          icon={Coins}
-          tone="neutral"
-          title="Imposto retido"
-          value={formatCurrency(summary?.tax_amount)}
-          subtitle={`Bruto: ${formatCurrency(summary?.gross_amount)}`}
-        />
-      </div>
+      <SummaryPanel
+        lead={{
+          label: 'Líquido no período',
+          value: formatCurrency(summary?.net_amount),
+          hint: `${summary?.event_count || 0} evento(s) · bruto ${formatCurrency(summary?.gross_amount)}`,
+        }}
+        figures={[
+          { label: 'Yield on cost', value: formatPercent(summary?.yield_on_cost_percent), hint: 'Líquido / custo elegível' },
+          { label: 'Agendado', value: formatCurrency(summary?.scheduled_net_amount), hint: 'Pagamentos futuros' },
+          { label: 'Imposto retido', value: formatCurrency(summary?.tax_amount), hint: 'Retido na fonte' },
+        ]}
+      />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
         <Panel className={summary?.by_month?.length ? 'xl:col-span-2' : 'xl:col-span-5'}>
@@ -487,9 +472,8 @@ export default function Proventos() {
                   {formatUnitCurrency(item.amount_per_unit)}/cota · {Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} cotas ·
                   {' '}Bruto {formatCurrency(item.gross_amount)} · Imposto {formatCurrency(item.tax_amount)} · YOC {formatPercent(item.yield_on_cost_percent, 4)}
                 </p>
-                <div className="flex justify-end gap-2">
-                  <IconButton label="Editar provento" icon={Pencil} onClick={() => handleEdit(item)} />
-                  <IconButton label="Excluir provento" icon={Trash2} variant="danger" onClick={() => handleDelete(item)} />
+                <div className="flex justify-end">
+                  <Menu label={`Ações do provento de ${item.asset?.ticker || 'ativo'}`} size="md" items={proventoMenuItems(item, handleEdit, handleDelete)} />
                 </div>
               </li>
             ))}
@@ -507,7 +491,7 @@ export default function Proventos() {
                 <col className="w-28" />
                 <col className="w-28" />
                 <col className="w-24" />
-                <col className="w-24" />
+                <col className="w-16" />
               </colgroup>
               <thead>
                 <tr>
@@ -550,10 +534,7 @@ export default function Proventos() {
                       <p className="font-medium text-zinc-800">{formatPercent(item.yield_on_cost_percent, 4)}</p>
                     </td>
                     <td className="py-1.5 text-right">
-                      <div className="flex justify-end gap-1.5">
-                        <IconButton label="Editar provento" icon={Pencil} size="sm" onClick={() => handleEdit(item)} />
-                        <IconButton label="Excluir provento" icon={Trash2} size="sm" variant="danger" onClick={() => handleDelete(item)} />
-                      </div>
+                      <Menu label={`Ações do provento de ${item.asset?.ticker || 'ativo'}`} items={proventoMenuItems(item, handleEdit, handleDelete)} />
                     </td>
                   </tr>
                 ))}

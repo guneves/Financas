@@ -52,14 +52,14 @@ export default function Ajustes() {
         title="Ajustes"
         description="Contas, cartões e categorias — o que se configura uma vez e raramente muda."
         meta={(
-          <nav aria-label="Seções de Ajustes" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1">
+          <nav aria-label="Seções de Ajustes" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white p-1">
             {SECTION_LINKS.map((section) => (
               <Link
                 key={section.id}
                 to={{ hash: section.id }}
                 replace
                 onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                className="inline-flex h-10 shrink-0 items-center rounded-md px-3 text-sm font-semibold text-zinc-600 transition hover:bg-white/60 hover:text-zinc-950 lg:h-9"
+                className="inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 lg:h-9"
               >
                 {section.label}
               </Link>

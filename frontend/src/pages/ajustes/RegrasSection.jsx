@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ListChecks, Pencil, Plus, Trash2, Wand2 } from 'lucide-react'
+import { ListChecks, PauseCircle, Pencil, PlayCircle, Plus, Trash2, Wand2 } from 'lucide-react'
 import { categoriesApi, importRulesApi } from '../../lib/dataApi'
 import {
   AlertMessage,
@@ -8,12 +8,13 @@ import {
   Collapsible,
   EmptyState,
   Field,
-  IconButton,
+  Menu,
   Panel,
   PanelHeader,
   Sheet,
   cx,
 } from '../../components/ui'
+import { toast } from '../../lib/toast'
 import { formatDateBR, formatSignedCurrency } from '../../lib/format'
 
 const MATCH_LABELS = {
@@ -62,7 +63,6 @@ export default function RegrasSection({ refreshKey = 0 }) {
   const [applyLoading, setApplyLoading] = useState(false)
   const [applySaving, setApplySaving] = useState(false)
   const [applyError, setApplyError] = useState('')
-  const [notice, setNotice] = useState('')
 
   const loadAll = async () => {
     setError('')
@@ -128,7 +128,6 @@ export default function RegrasSection({ refreshKey = 0 }) {
   }
 
   const openApply = async (rule = null) => {
-    setNotice('')
     setApplyError('')
     setApplying({ rule, items: [], total: 0, truncated: false, selected: new Set() })
     setApplyLoading(true)
@@ -180,7 +179,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
       })
       const updated = result?.updated || 0
       const skipped = result?.skipped || 0
-      setNotice(
+      toast(
         `${updated} lançamento(s) recategorizado(s).`
         + (skipped ? ` ${skipped} mudou(aram) desde a prévia e ficou(aram) como estava(m).` : '')
       )
@@ -227,12 +226,11 @@ export default function RegrasSection({ refreshKey = 0 }) {
       />
       <div className="space-y-4">
         <AlertMessage message={error} onDismiss={() => setError('')} />
-        <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
 
         {loading ? (
           <p className="text-sm text-zinc-500">Carregando...</p>
         ) : rules.length ? (
-          <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+          <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
             {rules.map((rule) => (
               <div key={rule.id} className="flex flex-wrap items-center gap-3 p-3">
                 <div className="min-w-[14rem] flex-1">
@@ -249,11 +247,14 @@ export default function RegrasSection({ refreshKey = 0 }) {
                   <Button variant="secondary" size="sm" onClick={() => openApply(rule)}>
                     Aplicar
                   </Button>
-                  <Button variant="secondary" size="sm" onClick={() => handleToggle(rule)}>
-                    {rule.active ? 'Desativar' : 'Ativar'}
-                  </Button>
-                  <IconButton label="Editar regra" icon={Pencil} size="sm" onClick={() => handleEdit(rule)} />
-                  <IconButton label="Apagar regra" icon={Trash2} size="sm" variant="danger" onClick={() => handleRemove(rule)} />
+                  <Menu
+                    label={`Ações da regra ${rule.pattern}`}
+                    items={[
+                      { label: 'Editar regra', icon: Pencil, onSelect: () => handleEdit(rule) },
+                      { label: rule.active ? 'Desativar' : 'Ativar', icon: rule.active ? PauseCircle : PlayCircle, onSelect: () => handleToggle(rule) },
+                      { label: 'Apagar regra', icon: Trash2, tone: 'danger', onSelect: () => handleRemove(rule) },
+                    ]}
+                  />
                 </div>
               </div>
             ))}
@@ -273,7 +274,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
           open={formOpen}
           onOpenChange={handleFormOpenChange}
         >
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
             <Field label="Texto" hint="Sem diferenciar maiúscula ou acento.">
               <input
                 type="text"
@@ -361,7 +362,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
                   {applying.truncated ? ` · primeiros ${applying.items.length} de ${applying.total}` : ''}
                 </span>
               </div>
-              <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+              <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
                 {applying.items.map((item) => (
                   <li key={item.id}>
                     <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5">

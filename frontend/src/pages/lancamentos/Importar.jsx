@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, FileUp, Upload, Wand2 } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, FileUp, Upload, Wand2 } from 'lucide-react'
 import { accountsApi, categoriesApi, importApi, importRulesApi } from '../../lib/dataApi'
 import { formatSignedCurrency } from '../../lib/format'
 import {
@@ -58,6 +58,44 @@ function suggestPattern(description) {
     .split(/\s+/)
     .filter((word) => word && !/^\d+$/.test(word) && word !== '*')
   return words.slice(0, 2).join(' ').slice(0, 40)
+}
+
+const STEPS = [
+  { key: 'file', label: 'Arquivo', hint: 'Conta e extrato' },
+  { key: 'review', label: 'Conferir', hint: 'Prévia e categorias' },
+  { key: 'done', label: 'Importado', hint: 'Lançamentos gravados' },
+]
+
+// Onde a importacao esta: sem previa, escolhendo o arquivo; com previa,
+// conferindo; depois de gravar, concluida (a previa recarregada continua
+// abaixo, com o que entrou marcado "Já importado").
+function Stepper({ current }) {
+  const currentIndex = STEPS.findIndex((step) => step.key === current)
+  return (
+    <ol aria-label="Etapas da importação" className="flex items-center gap-2 sm:gap-3">
+      {STEPS.map((step, index) => {
+        const done = index < currentIndex || current === 'done'
+        const active = index === currentIndex && current !== 'done'
+        return (
+          <li key={step.key} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3" aria-current={active ? 'step' : undefined}>
+            <span
+              className={cx(
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold transition-colors',
+                done ? 'bg-emerald-100 text-emerald-700' : active ? 'bg-brand text-brand-ink' : 'border border-zinc-200 bg-white text-zinc-500'
+              )}
+            >
+              {done ? <Check className="h-4 w-4" strokeWidth={2.6} /> : index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className={cx('block truncate text-sm font-semibold', active || done ? 'text-zinc-950' : 'text-zinc-500')}>{step.label}</span>
+              <span className="hidden truncate text-xs text-zinc-500 sm:block">{step.hint}</span>
+            </span>
+            {index < STEPS.length - 1 ? <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-zinc-200" /> : null}
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
 export default function Importar() {
@@ -190,9 +228,11 @@ export default function Importar() {
           rule_id: row.rule_id || undefined,
         })),
       })
-      setResult(body)
       // Recarrega a previa: o que entrou agora aparece como "Já importado".
+      // O resultado vem depois: runPreview zera `result` ao comecar, e antes
+      // disto o aviso de sucesso sumia no mesmo instante.
       await runPreview(content, options, mapping, accountId)
+      setResult(body)
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível importar.')
     } finally {
@@ -234,6 +274,10 @@ export default function Importar() {
         description="CSV ou OFX do banco. Nada é gravado antes de você conferir a prévia."
       />
 
+      <Panel className="px-5 py-4 sm:px-6">
+        <Stepper current={result ? 'done' : preview ? 'review' : 'file'} />
+      </Panel>
+
       <AlertMessage message={error} onDismiss={() => setError('')} />
 
       {result ? (
@@ -245,9 +289,9 @@ export default function Importar() {
 
       <Panel>
         <PanelHeader
-          title="Arquivo"
+          title="1. Arquivo"
           description="O banco exporta o extrato em CSV ou OFX; os dois servem."
-          actions={file ? <Button variant="secondary" onClick={reset}>Trocar arquivo</Button> : null}
+          actions={file ? <Button variant="secondary" onClick={reset}>{result ? 'Importar outro arquivo' : 'Trocar arquivo'}</Button> : null}
         />
         <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
           <Field label="Conta de destino" hint="Todos os lançamentos do arquivo entram nesta conta.">
@@ -277,9 +321,9 @@ export default function Importar() {
             variant="secondary"
             open={optionsOpen}
             onOpenChange={setOptionsOpen}
-            className="mt-4"
+            className="border-t border-zinc-100 px-5 py-4"
           >
-            <div className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
               <Field label="Separador decimal">
                 <select
                   value={options.decimal_separator}
@@ -327,7 +371,7 @@ export default function Importar() {
             </div>
 
             {preview.columns?.length ? (
-              <div className="mt-4 grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-3">
+              <div className="mt-4 grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-3">
                 {COLUMN_ROLES.map((role) => (
                   <Field key={role.key} label={role.label}>
                     <select
@@ -353,9 +397,9 @@ export default function Importar() {
       ) : null}
 
       {preview && !parsing ? (
-        <Panel>
+        <Panel className="overflow-clip">
           <PanelHeader
-            title="Prévia"
+            title="2. Conferir"
             description={`${summary.total} linha(s): ${summary.new} nova(s), ${summary.duplicates} já importada(s), ${summary.errors} com erro.`}
             actions={(
               <Button icon={Upload} onClick={handleImport} loading={saving} disabled={!selectedRows.length || missingCategory}>
@@ -365,19 +409,19 @@ export default function Importar() {
           />
 
           {missingCategory ? (
-            <AlertMessage tone="warning" message="Escolha uma categoria para cada linha selecionada." className="mb-4" />
+            <AlertMessage tone="warning" message="Escolha uma categoria para cada linha selecionada." className="mx-5 mt-4" />
           ) : null}
           {preview.truncated ? (
-            <AlertMessage tone="warning" message="O arquivo tem mais linhas do que cabe em uma importação; as primeiras foram lidas." className="mb-4" />
+            <AlertMessage tone="warning" message="O arquivo tem mais linhas do que cabe em uma importação; as primeiras foram lidas." className="mx-5 mt-4" />
           ) : null}
 
           {preview.rows.length ? (
-            <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+            <div className="divide-y divide-zinc-100">
               {preview.rows.map((row, index) => {
                 const status = STATUS_LABELS[row.status] || STATUS_LABELS.ERROR
                 const isError = row.status === 'ERROR'
                 return (
-                  <div key={`${row.line}-${index}`} className={cx('flex flex-col gap-3 p-3 sm:flex-row sm:items-center', isError && 'bg-rose-50/50')}>
+                  <div key={`${row.line}-${index}`} className={cx('flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center', isError && 'bg-rose-50/50')}>
                     <input
                       type="checkbox"
                       checked={Boolean(selected[index])}
@@ -428,7 +472,7 @@ export default function Importar() {
               })}
             </div>
           ) : (
-            <EmptyState icon={AlertTriangle} title="Nenhuma linha" message="O arquivo não tem lançamentos legíveis." />
+            <EmptyState icon={AlertTriangle} title="Nenhuma linha" message="O arquivo não tem lançamentos legíveis." className="m-5" />
           )}
         </Panel>
       ) : null}

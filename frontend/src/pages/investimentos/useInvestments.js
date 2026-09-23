@@ -10,6 +10,9 @@ export default function useInvestments() {
   const [assets, setAssets] = useState(() => {
     return readStoredJson('@financeMVP:assets', [])
   })
+  // Totais da carteira como o backend soma (bruto, aplicado, liquido de IR).
+  // Sem cache: so aparecem depois da primeira busca.
+  const [totals, setTotals] = useState(null)
   const [movements, setMovements] = useState([])
   const [dataError, setDataError] = useState('')
 
@@ -24,6 +27,11 @@ export default function useInvestments() {
       const fetchedAssets = data.assets || []
 
       setAssets(fetchedAssets)
+      setTotals({
+        invested: Number(data.total_invested || 0),
+        value: Number(data.current_balance || 0),
+        netValue: Number(data.current_net_balance || 0),
+      })
       localStorage.setItem('@financeMVP:assets', JSON.stringify(fetchedAssets))
     } catch (error) {
       console.warn('Erro ao buscar portfólio:', error)
@@ -86,6 +94,7 @@ export default function useInvestments() {
 
   return {
     assets,
+    totals,
     movements,
     dataError,
     setDataError,

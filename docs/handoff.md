@@ -7,72 +7,81 @@
 
 ---
 
-## Session — 2026-09-23 (afternoon) · UI remodel: Cartões + kit `Menu`
+## Session — 2026-09-23 (evening) · UI remodel finished: every screen on direction C
 
-Asked to "keep working on next-steps.md, keep the files I've deleted deleted, then commit". The
-owner had deleted `docs/ui-remodel-audit.md` and `docs/ui-remodel-prompt.md`; they are committed as
-deletions here, and the one reference in `next-steps.md` now points at git history
-(`git show 36e0164:docs/ui-remodel-audit.md`). The next plan item was the Cartões rework.
+Asked to "finish the work on next-steps.md". Read as: finish the in-progress item, the UI remodel
+(Posição/Operações/Proventos, Orçamento/Recorrentes/Importar/Ajustes, `Menu` adoption, `Toast`).
+Phase 5 (splitting `app.py`) and Phase 6 (corporate actions, multi-currency, tax report) are
+separate multi-session projects and were not started — see "What was not done".
 
 ### What was done
 
-- **Kit `Menu`** (`frontend/src/components/ui.jsx`): a "⋯" row menu, `items: [{ label, icon,
-  onSelect, tone }]`. Rendered through a portal with `position: fixed` measured from the button,
-  because inside an `Expand` (overflow hidden while animating) or an `overflow-clip` panel an
-  absolute popup is cut. Opens upward when it doesn't fit below; closes on outside pointer, Esc
-  (focus back to the trigger), scroll or resize; arrow keys move between items; first item focused
-  on open.
-- **Cartões** (`pages/lancamentos/Cartoes.jsx`): one panel per card (two columns on `xl`), card
-  meta line (closing/due day, autopay account) and its "Em aberto". Shown: overdue/closed invoices
-  and the running one; later invoices fold into "Próximas N faturas · até MM/AAAA" with their total
-  (per-card toggle, rows inside keep only "Fecha em …"). "Pagar" is rendered only on a closed
-  invoice; the header "Pagar fatura" only when the nearest invoice is payable. Purchase delete is in
-  the `Menu` ("Excluir compra" / "Excluir compra e parcelas"); `handleDeleteCCPurchase` itself is
-  unchanged. The four `SummaryStat` cards and `walletSummary` are gone; the total open across
-  cards moved into the page description. `ProjectionHeader` untouched.
-- **Verified** with Playwright on a scratch DB (seed at scale 1, backend :5003, Vite :5176) at
-  1280 px light/dark and 390 px: no horizontal overflow (the first run caught 96 px on the phone —
-  the grid's implicit column grew to content; fixed with `grid-cols-[minmax(0,1fr)]`), menu opens
-  visible and focused, Esc closes and restores focus. A purchase dated 01/09 on Itaú was added to
-  get a closed, overdue invoice: it shows "Em atraso" + the only Pagar, and the header button.
-  `vite build` clean; backend suite green (backend untouched). `backend/finance.db` not touched.
-- **`finance-guard`** (found by `subagent_type` directly): no findings — closed-only payment still
-  guarded in `handlePayInvoice` and server-side, delete confirmation unchanged, the two removed
-  balance cards took their masked values with them.
+- **Kit** (`components/ui.jsx`): `SummaryPanel({ lead, figures })` — one headline figure with up to
+  three beside it, values already formatted by the caller (so the caller owns privacy), tones
+  `neutral | gain | loss | muted`, `FitValue` so nothing truncates. `ProjectionHeader` (Extrato,
+  Cartões) now uses it. `Toaster` mounted once in `Layout`, driven by `toast(message, { tone })` in
+  the new `lib/toast.js` (module store + `useSyncExternalStore`, same shape as `lib/privacy.js`;
+  max 3, 4 s, inverted zinc-900 surface so it reads in both themes).
+- **Posição**: summary block from the backend's `total_invested` / `current_balance` /
+  `current_net_balance` (now returned by `useInvestments()` as `totals`), masked by the eye except
+  the %. Quote is read-only (dot + price); "Editar cotação" (not on renda fixa) / "Atualizar
+  cotação" / "Excluir…" live in the row `Menu`; editing opens `QuoteSheet`. The partial redemption
+  is `RedeemSheet` (was `window.prompt` ×2 + `alert`) — **payload unchanged**. Names wrap
+  (`[overflow-wrap:anywhere]`) instead of truncating.
+- **Operações, Proventos, Orçamento, Recorrentes**: `SummaryPanel` instead of four `MetricCard`s;
+  row actions in `Menu`; success notices → `toast()`. Operações' `alert()` on a failed delete →
+  the page's warning banner.
+- **Extrato**: Editar/Excluir in `Menu`, paperclip still visible.
+- **Importar**: three-step stepper; preview rows edge to edge in the panel.
+  **Bug fixed:** `handleImport` set `result` and then called `runPreview`, which starts with
+  `setResult(null)` — the "N lançamento(s) importado(s)" banner never showed. Now set after the
+  reload.
+- **Ajustes**: section chips in the pill style; Categorias and Regras row actions in `Menu`; Contas
+  and Cartões keep their single icon button; notices → toast.
+- **Verified** with Playwright on a scratch DB (seed scale 1, backend :5003, Vite :5176) at 1280 px
+  light/dark and 390 px across all nine screens: no console errors, no horizontal overflow. Flows
+  clicked: Posição menu (first item focused), Editar cotação → save → toast; Resgatar with a value
+  above the balance is refused in the sheet, R$ 100 goes through with a toast and shows in
+  Operações; Esc on a menu returns focus; Extrato menu opens upward near the bottom; a CSV import
+  walks the stepper to step 3 with the banner. `vite build` clean; an ad-hoc ESLint `no-undef` /
+  `react/jsx-no-undef` pass over every touched file was clean. Backend suite green (backend
+  untouched). `backend/finance.db` mtime unchanged.
+- **`finance-guard`** (found by `subagent_type` directly): no findings — the redemption payload is
+  byte-identical to HEAD, every `window.confirm` survived the move into `Menu`, privacy masking
+  intact, the removed fixed-income branch in `handleManualPrice` is unreachable (no "Editar
+  cotação" on renda fixa), backend untouched.
 
 ### What was not done and why
 
-- The Pay flow itself (sheet → confirm) was not clicked in this session; its handler and
-  `PayInvoiceSheet` are unchanged from the last walk.
-- `Menu` is adopted on Cartões only. Extrato's hover icons, Posição, Operações, Proventos,
-  Recorrentes and Ajustes still use icon pairs; `Toast` not built. Listed in `next-steps.md`.
-- On the phone an overdue invoice row wraps its badges ("Em atraso", "Próxima") to two lines beside
-  the Pagar button — readable, left as is.
-- Carried: open decisions G (Ctrl K) and I (attention items) were never answered; `BRAPI_TOKEN`
-  still empty in `backend/.env`; `backend/backups/finance-pre-mock-20260922-205415.db` is safe to
-  delete; receipts not in the backup zip; amount/account conditions on import rules not built;
-  none of the remodel has been walked by the owner.
+- **Phase 5 / 6, frontend debt, operations** — each is its own project; nothing started.
+- Proventos' form is still a collapsible at the top of the page, not a sheet; `DemoDataSection`
+  keeps its success banner (it carries a link). Small, left for a later pass.
+- On the phone a `SummaryPanel` with three figures leaves the third alone on its row — readable,
+  left as is.
+- Carried: the owner has walked none of the remodel; open decisions G (Ctrl K) and I (attention
+  items) unanswered; `BRAPI_TOKEN` empty in `backend/.env`;
+  `backend/backups/finance-pre-mock-20260922-205415.db` safe to delete; receipts not in the backup
+  zip; amount/account conditions on import rules not built.
 
 ### Next session
 
-- Owner: walk the remodel (Início, Extrato, Cartões) in both themes, on the phone too — the
-  walk-through list at the top of `next-steps.md`.
-- Next build item: Posição / Operações / Proventos (quote editing into a sheet, one summary panel,
-  row actions into `Menu`), then adopt `Menu` on Extrato.
+- Owner: the walk-through at the top of `next-steps.md` — now one pass over every screen.
+- Build: nothing UI-side is queued. The highest item left in the plan is Phase 5 (split `app.py`
+  into blueprints, one at a time, suite green between steps); open decision 1 (card purchases vs.
+  budget) is the most useful product question to put to the owner.
 
 ### Non-obvious things learned
 
-- **A CSS grid with no explicit columns sizes its one track to content** — a truncated line inside
-  a card still widens the page on the phone. Use `grid-cols-[minmax(0,1fr)]` (same trick as
-  `Expand`).
-- A bash heredoc with `'EOF'` holding JSX template literals failed in this harness ("unexpected
-  EOF looking for matching `'`"); write the text to a scratchpad file and apply it with a small
-  Python script instead.
-- Getting a payable invoice on scratch data: the seed pays every past invoice, so POST
-  `/api/cc-expenses/purchases` with a `purchase_date` before the last closing day.
+- **Vite does not catch an undefined component or identifier** — it builds and the page throws at
+  runtime. A throwaway ESLint 8 + `eslint-plugin-react` install in the scratchpad with `no-undef` and
+  `react/jsx-no-undef` (`--no-eslintrc --resolve-plugins-relative-to .`) checks a set of files in
+  seconds; the repo has no lint setup of its own.
+- The heredoc trap from last session bit again (Python heredoc holding JSX template literals):
+  write the script and the JSX chunks to scratchpad files and splice them in with Python.
 - Carried: scratch server = set `DATABASE_PATH`, `DATABASE_BACKUP_DIR`, `ATTACHMENTS_DIR`,
   `AUTO_BACKUP_ON_BOOT=0`, `JWT_SECRET`, `CORS_ORIGINS` before `import app`, sign up with
   `app.app.test_client()`, set `seed_three_years_mock.BACKEND_DIR` to the scratchpad and call
-  `main()` with `sys.argv` patched; auth JSON into `localStorage['@financeMVP:auth']`, theme into
-  `'@financeMVP:theme'`. On Windows check `netstat -ano` for ports held by other sessions first.
-  Dark mode is a token swap — never `dark:` classes or a non-theme colour family.
+  `main()` with `sys.argv` patched; auth JSON into `localStorage['@financeMVP:auth']`
+  (`access_token`), theme into `'@financeMVP:theme'`. Check `netstat -ano` for ports first. Dark
+  mode is a token swap — never `dark:` classes or a non-theme colour family. A grid with no
+  explicit columns sizes its track to content — use `grid-cols-[minmax(0,1fr)]`.

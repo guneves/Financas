@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Calculator, History, Pencil, Plus, Receipt, Scale, Trash2, TrendingUp } from 'lucide-react'
+import { Pencil, Plus, Receipt, Trash2 } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import FixedIncomeFields from '../../components/FixedIncomeFields'
 import {
@@ -9,12 +9,12 @@ import {
   Button,
   EmptyState,
   Field,
-  IconButton,
-  MetricCard,
+  Menu,
   PageHeader,
   Panel,
   PanelHeader,
   Sheet,
+  SummaryPanel,
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
@@ -35,6 +35,7 @@ import {
   parseNumberInput,
 } from './helpers'
 import useInvestments from './useInvestments'
+import { toast } from '../../lib/toast'
 
 const EDIT_FORM_ID = 'investment-movement-edit'
 
@@ -184,6 +185,7 @@ export default function Operacoes() {
       })
 
       setEditModal(null)
+      toast('Operação atualizada.')
       await fetchPortfolio()
       await fetchMovements()
 
@@ -199,10 +201,11 @@ export default function Operacoes() {
     if (window.confirm('Tem certeza que deseja excluir APENAS essa operação do histórico?')) {
       try {
         await investmentsApi.remove(id)
+        toast('Operação excluída.')
         await fetchPortfolio()
         await fetchMovements()
       } catch (error) {
-        alert('Erro ao excluir operação: ' + error.message)
+        setDataError(error.message || 'Não foi possível excluir a operação.')
       }
     }
   }
@@ -239,32 +242,26 @@ export default function Operacoes() {
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 
-      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <MetricCard
-          icon={History}
-          title="Operações realizadas"
-          value={realizedMovements.length}
+      {realizedMovements.length > 0 ? (
+        <SummaryPanel
+          lead={{
+            label: 'Resultado pós-IR',
+            value: formatSignedCurrency(realizedSummary.netProfitAfterTax),
+            hint: `${realizedMovements.length} venda(s) e resgate(s) com resultado`,
+            tone: realizedSummary.netProfitAfterTax >= 0 ? 'gain' : 'loss',
+          }}
+          figures={[
+            {
+              label: 'Lucro/prejuízo realizado',
+              value: formatSignedCurrency(realizedSummary.realizedProfit),
+              hint: 'Antes do IR',
+              tone: realizedSummary.realizedProfit >= 0 ? 'gain' : 'loss',
+            },
+            { label: 'IR estimado', value: formatCurrency(realizedSummary.taxAmount), hint: 'Estimativa sobre as vendas' },
+            { label: 'Base de custo vendida', value: formatCurrency(realizedSummary.costBasis), hint: 'FIFO e lotes resgatados' },
+          ]}
         />
-        <MetricCard
-          icon={TrendingUp}
-          tone={realizedSummary.realizedProfit >= 0 ? 'success' : 'danger'}
-          title="Lucro/prejuízo realizado"
-          value={formatCurrency(realizedSummary.realizedProfit)}
-          valueClassName={realizedSummary.realizedProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}
-        />
-        <MetricCard
-          icon={Calculator}
-          title="IR estimado"
-          value={formatCurrency(realizedSummary.taxAmount)}
-        />
-        <MetricCard
-          icon={Scale}
-          tone={realizedSummary.netProfitAfterTax >= 0 ? 'success' : 'danger'}
-          title="Resultado pós-IR"
-          value={formatCurrency(realizedSummary.netProfitAfterTax)}
-          valueClassName={realizedSummary.netProfitAfterTax >= 0 ? 'text-emerald-700' : 'text-rose-600'}
-        />
-      </div>
+      ) : null}
 
       <Panel className="overflow-clip">
         <PanelHeader
@@ -299,7 +296,7 @@ export default function Operacoes() {
                   <col className="w-36" />
                   <col className="w-44" />
                   <col className="w-44" />
-                  <col className="w-24" />
+                  <col className="w-16" />
                 </colgroup>
                 <thead>
                   <tr>
@@ -395,6 +392,13 @@ export default function Operacoes() {
   )
 }
 
+function movementMenuItems(onEdit, onDelete) {
+  return [
+    { label: 'Editar operação', icon: Pencil, onSelect: onEdit },
+    { label: 'Excluir só esta operação', icon: Trash2, tone: 'danger', onSelect: onDelete },
+  ]
+}
+
 function profitClass(value) {
   return value >= 0 ? 'text-emerald-700' : 'text-rose-600'
 }
@@ -452,10 +456,7 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
         )}
       </td>
       <td className="py-1.5 text-right">
-        <div className="flex justify-end gap-1.5">
-          <IconButton label="Editar operação" icon={Pencil} size="sm" onClick={onEdit} />
-          <IconButton label="Excluir apenas esta operação" icon={Trash2} size="sm" variant="danger" onClick={onDelete} />
-        </div>
+        <Menu label={`Ações da operação de ${mov.ticker_or_name}`} items={movementMenuItems(onEdit, onDelete)} />
       </td>
     </tr>
   )
@@ -480,10 +481,7 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
           {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
           {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
         </div>
-        <div className="flex shrink-0 gap-2">
-          <IconButton label="Editar operação" icon={Pencil} onClick={onEdit} />
-          <IconButton label="Excluir apenas esta operação" icon={Trash2} variant="danger" onClick={onDelete} />
-        </div>
+        <Menu label={`Ações da operação de ${mov.ticker_or_name}`} size="md" items={movementMenuItems(onEdit, onDelete)} />
       </div>
       {info.hasResult ? (
         <div className="grid grid-cols-2 gap-3 rounded-lg bg-zinc-50 px-3 py-2 text-sm tabular">

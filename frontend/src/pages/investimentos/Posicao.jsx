@@ -1,20 +1,25 @@
 import { useState } from 'react'
-import { Briefcase, Download, Landmark, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
+import { Briefcase, Download, Landmark, Pencil, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import {
   AlertMessage,
   Button,
   EmptyState,
+  Field,
   IconButton,
+  Menu,
   PageHeader,
   Panel,
   PanelHeader,
   SegmentedControl,
+  Sheet,
+  SummaryPanel,
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
-import { formatCurrency, formatPercent, getLocalDateString } from '../../lib/format'
+import { formatCurrency, formatPercent, formatSignedCurrency, getLocalDateString } from '../../lib/format'
 import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
+import { toast } from '../../lib/toast'
 import PortfolioOverview from './PortfolioOverview'
 import {
   formatDateTime,
@@ -75,6 +80,7 @@ export default function Posicao() {
   const privateMoney = usePrivateFormatter(formatCurrency)
   const {
     assets,
+    totals,
     dataError,
     setDataError,
     fetchPortfolio,
@@ -92,6 +98,10 @@ export default function Posicao() {
   const [exporting, setExporting] = useState(false)
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
   const [launchIntent, setLaunchIntent] = useState({ mode: 'BUY', assetId: '' })
+  // Cotacao manual e resgate parcial: cada um num sheet (eram um campo em
+  // toda linha e dois window.prompt).
+  const [quoteFor, setQuoteFor] = useState(null)
+  const [redeemFor, setRedeemFor] = useState(null)
 
   // Exporta a carteira como ela esta agora; nao forca atualizacao de cotacao.
   const handleExportPortfolio = async () => {
@@ -120,27 +130,10 @@ export default function Posicao() {
     openSellModal(asset)
   }
 
-  const handlePartialSale = async (asset) => {
-    if (asset.class !== 'FIXED_INCOME') return
-
-    const amountStr = window.prompt(`RESGATE PARCIAL\nAtivo: ${asset.name}\nValor Bruto Atual: R$ ${asset.current_value.toFixed(2)}\n\nQuanto você deseja resgatar (em R$)?`)
-    if (!amountStr) return
-
-    const amount = parseNumberInput(amountStr)
-
-    if (isNaN(amount) || amount <= 0 || amount > asset.current_value) {
-      alert('Valor inválido. Digite um valor entre R$ 0.01 e o valor total bruto.')
-      return
-    }
-
-    const defaultDate = getLocalDateString()
-    const dateStr = window.prompt('Data do resgate (AAAA-MM-DD):', defaultDate)
-    if (!dateStr) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      alert('Data inválida. Use o formato AAAA-MM-DD.')
-      return
-    }
-
+  // Resgate parcial de renda fixa: a base de custo resgatada e proporcional
+  // ao valor bruto resgatado. Mesmo payload de antes do sheet; um erro volta
+  // para o sheet, que o mostra.
+  const handlePartialSale = async ({ asset, amount, date }) => {
     setLoading(true)
     try {
       const ratio = amount / asset.current_value
@@ -157,16 +150,15 @@ export default function Posicao() {
             is_redemption: true,
             affects_position: true,
             related_id: asset.id,
-            redemption_date: dateStr
+            redemption_date: date
           }
         }
       ])
 
-      alert('Resgate realizado e registrado nas operações!')
+      setRedeemFor(null)
+      toast(`Resgate de ${formatCurrency(amount)} registrado nas operações.`)
       await fetchPortfolio()
       await fetchMovements()
-    } catch (error) {
-      alert('Erro ao realizar resgate: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -192,30 +184,15 @@ export default function Posicao() {
     }
   }
 
-  const handleManualPrice = async (asset, e) => {
-    const newPrice = e.target.value
-    if (newPrice && newPrice !== asset.current_price.toString()) {
-      const parsedPrice = Number(newPrice)
-      if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
-        setDataError('Informe uma cotação válida.')
-        e.target.value = asset.current_price
-        return
-      }
-
-      try {
-        setDataError('')
-        if (asset.class === 'FIXED_INCOME') {
-          await investmentsApi.update(asset.id, { current_price: parsedPrice })
-        } else {
-          const assetId = asset.asset_id || asset.id
-          await investmentsApi.updatePriceByAsset(assetId, asset.class, parsedPrice)
-        }
-        await fetchPortfolio()
-      } catch (error) {
-        setDataError(error.message || 'Não foi possível atualizar a cotação.')
-        e.target.value = asset.current_price
-      }
-    }
+  // Cotacao digitada a mao (acao sem fonte, gado, "outros"). A renda fixa
+  // nao passa por aqui: o valor dela vem da taxa do titulo.
+  const handleManualPrice = async (asset, price) => {
+    const assetId = asset.asset_id || asset.id
+    await investmentsApi.updatePriceByAsset(assetId, asset.class, price)
+    setQuoteFor(null)
+    setDataError('')
+    toast(`Cotação de ${asset.name} salva.`)
+    await fetchPortfolio()
   }
 
   const filteredAssets = assets.filter((asset) => {
@@ -230,9 +207,9 @@ export default function Posicao() {
     isUpdatingPrices,
     isUpdatingThisAsset: updatingAssetId === String(asset.asset_id || asset.id),
     busy: loading,
-    onManualPrice: handleManualPrice,
+    onEditQuote: () => setQuoteFor(asset),
     onRefresh: () => handleUpdateStockPrices(false, null, asset),
-    onSell: () => (asset.class === 'FIXED_INCOME' ? handlePartialSale(asset) : handleSellVariable(asset)),
+    onSell: () => (asset.class === 'FIXED_INCOME' ? setRedeemFor(asset) : handleSellVariable(asset)),
     onDelete: () => handleDeleteFullPosition(asset),
   })
 
@@ -274,6 +251,8 @@ export default function Posicao() {
       {quoteUpdateResult ? (
         <QuoteUpdateResult result={quoteUpdateResult} onClose={() => setQuoteUpdateResult(null)} />
       ) : null}
+
+      {assets.length > 0 && totals ? <PortfolioSummary totals={totals} /> : null}
 
       {assets.length > 0 ? (
         <PortfolioOverview assets={assets} getClassLabel={getClassLabel} />
@@ -318,10 +297,10 @@ export default function Posicao() {
                   <col />
                   <col className="w-24" />
                   <col className="w-32" />
-                  <col className="w-52" />
+                  <col className="w-36" />
                   <col className="w-40" />
                   <col className="w-28" />
-                  <col className="w-40" />
+                  <col className="w-36" />
                 </colgroup>
                 <thead>
                   <tr>
@@ -363,7 +342,171 @@ export default function Posicao() {
         initialMode={launchIntent.mode}
         initialAssetId={launchIntent.assetId}
       />
+
+      <QuoteSheet asset={quoteFor} onClose={() => setQuoteFor(null)} onSave={handleManualPrice} />
+      <RedeemSheet asset={redeemFor} onClose={() => setRedeemFor(null)} onSave={handlePartialSale} />
     </div>
+  )
+}
+
+// Carteira em um bloco: valor bruto em destaque, aplicado, resultado e o
+// liquido estimado (IR regressivo da renda fixa), como o backend soma. Os
+// valores somem no modo privado; o percentual fica, como a rentabilidade.
+function PortfolioSummary({ totals }) {
+  const money = usePrivateFormatter(formatCurrency)
+  const hidden = useValuesHidden()
+  const result = totals.value - totals.invested
+  const resultPercent = totals.invested > 0 ? (result / totals.invested) * 100 : 0
+  return (
+    <SummaryPanel
+      lead={{ label: 'Carteira', value: money(totals.value), hint: 'Valor de mercado bruto' }}
+      figures={[
+        { label: 'Valor aplicado', value: money(totals.invested), hint: 'Custo das posições abertas' },
+        {
+          label: 'Resultado',
+          value: hidden ? MASKED_CURRENCY : formatSignedCurrency(result),
+          hint: `${formatPercent(resultPercent, 2, { signed: true })} bruto`,
+          tone: hidden ? 'neutral' : result >= 0 ? 'gain' : 'loss',
+        },
+        { label: 'Líquido estimado', value: money(totals.netValue), hint: 'Após o IR da renda fixa' },
+      ]}
+    />
+  )
+}
+
+function QuoteSheet({ asset, onClose, onSave }) {
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [openedFor, setOpenedFor] = useState(null)
+  // Abriu para outro ativo: recomeca do preco dele.
+  if (asset && asset !== openedFor) {
+    setOpenedFor(asset)
+    setValue(String(asset.current_price ?? '').replace('.', ','))
+    setError('')
+  }
+
+  const submit = async (event) => {
+    event.preventDefault()
+    const price = parseNumberInput(value)
+    if (!Number.isFinite(price) || price < 0) {
+      setError('Informe uma cotação válida.')
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(asset, price)
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível atualizar a cotação.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const quote = openedFor?.quote || {}
+  return (
+    <Sheet
+      open={Boolean(asset)}
+      onClose={onClose}
+      title="Editar cotação"
+      description={openedFor ? `${openedFor.name} · ${quoteSourceLabel(quote.source)}, ${formatDateTime(quote.quoted_at)}` : undefined}
+      footer={(
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" size="lg" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" form="quote-edit" size="lg" loading={saving}>Salvar cotação</Button>
+        </div>
+      )}
+    >
+      <form id="quote-edit" onSubmit={submit} className="space-y-4">
+        <AlertMessage message={error} />
+        <Field label="Cotação (R$)" hint="Um ativo com fonte de mercado volta ao preço da fonte na próxima atualização.">
+          <input
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            className="app-input"
+            required
+          />
+        </Field>
+      </form>
+    </Sheet>
+  )
+}
+
+function RedeemSheet({ asset, onClose, onSave }) {
+  const [form, setForm] = useState({ amount: '', date: '' })
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [openedFor, setOpenedFor] = useState(null)
+  if (asset && asset !== openedFor) {
+    setOpenedFor(asset)
+    setForm({ amount: '', date: getLocalDateString() })
+    setError('')
+  }
+
+  const submit = async (event) => {
+    event.preventDefault()
+    const amount = parseNumberInput(form.amount)
+    if (!Number.isFinite(amount) || amount <= 0 || amount > asset.current_value) {
+      setError(`Informe um valor entre R$ 0,01 e ${formatCurrency(asset.current_value)}.`)
+      return
+    }
+    if (!form.date) {
+      setError('Informe a data do resgate.')
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave({ asset, amount, date: form.date })
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível registrar o resgate.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // O valor atual do titulo e carteira: some no modo privado.
+  const money = usePrivateFormatter(formatCurrency)
+  return (
+    <Sheet
+      open={Boolean(asset)}
+      onClose={onClose}
+      title="Resgate parcial"
+      description={openedFor ? `${openedFor.name} · valor bruto atual ${money(openedFor.current_value)}` : undefined}
+      footer={(
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" size="lg" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" form="redeem-partial" size="lg" loading={saving}>Registrar resgate</Button>
+        </div>
+      )}
+    >
+      <form id="redeem-partial" onSubmit={submit} className="space-y-4">
+        <AlertMessage message={error} />
+        <Field label="Valor bruto a resgatar (R$)" hint="O custo resgatado é proporcional a este valor.">
+          <input
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            placeholder="0,00"
+            value={form.amount}
+            onChange={(event) => setForm({ ...form, amount: event.target.value })}
+            className="app-input"
+            required
+          />
+        </Field>
+        <Field label="Data do resgate">
+          <input
+            type="date"
+            value={form.date}
+            onChange={(event) => setForm({ ...form, date: event.target.value })}
+            className="app-input"
+            required
+          />
+        </Field>
+      </form>
+    </Sheet>
   )
 }
 
@@ -403,10 +546,10 @@ function QuoteUpdateResult({ result, onClose }) {
   )
 }
 
-// Cotacao em uma linha: campo, atualizar e um ponto de status (verde = atual,
-// ambar = desatualizada ou sem cotacao). Fonte e horario ficam no title do
-// ponto e para leitor de tela.
-function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPrice, onRefresh, compact = false }) {
+// Cotacao so para ler: um ponto de status (verde = atual, ambar =
+// desatualizada ou sem cotacao) e o preco. Fonte e horario ficam no title do
+// ponto e para leitor de tela. Editar e atualizar moram no menu da linha.
+function QuoteValue({ asset, isUpdatingThisAsset }) {
   const quote = asset.quote || {}
   const quoteStatus = quote.status || 'missing'
   const quoteIsFresh = quoteStatus === 'fresh'
@@ -416,37 +559,15 @@ function PriceEditor({ asset, isUpdatingPrices, isUpdatingThisAsset, onManualPri
   const statusText = `${quoteStatusLabel(quoteStatus)} · ${quoteSourceLabel(quote.source)} · ${formatDateTime(quote.quoted_at)}`
 
   return (
-    <div className={cx('flex items-center gap-1.5', compact && 'justify-end')}>
-      <span
-        className={cx('h-2 w-2 shrink-0 rounded-full', quoteIsFresh ? 'bg-emerald-500' : 'bg-amber-500')}
-        title={statusText}
-      />
-      <span className="sr-only">{statusText}</span>
-      {masked ? (
-        <span className="w-28 text-right text-sm font-medium text-zinc-500">{MASKED_CURRENCY}</span>
+    <span className="inline-flex items-center justify-end gap-2" title={statusText}>
+      {isUpdatingThisAsset ? (
+        <RefreshCw className="h-3 w-3 shrink-0 animate-spin text-zinc-500" aria-hidden="true" />
       ) : (
-        <input
-          key={`${asset.id}-${asset.current_price}`}
-          type="number"
-          step="0.01"
-          inputMode="decimal"
-          aria-label={`Cotação de ${asset.name}`}
-          defaultValue={asset.current_price}
-          disabled={isFixed}
-          onBlur={(e) => onManualPrice(asset, e)}
-          className={cx('app-input h-9 w-28 py-1 text-right lg:h-8', isFixed && 'cursor-not-allowed bg-zinc-100 text-zinc-500')}
-          title={isFixed ? 'Valor calculado automaticamente pela taxa do título' : 'Digite o novo preço e clique fora para salvar'}
-        />
+        <span className={cx('h-2 w-2 shrink-0 rounded-full', quoteIsFresh ? 'bg-emerald-500' : 'bg-amber-500')} aria-hidden="true" />
       )}
-      <IconButton
-        label="Atualizar cotação deste ativo"
-        icon={RefreshCw}
-        size="sm"
-        onClick={onRefresh}
-        disabled={isUpdatingPrices}
-        className={cx('disabled:opacity-50', isUpdatingThisAsset && '[&>svg]:animate-spin')}
-      />
-    </div>
+      <span className="sr-only">{statusText}</span>
+      <span className="text-zinc-700">{masked ? MASKED_CURRENCY : formatCurrency(asset.current_price)}</span>
+    </span>
   )
 }
 
@@ -469,7 +590,18 @@ function Profit({ value }) {
   )
 }
 
-function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
+// Acoes raras da linha, atras do "⋯". Renda fixa nao tem "Editar cotação":
+// o valor dela vem da taxa do titulo.
+function positionMenuItems(asset, { isUpdatingPrices, onEditQuote, onRefresh, onDelete }) {
+  const isFixed = asset.class === 'FIXED_INCOME'
+  return [
+    ...(isFixed ? [] : [{ label: 'Editar cotação', icon: Pencil, onSelect: onEditQuote }]),
+    ...(isUpdatingPrices ? [] : [{ label: isFixed ? 'Atualizar valor' : 'Atualizar cotação', icon: RefreshCw, onSelect: onRefresh }]),
+    { label: isFixed ? 'Excluir este aporte' : 'Excluir toda a posição', icon: Trash2, tone: 'danger', onSelect: onDelete },
+  ]
+}
+
+function PositionRow({ asset, busy, onSell, isUpdatingThisAsset, ...menuProps }) {
   const isFixed = asset.class === 'FIXED_INCOME'
   const hidden = useValuesHidden()
   const money = usePrivateFormatter(formatCurrency)
@@ -477,12 +609,13 @@ function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
   return (
     <tr>
       <td>
-        <p className="truncate font-semibold text-zinc-950" title={asset.name}>{asset.name}</p>
-        {fixedDescription ? <p className="truncate text-xs text-zinc-500">{fixedDescription}</p> : null}
+        {/* Sem truncate: o ticker e o nome do titulo quebram, nunca viram "PETR…". */}
+        <p className="font-semibold text-zinc-950 [overflow-wrap:anywhere]">{asset.name}</p>
+        {fixedDescription ? <p className="text-xs text-zinc-500">{fixedDescription}</p> : null}
       </td>
       <td className="num text-zinc-700">{isFixed ? '—' : hidden ? MASKED_TEXT : asset.quantity}</td>
       <td className="num text-zinc-700">{hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}</td>
-      <td className="py-1.5"><PriceEditor asset={asset} compact {...priceProps} /></td>
+      <td className="num"><QuoteValue asset={asset} isUpdatingThisAsset={isUpdatingThisAsset} /></td>
       <td className="num">
         <p className="font-semibold text-zinc-950">{money(asset.current_value)}</p>
         <NetValue asset={asset} money={money} />
@@ -493,20 +626,14 @@ function PositionRow({ asset, busy, onSell, onDelete, ...priceProps }) {
           <Button type="button" size="sm" variant="secondary" onClick={onSell} disabled={busy} className="lg:h-8">
             {isFixed ? 'Resgatar' : 'Vender'}
           </Button>
-          <IconButton
-            label={isFixed ? 'Excluir este aporte' : 'Excluir toda a posição'}
-            icon={Trash2}
-            size="sm"
-            variant="danger"
-            onClick={onDelete}
-          />
+          <Menu label={`Mais ações para ${asset.name}`} items={positionMenuItems(asset, menuProps)} />
         </div>
       </td>
     </tr>
   )
 }
 
-function PositionCard({ asset, busy, onSell, onDelete, ...priceProps }) {
+function PositionCard({ asset, busy, onSell, isUpdatingThisAsset, ...menuProps }) {
   const isFixed = asset.class === 'FIXED_INCOME'
   const hidden = useValuesHidden()
   const money = usePrivateFormatter(formatCurrency)
@@ -514,7 +641,7 @@ function PositionCard({ asset, busy, onSell, onDelete, ...priceProps }) {
     <li className="space-y-3 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate font-semibold text-zinc-950">{asset.name}</p>
+          <p className="font-semibold text-zinc-950 [overflow-wrap:anywhere]">{asset.name}</p>
           <p className="truncate text-xs text-zinc-500">
             {isFixed ? describeFixedIncome(asset.metadata) || getClassLabel(asset.class) : `${hidden ? MASKED_TEXT : asset.quantity} un.`}
             {` · PM ${hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}`}
@@ -526,17 +653,14 @@ function PositionCard({ asset, busy, onSell, onDelete, ...priceProps }) {
         </div>
       </div>
       <div className="flex items-center justify-between gap-2">
-        <PriceEditor asset={asset} {...priceProps} />
+        <span className="text-sm tabular">
+          <QuoteValue asset={asset} isUpdatingThisAsset={isUpdatingThisAsset} />
+        </span>
         <div className="flex gap-2">
           <Button type="button" size="lg" variant="secondary" onClick={onSell} disabled={busy}>
             {isFixed ? 'Resgatar' : 'Vender'}
           </Button>
-          <IconButton
-            label={isFixed ? 'Excluir este aporte' : 'Excluir toda a posição'}
-            icon={Trash2}
-            variant="danger"
-            onClick={onDelete}
-          />
+          <Menu label={`Mais ações para ${asset.name}`} size="md" items={positionMenuItems(asset, menuProps)} />
         </div>
       </div>
     </li>

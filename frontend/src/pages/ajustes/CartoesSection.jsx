@@ -13,6 +13,7 @@ import {
   Panel,
   PanelHeader,
 } from '../../components/ui'
+import { toast } from '../../lib/toast'
 
 const emptyCardForm = () => ({ name: '', due_day: '', closing_day: '', autopay_account_id: '' })
 
@@ -29,7 +30,6 @@ export default function CartoesSection({ refreshKey = 0 }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [cardForm, setCardForm] = useState(emptyCardForm)
 
@@ -70,7 +70,6 @@ export default function CartoesSection({ refreshKey = 0 }) {
 
     setSaving(true)
     setError('')
-    setNotice('')
     try {
       await creditCardsApi.create({
         name: cardForm.name,
@@ -79,7 +78,7 @@ export default function CartoesSection({ refreshKey = 0 }) {
         autopay_account_id: cardForm.autopay_account_id || null,
       })
       await fetchCards()
-      setNotice(`Cartão "${cardForm.name}" criado.`)
+      toast(`Cartão "${cardForm.name}" criado.`)
       setCardForm(emptyCardForm())
       setFormOpen(false)
     } catch (requestError) {
@@ -92,12 +91,11 @@ export default function CartoesSection({ refreshKey = 0 }) {
   const handleAutopayChange = async (card, accountId) => {
     setSavingAutopayId(card.id)
     setError('')
-    setNotice('')
     try {
       await creditCardsApi.setAutopay(card.id, accountId)
       await fetchCards()
       const account = accounts.find((item) => item.id === accountId)
-      setNotice(account
+      toast(account
         ? `Débito automático do "${card.name}" ligado: a fatura será paga no vencimento, dia ${card.due_day}, com saldo de ${account.name}.`
         : `Débito automático do "${card.name}" desligado.`)
     } catch (requestError) {
@@ -111,11 +109,10 @@ export default function CartoesSection({ refreshKey = 0 }) {
     if (!window.confirm(`ATENÇÃO: Deseja realmente excluir o cartão "${name}"?\nIsso apagará TODAS as faturas vinculadas a ele. Esta ação não pode ser desfeita.`)) return
 
     setError('')
-    setNotice('')
     try {
       await creditCardsApi.remove(id)
       await fetchCards()
-      setNotice(`Cartão "${name}" excluído.`)
+      toast(`Cartão "${name}" excluído.`)
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível excluir o cartão.')
     }
@@ -131,12 +128,11 @@ export default function CartoesSection({ refreshKey = 0 }) {
 
       <div className="space-y-4 p-5">
         <AlertMessage message={error} onDismiss={() => setError('')} />
-        <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
 
         {loading ? (
           <p className="py-6 text-center text-sm text-zinc-600">Carregando...</p>
         ) : cards.length > 0 ? (
-          <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+          <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
             {cards.map((card) => (
               <div key={card.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
@@ -172,7 +168,7 @@ export default function CartoesSection({ refreshKey = 0 }) {
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <Collapsible label="Novo cartão" icon={Plus} open={formOpen} onOpenChange={setFormOpen} className="min-w-0 flex-1">
-            <form onSubmit={handleCreateCard} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
+            <form onSubmit={handleCreateCard} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
               <Field label="Nome do cartão">
                 <input type="text" placeholder="Ex: Nubank" value={cardForm.name} onChange={(event) => setCardForm({ ...cardForm, name: event.target.value })} className="app-input" required />
               </Field>

@@ -9,7 +9,7 @@ import { setValuesHidden, useValuesHidden } from '../lib/privacy'
 import { toggleTheme, useIsDark } from '../lib/theme'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
-import { cx, Skeleton, Tabs } from './ui'
+import { cx, Skeleton, Tabs, Toaster } from './ui'
 
 const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD', 'INVESTMENT']
 
@@ -320,6 +320,7 @@ export default function Layout() {
         assets={investmentAssets}
         onSaved={bumpDataVersion}
       />
+      <Toaster />
       </DataVersionContext.Provider>
     </NewEntryContext.Provider>
   )

@@ -9,6 +9,7 @@ import {
   EmptyState,
   Field,
   IconButton,
+  Menu,
   Panel,
   PanelHeader,
   cx,
@@ -129,7 +130,7 @@ export default function CategoriasSection({ refreshKey = 0 }) {
         <AlertMessage message={error} onDismiss={() => setError('')} />
 
         <Collapsible label="Nova categoria" icon={Plus} open={formOpen} onOpenChange={setFormOpen}>
-          <form onSubmit={handleCreateCategory} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <form onSubmit={handleCreateCategory} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
             <Field label="Nome">
               <input
                 type="text"
@@ -178,7 +179,7 @@ export default function CategoriasSection({ refreshKey = 0 }) {
         ) : categories.length === 0 ? (
           <EmptyState icon={Tags} title="Nenhuma categoria" message="Crie a primeira categoria acima." className="min-h-40" />
         ) : (
-          <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+          <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
             {categories.map((category) => {
               const isEditing = editingCategoryId === category.id
               return (
@@ -231,21 +232,21 @@ export default function CategoriasSection({ refreshKey = 0 }) {
                             Reativar
                           </Button>
                         ) : (
-                          <>
-                            <IconButton
-                              label="Editar"
-                              icon={Pencil}
-                              onClick={() => {
-                                setEditingCategoryId(category.id)
-                                setCategoryEdit({ name: category.name, kind: category.kind })
-                              }}
-                            />
-                            <IconButton
-                              label="Arquivar"
-                              icon={Archive}
-                              onClick={() => handleArchiveCategory(category)}
-                            />
-                          </>
+                          <Menu
+                            label={`Ações da categoria ${category.name}`}
+                            size="md"
+                            items={[
+                              {
+                                label: 'Renomear ou mudar tipo',
+                                icon: Pencil,
+                                onSelect: () => {
+                                  setEditingCategoryId(category.id)
+                                  setCategoryEdit({ name: category.name, kind: category.kind })
+                                },
+                              },
+                              { label: 'Arquivar categoria', icon: Archive, onSelect: () => handleArchiveCategory(category) },
+                            ]}
+                          />
                         )}
                       </div>
                     </div>

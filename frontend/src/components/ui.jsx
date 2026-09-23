@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { MASKED_CURRENCY, useValuesHidden } from '../lib/privacy'
+import { dismissToast, useToasts } from '../lib/toast'
 
 export function cx(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -496,6 +497,53 @@ export function MetricCard({
   )
 }
 
+const summaryTones = {
+  neutral: 'text-zinc-950',
+  gain: 'text-emerald-700',
+  loss: 'text-rose-600',
+  muted: 'text-zinc-500',
+}
+
+// Resumo de pagina num bloco so (direcao C): um numero em destaque e os demais
+// ao lado, separados por um fio — no lugar de uma fileira de MetricCards.
+// lead e figures: { label, value, hint, tone } com `value` ja formatado (quem
+// chama decide o modo privado). tone: neutral, gain, loss ou muted — cor so
+// quando o valor e ganho ou perda.
+export function SummaryPanel({ lead, figures = [], className = '' }) {
+  return (
+    <Panel className={cx('grid animate-fade-up grid-cols-2 gap-x-4 gap-y-5 p-5 sm:p-6 lg:flex lg:items-end lg:gap-0', className)}>
+      {lead ? (
+        <div className="col-span-2 min-w-0 lg:flex-[1.4] lg:pr-5">
+          <p className="text-sm font-semibold text-zinc-600">{lead.label}</p>
+          <FitValue
+            measure={String(lead.value)}
+            baseSize={34}
+            minSize={22}
+            className={cx('mt-1 font-extrabold tracking-tight tabular', summaryTones[lead.tone] || summaryTones.neutral)}
+          >
+            {lead.value}
+          </FitValue>
+          {lead.hint ? <p className="mt-1 text-sm text-zinc-500">{lead.hint}</p> : null}
+        </div>
+      ) : null}
+      {figures.map((figure) => (
+        <div key={figure.label} className="min-w-0 lg:flex-1 lg:border-l lg:border-zinc-200/70 lg:px-5 lg:last:pr-0">
+          <p className="text-sm font-semibold text-zinc-600">{figure.label}</p>
+          <FitValue
+            measure={String(figure.value)}
+            baseSize={20}
+            minSize={14}
+            className={cx('mt-1 font-bold tabular', summaryTones[figure.tone] || summaryTones.neutral)}
+          >
+            {figure.value}
+          </FitValue>
+          {figure.hint ? <p className="mt-0.5 text-xs text-zinc-500 sm:text-sm">{figure.hint}</p> : null}
+        </div>
+      ))}
+    </Panel>
+  )
+}
+
 export function Skeleton({ className = '' }) {
   return <div className={cx('skeleton', className)} />
 }
@@ -602,6 +650,40 @@ export function AlertMessage({ tone = 'danger', message, children, onDismiss, cl
         </button>
       ) : null}
     </div>
+  )
+}
+
+// Os avisos de lib/toast.js. Montado uma vez, no Layout. No celular fica acima
+// da barra de baixo; no desktop, no canto inferior direito. Superficie
+// invertida (zinc-900 com texto white): no escuro os dois trocam juntos.
+export function Toaster() {
+  const toasts = useToasts()
+  return createPortal(
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 lg:inset-x-auto lg:bottom-6 lg:right-6 lg:items-end"
+    >
+      {toasts.map((item) => {
+        const Icon = item.tone === 'info' ? Info : DrawnCheck
+        return (
+          <div
+            key={item.id}
+            role="status"
+            className={cx(
+              'pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white shadow-lift',
+              item.leaving ? 'animate-fade-out' : 'animate-fade-up'
+            )}
+          >
+            <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+            <p className="min-w-0 flex-1">{item.message}</p>
+            <button type="button" onClick={() => dismissToast(item.id)} aria-label="Fechar aviso" className="-m-1 rounded p-1 opacity-70 hover:opacity-100">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )
+      })}
+    </div>,
+    document.body
   )
 }
 

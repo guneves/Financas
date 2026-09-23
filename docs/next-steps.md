@@ -49,6 +49,7 @@
 | Tables switch to cards below `xl` so they fit without sideways scroll; Proventos' empty calendar explains itself and opens the form | 2026-09-22 |
 | Import rules: edit a rule (pattern included) and apply rules to lançamentos already recorded, with a preview and per-row confirmation | 2026-09-22 |
 | Receipts per lançamento (PDF/image, several per row) from Extrato — migration 014 | 2026-09-23 |
+| UI remodel, direction C, with dark mode: tokens, shell, Início, Extrato, Cartões, then Posição/Operações/Proventos, Orçamento/Recorrentes, Importar (stepper), Ajustes; kit `SummaryPanel`, `Menu`, `Toast` | 2026-09-23 |
 
 ---
 
@@ -63,10 +64,11 @@ been clicked through by the owner. One pass in the real app covers all of it:
   "Usuário" until they pick one.
 - [ ] Eye toggle (reworked 2026-09-22, checked by script only): the page stays put — no reload, no
   skeleton, numbers do not recount. Hidden: Início's four top cards, "Evolução do saldo" (badge, axis,
-  tooltip), "Saldo por conta", the autopay-shortfall warning; the three balance cards on Extrato and
-  Cartões plus Cartões' two "Saldo…" cards; Ajustes → Contas; the balance in Pagar fatura's account
-  picker; all of Posição (allocation, Evolução do Patrimônio, group totals, quantities, values, the
-  fixed-income principal) and the position values in the sale picker. Everything else stays visible.
+  tooltip), "Saldo por conta", the autopay-shortfall warning; the balance block on Extrato and
+  Cartões; Ajustes → Contas; the balance in Pagar fatura's account picker; all of Posição (the
+  summary block — its % stays —, allocation, Evolução do Patrimônio, group totals, quantities,
+  values, the fixed-income principal, the value in the Resgate sheet) and the position values in the
+  sale picker. Everything else stays visible.
 - [ ] Cartões and Início: Pagar opens a sheet with "Debitar da conta" (Cartões preselects the card's
   autopay account, else the default; Início defaults to "Conta de cada cartão"); the sheet warns when
   the chosen account's balance does not cover the invoice.
@@ -99,6 +101,12 @@ been clicked through by the owner. One pass in the real app covers all of it:
   Clicked through on scratch data 2026-09-23 with Playwright at 1280 and 390 px, not on real data.
 - [ ] Tables at 1024–1279 px (Extrato, Posição, Operações, Proventos) now show as cards below `xl`;
   check that this is what you want at your usual window width.
+- [ ] UI remodel (2026-09-23), both themes (moon/sun next to the eye) and the phone: Início,
+  Extrato (day groups, "⋯" on hover), Cartões (one panel per card, Pagar only on a closed invoice),
+  Posição (summary block, "⋯" → Editar cotação opens a sheet, Resgatar opens a sheet), Operações,
+  Proventos, Orçamento, Recorrentes (summary blocks, "⋯" menus), Importar (stepper; after
+  importing, the green "importado(s)" banner now stays), Ajustes. Success messages now appear as a
+  dark toast at the bottom right (above the bottom bar on the phone) and fade after 4 s.
 - [ ] Motion pass: every sheet ("+ Novo", Pagar fatura, investimento, editar operação) animates
   out, not just in, and shows its last content while leaving (no "Pagar R$ 0,00" flash). Tab pill
   slides between abas. Início numbers count up on the first visit only; leaving and coming back,
@@ -130,43 +138,33 @@ one commit per theme (`a9d2422`..`d3a20be`), checked with Playwright screenshots
   `:where()` so utilities win.
 **E** dark mode shipped with the UI remodel below.
 
-### UI remodel — direction C "Cartões" + dark mode, in progress
-Owner picked **C with dark mode** on 2026-09-23 (audit and mocks were in `docs/ui-remodel-audit.md`,
-removed by the owner — `git show 36e0164:docs/ui-remodel-audit.md`; canvas
-https://claude.ai/artifact/DPSbd7JxFULWe4r9z36tto). The
-plan was not written up as a separate stage-2 document; the owner asked to build, so these are the
-commit-sized items, kit first.
-- [x] **Tokens + dark mode + font.** Palettes on CSS variables, light = sage neutrals, dark = token
-  swap; `lib/theme.js` (system + manual toggle); Plus Jakarta Sans self-hosted; chart colours on
-  variables.
-- [x] **Shell + kit.** Top pill navigation on desktop (sidebar gone), theme toggle + eye + user menu
-  (Ajustes, Sair) + bright "Novo"; phone header gains the theme toggle, bottom bar keeps its shape.
-  Kit: pill buttons/tabs/segmented, flat 20 px tiles, heavier type; page and panel descriptions
-  hidden on phone.
-- [x] **Balance bug.** Consolidated "Saldo em conta" now includes accounts' opening balances
-  (Início, Extrato, Cartões, the Evolução curve). Was R$ 247.500,00 short on the seed.
-- [x] **Início.** Deep-green net-worth block (month result, entradas/despesas/aportes, conta ×
-  investido split, one chip per account), "Disponível por dia" and next-invoice tiles, "Precisa de
-  atenção" as cards (overdue or closed invoice with Pagar, autopay shortfall, overdue recurrences,
-  categories over budget). The Saldo por conta panel is gone (the accounts live in the block).
-- [x] **Extrato.** Grouped by day with the day's total; no Data column; row actions appear on
-  hover/focus on desktop; the three balance cards became one summary panel (shared with Cartões).
-- [x] **Cartões.** One panel per card (two across on `xl`) with its "Em aberto" total; the overdue
-  and closed invoices plus the running one are shown, the future ones fold into "Próximas N faturas
-  · até MM/AAAA" with their total. "Pagar" exists only on a closed invoice (no greyed buttons), and
-  the header's "Pagar fatura" only when the nearest invoice is payable. Purchase delete moved into a
-  "⋯" `Menu` (the `window.confirm` and the candidate matching are unchanged). The four summary
-  cards are gone; the open total across cards is in the page description.
-- [ ] **Posição / Operações / Proventos:** positions grouped by class without the per-row quote
-  input (move quote editing into a sheet), ticker not truncated; MetricCard rows into one summary
-  panel like Extrato's.
-- [ ] **Orçamento, Recorrentes, Importar, Ajustes:** same treatment (Ajustes' sub-tabs still use
-  the old look), Importar as a stepper.
-- [ ] **Row menu + toast** in the kit. `Menu` is built (`ui.jsx`: portal + fixed position so an
-  `Expand` or clipped panel cannot hide it, opens upward near the bottom, Esc returns focus, arrows
-  move) and used on Cartões only; still to adopt on Extrato, Posição, Operações, Proventos,
-  Recorrentes and Ajustes. `Toast` not built.
-- [ ] Owner walk-through of the above in both themes, on the phone too.
+### UI remodel — direction C "Cartões" + dark mode — built 2026-09-23, not yet walked by the owner
+Owner picked **C with dark mode** on 2026-09-23 (audit and mocks: `git show 36e0164:docs/ui-remodel-audit.md`;
+canvas https://claude.ai/artifact/DPSbd7JxFULWe4r9z36tto). Every screen is on the new look now:
+- [x] **Tokens + dark mode + font**, **shell + kit**, **balance bug** (consolidated balance includes
+  opening balances), **Início**, **Extrato**, **Cartões** — see the handoffs of 2026-09-23 in git.
+- [x] **Kit:** `SummaryPanel` (one headline figure and up to three beside it — replaces rows of
+  `MetricCard`s; `ProjectionHeader` uses it), `Menu` (the "⋯" row menu), `Toaster` + `toast()` in
+  `lib/toast.js` (short success notices; errors stay in `AlertMessage`).
+- [x] **Posição:** summary panel (carteira, aplicado, resultado with %, líquido estimado — from the
+  backend's totals, masked by the eye). The per-row quote input is gone: the quote is read-only with
+  its status dot; "Editar cotação" and "Atualizar cotação" are in the row `Menu` and editing opens a
+  sheet. Fixed-income partial redemption is a sheet instead of two `window.prompt`s and an `alert`
+  (same payload). Ticker and title names wrap instead of truncating.
+- [x] **Operações / Proventos:** summary panel instead of four cards; row actions in `Menu`;
+  success notices are toasts; the `alert()` on a failed delete is now the page's warning banner.
+- [x] **Orçamento / Recorrentes:** summary panel; Editar/Remover (and Pausar/Retomar) in `Menu`,
+  the Acumula toggle stays on the row; Recorrentes' notices are toasts.
+- [x] **Importar:** three-step stepper (Arquivo → Conferir → Importado) above the two panels, the
+  preview rows run edge to edge. Fixed along the way: the "N lançamento(s) importado(s)" banner was
+  cleared by the preview reload the instant it appeared — it has never shown until now.
+- [x] **Ajustes:** section chips in the pill style; Categorias and Regras row actions in `Menu`
+  (Regras keeps "Aplicar" as a button); Contas and Cartões keep their single icon button (one action
+  is not worth a menu); notices are toasts; inner boxes rounded like the rest.
+- [x] **Extrato:** Editar/Excluir in `Menu`; the paperclip stays visible beside it.
+- [ ] **Owner walk-through** in both themes, on the phone too — see the checklist at the top.
+- Not done: `DemoDataSection` keeps its success banner (it carries a link); Proventos' form is
+  still a collapsible at the top of the page rather than a sheet.
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,

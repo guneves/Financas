@@ -252,7 +252,10 @@ docs/
 - **Frontend conventions** (from the 2026-09-21 UX reorganization): pages use only `ui.jsx`
   pieces (`AlertMessage`, `Collapsible`, `Sheet`, `Tabs`…), emerald is the only accent, section
   tabs come from the URL, and a page that shows data saved by "+ Novo" puts `useDataVersion()`
-  (`lib/newEntry.js`) in its fetch effect's dependencies.
+  (`lib/newEntry.js`) in its fetch effect's dependencies. Since the 2026-09-23 remodel: a page's
+  headline numbers go in one `SummaryPanel` (not a row of `MetricCard`s), two or more row actions go
+  behind a `Menu` ("⋯"), a success message is `toast()` from `lib/toast.js` (errors stay in
+  `AlertMessage`), and nothing new uses `window.prompt` / `alert` — use a `Sheet`.
 - **Privacy mode** (the eye) hides balances, net worth and the portfolio only, and never remounts
   the page. `formatCurrency` and friends always show the value; a sensitive spot uses
   `usePrivateFormatter()` / `usePrivateAxisFormatter()` or `MetricCard sensitive` from

@@ -23,10 +23,11 @@ import {
   EmptyState,
   Field,
   IconButton,
-  MetricCard,
+  Menu,
   PageHeader,
   Panel,
   PanelHeader,
+  SummaryPanel,
   cx,
 } from '../components/ui'
 import {
@@ -188,23 +189,23 @@ export default function Orcamento() {
 
       <AlertMessage message={error} onDismiss={() => setError('')} />
 
-      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <MetricCard title="Planejado" value={formatCurrency(totals.planned)} icon={Target} />
-        <MetricCard
-          title="Disponível"
-          value={formatCurrency(totals.available)}
-          subtitle={totals.carryover ? `Inclui ${formatCurrency(totals.carryover)} do mês anterior` : null}
-          tone="neutral"
-        />
-        <MetricCard title="Realizado" value={formatCurrency(totals.spent)} />
-        <MetricCard
-          title="Saldo do plano"
-          value={formatCurrency(totals.remaining)}
-          subtitle={totals.over_count ? `${totals.over_count} categoria(s) estourada(s)` : 'Nenhuma categoria estourada'}
-          valueClassName={Number(totals.remaining || 0) < 0 ? 'text-rose-600' : 'text-emerald-700'}
-          tone={totals.over_count ? 'danger' : 'success'}
-        />
-      </div>
+      <SummaryPanel
+        lead={{
+          label: 'Saldo do plano',
+          value: formatCurrency(totals.remaining),
+          hint: totals.over_count ? `${totals.over_count} categoria(s) estourada(s)` : 'Nenhuma categoria estourada',
+          tone: Number(totals.remaining || 0) < 0 ? 'loss' : 'neutral',
+        }}
+        figures={[
+          { label: 'Planejado', value: formatCurrency(totals.planned), hint: 'Soma das categorias' },
+          {
+            label: 'Disponível',
+            value: formatCurrency(totals.available),
+            hint: totals.carryover ? `Inclui ${formatCurrency(totals.carryover)} acumulado` : 'Planejado + sobras',
+          },
+          { label: 'Realizado', value: formatCurrency(totals.spent), hint: 'Saídas em conta no mês' },
+        ]}
+      />
 
       <Panel>
         <PanelHeader
@@ -221,7 +222,7 @@ export default function Orcamento() {
             className="min-w-0 flex-1"
             buttonClassName="h-11 lg:h-10"
           >
-            <form onSubmit={handleCreateBudget} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
+            <form onSubmit={handleCreateBudget} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
               <Field label="Categoria">
                 <select
                   value={budgetForm.category_id}
@@ -284,7 +285,7 @@ export default function Orcamento() {
             </Button>
             <Link
               to="/ajustes#categorias"
-              className="inline-flex h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800 lg:h-10"
+              className="inline-flex h-11 items-center gap-2 rounded-full px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950 lg:h-10"
             >
               <Settings className="h-4 w-4" />
               Gerenciar categorias
@@ -347,15 +348,21 @@ export default function Orcamento() {
                         >
                           Acumula
                         </button>
-                        <IconButton
-                          label="Editar valor"
-                          icon={Pencil}
-                          onClick={() => {
-                            setEditingId(item.id)
-                            setEditValue(String(item.planned_amount))
-                          }}
+                        <Menu
+                          label={`Ações do orçamento de ${item.category_name}`}
+                          size="md"
+                          items={[
+                            {
+                              label: 'Editar valor planejado',
+                              icon: Pencil,
+                              onSelect: () => {
+                                setEditingId(item.id)
+                                setEditValue(String(item.planned_amount))
+                              },
+                            },
+                            { label: 'Remover do mês', icon: Trash2, tone: 'danger', onSelect: () => handleRemoveBudget(item) },
+                          ]}
                         />
-                        <IconButton label="Remover" icon={Trash2} variant="danger" onClick={() => handleRemoveBudget(item)} />
                       </>
                     )}
                   </div>

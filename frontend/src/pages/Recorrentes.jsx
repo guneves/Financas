@@ -7,8 +7,6 @@ import {
   Play,
   Plus,
   Repeat,
-  TrendingDown,
-  TrendingUp,
   Trash2,
   X,
 } from 'lucide-react'
@@ -24,11 +22,13 @@ import {
   EmptyState,
   Field,
   IconButton,
-  MetricCard,
+  Menu,
   PageHeader,
   Panel,
   PanelHeader,
+  SummaryPanel,
 } from '../components/ui'
+import { toast } from '../lib/toast'
 
 const FREQUENCY_LABELS = {
   WEEKLY: 'Semanal',
@@ -81,7 +81,6 @@ export default function Recorrentes() {
   const [editingId, setEditingId] = useState('')
   const [editValue, setEditValue] = useState('')
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -125,7 +124,6 @@ export default function Recorrentes() {
     event.preventDefault()
     setSaving(true)
     setError('')
-    setNotice('')
     try {
       await recurringApi.create({
         description: form.description,
@@ -151,13 +149,13 @@ export default function Recorrentes() {
   const handleRun = async () => {
     setSaving(true)
     setError('')
-    setNotice('')
     try {
       const result = await recurringApi.run()
-      setNotice(
+      toast(
         result.created
           ? `${result.created} lançamento(s) gerado(s) até ${formatDateBR(result.through)}.`
-          : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.'
+          : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.',
+        { tone: result.created ? 'success' : 'info' }
       )
       await loadAll()
     } catch (requestError) {
@@ -203,10 +201,9 @@ export default function Recorrentes() {
 
     setSaving(true)
     setError('')
-    setNotice('')
     try {
       const result = await recurringApi.remove(item.id)
-      setNotice(
+      toast(
         result.kept_transactions
           ? `Recorrência excluída. ${result.kept_transactions} lançamento(s) já gerado(s) foram mantidos.`
           : 'Recorrência excluída.'
@@ -232,35 +229,25 @@ export default function Recorrentes() {
       />
 
       <AlertMessage message={error} onDismiss={() => setError('')} />
-      <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
 
-      <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <MetricCard
-          title="Receitas previstas (30d)"
-          value={formatCurrency(window30.income)}
-          icon={TrendingUp}
-          tone="success"
-        />
-        <MetricCard
-          title="Saídas previstas (30d)"
-          value={formatCurrency(window30.expense)}
-          icon={TrendingDown}
-          tone="danger"
-        />
-        <MetricCard
-          title="Saldo previsto (30d)"
-          value={formatCurrency(window30.net)}
-          valueClassName={Number(window30.net || 0) < 0 ? 'text-rose-600' : 'text-emerald-700'}
-          subtitle={windows['90'] ? `Em 90 dias: ${formatCurrency(windows['90'].net)}` : null}
-        />
-        <MetricCard
-          title="Pendentes"
-          value={pendingCount}
-          subtitle={pendingCount ? 'Já venceram e ainda não foram lançados' : 'Tudo em dia'}
-          icon={Repeat}
-          tone={pendingCount ? 'warning' : 'neutral'}
-        />
-      </div>
+      <SummaryPanel
+        lead={{
+          label: 'Saldo previsto em 30 dias',
+          value: formatSignedCurrency(window30.net),
+          hint: windows['90'] ? `Em 90 dias: ${formatSignedCurrency(windows['90'].net)}` : 'Recorrências ativas',
+          tone: Number(window30.net || 0) < 0 ? 'loss' : 'neutral',
+        }}
+        figures={[
+          { label: 'Receitas previstas', value: formatCurrency(window30.income), hint: 'Próximos 30 dias' },
+          { label: 'Saídas previstas', value: formatCurrency(window30.expense), hint: 'Próximos 30 dias' },
+          {
+            label: 'Pendentes',
+            value: String(pendingCount),
+            hint: pendingCount ? 'Venceram e não foram lançados' : 'Tudo em dia',
+            tone: pendingCount ? 'neutral' : 'muted',
+          },
+        ]}
+      />
 
       <Panel>
         <PanelHeader
@@ -270,7 +257,7 @@ export default function Recorrentes() {
 
         <div className="border-b border-zinc-100 px-5 py-4">
           <Collapsible label="Nova recorrência" icon={Plus} variant="secondary" open={formOpen} onOpenChange={setFormOpen} buttonClassName="h-11 lg:h-10">
-            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
               <p className="text-sm text-zinc-600 sm:col-span-2 md:col-span-3 xl:col-span-4">
                 O lançamento só nasce quando a data chega — nada é antecipado no extrato.
               </p>
@@ -448,24 +435,25 @@ export default function Recorrentes() {
                       >
                         {formatSignedCurrency(item.amount, item.type === 'INCOME' ? 1 : -1)}
                       </span>
-                      <IconButton
-                        label="Editar valor"
-                        icon={Pencil}
-                        onClick={() => {
-                          setEditingId(item.id)
-                          setEditValue(String(item.amount ?? ''))
-                        }}
-                      />
-                      <IconButton
-                        label={item.active ? 'Pausar' : 'Retomar'}
-                        icon={item.active ? Pause : Play}
-                        onClick={() => handleToggleActive(item)}
-                      />
-                      <IconButton
-                        label="Excluir"
-                        icon={Trash2}
-                        variant="danger"
-                        onClick={() => handleDelete(item)}
+                      <Menu
+                        label={`Ações de ${item.description || item.category}`}
+                        size="md"
+                        items={[
+                          {
+                            label: 'Editar valor',
+                            icon: Pencil,
+                            onSelect: () => {
+                              setEditingId(item.id)
+                              setEditValue(String(item.amount ?? ''))
+                            },
+                          },
+                          {
+                            label: item.active ? 'Pausar' : 'Retomar',
+                            icon: item.active ? Pause : Play,
+                            onSelect: () => handleToggleActive(item),
+                          },
+                          { label: 'Excluir recorrência', icon: Trash2, tone: 'danger', onSelect: () => handleDelete(item) },
+                        ]}
                       />
                     </>
                   )}

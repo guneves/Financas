@@ -10,6 +10,7 @@ import {
   EmptyState,
   Field,
   IconButton,
+  Menu,
   PageHeader,
   Panel,
   PanelHeader,
@@ -367,8 +368,13 @@ export default function Extrato() {
     ) : (
       <div className="flex min-w-0 justify-end gap-1.5 transition-opacity duration-150 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
         {attachmentsButton(transaction)}
-        <IconButton label="Editar transação" icon={Pencil} size="sm" onClick={() => startEditing(transaction)} />
-        <IconButton label="Excluir transação" icon={Trash2} size="sm" variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
+        <Menu
+          label={`Ações de ${transaction.description || transaction.category || 'lançamento'}`}
+          items={[
+            { label: 'Editar lançamento', icon: Pencil, onSelect: () => startEditing(transaction) },
+            { label: 'Excluir lançamento', icon: Trash2, tone: 'danger', onSelect: () => handleDeleteTransaction(transaction.id) },
+          ]}
+        />
       </div>
     )
   )

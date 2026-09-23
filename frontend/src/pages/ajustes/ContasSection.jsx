@@ -15,6 +15,7 @@ import {
   PanelHeader,
   cx,
 } from '../../components/ui'
+import { toast } from '../../lib/toast'
 
 export const ACCOUNT_TYPE_LABELS = {
   CHECKING: 'Conta corrente',
@@ -34,7 +35,6 @@ export default function ContasSection({ refreshKey = 0 }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [accountForm, setAccountForm] = useState(emptyAccountForm)
 
@@ -57,7 +57,6 @@ export default function ContasSection({ refreshKey = 0 }) {
     event.preventDefault()
     setSaving(true)
     setError('')
-    setNotice('')
     try {
       await accountsApi.create({
         name: accountForm.name,
@@ -66,7 +65,7 @@ export default function ContasSection({ refreshKey = 0 }) {
         initial_balance: Number(accountForm.initial_balance || 0),
       })
       await fetchAccounts()
-      setNotice(`Conta "${accountForm.name}" criada.`)
+      toast(`Conta "${accountForm.name}" criada.`)
       setAccountForm(emptyAccountForm())
       setFormOpen(false)
     } catch (requestError) {
@@ -80,11 +79,10 @@ export default function ContasSection({ refreshKey = 0 }) {
     if (!window.confirm(`Arquivar a conta "${account.name}"? Os lançamentos dela continuam no extrato.`)) return
 
     setError('')
-    setNotice('')
     try {
       await accountsApi.archive(account.id)
       await fetchAccounts()
-      setNotice(`Conta "${account.name}" arquivada.`)
+      toast(`Conta "${account.name}" arquivada.`)
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível arquivar a conta.')
     }
@@ -100,12 +98,11 @@ export default function ContasSection({ refreshKey = 0 }) {
 
       <div className="space-y-4 p-5">
         <AlertMessage message={error} onDismiss={() => setError('')} />
-        <AlertMessage tone="success" message={notice} onDismiss={() => setNotice('')} />
 
         {loading ? (
           <p className="py-6 text-center text-sm text-zinc-600">Carregando...</p>
         ) : accounts.length > 0 ? (
-          <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+          <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
             {accounts.map((account) => (
               <div key={account.id} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
@@ -132,7 +129,7 @@ export default function ContasSection({ refreshKey = 0 }) {
         )}
 
         <Collapsible label="Nova conta" icon={Plus} open={formOpen} onOpenChange={setFormOpen}>
-          <form onSubmit={handleCreateAccount} className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
+          <form onSubmit={handleCreateAccount} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
             <Field label="Nome">
               <input type="text" placeholder="Ex: Nubank" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} className="app-input" required />
             </Field>
