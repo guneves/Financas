@@ -7,6 +7,7 @@ import {
   transactionsApi,
 } from '../../lib/dataApi'
 import { useDataVersion } from '../../lib/newEntry'
+import { activeAccounts, consolidatedBalance } from '../../lib/transactions'
 import {
   buildCategoryOptions,
   filterCategoryOptions,
@@ -58,14 +59,15 @@ export default function useLancamentos() {
         transactionsApi.list(),
         creditCardsApi.list(),
         ccExpensesApi.list({ status: 'OPEN' }),
-        accountsApi.list(),
+        accountsApi.list({ include_archived: 1 }),
         categoriesApi.list(),
       ])
 
       const safeTransactions = tData || []
       const safeCards = cData || []
       const safeCreditExpenses = ccData || []
-      const safeAccounts = accountData || []
+      const allAccounts = accountData || []
+      const safeAccounts = activeAccounts(allAccounts)
       const safeCategories = categoryData || []
 
       setTransactions(safeTransactions)
@@ -79,13 +81,9 @@ export default function useLancamentos() {
       setCategories(safeCategories)
       localStorage.setItem('@financeMVP:categories', JSON.stringify(safeCategories))
 
-      // TRANSFER fica de fora: ela move dinheiro entre contas proprias e nao
-      // muda o consolidado. O saldo por conta vem pronto de /api/accounts.
-      const currentBalance = safeTransactions.reduce((acc, curr) => {
-        if (curr.type === 'TRANSFER') return acc
-        const amount = Number(curr.amount || 0)
-        return curr.type === 'INCOME' ? acc + amount : acc - amount
-      }, 0)
+      // A soma dos saldos por conta (lib/transactions.js): inclui o saldo
+      // inicial de cada conta, que a soma dos lancamentos deixava de fora.
+      const currentBalance = consolidatedBalance(allAccounts)
       setBalance(currentBalance)
       localStorage.setItem('@financeMVP:balance', currentBalance.toString())
 

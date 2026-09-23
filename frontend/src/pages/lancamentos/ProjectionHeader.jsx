@@ -1,40 +1,35 @@
-import { Banknote, Landmark, Receipt } from 'lucide-react'
-import { MetricCard } from '../../components/ui'
+import { Panel, cx } from '../../components/ui'
 import { formatCurrency } from '../../lib/format'
+import { usePrivateFormatter } from '../../lib/privacy'
 
-// Cabecalho comum a Extrato e Cartoes. Os valores vem da lista completa
-// (useLancamentos), nunca do extrato filtrado. Sao saldos: somem no modo privado.
+// Cabecalho comum a Extrato e Cartoes: um bloco so, o saldo em destaque e as
+// duas projecoes ao lado (eram tres cartoes iguais). Os valores vem da lista
+// completa (useLancamentos), nunca do extrato filtrado. Sao saldos: somem no
+// modo privado.
 export default function ProjectionHeader({ balance, projectedBalanceNextMonth, projectedBalanceGlobal }) {
+  const privateMoney = usePrivateFormatter(formatCurrency)
+  const figures = [
+    { label: 'Projeção próximo mês', hint: 'Inclui faturas próximas', value: projectedBalanceNextMonth },
+    { label: 'Projeção global', hint: 'Inclui parcelamentos futuros', value: projectedBalanceGlobal },
+  ]
   return (
-    <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
-      <MetricCard
-        icon={Landmark}
-        tone={balance >= 0 ? 'success' : 'danger'}
-        title="Saldo atual"
-        sensitive
-        className="col-span-2 md:col-span-1"
-        value={formatCurrency(balance)}
-        valueClassName={balance >= 0 ? 'text-zinc-950' : 'text-rose-600'}
-        subtitle="Movimentações confirmadas"
-      />
-      <MetricCard
-        icon={Banknote}
-        tone={projectedBalanceNextMonth >= 0 ? 'neutral' : 'danger'}
-        title="Projeção próximo mês"
-        sensitive
-        value={formatCurrency(projectedBalanceNextMonth)}
-        valueClassName={projectedBalanceNextMonth >= 0 ? 'text-zinc-950' : 'text-rose-600'}
-        subtitle="Inclui faturas próximas"
-      />
-      <MetricCard
-        icon={Receipt}
-        tone={projectedBalanceGlobal >= 0 ? 'neutral' : 'danger'}
-        title="Projeção global"
-        sensitive
-        value={formatCurrency(projectedBalanceGlobal)}
-        valueClassName={projectedBalanceGlobal >= 0 ? 'text-zinc-950' : 'text-rose-600'}
-        subtitle="Inclui parcelamentos futuros"
-      />
-    </div>
+    <Panel className="grid animate-fade-up grid-cols-2 gap-x-4 gap-y-5 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
+      <div className="col-span-2 min-w-0 lg:col-span-1">
+        <p className="text-sm font-semibold text-zinc-600">Saldo em contas</p>
+        <p className={cx('mt-1 whitespace-nowrap text-3xl font-extrabold tracking-tight tabular sm:text-4xl', balance < 0 ? 'text-rose-600' : 'text-zinc-950')}>
+          {privateMoney(balance)}
+        </p>
+        <p className="mt-1 text-sm text-zinc-500">Movimentações confirmadas</p>
+      </div>
+      {figures.map((figure) => (
+        <div key={figure.label} className="min-w-0 lg:border-l lg:border-zinc-200/70 lg:pl-5">
+          <p className="text-sm font-semibold text-zinc-600">{figure.label}</p>
+          <p className={cx('mt-1 whitespace-nowrap text-lg font-bold tabular sm:text-xl', figure.value < 0 ? 'text-rose-600' : 'text-zinc-950')}>
+            {privateMoney(figure.value)}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500 sm:text-sm">{figure.hint}</p>
+        </div>
+      ))}
+    </Panel>
   )
 }

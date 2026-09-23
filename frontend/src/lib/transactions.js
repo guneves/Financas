@@ -9,3 +9,16 @@ export const INVESTMENT_CATEGORY = 'Investimento'
 export const isInvestmentOutflow = (transaction) =>
   transaction?.type === 'EXPENSE' &&
   (transaction.source_type === 'INVESTMENT_TRANSACTION' || transaction.category === INVESTMENT_CATEGORY)
+
+// Saldo consolidado das contas: a soma dos saldos que /api/accounts devolve
+// (saldo inicial + movimentacoes, calculado no servidor). Passe a lista COM
+// as arquivadas (`include_archived`): o lancamento de uma conta arquivada
+// continua existindo e continua no consolidado. Somar `transactions` direto
+// deixava o saldo inicial das contas de fora.
+export const consolidatedBalance = (accounts = []) =>
+  accounts.reduce((acc, account) => acc + (Number(account.balance) || 0), 0)
+
+export const openingBalanceTotal = (accounts = []) =>
+  accounts.reduce((acc, account) => acc + (Number(account.initial_balance) || 0), 0)
+
+export const activeAccounts = (accounts = []) => accounts.filter((account) => !account.archived_at)

@@ -18,7 +18,7 @@ import {
 } from '../../components/ui'
 import { formatSignedCurrency } from '../../lib/format'
 import { isInvestmentOutflow } from '../../lib/transactions'
-import { categoryLabel, formatDateBR } from './helpers'
+import { categoryLabel, formatDateBR, getNow } from './helpers'
 import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
 
@@ -67,6 +67,43 @@ function amountClass(transaction) {
 function amountText(transaction) {
   const sign = transaction.type === 'TRANSFER' ? 0 : transaction.type === 'INCOME' ? 1 : -1
   return formatSignedCurrency(transaction.amount, sign)
+}
+
+// Extrato agrupado por dia (a lista ja vem do mais novo para o mais antigo).
+// O total do dia e o que entrou menos o que saiu na lista mostrada;
+// transferencia nao entra, como no consolidado.
+function groupByDay(transactions) {
+  const groups = []
+  transactions.forEach((transaction) => {
+    const date = transaction.date || ''
+    let group = groups[groups.length - 1]
+    if (!group || group.date !== date) {
+      group = { date, items: [], total: 0 }
+      groups.push(group)
+    }
+    group.items.push(transaction)
+    if (transaction.type === 'INCOME') group.total += Number(transaction.amount || 0)
+    else if (transaction.type === 'EXPENSE') group.total -= Number(transaction.amount || 0)
+  })
+  return groups
+}
+
+// "Hoje", "Ontem" ou "ter., 22 de set." — o ano so quando nao e o atual.
+function dayLabel(date) {
+  if (!date) return 'Sem data'
+  const [year, month, day] = date.split('-').map(Number)
+  const value = new Date(year, month - 1, day)
+  const today = getNow()
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const diff = Math.round((startOfToday - value) / 86400000)
+  if (diff === 0) return 'Hoje'
+  if (diff === 1) return 'Ontem'
+  return value.toLocaleDateString('pt-BR', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    ...(year !== today.getFullYear() ? { year: 'numeric' } : {}),
+  })
 }
 
 // Lancamentos criados por outra tela (carteira, fatura) so se editam la.
@@ -165,6 +202,7 @@ export default function Extrato() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   useEffect(() => setVisibleCount(PAGE_SIZE), [filters])
   const visibleTransactions = statementTransactions.slice(0, visibleCount)
+  const visibleDays = useMemo(() => groupByDay(visibleTransactions), [visibleTransactions])
   const hiddenCount = statementTransactions.length - visibleTransactions.length
 
   // Exporta exatamente o que a tela mostra: o backend refaz a mesma consulta
@@ -302,10 +340,10 @@ export default function Extrato() {
     !isEditableHere(transaction) ? (
       <span className="whitespace-nowrap text-xs text-zinc-500">{originLabel(transaction)}</span>
     ) : (
-      <>
+      <div className="flex justify-end gap-1.5 transition-opacity duration-150 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
         <IconButton label="Editar transação" icon={Pencil} size="sm" onClick={() => startEditing(transaction)} />
         <IconButton label="Excluir transação" icon={Trash2} size="sm" variant="danger" onClick={() => handleDeleteTransaction(transaction.id)} />
-      </>
+      </div>
     )
   )
 
@@ -338,7 +376,7 @@ export default function Extrato() {
         projectedBalanceGlobal={projectedBalanceGlobal}
       />
 
-      <Panel>
+      <Panel className="overflow-clip">
         <PanelHeader
           title="Extrato da conta"
           description={filtersActive ? 'Movimentações que atendem aos filtros.' : 'Últimas movimentações registradas.'}
@@ -450,7 +488,6 @@ export default function Extrato() {
             <div className="hidden md:block">
               <table className="app-table table-fixed">
                 <colgroup>
-                  <col className="w-32" />
                   <col className="hidden w-[18%] xl:table-column" />
                   <col className="w-[18%]" />
                   <col />
@@ -459,7 +496,6 @@ export default function Extrato() {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th>Data</th>
                     <th className="hidden xl:table-cell">Conta</th>
                     <th>Categoria</th>
                     <th>Descrição</th>
@@ -467,50 +503,69 @@ export default function Extrato() {
                     <th className="text-right"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
-                <tbody>
-                  {visibleTransactions.map((transaction) => {
-                    if (editingId === transaction.id) {
-                      const controls = editControls(transaction)
+                {visibleDays.map((group) => (
+                  <tbody key={group.date}>
+                    <tr className="hover:bg-transparent">
+                      <th colSpan={5} scope="colgroup" className="bg-zinc-50/70 !py-2">
+                        <div className="flex items-baseline justify-between gap-4">
+                          <span className="text-sm font-bold text-zinc-700 first-letter:uppercase">{dayLabel(group.date)}</span>
+                          <span className="flex items-baseline">
+                            <span className="whitespace-nowrap text-sm font-semibold text-zinc-500 tabular">{formatSignedCurrency(group.total)}</span>
+                            {/* Largura da coluna de acoes: o total cai embaixo da coluna Valor. */}
+                            <span className="w-32 shrink-0" aria-hidden="true" />
+                          </span>
+                        </div>
+                      </th>
+                    </tr>
+                    {group.items.map((transaction) => {
+                      if (editingId === transaction.id) {
+                        const controls = editControls(transaction)
+                        return (
+                          <tr key={transaction.id} className="bg-zinc-50">
+                            <td className="hidden xl:table-cell">{controls.account}</td>
+                            <td className="space-y-2">{controls.category}{controls.type}</td>
+                            <td className="space-y-2">{controls.date}{controls.description}</td>
+                            <td>{controls.amount}</td>
+                            <td className="text-right">
+                              <div className="flex justify-end gap-2">{controls.actions}</div>
+                            </td>
+                          </tr>
+                        )
+                      }
+
+                      const account = accountLabel(transaction)
                       return (
-                        <tr key={transaction.id} className="bg-zinc-50">
-                          <td>{controls.date}</td>
-                          <td className="hidden xl:table-cell">{controls.account}</td>
-                          <td className="space-y-2">{controls.category}{controls.type}</td>
-                          <td>{controls.description}</td>
-                          <td>{controls.amount}</td>
-                          <td className="text-right">
-                            <div className="flex justify-end gap-2">{controls.actions}</div>
+                        <tr key={transaction.id} className={cx('group', arrived.has(transaction.id) && 'animate-flash-emerald')}>
+                          <td className="hidden truncate text-zinc-600 xl:table-cell" title={account}>{account}</td>
+                          <td className="truncate font-medium text-zinc-800" title={transaction.category}>{transaction.category}</td>
+                          <td>
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
+                              <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
+                            </div>
+                          </td>
+                          <td className={cx('num font-semibold', amountClass(transaction))}>{amountText(transaction)}</td>
+                          <td className="py-1.5 text-right">
+                            {rowActions(transaction)}
                           </td>
                         </tr>
                       )
-                    }
-
-                    const account = accountLabel(transaction)
-                    return (
-                      <tr key={transaction.id} className={arrived.has(transaction.id) ? 'animate-flash-emerald' : undefined}>
-                        <td className="whitespace-nowrap text-zinc-600">{formatDateBR(transaction.date)}</td>
-                        <td className="hidden truncate text-zinc-600 xl:table-cell" title={account}>{account}</td>
-                        <td className="truncate font-medium text-zinc-800" title={transaction.category}>{transaction.category}</td>
-                        <td>
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
-                            <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
-                          </div>
-                        </td>
-                        <td className={cx('num font-semibold', amountClass(transaction))}>{amountText(transaction)}</td>
-                        <td className="py-1.5 text-right">
-                          <div className="flex justify-end gap-1.5">{rowActions(transaction)}</div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
+                    })}
+                  </tbody>
+                ))}
               </table>
             </div>
 
             {/* < md: lista de cartoes; editar abre os mesmos campos empilhados */}
-            <ul className="divide-y divide-zinc-100 md:hidden">
-              {visibleTransactions.map((transaction) => {
+            <div className="md:hidden">
+              {visibleDays.map((group) => (
+                <section key={group.date} aria-label={dayLabel(group.date)}>
+                  <h3 className="flex items-baseline justify-between gap-3 bg-zinc-50/70 px-4 py-2 text-sm">
+                    <span className="font-bold text-zinc-700 first-letter:uppercase">{dayLabel(group.date)}</span>
+                    <span className="whitespace-nowrap font-semibold text-zinc-500 tabular">{formatSignedCurrency(group.total)}</span>
+                  </h3>
+                  <ul className="divide-y divide-zinc-100">
+              {group.items.map((transaction) => {
                 if (editingId === transaction.id) {
                   const controls = editControls(transaction)
                   return (
@@ -542,7 +597,7 @@ export default function Extrato() {
                       <p className="truncate font-medium text-zinc-900">{transaction.description || transaction.category}</p>
                       <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
                         <span className="truncate">
-                          {formatDateBR(transaction.date)} · {transaction.type === 'TRANSFER' ? accountLabel(transaction) : transaction.category}
+                          {transaction.type === 'TRANSFER' ? accountLabel(transaction) : transaction.category}
                           {editable ? '' : ` · ${originLabel(transaction)}`}
                         </span>
                       </p>
@@ -570,7 +625,10 @@ export default function Extrato() {
                   </li>
                 )
               })}
-            </ul>
+                  </ul>
+                </section>
+              ))}
+            </div>
 
             {hiddenCount > 0 ? (
               <div className="flex flex-col items-center gap-2 border-t border-zinc-100 px-5 py-4 sm:flex-row sm:justify-between">
