@@ -245,3 +245,9 @@ docs/
   the page. `formatCurrency` and friends always show the value; a sensitive spot uses
   `usePrivateFormatter()` / `usePrivateAxisFormatter()` or `MetricCard sensitive` from
   `lib/privacy.js`, which re-render on toggle through `useSyncExternalStore`.
+- **Visual rules** (2026-09-22 design pass): green/red/amber/sky only when they mean gain, loss,
+  warning or info — labels, counts and normal states are neutral. A signed amount in a list goes
+  through `formatSignedCurrency`; a numeric table cell gets `.num` (right-aligned, no wrap). Tables
+  must not sit inside an `overflow-x` / `overflow-hidden` wrapper, or the sticky header stops
+  sticking (use `overflow-clip` on the panel for rounded corners). Row actions use
+  `IconButton size="sm"`; a big money value in a card uses `FitValue`, never `truncate`.

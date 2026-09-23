@@ -7,79 +7,79 @@
 
 ---
 
-## Session — 2026-09-22 (latest) · Visual audit + privacy-mode rework
+## Session — 2026-09-22 (latest) · Visual design pass + privacy-mode rework
 
-The owner asked for a visual design pass in three steps: audit (report first), plan (wait for
-approval), build. Steps 1 and 2 were delivered; the owner has **not approved the plan yet**. In
-between, they asked for one concrete change — privacy mode should not remount the screen and should
-hide only the main account values and the investment portfolio — which was built, verified and
-committed.
+Three steps, all in one session: an audit with screenshots, a 7-item plan with decisions A–E, and —
+after the owner said "go-ahead with the decisions" — the build. In between, the owner asked for the
+privacy mode to stop remounting the screen and to hide only account values and the portfolio; that
+shipped first (`a85b5de`).
 
 ### What was done
 
-- **Audit, with real screenshots.** 48+ before-shots of every screen at 1280 px and 390 px, plus
-  privacy mode, the "+ Novo" sheet and an empty account, taken with Playwright against a scratch app
-  (see "Non-obvious" below for how). The findings and the 7-item plan with decisions A–E are in
-  `docs/next-steps.md` → "Visual design pass". The screenshots lived in the session scratchpad and
-  are not in the repo.
-- **Privacy mode rework** (`frontend/src/lib/privacy.js`, new):
-  - The state lives outside React; `useValuesHidden()` subscribes with `useSyncExternalStore`, so a
-    toggle re-renders only the components that show a sensitive value. `Layout.jsx` no longer keys
-    an inner `<Fragment>` on the mode — nothing remounts, nothing refetches.
-  - `formatCurrency`, `formatUnitCurrency` and `compactCurrency` no longer mask anything. Sensitive
-    spots opt in: `usePrivateFormatter(format)`, `usePrivateAxisFormatter(format)` (blank ticks rather
-    than a column of "R$ ••••••") and `MetricCard sensitive` (the count-up stays mounted underneath,
-    so revealing does not recount).
-  - Hidden: Início's four top cards, "Evolução do saldo" (badge, axis, tooltip), "Saldo por conta",
-    the autopay-shortfall warning (balance and "faltam", which reveals it); `ProjectionHeader` on
-    Extrato/Cartões and Cartões' two "Saldo…" cards; Ajustes → Contas; the balance in
-    `PayInvoiceSheet`'s account picker and its shortfall message; all of Posição — allocation donut,
-    Evolução do Patrimônio, group totals, quantities, values, and for fixed income the principal
-    (PM) and the price field (quantity 1, so the "price" is the value); the position values in
-    `InvestmentLaunchModal`'s sale picker.
-  - Visible on purpose: lançamentos, faturas, orçamentos, recorrências, operações, proventos,
-    percentages. **Username and e-mail are no longer masked** (sidebar, Perfil) — "only hide" read
-    literally; the Perfil name field is editable in privacy mode again.
-- **Verified by script** at 1280 and 390 px on Início, Extrato, Cartões, Posição, Operações, Ajustes:
-  0 API calls on toggle, a DOM marker on the page title survives (no remount), no console errors, and
-  the masked counts match the list above (Operações: 0, as intended). Screenshots checked by eye.
-- `CLAUDE.md`: test count 533 → 561; a frontend-convention line on privacy mode.
-- `frontend/package-lock.json` is committed as found: a browserslist/caniuse-lite bump that appeared
-  during the session from a process outside this one (not from any command run here). The owner said
-  "commit everything".
+- **Privacy mode** (`a85b5de`, `frontend/src/lib/privacy.js`): state outside React, subscribed with
+  `useSyncExternalStore`; no remount, no refetch. Plain formatters never mask; sensitive spots use
+  `usePrivateFormatter()`, `usePrivateAxisFormatter()` or `MetricCard sensitive`. Hidden: account
+  balances, net worth, "Disponível por dia", the balance chart, Ajustes → Contas, the balance in
+  `PayInvoiceSheet`, all of Posição (incl. fixed-income principal and price field) and position
+  values in the sale picker. Name and e-mail are no longer masked ("only hide" read literally).
+- **Visual pass** — one commit per theme, `a9d2422`..`d3a20be` (see `next-steps.md` → "Visual design
+  pass" for the full list): tokens and money type (tabular figures, U+2212 minus,
+  `formatSignedCurrency`, pt-BR `formatPercent`, flat background); chrome (no eyebrow, no page-level
+  "+ Novo", 256 px sidebar); `MetricCard` + `FitValue`; tables (Extrato, Posição, Operações,
+  Proventos, Cartões purchases) with right-aligned values, ~44 px rows, sticky headers, Extrato 100
+  rows + "Mostrar mais"; colour only with meaning; charts (one-line axes via `compactAxis`, AA
+  ticks, `shortMonthLabel`); phone density (metric cards two across, Extrato tap-to-edit, Operações
+  actions inline); states and kit leftovers (grey disabled buttons, lighter badges,
+  `SegmentedControl` sliding pill via shared `useSlidingPill`, `AlertMessage` for the Início invoice
+  note, Ajustes section links in the tabs look).
+- **Verified:** `npm run build` clean after every commit; backend suite 561 passed (frontend-only
+  change); Playwright before/after screenshots of every screen at 1280 and 390 px on a scratch
+  database, plus the privacy script (0 API calls on toggle, no remount, no console errors, same
+  masked counts) re-run after the last visual commit. `finance-guard` ran on both changes.
+- `CLAUDE.md`: test count 561, a privacy-mode line and a visual-rules line in the frontend
+  conventions. `next-steps.md`: the pass section rewritten as done, decisions 6–7 updated, a
+  walk-through item added.
 
 ### What was not done and why
 
-- **The design pass itself (plan items 1–7).** Waiting for the owner's approval and decisions A–E.
-  The plan in `next-steps.md` is the brief; its item 5 already lost "privacy axes" (done here).
-- **Not clicked through by a human.** Playwright drove a real Chromium, but the owner has not walked
-  the new privacy behaviour; it is on the walk-through list.
-- `backend/backups/finance-pre-mock-20260922-205415.db` was left on disk: the seed script writes its
-  pre-seed backup there regardless of `DATABASE_BACKUP_DIR`, and deleting it was refused by the
-  permission classifier. It holds only the scratch demo user; `backups/` is gitignored. Safe to delete.
-- Carried forward: **`BRAPI_TOKEN` is still empty** in `backend/.env` (quotes come from yfinance).
+- **Dark mode (decision E)** — optional and separately scoped by the owner's own brief.
+- **Not walked by the owner.** Playwright drove a real Chromium, but nobody clicked through the
+  inline edit in the new Extrato table, the phone tap-to-edit, or a real invoice payment with the new
+  disabled style. Those are on the walk-through list.
+- Rows of Extrato's inline-edit mode were not restyled beyond fitting the new columns (the type
+  select now sits under the category select).
+- `docs/ui-remodel-prompt.md` (written by a parallel session while items 1–3 were in flight) was left
+  as its author wrote it; `next-steps.md` notes that its "state at writing" is stale.
+- Carried forward: **`BRAPI_TOKEN` is still empty** in `backend/.env`; and
+  `backend/backups/finance-pre-mock-20260922-205415.db` (scratch demo data only, gitignored) is still
+  on disk — the seed script writes its backup there regardless of `DATABASE_BACKUP_DIR`, and deleting
+  it was refused by the permission classifier. Safe to delete.
 
 ### Next session
 
-- Get the owner's go on the visual plan (items + decisions A–E), then build it kit-first, one commit
-  per theme, with before/after screenshots at both widths using the scratch setup below.
-- Owner: the browser walk-through at the top of `next-steps.md` (now includes the eye toggle).
+- Owner: the walk-through at the top of `next-steps.md` (visual pass and eye toggle are on it).
+- Then either the UI remodel prompt (starting from this pass, not before it), dark mode, or Phase 5.
 
 ### Non-obvious things learned
 
-- **Playwright works without installing anything:** 1.62.1 is in the npx cache
-  (`~/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/node_modules/playwright`) with its Chromium
-  (rev 1234) in `~/AppData/Local/ms-playwright`. `require()` the absolute path from a `.cjs` script.
-- **Scratch app:** a runner in the scratchpad sets `DATABASE_PATH`, `DATABASE_BACKUP_DIR`,
-  `AUTO_BACKUP_ON_BOOT=0`, `JWT_SECRET` and **`CORS_ORIGINS=http://localhost:5174`** (the `.env`
-  only allows :5173 — without it every login fails with a CORS error) before `import app`, then
-  `app.app.run(port=5001)`. Users via `POST /api/auth/signup` (`email`, `password`, `username`), data
-  via `scripts/seed_three_years_mock.py <email>` run with the same env (~R$ 2M net worth, 804
-  lançamentos). Frontend: PowerShell `$env:VITE_API_BASE_URL='http://localhost:5001'; npm run dev --
-  --port 5174 --strictPort` (`npx vite` was refused by the classifier).
-- Full-page Playwright screenshots resize the viewport, and Recharts' `ResponsiveContainer` then
-  draws charts wider than their panels. That is a capture artifact — use viewport shots to judge
-  charts.
-- The old privacy remount re-ran every fetch, and the pages render their *empty* state (not a
-  skeleton) while data is missing — that was the "Sem movimentações" flash. Other remounts (route
-  changes) still have that shape; plan item 7 covers loading vs. empty.
+- **Playwright works without installing:** 1.62.1 is in the npx cache
+  (`~/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/node_modules/playwright`) with its Chromium in
+  `~/AppData/Local/ms-playwright`; `require()` the absolute path from a `.cjs` script. Git Bash
+  rewrites a leading `/route` argument into a Windows path — pass routes without the slash.
+- **Scratch app:** runner sets `DATABASE_PATH`, `DATABASE_BACKUP_DIR`, `AUTO_BACKUP_ON_BOOT=0`,
+  `JWT_SECRET` and **`CORS_ORIGINS=http://localhost:5174`** before `import app`, then
+  `app.app.run(port=5001)`; users via `POST /api/auth/signup`, data via
+  `scripts/seed_three_years_mock.py <email>`. Frontend: PowerShell
+  `$env:VITE_API_BASE_URL='http://localhost:5001'; npm run dev -- --port 5174 --strictPort`.
+- Full-page Playwright screenshots resize the viewport and Recharts draws past its panels; judge
+  charts from viewport shots.
+- `.app-table td { … }` beats a `py-1.5` utility on specificity (class + element vs class), so the
+  table rules now sit under `:where(.app-table)`. Same trap for any future component-layer rule.
+- `overflow-hidden` on a panel makes it the sticky container, and a sticky `thead` inside stops
+  sticking to the page; `overflow-clip` keeps the rounded corners without that.
+- Recharts wraps tick text at the axis width ("R$ 900 / mil"); the shared `axisProps.tick.width`
+  gives it room.
+- `document.fonts.ready` can resolve before the Inter weight in use has loaded; `FitValue` also
+  observes its hidden measuring copy so it re-measures when the font arrives.
+- The Python-via-stdin route mangled non-ASCII (`Operação`) on this machine — write edit scripts to
+  a UTF-8 file in the scratchpad and run that.

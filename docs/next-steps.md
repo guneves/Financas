@@ -44,6 +44,7 @@
 | brapi as the primary quote provider (batch + 5-min cache + dedupe + market-hours TTL), yfinance as fallback | 2026-09-22 |
 | Motion pass: sheet/collapsible exit animations, sliding tab pill, count-up and chart draw-in once per page per session, reduced motion honoured in JS, new-row flash in Extrato, invoice-paid confirmation — zero new dependencies | 2026-09-22 |
 | Privacy mode rework: the eye no longer remounts the page (no refetch, no empty-state flash) and hides only account balances, net worth and the investment portfolio; name and e-mail stay visible — `lib/privacy.js` | 2026-09-22 |
+| Visual design pass (audit + items 1–7, decisions A–D): tabular figures and a real minus, pt-BR percentages, MetricCard that never truncates money, ~44 px table rows with right-aligned values and sticky headers, colour only with meaning, one-line chart axes, phone density, grey disabled buttons | 2026-09-22 |
 
 ---
 
@@ -74,6 +75,10 @@ clicked through by the owner. One pass in the real app covers all of it:
   twice creates nothing the second time.
 - [ ] Extrato → "Exportar" and Investimentos → Posição → "Exportar": the file downloads, opens in
   Excel with the columns split, and the statement export respects the active filters.
+- [ ] Visual design pass (see its section below): Início cards show full values at your usual
+  window width; Extrato right-aligned signed values, sticky header while scrolling, "Mostrar mais";
+  on the phone, tap a lançamento to edit it; Posição rows with the quote dot (hover for source and
+  time); every percentage with a comma; no chart axis label on two lines.
 - [ ] Motion pass: every sheet ("+ Novo", Pagar fatura, investimento, editar operação) animates
   out, not just in, and shows its last content while leaving (no "Pagar R$ 0,00" flash). Tab pill
   slides between abas. Início numbers count up on the first visit only; leaving and coming back,
@@ -82,32 +87,30 @@ clicked through by the owner. One pass in the real app covers all of it:
   in Extrato. Paying an invoice shows a green confirmation with a drawn check; a refused payment
   shakes the error. With Windows "animation effects" off, nothing moves (charts included).
 
-### Visual design pass — audit done, plan waiting for the owner's approval
-A full screen-by-screen audit (1280 px and 390 px, before-screenshots in the 2026-09-22 session
-scratchpad) found, in order of daily-use cost: MetricCard values truncated at 1280 px ("R$ 1.99…" on
-Início, Operações, Recorrentes, Proventos, Orçamento); money left-aligned and not tabular in every
-table, the sign wrapping onto its own line in Extrato, three sign styles, `formatPercent` printing
-"1.29%"; colour used without meaning (red "Despesa" on every Extrato row, every open invoice in red,
-green/red Compra/Venda, amber JCP); 65–120 px rows (Extrato, Posição, Cartões); horizontal overflow
-in Posição and Proventos; three header layers plus a duplicate "+ Novo"; chart axes wrapping
-("R$ 900 / mil") at ~3.4:1 contrast; `text-zinc-400` text at 2.6:1. Proposed, one commit each:
-- [ ] 1. Tokens and money type — `index.css`, `tailwind.config.js`, `lib/format.js`: tabular-nums
-  everywhere, zinc-500 as the lightest text, pt-BR `formatPercent`, `formatSignedCurrency` (real minus,
-  non-breaking space).
-- [ ] 2. `MetricCard` never truncates money — inline icon, one type step down at 4 columns,
-  shrink-to-fit, no hover lift.
-- [ ] 3. Tables — right-aligned numbers, sticky header, ~44 px rows, truncated descriptions; Posição
-  inline quote; Cartões purchases as rows; overflow fixed.
-- [ ] 4. Colour meaning — green/red/amber/sky only for gain/loss/warning/info.
-- [ ] 5. Charts — one-line axes, AA ticks, one month-label format. (Privacy axes: done.)
-- [ ] 6. Phone density — Extrato rows, Cartões invoice row, metric cards two across.
-- [ ] 7. States and leftovers — real disabled button, hand-built alert → `AlertMessage`, Ajustes
-  sub-nav → `Tabs` look, `SegmentedControl` sliding pill.
-Decisions for the owner: **A** drop the background gradients; **B** drop the eyebrow and the
-page-level "+ Novo" (see decision 6 below); **C** sidebar 288 → 256 px; **D** Extrato shows ~100
-rows + "Mostrar mais" (it renders all 804 today); **E** dark mode, separately scoped, optional.
-A broader follow-up — full UI remodel (design system, motion, shell, every screen) — is written as a
-ready-to-paste session prompt in `docs/ui-remodel-prompt.md`; it absorbs this pass's open items.
+### Visual design pass — built 2026-09-22, not yet walked by the owner
+The audit and plan from the same day were approved with decisions A–D; all seven items shipped as
+one commit per theme (`a9d2422`..`d3a20be`), checked with Playwright screenshots at 1280 px and
+390 px on scratch data. What changed, for the walk-through:
+- **Numbers:** tabular figures app-wide; `formatCurrency` prints a real minus (U+2212);
+  `formatSignedCurrency` for lists of entradas/saídas (sign glued to the value); `formatPercent` in
+  pt-BR ("1,29%") and the only copy; `shortMonthLabel` ("out/25") on every chart axis.
+- **MetricCard:** icon beside the label, value on one line that shrinks to fit (`FitValue` in
+  `ui.jsx`), no hover lift. Two across on phone.
+- **Tables** (Extrato, Posição, Operações, Proventos; Cartões purchases as a list): right-aligned
+  values, ~44 px rows, truncation with a title, sticky header (no `overflow-x` wrapper — keep it that
+  way), `IconButton size="sm"` for row actions. Extrato dropped the Tipo column (only transfer and
+  investment keep a neutral tag) and shows 100 rows + "Mostrar mais" (D). On phone an Extrato row
+  opens the edit form on tap; Excluir lives inside it.
+- **Colour:** green/red/amber/sky only for gain/loss/warning/info; labels, counts, statuses that are
+  the normal state, and open invoices are neutral. Archive buttons are neutral, delete stays red.
+- **Chrome:** flat background (A), no eyebrow and no page-level "+ Novo" on Início/Extrato (B;
+  Cartões keeps "Nova compra", which preselects the card type), 256 px sidebar (C).
+- **Kit:** grey disabled `Button`, lighter `Badge`, `SegmentedControl` with the `Tabs` sliding pill
+  (shared `useSlidingPill`), `Expand` with a `minmax(0,1fr)` column, `.app-table` rules under
+  `:where()` so utilities win.
+Not done: **E** dark mode (separately scoped, still optional). `docs/ui-remodel-prompt.md` was
+written by a parallel session while items 1–3 were in flight; its "state at writing" note is now
+out of date — every item of this pass is done, so a remodel starts from here.
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
@@ -194,10 +197,11 @@ ready-to-paste session prompt in `docs/ui-remodel-prompt.md`; it absorbs this pa
    with HTTPS is still undecided.
 5. **Tax: support tool or source of truth?** Filing-grade use needs reconciliation against
    brokerage notes.
-6. **"+ Novo" twice on Início and Extrato.** The page header has one and so do the sidebar
-   (desktop) and the bottom bar (phone). Keep both, or drop the header one?
-7. **Cartões header: Pagar fatura and "+ Novo" side by side.** Pagar fatura is primary while the
-   nearest invoice is closed (disabled before that). Keep both, or rely on the global "+ Novo" only?
+6. ~~"+ Novo" twice on Início and Extrato~~ — settled 2026-09-22 (visual pass decision B): the
+   header one is gone.
+7. **Cartões header: Pagar fatura and "Nova compra" side by side.** Kept both: "Nova compra" opens
+   the sheet already on the card type, which the global "+ Novo" does not. Revisit if it still
+   feels crowded.
 8. **Wording and fit.** The Início cash-flow legend still says "Entradas/Saídas" (the glossary allows
    plurals for aggregates) — switch to Receitas/Despesas? The "+ Novo" type selector wraps onto two
    lines so "Investimento" stays visible — acceptable, or shorten the labels?
