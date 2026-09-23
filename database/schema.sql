@@ -181,14 +181,21 @@ CREATE TABLE IF NOT EXISTS import_rules (
     hits INTEGER NOT NULL DEFAULT 0,
     note TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- 015: condicoes opcionais de valor (absoluto, inclusivo) e de conta.
+    amount_min REAL,
+    amount_max REAL,
+    account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_import_rules_user_priority
 ON import_rules(user_id, active, priority DESC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_import_rules_user_pattern
-ON import_rules(user_id, pattern, match_type, applies_to);
+ON import_rules(
+    user_id, pattern, match_type, applies_to,
+    COALESCE(amount_min, -1), COALESCE(amount_max, -1), COALESCE(account_id, '')
+);
 
 -- 014: comprovantes por lancamento. O arquivo fica em
 -- ATTACHMENTS_DIR/<user_id>/<stored_name>; o banco guarda so a referencia.

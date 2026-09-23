@@ -140,8 +140,7 @@ function buildMockPurchases() {
   ]
 }
 
-const CONFIRM_MESSAGE = 'Criar dados de exemplo?\n\n'
-  + 'Isto grava no seu banco de dados real 2 cartões, 7 lançamentos bancários e 4 compras parceladas, '
+const CONFIRM_MESSAGE = 'Isto grava no seu banco de dados real 2 cartões, 7 lançamentos bancários e 4 compras parceladas, '
   + 'todos com "Demo" no nome ou na descrição. Eles entram no saldo, no extrato, nas faturas e nos gráficos, '
   + 'e depois precisam ser excluídos um a um.\n\n'
   + 'Rodar de novo não duplica o que já existe.'

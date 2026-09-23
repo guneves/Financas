@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ListChecks, PauseCircle, Pencil, PlayCircle, Plus, Trash2, Wand2 } from 'lucide-react'
-import { categoriesApi, importRulesApi } from '../../lib/dataApi'
+import { accountsApi, categoriesApi, importRulesApi } from '../../lib/dataApi'
 import {
   AlertMessage,
   Badge,
@@ -15,7 +15,7 @@ import {
   cx,
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
-import { formatDateBR, formatSignedCurrency } from '../../lib/format'
+import { formatCurrency, formatDateBR, formatSignedCurrency } from '../../lib/format'
 import { confirmAction } from '../../lib/confirm'
 
 const MATCH_LABELS = {
@@ -36,6 +36,9 @@ const emptyForm = () => ({
   applies_to: 'BOTH',
   category: '',
   priority: 0,
+  amount_min: '',
+  amount_max: '',
+  account_id: '',
 })
 
 const formFromRule = (rule) => ({
@@ -44,7 +47,29 @@ const formFromRule = (rule) => ({
   applies_to: rule.applies_to,
   category: rule.category,
   priority: rule.priority,
+  amount_min: rule.amount_min ?? '',
+  amount_max: rule.amount_max ?? '',
+  account_id: rule.account_id || '',
 })
+
+// "de R$ 80,00 a R$ 200,00", "acima de R$ 80,00", "até R$ 79,99".
+function amountConditionLabel(rule) {
+  const hasMin = rule.amount_min !== null && rule.amount_min !== undefined
+  const hasMax = rule.amount_max !== null && rule.amount_max !== undefined
+  if (hasMin && hasMax) return `de ${formatCurrency(rule.amount_min)} a ${formatCurrency(rule.amount_max)}`
+  if (hasMin) return `a partir de ${formatCurrency(rule.amount_min)}`
+  if (hasMax) return `até ${formatCurrency(rule.amount_max)}`
+  return ''
+}
+
+// "1.234,56" ou "1234.56" -> numero; vazio -> null (sem condicao).
+function parseAmountInput(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return null
+  const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text
+  const number = Number(normalized)
+  return Number.isFinite(number) ? number : NaN
+}
 
 // Regras de categorizacao da importacao de extrato (Fase 4). Sozinhas elas so
 // rodam na previa da importacao: mudar uma regra nao reescreve o passado. Para
@@ -53,6 +78,7 @@ const formFromRule = (rule) => ({
 export default function RegrasSection({ refreshKey = 0 }) {
   const [rules, setRules] = useState([])
   const [categories, setCategories] = useState([])
+  const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -68,11 +94,13 @@ export default function RegrasSection({ refreshKey = 0 }) {
   const loadAll = async () => {
     setError('')
     try {
-      const [ruleData, categoryData] = await Promise.all([
+      const [ruleData, categoryData, accountData] = await Promise.all([
         importRulesApi.list(),
         categoriesApi.list(),
+        accountsApi.list({ include_archived: true }),
       ])
       setRules(ruleData?.items || [])
+      setAccounts(accountData || [])
       setCategories((categoryData || []).filter((category) => !category.archived_at))
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível carregar as regras.')
@@ -89,12 +117,22 @@ export default function RegrasSection({ refreshKey = 0 }) {
     event.preventDefault()
     setSaving(true)
     setError('')
+    const amountMin = parseAmountInput(form.amount_min)
+    const amountMax = parseAmountInput(form.amount_max)
+    if (Number.isNaN(amountMin) || Number.isNaN(amountMax)) {
+      setError('Informe os valores da faixa como número (ex: 80,00).')
+      setSaving(false)
+      return
+    }
     const payload = {
       pattern: form.pattern,
       match_type: form.match_type,
       applies_to: form.applies_to,
       category: form.category,
       priority: Number(form.priority) || 0,
+      amount_min: amountMin,
+      amount_max: amountMax,
+      account_id: form.account_id || null,
     }
     try {
       if (editingId) {
@@ -112,6 +150,8 @@ export default function RegrasSection({ refreshKey = 0 }) {
       setSaving(false)
     }
   }
+
+  const accountName = (id) => accounts.find((account) => account.id === id)?.name || 'conta arquivada'
 
   const handleEdit = (rule) => {
     setError('')
@@ -240,6 +280,8 @@ export default function RegrasSection({ refreshKey = 0 }) {
                   </p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                     <span>{APPLIES_LABELS[rule.applies_to]}</span>
+                    {amountConditionLabel(rule) ? <span>{amountConditionLabel(rule)}</span> : null}
+                    {rule.account_id ? <span>só em {accountName(rule.account_id)}</span> : null}
                     <span>prioridade {rule.priority}</span>
                     {rule.hits ? <Badge>{rule.hits} lançamento(s)</Badge> : null}
                   </p>
@@ -275,7 +317,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
           open={formOpen}
           onOpenChange={handleFormOpenChange}
         >
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
             <Field label="Texto" hint="Sem diferenciar maiúscula ou acento.">
               <input
                 type="text"
@@ -308,6 +350,36 @@ export default function RegrasSection({ refreshKey = 0 }) {
                 ))}
               </select>
             </Field>
+            <Field label="Valor mínimo" hint="Opcional. Valor sem sinal, inclusivo.">
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="Qualquer"
+                value={form.amount_min}
+                onChange={(event) => setForm({ ...form, amount_min: event.target.value })}
+                className="app-input"
+              />
+            </Field>
+            <Field label="Valor máximo" hint="Opcional. Inclusivo.">
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="Qualquer"
+                value={form.amount_max}
+                onChange={(event) => setForm({ ...form, amount_max: event.target.value })}
+                className="app-input"
+              />
+            </Field>
+            <Field label="Conta" hint="Na importação, a conta de destino.">
+              <select value={form.account_id} onChange={(event) => setForm({ ...form, account_id: event.target.value })} className="app-select">
+                <option value="">Qualquer conta</option>
+                {accounts
+                  .filter((account) => !account.archived_at || account.id === form.account_id)
+                  .map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+              </select>
+            </Field>
             <Field label="Prioridade" hint="Maior ganha do empate.">
               <input
                 type="number"
@@ -316,7 +388,7 @@ export default function RegrasSection({ refreshKey = 0 }) {
                 className="app-input"
               />
             </Field>
-            <div className="flex items-end gap-2 xl:col-span-5">
+            <div className="flex items-end gap-2 sm:col-span-2 xl:col-span-4">
               <Button type="submit" loading={saving}>{editingId ? 'Salvar alterações' : 'Salvar regra'}</Button>
               {editingId ? (
                 <Button type="button" variant="secondary" onClick={() => handleFormOpenChange(false)}>Cancelar</Button>

@@ -233,3 +233,22 @@ def test_other_users_rows_and_rules_stay_out(client, auth, other_user):
     assert apply_preview(client, auth, rule_id=their_rule["id"]).status_code == 404
     assert apply(client, auth, [theirs["id"]]).get_json() == {"updated": 0, "skipped": 1}
     assert get_transaction(client, other, theirs["id"])["category"] == "Outros"
+
+
+def test_apply_honours_amount_and_account_conditions(client, auth):
+    account = client.post(
+        "/api/accounts", json={"name": "Conta PJ", "type": "CHECKING"}, headers=auth,
+    ).get_json()
+    small = create_transaction(client, auth, amount=20)
+    big = create_transaction(client, auth, amount=150)
+    big_in_business = create_transaction(client, auth, amount=150, account_id=account["id"])
+    create_rule(client, auth, category="Lazer", amount_min=100, account_id=account["id"])
+
+    items = apply_preview(client, auth).get_json()["items"]
+    assert [item["id"] for item in items] == [big_in_business["id"]]
+
+    response = apply(client, auth, [small["id"], big["id"], big_in_business["id"]])
+    assert response.status_code == 200
+    assert get_transaction(client, auth, big_in_business["id"])["category"] == "Lazer"
+    assert get_transaction(client, auth, big["id"])["category"] == "Outros"
+    assert get_transaction(client, auth, small["id"])["category"] == "Outros"

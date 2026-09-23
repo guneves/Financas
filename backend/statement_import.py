@@ -441,11 +441,25 @@ def parse_statement(content, *, file_format=None, filename=None, **options):
     )
 
 
-def rule_matches(rule, description_normalized, transaction_type):
-    """Uma regra casa por texto e, opcionalmente, pela natureza do lancamento."""
+def rule_matches(rule, description_normalized, transaction_type, amount=None, account_id=None):
+    """Uma regra casa por texto e, opcionalmente, pela natureza do lancamento,
+    por uma faixa de valor e pela conta (015). Condicao ausente nao restringe;
+    condicao presente sem o dado correspondente nao casa."""
     applies_to = rule.get("applies_to") or "BOTH"
     if applies_to != "BOTH" and applies_to != transaction_type:
         return False
+    if rule.get("account_id") and rule.get("account_id") != account_id:
+        return False
+    amount_min = rule.get("amount_min")
+    amount_max = rule.get("amount_max")
+    if amount_min is not None or amount_max is not None:
+        if amount is None:
+            return False
+        value = abs(float(amount))
+        if amount_min is not None and value < float(amount_min):
+            return False
+        if amount_max is not None and value > float(amount_max):
+            return False
     pattern = normalize_text(rule.get("pattern"))
     if not pattern:
         return False
@@ -457,12 +471,12 @@ def rule_matches(rule, description_normalized, transaction_type):
     return pattern in description_normalized
 
 
-def first_matching_rule(rules, description, transaction_type):
+def first_matching_rule(rules, description, transaction_type, amount=None, account_id=None):
     """Primeira regra que casa, na ordem em que o chamador as entregou."""
     normalized = normalize_text(description)
     if not normalized:
         return None
     for rule in rules:
-        if rule_matches(rule, normalized, transaction_type):
+        if rule_matches(rule, normalized, transaction_type, amount, account_id):
             return rule
     return None

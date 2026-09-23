@@ -17,7 +17,7 @@ import statement_import
 from auth import token_required
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services.accounts import resolve_account_id, resolve_category
+from services.accounts import require_account, resolve_account_id, resolve_category
 from source_types import (
     INVESTMENT_CASH_SOURCE_TYPE,
     INVOICE_PAYMENT_SOURCE_TYPES,
@@ -28,6 +28,7 @@ from validators import (
     optional_string,
     parse_json_body,
     parse_number,
+    parse_optional_number,
     require_choice,
     require_date,
     require_string,
@@ -63,27 +64,39 @@ def fetch_import_rule(conn, current_user_id, rule_id):
     ).fetchone()
 
 
+RULE_CONDITION_FIELDS = ("amount_min", "amount_max", "account_id")
+
+
 def ensure_unique_import_rule(conn, current_user_id, fields, existing=None):
     """Recusa uma regra que ja existe *do jeito que a comparacao enxerga*.
 
-    O indice unico de 013 compara o texto cru, mas a avaliacao normaliza (sem
-    acento, sem caixa): sem esta checagem, "Uber" e "uber" entrariam como duas
-    regras que casam sempre juntas, e so a prioridade decidiria qual vence.
+    O indice unico de 013/015 compara o texto cru, mas a avaliacao normaliza
+    (sem acento, sem caixa): sem esta checagem, "Uber" e "uber" entrariam como
+    duas regras que casam sempre juntas, e so a prioridade decidiria qual vence.
+    Duas regras com o mesmo texto e condicoes diferentes (015) convivem.
     """
-    pattern = fields.get("pattern", existing["pattern"] if existing else "")
-    match_type = fields.get("match_type", existing["match_type"] if existing else "CONTAINS")
-    applies_to = fields.get("applies_to", existing["applies_to"] if existing else "BOTH")
+    def current(key, default):
+        if key in fields:
+            return fields[key]
+        return existing[key] if existing else default
+
+    pattern = current("pattern", "")
+    match_type = current("match_type", "CONTAINS")
+    applies_to = current("applies_to", "BOTH")
+    conditions = tuple(current(key, None) for key in RULE_CONDITION_FIELDS)
     normalized = statement_import.normalize_text(pattern)
 
     rows = conn.execute(
         """
-        SELECT id, pattern FROM import_rules
+        SELECT id, pattern, amount_min, amount_max, account_id FROM import_rules
         WHERE user_id = ? AND match_type = ? AND applies_to = ?
         """,
         (current_user_id, match_type, applies_to),
     ).fetchall()
     for row in rows:
         if existing is not None and row["id"] == existing["id"]:
+            continue
+        if tuple(row[key] for key in RULE_CONDITION_FIELDS) != conditions:
             continue
         if statement_import.normalize_text(row["pattern"]) == normalized:
             raise ValidationError(f"Ja existe uma regra para \"{row['pattern']}\".")
@@ -142,6 +155,22 @@ def read_import_rule_payload(conn, current_user_id, payload, existing=None):
 
     if "note" in payload:
         fields["note"] = optional_string(payload, "note")
+
+    # Condicoes de 015: faixa de valor (absoluto) e conta. Vazio limpa.
+    for key, label in (("amount_min", "Valor minimo"), ("amount_max", "Valor maximo")):
+        if key in payload:
+            value = parse_optional_number(payload, key, label, minimum=0)
+            fields[key] = None if value is None else rounded_money(value)
+    amount_min = fields.get("amount_min", existing["amount_min"] if existing else None)
+    amount_max = fields.get("amount_max", existing["amount_max"] if existing else None)
+    if amount_min is not None and amount_max is not None and amount_min > amount_max:
+        raise ValidationError("O valor minimo nao pode passar do maximo.")
+
+    if "account_id" in payload:
+        raw_account = payload.get("account_id")
+        fields["account_id"] = None if raw_account in (None, "") else require_account(
+            conn, current_user_id, str(raw_account)
+        )["id"]
 
     return fields
 
@@ -251,7 +280,7 @@ def rule_apply_candidates(conn, current_user_id, rule_id=None, transaction_ids=N
     skipped = ", ".join("?" for _ in RULE_APPLY_SKIPPED_SOURCE_TYPES)
     sql = f"""
         SELECT t.id, t.date, t.amount, t.type, t.description, t.category,
-               t.category_id, a.name AS account_name
+               t.category_id, t.account_id, a.name AS account_name
         FROM transactions t
         LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
         WHERE t.user_id = ?
@@ -268,7 +297,9 @@ def rule_apply_candidates(conn, current_user_id, rule_id=None, transaction_ids=N
 
     candidates = []
     for row in conn.execute(sql, params).fetchall():
-        rule = statement_import.first_matching_rule(rules, row["description"], row["type"])
+        rule = statement_import.first_matching_rule(
+            rules, row["description"], row["type"], row["amount"], row["account_id"]
+        )
         if not rule or rule["category"] == row["category"]:
             continue
         candidates.append({
@@ -466,7 +497,7 @@ def import_preview(current_user_id):
 
             item["source_id"] = import_source_id(account_id, row, seen)
             rule = statement_import.first_matching_rule(
-                rules, row.get("description"), row["type"]
+                rules, row.get("description"), row["type"], row.get("amount"), account_id
             )
             if rule:
                 item["category"] = rule["category"]

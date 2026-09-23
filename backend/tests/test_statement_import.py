@@ -287,6 +287,71 @@ def test_a_rule_needs_a_category_that_exists(client, auth):
     assert response.status_code == 400
 
 
+# --- condicoes de valor e de conta (015) ----------------------------------
+
+def create_account(client, headers, name):
+    response = client.post("/api/accounts", json={"name": name, "type": "CHECKING"}, headers=headers)
+    assert response.status_code == 201, response.get_data(as_text=True)
+    return response.get_json()
+
+
+def test_amount_range_splits_the_same_text(client, auth):
+    content = """Data;Histórico;Valor
+01/09/2026;UBER * TRIP;-27,90
+02/09/2026;UBER * TRIP;-120,00
+"""
+    assert create_rule(client, auth, pattern="uber", category="Lazer", amount_min=80).status_code == 201
+    assert create_rule(client, auth, pattern="uber", category="Transporte", amount_max=79.99).status_code == 201
+    rows = preview(client, auth, content).get_json()["rows"]
+    assert [row["category"] for row in rows] == ["Transporte", "Lazer"]
+
+
+def test_amount_bounds_are_inclusive_and_compare_the_absolute_value(client, auth):
+    create_rule(client, auth, pattern="uber", category="Lazer", amount_min=27.9, amount_max=27.9)
+    assert preview(client, auth, CSV_PT).get_json()["rows"][2]["category"] == "Lazer"
+
+
+def test_account_condition_only_matches_that_account(client, auth):
+    business = create_account(client, auth, "Conta PJ")
+    personal = create_account(client, auth, "Conta PF")
+    create_rule(client, auth, pattern="uber", category="Lazer", account_id=business["id"])
+    in_business = preview(client, auth, CSV_PT, account_id=business["id"]).get_json()["rows"][2]
+    in_personal = preview(client, auth, CSV_PT, account_id=personal["id"]).get_json()["rows"][2]
+    assert in_business["category"] == "Lazer"
+    assert in_personal["category_source"] == "DEFAULT"
+
+
+def test_same_text_with_different_conditions_is_not_a_duplicate(client, auth):
+    assert create_rule(client, auth).status_code == 201
+    assert create_rule(client, auth, amount_min=100).status_code == 201
+    assert create_rule(client, auth, amount_min=100).status_code == 400
+    assert create_rule(client, auth, pattern="UBER", amount_min=100).status_code == 400
+
+
+def test_amount_range_is_validated(client, auth):
+    assert create_rule(client, auth, amount_min=50, amount_max=10).status_code == 400
+    assert create_rule(client, auth, amount_min=-1).status_code == 400
+    rule = create_rule(client, auth, amount_max=10).get_json()
+    response = client.patch(f"/api/import-rules/{rule['id']}", json={"amount_min": 20}, headers=auth)
+    assert response.status_code == 400
+    cleared = client.patch(
+        f"/api/import-rules/{rule['id']}", json={"amount_max": "", "amount_min": 20}, headers=auth,
+    )
+    assert cleared.status_code == 200
+    assert cleared.get_json()["amount_max"] is None
+    assert cleared.get_json()["amount_min"] == 20
+
+
+def test_rule_amount_is_rounded_half_up(client, auth):
+    rule = create_rule(client, auth, amount_min=10.005).get_json()
+    assert rule["amount_min"] == 10.01
+
+
+def test_rule_account_must_belong_to_the_user(client, auth, other_user):
+    foreign = create_account(client, other_user["headers"], "Conta alheia")
+    assert create_rule(client, auth, account_id=foreign["id"]).status_code == 400
+
+
 def test_rule_hits_count_only_committed_rows(client, auth):
     rule = create_rule(client, auth).get_json()
     assert rule["hits"] == 0
