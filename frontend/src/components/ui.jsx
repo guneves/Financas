@@ -102,7 +102,7 @@ export function Button({
       className={cx(
         'inline-flex items-center justify-center gap-2 rounded-lg border font-semibold transition duration-150',
         'active:scale-[0.97]',
-        'disabled:pointer-events-none disabled:opacity-55',
+        'disabled:pointer-events-none disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400 disabled:shadow-none',
         buttonVariants[variant],
         buttonSizes[size],
         className
@@ -151,7 +151,7 @@ const badgeTones = {
 
 export function Badge({ children, tone = 'neutral', className = '' }) {
   return (
-    <span className={cx('inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold', badgeTones[tone], className)}>
+    <span className={cx('inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold', badgeTones[tone], className)}>
       {children}
     </span>
   )
@@ -387,8 +387,11 @@ export function PageHeader({ title, description, actions, meta }) {
 }
 
 export function SegmentedControl({ items, value, onChange, className = '' }) {
+  const containerRef = useRef(null)
+  const pill = useSlidingPill(containerRef, '[aria-pressed="true"]', [value, items])
   return (
-    <div className={cx('inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
+    <div ref={containerRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
+      <PillBackground pill={pill} />
       {items.map((item) => {
         const Icon = item.icon
         const isActive = item.value === value
@@ -396,10 +399,13 @@ export function SegmentedControl({ items, value, onChange, className = '' }) {
           <button
             key={item.value}
             type="button"
+            aria-pressed={isActive}
             onClick={() => onChange(item.value)}
             className={cx(
-              'inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200',
-              isActive ? 'bg-white text-zinc-950 shadow-card ring-1 ring-zinc-200/70' : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
+              'relative inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200',
+              isActive
+                ? cx('text-zinc-950', !pill.box && 'bg-white shadow-card ring-1 ring-zinc-200/70')
+                : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
             )}
           >
             {Icon ? <Icon className="h-4 w-4" /> : null}
@@ -471,48 +477,61 @@ export function AlertMessage({ tone = 'danger', message, children, onDismiss, cl
   )
 }
 
-// Abas ligadas a rota: cada item e um link, o ativo e o da URL atual.
-// O fundo branco do ativo e uma pilula so, que desliza de uma aba para a
-// outra — o Layout nao remonta as abas ao trocar de rota.
-export function Tabs({ items, className = '' }) {
-  const navRef = useRef(null)
-  const { pathname } = useLocation()
-  const [pill, setPill] = useState(null)
-  const [pillReady, setPillReady] = useState(false)
+// O fundo branco do item ativo como uma pilula so, que desliza de um item
+// para o outro. Mede o elemento que casa com `activeSelector` dentro do
+// conteiner; `deps` e o que muda o ativo (rota, valor).
+function useSlidingPill(containerRef, activeSelector, deps) {
+  const [box, setBox] = useState(null)
+  const [ready, setReady] = useState(false)
 
   useLayoutEffect(() => {
-    const nav = navRef.current
-    if (!nav) return undefined
+    const container = containerRef.current
+    if (!container) return undefined
     const measure = () => {
-      const active = nav.querySelector('[aria-current="page"]')
-      setPill(active ? { left: active.offsetLeft, width: active.offsetWidth } : null)
+      const active = container.querySelector(activeSelector)
+      setBox(active ? { left: active.offsetLeft, width: active.offsetWidth } : null)
     }
     measure()
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    observer?.observe(nav)
+    observer?.observe(container)
     return () => observer?.disconnect()
-  }, [pathname, items])
+  }, [containerRef, activeSelector, ...deps])
 
   // A transicao so liga depois da primeira medida: a pilula nao entra
   // deslizando da borda esquerda.
   useEffect(() => {
-    if (!pill || pillReady) return undefined
-    const frame = requestAnimationFrame(() => setPillReady(true))
+    if (!box || ready) return undefined
+    const frame = requestAnimationFrame(() => setReady(true))
     return () => cancelAnimationFrame(frame)
-  }, [pill, pillReady])
+  }, [box, ready])
+
+  return { box, ready }
+}
+
+function PillBackground({ pill }) {
+  if (!pill.box) return null
+  return (
+    <span
+      aria-hidden="true"
+      className={cx(
+        'absolute bottom-1 left-0 top-1 rounded-md bg-white shadow-card ring-1 ring-zinc-200/70',
+        pill.ready && 'transition-[transform,width] duration-200 ease-out-quint'
+      )}
+      style={{ width: pill.box.width, transform: `translateX(${pill.box.left}px)` }}
+    />
+  )
+}
+
+// Abas ligadas a rota: cada item e um link, o ativo e o da URL atual.
+// O Layout nao remonta as abas ao trocar de rota, entao a pilula desliza.
+export function Tabs({ items, className = '' }) {
+  const navRef = useRef(null)
+  const { pathname } = useLocation()
+  const pill = useSlidingPill(navRef, '[aria-current="page"]', [pathname, items])
 
   return (
     <nav ref={navRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-100 p-1', className)}>
-      {pill ? (
-        <span
-          aria-hidden="true"
-          className={cx(
-            'absolute bottom-1 left-0 top-1 rounded-md bg-white shadow-card ring-1 ring-zinc-200/70',
-            pillReady && 'transition-[transform,width] duration-200 ease-out-quint'
-          )}
-          style={{ width: pill.width, transform: `translateX(${pill.left}px)` }}
-        />
-      ) : null}
+      <PillBackground pill={pill} />
       {items.map((item) => {
         const Icon = item.icon
         return (
@@ -522,7 +541,7 @@ export function Tabs({ items, className = '' }) {
             className={({ isActive }) => cx(
               'relative inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-200 lg:h-9',
               isActive
-                ? cx('text-zinc-950', !pill && 'bg-white shadow-card ring-1 ring-zinc-200/70')
+                ? cx('text-zinc-950', !pill.box && 'bg-white shadow-card ring-1 ring-zinc-200/70')
                 : 'text-zinc-600 hover:bg-white/60 hover:text-zinc-950'
             )}
           >

@@ -970,30 +970,27 @@ export default function Dashboard() {
             <div className="flex flex-col">
               {currentMonthInvoice > 0 ? (
                 <div className="flex flex-1 flex-col gap-4">
-                  <div className="flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-                    <CreditCard className="mt-0.5 h-4 w-4 shrink-0" />
-                    <div>
-                      <p className="font-semibold">{nextInvoiceItems.length} lançamento(s) em aberto</p>
-                      <p className="mt-1 text-rose-600">O pagamento lança uma despesa na conta e baixa os itens da fatura.</p>
-                    </div>
-                  </div>
+                  <AlertMessage tone="info">
+                    <p className="font-semibold">{nextInvoiceItems.length} lançamento(s) em aberto</p>
+                    <p className="mt-1 font-normal">O pagamento lança uma despesa na conta e baixa os itens da fatura.</p>
+                  </AlertMessage>
 
-                  <div className="max-h-44 flex-1 space-y-2 overflow-y-auto pr-1">
+                  <ul className="max-h-56 flex-1 divide-y divide-zinc-100 overflow-y-auto rounded-lg border border-zinc-200">
                     {nextInvoiceItems.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2.5 transition-colors hover:bg-zinc-50">
+                      <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-zinc-900">{item.description}</p>
-                          <p className="mt-0.5 text-xs text-zinc-600">
+                          <p className="truncate text-sm font-medium text-zinc-900">{item.description}</p>
+                          <p className="truncate text-xs text-zinc-500">
                             {item.card_name || item.credit_cards?.name || 'Cartão'}
-                            {item.installment_info && item.installment_info !== '1/1' ? ` • ${item.installment_info}` : ''}
+                            {item.installment_info && item.installment_info !== '1/1' ? ` · ${item.installment_info}` : ''}
                           </p>
                         </div>
-                        <span className="whitespace-nowrap text-sm font-bold tabular text-zinc-950">
+                        <span className="whitespace-nowrap text-sm font-semibold text-zinc-950">
                           {formatCurrency(item.amount)}
                         </span>
-                      </div>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
 
                   {payableInvoices.length === 0 && nextClosingDate ? (
                     <p className="text-xs text-zinc-600">
