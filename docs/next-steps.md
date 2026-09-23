@@ -106,6 +106,8 @@ in Posição and Proventos; three header layers plus a duplicate "+ Novo"; chart
 Decisions for the owner: **A** drop the background gradients; **B** drop the eyebrow and the
 page-level "+ Novo" (see decision 6 below); **C** sidebar 288 → 256 px; **D** Extrato shows ~100
 rows + "Mostrar mais" (it renders all 804 today); **E** dark mode, separately scoped, optional.
+A broader follow-up — full UI remodel (design system, motion, shell, every screen) — is written as a
+ready-to-paste session prompt in `docs/ui-remodel-prompt.md`; it absorbs this pass's open items.
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
