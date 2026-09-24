@@ -9,163 +9,57 @@
 
 ## 1. Open work, in priority order
 
-### Browser walk-through (owner) — clicked through on scratch data, not yet on real data
-On 2026-09-23 Claude clicked through most of the list below in Chrome on a seeded scratch database
-(screenshots worked this time), plus 390/900/1100/1300 px with Playwright, and fixed what broke (see
-`docs/done-tasks.md`). Clicked through and working: eye toggle on Início/Extrato/Cartões/Posição/
-Ajustes (no reload), Cartões → Pagar sheet and its banner, the Início autopay-shortfall card,
-Extrato filters and search surviving a reload, Importar with a Latin-1 CSV and an OFX (mapping,
-statuses, override, "Criar regra", re-import = nothing new), both CSV exports (content checked, not
-opened in Excel), the Orçamento strip, rules "Aplicar" + "Recategorizar", receipts (PNG + PDF at
-once, clip on the row), light theme, phone layouts. **Not** covered: signup, Pagar from Início (no
-closed invoice on Início's side), "Abrir"/"Baixar" a receipt, Excel opening the CSV, and the motion
-pass. None of it has been done by the owner on real data. One pass in the real app covers all of it
-(what each feature changed is in `docs/done-tasks.md`):
-- [ ] UX reorganization (all six steps), then settle open decisions 7–9 below.
-- [ ] Signup with username and Ajustes → Perfil. Existing accounts have `username = NULL` and show
-  "Usuário" until they pick one.
-- [ ] Eye toggle (reworked 2026-09-22, checked by script only): the page stays put — no reload, no
-  skeleton, numbers do not recount. Hidden: Início's four top cards, "Evolução do saldo" (badge, axis,
-  tooltip), "Saldo por conta", the autopay-shortfall warning; the balance block on Extrato and
-  Cartões; Ajustes → Contas; the balance in Pagar fatura's account picker; all of Posição (the
-  summary block — its % stays —, allocation, Evolução do Patrimônio, group totals, quantities,
-  values, the fixed-income principal, the value in the Resgate sheet) and the position values in the
-  sale picker. Everything else stays visible.
-- [ ] Cartões and Início: Pagar opens a sheet with "Debitar da conta" (Cartões preselects the card's
-  autopay account, else the default; Início defaults to "Conta de cada cartão"); the sheet warns when
-  the chosen account's balance does not cover the invoice.
-- [ ] Início "Precisa de você": "Débito automático sem saldo" appears when autopay invoices due in the
-  next 31 days exceed the debit account's balance today.
-- [ ] Extrato: filters survive a reload and the filter panel opens when the URL carries them.
-- [ ] Each screen loads its own chunk now; first visit shows a skeleton in the page area.
-- [ ] Lançamentos → Importar: pick a real bank export (CSV and OFX), check the column mapping
-  guess, the preview statuses, category overrides, "Criar regra", and that importing the same file
-  twice creates nothing the second time.
-- [ ] Extrato → "Exportar" and Investimentos → Posição → "Exportar": the file downloads, opens in
-  Excel with the columns split, and the statement export respects the active filters.
-- [ ] Visual design pass: Início cards show full values at your usual
-  window width; Extrato right-aligned signed values, sticky header while scrolling, "Mostrar mais";
-  on the phone, tap a lançamento to edit it; Posição rows with the quote dot (hover for source and
-  time); every percentage with a comma; no chart axis label on two lines.
-- [ ] Início → "Orçamento do mês" (below "Despesas por categoria"): spent of available with a bar
-  and "Restam"/"Passou", badge with the month's status, up to four categories that are "Perto do
-  limite" or "Estourou" (worst first), or a one-line "todas no plano". Hidden in a month with no
-  budget. Not masked by the eye (orçamentos stay visible).
-- [ ] Ajustes → Regras de importação: the pencil edits a rule (pattern too); "Aplicar" on a rule and
-  "Aplicar ao extrato" list the lançamentos that would change category, all ticked — untick any you
-  categorized by hand on purpose, then "Recategorizar N". (Clicked through on scratch data
-  2026-09-22 via Chrome + Playwright; not yet on real data.)
-- [ ] Extrato → comprovantes: the paperclip on a row (on the phone: inside the edit form, or a tap
-  on a row from another screen, e.g. an invoice payment) opens "Comprovantes"; attach a PDF and a
-  phone photo (several at once works), "Abrir" shows it in a new tab, "Baixar" keeps the original
-  name, a row with receipts shows a clip beside the description. Try a photo straight from the
-  phone camera — iPhones may send HEIC, which only Safari can open (elsewhere "Abrir" downloads).
-  Clicked through on scratch data 2026-09-23 with Playwright at 1280 and 390 px, not on real data.
-- [ ] Tables at 1024–1279 px (Extrato, Posição, Operações, Proventos) now show as cards below `xl`;
-  check that this is what you want at your usual window width.
-- [ ] UI remodel (2026-09-23), both themes (moon/sun next to the eye) and the phone: Início,
-  Extrato (day groups, "⋯" on hover), Cartões (one panel per card, Pagar only on a closed invoice),
-  Posição (summary block, "⋯" → Editar cotação opens a sheet, Resgatar opens a sheet), Operações,
-  Proventos, Orçamento, Recorrentes (summary blocks, "⋯" menus), Importar (stepper; after
-  importing, the green "importado(s)" banner now stays), Ajustes. Success messages now appear as a
-  dark toast at the bottom right (above the bottom bar on the phone) and fade after 4 s.
-- [ ] Motion pass: every sheet ("+ Novo", Pagar fatura, investimento, editar operação) animates
-  out, not just in, and shows its last content while leaving (no "Pagar R$ 0,00" flash). Tab pill
-  slides between abas. Início numbers count up on the first visit only; leaving and coming back,
-  or toggling the eye, shows them still. Collapsibles and Cartões invoices open and close in height,
-  and focus rings inside an open one are not clipped. A lançamento saved by "+ Novo" flashes green
-  in Extrato. Paying an invoice shows a green confirmation with a drawn check; a refused payment
-  shakes the error. With Windows "animation effects" off, nothing moves (charts included).
-
-### UI remodel leftovers
-- [ ] `DemoDataSection` keeps its success banner (it carries a link) instead of a toast.
-- [ ] Proventos' form is still a collapsible at the top of the page rather than a sheet.
-- [ ] Found in the 2026-09-23 walk-through, not fixed (small):
-  - Saving from "+ Novo" gives no feedback outside Extrato (no toast; the sheet just closes).
-  - Início: the "Fluxo de caixa" panel stretches to the height of "Despesas por categoria", leaving
-    a large empty area under its chart.
-  - Importar: the file input is the browser's native one ("Choose File / No file chosen", in the
-    browser's language) and the file name shows twice.
-  - Cartões: paying an invoice shows a persistent green banner rather than a toast (the motion pass
-    describes it as intended — confirm), and deleting a purchase still uses `window.confirm`.
-  - Back/forward does not restore the scroll position (the page loads its data after the browser
-    tries); forward navigation now always starts at the top.
+### Owner walk-through on real data
+Everything below was built and clicked through on a seeded scratch database (Chrome + Playwright,
+2026-09-23); none of it has been used on the owner's real data yet. Restart the backend first: the
+running `:5000` process predates migrations 015–018 and the brapi fix. What each item does is in
+`docs/done-tasks.md`.
+- [ ] Signup with a username (typed in the browser — Claude only checked it through the API), then
+  Ajustes → Perfil.
+- [ ] Open an exported `.xlsx` and a `.csv` in Excel (no Excel on the dev machine; the `.xlsx` was
+  validated with openpyxl): extrato with filters, carteira, operações, proventos, IR.
+- [ ] Budgets under decision 1: card purchases now count in the purchase month and the invoice
+  payment no longer counts, so card-heavy categories may read as overrun — re-plan them.
+- [ ] Import rules with amount/account conditions on a real bank file.
+- [ ] Receipts: a phone photo (HEIC only opens in Safari), a receipt on a card purchase, and after
+  the next backup check that `backend/backups/attachments/` holds the files.
+- [ ] Ajustes → Integrações: all green? (`BRAPI_TOKEN` is set in `backend/.env`.)
+- [ ] Corporate actions: register one real past event (if any) and compare quantities and average
+  price with the broker.
+- [ ] Multi-currency: if you hold anything abroad, one purchase with the broker's exchange rate, and
+  a USD account.
+- [ ] IR tab for the last year against the broker's informe de rendimentos.
+- [ ] Motion and phone layout by eye (scripted checks passed: sheets animate out, count-up only on
+  first visit, reduced motion, tab pill).
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
-  operações and proventos stay visible by the owner's choice. Percentages (allocation shares,
-  Conta/Investido split, rentabilidade) stay visible; chart shapes still show relative sizes. A
-  sensitive value must go through `usePrivateFormatter()` (`lib/privacy.js`) — the plain formatters
-  never mask.
-- IPCA+ is an **estimate**: the purchase month is pro rata by calendar days and the current,
-  unpublished month is missing until the BCB releases it. Real contracts use pro rata by business
-  days and the projected IPCA — revisit if the owner holds IPCA+ papers and sees a gap.
-- Lançamentos from before the fixed-income type change have no `fixed_income_type`; the edit sheet
-  asks for one on first edit. Validation on save (`validate_fixed_income_metadata`) only checks a
-  buy that carries rate keys, so a title without any rate (manual price) is still accepted.
-- Autopay still debits into the negative, as a real bank would try to; the Início warning is the
-  mitigation. The warning compares against today's balance, not a projected one, and counts a
-  not-yet-closed invoice at its current total.
-- The provento-on-CDB "backend error" did not reproduce as a 500, neither on current code nor at
-  `95f5eea` where it was logged. The one refusal is "no position on the Data com" (title bought after
-  it, or already redeemed); the message now names the date. Reopen with the exact steps if seen again.
-- The `'str' object has no attribute 'get'` quote failure matches iterating a BCB error object; the
-  fetch now rejects non-list payloads with the BCB's message, treats 404 "Value(s) not found" (title
-  bought today) as no accrual, and splits windows over BCB's 10-year limit (406).
-- No `create_app()` factory: `app.py` builds one module-level app at import. A factory alone buys
-  little while `config.py` reads the environment at import (tests would still set `os.environ`
-  first); do it only together with moving config into the app object, and only if something needs
-  two apps in one process.
-
-### Smaller gaps
-- [ ] Import rules: amount and account conditions on a rule. Import is capped at 2,000 rows per
-  file, and the apply preview at 2,000 rows (the sheet says so when it cuts).
-- [ ] Export: .xlsx proper, exporting Operações/Proventos, and a column picker.
-- [ ] Receipts: **not in the backup zip** (a year of photos in every daily zip × 7 days of
-  retention) — copy `backend/attachments/` alongside the database when moving it; no thumbnails or
-  inline preview; no receipts on card purchases (`cc_expenses`) — they reach the statement only as
-  the invoice payment, so a purchase receipt goes on that for now.
-- Budget strip on Início: an "estourou" entry in "Precisa de você" was left out on purpose (a
-  budget is a plan, not a task); open decision 1 still applies to what the strip counts as spent.
-
-### Frontend debt
-- [ ] Centralized server state (TanStack Query). A small `DataVersionContext` covers "+ Novo" refetch for now.
-- [ ] Loading skeletons on heavy screens.
-
-### Operations
-- [ ] Integration healthcheck for yfinance.
-- [ ] Structured logging.
-
-### Phase 6 — Advanced investments
-- [ ] Corporate actions (splits, reverse splits, bonus shares).
-- [ ] Real multi-currency (`assets.currency` is not converted today).
-- [ ] Annual tax report.
-- [ ] Evolução do Patrimônio: fixed income and other non-quoted assets show only their cost in past
-  months (the backend marks them to market in the current month only), so their gain appears as a
-  step in the last bar. Needs a historical accrual per month (CDI/IPCA series are already fetched).
+  operações and proventos stay visible by the owner's choice. Percentages stay visible; chart
+  shapes still show relative sizes. A sensitive value must go through `usePrivateFormatter()`.
+- IPCA+ is an **estimate**: purchase month pro rata by calendar days, the unpublished month missing.
+- Lançamentos from before the fixed-income type change have no `fixed_income_type`; a title without
+  any rate (manual price) is still accepted on save.
+- Autopay still debits into the negative; the Início warning is the mitigation (today's balance,
+  not a projection).
+- No `create_app()` factory: only worth it together with moving config into the app object.
+- Import is capped at 2,000 rows per file, and the rules apply-preview at 2,000 rows.
+- IR report: day trade is not separated (no time of day stored); the R$ 20 mil exemption and loss
+  pools follow the simplified rules in `services/tax_report.py`; proventos of foreign assets are
+  taken as BRL.
+- Multi-currency: USD, EUR and GBP only (BCB PTAX); a transfer between accounts in different
+  currencies is refused (register an expense and an income); fixed income, FII and cattle are BRL.
+- Corporate actions: nothing can be entered before an asset's latest event — undo the event, enter
+  the movement, register the event again.
+- Receipts: no server-side thumbnails (the browser scales the file); the backup mirror copies each
+  receipt once, deleted ones are kept for the backup retention.
 
 ---
 
 ## 2. Open decisions
 
-1. **Credit card purchases vs. budget.** Card purchases only reach the budget when the invoice is
-   paid, as one "Pagamento Fatura" lançamento. Options: budget the invoice categories; count open
-   `cc_expenses` into their category; or materialize installments as `transactions` on settlement.
 2. **Recurring pause/resume** drops an occurrence already overdue before the pause (accepted for now;
    fix would be a `paused_at` column). Related: reviving a finished recurrence by extending its
-   `end_date` restarts after the latest *surviving* generated lançamento, so a deleted last one is
-   regenerated — a stored cursor would fix both.
+   `end_date` restarts after the latest *surviving* generated lançamento — a stored cursor would fix
+   both.
 3. **Single-user or multi-user?** Schema is ready for either; SQLite is enough for personal use.
-4. **Desktop only or phone access?** The layout is now responsive (bottom bar, card lists); hosting
-   with HTTPS is still undecided.
-5. **Tax: support tool or source of truth?** Filing-grade use needs reconciliation against
-   brokerage notes.
-7. **Cartões header: Pagar fatura and "Nova compra" side by side.** Kept both: "Nova compra" opens
-   the sheet already on the card type, which the global "+ Novo" does not. Revisit if it still
-   feels crowded.
-8. **Wording and fit.** The Início cash-flow legend still says "Entradas/Saídas" (the glossary allows
-   plurals for aggregates) — switch to Receitas/Despesas? The "+ Novo" type selector wraps onto two
-   lines so "Investimento" stays visible — acceptable, or shorten the labels?
-9. **Privacy mode and the month's net-worth change.** With the eye on, Início still shows the
-   "+R$ X no mês" chip on the Patrimônio block (and Entradas/Despesas/Aportes, which are
-   lançamentos and stay visible by choice). The chip is a change in net worth — hide it too?
+4. **Desktop only or phone access?** The layout is responsive; hosting with HTTPS is undecided.

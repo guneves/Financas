@@ -57,6 +57,18 @@
 | Phase 5 leftovers: the three pre-existing pyflakes warnings fixed (`create_app()` deliberately not built) | 2026-09-23 |
 | Browser walk-through on scratch data (Chrome + Playwright): six bugs fixed — OFX after CSV read as CSV, Extrato columns misaligned below `xl`, header clipping "+ Novo" at 1024–1110 px, no scroll-to-top between screens, duplicate "Outros" donut slice, 0% return shown green; plus Regras padding and a doubled CSV charset | 2026-09-23 |
 | `SegmentedControl` selection pill fits the active option when the options wrap onto two rows ("Novo lançamento"); container radius stays concentric | 2026-09-23 |
+| UI remodel leftovers: toast after "+ Novo" and investment saves, invoice payments, recurring run and demo data (toast takes a link); every `window.confirm` replaced by a confirmation sheet (`lib/confirm.js`); Proventos form in a sheet; Início cash-flow chart fills its panel; Importar file picker with drag and drop; back/forward restores scroll (`lib/scroll.js`) | 2026-09-23 |
+| Walk-through items not covered before, on scratch data: Pagar from Início, receipt "Abrir"/"Baixar", motion pass (scripted), scroll restore; signup checked through the API | 2026-09-23 |
+| Open decisions 1 (card purchases count in the budget in the purchase month; invoice payment excluded), 5 (tax: support tool), 7 (Cartões keeps both buttons), 8 ("Receitas" in the cash flow), 9 (eye hides the month chip) | 2026-09-23 |
+| Import rules: amount range and account conditions — migration 015 | 2026-09-23 |
+| Export: real .xlsx, Operações and Proventos exports, column picker (`ExportSheet`) | 2026-09-23 |
+| Receipts: mirrored in the backup (`backups/attachments`), thumbnails and inline preview, receipts on card purchases — migration 016 | 2026-09-23 |
+| Frontend: server state in TanStack Query (every write invalidates the cache), loading skeletons on the heavy screens | 2026-09-23 |
+| Operations: structured JSON logging (`applog.py`), integrations healthcheck (yfinance, brapi, BCB) with a panel in Ajustes; brapi's new nested payload fixed | 2026-09-23 |
+| Phase 6: corporate actions (split, reverse split, bonus) — migration 017 | 2026-09-23 |
+| Phase 6: multi-currency assets and accounts (USD, EUR, GBP via BCB PTAX) — migration 018 | 2026-09-23 |
+| Phase 6: annual tax report (IR tab + .xlsx) | 2026-09-23 |
+| Phase 6: Evolução do Patrimônio accrues fixed income month by month | 2026-09-23 |
 
 ---
 
@@ -218,3 +230,49 @@ stadium. The pill now measures `top`/`height` too and moves with `translate(x, y
 `rounded-full` on one row and concentric with the pill on two. `Tabs` shares the hook and still
 works (it never wraps). Checked in Chrome on the owner's dev server: pill and a second-row button
 measured the same box (174×36).
+
+### Section 1 finished — 2026-09-23 (evening)
+
+Everything under "Open work" in `next-steps.md` was built in one session; the owner walk-through on
+real data is the part that stays open. Notes worth keeping:
+
+- **Decision 1 — card purchases in the budget.** A purchase counts in full, in its category, in the
+  month it was made (all installments), the same rule as Início's "Despesas por categoria". Invoice
+  payments (`CC_INVOICE_PAYMENT`, `CC_AUTOPAY`, or the legacy "Pagamento Fatura…" category) no
+  longer count. Budgets planned under the old rule will read as overrun for card-heavy categories.
+- **Decisions 7–9.** 7: Cartões keeps "Pagar fatura" and "Nova compra" side by side. 8: the cash
+  flow says Receitas (legend, averages, tooltip, patrimônio chip); the "+ Novo" labels stay and
+  wrap onto two lines. 9: the eye masks the "+R$ X no mês" chip and drops its colour.
+- **Decision 5 — tax.** Support tool, not source of truth: the IR tab carries the disclaimer and
+  does not separate day trade (the app stores no time of day).
+- **Confirmations.** `confirmAction({ title, message, confirmLabel, tone })` from `lib/confirm.js`
+  returns a promise; `<ConfirmHost />` sits in Layout next to the Toaster. No `window.confirm` left.
+- **TanStack Query.** `lib/queries.js` owns the `QueryClient`. `apiFetch` calls a mutation listener
+  after any successful non-GET (except `/preview` and login/signup) and the listener invalidates
+  every query, so no write path can forget to refresh. The cache is cleared on auth change; the old
+  `@financeMVP:*` localStorage caches are deleted on load. `dataVersion` survives only for the
+  Extrato "arrived" flash.
+- **Import rules 015.** `amount_min`/`amount_max` compare the absolute value, inclusive;
+  `account_id` is the destination account in the preview and the row's account in "Aplicar". The
+  unique index now includes the conditions (COALESCE, since SQLite treats NULLs as distinct).
+- **Exports.** `export_csv.py` describes each export as typed `Column`s; the same table becomes CSV or
+  `.xlsx` (`export_xlsx.py`, hand-written OOXML over `zipfile`, no dependency; checked with openpyxl
+  in a scratch folder — there is no Excel on this machine). CSV headers now carry accents.
+- **Receipts.** `db.mirror_attachments()` runs with every backup: one copy per file in
+  `backups/attachments/`, deleted receipts moved to `backups/attachments-removed/AAAAMMDD/` and
+  expired with the backup retention. Card-purchase receipts (016) hang on the installment they were
+  attached to and list across all installments of the purchase (card + description + date +
+  category, the `/candidates` key).
+- **Healthcheck found a real bug.** brapi now returns each quote under `data`; the parser read
+  nothing and every B3 quote silently fell back to yfinance. `StockQuote.from_payload` reads both.
+- **Corporate actions 017 — adjust on write.** Earlier movements are rescaled in place (originals in
+  `metadata.corporate_adjustments`), earlier quotes too; a bonus is a zero-cash BUY row. Guards: no
+  movement dated (or moved) before the asset's latest event; bonus rows only go through the event;
+  events in date order; undo only the latest, and only with nothing after its ex date. After an
+  event the asset's quote is refreshed (the ex-date quote can be on either side of it).
+- **Multi-currency 018.** Native values stored; `fetch_investments()` converts to BRL (cost at each
+  movement's `metadata.fx_rate`, value at today's PTAX); the cash link is in BRL; foreign stocks
+  skip the B3 catalog and brapi; accounts get `balance_brl`; transfers between currencies refused.
+  Proventos of foreign assets are taken as BRL (not converted).
+- **Evolução.** Past months use `accrual_factor_until()` with CDI/IPCA from `index_history()`; the
+  current month uses the stored BCB quote, or the series when the title has none yet.

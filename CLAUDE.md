@@ -137,12 +137,13 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-605 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+698 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
-them to recorded lançamentos), CSV export, receipts per lançamento, `user_id`
-isolation, and backup retention. They run
+them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
+multi-currency, the IR report, the integrations healthcheck, `user_id` isolation, and backup
+retention and the receipts mirror. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
 
@@ -158,7 +159,9 @@ the top of the file — reach it through a fixture or `importlib.import_module` 
 name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
 whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
 *both* `services.invoices` and `routes.cards` for the `local_today` clock, `services.prices` for
-`download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, and *both*
+`download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, `services.fx` for
+`fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `routes.investments` for
+`refresh_market_prices` (registering a corporate action fetches a quote), and *both*
 `services.prices` and `routes.investments` for `yf`. A patch on the wrong module does not fail — it
 silently does nothing. `app.py` itself exposes almost nothing now; reach code through the module
 that defines it.
@@ -179,18 +182,22 @@ backend/
   validators.py       # ValidationError + require_* / parse_* for request payloads
   auth.py             # hand-rolled JWT, token_required
   money.py            # rounded_money()
+  applog.py           # structured JSON logging; every module logs through get_logger(), never print()
+  integrations.py     # last success/failure of each external provider (yfinance, brapi, BCB)
   dates.py            # ISO parsing and month arithmetic
   source_types.py     # transactions.source_type values (who wrote the row)
   asset_classes.py    # asset-class constants and the class filter
-  responses.py        # csv_response() — HTTP helpers shared by blueprints
+  responses.py        # download/export responses (CSV or .xlsx, ?format=&columns=) shared by blueprints
   services/           # domain rules: accounts, invoices, attachments, prices (quotes, caches),
-                      # fixed_income (BCB, accrual), investments (movements, cash link, backing),
-                      # realized_results (FIFO, tax), portfolio (positions, evolution)
+                      # fixed_income (BCB, accrual), fx (PTAX), investments (movements, cash link,
+                      # BRL conversion), corporate_actions, realized_results (FIFO, tax),
+                      # portfolio (positions, evolution), tax_report (IR), health (integrations)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
-  export_csv.py       # geracao dos CSV de extrato e carteira (funcoes puras, sem banco)
+  export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
+  export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -201,7 +208,8 @@ frontend/src/
   pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, investimentos/,
                       # Proventos, Ajustes + ajustes/, Importar — screen map in lib/navigation.js
   components/         # Layout (nav, "+ Novo" sheet host), NewEntrySheet, ui.jsx (the UI kit)
-  lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js
+  lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js,
+                      # queries.js (TanStack Query), confirm.js, toast.js, scroll.js
 docs/
   next-steps.md       # the plan — open work only
   done-tasks.md       # completed work, moved out of next-steps.md
@@ -270,16 +278,30 @@ docs/
   `stored_name` is generated — the uploaded name is only displayed, never a path. The type is
   sniffed from the bytes, not trusted from the browser. Routes nest under the lançamento and check
   both ids (that is the delete's guard). Write the file before the row and remove the file only
-  after the commit; `prune_orphan_attachment_files()` sweeps leftovers at boot. Receipts are **not**
-  in the backup zip.
+  after the commit; `prune_orphan_attachment_files()` sweeps leftovers at boot. Receipts are not in
+  the backup zip: every backup mirrors `ATTACHMENTS_DIR` into `backups/attachments/` (one copy per
+  file; deleted ones go to `backups/attachments-removed/AAAAMMDD/`). Card purchases have their own
+  table (`cc_expense_attachments`, 016), listed across all installments of the purchase.
+- **A corporate action is applied on write** (017, `services/corporate_actions.py`): earlier
+  movements and quotes of the asset are rescaled in place (originals in
+  `metadata.corporate_adjustments`), a bonus is a zero-cash BUY row. So stored values are always in
+  the basis of the asset's latest event: no movement may be entered or moved before it, and only the
+  latest event with nothing after its ex date can be undone. Keep those guards.
+- **Foreign currency is stored native, calculated in BRL** (018): quantities, prices and quotes in
+  the asset's currency, the movement's rate in `metadata.fx_rate`. `fetch_investments()` — the
+  stream FIFO, portfolio, evolution and the IR report read — returns BRL (cost at the movement's
+  rate, value at today's PTAX); `fetch_investment_rows()` is native (screens, edits). The cash link
+  is BRL. Anything new that computes money from movements must read `fetch_investments()`.
+- **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
+  payments never count.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/done-tasks.md` (decided 2026-09-15) before touching it.
 
 ## Known sharp edges
 
 - **The layering is strict** (Phase 5, done 2026-09-23): `config` ← `db` ←
   `validators`/`money`/`dates`/`auth`/`asset_classes`/`responses` ← `services/*` ← `routes/*` ←
-  `app`. Among the investment services: `prices` ← `fixed_income` ← `investments` ←
-  `realized_results` / `portfolio`. Nothing imports
+  `app`. Among the investment services: `prices` ← `fixed_income` ← `fx` ← `investments` ←
+  `corporate_actions` / `realized_results` / `portfolio` ← `tax_report`; `health` sits on top. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
   fails `test_route_map.py` by name.
@@ -293,11 +315,14 @@ docs/
   shared one returns `'-'`.
 - **Frontend conventions** (from the 2026-09-21 UX reorganization): pages use only `ui.jsx`
   pieces (`AlertMessage`, `Collapsible`, `Sheet`, `Tabs`…), emerald is the only accent, section
-  tabs come from the URL, and a page that shows data saved by "+ Novo" puts `useDataVersion()`
-  (`lib/newEntry.js`) in its fetch effect's dependencies. Since the 2026-09-23 remodel: a page's
+  tabs come from the URL. Server data is read with `useQuery` (`lib/queries.js`); `apiFetch`
+  invalidates the whole cache after every successful write, so a page never refetches by hand
+  (call `invalidateServerData()` only to *await* the refresh). `useDataVersion()` is only the
+  Extrato "arrived" flash. A list that is loading shows `ListSkeleton`, not its empty state. Since the 2026-09-23 remodel: a page's
   headline numbers go in one `SummaryPanel` (not a row of `MetricCard`s), two or more row actions go
   behind a `Menu` ("⋯"), a success message is `toast()` from `lib/toast.js` (errors stay in
-  `AlertMessage`), and nothing new uses `window.prompt` / `alert` — use a `Sheet`.
+  `AlertMessage`), a destructive confirmation is `await confirmAction({...})` from
+  `lib/confirm.js`, and nothing uses `window.confirm` / `prompt` / `alert`.
 - **Privacy mode** (the eye) hides balances, net worth and the portfolio only, and never remounts
   the page. `formatCurrency` and friends always show the value; a sensitive spot uses
   `usePrivateFormatter()` / `usePrivateAxisFormatter()` or `MetricCard sensitive` from

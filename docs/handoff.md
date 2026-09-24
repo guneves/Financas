@@ -7,59 +7,70 @@
 
 ---
 
-## Session — 2026-09-23 (late) · Segmented control pill on two rows
+## Session — 2026-09-23 (night) · All of section 1 of the plan
 
-Owner report: in "Novo lançamento" the indicator around the selected type had the wrong
-proportions. Small, frontend-only session.
+The owner asked to finish everything under "Open work" in `next-steps.md`, in priority order, and to
+take the pending decisions. Done, except the owner's own walk-through on real data.
 
-### What was done
+### What was done (one commit per item, `965df68`..HEAD)
 
-- **Cause:** the five types wrap onto two rows in the sheet. `useSlidingPill()` in
-  `frontend/src/components/ui.jsx` measured only `left`/`width` and the pill was `top-1 bottom-1`,
-  so it stretched over both rows; the `rounded-full` container became a tall stadium.
-- **Fix (`975dedd`):** the pill measures `top`/`height` and moves with `translate(x, y)`;
-  `SegmentedControl` uses a fixed `rounded-[1.375rem]` (22px = h-9 + p-1), which equals
-  `rounded-full` on one row, so the other uses (Auth, Proventos, Posição, PortfolioOverview,
-  InvestmentLaunchModal) look unchanged. `Tabs` shares the hook and keeps `rounded-full`.
-- **Verified** in Chrome on the owner's running dev server (:5173) — only opened the sheet and
-  switched types, nothing saved: pill box equals the active button's box on the second row
-  (174×36), container radius 22px. No tests (frontend only; no frontend test suite).
-- **`finance-guard`** (by `subagent_type` directly): no findings — nothing in its checklist applies.
-- Docs: row + note in `done-tasks.md`. `next-steps.md` unchanged — the item was never in it.
+- **UI leftovers:** toasts after "+ Novo", the investment modal, invoice payments (Cartões and
+  Início), recurring run and demo data (a toast can carry a link); `lib/confirm.js` + `ConfirmHost`
+  replace every `window.confirm`; Proventos form in a sheet; Início cash-flow chart fills its panel;
+  Importar has its own file picker with drag and drop; back/forward restores scroll.
+- **Decisions:** 1 (card purchases count in the budget in the purchase month; invoice payments no
+  longer count), 5 (IR is a support tool), 7 (keep both Cartões buttons), 8 ("Receitas"), 9 (eye
+  hides the month chip). Details in `done-tasks.md`.
+- **Import rules:** amount range and account conditions (migration 015).
+- **Exports:** real `.xlsx` (hand-written OOXML, no dependency), Operações and Proventos exports,
+  column picker (`ExportSheet`), `?format=&columns=` on every export.
+- **Receipts:** backup mirror, thumbnails and inline preview, receipts on card purchases (016).
+- **Frontend debt:** TanStack Query everywhere; `apiFetch` invalidates the cache after any write;
+  skeletons on the heavy screens; old localStorage caches of financial data removed.
+- **Operations:** JSON logging (`applog.py`, `backend/logs/`), integrations healthcheck
+  (`/api/health/integrations`, Ajustes → Integrações). It caught a real bug: brapi's payload moved
+  under `data`, so every B3 quote had silently been falling back to yfinance — fixed.
+- **Phase 6:** corporate actions (017, adjust on write), multi-currency (018, BCB PTAX), annual IR
+  report (IR tab + multi-sheet `.xlsx`), fixed-income accrual in Evolução do Patrimônio.
+- **Verified:** 698 backend tests (605 before). Clicked through on a seeded scratch DB (:5002/:5175,
+  the real `finance.db` untouched): Chrome for Pagar from Início, "+ Novo" toast, Extrato filters,
+  export sheet, confirmation sheet, card-purchase receipts (upload, thumbnail, PDF preview, Abrir,
+  Baixar), Importar with rule conditions, Integrações, corporate-action undo; Playwright for scroll
+  restore, the motion pass (incl. reduced motion), Proventos sheet, registering a split, the
+  multi-currency flow, the IR tab. Downloads were intercepted in the page, nothing was saved.
+- **`finance-guard`** (by `subagent_type`, twice): up to `8eb2955` nothing; over the rest one real
+  gap — a PATCH whose `metadata` omitted `fx_rate` dropped the locked exchange rate and the cash
+  link fell back to PTAX. Fixed (the PATCH keeps `fx_rate`/`fx_source`, like
+  `corporate_adjustments`) with a test. One background run died on the usage limit and was rerun.
 
 ### What was not done and why
 
-- No ESLint run: a three-line style change with no new identifiers; `vite build` is clean.
-- Carried from the previous session, all still open:
-  - The **owner walk-through** at the top of `next-steps.md` on real data (signup, Pagar from
-    Início, receipt "Abrir"/"Baixar", the CSV in Excel, the motion pass).
-  - Small walk-through findings in `next-steps.md` ("UI remodel leftovers"): no feedback after
-    "+ Novo" outside Extrato, empty space under Início's cash-flow chart, Importar's native file
-    input, Cartões' pay banner vs. toast and `window.confirm`, scroll not restored on back.
-  - Open decisions 1 (card purchases vs. budget), 7, 8 and 9 are unanswered.
-  - `BRAPI_TOKEN` is empty in `backend/.env`.
-  - `backend/backups/finance-pre-mock-20260922-205415.db` is safe to delete.
-  - Receipts are not in the backup zip.
-  - Amount/account conditions on import rules are not built.
+- **The owner walk-through on real data** — it is the owner's by definition; the list at the top of
+  `next-steps.md` is rewritten for what changed. Signup in the browser was not done by Claude
+  (creating accounts / typing passwords is off-limits for it); it was checked through the API.
+- **Excel** is not installed here; `.xlsx` files were validated with openpyxl in a scratchpad.
+- **Restart the backend.** The owner's `:5000` process predates migrations 015–018, the brapi fix
+  and the new routes; `npm install` already ran (TanStack Query), the dev server picks it up.
+- Open decisions 2–4 remain (not blocking anything).
 
 ### Next session
 
-- Owner: the walk-through at the top of `next-steps.md`, on real data, and decisions 1, 7–9.
-- Product work: the small walk-through findings, then import-rule amount/account conditions and
-  export to .xlsx / Operações / Proventos; the Proventos form as a sheet.
+- Owner: the walk-through at the top of `next-steps.md`, especially re-planning budgets under
+  decision 1 and comparing the IR tab with the broker's informe.
+- Then only what the walk-through turns up; the plan has no open build items.
 
 ### Non-obvious things learned
 
-- **`cx()` does not merge Tailwind conflicts** — passing `rounded-3xl` next to a base
-  `rounded-full` does not reliably win; change the base class (or add a prop) instead.
-- **Chrome extension screenshots are flaky again:** the first full screenshot worked, then `zoom`
-  and a later screenshot timed out ("renderer may be frozen"). `javascript_tool` measuring
-  `getBoundingClientRect()` was the reliable check.
-- `find` for "Novo lançamento" returns the hidden mobile bottom-bar button; at desktop width click
-  the header "+ Novo" instead.
-- Carried: a `<col className="hidden">` does not hide a column in a `table-fixed` table; state set
-  in an event handler is not visible to a helper called in the same handler; a fresh seeded scratch
-  DB shows fixed income at cost until "Atualizar cotações"; `javascript_tool` blocks token-like
-  output (use `curl`); `browser_batch` stops at the first error; pyflakes and a throwaway ESLint
-  (`no-undef`) live in earlier scratchpads; `monkeypatch.setattr(app_module, …)` fails silently;
-  check `netstat -ano` before picking scratch ports.
+- **The Bash tool collapses `\\` to `\`** inside heredocs: a Python edit script with `"\\n"` wrote a
+  real newline into source files (twice). Write scripts with the Write tool, or edit with Edit.
+- **Chrome extension tab is "hidden"** to the page: `requestAnimationFrame` never fires and scroll
+  events are held, so anything rAF-based looks broken there. Use Playwright for motion/scroll checks;
+  `lib/scroll.js` no longer depends on rAF for this reason.
+- A `ref` click right after navigation can land on a shifted layout; clicking through
+  `javascript_tool` (`[...buttons].find(...).click()`) was reliable.
+- Registering a split with ex date = today leaves today's quote unscaled; the route now refetches
+  the asset quote after any corporate action.
+- A fresh seeded scratch DB still shows fixed income at cost in Posição until "Atualizar cotações";
+  the evolution chart now uses the CDI series for such titles instead of dropping the last bar.
+- Scratch setup lives in the scratchpad `app/` folder (`env.py`, `seed.py`, `serve.py`,
+  `mint_token.py` — not `token.py`, which shadows the stdlib module).

@@ -496,9 +496,12 @@ def investment_detail(current_user_id, investment_id):
         )
         # O ajuste de um desdobramento mora no metadata; um formulario que
         # manda o metadata inteiro de volta nao pode apaga-lo.
-        existing_adjustments = (existing.get("metadata") or {}).get("corporate_adjustments")
-        if existing_adjustments and "corporate_adjustments" not in metadata:
-            metadata = {**metadata, "corporate_adjustments": existing_adjustments}
+        # O mesmo vale para o cambio travado de uma operacao em moeda
+        # estrangeira: sem ele, o caixa recalcularia pela PTAX da data.
+        existing_metadata = existing.get("metadata") or {}
+        for kept_key in ("corporate_adjustments", "fx_rate", "fx_source"):
+            if existing_metadata.get(kept_key) not in (None, "") and kept_key not in metadata:
+                metadata = {**metadata, kept_key: existing_metadata[kept_key]}
         try:
             validate_fixed_income_metadata(asset_class, quantity, metadata)
         except ValidationError as exc:

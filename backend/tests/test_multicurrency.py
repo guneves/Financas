@@ -209,3 +209,15 @@ def test_stored_rates_are_per_user(client, user, other_user):
         theirs = conn.execute("SELECT COUNT(*) FROM fx_rates WHERE user_id = ?", (other_user["id"],)).fetchone()[0]
     assert mine > 0
     assert theirs == 0
+
+
+def test_editing_keeps_the_locked_rate(client, auth):
+    movement = buy_usd(client, auth, fx_rate=5.2).get_json()[0]
+    # Um cliente que manda o metadata sem fx_rate nao pode trocar o cambio pela PTAX.
+    response = client.patch(
+        f"/api/investments/{movement['id']}", headers=auth,
+        json={"quantity": 20, "metadata": {"purchase_date": "2026-03-02"}},
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["metadata"]["fx_rate"] == 5.2
+    assert cash(client, auth) == [("EXPENSE", 10400.0)]
