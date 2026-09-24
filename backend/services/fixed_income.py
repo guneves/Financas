@@ -11,6 +11,8 @@ Os testes trocam `fetch_bcb_series` e `urllib.request.urlopen` aqui.
 
 import calendar
 from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
 from datetime import datetime, timedelta
 import json
 import math
@@ -19,6 +21,7 @@ import urllib.request
 
 from dates import parse_iso_date
 from db import get_db
+from config import HISTORY_CACHE_TTL_SECONDS
 from money import rounded_money
 from services.prices import record_price_quote, ticker_key
 from validators import ValidationError, safe_float
@@ -363,3 +366,43 @@ def refresh_fixed_income_prices(current_user_id, investments_to_update):
     return finish_fixed_income_refresh(
         current_user_id, start_fixed_income_refresh(investments_to_update)
     )
+
+
+# Serie historica para a Evolucao do Patrimonio: cada mes passado corrige a
+# renda fixa ate o fim daquele mes. Guardada em memoria pelo mesmo tempo do
+# historico de precos, para o grafico nao buscar o BCB a cada abertura.
+_index_history_cache = {}
+_index_history_lock = threading.Lock()
+
+
+def index_history(start_date, need_ipca):
+    """{"cdi": [(data, taxa diaria)], "ipca": [(mes, variacao)] ou None}, desde start_date."""
+    key = (start_date.strftime("%Y-%m-%d"), bool(need_ipca))
+    now = time.monotonic()
+    with _index_history_lock:
+        cached = _index_history_cache.get(key)
+        if cached and now - cached[0] < HISTORY_CACHE_TTL_SECONDS:
+            return cached[1]
+    series = {
+        "cdi": fetch_bcb_series(BCB_SERIES_CDI, start_date),
+        "ipca": fetch_bcb_series(BCB_SERIES_IPCA, start_date.replace(day=1)) if need_ipca else None,
+    }
+    with _index_history_lock:
+        _index_history_cache[key] = (now, series)
+    return series
+
+
+def accrual_factor_until(metadata, purchase_date, until, series):
+    """Fator do titulo da compra ate `until`, com as series ja buscadas.
+
+    None quando o titulo nao tem taxa (preco manual) ou a serie falta: quem
+    chama fica com o custo.
+    """
+    indexer, rate = fixed_income_rate_terms(metadata)
+    if indexer is None or not series or series.get("cdi") is None:
+        return None
+    if indexer == "IPCA" and series.get("ipca") is None:
+        return None
+    cdi_daily = [value for day, value in series["cdi"] if purchase_date <= day <= until]
+    ipca = [(month, value) for month, value in (series.get("ipca") or []) if month <= until]
+    return fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca, purchase_date)

@@ -94,3 +94,57 @@ class TestIsolation:
         for month in history(client, other_user["headers"], months=3):
             assert month["valorAplicado"] == 0
             assert month["patrimonio"] == 0
+
+
+class TestFixedIncomeHistory:
+    """Renda fixa nos meses passados (Fase 6): corrigida pela serie ate o fim do mes."""
+
+    def cdi_title(self, client, auth, date):
+        response = client.post(
+            "/api/investments", headers=auth,
+            json=[{
+                "asset_class": "FIXED_INCOME", "ticker_or_name": "CDB HIST", "quantity": 1,
+                "average_price": 10000, "current_price": 10000,
+                "metadata": {"fixed_income_type": "CDB", "rate_type": "POS", "indexer": "CDI",
+                             "cdi_percentage": 1.0, "purchase_date": date},
+            }],
+        )
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+
+    def test_past_months_accrue_with_the_cdi(self, client, auth, no_market, monkeypatch):
+        fixed_income = importlib.import_module("services.fixed_income")
+        fixed_income._index_history_cache.clear()
+        from datetime import timedelta
+
+        def fake_series(code, start, end=None):
+            end = end or datetime.now()
+            days, day = [], start
+            while day <= end:
+                if day.weekday() < 5:
+                    days.append((day, 0.0005))
+                day += timedelta(days=1)
+            return days
+
+        monkeypatch.setattr(fixed_income, "fetch_bcb_series", fake_series)
+        self.cdi_title(client, auth, months_ago(no_market, 4))
+        series = history(client, auth, months=6)
+        past = [item for item in series if item["valorAplicado"] > 0][:-1]
+        assert len(past) >= 3
+        gains = [item["ganhoCapitalReal"] for item in past]
+        # Cresce mes a mes, em vez de ficar no custo ate o mes atual.
+        assert all(gain > 0 for gain in gains)
+        assert gains == sorted(gains)
+        # O mes atual, sem cotacao do BCB gravada, segue a serie ate hoje.
+        assert series[-1]["ganhoCapitalReal"] >= gains[-1]
+
+    def test_without_the_series_past_months_stay_at_cost(self, client, auth, no_market, monkeypatch):
+        fixed_income = importlib.import_module("services.fixed_income")
+        fixed_income._index_history_cache.clear()
+
+        def offline(*args, **kwargs):
+            raise RuntimeError("sem rede")
+
+        monkeypatch.setattr(fixed_income, "fetch_bcb_series", offline)
+        self.cdi_title(client, auth, months_ago(no_market, 4))
+        past = [item for item in history(client, auth, months=6) if item["valorAplicado"] > 0][:-1]
+        assert all(item["ganhoCapitalReal"] == 0 for item in past)

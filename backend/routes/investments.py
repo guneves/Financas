@@ -8,7 +8,7 @@ resultado realizado e as posicoes materializadas antes de responder.
 testes trocam `yf` aqui e em services/prices.py.
 """
 
-from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
 import sqlite3
 
@@ -17,7 +17,7 @@ from flask import Blueprint, jsonify, request
 from asset_classes import ALLOWED_ASSET_CLASSES, QUOTED_ASSET_CLASSES, parse_asset_class_filter
 from auth import token_required
 from config import PRICE_FETCH_TIMEOUT_SECONDS
-from dates import subtract_months
+from dates import parse_iso_date, subtract_months
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
 from money import rounded_money
@@ -42,6 +42,7 @@ from services.fx import (
 )
 from services.tax_report import build_tax_report
 from services.fixed_income import (
+    index_history,
     finish_fixed_income_refresh,
     start_fixed_income_refresh,
     validate_fixed_income_metadata,
@@ -94,6 +95,9 @@ from applog import get_logger
 logger = get_logger(__name__)
 
 bp = Blueprint("investments", __name__)
+
+# CDI/IPCA da evolucao: fora do executor do yfinance, que o historico ja ocupa.
+_index_history_executor = ThreadPoolExecutor(max_workers=1)
 
 # Moeda estrangeira: acoes/ETFs de fora e "outros" (cripto, conta no
 # exterior). Renda fixa, FII e gado sao em reais.
@@ -850,10 +854,29 @@ def get_historical_portfolio(current_user_id):
                         key: price * rates[key] for key, price in months.items() if rates.get(key)
                     }
 
+        # Renda fixa nos meses passados: CDI/IPCA desde a compra mais antiga.
+        index_series = None
+        fixed_titles = [
+            inv for inv in filtered_investments
+            if inv.get("asset_class") == "FIXED_INCOME" and safe_float(inv.get("quantity")) > 0
+            and not (inv.get("metadata") or {}).get("is_redemption")
+        ]
+        if fixed_titles:
+            first_purchase = min(parse_iso_date(investment_transaction_date(inv.get("metadata") or {}, inv.get("created_at"))) for inv in fixed_titles)
+            need_ipca = any((inv.get("metadata") or {}).get("indexer") == "IPCA" for inv in fixed_titles)
+            future = _index_history_executor.submit(index_history, first_purchase, need_ipca)
+            try:
+                index_series = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+            except FutureTimeoutError:
+                logger.warning("Tempo limite ao buscar CDI/IPCA para a evolucao.")
+            except Exception as exc:
+                logger.warning(f"CDI/IPCA indisponivel para a evolucao: {exc}")
+
         evolution = build_portfolio_evolution(
             filtered_investments,
             historical_prices,
             months_back,
+            index_series,
         )
 
         return jsonify({
