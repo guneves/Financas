@@ -237,6 +237,73 @@ def test_proceeds_export_honours_the_page_filters(client, auth):
     assert csv_rows(response)[1:] == [["2026-05-15"]]
 
 
+# --- carteira ---------------------------------------------------------------------
+
+def dividend_on(client, auth, asset_id, day):
+    response = client.post(
+        "/api/investment-proceeds",
+        json={
+            "asset_id": asset_id,
+            "proceeds_type": "DIVIDEND",
+            "record_date": day,
+            "payment_date": day,
+            "amount_per_unit": 0.5,
+        },
+        headers=auth,
+    )
+    assert response.status_code == 201, response.get_data(as_text=True)
+
+
+def portfolio_with_proceeds(client, auth):
+    """100 cotas a 10 (custo 1000), um dividendo de 50 ha mais de um ano e
+    outro de 50 ha 30 dias: proventos 100, 12m 50, DY 5% e rentabilidade com
+    proventos de 10% (preco parado)."""
+    from datetime import date, timedelta
+
+    buy = post_buy(client, auth, date="2024-01-10")
+    dividend_on(client, auth, buy["asset_id"], "2024-06-14")
+    dividend_on(client, auth, buy["asset_id"], (date.today() - timedelta(days=30)).isoformat())
+
+
+PROCEEDS_COLUMN_KEYS = "ativo,quantidade,proventos,proventos_12m,dy_12m,rentabilidade_com_proventos"
+
+
+def test_portfolio_export_carries_proceeds_and_total_return(client, auth):
+    portfolio_with_proceeds(client, auth)
+    response = client.get(
+        "/api/investments/portfolio/export", headers=auth,
+        query_string={"columns": PROCEEDS_COLUMN_KEYS},
+    )
+    assert response.status_code == 200
+    rows = csv_rows(response)
+    assert rows[0] == ["Ativo", "Quantidade", "Proventos", "Proventos 12m", "DY 12m (%)", "Rentab. c/ proventos (%)"]
+    assert rows[1] == ["PETR4", "100", "100,00", "50,00", "5,00", "10,00"]
+
+
+def test_portfolio_export_proceeds_columns_are_numbers_in_xlsx(client, auth):
+    portfolio_with_proceeds(client, auth)
+    response = client.get(
+        "/api/investments/portfolio/export", headers=auth,
+        query_string={"format": "xlsx", "columns": PROCEEDS_COLUMN_KEYS},
+    )
+    assert response.status_code == 200
+    xml = sheet_xml(response)
+    assert "Rentab. c/ proventos (%)" in xml
+    # Quantidade inteira segue sem casa decimal (conferido pelo dono em 2026-09-26).
+    assert f'<c r="B2" s="{export_xlsx.STYLE_QUANTITY_WHOLE}"><v>100' in xml
+    assert f'<c r="C2" s="{export_xlsx.STYLE_MONEY}"><v>100' in xml
+    assert f'<c r="D2" s="{export_xlsx.STYLE_MONEY}"><v>50' in xml
+    assert re.search(rf'<c r="E2" s="{export_xlsx.STYLE_PERCENT}"><v>0\.05\d*</v>', xml)
+    assert re.search(rf'<c r="F2" s="{export_xlsx.STYLE_PERCENT}"><v>0\.1\d*</v>', xml)
+
+
+def test_column_catalog_offers_the_portfolio_proceeds_columns(client, auth):
+    body = client.get("/api/exports/columns", headers=auth).get_json()
+    keys = [column["key"] for column in body["portfolio"]]
+    assert keys.index("rentabilidade") < keys.index("proventos") < keys.index("rentabilidade_com_proventos")
+    assert {"key": "proventos_12m", "label": "Proventos 12m"} in body["portfolio"]
+
+
 # --- catalogo e isolamento ---------------------------------------------------------
 
 def test_column_catalog_lists_every_export(client, auth):
