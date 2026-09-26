@@ -16,8 +16,6 @@ desejada). Tudo o que depende do mercado e calculado na leitura:
 - com data desejada: o aporte mensal necessario para chegar nela.
 """
 
-from datetime import timedelta
-
 from asset_classes import ALLOWED_ASSET_CLASSES, ASSET_CLASS_LABELS
 from dates import month_key
 from db import get_db, new_id, row_to_dict, utc_timestamp
@@ -26,6 +24,7 @@ from services.accounts import account_balance_rows
 from services.fx import FxUnavailable, normalize_currency, rate_on, BASE_CURRENCY
 from services.invoices import local_today
 from services.portfolio import build_portfolio_snapshot
+from services.proceeds import paid_proceeds_by_asset
 from validators import (
     ValidationError,
     optional_date,
@@ -106,16 +105,9 @@ def accounts_total_brl(conn, current_user_id):
 
 
 def income_last_12_months(conn, current_user_id, today):
-    start = (today - timedelta(days=365)).isoformat()
-    row = conn.execute(
-        """
-        SELECT COALESCE(SUM(net_amount), 0) AS total
-        FROM investment_proceeds
-        WHERE user_id = ? AND payment_date > ? AND payment_date <= ?
-        """,
-        (current_user_id, start, today.isoformat()),
-    ).fetchone()
-    return safe_float(row["total"])
+    # A mesma janela (hoje - 365 dias, hoje] da carteira e do resumo de proventos.
+    by_asset = paid_proceeds_by_asset(conn, current_user_id, today)
+    return sum(bucket["net_12m"] for bucket in by_asset.values())
 
 
 def current_values(conn, current_user_id, kinds, today):

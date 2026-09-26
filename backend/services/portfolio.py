@@ -27,6 +27,7 @@ from services.prices import (
     record_price_quote,
     ticker_key,
 )
+from services.proceeds import paid_proceeds_by_asset
 from validators import safe_float
 from applog import get_logger
 
@@ -338,8 +339,51 @@ def refresh_market_prices(current_user_id, investment_id=None, *, force=False, a
     }
 
 
+def asset_total_return(data, net_value, proceeds_net):
+    """Rentabilidade com proventos de uma posicao, em %.
+
+    Decisao do dono (2026-09-26): a base e TODO o dinheiro que ja entrou no
+    ativo — o custo atual mais o custo das cotas ja vendidas (= a soma das
+    compras). So o custo atual superestimaria o retorno de um ativo que ja
+    devolveu a maior parte do capital numa venda.
+
+        custo atual = compras - custo (FIFO) das cotas vendidas
+        numerador   = liquido atual - custo atual + proventos recebidos
+                      + lucro liquido realizado (depois do IR estimado)
+        base        = custo atual + custo das cotas vendidas
+
+    O `total_invested` da posicao nao serve de custo atual: numa venda de
+    acao ele desconta o valor vendido, nao o custo. `profitability_percent`
+    (so preco, sobre `total_invested`) continua como esta.
+    """
+    contributed = data.get("contributed", 0)
+    sold_cost_basis = data.get("sold_cost_basis", 0)
+    if contributed <= 0:
+        return 0
+    current_cost = contributed - sold_cost_basis
+    gain = net_value - current_cost + proceeds_net + data.get("realized_net_profit", 0)
+    return gain / contributed * 100
+
+
+def position_proceeds(data, paid_proceeds, claimed_assets):
+    """Proventos pagos da posicao: {'net', 'net_12m'} ou zeros.
+
+    Acoes, FIIs etc. agrupam pelo ativo. A renda fixa agrupa por titulo e so
+    recebe o que aponta para o ativo do titulo (amortizacao, na pratica); se
+    dois titulos abertos dividem o mesmo ativo, o primeiro fica com tudo — para
+    nao contar o mesmo provento duas vezes.
+    """
+    asset_id = data.get("asset_id")
+    if not asset_id or asset_id in claimed_assets:
+        return {"net": 0.0, "net_12m": 0.0}
+    claimed_assets.add(asset_id)
+    return paid_proceeds.get(asset_id) or {"net": 0.0, "net_12m": 0.0}
+
+
 def build_portfolio_snapshot(current_user_id):
     all_investments = fetch_investments(current_user_id)
+    with get_db() as conn:
+        paid_proceeds = paid_proceeds_by_asset(conn, current_user_id)
 
     grouped_assets = {}
     for asset in all_investments:
@@ -381,9 +425,18 @@ def build_portfolio_snapshot(current_user_id):
                 "currency": asset.get("native_currency") or "BRL",
                 "native_current_price": asset.get("native_current_price"),
                 "fx_rate_today": asset.get("fx_rate_today"),
+                # Para a rentabilidade com proventos (asset_total_return).
+                "contributed": 0,
+                "sold_cost_basis": 0,
+                "realized_net_profit": 0,
             }
 
         grouped_assets[group_key]["total_invested"] += invested_value
+        if qty > 0:
+            grouped_assets[group_key]["contributed"] += invested_value
+        # Venda/resgate: o resultado realizado (FIFO, em reais) vem na linha.
+        grouped_assets[group_key]["sold_cost_basis"] += safe_float(asset.get("realized_cost_basis"))
+        grouped_assets[group_key]["realized_net_profit"] += safe_float(asset.get("realized_net_profit_after_tax"))
 
         if not movement_affects_fixed_income_position(asset):
             grouped_assets[group_key]["total_quantity"] += qty
@@ -404,6 +457,7 @@ def build_portfolio_snapshot(current_user_id):
     current_total_value = 0
     current_net_value_all = 0
     distribution = {}
+    claimed_proceeds_assets = set()
 
     for data in grouped_assets.values():
         if data["total_quantity"] <= 0:
@@ -444,6 +498,8 @@ def build_portfolio_snapshot(current_user_id):
         distribution[data["class"]] = distribution.get(data["class"], 0) + net_value
 
         display_price = current_value if data["class"] == "FIXED_INCOME" else data["current_price"]
+        proceeds = position_proceeds(data, paid_proceeds, claimed_proceeds_assets)
+        total_return = asset_total_return(data, net_value, proceeds["net"])
 
         processed_assets.append({
             "id": data["id"],
@@ -462,6 +518,10 @@ def build_portfolio_snapshot(current_user_id):
             "taxes": rounded_money(max(rounded_money(current_value) - rounded_money(net_value), 0)),
             "is_tax_free": is_tax_free,
             "profitability_percent": round(profitability, 2),
+            "proceeds_net": rounded_money(proceeds["net"]),
+            "proceeds_12m_net": rounded_money(proceeds["net_12m"]),
+            "dividend_yield_12m": round(proceeds["net_12m"] / net_value * 100, 2) if net_value > 0 else 0,
+            "total_return_percent": round(total_return, 2),
             "quote": data.get("quote") or {},
             "metadata": data.get("metadata") or {},
             "currency": data.get("currency") or "BRL",

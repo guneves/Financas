@@ -31,6 +31,7 @@ import {
 import { toast } from '../lib/toast'
 import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString, monthLabel, shortMonthLabel } from '../lib/format'
 import { confirmAction } from '../lib/confirm'
+import { usePrivateFormatter } from '../lib/privacy'
 import ExportSheet from '../components/ExportSheet'
 
 const PROCEEDS_TYPES = [
@@ -86,6 +87,28 @@ function proventoMenuItems(item, onEdit, onDelete) {
   ]
 }
 
+const CHART_PERIODS = [
+  { value: 'month', label: 'Mensal' },
+  { value: 'year', label: 'Anual' },
+]
+
+// by_month vem por AAAA-MM; o anual soma os meses de cada ano.
+function receiptsChartData(byMonth, period) {
+  const months = [...(byMonth || [])].sort((a, b) => String(a.month).localeCompare(String(b.month)))
+  if (period !== 'year') {
+    return months.map((item) => ({ key: item.month, net: Number(item.net_amount || 0), event_count: item.event_count || 0 }))
+  }
+  const years = new Map()
+  months.forEach((item) => {
+    const key = String(item.month).slice(0, 4)
+    const bucket = years.get(key) || { key, net: 0, event_count: 0 }
+    bucket.net += Number(item.net_amount || 0)
+    bucket.event_count += item.event_count || 0
+    years.set(key, bucket)
+  })
+  return [...years.values()].map((item) => ({ ...item, net: Math.round(item.net * 100) / 100 }))
+}
+
 const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.label || value
 
 const NO_ITEMS = []
@@ -106,6 +129,7 @@ export default function Proventos() {
   const [exportOpen, setExportOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [chartPeriod, setChartPeriod] = useState('month')
 
   const filteredParams = useMemo(() => ({
     date_from: filters.date_from,
@@ -145,6 +169,8 @@ export default function Proventos() {
   const summary = proceedsQuery.data?.summary || null
   const calendarEvents = proceedsQuery.data?.calendarEvents || NO_ITEMS
   const loading = proceedsQuery.isFetching
+  const byAsset = summary?.by_asset || NO_ITEMS
+  const chartData = useMemo(() => receiptsChartData(summary?.by_month, chartPeriod), [summary, chartPeriod])
 
   const fetchData = () => invalidateServerData()
 
@@ -371,25 +397,30 @@ export default function Proventos() {
         </Panel>
         {summary?.by_month?.length ? (
           <Panel className="xl:col-span-3">
-            <PanelHeader title="Recebimentos por mês" description="Total líquido agrupado por pagamento." />
+            <PanelHeader
+              title={chartPeriod === 'year' ? 'Recebimentos por ano' : 'Recebimentos por mês'}
+              description="Total líquido agrupado por pagamento."
+              actions={<SegmentedControl value={chartPeriod} onChange={setChartPeriod} items={CHART_PERIODS} />}
+            />
             <div className="p-5">
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={[...summary.by_month]
-                      .sort((a, b) => String(a.month).localeCompare(String(b.month)))
-                      .map((item) => ({ ...item, net: Number(item.net_amount || 0) }))}
-                    margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                  >
+                  <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid vertical={false} stroke={CHART.grid} />
-                    <XAxis dataKey="month" {...axisProps} tickFormatter={shortMonthLabel} interval="preserveStartEnd" minTickGap={12} />
+                    <XAxis
+                      dataKey="key"
+                      {...axisProps}
+                      tickFormatter={chartPeriod === 'year' ? undefined : shortMonthLabel}
+                      interval="preserveStartEnd"
+                      minTickGap={12}
+                    />
                     <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                     <Tooltip
                       cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
                       content={(
                         <ChartTooltip
                           names={{ net: 'Líquido' }}
-                          labelFormatter={(label) => monthLabel(label)}
+                          labelFormatter={(label) => (chartPeriod === 'year' ? label : monthLabel(label))}
                           footer={(payload) => `${payload?.[0]?.payload?.event_count || 0} evento(s)`}
                         />
                       )}
@@ -402,6 +433,8 @@ export default function Proventos() {
           </Panel>
         ) : null}
       </div>
+
+      {byAsset.length > 0 ? <ProceedsByAsset items={byAsset} /> : null}
 
       <Panel>
         <PanelHeader
@@ -463,7 +496,7 @@ export default function Proventos() {
                   <div className="min-w-0">
                     <p className="font-semibold text-zinc-950">{item.asset?.ticker}</p>
                     <p className="text-xs text-zinc-600">
-                      {formatDateBR(item.payment_date)} · {ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}
+                      {formatDateBR(item.payment_date)} · com {formatDateBR(item.record_date)} · {ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}
                     </p>
                   </div>
                   <p className="shrink-0 font-bold tabular text-emerald-700">{formatCurrency(item.net_amount)}</p>
@@ -553,6 +586,76 @@ export default function Proventos() {
         )}
       </Panel>
     </div>
+  )
+}
+
+// Proventos por ativo, do maior liquido para o menor (a ordem vem do backend).
+// "12 meses" e a janela movel ate hoje, independente do periodo filtrado; o
+// YOC e o liquido sobre o custo na data com. Valores somem no modo privado,
+// percentuais ficam.
+function ProceedsByAsset({ items }) {
+  const money = usePrivateFormatter(formatCurrency)
+  return (
+    <Panel className="overflow-clip">
+      <PanelHeader
+        title="Por ativo"
+        description="Líquido no período, últimos 12 meses e yield on cost de cada ativo."
+        actions={<Badge>{items.length} ativo(s)</Badge>}
+      />
+      <ul className="divide-y divide-zinc-100 md:hidden">
+        {items.map((item) => (
+          <li key={item.asset_id} className="flex items-start justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="font-semibold text-zinc-950 [overflow-wrap:anywhere]">{item.ticker}</p>
+              <p className="text-xs text-zinc-600 tabular">
+                {item.event_count} evento(s) · 12m {money(item.net_12m)} · YOC {formatPercent(item.yield_on_cost_percent)}
+              </p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-semibold tabular text-zinc-950">{money(item.net_amount)}</p>
+              <p className="text-xs text-zinc-500 tabular">{formatPercent(item.share_percent)} do total</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden md:block">
+        <table className="app-table table-fixed">
+          <colgroup>
+            <col />
+            <col className="w-24" />
+            <col className="w-32" />
+            <col className="w-32" />
+            <col className="w-24" />
+            <col className="w-24" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Ativo</th>
+              <th className="text-right">Eventos</th>
+              <th className="text-right">Líquido</th>
+              <th className="text-right">12 meses</th>
+              <th className="text-right">YOC</th>
+              <th className="text-right">% do total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.asset_id}>
+                <td>
+                  <p className="truncate font-semibold text-zinc-950">{item.ticker}</p>
+                  <p className="truncate text-xs text-zinc-500">{ASSET_CLASS_LABELS[item.asset_class] || item.asset_class}</p>
+                </td>
+                <td className="num text-zinc-700">{item.event_count}</td>
+                <td className="num font-semibold text-zinc-950">{money(item.net_amount)}</td>
+                <td className="num text-zinc-700">{money(item.net_12m)}</td>
+                <td className="num text-zinc-700" title={`Custo na data com: ${money(item.cost_basis)}`}>{formatPercent(item.yield_on_cost_percent)}</td>
+                <td className="num text-zinc-700">{formatPercent(item.share_percent)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   )
 }
 
