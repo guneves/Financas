@@ -19,7 +19,7 @@ import { investmentsApi } from '../../lib/dataApi'
 import { formatCurrency, formatPercent, shortMonthLabel } from '../../lib/format'
 import { usePrivateFormatter } from '../../lib/privacy'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
-import { getClassLabel } from './helpers'
+import { ASSET_CLASSES, getClassLabel } from './helpers'
 
 // O backend limita a janela a 60 meses (GET /api/investments/returns).
 const PERIODS = [
@@ -73,7 +73,7 @@ function percentAxis(value) {
   return `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
 }
 
-function ReturnsChart({ series, cdiAvailable }) {
+function ReturnsChart({ series, cdiAvailable, seriesLabel }) {
   const chartAnimation = useChartAnimation()
   const data = useMemo(() => series.map((item) => ({
     month: item.month_key,
@@ -84,10 +84,10 @@ function ReturnsChart({ series, cdiAvailable }) {
   return (
     <>
       <div className="mb-3 flex flex-wrap gap-4">
-        <LegendDot color={SERIES[0]} label="Carteira (TWR)" shape="line" />
+        <LegendDot color={SERIES[0]} label={`${seriesLabel} (TWR)`} shape="line" />
         {cdiAvailable ? <LegendDot color={OTHER_COLOR} label="CDI" shape="line" /> : null}
       </div>
-      <div className="h-64" aria-label="Rentabilidade acumulada da carteira">
+      <div className="h-64" aria-label={`Rentabilidade acumulada: ${seriesLabel}`}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={CHART.grid} />
@@ -98,7 +98,7 @@ function ReturnsChart({ series, cdiAvailable }) {
               cursor={{ stroke: CHART.axis }}
               content={(
                 <ChartTooltip
-                  names={{ carteira: 'Carteira', cdi: 'CDI' }}
+                  names={{ carteira: seriesLabel, cdi: 'CDI' }}
                   labelFormatter={shortMonthLabel}
                   valueFormatter={signedPercent}
                 />
@@ -248,9 +248,11 @@ function AssetsTable({ assets, privateMoney }) {
 export default function Rentabilidade() {
   const privateMoney = usePrivateFormatter(formatCurrency)
   const [months, setMonths] = useState(readStoredPeriod)
+  // '' = todas as classes. A classe entra na chave: um cache por classe.
+  const [assetClass, setAssetClass] = useState('')
   const returnsQuery = useQuery({
-    queryKey: ['investimentos', 'rentabilidade', months],
-    queryFn: () => investmentsApi.returns({ months }),
+    queryKey: ['investimentos', 'rentabilidade', months, assetClass],
+    queryFn: () => investmentsApi.returns({ months, asset_class: assetClass || undefined }),
     placeholderData: keepPreviousData,
   })
   const data = returnsQuery.data
@@ -271,13 +273,27 @@ export default function Rentabilidade() {
   const empty = data && !hasValue(data.twr_percent) && !(data.assets || []).length
   const lastValue = data?.series?.length ? data.series[data.series.length - 1].value : null
   const anyCapped = (data?.assets || []).some((asset) => asset.capped)
+  const classLabel = assetClass ? getClassLabel(assetClass) : null
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Rentabilidade"
         description="Retorno ponderado no tempo (TWR): aportes e resgates não distorcem o percentual, então dá para comparar com o CDI."
-        actions={<SegmentedControl items={PERIODS} value={months} onChange={changePeriod} />}
+        actions={(
+          <>
+            <select
+              value={assetClass}
+              onChange={(event) => setAssetClass(event.target.value)}
+              className="app-select h-10 w-auto"
+              aria-label="Classe de ativo"
+            >
+              <option value="">Todas as classes</option>
+              {ASSET_CLASSES.map((key) => <option key={key} value={key}>{getClassLabel(key)}</option>)}
+            </select>
+            <SegmentedControl items={PERIODS} value={months} onChange={changePeriod} />
+          </>
+        )}
       />
 
       <AlertMessage tone="warning" message={error} />
@@ -288,15 +304,17 @@ export default function Rentabilidade() {
         <Panel className="p-5">
           <EmptyState
             icon={TrendingUp}
-            title="Sem rentabilidade no período"
-            message="A rentabilidade aparece depois da primeira compra registrada em Operações."
+            title={classLabel ? `Sem rentabilidade em ${classLabel} no período` : 'Sem rentabilidade no período'}
+            message={classLabel
+              ? 'Nenhuma posição ou operação desta classe na janela escolhida. Escolha outra classe ou um período maior.'
+              : 'A rentabilidade aparece depois da primeira compra registrada em Operações.'}
           />
         </Panel>
       ) : data ? (
         <>
           <SummaryPanel
             lead={{
-              label: 'Rentabilidade no período',
+              label: classLabel ? `Rentabilidade de ${classLabel} no período` : 'Rentabilidade no período',
               value: signedPercent(data.twr_percent),
               hint: periodHint,
               tone: toneOf(data.twr_percent),
@@ -309,7 +327,7 @@ export default function Rentabilidade() {
                 hint: hasValue(data.cdi_percent) ? `CDI no período: ${formatPercent(data.cdi_percent)}` : 'CDI indisponível',
               },
               {
-                label: 'Carteira hoje',
+                label: classLabel ? `${classLabel} hoje` : 'Carteira hoje',
                 value: hasValue(lastValue) ? privateMoney(lastValue) : '—',
                 hint: 'Valor bruto',
 
@@ -326,7 +344,7 @@ export default function Rentabilidade() {
               {returnsQuery.isFetching && !data.series.length ? (
                 <Skeleton className="h-64 w-full" />
               ) : (
-                <ReturnsChart series={data.series} cdiAvailable={data.cdi_available} />
+                <ReturnsChart series={data.series} cdiAvailable={data.cdi_available} seriesLabel={classLabel || 'Carteira'} />
               )}
             </div>
           </Panel>

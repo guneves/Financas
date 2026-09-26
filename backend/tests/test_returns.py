@@ -260,6 +260,25 @@ class TestEndpoint:
         assert returns(client, auth, months=6, asset_class="REIT")["twr_percent"] == pytest.approx(-10.0)
         assert len(returns(client, auth, months=6)["assets"]) == 2
 
+    def test_asset_class_filter_scopes_assets_and_proventos(self, client, auth, market):
+        trade(client, auth, "PETR4", 100, 10.0, iso(3))
+        created = trade(client, auth, "HGLG11", 10, 100.0, iso(3), asset_class="REIT")
+        reit_id = (created[0] if isinstance(created, list) else created)["asset_id"]
+        dividend(client, auth, reit_id, 1.0, (month_start(1) + timedelta(days=9)).strftime("%Y-%m-%d"))
+
+        stocks = returns(client, auth, months=6, asset_class="STOCKS")
+        assert [asset["class"] for asset in stocks["assets"]] == ["STOCKS"]
+        # O provento do FII nao entra na rentabilidade das acoes.
+        assert all(item["income"] == 0 for item in stocks["series"])
+
+        reits = returns(client, auth, months=6, asset_class="reit")
+        assert [asset["class"] for asset in reits["assets"]] == ["REIT"]
+        assert sum(item["income"] for item in reits["series"]) > 0
+
+        # Classe desconhecida (ou "todos") cai na carteira inteira.
+        assert len(returns(client, auth, months=6, asset_class="XYZ")["assets"]) == 2
+        assert len(returns(client, auth, months=6, asset_class="todos")["assets"]) == 2
+
     def test_year_table_and_ytd(self, client, auth, market):
         trade(client, auth, "PETR4", 100, 10.0, iso(3))
         body = returns(client, auth, months=6)

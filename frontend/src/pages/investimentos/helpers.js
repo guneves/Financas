@@ -89,6 +89,9 @@ export function hasRealizedResult(movement) {
     && Number.isFinite(Number(movement.realized_profit))
 }
 
+// As classes do filtro por classe (backend/asset_classes.py; FII e REIT).
+export const ASSET_CLASSES = ['STOCKS', 'REIT', 'FIXED_INCOME', 'CATTLE', 'OTHER']
+
 export function getClassLabel(assetClass) {
   const labels = {
     'STOCKS': 'Ações',

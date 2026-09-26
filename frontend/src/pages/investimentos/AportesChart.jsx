@@ -7,7 +7,7 @@ import { contributionsApi } from '../../lib/dataApi'
 import { formatCurrency, formatSignedCurrency, monthLabel, shortMonthLabel } from '../../lib/format'
 import { usePrivateAxisFormatter, usePrivateFormatter } from '../../lib/privacy'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
-import { getClassLabel } from './helpers'
+import { ASSET_CLASSES, getClassLabel } from './helpers'
 
 const PERIODS = [
   { value: 6, label: '6m' },
@@ -15,7 +15,6 @@ const PERIODS = [
   { value: 24, label: '24m' },
   { value: 60, label: '5a' },
 ]
-const CLASSES = ['STOCKS', 'REIT', 'FIXED_INCOME', 'CATTLE', 'OTHER']
 
 // Aporte e dinheiro indo para a carteira: o azul de Investimentos no Inicio.
 // Resgate volta para a conta e e desenhado abaixo do zero (a posicao carrega o
@@ -81,7 +80,7 @@ export default function AportesChart() {
               aria-label="Classe de ativo"
             >
               <option value="">Todas as classes</option>
-              {CLASSES.map((key) => <option key={key} value={key}>{getClassLabel(key)}</option>)}
+              {ASSET_CLASSES.map((key) => <option key={key} value={key}>{getClassLabel(key)}</option>)}
             </select>
           </div>
 
