@@ -140,7 +140,7 @@ def fetch_investment_proceeds(conn, current_user_id, filters=None):
             asset.ticker,
             asset.name AS asset_name
         FROM investment_proceeds proceeds
-        JOIN assets asset ON asset.id = proceeds.asset_id
+        JOIN assets asset ON asset.id = proceeds.asset_id AND asset.user_id = proceeds.user_id
         WHERE proceeds.user_id = ?
     """
     params = [current_user_id]
@@ -172,6 +172,21 @@ def fetch_investment_proceeds(conn, current_user_id, filters=None):
     direction = "ASC" if filters.get("ascending") else "DESC"
     query += f" ORDER BY proceeds.payment_date {direction}, proceeds.created_at {direction}"
     return conn.execute(query, params).fetchall()
+
+
+def paid_proceeds_in_year(conn, current_user_id, year):
+    """Proventos pagos no ano civil (1/1 a 31/12, inclusive), do mais antigo ao mais novo.
+
+    E o que o relatorio de IR le. Pago = pagamento ate hoje (agendado fica de
+    fora mesmo dentro do ano); empate na data segue a ordem de gravacao.
+    """
+    year = int(year)
+    return fetch_investment_proceeds(conn, current_user_id, {
+        "date_from": f"{year:04d}-01-01",
+        "date_to": f"{year:04d}-12-31",
+        "status": "PAID",
+        "ascending": True,
+    })
 
 
 def fetch_investment_proceed_by_id(conn, current_user_id, proceed_id):
