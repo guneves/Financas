@@ -69,6 +69,7 @@
 | Phase 6: multi-currency assets and accounts (USD, EUR, GBP via BCB PTAX) — migration 018 | 2026-09-23 |
 | Phase 6: annual tax report (IR tab + .xlsx) | 2026-09-23 |
 | Phase 6: Evolução do Patrimônio accrues fixed income month by month | 2026-09-23 |
+| Carteira export: whole quantities without trailing comma in .xlsx; gross − IR = net to the cent; `rounded_money()` on portfolio totals; per-asset `total_invested` | 2026-09-26 |
 
 ---
 
@@ -276,3 +277,18 @@ real data is the part that stays open. Notes worth keeping:
   Proventos of foreign assets are taken as BRL (not converted).
 - **Evolução.** Past months use `accrual_factor_until()` with CDI/IPCA from `index_history()`; the
   current month uses the stored BCB quote, or the series when the title has none yet.
+
+### Carteira export fixes — 2026-09-26
+
+From the owner's first real carteira `.xlsx`. Notes worth keeping:
+
+- **Whole quantities.** Excel always prints the decimal separator of `#,##0.######`, so `3024`
+  showed as `3.024,`. `export_xlsx.value_cell()` gives a whole quantity (after `round(n, 6)`) the
+  built-in `#,##0` (style `STYLE_QUANTITY_WHOLE`); fractional ones keep 165.
+- **IR per asset** is now `rounded(gross) − rounded(net)`, not the rounded raw tax, so the three
+  columns always add up (CDB BANCO INTER 2026 was off by R$ 0,01). Screen and export read the same.
+- **Portfolio totals** (`total_invested`, `current_balance`, `current_net_balance`) round through
+  `rounded_money()`; they used `round()`.
+- **Valor investido.** The snapshot exposes `total_invested` per asset, and the export reads it
+  instead of quantity × the rounded average price (which drifted by cents on stocks); the
+  `investment_positions` cache (`GET /api/investment-positions`) stores the same value.

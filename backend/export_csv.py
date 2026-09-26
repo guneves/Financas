@@ -144,6 +144,10 @@ TRANSACTION_COLUMNS = [
 
 
 def portfolio_invested(asset):
+    # O custo do ativo como a carteira o soma; quantidade x preco medio (ja
+    # arredondado) so para payload antigo, e pode errar por centavos.
+    if asset.get("total_invested") is not None:
+        return asset.get("total_invested")
     quantity = to_number(asset.get("quantity")) or 0
     average_price = to_number(asset.get("average_price")) or 0
     return quantity * average_price

@@ -455,9 +455,11 @@ def build_portfolio_snapshot(current_user_id):
             "quantity": round(data["total_quantity"], 4),
             "average_price": rounded_money(avg_price_calculated),
             "current_price": rounded_money(display_price),
+            "total_invested": rounded_money(data["total_invested"]),
             "current_value": rounded_money(current_value),
             "net_value": rounded_money(net_value),
-            "taxes": rounded_money(taxes),
+            # Do bruto e do liquido ja arredondados: bruto - IR = liquido no centavo.
+            "taxes": rounded_money(max(rounded_money(current_value) - rounded_money(net_value), 0)),
             "is_tax_free": is_tax_free,
             "profitability_percent": round(profitability, 2),
             "quote": data.get("quote") or {},
@@ -475,9 +477,9 @@ def build_portfolio_snapshot(current_user_id):
         distribution[key] = round((value / current_net_value_all) * 100, 2) if current_net_value_all > 0 else 0
 
     return {
-        "total_invested": round(total_invested_all, 2),
-        "current_balance": round(current_total_value, 2),
-        "current_net_balance": round(current_net_value_all, 2),
+        "total_invested": rounded_money(total_invested_all),
+        "current_balance": rounded_money(current_total_value),
+        "current_net_balance": rounded_money(current_net_value_all),
         "portfolio_profitability": round(
             ((current_net_value_all - total_invested_all) / total_invested_all * 100),
             2,
@@ -517,7 +519,7 @@ def replace_materialized_positions(current_user_id, assets):
                     asset_id,
                     source_transaction_id,
                     safe_float(asset.get("quantity")),
-                    safe_float(asset.get("average_price")) * safe_float(asset.get("quantity")),
+                    safe_float(asset.get("total_invested")),
                     safe_float(asset.get("average_price")),
                     safe_float(asset.get("current_price")),
                     safe_float(asset.get("current_value")),

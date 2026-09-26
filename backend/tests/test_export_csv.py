@@ -178,6 +178,15 @@ def test_portfolio_row_computes_the_invested_value():
     assert row[11] == "2026-09-22"
 
 
+def test_portfolio_row_prefers_the_assets_own_invested_total():
+    # Custo real 1000,00 por 3 cotas: preco medio 333,33 x 3 daria 999,99.
+    row = export_csv.portfolio_row({
+        "ticker": "PETR4", "class": "STOCKS", "quantity": 3,
+        "average_price": 333.33, "total_invested": 1000.0,
+    })
+    assert row[5] == "1000,00"
+
+
 def test_portfolio_export_is_a_csv_with_the_header(client, auth):
     response = client.get("/api/investments/portfolio/export", headers=auth)
     assert response.status_code == 200

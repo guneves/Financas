@@ -103,6 +103,24 @@ def test_xlsx_cells_are_typed_and_text_is_escaped():
     assert '<c r="C2" s="2"><v>-12.5</v></c>' in xml
 
 
+def test_xlsx_whole_quantity_has_no_trailing_separator():
+    # "#,##0.######" sai "3.024," no Excel; quantidade inteira usa "#,##0".
+    columns = export_csv.select_columns(export_csv.PORTFOLIO_COLUMNS, "quantidade")
+    body = export_xlsx.table_xlsx(
+        "Carteira", columns, [{"quantity": 3024}, {"quantity": 0.5}, {"quantity": 1.0000000001}],
+    )
+    package = zipfile.ZipFile(io.BytesIO(body))
+    xml = package.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    assert f'<c r="A2" s="{export_xlsx.STYLE_QUANTITY_WHOLE}"><v>3024.0</v></c>' in xml
+    assert f'<c r="A3" s="{export_xlsx.STYLE_QUANTITY}"><v>0.5</v></c>' in xml
+    assert f'<c r="A4" s="{export_xlsx.STYLE_QUANTITY_WHOLE}">' in xml
+    styles = package.read("xl/styles.xml").decode("utf-8")
+    cell_xfs = styles.split("<cellXfs")[1].split("</cellXfs>")[0]
+    xfs = cell_xfs.split("<xf ")[1:]
+    assert f'count="{len(xfs)}"' in cell_xfs
+    assert 'numFmtId="3"' in xfs[export_xlsx.STYLE_QUANTITY_WHOLE]
+
+
 def test_quantity_in_csv_drops_trailing_zeros():
     assert export_csv.format_cell(100, "quantity") == "100"
     assert export_csv.format_cell(0.123456, "quantity") == "0,123456"

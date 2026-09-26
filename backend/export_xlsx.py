@@ -29,6 +29,7 @@ STYLE_MONEY = 2
 STYLE_DATE = 3
 STYLE_PERCENT = 4
 STYLE_QUANTITY = 5
+STYLE_QUANTITY_WHOLE = 6
 
 KIND_STYLES = {
     "money": STYLE_MONEY,
@@ -55,7 +56,9 @@ WORKBOOK_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 {sheet_relationships}<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>"""
 
-# numFmtId 4 = "#,##0.00" e 10 = "0.00%" sao embutidos; 164/165 sao nossos.
+# numFmtId 3 = "#,##0", 4 = "#,##0.00" e 10 = "0.00%" sao embutidos; 164/165 sao
+# nossos. O Excel sempre imprime a virgula de "#,##0.######", mesmo sem casas
+# ("3.024,"), entao quantidade inteira usa o 3.
 STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="2">
@@ -72,13 +75,14 @@ STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="6">
+<cellXfs count="7">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
 <xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 <xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>"""
@@ -134,6 +138,8 @@ def value_cell(ref, value, kind):
             return ""
         if kind == "percent":
             number = number / 100
+        if kind == "quantity" and round(number, 6).is_integer():
+            return number_cell(ref, number, STYLE_QUANTITY_WHOLE)
         return number_cell(ref, number, KIND_STYLES[kind])
     return text_cell(ref, value)
 

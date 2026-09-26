@@ -17,7 +17,9 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
 - [ ] Signup with a username (typed in the browser — Claude only checked it through the API), then
   Ajustes → Perfil.
 - [ ] Open an exported `.xlsx` and a `.csv` in Excel (no Excel on the dev machine; the `.xlsx` was
-  validated with openpyxl): extrato with filters, carteira, operações, proventos, IR.
+  validated with openpyxl): extrato with filters, operações, proventos, IR. Carteira `.xlsx` was
+  checked by the owner 2026-09-26 and its fixes are in; re-export it once to see whole quantities
+  without the trailing comma.
 - [ ] Budgets under decision 1: card purchases now count in the purchase month and the invoice
   payment no longer counts, so card-heavy categories may read as overrun — re-plan them.
 - [ ] Import rules with amount/account conditions on a real bank file.
