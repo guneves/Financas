@@ -291,9 +291,11 @@ export default function Posicao() {
                 <colgroup>
                   <col />
                   <col className="w-24" />
-                  <col className="w-32" />
+                  <col className="w-28" />
                   <col className="w-36" />
                   <col className="w-40" />
+                  <col className="w-24" />
+                  <col className="w-32" />
                   <col className="w-28" />
                   <col className="w-36" />
                 </colgroup>
@@ -305,13 +307,15 @@ export default function Posicao() {
                     <th className="text-right">Cotação</th>
                     <th className="text-right">Valor</th>
                     <th className="text-right">Rentab.</th>
+                    <th className="text-right">Proventos</th>
+                    <th className="text-right" title="Preço, proventos recebidos e lucro realizado sobre tudo o que entrou no ativo">Rentab. c/ proventos</th>
                     <th><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
                 {assetGroups.map((group) => (
                   <tbody key={group.key}>
                     <tr className="!border-b !border-zinc-200 bg-zinc-50 hover:!bg-zinc-50">
-                      <th colSpan={7} scope="rowgroup" className="py-2">
+                      <th colSpan={9} scope="rowgroup" className="py-2">
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</span>
                           <span className="text-xs font-normal text-zinc-500 tabular">{groupSummary(group, privateMoney)}</span>
@@ -631,6 +635,13 @@ function PositionRow({ asset, busy, onSell, isUpdatingThisAsset, ...menuProps })
         <NetValue asset={asset} money={money} />
       </td>
       <td className="num"><Profit value={asset.profitability_percent} /></td>
+      <td className="num">
+        <p className="text-zinc-700">{money(asset.proceeds_net)}</p>
+        {Number(asset.dividend_yield_12m) > 0 ? (
+          <p className="text-xs text-zinc-500">DY 12m {formatPercent(asset.dividend_yield_12m)}</p>
+        ) : null}
+      </td>
+      <td className="num"><Profit value={asset.total_return_percent} /></td>
       <td className="py-1.5 text-right">
         <div className="flex justify-end gap-1.5">
           <Button type="button" size="sm" variant="secondary" onClick={onSell} disabled={busy} className="lg:h-8">
@@ -662,6 +673,11 @@ function PositionCard({ asset, busy, onSell, isUpdatingThisAsset, ...menuProps }
           <p className="text-sm"><Profit value={asset.profitability_percent} /></p>
         </div>
       </div>
+      {/* Proventos recebidos e a rentabilidade com eles, ao lado da de preco. */}
+      <p className="flex flex-wrap justify-between gap-x-3 text-xs text-zinc-600 tabular">
+        <span>Proventos {money(asset.proceeds_net)}</span>
+        <span>c/ proventos <Profit value={asset.total_return_percent} /></span>
+      </p>
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm tabular">
           <QuoteValue asset={asset} isUpdatingThisAsset={isUpdatingThisAsset} />
