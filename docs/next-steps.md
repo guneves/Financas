@@ -44,15 +44,91 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
   the current month's meter should match Investidor10's "isentômetro" once the same sales are
   recorded here. Open "Registrar operação" → Venda on a stock to see the warning.
 
+### Proventos per asset (requested 2026-09-26)
+Today proventos are only seen as a flat list and a portfolio-wide summary
+(`build_investment_proceeds_summary()` in `routes/proceeds.py`: totals, `by_type`, `by_month`,
+yield on cost). Nothing groups them by asset, and Posição's "Rentab." ignores them entirely:
+`profitability_percent` in `build_portfolio_snapshot()` is `(net_value − total_invested) /
+total_invested` — price only, no proventos, no realized result. Build this first; the weighted
+return below reuses it.
+- [ ] **Move the proceeds read into a service.** `fetch_investment_proceeds()`,
+  `serialize_investment_proceed()`, `investment_position_at_date()` and the summary live in the
+  `routes/proceeds.py` blueprint, and a service may not import a route (layering). Create
+  `services/proceeds.py`, move them there, keep the blueprint thin. `services/goals.py` and
+  `services/tax_report.py` each carry their own proceeds SQL — fold them onto it only if trivial.
+- [ ] **`by_asset` in the summary** (`GET /api/investment-proceeds/summary`, honours the existing
+  `date_from`/`date_to`/`proceeds_type` filters): per asset — ticker, class, event count, gross,
+  tax, net, share of the total, yield on cost (net ÷ `cost_basis_at_record_date`, already computed
+  per event), and the last 12 months' net. Money through `rounded_money()`; percentages may stay
+  `round()` (not currency).
+- [ ] **Per-asset proventos in the portfolio snapshot.** Add to each `processed_assets` entry:
+  `proceeds_net` (all paid proventos of the asset, `payment_date <= today`), `proceeds_12m_net`,
+  `dividend_yield_12m` (12-month net ÷ current net value) and `total_return_percent` =
+  (net value − invested + proventos received + realized net profit of the asset) ÷ invested.
+  Realized profit per asset comes from `investment_realized_results` (it has `asset_id`). Decide
+  and document which base "invested" is for a partly sold asset (current cost only, or all money
+  ever put in) — current cost overstates the return of an asset that paid back most of its capital.
+  Fixed-income positions group by title id, not asset id: they get proventos only if an
+  `AMORTIZATION` points at the title's asset.
+- [ ] **Frontend.** Proventos: a "Por ativo" block (table, sorted by net, with the 12-month total
+  and YoC; bar chart optional), the record date next to the payment date in the list, a
+  monthly/annual toggle for the `by_month` chart. Posição: "Proventos" and "Rentab. c/ proventos"
+  columns (the latter replacing or next to "Rentab." — owner's call) and both in the phone card.
+  Proventos values are sensitive (`usePrivateFormatter()`), percentages are not.
+- [ ] **Tests** (`test_proceeds_by_asset.py`): grouping and totals by asset, filters applied,
+  another user's proventos never counted, a scheduled provento excluded from "received", total
+  return with a partial sale plus proventos, foreign-asset proventos taken as BRL (current rule).
+
+### Weighted return — time-weighted, portfolio and per asset (requested 2026-09-26)
+Nothing computes a return that is independent of when money went in: the only figures are the
+simple `profitability_percent` above and `ganhoCapital` in the evolution. **Owner decision first:**
+"weighted return" is read here as **time-weighted return (TWR)** — the Investidor10
+"Rentabilidade" figure and the only one comparable with CDI/IBOV. The alternative is a
+money-weighted return (XIRR on the actual cash flows), which answers "how did *my* money do" and
+is cheap to add per asset once the flows below exist. Build TWR; offer XIRR as a second column if
+the owner wants it.
+- [ ] **Method: monthly Modified Dietz, chained.** For each month: V₀ = value at the previous month
+  end, V₁ = value at this month end, F = net external flow (buys − sells/redemptions, BRL, from
+  `fetch_investments()`), each flow weighted by the fraction of the month it was invested, and
+  proventos paid in the month added to the gain (income, not a flow). r = (V₁ − V₀ − F + D) ÷
+  (V₀ + Σ wᵢFᵢ); TWR = Π(1 + r) − 1. Monthly is the resolution the data allows: past prices come
+  from `get_monthly_history()` (month-end closes, **`auto_adjust=False`, so not dividend-adjusted —
+  proventos must be added, and must not be added twice if that ever changes**).
+- [ ] **Refactor `build_portfolio_evolution()`** (`services/portfolio.py`) so the month loop yields
+  the value of *each* position (its `group_key`) per month, not just totals; the current output is
+  a sum over that. Portfolio TWR and per-asset TWR then share one valuation. Keep the existing
+  output byte-identical (the evolution tests must pass unchanged). Put the return maths in a new
+  `services/returns.py` (above `portfolio` in the layering) as pure functions over (values, flows,
+  income) so they are unit-testable without prices.
+- [ ] **Which value:** gross or net of the estimated fixed-income IR? The evolution's `patrimonio`
+  is net. Gross is what brokers and Investidor10 show; pick one, label it, and use it for both V₀
+  and V₁. Known distortions to document: past months of unquoted classes (CATTLE, manual prices)
+  sit at cost; a missing yfinance month falls back to today's price (`historical_price_for_month`);
+  corporate actions are already rescaled in the stored movements, so they need no handling; a
+  foreign asset's month uses that month's PTAX (already done in `/api/investments/history`).
+- [ ] **Endpoint** `GET /api/investments/returns?months=&asset_class=` (in `routes/investments.py`,
+  reusing the history fetch — extract it from `get_historical_portfolio()` rather than copying):
+  portfolio TWR over the period and year-to-date, the monthly series (return and accumulated), the
+  year × month table, and per asset: TWR since first purchase (capped at the fetched window, say
+  so in the response), plus the simple and total return from the proventos task. `months` capped
+  at 60 like the history. Consider caching per user/day — it is a yfinance round-trip.
+- [ ] **Frontend.** Investimentos → Posição (or a new "Rentabilidade" tab — owner's call): the
+  portfolio TWR in the `SummaryPanel`, an accumulated-return line chart (colours from `CHART`),
+  the year × month table (`.num` cells, gain/loss colours only), and a TWR column per asset. "% do
+  CDI" is one division away (CDI is already fetched by `index_history()`); IBOV/IFIX lines are the
+  benchmark idea below.
+- [ ] **Tests** (`test_returns.py`): single buy and hold equals the price change; a contribution
+  mid-period does not move TWR; a month with a provento adds it; a full sale and re-buy;
+  zero-value months (before the first buy, after a full sale) are skipped rather than dividing by
+  zero; `user_id` isolation on the endpoint; route map entry.
+
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
-- Returns vs benchmarks: time-weighted return, a CDI/IPCA/IBOV/IFIX/IDIV line chart, a year × month
-  return table, "% do CDI". CDI/IPCA are already fetched; the indices would come from brapi/yfinance.
+- Returns vs benchmarks: a CDI/IPCA/IBOV/IFIX/IDIV line chart next to the TWR from the task above.
+  CDI/IPCA are already fetched; the indices would come from brapi/yfinance.
 - Contributions chart: monthly buys vs sells (the operations are already stored — cheap).
 - Concentration alerts: an asset above 10% of the portfolio, no exposure abroad.
 - Allocation by sector/segment: needs a sector per ticker (brapi returns one; store it in the catalog).
-- Proventos screen: split by asset over 12 months, monthly/annual toggle, record date next to the
-  payment date.
 - Harder, external data: fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY), a B3
   import of trades and proventos (the investor-area spreadsheet, via the existing import), and
   IRPF copy-paste text per section.
