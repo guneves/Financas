@@ -164,6 +164,12 @@ PORTFOLIO_COLUMNS = [
     Column("ir_estimado", "IR estimado", "money", lambda a, c: a.get("taxes")),
     Column("valor_liquido", "Valor líquido", "money", lambda a, c: a.get("net_value")),
     Column("rentabilidade", "Rentabilidade (%)", "percent", lambda a, c: a.get("profitability_percent")),
+    # Proventos pagos (liquidos) e a rentabilidade com eles, como a tela Posicao.
+    Column("proventos", "Proventos", "money", lambda a, c: a.get("proceeds_net")),
+    Column("proventos_12m", "Proventos 12m", "money", lambda a, c: a.get("proceeds_12m_net")),
+    Column("dy_12m", "DY 12m (%)", "percent", lambda a, c: a.get("dividend_yield_12m")),
+    Column("rentabilidade_com_proventos", "Rentab. c/ proventos (%)", "percent",
+           lambda a, c: a.get("total_return_percent")),
     Column("isento_ir", "Isento de IR", "text", lambda a, c: "Sim" if a.get("is_tax_free") else "Não"),
     Column("cotacao_de", "Cotação de", "date", lambda a, c: ((a.get("quote") or {}).get("quoted_at") or "")[:10]),
 ]

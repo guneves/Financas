@@ -174,8 +174,25 @@ def test_portfolio_row_computes_the_invested_value():
     assert row[0] == "PETR4"
     assert row[1] == "Ações"
     assert row[5] == "3000,00"
-    assert row[10] == "Não"
-    assert row[11] == "2026-09-22"
+    cell = dict(zip(export_csv.PORTFOLIO_HEADER, row))
+    assert cell["Isento de IR"] == "Não"
+    assert cell["Cotação de"] == "2026-09-22"
+    # Sem proventos no payload: as colunas saem vazias, nao "0,00".
+    assert cell["Proventos"] == ""
+    assert cell["Rentab. c/ proventos (%)"] == ""
+
+
+def test_portfolio_row_carries_the_proceeds_and_total_return():
+    row = export_csv.portfolio_row({
+        "ticker": "MXRF11", "class": "REIT", "quantity": 100,
+        "proceeds_net": 120.5, "proceeds_12m_net": 60.25,
+        "dividend_yield_12m": 6.03, "total_return_percent": 14.7,
+    })
+    cell = dict(zip(export_csv.PORTFOLIO_HEADER, row))
+    assert cell["Proventos"] == "120,50"
+    assert cell["Proventos 12m"] == "60,25"
+    assert cell["DY 12m (%)"] == "6,03"
+    assert cell["Rentab. c/ proventos (%)"] == "14,70"
 
 
 def test_portfolio_row_prefers_the_assets_own_invested_total():
