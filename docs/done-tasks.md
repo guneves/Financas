@@ -71,6 +71,7 @@
 | Phase 6: Evolução do Patrimônio accrues fixed income month by month | 2026-09-23 |
 | Open decision 2: recurring pause skips only the paused window; revival uses a stored cursor — migration 019 | 2026-09-26 |
 | Carteira export: whole quantities without trailing comma in .xlsx; gross − IR = net to the cent; `rounded_money()` on portfolio totals; per-asset `total_invested` | 2026-09-26 |
+| From an Investidor10 PRO survey: target allocation with contribution split (Investimentos → Alocação, migration 020), goals (Planejamento → Metas, migration 021), stock-sale exemption meter (IR tab + sale form) | 2026-09-26 |
 
 ---
 
@@ -308,3 +309,29 @@ From the owner's first real carteira `.xlsx`. Notes worth keeping:
 - **Valor investido.** The snapshot exposes `total_invested` per asset, and the export reads it
   instead of quantity × the rounded average price (which drifted by cents on stocks); the
   `investment_positions` cache (`GET /api/investment-positions`) stores the same value.
+
+### Allocation, goals and exemption meter — 2026-09-26
+
+Picked from a walk through the owner's Investidor10 PRO wallet (Resumo, Posições, Proventos,
+Patrimônio, Rentabilidade, Análise, Lançamentos, DARFs, IRPF, Metas), as the three features that
+reuse what the app already computes and need no new external data.
+
+- **Allocation (020, `services/allocation.py`).** Two levels: class = % of the portfolio, asset = %
+  of its class (changing the Ações target doesn't force redoing each stock's). `GET /api/allocation`
+  returns actual vs target, the gap in R$ and, with `?contribution=`, the split: with the portfolio
+  after the contribution, each class needs `target × new total − current`; the amount is divided in
+  proportion to the positive shortfalls, then again among the class's assets. Cents left by rounding
+  go to the largest shortfall, so the split adds up exactly. "Oportunidade de compra" (as on
+  Investidor10) = below its target in the class *and* quoted below the average price. An asset with
+  a target and no position still appears (that is where the money should go).
+- **Goals (021, `services/goals.py`).** Kinds: NET_WORTH (portfolio net + accounts in BRL, same as
+  Início), PORTFOLIO, ASSET_CLASS, MONTHLY_INCOME (net proventos of the last 365 days / 12). The
+  forecast iterates months with the contribution and the expected annual return turned into a monthly
+  rate (capped at 100 years); an optional target date gives the monthly contribution needed
+  (annuity formula, `rounded_money()`), and "No prazo / Fora do prazo".
+- **Exemption meter (`exemption_meter()` in `services/tax_report.py`).** `GET
+  /api/tax-report/exemption?month=&planned_sale=` returns the month's stock sales, what still fits
+  under R$ 20 mil (≤ 20.000 is exempt, same as the report), the estimated tax if over, and the loss
+  balance up to that month (the apuração is cut at the month, so a month without sales still shows
+  it). `planned_sale` powers the warning in "Registrar operação" → Venda before saving.
+- The rest of the survey is listed in `next-steps.md` ("Ideas from the Investidor10 survey").

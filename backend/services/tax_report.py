@@ -374,3 +374,43 @@ def build_tax_report(current_user_id, year):
         "proventos": income_details,
         "ganho_de_capital": capital_gains(rows, year),
     }
+
+
+def exemption_meter(current_user_id, month, planned_sale=0.0):
+    """Isentometro: vendas de acoes no mes contra o limite de R$ 20 mil.
+
+    Le a mesma apuracao do relatorio (renda_variavel), entao o numero do mes
+    corrente e o que o relatorio anual vai mostrar. `planned_sale` simula uma
+    venda ainda nao lancada: diz se ela faria o mes passar do limite — o
+    aviso que importa e o de antes de vender. So acoes em reais: FII nao tem
+    isencao e ativo no exterior e apurado no ano.
+    """
+    refresh_realized_results(current_user_id)
+    with get_db() as conn:
+        rows = realized_rows(conn, current_user_id)
+    # So ate o mes pedido: o saldo de prejuizo sai certo mesmo num mes sem venda.
+    rows = [row for row in rows if str(row["operation_date"])[:7] <= month]
+    variable = renda_variavel(rows, int(month[:4]))
+    entry = next((m for m in variable["months"] if m["month"] == month), None)
+    stocks = (entry or {}).get("stocks") or {}
+    reits = (entry or {}).get("reits") or {}
+    sales = safe_float(stocks.get("sales"))
+    planned = rounded_money(max(safe_float(planned_sale), 0.0))
+    sales_after = rounded_money(sales + planned)
+    return {
+        "month": month,
+        "limit": STOCK_EXEMPTION_LIMIT,
+        "stock_sales": rounded_money(sales),
+        "remaining": rounded_money(max(STOCK_EXEMPTION_LIMIT - sales, 0.0)),
+        "percent": rounded_money(sales / STOCK_EXEMPTION_LIMIT * 100),
+        "exempt": sales <= STOCK_EXEMPTION_LIMIT,
+        "stock_result": rounded_money(safe_float(stocks.get("result"))),
+        "stock_tax": rounded_money(safe_float(stocks.get("tax"))),
+        "stock_loss_balance": variable["totals"]["stock_loss_balance"],
+        "reit_sales": rounded_money(safe_float(reits.get("sales"))),
+        "reit_tax": rounded_money(safe_float(reits.get("tax"))),
+        "darf": rounded_money(safe_float((entry or {}).get("darf"))),
+        "planned_sale": planned,
+        "sales_after": sales_after,
+        "would_exceed": planned > 0 and sales <= STOCK_EXEMPTION_LIMIT < sales_after,
+    }

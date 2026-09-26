@@ -60,6 +60,11 @@ EXPECTED_ROUTES = {
     ("/api/corporate-actions", "GET,POST"),
     ("/api/tax-report", "GET"),
     ("/api/tax-report/export", "GET"),
+    ("/api/tax-report/exemption", "GET"),
+    ("/api/allocation", "GET"),
+    ("/api/allocation/targets", "PUT"),
+    ("/api/goals", "GET,POST"),
+    ("/api/goals/<goal_id>", "DELETE,GET,PATCH"),
     ("/api/corporate-actions/<action_id>", "DELETE"),
     ("/api/investments/price-by-asset/<asset_id>", "PATCH"),
     ("/api/investments/price-by-ticker", "PATCH"),
@@ -111,7 +116,7 @@ def test_every_route_but_health_and_login_requires_a_token(client, app_module):
         url = rule.replace("<path:ticker>", "PETR4")
         for part in ("<item_id>", "<attachment_id>", "<account_id>", "<category_id>", "<budget_id>",
                      "<recurring_id>", "<rule_id>", "<card_id>", "<proceed_id>", "<investment_id>",
-                     "<asset_id>", "<ticker>", "<action_id>"):
+                     "<asset_id>", "<ticker>", "<action_id>", "<goal_id>"):
             url = url.replace(part, "x")
         assert "<" not in url, url
         for method in methods.split(","):

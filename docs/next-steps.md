@@ -36,6 +36,26 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
 - [ ] Recorrentes after migration 019 (2026-09-26): pause one, check "pausada desde", resume it
   later — only the paused weeks/months are skipped; anything due before the pause stays pending.
   A recurrence paused *before* 019 still resumes the old way (skips everything up to today).
+- [ ] Allocation, goals and the exemption meter (2026-09-26, migrations 020–021): in Investimentos →
+  Alocação, set the class targets (and per-asset ones where you have them) and try "Quanto vai
+  aportar?" with the next contribution — does the split match what you would do? In Planejamento →
+  Metas, recreate the Investidor10 goals (patrimônio 100 mil…5 mi, renda R$ 500) and compare the
+  estimated dates (theirs seem to assume a return; set "Rentabilidade esperada"). On the IR tab,
+  the current month's meter should match Investidor10's "isentômetro" once the same sales are
+  recorded here. Open "Registrar operação" → Venda on a stock to see the warning.
+
+### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
+Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
+- Returns vs benchmarks: time-weighted return, a CDI/IPCA/IBOV/IFIX/IDIV line chart, a year × month
+  return table, "% do CDI". CDI/IPCA are already fetched; the indices would come from brapi/yfinance.
+- Contributions chart: monthly buys vs sells (the operations are already stored — cheap).
+- Concentration alerts: an asset above 10% of the portfolio, no exposure abroad.
+- Allocation by sector/segment: needs a sector per ticker (brapi returns one; store it in the catalog).
+- Proventos screen: split by asset over 12 months, monthly/annual toggle, record date next to the
+  payment date.
+- Harder, external data: fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY), a B3
+  import of trades and proventos (the investor-area spreadsheet, via the existing import), and
+  IRPF copy-paste text per section.
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
@@ -57,6 +77,14 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
   the movement, register the event again.
 - Receipts: no server-side thumbnails (the browser scales the file); the backup mirror copies each
   receipt once, deleted ones are kept for the backup retention.
+- Allocation: the contribution split is proportional to each shortfall (not "fill the furthest
+  behind first") and never sells. A class without per-asset targets gets its share at class level
+  only. Values are net (after estimated IR on fixed income), like the Posição distribution.
+- Goals: the forecast is deterministic (constant monthly contribution and return, compounded
+  monthly); monthly income has no forecast. Income counts net proventos paid in the last 365 days,
+  foreign ones taken as BRL like the IR report.
+- Exemption meter: stocks in BRL only (FII has no exemption, foreign assets are annual); it reads
+  realized results, so a sale shows up once recorded — the form's warning covers the sale being typed.
 
 ---
 

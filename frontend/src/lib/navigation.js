@@ -3,11 +3,13 @@ import {
   CalendarDays,
   CreditCard,
   FileText,
+  Flag,
   History,
   Home,
   PieChart,
   Receipt,
   Repeat,
+  Scale,
   Upload,
   Target,
   Wallet,
@@ -33,6 +35,7 @@ export const sections = [
     tabs: [
       { to: '/planejamento/orcamento', label: 'Orçamento', icon: Target },
       { to: '/planejamento/recorrentes', label: 'Recorrentes', icon: Repeat },
+      { to: '/planejamento/metas', label: 'Metas', icon: Flag },
     ],
   },
   {
@@ -42,6 +45,7 @@ export const sections = [
     tabs: [
       { to: '/investimentos/posicao', label: 'Posição', icon: PieChart },
       { to: '/investimentos/operacoes', label: 'Operações', icon: History },
+      { to: '/investimentos/alocacao', label: 'Alocação', icon: Scale },
       { to: '/investimentos/proventos', label: 'Proventos', icon: CalendarDays },
       { to: '/investimentos/ir', label: 'IR', icon: FileText },
     ],

@@ -9,6 +9,7 @@ import { usePrivateFormatter } from '../lib/privacy'
 import { toast } from '../lib/toast'
 import TickerAutocomplete from './TickerAutocomplete'
 import FixedIncomeFields from './FixedIncomeFields'
+import { SaleExemptionNotice } from './ExemptionMeter'
 import { emptyFixedIncomeForm, fixedIncomeMetadataFromForm } from '../lib/fixedIncome'
 
 // Classes com cotacao na B3: o ativo tem de vir do catalogo, nao de texto livre.
@@ -479,6 +480,10 @@ export default function InvestmentLaunchModal({
           <AlertMessage tone="warning">
             Não há ativos de renda variável disponíveis para venda. Resgates de renda fixa continuam na linha do ativo.
           </AlertMessage>
+        ) : null}
+
+        {mode === 'SELL' && selectedSaleAsset?.class === 'STOCKS' && !isForeign ? (
+          <SaleExemptionNotice date={form.transaction_date} amount={quantity * unitPrice} />
         ) : null}
 
         <div className="flex items-center justify-between rounded-lg bg-zinc-100 px-4 py-3">

@@ -16,10 +16,12 @@ from config import CORS_ORIGINS
 from db import init_db, run_startup_backup
 from routes import (
     accounts as account_routes,
+    allocation as allocation_routes,
     attachments as attachment_routes,
     auth as auth_routes,
     budgets as budget_routes,
     cards as card_routes,
+    goals as goal_routes,
     imports as import_routes,
     investments as investment_routes,
     market as market_routes,
@@ -49,6 +51,8 @@ for blueprint_module in (
     investment_routes,
     proceeds_routes,
     market_routes,
+    allocation_routes,
+    goal_routes,
 ):
     app.register_blueprint(blueprint_module.bp)
 

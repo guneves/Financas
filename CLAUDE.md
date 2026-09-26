@@ -137,12 +137,12 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-698 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+741 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
-multi-currency, the IR report, the integrations healthcheck, `user_id` isolation, and backup
+multi-currency, the IR report and the monthly exemption meter, allocation targets, goals, the integrations healthcheck, `user_id` isolation, and backup
 retention and the receipts mirror. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
@@ -158,7 +158,7 @@ the top of the file — reach it through a fixture or `importlib.import_module` 
 **Patch where the name is read, not where it is defined.** Modules import settings and helpers by
 name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
 whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
-*both* `services.invoices` and `routes.cards` for the `local_today` clock, `services.prices` for
+*both* `services.invoices` and `routes.cards` for the `local_today` clock (`services.goals` for goals), `services.prices` for
 `download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, `services.fx` for
 `fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `routes.investments` for
 `refresh_market_prices` (registering a corporate action fetches a quote), and *both*
@@ -191,10 +191,11 @@ backend/
   services/           # domain rules: accounts, invoices, attachments, prices (quotes, caches),
                       # fixed_income (BCB, accrual), fx (PTAX), investments (movements, cash link,
                       # BRL conversion), corporate_actions, realized_results (FIFO, tax),
-                      # portfolio (positions, evolution), tax_report (IR), health (integrations)
+                      # portfolio (positions, evolution), tax_report (IR, exemption meter),
+                      # allocation (targets, contribution split), goals, health (integrations)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
-                      # proceeds, market
+                      # proceeds, market, allocation, goals
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
   export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
@@ -205,7 +206,7 @@ database/
   schema.sql          # reference schema
   migrations/         # versioned, applied automatically on boot
 frontend/src/
-  pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, investimentos/,
+  pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, Metas, investimentos/,
                       # Proventos, Ajustes + ajustes/, Importar — screen map in lib/navigation.js
   components/         # Layout (nav, "+ Novo" sheet host), NewEntrySheet, ui.jsx (the UI kit)
   lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js,
@@ -298,6 +299,14 @@ docs/
   is BRL. Anything new that computes money from movements must read `fetch_investments()`.
 - **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
   payments never count.
+- **Allocation targets and goals are plans, like budgets** (020, 021): `PUT /api/allocation/targets`
+  replaces the whole set (class targets sum to 100%; asset targets are % *within* their class and
+  sum to 100% in any class that has one), and `DELETE /api/goals/<id>` is a real delete with no
+  guard. Current values, gaps, the contribution split and the goal forecast are computed on read
+  from `build_portfolio_snapshot()` (net values) — never stored.
+- **The exemption meter reads the IR report's own apuração** (`exemption_meter()` calls
+  `renda_variavel()` up to the month), so the R$ 20 mil figure on the IR tab and in the sale form
+  always matches the annual report. Don't give it a second copy of the rule.
 - **`CATTLE` is a live asset class**, not dead code — see `docs/done-tasks.md` (decided 2026-09-15) before touching it.
 
 ## Known sharp edges
@@ -305,7 +314,8 @@ docs/
 - **The layering is strict** (Phase 5, done 2026-09-23): `config` ← `db` ←
   `validators`/`money`/`dates`/`auth`/`asset_classes`/`responses` ← `services/*` ← `routes/*` ←
   `app`. Among the investment services: `prices` ← `fixed_income` ← `fx` ← `investments` ←
-  `corporate_actions` / `realized_results` / `portfolio` ← `tax_report`; `health` sits on top. Nothing imports
+  `corporate_actions` / `realized_results` / `portfolio` ← `tax_report` / `allocation` / `goals`;
+  `health` sits on top. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
   fails `test_route_map.py` by name.

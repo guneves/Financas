@@ -466,3 +466,38 @@ CREATE TABLE IF NOT EXISTS fx_rates (
     fetched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (user_id, currency, rate_date)
 );
+
+-- 020: alocacao alvo ("% ideal"): classe em % da carteira, ativo em % da classe.
+CREATE TABLE IF NOT EXISTS allocation_targets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK (scope IN ('CLASS', 'ASSET')),
+    asset_class TEXT NOT NULL CHECK (asset_class IN ('STOCKS', 'FIXED_INCOME', 'REIT', 'CATTLE', 'OTHER')),
+    asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+    target_percent REAL NOT NULL CHECK (target_percent >= 0 AND target_percent <= 100),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK ((scope = 'CLASS' AND asset_id IS NULL) OR (scope = 'ASSET' AND asset_id IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_allocation_targets_user_key
+ON allocation_targets(user_id, scope, asset_class, COALESCE(asset_id, ''));
+
+-- 021: metas financeiras (so o plano; atual e previsao sao calculados na leitura).
+CREATE TABLE IF NOT EXISTS investment_goals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('PORTFOLIO', 'NET_WORTH', 'ASSET_CLASS', 'MONTHLY_INCOME')),
+    asset_class TEXT CHECK (asset_class IS NULL OR asset_class IN ('STOCKS', 'FIXED_INCOME', 'REIT', 'CATTLE', 'OTHER')),
+    target_amount REAL NOT NULL CHECK (target_amount > 0),
+    monthly_contribution REAL NOT NULL DEFAULT 0 CHECK (monthly_contribution >= 0),
+    annual_return_percent REAL CHECK (annual_return_percent IS NULL OR (annual_return_percent > -100 AND annual_return_percent <= 100)),
+    target_date TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK ((kind = 'ASSET_CLASS') = (asset_class IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_investment_goals_user
+ON investment_goals(user_id, created_at);

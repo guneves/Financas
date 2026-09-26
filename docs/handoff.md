@@ -7,10 +7,10 @@
 
 ---
 
-## Sessions — 2026-09-26 · Recurring pause window (decision 2) and carteira export fixes
+## Sessions — 2026-09-26 · Recurring pause window, carteira export fixes, allocation / goals / exemption meter
 
 Several Claude sessions worked in the same tree at once, coordinated by one that owned no files.
-Each committed only its own files and hunks, in order: exports, recurring, then 020–022.
+Each committed only its own files and hunks, in order: exports, recurring, then allocation/goals (020–021; 022 was reserved and not used).
 
 ### What was done
 
@@ -36,12 +36,15 @@ Each committed only its own files and hunks, in order: exports, recurring, then 
 - **Recurrences paused before 019 have no `paused_at`**, so they resume the old way (walk to today,
   dropping a pre-pause overdue occurrence). This is deliberate: the pause day can't be reconstructed.
 - Still open from 2026-09-23: **restart the backend** (the `:5000` process predates migrations
-  015+, and now 019–022 as well), and the owner walk-through at the top of `next-steps.md`.
+  015+, and now 019–021 as well), and the owner walk-through at the top of `next-steps.md`.
   Decisions 3 and 4 remain open and belong to the owner.
 
 ### Next session
 
-- The owner walk-through, now including re-exporting carteira and pausing/resuming a recurrence.
+- The owner walk-through, now including re-exporting carteira, pausing/resuming a recurrence, and
+  setting allocation targets and goals (item in `next-steps.md`).
+- If the owner wants more from the Investidor10 survey, the list is in `next-steps.md` ("Ideas
+  from the Investidor10 survey"); the cheap ones are the contributions chart and concentration alerts.
 - Otherwise, only what the walk-through turns up.
 
 ### Non-obvious things learned
@@ -57,3 +60,27 @@ Each committed only its own files and hunks, in order: exports, recurring, then 
 - Carried from 2026-09-23: the Bash tool collapses `\\` in heredocs (write scripts with Write). The
   Chrome extension tab is "hidden" (no rAF), so use Playwright for motion and scroll checks. Scratch
   setup lives in the scratchpad `app/` folder (`mint_token.py`, not `token.py`).
+
+### Third session — allocation, goals and the exemption meter (from an Investidor10 survey)
+
+The owner asked Claude (Chrome extension, already logged in) to go through their Investidor10 PRO
+wallet for features worth building here, then to build three of them. The survey covered every tab
+(Resumo, Posições, Proventos, Patrimônio, Rentabilidade, Análise, Lançamentos, DARFs, IRPF, Metas);
+nothing was changed there.
+
+- **Built:** target allocation with a contribution split (Investimentos → Alocação, migration 020,
+  `services/allocation.py`, `routes/allocation.py`); goals (Planejamento → Metas, 021,
+  `services/goals.py`, `routes/goals.py`); the R$ 20 mil exemption meter (`exemption_meter()` in
+  `services/tax_report.py`, `GET /api/tax-report/exemption`) on the IR tab and as a warning in
+  "Registrar operação" → Venda. Rules and edges in `done-tasks.md`; conventions added to CLAUDE.md.
+- **Verified:** 22 new tests (`test_allocation.py`, `test_goals.py`, `test_exemption_meter.py`)
+  plus the route map, full suite 741 passed. Clicked through on a scratch DB (:5012/:5182): the
+  Chrome extension for the targets sheet (its screenshots timed out partway), then Playwright at
+  1400 px and 390 px for Alocação, Metas, the IR meter and the sale warning. That pass found and
+  fixed a truncated forecast month, "ano(s)/mês(es)" plurals, a 12-month income total rebuilt from
+  the rounded average (now sent by the server), and cramped phone rows on Alocação.
+- **Not built:** everything else from the survey (benchmarks, fundamentals, B3 import…), listed in
+  `next-steps.md` as ideas that need the owner's call. Not tried on real data.
+- **Learned:** the frontend's Expand/Collapsible never opens in the Chrome-extension tab (no rAF),
+  so an expanded row looks empty there; Playwright shows it fine. `docs/done-tasks.md` has mixed
+  CRLF/LF line endings, so a scripted exact-match replace fails on it; use the Edit tool.

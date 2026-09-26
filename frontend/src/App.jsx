@@ -17,6 +17,8 @@ const Proventos = lazy(() => import('./pages/Proventos'))
 const ImpostoRenda = lazy(() => import('./pages/investimentos/ImpostoRenda'))
 const Orcamento = lazy(() => import('./pages/Orcamento'))
 const Recorrentes = lazy(() => import('./pages/Recorrentes'))
+const Metas = lazy(() => import('./pages/Metas'))
+const Alocacao = lazy(() => import('./pages/investimentos/Alocacao'))
 const Ajustes = lazy(() => import('./pages/Ajustes'))
 
 export default function App() {
@@ -55,10 +57,12 @@ export default function App() {
             <Route path="/planejamento" element={<Navigate to="/planejamento/orcamento" replace />} />
             <Route path="/planejamento/orcamento" element={<Orcamento />} />
             <Route path="/planejamento/recorrentes" element={<Recorrentes />} />
+            <Route path="/planejamento/metas" element={<Metas />} />
 
             <Route path="/investimentos" element={<Navigate to="/investimentos/posicao" replace />} />
             <Route path="/investimentos/posicao" element={<Investments tab="posicao" />} />
             <Route path="/investimentos/operacoes" element={<Investments tab="operacoes" />} />
+            <Route path="/investimentos/alocacao" element={<Alocacao />} />
             <Route path="/investimentos/proventos" element={<Proventos />} />
             <Route path="/investimentos/ir" element={<ImpostoRenda />} />
 

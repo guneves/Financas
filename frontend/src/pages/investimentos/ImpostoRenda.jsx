@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Copy, Download, FileText } from 'lucide-react'
 import { taxReportApi } from '../../lib/dataApi'
-import { formatCurrency } from '../../lib/format'
+import { formatCurrency, monthKey } from '../../lib/format'
 import { usePrivateFormatter } from '../../lib/privacy'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
+import { ExemptionMeter } from '../../components/ExemptionMeter'
 import { AlertMessage, Badge, Button, EmptyState, IconButton, ListSkeleton, PageHeader, Panel, PanelHeader } from '../../components/ui'
 
 const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -78,6 +79,7 @@ export default function ImpostoRenda() {
       />
 
       <AlertMessage message={exportError || queryErrorMessage(reportQuery, 'Não foi possível montar o relatório.')} onDismiss={exportError ? () => setExportError('') : undefined} />
+      <ExemptionMeter month={monthKey()} />
       {report ? <AlertMessage tone="info" message={report.disclaimer} /> : null}
 
       {reportQuery.isPending ? (

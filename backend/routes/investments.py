@@ -40,7 +40,7 @@ from services.fx import (
     normalize_currency,
     rate_on,
 )
-from services.tax_report import build_tax_report
+from services.tax_report import build_tax_report, exemption_meter
 from services.fixed_income import (
     index_history,
     finish_fixed_income_refresh,
@@ -82,6 +82,7 @@ from services.prices import (
 from services.realized_results import realized_results_summary, refresh_realized_results
 from validators import (
     ValidationError,
+    normalize_month,
     parse_json_body,
     parse_number,
     parse_optional_number,
@@ -954,6 +955,18 @@ def tax_report(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     return jsonify(build_tax_report(current_user_id, year)), 200
+
+
+@bp.route("/api/tax-report/exemption", methods=["GET"])
+@token_required
+def tax_exemption(current_user_id):
+    """Isentometro do mes (padrao: o mes corrente); `planned_sale` simula uma venda."""
+    try:
+        month = normalize_month(request.args.get("month") or datetime.now().strftime("%Y-%m"))
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    planned_sale = safe_float(request.args.get("planned_sale"), 0.0)
+    return jsonify(exemption_meter(current_user_id, month, planned_sale)), 200
 
 
 @bp.route("/api/tax-report/export", methods=["GET"])

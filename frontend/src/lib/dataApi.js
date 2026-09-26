@@ -270,5 +270,21 @@ export const corporateActionsApi = {
 // Relatorio anual de IR (padrao no servidor: o ano passado).
 export const taxReportApi = {
   get: (year) => apiFetch(`/api/tax-report${queryString({ year })}`),
+  // Isentometro: vendas de acoes do mes x R$ 20 mil; planned_sale simula uma venda.
+  exemption: (params = {}) => apiFetch(`/api/tax-report/exemption${queryString(params)}`),
   exportFile: (year) => apiDownload(`/api/tax-report/export${queryString({ year })}`, `ir-${year}.xlsx`)
+}
+
+// Alocacao alvo (020): atual x meta; `contribution` sugere como dividir um aporte.
+export const allocationApi = {
+  get: (params = {}) => apiFetch(`/api/allocation${queryString(params)}`),
+  saveTargets: (payload) => apiFetch('/api/allocation/targets', { method: 'PUT', body: JSON.stringify(payload) })
+}
+
+// Metas financeiras (021).
+export const goalsApi = {
+  list: () => apiFetch('/api/goals'),
+  create: (payload) => apiFetch('/api/goals', { method: 'POST', body: JSON.stringify(payload) }),
+  update: (id, payload) => apiFetch(`/api/goals/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  remove: (id) => apiFetch(`/api/goals/${id}`, { method: 'DELETE' })
 }
