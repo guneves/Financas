@@ -253,6 +253,10 @@ docs/
   `source_id = '<recurrence>:<AAAA-MM-DD>'`, so the unique index `idx_transactions_user_source`
   makes a second run a no-op. Keep that shape for anything else that materializes rows on demand —
   it is what makes the button safe to press twice. Deleting a recurrence keeps its lançamentos.
+  A pause skips only its own window (019): `paused_at` on pause, `(paused_at, resume day)` appended
+  to `pause_gaps` on resume, so an occurrence due before the pause stays pending. Anything that walks
+  occurrences goes through `recurring_occurrence_dates()` / `skip_pause_gaps()`, and revival starts
+  after the stored `last_occurrence_date`, not after the last surviving lançamento.
 - **An invoice is paid only once it has closed.** `invoice_closing_date()` in `backend/services/invoices.py`
   is the rule (same shift as `compute_invoice_start()`; closed *on* the closing day). Every path
   that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is

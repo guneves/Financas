@@ -33,6 +33,9 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
 - [ ] IR tab for the last year against the broker's informe de rendimentos.
 - [ ] Motion and phone layout by eye (scripted checks passed: sheets animate out, count-up only on
   first visit, reduced motion, tab pill).
+- [ ] Recorrentes after migration 019 (2026-09-26): pause one, check "pausada desde", resume it
+  later — only the paused weeks/months are skipped; anything due before the pause stays pending.
+  A recurrence paused *before* 019 still resumes the old way (skips everything up to today).
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
@@ -59,9 +62,5 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
 
 ## 2. Open decisions
 
-2. **Recurring pause/resume** drops an occurrence already overdue before the pause (accepted for now;
-   fix would be a `paused_at` column). Related: reviving a finished recurrence by extending its
-   `end_date` restarts after the latest *surviving* generated lançamento — a stored cursor would fix
-   both.
 3. **Single-user or multi-user?** Schema is ready for either; SQLite is enough for personal use.
 4. **Desktop only or phone access?** The layout is responsive; hosting with HTTPS is undecided.

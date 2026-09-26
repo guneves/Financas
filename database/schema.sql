@@ -156,6 +156,11 @@ CREATE TABLE IF NOT EXISTS recurring_transactions (
     metadata TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- 019: dia da pausa, janelas de pausa ja retomadas (JSON [[inicio, fim]],
+    -- exclusivos) e a ultima data que o /run percorreu.
+    paused_at TEXT,
+    pause_gaps TEXT,
+    last_occurrence_date TEXT,
     CHECK (end_date IS NULL OR end_date >= start_date)
 );
 

@@ -251,7 +251,7 @@ export default function Recorrentes() {
       <Panel>
         <PanelHeader
           title="Recorrências"
-          description="Pausar interrompe a geração sem apagar o histórico; excluir mantém os lançamentos já gerados."
+          description="Pausar interrompe a geração sem apagar o histórico: ao retomar, só o período pausado é pulado — o que já tinha vencido antes continua pendente. Excluir mantém os lançamentos já gerados."
         />
 
         <div className="border-b border-zinc-100 px-5 py-4">
@@ -396,9 +396,11 @@ export default function Recorrentes() {
                   </div>
                   <p className="mt-1 text-sm text-zinc-600">
                     {item.type === 'INCOME' ? 'Receita' : isInvestmentOutflow(item) ? 'Investimento' : 'Despesa'} · {item.category} · {frequencyLabel(item)} ·{' '}
-                    {item.next_run_date
-                      ? `próxima em ${formatDateBR(item.next_run_date)}`
-                      : 'sem próxima data'}
+                    {item.status === 'PAUSED' && item.paused_at
+                      ? `pausada desde ${formatDateBR(item.paused_at)}`
+                      : item.next_run_date
+                        ? `próxima em ${formatDateBR(item.next_run_date)}`
+                        : 'sem próxima data'}
                     {item.end_date ? ` · até ${formatDateBR(item.end_date)}` : ''}
                   </p>
                 </div>

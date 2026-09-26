@@ -76,6 +76,30 @@ def categories_of(client, headers):
     return {item["name"]: item for item in response.get_json()}
 
 
+def pause_since(client, headers, db_module, recurring_id, paused_at):
+    """Pausa e finge que a pausa comecou em `paused_at` (o relogio da rota e hoje).
+
+    `paused_at=None` simula uma pausa anterior a migracao 019, que nao guardava o dia.
+    """
+    response = client.patch(
+        f"/api/recurring/{recurring_id}", json={"active": False}, headers=headers
+    )
+    assert response.status_code == 200
+    with db_module.get_db() as conn:
+        conn.execute(
+            "UPDATE recurring_transactions SET paused_at = ? WHERE id = ?",
+            (iso(paused_at) if paused_at else None, recurring_id),
+        )
+
+
+def resume(client, headers, recurring_id, **extra):
+    response = client.patch(
+        f"/api/recurring/{recurring_id}", json={"active": True, **extra}, headers=headers
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    return response.get_json()
+
+
 # --- criacao e validacao ----------------------------------------------------
 
 
@@ -248,7 +272,7 @@ def test_a_paused_recurrence_is_not_run_even_when_named(client, auth):
     assert run(client, auth, through="2026-06-30", id=recurring["id"])["created"] == 0
 
 
-def test_resuming_skips_the_paused_period(client, auth):
+def test_resuming_skips_the_paused_period(client, auth, db_module):
     """Retomar nao pode cobrar a pausa.
 
     A assinatura ficou cancelada nesses meses: o dinheiro nao saiu, e
@@ -258,12 +282,11 @@ def test_resuming_skips_the_paused_period(client, auth):
     start = today_date() - timedelta(days=180)
     recurring = create_ok(client, auth, amount=50, start_date=iso(start))
     run(client, auth, through=iso(today_date() - timedelta(days=150)))
-    client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=150))
 
-    resumed = client.patch(
-        f"/api/recurring/{recurring['id']}", json={"active": True}, headers=auth
-    ).get_json()
+    resumed = resume(client, auth, recurring["id"])
     assert resumed["next_run_date"] >= iso(today_date())
+    assert resumed["paused_at"] is None
 
     created_before = len(transactions_of(client, auth))
     assert run(client, auth)["created"] == 0
@@ -291,22 +314,20 @@ def test_resuming_honours_an_explicit_next_run_date(client, auth):
     assert resumed["next_run_date"] == "2026-01-10"
 
 
-def test_resuming_after_the_end_date_finishes_the_recurrence(client, auth):
+def test_resuming_after_the_end_date_finishes_the_recurrence(client, auth, db_module):
     recurring = create_ok(
         client,
         auth,
         start_date=iso(today_date() - timedelta(days=90)),
         end_date=iso(today_date() - timedelta(days=30)),
     )
-    client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
-    resumed = client.patch(
-        f"/api/recurring/{recurring['id']}", json={"active": True}, headers=auth
-    ).get_json()
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=91))
+    resumed = resume(client, auth, recurring["id"])
     assert resumed["next_run_date"] is None
     assert resumed["status"] == "FINISHED"
 
 
-def test_resuming_and_extending_in_the_same_save_uses_the_new_end_date(client, auth):
+def test_resuming_and_extending_in_the_same_save_uses_the_new_end_date(client, auth, db_module):
     """Reativar e prorrogar no mesmo salvamento e o caso comum.
 
     Avaliar a retomada contra o end_date antigo encerraria justamente a
@@ -318,7 +339,7 @@ def test_resuming_and_extending_in_the_same_save_uses_the_new_end_date(client, a
         start_date=iso(today_date() - timedelta(days=90)),
         end_date=iso(today_date() - timedelta(days=30)),
     )
-    client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=91))
     resumed = client.patch(
         f"/api/recurring/{recurring['id']}",
         json={"active": True, "end_date": iso(today_date() + timedelta(days=365))},
@@ -328,11 +349,11 @@ def test_resuming_and_extending_in_the_same_save_uses_the_new_end_date(client, a
     assert resumed["next_run_date"] >= iso(today_date())
 
 
-def test_resuming_with_a_new_frequency_uses_the_new_frequency(client, auth):
+def test_resuming_with_a_new_frequency_uses_the_new_frequency(client, auth, db_module):
     recurring = create_ok(
         client, auth, start_date=iso(today_date() - timedelta(days=200)), frequency="MONTHLY"
     )
-    client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=201))
     resumed = client.patch(
         f"/api/recurring/{recurring['id']}",
         json={"active": True, "frequency": "WEEKLY"},
@@ -354,10 +375,11 @@ def test_shrinking_the_end_date_past_the_next_occurrence_finishes_it(client, aut
     assert run(client, auth, through="2026-12-31")["created"] == 0
 
 
-def finished_weekly(client, auth, *, materialize=True):
+def finished_weekly(client, auth, db_module=None):
     """Semanal de -70 a -40 dias: gera -70, -63, -56, -49 e -42, e encerra.
 
-    Sem `materialize`, encerra sem gerar nada (pausa e retoma depois do fim).
+    Com `db_module`, encerra sem gerar nada: pausada antes de 019 (sem
+    paused_at) e retomada hoje, a retomada anda ate hoje e passa do fim.
     """
     recurring = create_ok(
         client,
@@ -366,11 +388,11 @@ def finished_weekly(client, auth, *, materialize=True):
         start_date=iso(today_date() - timedelta(days=70)),
         end_date=iso(today_date() - timedelta(days=40)),
     )
-    if materialize:
+    if db_module is None:
         assert run(client, auth)["created"] == 5
     else:
-        client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
-        client.patch(f"/api/recurring/{recurring['id']}", json={"active": True}, headers=auth)
+        pause_since(client, auth, db_module, recurring["id"], None)
+        resume(client, auth, recurring["id"])
     assert get_recurring(client, auth, recurring["id"])["status"] == "FINISHED"
     return recurring
 
@@ -414,8 +436,8 @@ def test_extending_to_before_the_next_occurrence_stays_finished(client, auth):
     assert updated["pending_count"] == 0
 
 
-def test_a_finished_recurrence_that_never_ran_revives_from_the_start(client, auth):
-    recurring = finished_weekly(client, auth, materialize=False)
+def test_a_finished_recurrence_that_never_ran_revives_from_the_start(client, auth, db_module):
+    recurring = finished_weekly(client, auth, db_module)
     revived = client.patch(
         f"/api/recurring/{recurring['id']}",
         json={"end_date": iso(today_date() + timedelta(days=365))},
@@ -427,18 +449,50 @@ def test_a_finished_recurrence_that_never_ran_revives_from_the_start(client, aut
     assert revived["pending_count"] == 11
 
 
-def test_extending_and_resuming_in_one_save_still_skips_the_pause(client, auth):
+def test_extending_and_resuming_in_one_save_still_skips_the_pause(client, auth, db_module):
     """Reativar no mesmo salvamento aplica a retomada sobre a data revivida."""
     recurring = finished_weekly(client, auth)
-    client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
-    revived = client.patch(
-        f"/api/recurring/{recurring['id']}",
-        json={"active": True, "end_date": iso(today_date() + timedelta(days=365))},
-        headers=auth,
-    ).get_json()
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=38))
+    revived = resume(
+        client, auth, recurring["id"], end_date=iso(today_date() + timedelta(days=365))
+    )
     assert revived["status"] == "ACTIVE"
+    # -35 a -7 caem na pausa (-38 a hoje); hoje ja vale.
     assert revived["next_run_date"] == iso(today_date())
     assert revived["pending_count"] == 1
+
+
+def test_reviving_does_not_bring_back_a_deleted_last_occurrence(client, auth):
+    """O cursor guardado (019), e nao o ultimo lancamento que ainda existe.
+
+    Antes, apagar o lancamento de -42 e prorrogar reconstruia o cursor a partir
+    de -49 e gerava -42 de novo — o lancamento que o usuario acabou de apagar.
+    """
+    recurring = finished_weekly(client, auth)
+    last = max(transactions_of(client, auth), key=lambda item: item["date"])
+    assert last["date"] == iso(today_date() - timedelta(days=42))
+    assert client.delete(f"/api/transactions/{last['id']}", headers=auth).status_code == 200
+
+    revived = client.patch(
+        f"/api/recurring/{recurring['id']}", json={"end_date": None}, headers=auth
+    ).get_json()
+    assert revived["next_run_date"] == iso(today_date() - timedelta(days=35))
+    assert revived["last_occurrence_date"] == iso(today_date() - timedelta(days=42))
+    assert revived["pending_count"] == 6
+    created = run(client, auth)["transactions"]
+    assert iso(today_date() - timedelta(days=42)) not in {item["date"] for item in created}
+
+
+def test_run_records_the_last_occurrence_and_never_moves_it_back(client, auth):
+    recurring = create_ok(client, auth, start_date="2026-01-10")
+    run(client, auth, through="2026-03-31")
+    assert get_recurring(client, auth, recurring["id"])["last_occurrence_date"] == "2026-03-10"
+
+    client.patch(
+        f"/api/recurring/{recurring['id']}", json={"next_run_date": "2026-01-10"}, headers=auth
+    )
+    run(client, auth, through="2026-01-31")
+    assert get_recurring(client, auth, recurring["id"])["last_occurrence_date"] == "2026-03-10"
 
 
 def test_an_explicit_next_date_after_the_end_date_is_refused(client, auth):
@@ -449,22 +503,126 @@ def test_an_explicit_next_date_after_the_end_date_is_refused(client, auth):
     assert response.status_code == 400
 
 
-def test_pausing_after_an_occurrence_came_due_drops_it(client, auth):
-    """Comportamento conhecido e aceito, nao um acidente.
-
-    Uma ocorrencia ja vencida que ainda nao foi lancada e perdida quando a
-    recorrencia e pausada e retomada: a retomada anda ate hoje sem saber
-    quando a pausa comecou. A alternativa (guardar `paused_at` e pular so a
-    janela da pausa) esta registrada em docs/next-steps.md §3.4. Perder um
-    lancamento e visivel e o usuario relanca; inventar despesas que nunca
-    foram pagas seria silencioso.
-    """
+def test_pausing_records_the_day_and_resuming_clears_it(client, auth):
     recurring = create_ok(client, auth, start_date=iso(today_date() - timedelta(days=5)))
-    assert list_recurring(client, auth)["pending_count"] == 1
+    paused = client.patch(
+        f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth
+    ).get_json()
+    assert paused["paused_at"] == iso(today_date())
 
+    # Pausar de novo nao move o dia da pausa.
+    again = client.patch(
+        f"/api/recurring/{recurring['id']}", json={"active": False, "note": "x"}, headers=auth
+    ).get_json()
+    assert again["paused_at"] == iso(today_date())
+
+    resumed = resume(client, auth, recurring["id"])
+    assert resumed["paused_at"] is None
+    assert resumed["pause_gaps"] == []
+
+
+def test_an_occurrence_due_before_the_pause_survives_it(client, auth, db_module):
+    """Decisao 2: pular so a janela da pausa, nao tudo ate hoje.
+
+    Semanal de -10: -10 venceu antes da pausa (-8) e nao foi lancada — o
+    dinheiro saiu, entao continua pendente. -3 caiu dentro da pausa e nao e
+    devida. +4 e a seguinte.
+    """
+    recurring = create_ok(
+        client, auth, frequency="WEEKLY", start_date=iso(today_date() - timedelta(days=10))
+    )
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=8))
+    resumed = resume(client, auth, recurring["id"])
+
+    assert resumed["next_run_date"] == iso(today_date() - timedelta(days=10))
+    assert resumed["pending_count"] == 1
+    assert resumed["pause_gaps"] == [[iso(today_date() - timedelta(days=8)), iso(today_date())]]
+
+    result = run(client, auth)
+    assert [item["date"] for item in result["transactions"]] == [
+        iso(today_date() - timedelta(days=10))
+    ]
+    after = get_recurring(client, auth, recurring["id"])
+    assert after["next_run_date"] == iso(today_date() + timedelta(days=4))
+
+    # Depois que o /run passa da janela, ela sai da linha.
+    run(client, auth, through=iso(today_date() + timedelta(days=4)))
+    assert get_recurring(client, auth, recurring["id"])["pause_gaps"] == []
+
+
+def test_pausing_and_resuming_the_same_day_skips_nothing(client, auth):
+    recurring = create_ok(client, auth, start_date=iso(today_date() - timedelta(days=5)))
     client.patch(f"/api/recurring/{recurring['id']}", json={"active": False}, headers=auth)
-    client.patch(f"/api/recurring/{recurring['id']}", json={"active": True}, headers=auth)
+    resumed = resume(client, auth, recurring["id"])
+    assert resumed["pending_count"] == 1
+    assert run(client, auth)["created"] == 1
 
+
+def test_the_pause_day_and_the_resume_day_are_both_due(client, auth, db_module):
+    """A janela e exclusiva nas duas pontas: o que vence no dia da pausa ja
+    tinha vencido quando o usuario pausou, e o dia da retomada ja e ativo."""
+    recurring = create_ok(
+        client, auth, frequency="WEEKLY", start_date=iso(today_date() - timedelta(days=14))
+    )
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=14))
+    resumed = resume(client, auth, recurring["id"])
+    # -14 (dia da pausa) e hoje; -7 cai na pausa.
+    assert resumed["pending_count"] == 2
+    dates = [item["date"] for item in run(client, auth)["transactions"]]
+    assert dates == [iso(today_date() - timedelta(days=14)), iso(today_date())]
+
+
+def test_a_second_pause_keeps_the_first_window(client, auth, db_module):
+    """Duas pausas antes de rodar: as duas janelas valem, o intervalo ativo entre elas nao."""
+    recurring = create_ok(
+        client, auth, frequency="WEEKLY", start_date=iso(today_date() - timedelta(days=35))
+    )
+    # Datas: -35, -28, -21, -14, -7, hoje.
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=30))
+    with db_module.get_db() as conn:
+        # Primeira pausa retomada em -20 (o relogio da rota e hoje, entao a
+        # janela e escrita direto).
+        conn.execute(
+            "UPDATE recurring_transactions SET active = 1, paused_at = NULL, pause_gaps = ? "
+            "WHERE id = ?",
+            (
+                f'[["{iso(today_date() - timedelta(days=30))}", '
+                f'"{iso(today_date() - timedelta(days=20))}"]]',
+                recurring["id"],
+            ),
+        )
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=10))
+    resume(client, auth, recurring["id"])
+
+    dates = [item["date"] for item in run(client, auth)["transactions"]]
+    assert dates == [
+        iso(today_date() - timedelta(days=35)),
+        iso(today_date() - timedelta(days=14)),
+        iso(today_date()),
+    ]
+
+
+def test_an_explicit_next_date_drops_the_pause_windows(client, auth, db_module):
+    recurring = create_ok(
+        client, auth, frequency="WEEKLY", start_date=iso(today_date() - timedelta(days=10))
+    )
+    pause_since(client, auth, db_module, recurring["id"], today_date() - timedelta(days=8))
+    resume(client, auth, recurring["id"])
+    rewound = client.patch(
+        f"/api/recurring/{recurring['id']}",
+        json={"next_run_date": iso(today_date() - timedelta(days=10))},
+        headers=auth,
+    ).get_json()
+    assert rewound["pause_gaps"] == []
+    assert rewound["pending_count"] == 2
+
+
+def test_a_pause_from_before_the_migration_still_skips_until_today(client, auth, db_module):
+    """Sem paused_at (pausada antes de 019) nao ha como saber quando a pausa
+    comecou: a retomada anda ate hoje, como antes, e a ocorrencia vencida se perde."""
+    recurring = create_ok(client, auth, start_date=iso(today_date() - timedelta(days=5)))
+    pause_since(client, auth, db_module, recurring["id"], None)
+    resume(client, auth, recurring["id"])
     assert list_recurring(client, auth)["pending_count"] == 0
     assert run(client, auth)["created"] == 0
 

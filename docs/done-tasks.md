@@ -69,6 +69,7 @@
 | Phase 6: multi-currency assets and accounts (USD, EUR, GBP via BCB PTAX) — migration 018 | 2026-09-23 |
 | Phase 6: annual tax report (IR tab + .xlsx) | 2026-09-23 |
 | Phase 6: Evolução do Patrimônio accrues fixed income month by month | 2026-09-23 |
+| Open decision 2: recurring pause skips only the paused window; revival uses a stored cursor — migration 019 | 2026-09-26 |
 | Carteira export: whole quantities without trailing comma in .xlsx; gross − IR = net to the cent; `rounded_money()` on portfolio totals; per-asset `total_invested` | 2026-09-26 |
 
 ---
@@ -277,6 +278,21 @@ real data is the part that stays open. Notes worth keeping:
   Proventos of foreign assets are taken as BRL (not converted).
 - **Evolução.** Past months use `accrual_factor_until()` with CDI/IPCA from `index_history()`; the
   current month uses the stored BCB quote, or the series when the title has none yet.
+
+### Recurring pause window — 2026-09-26
+
+- **Decision 2, settled in code.** Pausing stores `paused_at` (the day). Resuming appends the window
+  `(paused_at, resume day)` to `pause_gaps` (JSON `[[start, end]]`), exclusive at both ends, and
+  leaves `next_run_date` where it was: an occurrence due before the pause (or on the pause day)
+  stays pending, occurrences strictly inside the window are never due. `/run`, the pending count and
+  the forecast all skip windows through `recurring_occurrence_dates()`; `/run` drops a window once
+  the cursor has passed it. Pause and resume on the same day skip nothing.
+- **Stored cursor.** `last_occurrence_date` is the last date `/run` walked (never moved back, even by
+  a rewound `next_run_date`); reviving a finished recurrence starts after it, so deleting the last
+  generated lançamento no longer brings it back. 019 backfills it from the materialized rows.
+- **Edges.** A recurrence paused before 019 has no `paused_at` and resumes the old way (walks to
+  today). An explicit `next_run_date` in a PATCH clears the windows — the user took the cursor.
+  Recorrentes shows "pausada desde dd/mm" for a paused row.
 
 ### Carteira export fixes — 2026-09-26
 
