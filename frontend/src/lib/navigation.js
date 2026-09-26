@@ -12,6 +12,7 @@ import {
   Scale,
   Upload,
   Target,
+  TrendingUp,
   Wallet,
 } from 'lucide-react'
 
@@ -44,6 +45,7 @@ export const sections = [
     icon: Briefcase,
     tabs: [
       { to: '/investimentos/posicao', label: 'Posição', icon: PieChart },
+      { to: '/investimentos/rentabilidade', label: 'Rentabilidade', icon: TrendingUp },
       { to: '/investimentos/operacoes', label: 'Operações', icon: History },
       { to: '/investimentos/alocacao', label: 'Alocação', icon: Scale },
       { to: '/investimentos/proventos', label: 'Proventos', icon: CalendarDays },
