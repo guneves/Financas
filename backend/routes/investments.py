@@ -4,8 +4,9 @@ As regras moram em services/ (investments, realized_results, portfolio, prices,
 fixed_income); aqui ficam as rotas. Toda escrita em movimentacao recalcula o
 resultado realizado e as posicoes materializadas antes de responder.
 
-`get_historical_portfolio()` le `yf` para decidir se busca historico — os
-testes trocam `yf` aqui e em services/prices.py.
+`load_history_inputs()` (historico e rentabilidade) le `yf` para decidir se
+busca historico — os testes trocam `yf` aqui e em services/prices.py, e
+`get_monthly_history` aqui.
 """
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
@@ -80,6 +81,7 @@ from services.prices import (
     yf,
 )
 from services.realized_results import realized_results_summary, refresh_realized_results
+from services.returns import build_investment_returns, returns_evaluated_months
 from validators import (
     ValidationError,
     normalize_month,
@@ -801,80 +803,102 @@ def update_stock_prices(current_user_id):
         return jsonify({"error": "Nao foi possivel atualizar os precos."}), 500
 
 
+def read_months_arg(args, default=12):
+    """`?months=` do historico e da rentabilidade: de 1 a 60."""
+    try:
+        months_back = int(args.get("months", default))
+    except (TypeError, ValueError):
+        months_back = default
+    return max(1, min(months_back, 60))
+
+
+def load_history_inputs(current_user_id, months_back, asset_class_filter):
+    """O que a evolucao e a rentabilidade avaliam: as movimentacoes (em reais,
+    filtradas pela classe), o fechamento mensal dos cotados em reais e as series
+    CDI/IPCA da renda fixa. Cobre os ultimos `months_back` meses."""
+    investments_data = fetch_investments(current_user_id)
+    filtered_investments = [
+        inv for inv in investments_data
+        if asset_class_filter is None or inv.get("asset_class") == asset_class_filter
+    ]
+    start_date = subtract_months(datetime.now(), months_back + 1).strftime("%Y-%m-%d")
+
+    historical_prices = {}
+    quoted_assets = [
+        inv for inv in filtered_investments
+        if inv.get("asset_class") in QUOTED_ASSET_CLASSES
+    ]
+    unique_tickers = sorted({
+        ticker_key(asset.get("ticker_or_name"))
+        for asset in quoted_assets
+        if ticker_key(asset.get("ticker_or_name"))
+    })
+
+    if yf is None:
+        historical_prices = {ticker: {} for ticker in unique_tickers}
+    elif unique_tickers:
+        future = _price_fetch_executor.submit(get_monthly_history, unique_tickers, start_date)
+        try:
+            historical_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+        except FutureTimeoutError:
+            logger.warning("Tempo limite ao buscar historico no yfinance.")
+            historical_prices = {ticker: {} for ticker in unique_tickers}
+        except Exception as exc:
+            logger.exception(f"Erro ao buscar historico no yfinance: {exc}")
+            historical_prices = {ticker: {} for ticker in unique_tickers}
+
+    # Historico de ativo em moeda estrangeira vem na moeda dele: cada mes
+    # vira reais pelo cambio do fim daquele mes.
+    foreign_currency = {
+        ticker_key(asset.get("ticker_or_name")): asset.get("native_currency")
+        for asset in quoted_assets
+        if asset.get("native_currency") and asset.get("native_currency") != BASE_CURRENCY
+    }
+    if foreign_currency:
+        with get_db() as conn:
+            for ticker, currency in foreign_currency.items():
+                months = historical_prices.get(ticker) or {}
+                rates = monthly_rates(conn, current_user_id, currency, sorted(months))
+                historical_prices[ticker] = {
+                    key: price * rates[key] for key, price in months.items() if rates.get(key)
+                }
+
+    # Renda fixa nos meses passados: CDI/IPCA desde a compra mais antiga.
+    index_series = None
+    fixed_titles = [
+        inv for inv in filtered_investments
+        if inv.get("asset_class") == "FIXED_INCOME" and safe_float(inv.get("quantity")) > 0
+        and not (inv.get("metadata") or {}).get("is_redemption")
+    ]
+    if fixed_titles:
+        first_purchase = min(parse_iso_date(investment_transaction_date(inv.get("metadata") or {}, inv.get("created_at"))) for inv in fixed_titles)
+        need_ipca = any((inv.get("metadata") or {}).get("indexer") == "IPCA" for inv in fixed_titles)
+        index_series = fetch_index_history(first_purchase, need_ipca)
+
+    return filtered_investments, historical_prices, index_series
+
+
+def fetch_index_history(start_date, need_ipca):
+    """CDI (e IPCA) do BCB com tempo limite; None se nao vier."""
+    future = _index_history_executor.submit(index_history, start_date, need_ipca)
+    try:
+        return future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+    except FutureTimeoutError:
+        logger.warning("Tempo limite ao buscar CDI/IPCA para a evolucao.")
+    except Exception as exc:
+        logger.warning(f"CDI/IPCA indisponivel para a evolucao: {exc}")
+    return None
+
+
 @bp.route("/api/investments/history", methods=["GET"])
 @token_required
 def get_historical_portfolio(current_user_id):
     try:
-        investments_data = fetch_investments(current_user_id)
-        try:
-            months_back = int(request.args.get("months", 12))
-        except ValueError:
-            months_back = 12
-        months_back = max(1, min(months_back, 60))
+        months_back = read_months_arg(request.args)
         asset_class_filter = parse_asset_class_filter(request.args.get("asset_class"))
-        filtered_investments = [
-            inv for inv in investments_data
-            if asset_class_filter is None or inv.get("asset_class") == asset_class_filter
-        ]
-        start_date = subtract_months(datetime.now(), months_back + 1).strftime("%Y-%m-%d")
-
-        historical_prices = {}
-        quoted_assets = [
-            inv for inv in filtered_investments
-            if inv.get("asset_class") in QUOTED_ASSET_CLASSES
-        ]
-        unique_tickers = sorted({
-            ticker_key(asset.get("ticker_or_name"))
-            for asset in quoted_assets
-            if ticker_key(asset.get("ticker_or_name"))
-        })
-
-        if yf is None:
-            historical_prices = {ticker: {} for ticker in unique_tickers}
-        elif unique_tickers:
-            future = _price_fetch_executor.submit(get_monthly_history, unique_tickers, start_date)
-            try:
-                historical_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
-            except FutureTimeoutError:
-                logger.warning("Tempo limite ao buscar historico no yfinance.")
-                historical_prices = {ticker: {} for ticker in unique_tickers}
-            except Exception as exc:
-                logger.exception(f"Erro ao buscar historico no yfinance: {exc}")
-                historical_prices = {ticker: {} for ticker in unique_tickers}
-
-        # Historico de ativo em moeda estrangeira vem na moeda dele: cada mes
-        # vira reais pelo cambio do fim daquele mes.
-        foreign_currency = {
-            ticker_key(asset.get("ticker_or_name")): asset.get("native_currency")
-            for asset in quoted_assets
-            if asset.get("native_currency") and asset.get("native_currency") != BASE_CURRENCY
-        }
-        if foreign_currency:
-            with get_db() as conn:
-                for ticker, currency in foreign_currency.items():
-                    months = historical_prices.get(ticker) or {}
-                    rates = monthly_rates(conn, current_user_id, currency, sorted(months))
-                    historical_prices[ticker] = {
-                        key: price * rates[key] for key, price in months.items() if rates.get(key)
-                    }
-
-        # Renda fixa nos meses passados: CDI/IPCA desde a compra mais antiga.
-        index_series = None
-        fixed_titles = [
-            inv for inv in filtered_investments
-            if inv.get("asset_class") == "FIXED_INCOME" and safe_float(inv.get("quantity")) > 0
-            and not (inv.get("metadata") or {}).get("is_redemption")
-        ]
-        if fixed_titles:
-            first_purchase = min(parse_iso_date(investment_transaction_date(inv.get("metadata") or {}, inv.get("created_at"))) for inv in fixed_titles)
-            need_ipca = any((inv.get("metadata") or {}).get("indexer") == "IPCA" for inv in fixed_titles)
-            future = _index_history_executor.submit(index_history, first_purchase, need_ipca)
-            try:
-                index_series = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
-            except FutureTimeoutError:
-                logger.warning("Tempo limite ao buscar CDI/IPCA para a evolucao.")
-            except Exception as exc:
-                logger.warning(f"CDI/IPCA indisponivel para a evolucao: {exc}")
+        filtered_investments, historical_prices, index_series = load_history_inputs(
+            current_user_id, months_back, asset_class_filter,
+        )
 
         evolution = build_portfolio_evolution(
             filtered_investments,
@@ -890,6 +914,38 @@ def get_historical_portfolio(current_user_id):
     except Exception as exc:
         logger.exception(f"Erro no historico de investimentos: {exc}")
         return jsonify({"error": "Nao foi possivel carregar o historico de investimentos."}), 500
+
+
+@bp.route("/api/investments/returns", methods=["GET"])
+@token_required
+def get_investment_returns(current_user_id):
+    """Rentabilidade ponderada no tempo (TWR mensal, Dietz modificado)."""
+    try:
+        months_back = read_months_arg(request.args)
+        asset_class_filter = parse_asset_class_filter(request.args.get("asset_class"))
+        # Um mes a mais (o valor inicial do primeiro) e, no minimo, o ano
+        # corrente inteiro, para o acumulado no ano.
+        evaluated_months = returns_evaluated_months(months_back)
+        filtered_investments, historical_prices, index_series = load_history_inputs(
+            current_user_id, evaluated_months, asset_class_filter,
+        )
+        first_month = subtract_months(datetime.now().replace(day=1), evaluated_months - 1)
+        cdi_series = fetch_index_history(
+            datetime(first_month.year, first_month.month, 1), False,
+        )
+        result = build_investment_returns(
+            current_user_id,
+            filtered_investments,
+            historical_prices,
+            months_back,
+            index_series=index_series,
+            cdi_series=(cdi_series or {}).get("cdi"),
+            asset_class=asset_class_filter,
+        )
+        return jsonify(result), 200
+    except Exception as exc:
+        logger.exception(f"Erro na rentabilidade dos investimentos: {exc}")
+        return jsonify({"error": "Nao foi possivel calcular a rentabilidade."}), 500
 
 
 @bp.route("/api/corporate-actions", methods=["GET", "POST"])

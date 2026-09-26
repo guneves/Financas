@@ -81,127 +81,165 @@ def portfolio_evolution_months(months_back):
     ]
 
 
+def evolution_group_key(investment):
+    """Chave da posicao a que a movimentacao pertence na evolucao, ou None se ela
+    fica de fora. Renda fixa agrupa pelo titulo (id da compra; o resgate aponta
+    para ele em `related_id`), o resto por classe:ticker."""
+    metadata = investment.get("metadata") or {}
+    asset_class = investment.get("asset_class")
+    ticker = ticker_key(investment.get("ticker_or_name"))
+    if not asset_class or not ticker:
+        return None
+    if safe_float(investment.get("quantity")) == 0:
+        return None
+    if movement_affects_fixed_income_position(investment):
+        return str(metadata.get("related_id"))
+    if asset_class == "FIXED_INCOME" and metadata.get("is_redemption"):
+        return None
+    return str(investment.get("id")) if asset_class == "FIXED_INCOME" else f"{asset_class}:{ticker}"
+
+
+def portfolio_month_positions(investments_data, historical_prices, month_start, index_series, current_month_key):
+    """Cada posicao no fim do mes: {group_key: {ticker, class, applied, gross, net}}.
+
+    `gross` e o valor de mercado; `net` desconta o IR estimado da renda fixa.
+    So entram as posicoes com quantidade e valor aplicado positivos.
+    """
+    target_key = month_key(month_start)
+    target_end = month_end(month_start)
+    positions = {}
+
+    for investment in investments_data:
+        metadata = investment.get("metadata") or {}
+        if investment_movement_date(investment) > target_end:
+            continue
+
+        group_key = evolution_group_key(investment)
+        if group_key is None:
+            continue
+        asset_class = investment.get("asset_class")
+        ticker = ticker_key(investment.get("ticker_or_name"))
+        quantity = safe_float(investment.get("quantity"))
+        average_price = safe_float(investment.get("average_price"))
+
+        if group_key not in positions:
+            positions[group_key] = {
+                "ticker": ticker,
+                "class": asset_class,
+                "quantity": 0,
+                "applied": 0,
+                "original_applied": 0,
+                "current_price": safe_float(investment.get("current_price"), average_price),
+                "metadata": metadata,
+            }
+
+        position = positions[group_key]
+        position["applied"] += quantity * average_price
+        if not movement_affects_fixed_income_position(investment):
+            position["quantity"] += quantity
+            if asset_class == "FIXED_INCOME" and quantity > 0:
+                position["original_applied"] += quantity * average_price
+                position["metadata"] = metadata
+                position["ticker"] = ticker
+                position["purchase_date"] = investment_movement_date(investment)
+                position["quote_source"] = investment.get("current_quote_source")
+        if investment.get("current_price") is not None and not movement_affects_fixed_income_position(investment):
+            position["current_price"] = safe_float(investment.get("current_price"), average_price)
+
+    valued = {}
+    for group_key, position in positions.items():
+        quantity = position["quantity"]
+        applied_value = position["applied"]
+        if quantity <= 0 or applied_value <= 0:
+            continue
+
+        adjusted_quantity = quantity
+        if position["class"] == "CATTLE":
+            mortality_rate = safe_float(position["metadata"].get("mortality_rate"))
+            adjusted_quantity = quantity * (1 - mortality_rate)
+
+        if position["class"] in QUOTED_ASSET_CLASSES:
+            price = historical_price_for_month(
+                historical_prices,
+                position["ticker"],
+                target_key,
+            )
+            if price is None:
+                price = safe_float(position.get("current_price"), applied_value / quantity)
+            market_value = adjusted_quantity * price
+        elif (
+            position["class"] == "FIXED_INCOME" and target_key == current_month_key
+            and (position.get("quote_source") == "cdi" or not index_series)
+        ):
+            original_applied = position.get("original_applied", applied_value)
+            if original_applied > 0:
+                factor = safe_float(position.get("current_price"), original_applied) / original_applied
+                market_value = applied_value * factor
+            else:
+                market_value = applied_value
+        elif position["class"] == "FIXED_INCOME" and index_series and position.get("purchase_date"):
+            # Mes passado (ou o atual, se o titulo ainda nao tem cotacao do
+            # BCB): corrigido pela serie ate o fim do mes, ou ate hoje.
+            purchase = parse_iso_date(position["purchase_date"])
+            until = min(target_end, datetime.now())
+            factor = accrual_factor_until(position["metadata"], purchase, until, index_series) if purchase else None
+            market_value = applied_value * factor if factor else applied_value
+        elif target_key == current_month_key:
+            market_value = adjusted_quantity * safe_float(
+                position.get("current_price"),
+                applied_value / quantity,
+            )
+        else:
+            market_value = applied_value
+
+        net_value = fixed_income_net_value(
+            position["class"],
+            position["metadata"],
+            applied_value,
+            market_value,
+            target_end,
+        )
+        valued[group_key] = {
+            "ticker": position["ticker"],
+            "class": position["class"],
+            "applied": applied_value,
+            "gross": market_value,
+            "net": net_value,
+        }
+
+    return valued
+
+
+def iter_portfolio_months(investments_data, historical_prices, months_back, index_series=None):
+    """(inicio do mes, posicoes no fim do mes) dos ultimos `months_back` meses.
+
+    E o laco da evolucao; a rentabilidade (services/returns.py) le as posicoes
+    uma a uma daqui, para as duas sairem da mesma avaliacao."""
+    current_month_key = month_key(datetime.now())
+    for month_start in portfolio_evolution_months(months_back):
+        yield month_start, portfolio_month_positions(
+            investments_data, historical_prices, month_start, index_series, current_month_key,
+        )
+
+
 def build_portfolio_evolution(investments_data, historical_prices, months_back, index_series=None):
     """Patrimonio mes a mes. `index_series` (CDI/IPCA, de fixed_income.index_history)
     corrige a renda fixa nos meses passados; sem ele, eles ficam no custo."""
-    months = portfolio_evolution_months(months_back)
-    current_month_key = month_key(datetime.now())
     evolution = []
 
-    for month_start in months:
-        target_key = month_key(month_start)
-        target_end = month_end(month_start)
-        positions = {}
-
-        for investment in investments_data:
-            metadata = investment.get("metadata") or {}
-            if investment_movement_date(investment) > target_end:
-                continue
-
-            asset_class = investment.get("asset_class")
-            ticker = ticker_key(investment.get("ticker_or_name"))
-            if not asset_class or not ticker:
-                continue
-
-            quantity = safe_float(investment.get("quantity"))
-            average_price = safe_float(investment.get("average_price"))
-            if quantity == 0:
-                continue
-
-            if movement_affects_fixed_income_position(investment):
-                group_key = str(metadata.get("related_id"))
-            elif asset_class == "FIXED_INCOME" and metadata.get("is_redemption"):
-                continue
-            else:
-                group_key = str(investment.get("id")) if asset_class == "FIXED_INCOME" else f"{asset_class}:{ticker}"
-
-            if group_key not in positions:
-                positions[group_key] = {
-                    "ticker": ticker,
-                    "class": asset_class,
-                    "quantity": 0,
-                    "applied": 0,
-                    "original_applied": 0,
-                    "current_price": safe_float(investment.get("current_price"), average_price),
-                    "metadata": metadata,
-                }
-
-            position = positions[group_key]
-            position["applied"] += quantity * average_price
-            if not movement_affects_fixed_income_position(investment):
-                position["quantity"] += quantity
-                if asset_class == "FIXED_INCOME" and quantity > 0:
-                    position["original_applied"] += quantity * average_price
-                    position["metadata"] = metadata
-                    position["ticker"] = ticker
-                    position["purchase_date"] = investment_movement_date(investment)
-                    position["quote_source"] = investment.get("current_quote_source")
-            if investment.get("current_price") is not None and not movement_affects_fixed_income_position(investment):
-                position["current_price"] = safe_float(investment.get("current_price"), average_price)
-
+    for month_start, positions in iter_portfolio_months(
+        investments_data, historical_prices, months_back, index_series,
+    ):
         applied_total = 0
         net_total = 0
-
         for position in positions.values():
-            quantity = position["quantity"]
-            applied_value = position["applied"]
-            if quantity <= 0 or applied_value <= 0:
-                continue
-
-            adjusted_quantity = quantity
-            if position["class"] == "CATTLE":
-                mortality_rate = safe_float(position["metadata"].get("mortality_rate"))
-                adjusted_quantity = quantity * (1 - mortality_rate)
-
-            if position["class"] in QUOTED_ASSET_CLASSES:
-                price = historical_price_for_month(
-                    historical_prices,
-                    position["ticker"],
-                    target_key,
-                )
-                if price is None:
-                    price = safe_float(position.get("current_price"), applied_value / quantity)
-                market_value = adjusted_quantity * price
-            elif (
-                position["class"] == "FIXED_INCOME" and target_key == current_month_key
-                and (position.get("quote_source") == "cdi" or not index_series)
-            ):
-                original_applied = position.get("original_applied", applied_value)
-                if original_applied > 0:
-                    factor = safe_float(position.get("current_price"), original_applied) / original_applied
-                    market_value = applied_value * factor
-                else:
-                    market_value = applied_value
-            elif position["class"] == "FIXED_INCOME" and index_series and position.get("purchase_date"):
-                # Mes passado (ou o atual, se o titulo ainda nao tem cotacao do
-                # BCB): corrigido pela serie ate o fim do mes, ou ate hoje.
-                purchase = parse_iso_date(position["purchase_date"])
-                until = min(target_end, datetime.now())
-                factor = accrual_factor_until(position["metadata"], purchase, until, index_series) if purchase else None
-                market_value = applied_value * factor if factor else applied_value
-            elif target_key == current_month_key:
-                market_value = adjusted_quantity * safe_float(
-                    position.get("current_price"),
-                    applied_value / quantity,
-                )
-            else:
-                market_value = applied_value
-
-            net_value = fixed_income_net_value(
-                position["class"],
-                position["metadata"],
-                applied_value,
-                market_value,
-                target_end,
-            )
-
-            applied_total += applied_value
-            net_total += net_value
+            applied_total += position["applied"]
+            net_total += position["net"]
 
         gain = net_total - applied_total
         evolution.append({
             "month": month_label(month_start),
-            "month_key": target_key,
+            "month_key": month_key(month_start),
             "patrimonio": rounded_money(max(net_total, 0)),
             "valorAplicado": rounded_money(max(applied_total, 0)),
             "ganhoCapital": rounded_money(max(gain, 0)),

@@ -19,6 +19,7 @@ const Orcamento = lazy(() => import('./pages/Orcamento'))
 const Recorrentes = lazy(() => import('./pages/Recorrentes'))
 const Metas = lazy(() => import('./pages/Metas'))
 const Alocacao = lazy(() => import('./pages/investimentos/Alocacao'))
+const Rentabilidade = lazy(() => import('./pages/investimentos/Rentabilidade'))
 const Ajustes = lazy(() => import('./pages/Ajustes'))
 
 export default function App() {
@@ -61,6 +62,7 @@ export default function App() {
 
             <Route path="/investimentos" element={<Navigate to="/investimentos/posicao" replace />} />
             <Route path="/investimentos/posicao" element={<Investments tab="posicao" />} />
+            <Route path="/investimentos/rentabilidade" element={<Rentabilidade />} />
             <Route path="/investimentos/operacoes" element={<Investments tab="operacoes" />} />
             <Route path="/investimentos/alocacao" element={<Alocacao />} />
             <Route path="/investimentos/proventos" element={<Proventos />} />
