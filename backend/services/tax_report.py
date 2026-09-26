@@ -25,6 +25,7 @@ from datetime import datetime
 from db import get_db
 from money import rounded_money
 from services.fx import BASE_CURRENCY, normalize_currency
+from services.proceeds import paid_proceeds_in_year
 from services.realized_results import refresh_realized_results
 from services.investments import (
     fetch_investments,
@@ -271,16 +272,8 @@ def exterior(rows, year):
 
 
 def proceeds_rows(conn, current_user_id, year):
-    return conn.execute(
-        """
-        SELECT p.*, a.asset_class, a.ticker
-        FROM investment_proceeds p
-        JOIN assets a ON a.id = p.asset_id AND a.user_id = p.user_id
-        WHERE p.user_id = ? AND substr(p.payment_date, 1, 4) = ? AND p.payment_date <= ?
-        ORDER BY p.payment_date
-        """,
-        (current_user_id, str(year), datetime.now().strftime("%Y-%m-%d")),
-    ).fetchall()
+    # Valores como gravados (em reais, mesmo de ativo no exterior): ver services/proceeds.py.
+    return paid_proceeds_in_year(conn, current_user_id, year)
 
 
 def income_sections(proceeds, rows, year):

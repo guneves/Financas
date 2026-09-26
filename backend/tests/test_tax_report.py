@@ -183,3 +183,63 @@ def test_another_users_trades_stay_out(client, user, other_user):
     body = report(client, user["headers"])
     assert body["bens_e_direitos"] == []
     assert body["renda_variavel"]["months"] == []
+
+
+# --- Proventos no relatorio: o que tax_report le de services/proceeds.py ---
+
+
+def proceed(client, headers, asset_id, payment_date, gross, *, kind="DIVIDEND", tax=0):
+    response = client.post(
+        "/api/investment-proceeds", headers=headers,
+        json={"asset_id": asset_id, "proceeds_type": kind, "record_date": payment_date,
+              "payment_date": payment_date, "gross_amount": gross, "tax_amount": tax},
+    )
+    assert response.status_code == 201, response.get_data(as_text=True)
+
+
+def test_proceeds_are_the_calendar_year_inclusive_and_ordered_by_payment(client, auth):
+    buy = trade(client, auth, "PETR4", 100, 10.0, "2024-06-10")
+    # Gravados fora de ordem; o relatorio lista por data de pagamento.
+    for date, gross in (("2025-12-31", 4), ("2026-01-01", 8), ("2025-06-15", 2),
+                        ("2024-12-31", 16), ("2025-01-01", 1)):
+        proceed(client, auth, buy["asset_id"], date, gross)
+    proceed(client, auth, buy["asset_id"], "2025-03-10", 32, kind="AMORTIZATION")
+    body = report(client, auth)
+
+    # Amortizacao nao e rendimento: fica fora da lista e das linhas.
+    assert [item["date"] for item in body["proventos"]] == ["2025-01-01", "2025-06-15", "2025-12-31"]
+    assert [item["gross"] for item in body["proventos"]] == [1, 2, 4]
+    assert {"line": "09 - Lucros e dividendos recebidos", "amount": 7.0} in body["rendimentos_isentos"]
+
+
+def test_a_scheduled_proceed_stays_out_until_paid(client, auth):
+    today = datetime.now().date()
+    tomorrow = today + timedelta(days=1)
+    buy = trade(client, auth, "HGLG11", 10, 100.0, (today - timedelta(days=400)).isoformat(), asset_class="REIT")
+    proceed(client, auth, buy["asset_id"], today.isoformat(), 3)
+    proceed(client, auth, buy["asset_id"], tomorrow.isoformat(), 5)
+    body = report(client, auth, year=today.year)
+
+    assert [item["date"] for item in body["proventos"]] == [today.isoformat()]
+    assert {"line": "99 - Rendimentos de FII", "amount": 3.0} in body["rendimentos_isentos"]
+
+
+def test_a_foreign_proceed_is_taken_as_recorded_in_reais(client, auth):
+    buy = trade(client, auth, "AAPL", 10, 100.0, "2025-02-03", currency="USD")
+    proceed(client, auth, buy["asset_id"], "2025-05-15", 10, kind="JCP", tax=1.5)
+    body = report(client, auth)
+
+    jcp = next(item for item in body["tributacao_exclusiva"] if item["line"].startswith("10"))
+    assert (jcp["gross"], jcp["withheld"]) == (10, 1.5)   # sem PTAX (5,00) aplicada
+    assert body["proventos"] == [{"date": "2025-05-15", "ticker": "AAPL", "type": "JCP", "gross": 10, "tax": 1.5}]
+
+
+def test_another_users_proceeds_stay_out(client, user, other_user):
+    theirs = trade(client, other_user["headers"], "PETR4", 100, 10.0, "2025-01-10")
+    proceed(client, other_user["headers"], theirs["asset_id"], "2025-03-20", 50)
+    mine = trade(client, user["headers"], "VALE3", 100, 10.0, "2025-01-10")
+    proceed(client, user["headers"], mine["asset_id"], "2025-04-20", 7)
+    body = report(client, user["headers"])
+
+    assert [item["ticker"] for item in body["proventos"]] == ["VALE3"]
+    assert {"line": "09 - Lucros e dividendos recebidos", "amount": 7.0} in body["rendimentos_isentos"]
