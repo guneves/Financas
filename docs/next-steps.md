@@ -49,13 +49,8 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
   check the 1280px layout and decide whether "Rentab. c/ proventos" should replace "Rentab.");
   the new Investimentos → Rentabilidade tab (TWR vs Investidor10's "Rentabilidade" and "% do CDI");
   Operações' "Aportes e resgates" chart; Alocação's concentration warning (asset > 10%, no
-  exposure abroad).
-
-### Follow-ups from the 2026-09-26 investments work
-- [ ] Rentabilidade: no asset-class filter in the UI (the endpoint takes `asset_class`).
-- [ ] Carteira CSV/.xlsx export has no provento / total-return columns.
-- [ ] `tax_report.proceeds_rows()` still carries its own proceeds SQL (year filter and ordering made
-  folding it onto `services/proceeds.py` non-trivial).
+  exposure abroad). Also: Rentabilidade's class filter, and the four new provento
+  columns in the carteira export (open the `.xlsx`).
 
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.

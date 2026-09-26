@@ -75,6 +75,9 @@
 | Proventos per asset: `services/proceeds.py` extracted, `by_asset` in the summary, per-asset proventos / 12-month DY / total return in the portfolio snapshot, Proventos "Por ativo" + Mensal/Anual, Posição columns | 2026-09-26 |
 | Time-weighted return (monthly Modified Dietz, gross): `services/returns.py`, `GET /api/investments/returns`, Investimentos → Rentabilidade (TWR, YTD, % do CDI, year × month table, per asset) | 2026-09-26 |
 | Aportes x resgates per month (`GET /api/investments/contributions`, chart on Operações) and concentration alerts on Alocação (asset > 10%, no exposure abroad) | 2026-09-26 |
+| Rentabilidade: asset-class filter (class in the query key; FII sent as `REIT`) | 2026-09-26 |
+| Carteira CSV/.xlsx export: Proventos, Proventos 12m, DY 12m (%), Rentab. c/ proventos (%) | 2026-09-26 |
+| IR report reads proventos through `services/proceeds.py` (`paid_proceeds_in_year()`); its own SQL removed | 2026-09-26 |
 
 ---
 
@@ -365,3 +368,21 @@ Built by three subagents in parallel git worktrees, merged into main (`3c6ac06`,
   the net total; "abroad" = held in a foreign currency (there is no foreign asset class).
 - Chart colours: `CHART` holds only grid/axis/tick/ink; series colours come from `FLOW` / `SERIES`
   in `charts.jsx`, as on the Dashboard.
+
+### Investments follow-ups — 2026-09-26 (evening)
+Three subagents in parallel worktrees, merged into main (`4ff8a10`, `258a1d2`, `11b719a`).
+- **Rentabilidade filter:** `ASSET_CLASSES` is now shared in `pages/investimentos/helpers.js`
+  (AportesChart uses it too). The chosen class is not persisted; the period still is. An unknown
+  class is not rejected — `parse_asset_class_filter()` falls back to the whole portfolio, as on the
+  contributions endpoint; `test_asset_class_filter_scopes_assets_and_proventos` pins that.
+- **Carteira export:** the four columns sit right after "Rentabilidade (%)", in Posição's order.
+  The export sheet's column picker reads `GET /api/exports/columns`, so they appear there without a
+  frontend change. Percentages are written to .xlsx as fractions with the percent style. The
+  12-month window reads the real `date.today()` (no clock hook), so tests date proventos relative
+  to today.
+- **IR proceeds:** `paid_proceeds_in_year()` wraps `fetch_investment_proceeds()` with the year's
+  ISO range, `status=PAID`, ascending. `fetch_investment_proceeds()` gained
+  `asset.user_id = proceeds.user_id` in its join (the old tax-report SQL had it). Same-day ties are
+  now ordered by `created_at` (were undefined). Four characterization tests written against the old
+  SQL first: year boundaries, ordering, amortization and scheduled excluded, foreign taken as BRL,
+  user isolation.

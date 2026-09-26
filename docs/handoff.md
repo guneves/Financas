@@ -7,51 +7,45 @@
 
 ---
 
-## Session — 2026-09-26 (later) · Proventos per asset, time-weighted return, aportes and concentration
+## Session — 2026-09-26 (evening) · Investments follow-ups: Rentabilidade filter, export columns, IR proceeds
 
-One coordinating session, three `general-purpose` subagents each in its own git worktree
-(`isolation: "worktree"`), merged into main one by one. `session-scout` opened the session and
-`finance-guard` audited the merged result twice (proventos + aportes, then TWR): **no findings**.
+One coordinating session, three `general-purpose` subagents each in its own git worktree, merged
+into main one by one. All three hit the account's usage limit mid-task; after the reset each was
+resumed with `SendMessage` and finished from its uncommitted worktree state. `finance-guard` audited
+`8633917..HEAD`: **no findings**. No `session-scout` this time — the handoff and plan were read
+directly.
 
 ### What was done
 
-- **Proventos per asset** (`3c6ac06`): proceeds reads moved to `services/proceeds.py`
-  (`routes/proceeds.py` is write-only now); `by_asset` in `GET /api/investment-proceeds/summary`;
-  per-asset `proceeds_net`, `proceeds_12m_net`, `dividend_yield_12m`, `total_return_percent` in the
-  portfolio snapshot; goals' 12-month income reads the new service. Frontend: Proventos "Por ativo"
-  + Mensal/Anual toggle + record date on phone; Posição "Proventos" and "Rentab. c/ proventos".
-- **Time-weighted return** (`bfec9d5`): `services/returns.py`, `GET /api/investments/returns`,
-  new tab Investimentos → Rentabilidade (`/investimentos/rentabilidade`, lazy page in `App.jsx`).
-  `build_portfolio_evolution()` now sums `iter_portfolio_months()`; its output is unchanged.
-- **Aportes x resgates + concentration** (`a70edcf`): `GET /api/investments/contributions`
-  (in the *allocation* blueprint, to avoid colliding with the TWR work), chart on Operações;
-  `concentration` in the allocation response, warning on Alocação.
-- Decisions I made on the owner's behalf (the plan marked them as owner calls): TWR, not XIRR;
-  **gross** values; a new tab rather than inside Posição; "Rentab. c/ proventos" added *next to*
-  "Rentab."; total return's base = all money ever put in. Contributions and concentration came from
-  the "needs the owner's call" survey list — the owner asked for at least three tasks this session.
-  Method details in `done-tasks.md`.
-- Suite: 787 tests pass (741 + 46). `npm run build` clean. CLAUDE.md updated (count, layering,
-  services list, chart colours).
+The whole "Follow-ups from the 2026-09-26 investments work" section of the plan:
+- **Rentabilidade class filter** (`4ff8a10`): dropdown next to the period, class in the query key,
+  shared `ASSET_CLASSES` in `pages/investimentos/helpers.js`. One backend test added (the endpoint
+  already filtered).
+- **Carteira export** (`11b719a`): Proventos, Proventos 12m, DY 12m (%), Rentab. c/ proventos (%)
+  in CSV and .xlsx; the column picker picks them up from `GET /api/exports/columns`.
+- **IR proceeds** (`258a1d2`): `tax_report.proceeds_rows()` now calls
+  `services/proceeds.paid_proceeds_in_year()`; characterization tests written against the old SQL
+  first. `fetch_investment_proceeds()` gained a same-user join condition (defensive — asset ids are
+  UUIDs).
+- Suite: 796 tests pass (787 + 9). `npm run build` clean. Details in `done-tasks.md`.
 
 ### What was not done and why
 
-- **Nothing was opened in a browser.** Three UIs landed at once; the owner walk-through item in
-  `next-steps.md` lists what to look at. Posição now has 9 columns — check the 1280px layout first.
-- Follow-ups in `next-steps.md`: no class filter on Rentabilidade, no provento columns in the
-  carteira export, `tax_report.proceeds_rows()` not folded onto `services/proceeds.py`.
-- Returns per asset on Rentabilidade show TWR only; simple and total return live on Posição.
+- **Nothing opened in a browser**, again. The owner walk-through item for the investments work now
+  also lists the class filter and the new export columns. Posição's 9-column layout at 1280px is
+  still the first thing to look at.
+- An unknown `asset_class` is silently ignored (whole portfolio) rather than rejected — existing
+  shared-helper behaviour, left as is and pinned by a test.
 - Still open from before: **restart the backend** (the `:5000` process predates migrations 015–021
-  and now these endpoints); decisions 3 and 4 belong to the owner.
+  and the new endpoints); decisions 3 and 4 belong to the owner. Remaining plan items beyond the
+  walk-through are the Investidor10 ideas, each needing the owner's call (benchmarks on
+  Rentabilidade is the cheapest: IPCA is already fetched).
 
 ### Learned
 
-- **Worktree agents may start on a stale commit.** All three worktrees were created at `36e0164`
-  (39 commits behind main); each agent noticed and fast-forwarded to main before working. Tell a
-  worktree agent to check `git log -1` against main first.
-- Worktrees have no `node_modules`: a directory junction to the main tree's works for
-  `npm run build`; remove it with `cmd /c rmdir`, never a recursive delete.
-- The two parallel backend changes to `services/portfolio.py` (snapshot vs evolution) merged
-  cleanly; the only conflict was adjacent lines in `test_route_map.py`.
-- `CHART` in `charts.jsx` has only grid/axis/tick/ink colours; series colours are `FLOW`/`SERIES`.
-- "FII" is stored as the `REIT` class.
+- Worktrees again started at `36e0164`, far behind main; each agent fast-forwarded. Keep telling
+  worktree agents to check `git log -1` against main first.
+- A rate-limited subagent keeps its worktree edits; `SendMessage` to its id resumes it with its
+  transcript — no need to respawn.
+- `pytest -q` in this repo can end without a "N passed" line; count with `--collect-only -q` and
+  sum the per-file counts, and trust the exit code.
