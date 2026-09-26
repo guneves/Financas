@@ -72,6 +72,9 @@
 | Open decision 2: recurring pause skips only the paused window; revival uses a stored cursor — migration 019 | 2026-09-26 |
 | Carteira export: whole quantities without trailing comma in .xlsx; gross − IR = net to the cent; `rounded_money()` on portfolio totals; per-asset `total_invested` | 2026-09-26 |
 | From an Investidor10 PRO survey: target allocation with contribution split (Investimentos → Alocação, migration 020), goals (Planejamento → Metas, migration 021), stock-sale exemption meter (IR tab + sale form) | 2026-09-26 |
+| Proventos per asset: `services/proceeds.py` extracted, `by_asset` in the summary, per-asset proventos / 12-month DY / total return in the portfolio snapshot, Proventos "Por ativo" + Mensal/Anual, Posição columns | 2026-09-26 |
+| Time-weighted return (monthly Modified Dietz, gross): `services/returns.py`, `GET /api/investments/returns`, Investimentos → Rentabilidade (TWR, YTD, % do CDI, year × month table, per asset) | 2026-09-26 |
+| Aportes x resgates per month (`GET /api/investments/contributions`, chart on Operações) and concentration alerts on Alocação (asset > 10%, no exposure abroad) | 2026-09-26 |
 
 ---
 
@@ -335,3 +338,30 @@ reuse what the app already computes and need no new external data.
   balance up to that month (the apuração is cut at the month, so a month without sales still shows
   it). `planned_sale` powers the warning in "Registrar operação" → Venda before saving.
 - The rest of the survey is listed in `next-steps.md` ("Ideas from the Investidor10 survey").
+
+### Proventos per asset, TWR and contributions — 2026-09-26
+Built by three subagents in parallel git worktrees, merged into main (`3c6ac06`, `bfec9d5`, `a70edcf`).
+- **Total return per asset** (`asset_total_return()` in `services/portfolio.py`): numerator = net
+  value − current cost + proventos received + realized profit after estimated tax; denominator =
+  all money ever put in (current cost + FIFO cost of the shares sold). Current cost is *not* the
+  snapshot's `total_invested`, which subtracts the sale value, not its cost (buy 100 at 10, sell 40
+  at 15 → 400 instead of 600). `profitability_percent` is unchanged.
+- **12-month window** for proventos is `payment_date` in (today − 365, today], as in goals. In
+  `by_asset`, `net_12m` follows the asset/type filters but not the period filter, so the page's
+  default current-year filter doesn't cut it. Fixed-income titles get every paid provento pointing
+  at their asset; two open titles on one asset → the first gets it all (never counted twice).
+- **TWR**: monthly Modified Dietz, chained, on gross values. A buy is quantity × price; a sale or
+  redemption is the net cash received. A month with no starting value is measured from the first
+  buy (and ends at the last sale after a full exit), otherwise a day-30 buy would have its gain
+  multiplied by 30. Empty months are skipped. The backend always evaluates the whole current year
+  so YTD and the year table are complete. `PRICES_ARE_DIVIDEND_ADJUSTED` in `returns.py` guards
+  against counting proventos twice if prices ever become adjusted. `build_portfolio_evolution()`
+  is now a sum over `iter_portfolio_months()` (per-position values, gross and net); its output is
+  unchanged. `load_history_inputs()` in `routes/investments.py` is shared by history and returns.
+- **Contributions**: aportes = buys at quantity × price (no fees, the cash-link figure); resgates =
+  sells and fixed-income redemptions/maturities, gross. Amortizations are proventos, not resgates.
+  Bonus rows (`is_bonus_movement`) excluded. Every month in the window is listed.
+- **Concentration** (`concentration` in the allocation response): an asset strictly above 10% of
+  the net total; "abroad" = held in a foreign currency (there is no foreign asset class).
+- Chart colours: `CHART` holds only grid/axis/tick/ink; series colours come from `FLOW` / `SERIES`
+  in `charts.jsx`, as on the Dashboard.

@@ -137,12 +137,13 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-741 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+787 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
-multi-currency, the IR report and the monthly exemption meter, allocation targets, goals, the integrations healthcheck, `user_id` isolation, and backup
+multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
+proventos per asset and total return, time-weighted return, monthly contributions, the integrations healthcheck, `user_id` isolation, and backup
 retention and the receipts mirror. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
@@ -192,7 +193,9 @@ backend/
                       # fixed_income (BCB, accrual), fx (PTAX), investments (movements, cash link,
                       # BRL conversion), corporate_actions, realized_results (FIFO, tax),
                       # portfolio (positions, evolution), tax_report (IR, exemption meter),
-                      # allocation (targets, contribution split), goals, health (integrations)
+                      # allocation (targets, contribution split, concentration), goals,
+                      # proceeds (proventos read, by asset), returns (TWR), contributions
+                      # (aportes x resgates), health (integrations)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals
@@ -313,9 +316,10 @@ docs/
 
 - **The layering is strict** (Phase 5, done 2026-09-23): `config` ← `db` ←
   `validators`/`money`/`dates`/`auth`/`asset_classes`/`responses` ← `services/*` ← `routes/*` ←
-  `app`. Among the investment services: `prices` ← `fixed_income` ← `fx` ← `investments` ←
-  `corporate_actions` / `realized_results` / `portfolio` ← `tax_report` / `allocation` / `goals`;
-  `health` sits on top. Nothing imports
+  `app`. Among the investment services: `proceeds` (only `db`/`money`/`dates`/`validators`) and
+  `prices` ← `fixed_income` ← `fx` ← `investments` ← `corporate_actions` / `realized_results` /
+  `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`; `health` sits
+  on top. `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
   fails `test_route_map.py` by name.
@@ -354,7 +358,7 @@ docs/
   light text). So never write `dark:` classes and never use another Tailwind family (`slate`,
   `red`, `blue`…) — it does not exist in the theme. `brand` is the deep green of the net-worth block
   and the active nav pill, with `text-brand-ink` on it; text on the bright `emerald-500` fill is
-  `text-on-accent`. Charts take colours from `CHART` / `OTHER_COLOR` in `charts.jsx` (CSS
+  `text-on-accent`. Charts take colours from `CHART` (grid, axes, ink), `FLOW` / `SERIES` / `OTHER_COLOR` in `charts.jsx` (CSS
   variables), never a hex literal. The theme lives in `lib/theme.js` (system by default, manual
   toggle next to the eye) and `index.html` applies it before first paint. The font is Plus Jakarta
   Sans served from `public/fonts` (the app must open offline) — no Google Fonts link.
