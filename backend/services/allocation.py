@@ -17,6 +17,12 @@ meta. Proporcional, nao "encher o mais atrasado primeiro": e facil de
 conferir de cabeca e nunca manda tudo para um ativo so. A soma das faltas
 positivas e sempre >= aporte quando as metas somam 100%, entao a divisao
 nunca precisa de sobra.
+
+Concentracao (`concentration` na resposta): cada ativo acima de
+`CONCENTRATION_THRESHOLD`% do valor liquido da carteira vira um aviso, e a
+carteira sem nenhum ativo em moeda estrangeira ganha uma nota de que nao ha
+exposicao ao exterior. Nao ha classe "exterior": o que conta e a moeda do
+ativo (018).
 """
 
 from asset_classes import ALLOWED_ASSET_CLASSES, ASSET_CLASS_LABELS, QUOTED_ASSET_CLASSES
@@ -25,6 +31,9 @@ from money import rounded_money
 from services.investments import ensure_asset_owner
 from services.portfolio import build_portfolio_snapshot
 from validators import ValidationError, safe_float
+
+# Um ativo acima disto (% do valor liquido da carteira) pede atencao.
+CONCENTRATION_THRESHOLD = 10.0
 
 # Tolerancia da soma das metas: 33,33 + 33,33 + 33,34 fecha, 99,9 nao.
 SUM_TOLERANCE = 0.01
@@ -106,6 +115,46 @@ def asset_labels(conn, current_user_id, asset_ids):
         (current_user_id, *asset_ids),
     ).fetchall()
     return {row["id"]: row for row in rows}
+
+
+def build_concentration(grouped, snapshot, total):
+    """Ativos acima do limite e a exposicao em moeda estrangeira.
+
+    `grouped` e o de group_positions() (valor liquido por ativo); o percentual
+    e sobre o mesmo total da tela. Um ativo sem posicao (so com meta) vale 0 e
+    nunca entra.
+    """
+    over = []
+    if total > 0:
+        for asset_class, bucket in grouped.items():
+            for entry in bucket.values():
+                share = entry["value"] / total * 100
+                if share > CONCENTRATION_THRESHOLD:
+                    over.append({
+                        "asset_id": entry["asset_id"],
+                        "ticker": entry["ticker"],
+                        "asset_class": asset_class,
+                        "value": rounded_money(entry["value"]),
+                        "percent": rounded_money(share),
+                    })
+    over.sort(key=lambda item: (-item["percent"], str(item["ticker"])))
+
+    foreign_value = 0.0
+    currencies = set()
+    for position in snapshot.get("assets") or []:
+        currency = str(position.get("currency") or "BRL").upper()
+        if currency != "BRL" and safe_float(position.get("net_value")) > 0:
+            foreign_value += safe_float(position.get("net_value"))
+            currencies.add(currency)
+
+    return {
+        "threshold_percent": CONCENTRATION_THRESHOLD,
+        "assets_over_threshold": over,
+        "has_foreign_exposure": bool(currencies),
+        "foreign_currencies": sorted(currencies),
+        "foreign_value": rounded_money(foreign_value),
+        "foreign_percent": percent_of(foreign_value, total),
+    }
 
 
 def build_allocation(current_user_id, contribution=0.0):
@@ -237,6 +286,7 @@ def build_allocation(current_user_id, contribution=0.0):
         "has_class_targets": has_class_targets,
         "classes": classes,
         "opportunities": opportunities,
+        "concentration": build_concentration(grouped, snapshot, total),
     }
 
 

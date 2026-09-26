@@ -40,6 +40,7 @@ import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
 import ExportSheet from '../../components/ExportSheet'
 import CorporateActionsPanel from './CorporateActionsPanel'
+import AportesChart from './AportesChart'
 
 const EDIT_FORM_ID = 'investment-movement-edit'
 
@@ -277,6 +278,8 @@ export default function Operacoes() {
           ]}
         />
       ) : null}
+
+      <AportesChart />
 
       <Panel className="overflow-clip">
         <PanelHeader

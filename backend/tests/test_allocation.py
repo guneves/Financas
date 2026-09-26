@@ -187,3 +187,45 @@ def test_another_users_asset_cannot_get_a_target(client, auth, portfolio, other_
     put_targets(client, auth, classes={"STOCKS": 60, "REIT": 40})
     stranger = client.get("/api/allocation", headers=other_user["headers"]).get_json()
     assert stranger["classes"] == [] and stranger["has_targets"] is False
+
+
+def test_concentration_lists_assets_above_10_percent(client, auth, portfolio):
+    buy(client, auth, "ITSA4", 100, 5.0)  # 500 de 10.500: 4,76%, fica de fora
+    concentration = allocation(client, auth)["concentration"]
+    assert concentration["threshold_percent"] == 10
+    over = concentration["assets_over_threshold"]
+    # Empate em 38,10% desempata pelo ticker.
+    assert [item["ticker"] for item in over] == ["MXRF11", "PETR4", "VALE3"]
+    assert over[0]["percent"] == pytest.approx(38.1) and over[0]["asset_class"] == "REIT"
+    assert over[2]["value"] == 2000 and over[2]["percent"] == pytest.approx(19.05)
+
+
+def test_exactly_10_percent_is_not_concentrated(client, auth):
+    buy(client, auth, "PETR4", 100, 10.0)   # 1.000 = 10%
+    buy(client, auth, "BOVA11", 90, 100.0)  # 9.000
+    over = allocation(client, auth)["concentration"]["assets_over_threshold"]
+    assert [item["ticker"] for item in over] == ["BOVA11"]
+
+
+def test_foreign_exposure_comes_from_the_asset_currency(client, auth, portfolio):
+    concentration = allocation(client, auth)["concentration"]
+    assert concentration["has_foreign_exposure"] is False
+    assert concentration["foreign_currencies"] == [] and concentration["foreign_percent"] == 0
+
+    response = client.post("/api/investments", headers=auth, json={
+        "asset_class": "STOCKS", "ticker_or_name": "AAPL", "currency": "USD",
+        "quantity": 2, "average_price": 100.0, "current_price": 100.0,
+        "metadata": {"purchase_date": "2025-01-10"},
+    })
+    assert response.status_code in (200, 201), response.get_data(as_text=True)
+    concentration = allocation(client, auth)["concentration"]
+    assert concentration["has_foreign_exposure"] is True
+    assert concentration["foreign_currencies"] == ["USD"]
+    assert concentration["foreign_value"] == 1000  # 2 x US$ 100 x 5,00
+    assert concentration["foreign_percent"] == pytest.approx(9.09)
+
+
+def test_empty_portfolio_has_no_concentration(client, auth):
+    concentration = allocation(client, auth)["concentration"]
+    assert concentration["assets_over_threshold"] == []
+    assert concentration["has_foreign_exposure"] is False

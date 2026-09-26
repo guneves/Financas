@@ -51,6 +51,7 @@ EXPECTED_ROUTES = {
     ("/api/investments/by-asset/<asset_id>", "DELETE"),
     ("/api/investments/by-ticker/<path:ticker>", "DELETE"),
     ("/api/investments/history", "GET"),
+    ("/api/investments/contributions", "GET"),
     ("/api/investments/portfolio", "GET"),
     ("/api/investments/portfolio/export", "GET"),
     ("/api/investments/export", "GET"),

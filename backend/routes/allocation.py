@@ -2,12 +2,17 @@
 
 As metas sao um plano: o PUT troca o conjunto inteiro (as somas so fecham com
 todas as linhas juntas) e nao ha confirmacao — nenhum lancamento muda.
+
+Aqui tambem mora `/api/investments/contributions` (aportes x resgates por mes,
+services/contributions.py): leitura analitica da carteira, como a alocacao.
 """
 
 from flask import Blueprint, jsonify, request
 
+from asset_classes import parse_asset_class_filter
 from auth import token_required
 from services.allocation import build_allocation, replace_targets
+from services.contributions import DEFAULT_MONTHS, build_contributions
 from validators import ValidationError, parse_json_body, safe_float, validation_error
 
 bp = Blueprint("allocation", __name__)
@@ -32,3 +37,14 @@ def allocation_targets(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     return jsonify(build_allocation(current_user_id)), 200
+
+
+@bp.route("/api/investments/contributions", methods=["GET"])
+@token_required
+def investment_contributions(current_user_id):
+    """Aportes x resgates por mes: `?months=` (12, ate 60) e `?asset_class=`."""
+    return jsonify(build_contributions(
+        current_user_id,
+        request.args.get("months", DEFAULT_MONTHS),
+        parse_asset_class_filter(request.args.get("asset_class")),
+    )), 200

@@ -281,6 +281,11 @@ export const allocationApi = {
   saveTargets: (payload) => apiFetch('/api/allocation/targets', { method: 'PUT', body: JSON.stringify(payload) })
 }
 
+// Aportes x resgates por mes, em reais (?months=12, ate 60; ?asset_class=).
+export const contributionsApi = {
+  get: (params = {}) => apiFetch(`/api/investments/contributions${queryString(params)}`)
+}
+
 // Metas financeiras (021).
 export const goalsApi = {
   list: () => apiFetch('/api/goals'),

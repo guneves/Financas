@@ -193,6 +193,38 @@ function TargetsSheet({ open, onClose, allocation }) {
   )
 }
 
+// Concentracao (calculada no servidor, `concentration`): ativo acima do limite
+// (10% do valor liquido) em aviso; carteira sem ativo em moeda estrangeira, nota.
+// So percentuais: o modo privado nao esconde nada aqui.
+function ConcentrationAlerts({ concentration }) {
+  if (!concentration) return null
+  const over = concentration.assets_over_threshold || []
+  const threshold = formatPercent(concentration.threshold_percent, 0)
+  return (
+    <>
+      {over.length ? (
+        <AlertMessage tone="warning">
+          <p>
+            {over.length === 1 ? 'Um ativo passa' : `${over.length} ativos passam`} de {threshold} da carteira:
+            {' '}
+            {over.map((item, index) => (
+              <span key={item.asset_id || item.ticker}>
+                {index ? ', ' : ''}
+                <span className="font-semibold">{item.ticker}</span> <span className="tabular whitespace-nowrap">{formatPercent(item.percent, 1)}</span>
+              </span>
+            ))}
+            .
+          </p>
+          <p className="mt-0.5 font-normal">Uma queda forte em um deles pesa na carteira inteira.</p>
+        </AlertMessage>
+      ) : null}
+      {!concentration.has_foreign_exposure ? (
+        <AlertMessage tone="info" message="Nenhum ativo em moeda estrangeira: a carteira não tem exposição ao exterior." />
+      ) : null}
+    </>
+  )
+}
+
 // Alocacao alvo (GET /api/allocation): atual x meta por classe e por ativo, e
 // como dividir o proximo aporte sem vender nada.
 export default function Alocacao() {
@@ -233,6 +265,8 @@ export default function Alocacao() {
           {!data.has_class_targets ? (
             <AlertMessage tone="info" message="Sem metas por classe ainda. Em “Definir metas”, diga quanto quer em cada classe; a tela passa a mostrar o desvio e a sugerir o aporte." />
           ) : null}
+
+          <ConcentrationAlerts concentration={data.concentration} />
 
           {data.has_class_targets ? (
             <Panel className="p-5 sm:p-6">
