@@ -17,7 +17,9 @@ liquido; as duas saem da mesma avaliacao (`iter_portfolio_months()`).
 Distorcoes conhecidas (tambem em `RETURN_NOTES`, que vai na resposta):
 - meses passados de classes sem cotacao (gado, outros, preco manual) ficam no
   custo, e o ganho inteiro cai no mes atual;
-- um mes sem fechamento no yfinance usa o anterior, ou o preco de hoje;
+- um mes passado sem fechamento no yfinance usa o anterior, ou o preco de hoje;
+- o mes atual vale o que a Posicao mostra (`position_value_today()`): a
+  ultima cotacao gravada, nao o fechamento do mes nem a serie do BCB;
 - eventos corporativos ja estao reescalados nas movimentacoes gravadas;
 - ativo no exterior: cada mes pela PTAX do fim daquele mes (o historico ja
   chega em reais); proventos de ativo no exterior entram como reais.
@@ -55,7 +57,7 @@ RETURN_NOTES = [
     "Meses passados de ativos sem cotacao (gado, outros, preco manual) ficam no custo; o ganho aparece no mes atual.",
     "Mes sem fechamento no historico usa o ultimo disponivel ou o preco de hoje.",
     "Ativo no exterior: cada mes pelo cambio do fim do mes.",
-    "O mes atual vai ate hoje.",
+    "O mes atual vai ate hoje, pela cotacao atual: o mesmo valor da Posicao.",
     "Indices de comparacao: IPCA pela variacao mensal do IBGE (BCB); Ibovespa, IFIX e IDIV pelo fechamento do fim de cada mes (indices de retorno total).",
 ]
 

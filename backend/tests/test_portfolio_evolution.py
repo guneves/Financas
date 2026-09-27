@@ -134,8 +134,12 @@ class TestFixedIncomeHistory:
         # Cresce mes a mes, em vez de ficar no custo ate o mes atual.
         assert all(gain > 0 for gain in gains)
         assert gains == sorted(gains)
-        # O mes atual, sem cotacao do BCB gravada, segue a serie ate hoje.
-        assert series[-1]["ganhoCapitalReal"] >= gains[-1]
+        # O mes atual vale o que a Posicao mostra: a cotacao gravada (aqui o
+        # preco da compra, sem correcao do BCB ainda), nao a serie recalculada.
+        portfolio = client.get(
+            "/api/investments/portfolio?refresh_prices=false", headers=auth,
+        ).get_json()
+        assert series[-1]["patrimonio"] == portfolio["current_net_balance"] == pytest.approx(10000.0)
 
     def test_without_the_series_past_months_stay_at_cost(self, client, auth, no_market, monkeypatch):
         fixed_income = importlib.import_module("services.fixed_income")
