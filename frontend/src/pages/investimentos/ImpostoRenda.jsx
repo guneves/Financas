@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { Copy, Download, FileText } from 'lucide-react'
 import { taxReportApi } from '../../lib/dataApi'
 import { formatCurrency, monthKey } from '../../lib/format'
-import { usePrivateFormatter } from '../../lib/privacy'
+import { usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
 import { ExemptionMeter } from '../../components/ExemptionMeter'
-import { AlertMessage, Badge, Button, EmptyState, IconButton, ListSkeleton, PageHeader, Panel, PanelHeader } from '../../components/ui'
+import { AlertMessage, Badge, Button, Collapsible, EmptyState, IconButton, ListSkeleton, PageHeader, Panel, PanelHeader } from '../../components/ui'
 
 const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
@@ -15,12 +15,12 @@ function monthName(key) {
   return `${MONTH_NAMES[Number(month) - 1]}/${year}`
 }
 
-async function copyText(text) {
+async function copyText(text, message = 'Discriminação copiada.') {
   try {
     await navigator.clipboard.writeText(text)
-    toast('Discriminação copiada.')
+    toast(message)
   } catch {
-    toast('Não foi possível copiar; selecione o texto na tabela.', { tone: 'info' })
+    toast('Não foi possível copiar; selecione o texto na tela.', { tone: 'info' })
   }
 }
 
@@ -189,6 +189,8 @@ export default function ImpostoRenda() {
             </div>
           </Panel>
 
+          {report.irpf_text ? <IrpfTextPanel irpfText={report.irpf_text} /> : null}
+
           {report.ganho_de_capital.length ? (
             <Panel>
               <PanelHeader title="Ganho de capital (GCAP)" description="Venda de gado e de outros bens em reais: apure no programa GCAP." />
@@ -205,6 +207,58 @@ export default function ImpostoRenda() {
         </>
       ) : null}
     </div>
+  )
+}
+
+// Texto pronto para o programa da Receita (irpf_text no relatorio): uma
+// secao por ficha, cada bem/fonte/mes num bloco. So formata os numeros acima.
+function IrpfTextPanel({ irpfText }) {
+  const hidden = useValuesHidden()
+  return (
+    <Panel>
+      <PanelHeader
+        title="Para colar no programa do IRPF"
+        description={`Texto por ficha, no formato do programa da Receita. CNPJ e corretora o app não guarda: ficam como "(preencher)". ${irpfText.code_table}`}
+      />
+      <div className="divide-y divide-zinc-100">
+        {irpfText.sections.map((section) => (
+          <div key={section.key} className="space-y-3 px-5 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-[12rem] flex-1">
+                <p className="text-sm font-semibold text-zinc-900">{section.title}</p>
+                <p className="mt-0.5 text-xs text-zinc-500">{section.blocks.length ? section.hint : section.empty}</p>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                icon={Copy}
+                disabled={!section.text}
+                onClick={() => copyText(section.text, `${section.title}: texto copiado.`)}
+              >
+                Copiar
+              </Button>
+            </div>
+            {section.blocks.length ? (
+              <Collapsible label={`Ver texto (${section.blocks.length})`} variant="subtle" size="sm">
+                {hidden && section.key === 'bens' ? (
+                  <p className="text-xs text-zinc-500">Valores ocultos no modo privado. O botão Copiar continua copiando o texto completo.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {section.blocks.map((block) => (
+                      <li key={block.title} className="flex items-start gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                        <pre className="min-w-0 flex-1 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-zinc-700">{block.text}</pre>
+                        <IconButton label={`Copiar ${block.title}`} icon={Copy} size="sm" onClick={() => copyText(block.text, 'Texto copiado.')} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Collapsible>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </Panel>
   )
 }
 
