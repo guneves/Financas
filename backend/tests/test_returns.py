@@ -313,3 +313,103 @@ class TestEndpoint:
 
     def test_requires_a_token(self, client):
         assert client.get("/api/investments/returns").status_code == 401
+
+
+# --- o mes atual vale o que a Posicao mostra --------------------------------------
+
+def fixed_income_title(client, auth, date, *, current_price, amount=10000.0, name="CDB HOJE", redeem=None):
+    """Titulo CDI 100%; `redeem` = (custo, recebido, data) de um resgate parcial."""
+    response = client.post("/api/investments", headers=auth, json=[{
+        "asset_class": "FIXED_INCOME", "ticker_or_name": name, "quantity": 1,
+        "average_price": amount, "current_price": current_price,
+        "metadata": {"fixed_income_type": "CDB", "rate_type": "POS", "indexer": "CDI",
+                     "cdi_percentage": 1.0, "purchase_date": date},
+    }])
+    assert response.status_code in (200, 201), response.get_data(as_text=True)
+    created = response.get_json()
+    title = created[0] if isinstance(created, list) else created
+    if redeem:
+        cost, received, when = redeem
+        response = client.post("/api/investments", headers=auth, json=[{
+            "asset_class": "FIXED_INCOME", "ticker_or_name": name, "quantity": -1,
+            "average_price": cost, "current_price": received,
+            "metadata": {"is_redemption": True, "affects_position": True,
+                         "related_id": title["id"], "redemption_date": when},
+        }])
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+    return title
+
+
+def portfolio(client, auth):
+    response = client.get("/api/investments/portfolio?refresh_prices=false", headers=auth)
+    assert response.status_code == 200, response.get_data(as_text=True)
+    return response.get_json()
+
+
+class TestCurrentMonthMatchesThePosition:
+    """Rentabilidade "Carteira hoje" = Posicao "Carteira" (achado do seed: R$ 25,58).
+
+    O mes atual da TWR (e da evolucao) valia a renda fixa sem cotacao do BCB
+    pela serie recalculada ate hoje e a bolsa pelo fechamento do mes no
+    historico; a Posicao usa a cotacao gravada. Agora os dois saem de
+    `position_value_today()`.
+    """
+
+    def assert_same_value(self, client, auth):
+        snapshot = portfolio(client, auth)
+        body = returns(client, auth, months=6)
+        assert body["series"][-1]["value"] == pytest.approx(snapshot["current_balance"], abs=0.005)
+        by_ticker = {asset["ticker"]: asset["current_value"] for asset in body["assets"] if asset["open"]}
+        assert by_ticker == {
+            asset["ticker"]: pytest.approx(asset["current_value"], abs=0.005)
+            for asset in snapshot["assets"]
+        }
+        return snapshot, body
+
+    def test_fixed_income_with_a_manual_price(self, client, auth, market):
+        # Preco manual diferente do que a serie do CDI daria ate hoje.
+        fixed_income_title(client, auth, iso(4), current_price=10321.45)
+        snapshot, _ = self.assert_same_value(client, auth)
+        assert snapshot["current_balance"] == pytest.approx(10321.45)
+
+    def test_fixed_income_after_the_bcb_refresh_and_a_partial_redemption(self, client, auth, user, market):
+        fixed_income_title(
+            client, auth, iso(4), current_price=10000.0,
+            redeem=(4000.0, 4100.0, (month_start(2) + timedelta(days=4)).strftime("%Y-%m-%d")),
+        )
+        investments = importlib.import_module("services.investments")
+        fixed_income = importlib.import_module("services.fixed_income")
+        result = fixed_income.refresh_fixed_income_prices(user["id"], investments.fetch_investments(user["id"]))
+        assert result["updated_count"] == 1
+        snapshot, _ = self.assert_same_value(client, auth)
+        assert snapshot["current_balance"] > 6000.0
+
+    def test_a_stock_uses_todays_quote_not_the_month_close(self, client, auth, market):
+        # Fechamento do mes no historico: 12,00; cotacao gravada: 12,34.
+        response = client.post("/api/investments", headers=auth, json={
+            "asset_class": "STOCKS", "ticker_or_name": "PETR4", "quantity": 100,
+            "average_price": 10.0, "current_price": 12.34,
+            "metadata": {"purchase_date": iso(3)},
+        })
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+        fixed_income_title(client, auth, iso(4), current_price=10321.45)
+        snapshot, body = self.assert_same_value(client, auth)
+        assert snapshot["current_balance"] == pytest.approx(1234.0 + 10321.45)
+        # O mes passado continua no fechamento daquele mes (100 x 12,00 + a renda fixa).
+        by_key = {item["month_key"]: item for item in body["series"]}
+        assert by_key[key(1)]["value"] > 10000.0 + 1200.0 - 0.01
+
+    def test_the_class_filter_and_the_evolution_agree_too(self, client, auth, market):
+        fixed_income_title(client, auth, iso(4), current_price=10321.45)
+        trade(client, auth, "PETR4", 100, 10.0, iso(3))
+        snapshot = portfolio(client, auth)
+        fixed = [asset for asset in snapshot["assets"] if asset["class"] == "FIXED_INCOME"]
+        body = returns(client, auth, months=6, asset_class="FIXED_INCOME")
+        assert body["series"][-1]["value"] == pytest.approx(sum(asset["current_value"] for asset in fixed))
+
+        response = client.get("/api/investments/history", headers=auth, query_string={"months": 6})
+        assert response.status_code == 200
+        # A evolucao e liquida: o mes atual bate com o liquido da Posicao.
+        assert response.get_json()["evolution"][-1]["patrimonio"] == pytest.approx(
+            snapshot["current_net_balance"], abs=0.005,
+        )

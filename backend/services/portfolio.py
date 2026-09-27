@@ -65,12 +65,26 @@ def historical_price_for_month(historical_prices, ticker, target_month_key):
     return None
 
 
-def current_price_from_position(data, default=0):
-    price = safe_float(data.get("current_price"), default)
-    if data.get("class") == "FIXED_INCOME" and data.get("original_invested", 0) > 0:
-        factor = price / data["original_invested"]
-        price = data["total_invested"] * factor
-    return max(price, 0)
+def position_value_today(asset_class, quantity, applied, original_applied, current_price, metadata):
+    """Valor bruto de HOJE de uma posicao, pela cotacao gravada.
+
+    E a regra da Posicao (`build_portfolio_snapshot()`) e tambem a do mes
+    atual da evolucao e da rentabilidade (`portfolio_month_positions()`): as
+    telas mostram o mesmo "Carteira" porque saem daqui.
+
+    Renda fixa: a cotacao e o valor do titulo inteiro (a ultima correcao do
+    BCB, ou o preco manual); o fator dela sobre o aplicado original vale para
+    o que resta depois dos resgates parciais. O resto: quantidade (gado, menos
+    a mortalidade) vezes a cotacao.
+    """
+    if asset_class == "FIXED_INCOME":
+        price = safe_float(current_price, applied)
+        if original_applied > 0:
+            price = applied * (price / original_applied)
+        return max(price, 0)
+    if asset_class == "CATTLE" and metadata:
+        quantity = quantity * (1 - safe_float(metadata.get("mortality_rate")))
+    return quantity * safe_float(current_price)
 
 
 def portfolio_evolution_months(months_back):
@@ -142,7 +156,6 @@ def portfolio_month_positions(investments_data, historical_prices, month_start, 
                 position["metadata"] = metadata
                 position["ticker"] = ticker
                 position["purchase_date"] = investment_movement_date(investment)
-                position["quote_source"] = investment.get("current_quote_source")
         if investment.get("current_price") is not None and not movement_affects_fixed_income_position(investment):
             position["current_price"] = safe_float(investment.get("current_price"), average_price)
 
@@ -153,12 +166,21 @@ def portfolio_month_positions(investments_data, historical_prices, month_start, 
         if quantity <= 0 or applied_value <= 0:
             continue
 
-        adjusted_quantity = quantity
-        if position["class"] == "CATTLE":
-            mortality_rate = safe_float(position["metadata"].get("mortality_rate"))
-            adjusted_quantity = quantity * (1 - mortality_rate)
-
-        if position["class"] in QUOTED_ASSET_CLASSES:
+        is_current_month = target_key == current_month_key
+        if is_current_month:
+            # O mes atual vai ate hoje e vale o que a Posicao mostra: a mesma
+            # regra e a mesma cotacao gravada (bolsa: a ultima cotacao, nao o
+            # fechamento do mes no historico; renda fixa: a ultima correcao do
+            # BCB ou o preco manual, nao a serie recalculada aqui).
+            market_value = position_value_today(
+                position["class"],
+                quantity,
+                applied_value,
+                position["original_applied"],
+                position.get("current_price"),
+                position["metadata"],
+            )
+        elif position["class"] in QUOTED_ASSET_CLASSES:
             price = historical_price_for_month(
                 historical_prices,
                 position["ticker"],
@@ -166,29 +188,12 @@ def portfolio_month_positions(investments_data, historical_prices, month_start, 
             )
             if price is None:
                 price = safe_float(position.get("current_price"), applied_value / quantity)
-            market_value = adjusted_quantity * price
-        elif (
-            position["class"] == "FIXED_INCOME" and target_key == current_month_key
-            and (position.get("quote_source") == "cdi" or not index_series)
-        ):
-            original_applied = position.get("original_applied", applied_value)
-            if original_applied > 0:
-                factor = safe_float(position.get("current_price"), original_applied) / original_applied
-                market_value = applied_value * factor
-            else:
-                market_value = applied_value
+            market_value = quantity * price
         elif position["class"] == "FIXED_INCOME" and index_series and position.get("purchase_date"):
-            # Mes passado (ou o atual, se o titulo ainda nao tem cotacao do
-            # BCB): corrigido pela serie ate o fim do mes, ou ate hoje.
+            # Mes passado: corrigido pela serie ate o fim do mes.
             purchase = parse_iso_date(position["purchase_date"])
-            until = min(target_end, datetime.now())
-            factor = accrual_factor_until(position["metadata"], purchase, until, index_series) if purchase else None
+            factor = accrual_factor_until(position["metadata"], purchase, target_end, index_series) if purchase else None
             market_value = applied_value * factor if factor else applied_value
-        elif target_key == current_month_key:
-            market_value = adjusted_quantity * safe_float(
-                position.get("current_price"),
-                applied_value / quantity,
-            )
         else:
             market_value = applied_value
 
@@ -197,7 +202,9 @@ def portfolio_month_positions(investments_data, historical_prices, month_start, 
             position["metadata"],
             applied_value,
             market_value,
-            target_end,
+            # Hoje no mes atual, como a Posicao (a faixa do IR pode mudar
+            # entre hoje e o fim do mes).
+            datetime.now() if is_current_month else target_end,
         )
         valued[group_key] = {
             "ticker": position["ticker"],
@@ -515,15 +522,14 @@ def build_portfolio_snapshot(current_user_id):
             if data["total_quantity"] > 0 else 0
         )
 
-        adjusted_quantity = data["total_quantity"]
-        if data["class"] == "CATTLE" and data.get("metadata"):
-            mortality_rate = safe_float(data["metadata"].get("mortality_rate"))
-            adjusted_quantity = data["total_quantity"] * (1 - mortality_rate)
-
-        if data["class"] == "FIXED_INCOME":
-            current_value = current_price_from_position(data, data["total_invested"])
-        else:
-            current_value = adjusted_quantity * data["current_price"]
+        current_value = position_value_today(
+            data["class"],
+            data["total_quantity"],
+            data["total_invested"],
+            data["original_invested"],
+            data["current_price"],
+            data.get("metadata"),
+        )
 
         net_value = fixed_income_net_value(
             data["class"],
