@@ -171,7 +171,7 @@ export default function Orcamento() {
     <div className="space-y-6">
       <PageHeader
         title="Orçamento"
-        description="Quanto você planejou gastar em cada categoria neste mês, e quanto já saiu."
+        description="Quanto você planejou gastar em cada categoria neste mês, e quanto já gastou."
         actions={
           <div className="flex items-center gap-1">
             <IconButton label="Mês anterior" icon={ChevronLeft} onClick={() => setMonth(shiftMonth(month, -1))} />
@@ -199,14 +199,14 @@ export default function Orcamento() {
             value: formatCurrency(totals.available),
             hint: totals.carryover ? `Inclui ${formatCurrency(totals.carryover)} acumulado` : 'Planejado + sobras',
           },
-          { label: 'Realizado', value: formatCurrency(totals.spent), hint: 'Saídas em conta no mês' },
+          { label: 'Realizado', value: formatCurrency(totals.spent), hint: 'Saídas e compras no cartão no mês' },
         ]}
       />
 
       <Panel>
         <PanelHeader
           title="Categorias do mês"
-          description={`Plano de ${monthLabel(month)}. O realizado soma as movimentações em conta e as compras no cartão, inteiras, no mês da compra; o pagamento da fatura não conta de novo.`}
+          description={`Plano de ${monthLabel(month)}. O realizado soma os lançamentos em conta, sem transferências, e as compras no cartão, inteiras, no mês da compra; o pagamento da fatura não conta de novo.`}
         />
 
         <div className="flex flex-col gap-3 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
