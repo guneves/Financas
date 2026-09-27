@@ -36,7 +36,7 @@ const KIND_HINTS = {
   MONTHLY_INCOME: 'Média mensal dos proventos líquidos recebidos nos últimos 12 meses.',
 }
 
-const CLASSES = ['STOCKS', 'REIT', 'FIXED_INCOME', 'CATTLE', 'OTHER']
+const CLASSES = ['STOCKS', 'REIT', 'FIXED_INCOME', 'OTHER']
 
 const emptyForm = () => ({
   name: '',

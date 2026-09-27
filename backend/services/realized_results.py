@@ -28,7 +28,6 @@ from validators import safe_float
 DEFAULT_REALIZED_TAX_RATES = {
     "STOCKS": 0.15,
     "REIT": 0.20,
-    "CATTLE": 0.15,
     "OTHER": 0.15,
     "FIXED_INCOME": 0.15,
 }

@@ -7,11 +7,11 @@
 
 ---
 
-## Session — 2026-09-27 (night) · fixed-income form: exemption by type, IPCA+, no Gado
+## Session — 2026-09-27 (night) · fixed-income form: exemption by type, IPCA+; Gado removed
 
 The owner asked, for the "Registrar operação" renda fixa form: classify "Isento de IR"
 automatically from the title's specification, remove Gado from the asset picker, and offer IPCA+
-under "Rentabilidade". No `session-scout` (targeted request). `finance-guard` ran: no findings.
+under "Rentabilidade". No `session-scout` (targeted request). `finance-guard` ran twice (fixed income, then the Gado removal): no findings.
 
 ### What was done
 - Backend: `fixed_income_is_tax_free()` in `services/fixed_income.py` is now the single exemption
@@ -24,14 +24,15 @@ under "Rentabilidade". No `session-scout` (targeted request). `finance-guard` ra
   it. "Rentabilidade" = Pós-fixado (CDI) / IPCA+ / Pré-fixado (IPCA+ still stored as POS + IPCA);
   the Indexador select (% do CDI / CDI+) shows only for Pós. An old `DEBENTURE` flagged exempt opens
   for editing as "Debênture incentivada".
-- `InvestmentLaunchModal.jsx`: Gado hidden from the class picker on a buy; it still appears when
-  selling an existing Gado position. `CATTLE` remains a live class everywhere else.
+- Then the owner asked to remove Gado everywhere: `CATTLE` is gone from `ALLOWED_ASSET_CLASSES`
+  (the API answers 400), the labels, its 15% default rate, the mortality rule in the portfolio value,
+  the GCAP filter (now `OTHER` only) and every frontend class list. Checked read-only first: the
+  real `finance.db` has 0 CATTLE movements and 0 allocation targets. The migrations' `CHECK`
+  constraints still list it (append-only; a table rebuild for this is not worth it). CLAUDE.md updated.
 - Tests: type-based exemption, legacy flag, net value, new types accepted, Bens code. Suite green.
 
 ### What was not done and why
 - Not tried in a browser; `vite build` passes. Owner check: open Registrar operação → Renda Fixa.
-- Gado is still listed in Metas / Alocação class lists (targets for existing positions); the
-  request was about the buy form. Ask the owner if it should go there too.
 - A CDB saved with a manual "Isento" tick loses it the next time it is edited and saved (the type
   rules). Deliberate; mention if the owner had such a row.
 - Carried from before, still open: restart the backend and search LEVE3/FESA4; two findings needing

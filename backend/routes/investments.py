@@ -104,7 +104,7 @@ bp = Blueprint("investments", __name__)
 _index_history_executor = ThreadPoolExecutor(max_workers=1)
 
 # Moeda estrangeira: acoes/ETFs de fora e "outros" (cripto, conta no
-# exterior). Renda fixa, FII e gado sao em reais.
+# exterior). Renda fixa e FII sao em reais.
 FOREIGN_CURRENCY_CLASSES = {"STOCKS", "OTHER"}
 
 

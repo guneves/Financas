@@ -75,16 +75,13 @@ def position_value_today(asset_class, quantity, applied, original_applied, curre
 
     Renda fixa: a cotacao e o valor do titulo inteiro (a ultima correcao do
     BCB, ou o preco manual); o fator dela sobre o aplicado original vale para
-    o que resta depois dos resgates parciais. O resto: quantidade (gado, menos
-    a mortalidade) vezes a cotacao.
+    o que resta depois dos resgates parciais. O resto: quantidade vezes a cotacao.
     """
     if asset_class == "FIXED_INCOME":
         price = safe_float(current_price, applied)
         if original_applied > 0:
             price = applied * (price / original_applied)
         return max(price, 0)
-    if asset_class == "CATTLE" and metadata:
-        quantity = quantity * (1 - safe_float(metadata.get("mortality_rate")))
     return quantity * safe_float(current_price)
 
 

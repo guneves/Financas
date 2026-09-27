@@ -572,7 +572,7 @@ def resolve_catalog_ticker(conn, current_user_id, asset_class, ticker_or_name, q
     sufixo .SA), inclusive nas vendas -- e a normalizacao das duas pontas que
     faz a venda encontrar a posicao criada pela compra. Vendas e resgates nao
     consultam o catalogo (eles se apoiam numa posicao que ja existe) e classes
-    sem cotacao (renda fixa, gado, outros) continuam com texto livre, porque ali
+    sem cotacao (renda fixa, outros) continuam com texto livre, porque ali
     o "ticker" e so o nome que o dono deu ao ativo.
 
     Posicoes antigas, anteriores ao catalogo, continuam aceitas: se o ativo ja
@@ -580,7 +580,7 @@ def resolve_catalog_ticker(conn, current_user_id, asset_class, ticker_or_name, q
     """
     ticker = market_catalog.normalize_ticker(ticker_or_name)
     if asset_class not in QUOTED_ASSET_CLASSES:
-        # Renda fixa, gado e outros: o "ticker" e so o nome do ativo, texto livre.
+        # Renda fixa e outros: o "ticker" e so o nome do ativo, texto livre.
         return ticker_key(ticker_or_name)
     if quantity <= 0:
         # Venda/resgate nao consulta o catalogo, mas usa a mesma normalizacao da

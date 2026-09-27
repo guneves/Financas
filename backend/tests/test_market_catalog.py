@@ -140,6 +140,20 @@ class TestPurchaseGuard:
         response = client.post(
             "/api/investments",
             json=[{
+                "asset_class": "OTHER",
+                "ticker_or_name": "Relogio de colecao",
+                "quantity": 1,
+                "average_price": 2000.0,
+                "metadata": {"purchase_date": "2026-02-10"},
+            }],
+            headers=auth,
+        )
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+
+    def test_cattle_is_no_longer_an_asset_class(self, client, auth):
+        response = client.post(
+            "/api/investments",
+            json=[{
                 "asset_class": "CATTLE",
                 "ticker_or_name": "Bezerro Nelore",
                 "quantity": 5,
@@ -148,7 +162,7 @@ class TestPurchaseGuard:
             }],
             headers=auth,
         )
-        assert response.status_code in (200, 201), response.get_data(as_text=True)
+        assert response.status_code == 400
 
     def test_legacy_position_outside_the_catalog_can_still_be_traded(self, client, user, app_module):
         # Ativo gravado direto no banco, como uma posicao anterior ao catalogo.

@@ -90,14 +90,13 @@ export function hasRealizedResult(movement) {
 }
 
 // As classes do filtro por classe (backend/asset_classes.py; FII e REIT).
-export const ASSET_CLASSES = ['STOCKS', 'REIT', 'FIXED_INCOME', 'CATTLE', 'OTHER']
+export const ASSET_CLASSES = ['STOCKS', 'REIT', 'FIXED_INCOME', 'OTHER']
 
 export function getClassLabel(assetClass) {
   const labels = {
     'STOCKS': 'Ações',
     'FIXED_INCOME': 'Renda Fixa',
     'REIT': 'Fundos Imobiliários',
-    'CATTLE': 'Gado',
     'OTHER': 'Outros'
   }
   return labels[assetClass] || assetClass

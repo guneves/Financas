@@ -15,7 +15,7 @@ Valor BRUTO: V0 e V1 sao o valor de mercado antes do IR estimado da renda fixa
 liquido; as duas saem da mesma avaliacao (`iter_portfolio_months()`).
 
 Distorcoes conhecidas (tambem em `RETURN_NOTES`, que vai na resposta):
-- meses passados de classes sem cotacao (gado, outros, preco manual) ficam no
+- meses passados de classes sem cotacao (outros, preco manual) ficam no
   custo, e o ganho inteiro cai no mes atual;
 - um mes passado sem fechamento no yfinance usa o anterior, ou o preco de hoje;
 - o mes atual vale o que a Posicao mostra (`position_value_today()`): a
@@ -54,7 +54,7 @@ RETURN_NOTES = [
     "Rentabilidade ponderada no tempo (TWR): Dietz modificado mes a mes, encadeado.",
     "Valores brutos, antes do IR estimado da renda fixa.",
     "Proventos pagos no mes entram como rendimento (o historico de precos nao e ajustado por proventos).",
-    "Meses passados de ativos sem cotacao (gado, outros, preco manual) ficam no custo; o ganho aparece no mes atual.",
+    "Meses passados de ativos sem cotacao (outros, preco manual) ficam no custo; o ganho aparece no mes atual.",
     "Mes sem fechamento no historico usa o ultimo disponivel ou o preco de hoje.",
     "Ativo no exterior: cada mes pelo cambio do fim do mes.",
     "O mes atual vai ate hoje, pela cotacao atual: o mesmo valor da Posicao.",

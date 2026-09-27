@@ -18,7 +18,7 @@ from validators import ValidationError, parse_number, require_choice, require_da
 
 ACTION_TYPES = {"SPLIT", "REVERSE_SPLIT", "BONUS"}
 ACTION_LABELS = {"SPLIT": "desdobramento", "REVERSE_SPLIT": "grupamento", "BONUS": "bonificação"}
-# Renda fixa e gado nao tem evento corporativo.
+# Renda fixa nao tem evento corporativo.
 ELIGIBLE_ASSET_CLASSES = {"STOCKS", "REIT"}
 QUANTITY_PLACES = 6
 # Preco por cota, nao valor em dinheiro: fica com 6 casas para que

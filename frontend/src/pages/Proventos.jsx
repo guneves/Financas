@@ -50,7 +50,6 @@ const ASSET_CLASS_LABELS = {
   STOCKS: 'Ações',
   FIXED_INCOME: 'Renda fixa',
   REIT: 'FIIs',
-  CATTLE: 'Gado',
   OTHER: 'Outros',
 }
 

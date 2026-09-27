@@ -8,7 +8,7 @@ De onde vem o setor:
   segmento. Para FII o `sector` da brapi nao diz nada ("Finance",
   "Miscellaneous"), entao o setor de um FII e o segmento dele (Logistica,
   Shoppings, Escritorios...);
-- o dono (`MANUAL`), para qualquer ativo: renda fixa, gado, exterior, ou
+- o dono (`MANUAL`), para qualquer ativo: renda fixa, exterior, ou
   quando a brapi erra. A brapi nunca sobrescreve um setor manual.
 
 A leitura (`build_sector_allocation`) tenta preencher, uma vez, os ativos em

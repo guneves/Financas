@@ -319,7 +319,9 @@ docs/
 - **The exemption meter reads the IR report's own apuração** (`exemption_meter()` calls
   `renda_variavel()` up to the month), so the R$ 20 mil figure on the IR tab and in the sale form
   always matches the annual report. Don't give it a second copy of the rule.
-- **`CATTLE` is a live asset class**, not dead code — see `docs/done-tasks.md` (decided 2026-09-15) before touching it.
+- **`CATTLE` (Gado) was removed on 2026-09-27** at the owner's request: the API refuses it and no screen
+  lists it. The migrations' `CHECK` constraints still allow the value (append-only; no table rebuild
+  for it) — don't read that as the class being alive.
 
 ## Known sharp edges
 

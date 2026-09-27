@@ -16,7 +16,7 @@ Secoes:
   14.754/2023), prejuizo carregado para o ano seguinte;
 - rendimentos_isentos e tributacao_exclusiva: proventos e resgates de renda
   fixa do ano;
-- ganho_de_capital: venda de gado e "outros" em reais, para o GCAP.
+- ganho_de_capital: venda de "outros" em reais, para o GCAP.
 """
 
 from collections import defaultdict
@@ -359,7 +359,7 @@ def capital_gains(rows, year):
     for row in rows:
         if row["movement_type"] != "SELL" or str(row["operation_date"])[:4] != str(year):
             continue
-        if row["asset_class"] not in ("CATTLE", "OTHER") or normalize_currency(row["currency"]) != BASE_CURRENCY:
+        if row["asset_class"] != "OTHER" or normalize_currency(row["currency"]) != BASE_CURRENCY:
             continue
         items.append({
             "date": row["operation_date"],

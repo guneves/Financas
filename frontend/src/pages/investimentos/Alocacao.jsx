@@ -23,7 +23,7 @@ import {
 import { getClassLabel } from './helpers'
 import SectorAllocation from './SectorAllocation'
 
-const CLASS_ORDER = ['STOCKS', 'REIT', 'FIXED_INCOME', 'CATTLE', 'OTHER']
+const CLASS_ORDER = ['STOCKS', 'REIT', 'FIXED_INCOME', 'OTHER']
 // Desvio que pede atencao (pontos percentuais). Abaixo disso, "no plano".
 const DRIFT_WARNING = 5
 

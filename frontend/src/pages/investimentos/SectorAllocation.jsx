@@ -22,7 +22,7 @@ import {
 } from '../../components/ui'
 import { getClassLabel } from './helpers'
 
-const CLASS_ORDER = ['STOCKS', 'REIT', 'FIXED_INCOME', 'CATTLE', 'OTHER']
+const CLASS_ORDER = ['STOCKS', 'REIT', 'FIXED_INCOME', 'OTHER']
 const MAX_SLICES = SERIES.length + 1
 
 // A cor segue o setor na ordem do servidor (maior primeiro); "Sem setor" e o

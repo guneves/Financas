@@ -39,7 +39,7 @@ const POSITION_TABS = [
   { value: 'FIXA', label: 'Renda fixa', icon: Landmark },
 ]
 
-const VARIABLE_CLASS_ORDER = ['STOCKS', 'REIT', 'CATTLE', 'OTHER']
+const VARIABLE_CLASS_ORDER = ['STOCKS', 'REIT', 'OTHER']
 const FIXED_INCOME_TYPE_ORDER = FIXED_INCOME_TYPES.map((type) => type.value)
 const NO_FIXED_INCOME_TYPE = 'SEM_TIPO'
 
@@ -178,7 +178,7 @@ export default function Posicao() {
     }
   }
 
-  // Cotacao digitada a mao (acao sem fonte, gado, "outros"). A renda fixa
+  // Cotacao digitada a mao (acao sem fonte, "outros"). A renda fixa
   // nao passa por aqui: o valor dela vem da taxa do titulo.
   const handleManualPrice = async (asset, price) => {
     const assetId = asset.asset_id || asset.id

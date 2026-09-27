@@ -193,7 +193,7 @@ export default function ImpostoRenda() {
 
           {report.ganho_de_capital.length ? (
             <Panel>
-              <PanelHeader title="Ganho de capital (GCAP)" description="Venda de gado e de outros bens em reais: apure no programa GCAP." />
+              <PanelHeader title="Ganho de capital (GCAP)" description="Venda de outros bens em reais: apure no programa GCAP." />
               <ul className="divide-y divide-zinc-100">
                 {report.ganho_de_capital.map((item) => (
                   <li key={`${item.date}-${item.ticker}`} className="flex items-center justify-between gap-3 px-5 py-2 text-sm">

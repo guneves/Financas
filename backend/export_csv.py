@@ -42,7 +42,6 @@ ASSET_CLASS_LABELS = {
     "STOCKS": "Ações",
     "FIXED_INCOME": "Renda Fixa",
     "REIT": "Fundos Imobiliários",
-    "CATTLE": "Gado",
     "OTHER": "Outros",
 }
 

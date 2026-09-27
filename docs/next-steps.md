@@ -88,10 +88,9 @@ The `skip_cash` flag is built (see `docs/done-tasks.md`); what it left open:
   the box — today it is one edit per operation.
 
 ### Fixed-income form (2026-09-27 night) — leftovers
-Exemption by title type, IPCA+ in Rentabilidade and Gado off the buy picker are built (see
+Exemption by title type, IPCA+ in Rentabilidade and the removal of Gado are built (see
 `docs/done-tasks.md`); what it left open:
 - [ ] Owner check in the browser: Registrar operação → Renda Fixa, pick LCA / CDB / IPCA+.
-- [ ] Should Gado also leave the class lists of Metas and Alocação? Ask the owner.
 
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
@@ -114,7 +113,7 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
   pools follow the simplified rules in `services/tax_report.py`; proventos of foreign assets are
   taken as BRL.
 - Multi-currency: USD, EUR and GBP only (BCB PTAX); a transfer between accounts in different
-  currencies is refused (register an expense and an income); fixed income, FII and cattle are BRL.
+  currencies is refused (register an expense and an income); fixed income and FII are BRL.
 - Corporate actions: nothing can be entered before an asset's latest event — undo the event, enter
   the movement, register the event again.
 - Receipts: no server-side thumbnails (the browser scales the file); the backup mirror copies each
@@ -126,7 +125,7 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
   monthly); monthly income has no forecast. Income counts net proventos paid in the last 365 days,
   foreign ones taken as BRL like the IR report.
 - Rentabilidade (TWR): monthly Modified Dietz on **gross** values with month-end closes; past months
-  of unquoted classes (CATTLE, manual prices) sit at cost, so their gain lands in the current month;
+  of unquoted classes (OTHER, manual prices) sit at cost, so their gain lands in the current month;
   a missing yfinance month reuses the previous close; the current month runs to today at the
   stored quotes, like Posição (a fixed-income title never refreshed from the BCB dips in that month
   until "Atualizar cotações"); a provento
@@ -137,7 +136,7 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
   stores when the screen is opened (stale if not opened near month-end); IPCA lacks the current
   month; brapi fallback covers 3 months only.
 - Sectors: brapi data is imperfect (244 tickers without sector, ETFs as "Miscellaneous"); a FII
-  segment and a stock sector with the same name merge; fixed income, cattle, foreign assets are
+  segment and a stock sector with the same name merge; fixed income, foreign assets are
   "Sem setor" until filled by hand.
 - IRPF text: no CNPJ/custodian/country stored ("(preencher)"); no paste text for foreign assets
   (Lei 14.754) or GCAP; imposto pago is the app's estimate.
