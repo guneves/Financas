@@ -544,7 +544,7 @@ def clear_sector_cache():
         _sector_cache["complete"] = False
 
 
-def _request_json(path, params, timeout=None):
+def _request_list_json(path, params, timeout=None):
     token = brapi_token()
     if not token:
         raise BrapiNotConfiguredError(
@@ -588,7 +588,7 @@ def _request_json(path, params, timeout=None):
 
 def _request_sector_page(page, timeout=None):
     """Uma pagina da /quote/list: ({ticker: SectorInfo}, tem_proxima)."""
-    payload = _request_json(LIST_PATH, {"limit": LIST_PAGE_SIZE, "page": page}, timeout=timeout)
+    payload = _request_list_json(LIST_PATH, {"limit": LIST_PAGE_SIZE, "page": page}, timeout=timeout)
     stocks = payload.get("stocks")
     if not isinstance(stocks, list):
         raise BrapiResponseError("Resposta da brapi sem stocks[]")
