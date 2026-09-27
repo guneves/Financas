@@ -78,6 +78,9 @@
 | Rentabilidade: asset-class filter (class in the query key; FII sent as `REIT`) | 2026-09-26 |
 | Carteira CSV/.xlsx export: Proventos, Proventos 12m, DY 12m (%), Rentab. c/ proventos (%) | 2026-09-26 |
 | IR report reads proventos through `services/proceeds.py` (`paid_proceeds_in_year()`); its own SQL removed | 2026-09-26 |
+| Rentabilidade vs benchmarks: IPCA, Ibovespa, IFIX, IDIV next to CDI (`services/benchmarks.py`, migration 023 `benchmark_closes`) | 2026-09-26 |
+| Allocation by sector/segment (brapi `/quote/list`, manual override, migration 022; "Por setor" panel on Alocação) | 2026-09-26 |
+| IRPF copy-paste text per section on the IR tab (`backend/irpf_text.py`, inside `GET /api/tax-report`) | 2026-09-26 |
 
 ---
 
@@ -386,3 +389,32 @@ Three subagents in parallel worktrees, merged into main (`4ff8a10`, `258a1d2`, `
   now ordered by `created_at` (were undefined). Four characterization tests written against the old
   SQL first: year boundaries, ordering, amortization and scheduled excluded, foreign taken as BRL,
   user isolation.
+
+### Investidor10 ideas: benchmarks, sectors, IRPF text — 2026-09-26 (night)
+Three worktree subagents, merged into main; 836 tests.
+- **Benchmarks** (`58f5092`): `GET /api/investments/returns` now carries `benchmarks[]` (code,
+  totals, `difference_pp` only when the index covers the whole window, note) and per-month
+  `benchmarks.{IPCA,IBOV,IFIX,IDIV}`; a month without data is `None` so the line breaks. IPCA from
+  BCB (SGS 433), Ibovespa from yfinance `^BVSP` (brapi fallback, free plan = 3 months). IFIX/IDIV
+  have **no free history** (yfinance and brapi give only today's value): every close seen is stored
+  in `benchmark_closes` (per user, like `fx_rates`), so they build history from 2026-09 on; a month's
+  close is the last one seen. Chart cards toggle lines (choice in `localStorage`). Test patch points:
+  `services.benchmarks.download_monthly_history`, `brapi_client.get_history` / `is_configured`,
+  `services.fixed_income.fetch_bcb_series`; call `services.benchmarks.reset_fetch_throttle()`.
+- **Sectors** (`e74ec70`): migration 022 adds `sector`, `segment`, `sector_source` (`BRAPI`/`MANUAL`),
+  `sector_checked_at` to `assets` (per user, so a manual correction is the owner's). brapi's quote
+  endpoint has no sector; `/quote/list` does (English sector, Portuguese subsector; ~2,330 tickers,
+  2 pages, cached 24h in memory). Stocks: translated sector (`SECTOR_LABELS`, our own translation) +
+  subsector as segment; FII: sector = its segment. Only BRL stocks/FIIs are looked up; manual is
+  never overwritten. Breakdown computed on read from `build_portfolio_snapshot()`. Routes:
+  `GET /api/allocation/sectors`, `POST /api/allocation/sectors/refresh`,
+  `PATCH /api/assets/<id>/sector`.
+- **IRPF text** (`e4c34b4`): `backend/irpf_text.py` is pure formatting over the report — no tax rule
+  of its own. Sections: Bens e Direitos (IRPF 2024/2025 code table), isentos (09, 12, 20, 99 for FII),
+  exclusiva (10, 06), renda variável month by month with opening loss and DARF 6015. CNPJ, custodian
+  and foreign location always "(preencher)" — never invented. Report gained
+  `rendimentos_por_fonte`, `renda_variavel.opening_loss_balance`, `bens_e_direitos[].name`,
+  `irpf_text`. Privacy mode hides the Bens preview; Copiar still copies.
+- Merge fix (`f6690fc`): both branches added a `_request_json` to `brapi_client.py` with different
+  signatures; the sector one is now `_request_list_json`.
+

@@ -52,14 +52,28 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
   exposure abroad). Also: Rentabilidade's class filter, and the four new provento
   columns in the carteira export (open the `.xlsx`).
 
+### Benchmarks, sectors and IRPF text (2026-09-26 night) — owner checks
+Built by three subagents, tested with mocks and one live provider run, **not opened in a browser**.
+- [ ] Rentabilidade: the benchmark cards and lines (CDI, IPCA, Ibovespa on by default); compare
+  Ibovespa's period total with Investidor10.
+- [ ] Alocação → "Por setor": press "Buscar setores" once (needs `BRAPI_TOKEN`), check the stock
+  sectors and FII segments, fix the wrong ones with the pencil (brapi files MXRF11 as Logística).
+- [ ] IR tab → "Para colar no programa do IRPF": paste each section into the 2026 program and check
+  two codes: FII payouts under isentos **99** "Outros", and whether tributação exclusiva (JCP 10,
+  aplicações 06) wants the **net** value (what the text gives) or gross + IR retido (what the tab's
+  older caption says). Fill the "(preencher)" CNPJs.
+
+### brapi plan allows 1 ticker per request
+Found 2026-09-26: a 2-ticker quote call returns 400 `QUOTES_PER_REQUEST_EXCEEDED`, while
+`MAX_SYMBOLS_PER_REQUEST = 20` in `backend/brapi_client.py`, so any multi-ticker quote refresh fails
+and silently falls back to yfinance. Owner's call: set it to 1 (one credit per ticker) or leave
+yfinance as the de facto source and keep brapi for single quotes/sectors.
+
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
-- Returns vs benchmarks: IPCA/IBOV/IFIX/IDIV lines on the Rentabilidade chart (CDI is already
-  there). IPCA is already fetched; the indices would come from brapi/yfinance.
-- Allocation by sector/segment: needs a sector per ticker (brapi returns one; store it in the catalog).
-- Harder, external data: fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY), a B3
-  import of trades and proventos (the investor-area spreadsheet, via the existing import), and
-  IRPF copy-paste text per section.
+- Fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY) — external data.
+- B3 import of trades and proventos (the investor-area spreadsheet, via the existing import).
+- Sector targets/rebalancing (today the sector view is a breakdown only).
 
 ### Known limits, accepted for now
 - Privacy mode hides balances, net worth and the portfolio only — lançamentos, faturas, orçamentos,
@@ -93,6 +107,14 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
   paid while the portfolio is empty is dropped. The response's `notes[]` lists these.
 - Total return per asset ("Rentab. c/ proventos"): base is all money ever put in (current cost +
   cost of shares sold), so an asset that paid back most of its capital isn't overstated.
+- Benchmarks: IFIX and IDIV have no free monthly history — they accumulate from the closes the app
+  stores when the screen is opened (stale if not opened near month-end); IPCA lacks the current
+  month; brapi fallback covers 3 months only.
+- Sectors: brapi data is imperfect (244 tickers without sector, ETFs as "Miscellaneous"); a FII
+  segment and a stock sector with the same name merge; fixed income, cattle, foreign assets are
+  "Sem setor" until filled by hand.
+- IRPF text: no CNPJ/custodian/country stored ("(preencher)"); no paste text for foreign assets
+  (Lei 14.754) or GCAP; imposto pago is the app's estimate.
 - Exemption meter: stocks in BRL only (FII has no exemption, foreign assets are annual); it reads
   realized results, so a sale shows up once recorded — the form's warning covers the sale being typed.
 

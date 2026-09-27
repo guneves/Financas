@@ -7,45 +7,42 @@
 
 ---
 
-## Session — 2026-09-26 (evening) · Investments follow-ups: Rentabilidade filter, export columns, IR proceeds
+## Session — 2026-09-26 (night) · Investidor10 ideas: benchmarks, sectors, IRPF text
 
-One coordinating session, three `general-purpose` subagents each in its own git worktree, merged
-into main one by one. All three hit the account's usage limit mid-task; after the reset each was
-resumed with `SendMessage` and finished from its uncommitted worktree state. `finance-guard` audited
-`8633917..HEAD`: **no findings**. No `session-scout` this time — the handoff and plan were read
-directly.
+One coordinating session. The owner picked three of the Investidor10 ideas; each went to a
+`general-purpose` subagent in its own git worktree, merged into main one by one. `finance-guard`
+audited `4bed1af..HEAD` on the merged result: **no findings**. No `session-scout` — the handoff and
+plan were read directly.
 
 ### What was done
-
-The whole "Follow-ups from the 2026-09-26 investments work" section of the plan:
-- **Rentabilidade class filter** (`4ff8a10`): dropdown next to the period, class in the query key,
-  shared `ASSET_CLASSES` in `pages/investimentos/helpers.js`. One backend test added (the endpoint
-  already filtered).
-- **Carteira export** (`11b719a`): Proventos, Proventos 12m, DY 12m (%), Rentab. c/ proventos (%)
-  in CSV and .xlsx; the column picker picks them up from `GET /api/exports/columns`.
-- **IR proceeds** (`258a1d2`): `tax_report.proceeds_rows()` now calls
-  `services/proceeds.paid_proceeds_in_year()`; characterization tests written against the old SQL
-  first. `fetch_investment_proceeds()` gained a same-user join condition (defensive — asset ids are
-  UUIDs).
-- Suite: 796 tests pass (787 + 9). `npm run build` clean. Details in `done-tasks.md`.
+- **Benchmarks on Rentabilidade** (`58f5092`, migration **023** `benchmark_closes`): IPCA, Ibovespa,
+  IFIX, IDIV next to CDI, as toggleable cards/lines. Live run on a scratch DB: Ibovespa +25.47% (12m,
+  yfinance `^BVSP`), IPCA 11/12 months, IFIX/IDIV unavailable.
+- **Allocation by sector** (`e74ec70`, migration **022**, sector columns on `assets`): brapi
+  `/quote/list` fill, manual override (never overwritten), "Por setor" panel on Alocação, three new
+  routes.
+- **IRPF copy-paste text** (`e4c34b4`): `backend/irpf_text.py`, pure formatting over the IR report,
+  returned inside `GET /api/tax-report`; "Copiar" per section on the IR tab.
+- **Merge fix** (`f6690fc`): both branches had added a `_request_json` to `brapi_client.py` with
+  different signatures — the later definition shadowed the first and broke three brapi tests. Sector
+  helper renamed `_request_list_json`.
+- Suite: **836 tests** pass (796 + 17 + 12 + 11). `npm run build` clean. Details in `done-tasks.md`.
 
 ### What was not done and why
-
-- **Nothing opened in a browser**, again. The owner walk-through item for the investments work now
-  also lists the class filter and the new export columns. Posição's 9-column layout at 1280px is
-  still the first thing to look at.
-- An unknown `asset_class` is silently ignored (whole portfolio) rather than rejected — existing
-  shared-helper behaviour, left as is and pinned by a test.
-- Still open from before: **restart the backend** (the `:5000` process predates migrations 015–021
-  and the new endpoints); decisions 3 and 4 belong to the owner. Remaining plan items beyond the
-  walk-through are the Investidor10 ideas, each needing the owner's call (benchmarks on
-  Rentabilidade is the cheapest: IPCA is already fetched).
+- **Nothing opened in a browser** — the three features are owner-check items in `next-steps.md`.
+- **brapi 1-ticker limit, not fixed**: the owner's plan rejects multi-ticker quote calls
+  (`QUOTES_PER_REQUEST_EXCEEDED`) while `MAX_SYMBOLS_PER_REQUEST = 20`, so batch refreshes silently
+  fall back to yfinance. It costs credits either way, so it is the owner's call (in the plan).
+- **Two IRPF codes to confirm** in the 2026 program: FII payouts under isentos 99, and net vs gross
+  for tributação exclusiva (JCP 10 / aplicações 06). CNPJs are always "(preencher)".
+- Still open from before: **restart the backend** (the `:5000` process predates migrations 015–023);
+  the owner walk-through; decisions 3 and 4.
 
 ### Learned
-
-- Worktrees again started at `36e0164`, far behind main; each agent fast-forwarded. Keep telling
-  worktree agents to check `git log -1` against main first.
-- A rate-limited subagent keeps its worktree edits; `SendMessage` to its id resumes it with its
-  transcript — no need to respawn.
-- `pytest -q` in this repo can end without a "N passed" line; count with `--collect-only -q` and
-  sum the per-file counts, and trust the exit code.
+- **Parallel branches touching the same module can merge cleanly and still break**: git merges two
+  new functions with the same name without a conflict. After merging worktree branches, always run
+  the full suite on main, not just trust each branch's green run.
+- IFIX and IDIV have no free monthly history (yfinance and brapi return only today's value); the app
+  now stores every close it sees, so their history starts 2026-09.
+- brapi's `/v2/stocks/quote` has no sector; `/quote/list` has sector (English) and subsector.
+- Worktrees again started at a stale commit (36e0164 for one); all fast-forwarded as instructed.

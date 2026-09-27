@@ -137,13 +137,13 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-796 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+836 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, time-weighted return, monthly contributions, the integrations healthcheck, `user_id` isolation, and backup
+proventos per asset and total return, time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, and backup
 retention and the receipts mirror. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
@@ -154,14 +154,16 @@ so `conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* impor
 there, not inside the test. A test never imports an app module (`db`, `routes.*`, `services.*`) at
 the top of the file — reach it through a fixture or `importlib.import_module` inside the test, after
 `app_module` has loaded. The pure modules (`brapi_client`, `statement_import`, `export_csv`,
-`market_catalog`) are fine at the top.
+`market_catalog`, `irpf_text`) are fine at the top.
 
 **Patch where the name is read, not where it is defined.** Modules import settings and helpers by
 name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
 whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
 *both* `services.invoices` and `routes.cards` for the `local_today` clock (`services.goals` for goals), `services.prices` for
 `download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, `services.fx` for
-`fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `routes.investments` for
+`fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `services.benchmarks` for
+`download_monthly_history` (call its `reset_fetch_throttle()` too), `brapi_client` for `get_history` /
+`get_sectors` / `is_configured`, `routes.investments` for
 `refresh_market_prices` (registering a corporate action fetches a quote), and *both*
 `services.prices` and `routes.investments` for `yf`. A patch on the wrong module does not fail — it
 silently does nothing. `app.py` itself exposes almost nothing now; reach code through the module
@@ -195,13 +197,15 @@ backend/
                       # portfolio (positions, evolution), tax_report (IR, exemption meter),
                       # allocation (targets, contribution split, concentration), goals,
                       # proceeds (proventos read, by asset), returns (TWR), contributions
-                      # (aportes x resgates), health (integrations)
+                      # (aportes x resgates), benchmarks (IPCA/IBOV/IFIX/IDIV closes),
+                      # sectors (brapi sector per asset, breakdown), health (integrations)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
   export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
+  irpf_text.py        # texto para colar no programa do IRPF, sobre o relatorio de IR (funcoes puras)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -318,7 +322,8 @@ docs/
   `validators`/`money`/`dates`/`auth`/`asset_classes`/`responses` ← `services/*` ← `routes/*` ←
   `app`. Among the investment services: `proceeds` (only `db`/`money`/`dates`/`validators`) and
   `prices` ← `fixed_income` ← `fx` ← `investments` ← `corporate_actions` / `realized_results` /
-  `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`; `health` sits
+  `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`, `allocation` ←
+  `sectors`, `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
   on top. `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
