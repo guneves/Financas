@@ -23,6 +23,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from db import get_db
+from irpf_text import br_money, build_irpf_text
 from money import rounded_money
 from services.fx import BASE_CURRENCY, normalize_currency
 from services.proceeds import paid_proceeds_in_year
@@ -46,11 +47,6 @@ DISCLAIMER = (
     "Apoio para a declaração, calculado só com o que foi lançado no app. Confira com as notas de "
     "corretagem e os informes de rendimentos antes de declarar. Day trade não é separado."
 )
-
-
-def br_money(value):
-    """1234.5 -> "1.234,50" (texto da discriminacao, que vai colado no programa)."""
-    return f"{rounded_money(value):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
 def bens_code(asset_class, currency, metadata):
@@ -117,7 +113,8 @@ def holdings_at(investments, cutoff):
     return result
 
 
-def bens_e_direitos(investments, year):
+def bens_e_direitos(investments, year, asset_names=None):
+    asset_names = asset_names or {}
     current = holdings_at(investments, f"{year}-12-31")
     previous = holdings_at(investments, f"{year - 1}-12-31")
     items = []
@@ -134,6 +131,7 @@ def bens_e_direitos(investments, year):
         items.append({
             "key": key,
             "ticker": ticker,
+            "name": asset_names.get(inv.get("asset_id")) or ticker,
             "asset_class": inv.get("asset_class"),
             "currency": currency,
             "group": group,
@@ -189,9 +187,12 @@ def renda_variavel(rows, year):
     pools = {"STOCKS": 0.0, "REIT": 0.0}
     pending_darf = 0.0
     months = []
+    opening = None
     for month in sorted(by_month):
         if month > f"{year}-12":
             break
+        if opening is None and month >= f"{year}-01":
+            opening = dict(pools)
         entry = {"month": month}
         tax_total = 0.0
         stocks = by_month[month]["STOCKS"]
@@ -235,8 +236,16 @@ def renda_variavel(rows, year):
         if month.startswith(f"{year}-"):
             months.append(entry)
 
+    if opening is None:
+        opening = dict(pools)
     return {
         "months": months,
+        # Prejuizo a compensar vindo de dezembro do ano anterior (o que o
+        # programa pede em janeiro quando nao importa a declaracao anterior).
+        "opening_loss_balance": {
+            "stocks": rounded_money(opening["STOCKS"]),
+            "reits": rounded_money(opening["REIT"]),
+        },
         "totals": {
             "stock_exempt_gain": rounded_money(sum(m["stocks"]["exempt_gain"] for m in months)),
             "tax_due": rounded_money(sum(m["darf"] for m in months)),
@@ -280,6 +289,16 @@ def income_sections(proceeds, rows, year):
     isentos = defaultdict(float)
     exclusiva = defaultdict(lambda: {"gross": 0.0, "withheld": 0.0})
     details = []
+    # Mesma classificacao, aberta por fonte pagadora (o ativo): o programa pede
+    # uma linha por fonte em cada codigo.
+    sources = defaultdict(lambda: {"amount": 0.0, "gross": 0.0, "withheld": 0.0})
+
+    def add_source(section, line, ticker, name, amount=0.0, gross=0.0, withheld=0.0):
+        entry = sources[(section, line, ticker)]
+        entry["name"] = name or ticker
+        entry["amount"] += amount
+        entry["gross"] += gross
+        entry["withheld"] += withheld
     for item in proceeds:
         kind = item["proceeds_type"]
         gross = safe_float(item["gross_amount"])
@@ -287,9 +306,11 @@ def income_sections(proceeds, rows, year):
         if kind == "DIVIDEND":
             line = "99 - Rendimentos de FII" if item["asset_class"] == "REIT" else "09 - Lucros e dividendos recebidos"
             isentos[line] += safe_float(item["net_amount"])
+            add_source("isentos", line, item["ticker"], item["asset_name"], amount=safe_float(item["net_amount"]))
         elif kind == "JCP":
             exclusiva["10 - Juros sobre capital próprio"]["gross"] += gross
             exclusiva["10 - Juros sobre capital próprio"]["withheld"] += tax
+            add_source("exclusiva", "10 - Juros sobre capital próprio", item["ticker"], item["asset_name"], gross=gross, withheld=tax)
         else:
             continue
         details.append({"date": item["payment_date"], "ticker": item["ticker"], "type": kind, "gross": rounded_money(gross), "tax": rounded_money(tax)})
@@ -302,9 +323,14 @@ def income_sections(proceeds, rows, year):
             continue
         if safe_float(row["tax_rate"]) == 0 and safe_float(row["tax_amount"]) == 0:
             isentos["12 - Rendimentos de LCI, LCA, CRI e CRA"] += profit
+            add_source("isentos", "12 - Rendimentos de LCI, LCA, CRI e CRA", row["ticker"], row["ticker"], amount=profit)
         else:
             exclusiva["06 - Rendimentos de aplicações financeiras"]["gross"] += profit
             exclusiva["06 - Rendimentos de aplicações financeiras"]["withheld"] += safe_float(row["tax_amount"])
+            add_source(
+                "exclusiva", "06 - Rendimentos de aplicações financeiras", row["ticker"], row["ticker"],
+                gross=profit, withheld=safe_float(row["tax_amount"]),
+            )
 
     return (
         [{"line": line, "amount": rounded_money(value)} for line, value in sorted(isentos.items())],
@@ -313,6 +339,18 @@ def income_sections(proceeds, rows, year):
             for line, value in sorted(exclusiva.items())
         ],
         details,
+        [
+            {
+                "section": section,
+                "line": line,
+                "ticker": ticker,
+                "name": value["name"],
+                "amount": rounded_money(value["amount"]),
+                "gross": rounded_money(value["gross"]),
+                "withheld": rounded_money(value["withheld"]),
+            }
+            for (section, line, ticker), value in sorted(sources.items())
+        ],
     )
 
 
@@ -340,13 +378,19 @@ def available_years(investments, rows):
     return sorted(years, reverse=True)
 
 
+def asset_names(conn, current_user_id):
+    rows = conn.execute("SELECT id, name FROM assets WHERE user_id = ?", (current_user_id,)).fetchall()
+    return {row["id"]: row["name"] for row in rows}
+
+
 def build_tax_report(current_user_id, year):
     refresh_realized_results(current_user_id)
     investments = fetch_investments(current_user_id)
     with get_db() as conn:
         rows = realized_rows(conn, current_user_id)
         proceeds = proceeds_rows(conn, current_user_id, year)
-    isentos, exclusiva, income_details = income_sections(proceeds, rows, year)
+        names = asset_names(conn, current_user_id)
+    isentos, exclusiva, income_details, income_sources = income_sections(proceeds, rows, year)
     variable = renda_variavel(rows, year)
     if variable["totals"]["stock_exempt_gain"]:
         isentos.append({
@@ -354,19 +398,23 @@ def build_tax_report(current_user_id, year):
             "amount": variable["totals"]["stock_exempt_gain"],
         })
         isentos.sort(key=lambda item: item["line"])
-    return {
+    report = {
         "year": year,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "disclaimer": DISCLAIMER,
         "available_years": available_years(investments, rows),
-        "bens_e_direitos": bens_e_direitos(investments, year),
+        "bens_e_direitos": bens_e_direitos(investments, year, names),
         "renda_variavel": variable,
         "exterior": exterior(rows, year),
         "rendimentos_isentos": isentos,
         "tributacao_exclusiva": exclusiva,
+        "rendimentos_por_fonte": income_sources,
         "proventos": income_details,
         "ganho_de_capital": capital_gains(rows, year),
     }
+    # Texto para colar no programa da Receita: so formata o que esta acima.
+    report["irpf_text"] = build_irpf_text(report)
+    return report
 
 
 def exemption_meter(current_user_id, month, planned_sale=0.0):
