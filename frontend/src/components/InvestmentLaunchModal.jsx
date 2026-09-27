@@ -51,6 +51,8 @@ const initialForm = () => ({
   currency: 'BRL',
   fx_rate: '',
   fixed_income: emptyFixedIncomeForm(),
+  // Posicao anterior ao app: entra na carteira sem lancamento no saldo.
+  skip_cash: false,
 })
 
 const CURRENCY_SYMBOL = { BRL: 'R$', USD: 'US$', EUR: '€', GBP: '£' }
@@ -236,7 +238,7 @@ export default function InvestmentLaunchModal({
       return currentTicker === tickerName
     })
 
-    const metadata = form.asset_class === 'FIXED_INCOME'
+    const baseMetadata = form.asset_class === 'FIXED_INCOME'
       ? {
           ...fixedIncomeMetadataFromForm(form.fixed_income),
           purchase_date: form.transaction_date,
@@ -246,6 +248,7 @@ export default function InvestmentLaunchModal({
           purchase_date: form.transaction_date,
           other_costs: otherCosts,
         }
+    const metadata = form.skip_cash ? { ...baseMetadata, skip_cash: true } : baseMetadata
 
     const insertedData = await investmentsApi.create([
       {
@@ -294,6 +297,7 @@ export default function InvestmentLaunchModal({
           sale_date: form.transaction_date,
           sale_price: unitPrice,
           other_costs: otherCosts,
+          ...(form.skip_cash ? { skip_cash: true } : {}),
           ...(isForeign && parseAmount(form.fx_rate) > 0 ? { fx_rate: parseAmount(form.fx_rate) } : {}),
         },
       },
@@ -485,6 +489,23 @@ export default function InvestmentLaunchModal({
         {mode === 'SELL' && selectedSaleAsset?.class === 'STOCKS' && !isForeign ? (
           <SaleExemptionNotice date={form.transaction_date} amount={quantity * unitPrice} />
         ) : null}
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            checked={form.skip_cash}
+            onChange={(event) => updateForm('skip_cash', event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+          />
+          <span>
+            <span className="block font-medium text-zinc-800">Operação anterior ao app</span>
+            <span className="block text-zinc-600">
+              {mode === 'BUY'
+                ? 'Entra na carteira sem sair do saldo das contas. Use para investimentos feitos antes de começar a usar o app.'
+                : 'Sai da carteira sem entrar no saldo das contas. Use para vendas feitas antes de começar a usar o app.'}
+            </span>
+          </span>
+        </label>
 
         <div className="flex items-center justify-between rounded-lg bg-zinc-100 px-4 py-3">
           <span className="font-semibold text-zinc-800">Valor total</span>

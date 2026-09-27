@@ -5,6 +5,9 @@ Uma movimentacao (compra, venda, resgate) e uma linha de
 fixa vem marcado no metadata (`is_redemption`). Cada uma espelha um
 lancamento em `transactions` com `source_type = INVESTMENT_CASH_SOURCE_TYPE`
 (`sync_investment_cash_transaction()`), para o saldo da conta ver o dinheiro.
+Uma movimentacao com `metadata.skip_cash` (posicao anterior ao app, comprada
+com dinheiro que nunca passou por aqui) nao gera lancamento: entra na carteira
+sem mexer no saldo. `investment_skips_cash()` e a regra.
 `validate_asset_transaction_backing()` recusa a mudanca que deixaria uma venda
 ou resgate sem compra que a cubra.
 
@@ -165,7 +168,19 @@ def investment_cash_metadata(investment):
     }
 
 
+def investment_skips_cash(metadata):
+    value = (metadata or {}).get("skip_cash")
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "sim", "yes"}
+    return bool(value)
+
+
 def sync_investment_cash_transaction(conn, current_user_id, investment):
+    # Posicao anterior ao app: sem lancamento (e sem buscar cambio para ele).
+    if investment_skips_cash(investment.get("metadata")):
+        if investment.get("id"):
+            delete_investment_cash_transaction(conn, current_user_id, investment["id"])
+        return
     # O caixa e em reais: operacao em moeda estrangeira converte pelo cambio dela.
     if normalize_currency(investment.get("asset_currency")) != BASE_CURRENCY:
         rate = movement_fx_rate(conn, current_user_id, investment)

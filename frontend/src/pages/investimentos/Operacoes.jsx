@@ -79,6 +79,9 @@ function describeMovement(mov) {
   const kindDetail = isRedemption
     ? formatCurrency(totalValue)
     : isFixed ? '' : `${quantityText} un.${adjusted ? ' · ajustada por evento' : ''}`
+  const kindDetailWithCash = mov.metadata?.skip_cash
+    ? [kindDetail, 'anterior ao app'].filter(Boolean).join(' · ')
+    : kindDetail
   const kindLabel = `${kind} de ${isRedemption ? formatCurrency(totalValue) : quantityText}`
 
   return {
@@ -87,7 +90,7 @@ function describeMovement(mov) {
     dateText: dateObj.toLocaleDateString('pt-BR'),
     timeText: hasCustomDate ? '' : dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     kind,
-    kindDetail,
+    kindDetail: kindDetailWithCash,
     unitPrice,
     totalValue,
     fees,
@@ -135,6 +138,7 @@ export default function Operacoes() {
       other_costs: mov.metadata?.other_costs ?? mov.fee_amount ?? '',
       fixed_income: fixedIncomeFormFromMetadata(mov.metadata || {}),
       movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
+      skip_cash: Boolean(mov.metadata?.skip_cash),
     })
   }
 
@@ -174,7 +178,9 @@ export default function Operacoes() {
       delete metadata.purchase_date
       delete metadata.sale_date
       delete metadata.redemption_date
+      delete metadata.skip_cash
       metadata.other_costs = otherCosts
+      if (editModal.skip_cash) metadata.skip_cash = true
 
       if (editModal.is_redemption) {
         metadata.redemption_date = editModal.movement_date
@@ -406,6 +412,19 @@ export default function Operacoes() {
             <Field label="Data da operação">
               <input type="date" value={editModal.movement_date} onChange={(e) => setEditField('movement_date', e.target.value)} className="app-input" required />
             </Field>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm">
+              <input
+                type="checkbox"
+                checked={editModal.skip_cash}
+                onChange={(e) => setEditField('skip_cash', e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block font-medium text-zinc-800">Operação anterior ao app</span>
+                <span className="block text-zinc-600">Não gera lançamento no saldo das contas.</span>
+              </span>
+            </label>
 
             {editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption && (
               <FixedIncomeFields

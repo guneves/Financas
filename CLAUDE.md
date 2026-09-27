@@ -137,7 +137,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-844 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+848 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
@@ -304,6 +304,10 @@ docs/
   stream FIFO, portfolio, evolution and the IR report read — returns BRL (cost at the movement's
   rate, value at today's PTAX); `fetch_investment_rows()` is native (screens, edits). The cash link
   is BRL. Anything new that computes money from movements must read `fetch_investments()`.
+- **A movement can opt out of the cash link** (`metadata.skip_cash`, "Operação anterior ao app"):
+  a position bought before the app enters the portfolio without a lançamento. The rule is
+  `investment_skips_cash()`, checked first in `sync_investment_cash_transaction()`; nothing else
+  changes (FIFO, IR and the portfolio read movements, not cash).
 - **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
   payments never count.
 - **Allocation targets and goals are plans, like budgets** (020, 021): `PUT /api/allocation/targets`

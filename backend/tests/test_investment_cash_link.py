@@ -153,3 +153,74 @@ class TestDestructiveGuards:
         assert response.status_code == 409
         # The movement and its cash entry survive the refused delete.
         assert any(e["source_id"] == investment["id"] for e in cash_entries(client, auth))
+
+
+class TestPositionBeforeTheApp:
+    """`metadata.skip_cash`: an investment bought long before the app — with
+    money that never went through it — enters the portfolio without touching
+    the balance."""
+
+    def post_old_buy(self, client, auth, **kwargs):
+        response = client.post(
+            "/api/investments",
+            headers=auth,
+            json={
+                "asset_class": "STOCKS",
+                "ticker_or_name": kwargs.get("ticker", "PETR4"),
+                "quantity": kwargs.get("quantity", 100),
+                "average_price": kwargs.get("price", 10.0),
+                "current_price": kwargs.get("price", 10.0),
+                "metadata": {"purchase_date": "2019-03-10", "skip_cash": True},
+            },
+        )
+        assert response.status_code == 201, response.get_data(as_text=True)
+        return response.get_json()[0]
+
+    def test_an_old_buy_creates_no_cash_entry(self, client, auth):
+        investment = self.post_old_buy(client, auth)
+        assert [e for e in cash_entries(client, auth) if e["source_id"] == investment["id"]] == []
+
+        positions = client.get("/api/investments", headers=auth).get_json()
+        assert any(p["id"] == investment["id"] for p in positions)
+
+    def test_the_account_balance_is_untouched(self, client, auth):
+        self.post_old_buy(client, auth, quantity=50, price=20.0)
+        accounts = client.get("/api/accounts", headers=auth).get_json()
+        assert sum(a["balance"] for a in accounts) == pytest.approx(0)
+
+    def test_a_later_sale_of_the_old_position_still_brings_cash_in(self, client, auth):
+        self.post_old_buy(client, auth, quantity=100, price=10.0)
+        response = client.post(
+            "/api/investments",
+            headers=auth,
+            json={
+                "asset_class": "STOCKS",
+                "ticker_or_name": "PETR4",
+                "quantity": -40,
+                "average_price": 10.0,
+                "current_price": 15.0,
+                "metadata": {"sale_date": "2026-02-10", "sale_price": 15.0},
+            },
+        )
+        assert response.status_code == 201, response.get_data(as_text=True)
+        sale = response.get_json()[0]
+        linked = [e for e in cash_entries(client, auth) if e["source_id"] == sale["id"]]
+        assert len(linked) == 1
+        assert linked[0]["type"] == "INCOME"
+        assert linked[0]["amount"] == pytest.approx(600.0)
+
+    def test_toggling_the_flag_on_an_edit_adds_and_removes_the_entry(self, client, auth):
+        investment = post_buy(client, auth, ticker="VALE3", quantity=10, price=50.0)
+        assert len([e for e in cash_entries(client, auth) if e["source_id"] == investment["id"]]) == 1
+
+        metadata = {**investment["metadata"], "skip_cash": True}
+        response = client.patch(f"/api/investments/{investment['id']}", headers=auth, json={"metadata": metadata})
+        assert response.status_code == 200, response.get_data(as_text=True)
+        assert [e for e in cash_entries(client, auth) if e["source_id"] == investment["id"]] == []
+
+        metadata["skip_cash"] = False
+        response = client.patch(f"/api/investments/{investment['id']}", headers=auth, json={"metadata": metadata})
+        assert response.status_code == 200, response.get_data(as_text=True)
+        linked = [e for e in cash_entries(client, auth) if e["source_id"] == investment["id"]]
+        assert len(linked) == 1
+        assert linked[0]["amount"] == pytest.approx(500.0)

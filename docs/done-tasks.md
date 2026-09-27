@@ -85,6 +85,7 @@
 | Posição "Evolução do Patrimônio" on the gross basis, like the headline (net in the tooltip) | 2026-09-27 |
 | Rentabilidade and Evolução value the current month like Posição (`position_value_today()`) | 2026-09-27 |
 | Orçamento copy: "Realizado" counts card purchases, not only account outflows | 2026-09-27 |
+| "Operação anterior ao app": an investment movement that enters the portfolio without touching the balance (`metadata.skip_cash`) | 2026-09-27 |
 
 ---
 
@@ -453,3 +454,17 @@ Three small mismatches from the 2026-09-26 Chrome walk-through, fixed by three w
 - **Orçamento copy.** "Realizado" hint → "Saídas e compras no cartão no mês"; page and panel
   descriptions now say what `budget_spend_by_category()` counts (lançamentos without transfers, card
   purchases in full in the purchase month, invoice payments never).
+
+### Operação anterior ao app — 2026-09-27
+
+Asked by the owner: a first-time user has to enter investments bought years ago, and every buy used
+to create an EXPENSE in the default account, so the balance went deeply negative. Now a movement
+with `metadata.skip_cash = true` gets no linked lançamento — `sync_investment_cash_transaction()`
+checks `investment_skips_cash()` first and deletes any linked row (so an edit can toggle it both
+ways, and no PTAX is fetched for a foreign movement that has no cash). FIFO, portfolio, IR and TWR
+are untouched: they read movements, not cash. The flag is per movement, so a later sale of an old
+position still brings cash in unless it is flagged too. UI: a checkbox "Operação anterior ao app"
+in "Registrar operação" (buy and sell) and in the operation edit form; the Operações list tags the
+row "anterior ao app". No migration (metadata is JSON). Tests: `TestPositionBeforeTheApp` in
+`test_investment_cash_link.py`. Not built: the flag on the fixed-income redemption form in Posição
+(the backend honours it, the form does not send it), and a bulk "mark everything before date X".

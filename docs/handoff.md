@@ -7,46 +7,37 @@
 
 ---
 
-## Session — 2026-09-27 · Walk-through inconsistencies (three worktree subagents)
+## Session — 2026-09-27 (later) · "Operação anterior ao app" (skip the cash link)
 
-The owner asked to keep working on the plan with one subagent per task, at least three. The only
-open items that need no owner input were the three small inconsistencies from the 2026-09-26 Chrome
-walk-through; each went to an `isolation: "worktree"` agent, merged into main by this session. No
-`session-scout` (read the docs directly). `finance-guard` ran on `e2f7e12..HEAD`: zero findings.
+The owner asked for a way, for first-time users, to enter investments without them showing as money
+leaving the balance, since they may have been made long ago. No `session-scout` (small, targeted
+task). `finance-guard` ran on the uncommitted tree: zero findings.
 
 ### What was done
-- **Posição chart gross** — "Evolução do Patrimônio" bars now use `patrimonioBruto` /
-  `ganhoCapitalBruto` (new, additive in `build_portfolio_evolution()`), same basis as the
-  "Carteira" headline and the donut; net shows in the tooltip.
-- **Rentabilidade = Posição today** — new `position_value_today()` in `services/portfolio.py`, used
-  by both `build_portfolio_snapshot()` and the current month of `portfolio_month_positions()`.
-  Root cause: the current month re-accrued unrefreshed fixed income from the series and took the
-  yfinance month close for stocks/FIIs, while Posição used stored quotes. On a refreshed seed the gap
-  was really in stocks/FIIs, not fixed income as logged.
-- **Orçamento copy** — "Realizado" hint and two descriptions now match `budget_spend_by_category()`.
-- Tests: **844 pass** (6 new). Frontend build passes. CLAUDE.md test count updated (was stale at 836).
+- **`metadata.skip_cash`** on an investment movement: `investment_skips_cash()` in
+  `services/investments.py`, checked first in `sync_investment_cash_transaction()`, which then
+  deletes any linked lançamento and returns — so create skips the EXPENSE/INCOME, and an edit can
+  toggle it both ways. No migration (metadata JSON). FIFO/IR/portfolio untouched (they read movements).
+- UI: checkbox "Operação anterior ao app" in "Registrar operação" (buy and sell) and in the
+  Operações edit form; the row's detail shows "anterior ao app".
+- Tests: `TestPositionBeforeTheApp` (4 new) — **848 pass**. Frontend build passes. CLAUDE.md
+  convention + test count updated.
 
 ### What was not done and why
-- Two findings from the agents are **logged in `next-steps.md`, not fixed** — both need the owner:
-  budgets on income categories add income into "Realizado"; a position whose running applied value
-  goes ≤ 0 (big profitable partial sale) drops out of the monthly valuation but stays in Posição.
-- Trade-off accepted: a fixed-income title never refreshed from the BCB now dips in the current TWR
-  month until "Atualizar cotações" (consistency with Posição won). Noted under Known limits.
-- None of the three changes opened in a browser.
-- Still open from before: owner checks of benchmarks, sectors, IRPF text on real data; the **brapi
-  1-ticker limit** (owner's call); two IRPF codes to confirm; **restart the backend** (`:5000`
-  predates migrations 015–023); the owner walk-through; decisions 3 and 4.
-- `docs/negociacao-2026-09-26-23-43-43.pdf` appeared untracked during the session — not ours, left
-  out of the commit.
+- Not opened in a browser — logged as an owner check in `next-steps.md`.
+- The fixed-income redemption form in Posição does not send the flag (backend honours it); no bulk
+  "mark everything before date X". Both logged in `next-steps.md`; wait for the owner to ask.
+- Carried from before, still open: two findings needing the owner (budgets on income categories;
+  positions whose running applied value goes ≤ 0), owner checks of benchmarks/sectors/IRPF text, the
+  brapi 1-ticker limit, two IRPF codes, **restart the backend** (`:5000` predates migrations
+  015–023), the owner walk-through, decisions 3 and 4. `docs/negociacao-2026-09-26-23-43-43.pdf` is
+  not ours — leave it out of commits.
 
 ### Next session
-Nothing left in `next-steps.md` that Claude can do without the owner: every open item is an owner
-check or an owner decision. Ask the owner which of the two new findings / the Investidor10 ideas to
-take, or do the walk-through with them.
+Every open item still needs the owner. Ask which to take.
 
 ### Learned
-- Worktree agents again started on stale `36e0164`; the fast-forward instruction in the prompt worked.
-- `finance-guard` reported "836 tests pass" — it read a stale count; the real run is 844. Pytest's
-  `-q` here prints no summary line (addopts); use `-o addopts=""` to get "N passed".
-- Scripted edits to `services/portfolio.py` (CRLF) silently turn it LF — check line endings.
-- In PowerShell 5.1, `git commit -m @'...'@` with double quotes inside breaks; use `git commit -F`.
+- `sed -i` on a CRLF file silently turns it LF (Git Bash); patch CRLF files with a Python script
+  that keeps `newline=''`.
+- The flag is per movement on purpose: a later sale of an old position is real cash unless the
+  owner ticks the box on it too.

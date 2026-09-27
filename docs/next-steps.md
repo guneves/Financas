@@ -79,6 +79,14 @@ yfinance as the de facto source and keep brapi for single quotes/sectors.
   value, not the cost). Posição keeps it, so Rentabilidade/Evolução and Posição can still disagree
   for such an asset. Not in the seed; fixing it puts a jump into that asset's TWR — decide first.
 
+### "Operação anterior ao app" (2026-09-27) — leftovers
+The `skip_cash` flag is built (see `docs/done-tasks.md`); what it left open:
+- [ ] Owner check in the browser: enter an old buy with the box ticked, confirm the balance and the
+  Extrato do not move. Not opened in a browser by Claude.
+- [ ] The fixed-income redemption form in Posição has no checkbox (the backend honours the flag).
+- [ ] No bulk "mark every movement before date X" for someone who already entered history without
+  the box — today it is one edit per operation.
+
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
 - Fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY) — external data.
