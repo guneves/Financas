@@ -233,8 +233,10 @@ def trailing_net_by_asset(conn, current_user_id, filters=None, today=None):
 def build_proceeds_by_asset(items, total_net, trailing_net=None):
     """Proventos agrupados por ativo, do maior liquido para o menor.
 
-    `yield_on_cost_percent` e o liquido dividido pela soma dos
-    `cost_basis_at_record_date` dos eventos (o custo elegivel de cada um);
+    `cost_basis` e a media dos `cost_basis_at_record_date` dos eventos que
+    tem custo: o custo da posicao entra uma vez, nao uma por pagamento (um FII
+    que paga todo mes nao divide o liquido por 12 vezes o custo).
+    `yield_on_cost_percent` e o liquido dividido por esse custo;
     `share_percent` e a fatia do liquido total do periodo.
     """
     trailing_net = trailing_net or {}
@@ -253,7 +255,8 @@ def build_proceeds_by_asset(items, total_net, trailing_net=None):
             "net_amount": 0.0,
             "paid_net_amount": 0.0,
             "scheduled_net_amount": 0.0,
-            "cost_basis": 0.0,
+            "cost_basis_total": 0.0,
+            "cost_events": 0,
             "last_payment_date": None,
         })
         net = safe_float(item.get("net_amount"))
@@ -261,7 +264,10 @@ def build_proceeds_by_asset(items, total_net, trailing_net=None):
         bucket["gross_amount"] += safe_float(item.get("gross_amount"))
         bucket["tax_amount"] += safe_float(item.get("tax_amount"))
         bucket["net_amount"] += net
-        bucket["cost_basis"] += safe_float(item.get("cost_basis_at_record_date"))
+        event_cost = safe_float(item.get("cost_basis_at_record_date"))
+        if event_cost > 0:
+            bucket["cost_basis_total"] += event_cost
+            bucket["cost_events"] += 1
         if item.get("status") == "SCHEDULED":
             bucket["scheduled_net_amount"] += net
         else:
@@ -272,6 +278,9 @@ def build_proceeds_by_asset(items, total_net, trailing_net=None):
 
     result = []
     for bucket in buckets.values():
+        cost_events = bucket.pop("cost_events")
+        cost_total = bucket.pop("cost_basis_total")
+        bucket["cost_basis"] = cost_total / cost_events if cost_events else 0.0
         for key in ("gross_amount", "tax_amount", "net_amount", "paid_net_amount", "scheduled_net_amount", "cost_basis"):
             bucket[key] = rounded_money(bucket[key])
         bucket["net_12m"] = rounded_money(trailing_net.get(bucket["asset_id"], 0))
@@ -306,14 +315,12 @@ def build_investment_proceeds_summary(items, trailing_net=None):
         gross = safe_float(item.get("gross_amount"))
         tax = safe_float(item.get("tax_amount"))
         net = safe_float(item.get("net_amount"))
-        cost_basis = safe_float(item.get("cost_basis_at_record_date"))
         proceeds_type = item.get("proceeds_type") or "OTHER"
         month_key = str(item.get("payment_date") or "")[:7]
 
         summary["gross_amount"] += gross
         summary["tax_amount"] += tax
         summary["net_amount"] += net
-        summary["cost_basis"] += cost_basis
         if item.get("status") == "SCHEDULED":
             summary["scheduled_net_amount"] += net
             summary["next_events"].append(item)
@@ -345,12 +352,8 @@ def build_investment_proceeds_summary(items, trailing_net=None):
             month_bucket["tax_amount"] += tax
             month_bucket["net_amount"] += net
 
-    for key in ("gross_amount", "tax_amount", "net_amount", "cost_basis", "paid_net_amount", "scheduled_net_amount"):
+    for key in ("gross_amount", "tax_amount", "net_amount", "paid_net_amount", "scheduled_net_amount"):
         summary[key] = rounded_money(summary[key])
-    summary["yield_on_cost_percent"] = round(
-        (summary["net_amount"] / summary["cost_basis"]) * 100,
-        4,
-    ) if summary["cost_basis"] > 0 else 0
 
     for bucket in summary["by_type"].values():
         for key in ("gross_amount", "tax_amount", "net_amount"):
@@ -362,6 +365,12 @@ def build_investment_proceeds_summary(items, trailing_net=None):
     summary["by_type"] = sorted(summary["by_type"].values(), key=lambda item: item["proceeds_type"])
     summary["by_month"] = sorted(summary["by_month"].values(), key=lambda item: item["month"])
     summary["by_asset"] = build_proceeds_by_asset(items, summary["net_amount"], trailing_net)
+    # O custo de cada ativo entra uma vez (o mesmo do by_asset), nao uma por evento.
+    summary["cost_basis"] = rounded_money(sum(item["cost_basis"] for item in summary["by_asset"]))
+    summary["yield_on_cost_percent"] = round(
+        (summary["net_amount"] / summary["cost_basis"]) * 100,
+        4,
+    ) if summary["cost_basis"] > 0 else 0
     summary["next_events"] = sorted(
         summary["next_events"],
         key=lambda item: (item.get("payment_date") or "", item.get("asset", {}).get("ticker") or ""),

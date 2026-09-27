@@ -81,6 +81,7 @@
 | Rentabilidade vs benchmarks: IPCA, Ibovespa, IFIX, IDIV next to CDI (`services/benchmarks.py`, migration 023 `benchmark_closes`) | 2026-09-26 |
 | Allocation by sector/segment (brapi `/quote/list`, manual override, migration 022; "Por setor" panel on Alocação) | 2026-09-26 |
 | IRPF copy-paste text per section on the IR tab (`backend/irpf_text.py`, inside `GET /api/tax-report`) | 2026-09-26 |
+| Proventos yield on cost fixed: each asset's cost counted once (average of its events' cost at the record date), not once per payment | 2026-09-26 |
 
 ---
 
@@ -418,3 +419,13 @@ Three worktree subagents, merged into main; 836 tests.
 - Merge fix (`f6690fc`): both branches added a `_request_json` to `brapi_client.py` with different
   signatures; the sector one is now `_request_list_json`.
 
+### Yield on cost fix — 2026-09-26 (late)
+Found in a Chrome walk-through on scratch data: Proventos showed yield on cost 1,29% for 2026
+where R$ 2.576 on ~R$ 44k of cost is ~5,9%. `build_proceeds_by_asset()` and the summary summed
+`cost_basis_at_record_date` over **events**, so an asset paying monthly divided its income by 12×
+its cost (the old test even asserted 7,125% for R$ 142,50 on R$ 1.000). Now an asset's
+`cost_basis` is the **average** of its events' cost at the record date (events with cost > 0 —
+a position that grows between payments averages), and the summary's `cost_basis` is the sum of
+the per-asset costs, so `summary.yield_on_cost_percent` and the by-asset column use the same
+denominator. Per-event YOC is unchanged. This matches the portfolio's `dividend_yield_12m` basis
+(one cost per asset). Tests: corrected expectation + monthly payer + growing position.

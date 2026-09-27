@@ -648,7 +648,7 @@ function ProceedsByAsset({ items }) {
                 <td className="num text-zinc-700">{item.event_count}</td>
                 <td className="num font-semibold text-zinc-950">{money(item.net_amount)}</td>
                 <td className="num text-zinc-700">{money(item.net_12m)}</td>
-                <td className="num text-zinc-700" title={`Custo na data com: ${money(item.cost_basis)}`}>{formatPercent(item.yield_on_cost_percent)}</td>
+                <td className="num text-zinc-700" title={`Custo médio nas datas com: ${money(item.cost_basis)}`}>{formatPercent(item.yield_on_cost_percent)}</td>
                 <td className="num text-zinc-700">{formatPercent(item.share_percent)}</td>
               </tr>
             ))}

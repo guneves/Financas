@@ -69,6 +69,15 @@ Found 2026-09-26: a 2-ticker quote call returns 400 `QUOTES_PER_REQUEST_EXCEEDED
 and silently falls back to yfinance. Owner's call: set it to 1 (one credit per ticker) or leave
 yfinance as the de facto source and keep brapi for single quotes/sectors.
 
+### Small inconsistencies found in the Chrome walk-through (2026-09-26, scratch data)
+- Posição: the "Carteira" headline is **gross**, but the "Evolução do Patrimônio" bars are **net**
+  (`patrimonio` after the estimated fixed-income IR, `services/portfolio.py`), and the subtitle
+  doesn't say so. ~R$ 526 apart on the seed. Pick one basis or label the chart "líquido".
+- Rentabilidade "Carteira hoje" vs Posição "Carteira": R$ 25,58 apart on the seed (115.318,77 vs
+  115.344,35), all of it in fixed income — probably accrual to a different day. Not investigated.
+- Orçamento: the "Realizado" tile says "Saídas em conta no mês", but it includes card purchases
+  (decision 1). Copy fix.
+
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
 - Fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY) — external data.

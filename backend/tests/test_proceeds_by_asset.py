@@ -127,8 +127,8 @@ def test_summary_groups_by_asset_sorted_by_net(client, auth, two_assets):
     assert petr["gross_amount"] == 150.0
     assert petr["tax_amount"] == 7.5
     assert petr["net_amount"] == 142.5
-    assert petr["cost_basis"] == 2000.0          # 100 x R$ 10, nos dois eventos
-    assert petr["yield_on_cost_percent"] == 7.125
+    assert petr["cost_basis"] == 1000.0          # 100 x R$ 10, uma vez so
+    assert petr["yield_on_cost_percent"] == 14.25   # 142,50 / 1.000
     assert petr["net_12m"] == 142.5
     assert petr["share_percent"] == 87.69        # 142,50 / 162,50
 
@@ -138,6 +138,39 @@ def test_summary_groups_by_asset_sorted_by_net(client, auth, two_assets):
     assert itsa["net_12m"] == 0                  # pago ha 400 dias
 
     assert sum(item["net_amount"] for item in body["by_asset"]) == body["net_amount"] == 162.5
+    assert body["cost_basis"] == 2000.0          # 1.000 + 1.000: cada ativo uma vez
+    assert body["yield_on_cost_percent"] == 8.125  # 162,50 / 2.000
+
+
+def test_yield_on_cost_counts_the_position_once_for_monthly_payers(client, auth):
+    """Um ativo que paga todo mes: 12 pagamentos de R$ 0,10 sobre 100 cotas a
+    R$ 10 rendem 12% sobre o custo, nao 1% (o liquido dividido por 12 custos)."""
+    asset = trade(client, auth, "BBAS3", 100, 10.0, days(-400))
+    for month in range(12):
+        provento(client, auth, asset, days(-30 * (month + 1)), per_unit=0.1)
+
+    body = summary(client, auth)
+    bbas = by_ticker(body)["BBAS3"]
+    assert bbas["event_count"] == 12
+    assert bbas["net_amount"] == 120.0
+    assert bbas["cost_basis"] == 1000.0
+    assert bbas["yield_on_cost_percent"] == 12.0
+    assert body["cost_basis"] == 1000.0
+    assert body["yield_on_cost_percent"] == 12.0
+
+
+def test_yield_on_cost_averages_the_cost_when_the_position_grows(client, auth):
+    """100 cotas a R$ 10 no primeiro provento, mais 100 a R$ 20 antes do
+    segundo: custo nas datas com de R$ 1.000 e R$ 3.000, media R$ 2.000."""
+    asset = trade(client, auth, "PETR4", 100, 10.0, days(-200))
+    provento(client, auth, asset, days(-150), per_unit=1.0)   # 100 x R$ 1
+    trade(client, auth, "PETR4", 100, 20.0, days(-100))
+    provento(client, auth, asset, days(-50), per_unit=1.0)    # 200 x R$ 1
+
+    petr = by_ticker(summary(client, auth))["PETR4"]
+    assert petr["net_amount"] == 300.0
+    assert petr["cost_basis"] == 2000.0
+    assert petr["yield_on_cost_percent"] == 15.0
 
 
 def test_summary_by_asset_honours_the_filters(client, auth, two_assets):

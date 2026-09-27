@@ -7,42 +7,42 @@
 
 ---
 
-## Session — 2026-09-26 (night) · Investidor10 ideas: benchmarks, sectors, IRPF text
+## Session — 2026-09-26 (late) · Chrome walk-through, yield on cost fix
 
-One coordinating session. The owner picked three of the Investidor10 ideas; each went to a
-`general-purpose` subagent in its own git worktree, merged into main one by one. `finance-guard`
-audited `4bed1af..HEAD` on the merged result: **no findings**. No `session-scout` — the handoff and
-plan were read directly.
+The owner asked for a click-through with Claude in Chrome, then for the one real bug it found to be
+fixed. No `session-scout` (short follow-up session). `finance-guard` ran on the fix — see below.
 
 ### What was done
-- **Benchmarks on Rentabilidade** (`58f5092`, migration **023** `benchmark_closes`): IPCA, Ibovespa,
-  IFIX, IDIV next to CDI, as toggleable cards/lines. Live run on a scratch DB: Ibovespa +25.47% (12m,
-  yfinance `^BVSP`), IPCA 11/12 months, IFIX/IDIV unavailable.
-- **Allocation by sector** (`e74ec70`, migration **022**, sector columns on `assets`): brapi
-  `/quote/list` fill, manual override (never overwritten), "Por setor" panel on Alocação, three new
-  routes.
-- **IRPF copy-paste text** (`e4c34b4`): `backend/irpf_text.py`, pure formatting over the IR report,
-  returned inside `GET /api/tax-report`; "Copiar" per section on the IR tab.
-- **Merge fix** (`f6690fc`): both branches had added a `_request_json` to `brapi_client.py` with
-  different signatures — the later definition shadowed the first and broke three brapi tests. Sector
-  helper renamed `_request_list_json`.
-- Suite: **836 tests** pass (796 + 17 + 12 + 11). `npm run build` clean. Details in `done-tasks.md`.
+- **Chrome walk-through on a scratch DB** (seeded with `seed_three_years_mock`, backend :5002,
+  vite :5175; the real `finance.db` untouched): Início, Extrato (search), Cartões, Importar,
+  Orçamento, Recorrentes, Metas (created a goal — forecast dez/2029 checked by hand), all six
+  Investimentos tabs, "Atualizar cotações", "+ Novo" expense (flows to Extrato, category and
+  budget), dark mode, privacy. No console errors; the headline totals reconcile across screens.
+- **Yield on cost fixed** (`services/proceeds.py`): an asset's cost is now counted once (average
+  of its events' cost at the record date) instead of once per payment; the summary sums per-asset
+  costs. Seed 2026 YTD: 1,29% → 5,88%. Tests: 838 pass (2 new). Tooltip on the Proventos by-asset
+  column now says "Custo médio nas datas com". Details in `done-tasks.md`.
 
 ### What was not done and why
-- **Nothing opened in a browser** — the three features are owner-check items in `next-steps.md`.
-- **brapi 1-ticker limit, not fixed**: the owner's plan rejects multi-ticker quote calls
-  (`QUOTES_PER_REQUEST_EXCEEDED`) while `MAX_SYMBOLS_PER_REQUEST = 20`, so batch refreshes silently
-  fall back to yfinance. It costs credits either way, so it is the owner's call (in the plan).
-- **Two IRPF codes to confirm** in the 2026 program: FII payouts under isentos 99, and net vs gross
-  for tributação exclusiva (JCP 10 / aplicações 06). CNPJs are always "(preencher)".
-- Still open from before: **restart the backend** (the `:5000` process predates migrations 015–023);
-  the owner walk-through; decisions 3 and 4.
+- Three small inconsistencies from the walk-through are **logged, not fixed** (new section in
+  `next-steps.md`): Posição chart net vs headline gross, a R$ 25,58 Rentabilidade/Posição gap in
+  fixed income, and the Orçamento "Realizado" caption.
+- Still open from the previous session: the owner checks of benchmarks, sectors and the IRPF text
+  on real data; the **brapi 1-ticker limit** (owner's call, it costs credits either way); two IRPF
+  codes to confirm (FII payouts under isentos 99; net vs gross for exclusiva 10/06); **restart the
+  backend** (the `:5000` process predates migrations 015–023); the owner walk-through; decisions 3
+  and 4.
+
+### Next session
+Pick from `next-steps.md` §1 — the three small inconsistencies are quick; the owner walk-through
+still needs the owner.
 
 ### Learned
-- **Parallel branches touching the same module can merge cleanly and still break**: git merges two
-  new functions with the same name without a conflict. After merging worktree branches, always run
-  the full suite on main, not just trust each branch's green run.
-- IFIX and IDIV have no free monthly history (yfinance and brapi return only today's value); the app
-  now stores every close it sees, so their history starts 2026-09.
-- brapi's `/v2/stocks/quote` has no sector; `/quote/list` has sector (English) and subsector.
-- Worktrees again started at a stale commit (36e0164 for one); all fast-forwarded as instructed.
+- A seeded scratch DB shows Posição and the evolution chart **disagreeing by ~R$ 22k** until
+  "Atualizar cotações" is pressed: the seed's fixed-income quotes are left at cost (stale since the
+  purchase date) while the chart accrues CDI. Not a bug — refresh before comparing screens.
+- `VITE_API_BASE_URL` is the bare origin (no `/api`). Starting vite with
+  `Start-Process powershell -ArgumentList '...$env:X="..."...'` drops the variable silently (the
+  quotes are stripped) — use a `.cmd` with `set`.
+- The Chrome extension worked for the whole session this time (screenshots, `find`, `form_input`
+  on selects, typing into React inputs).
