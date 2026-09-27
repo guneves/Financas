@@ -32,6 +32,10 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 BRAPI_BASE_URL = os.getenv("BRAPI_BASE_URL", "https://brapi.dev/api").rstrip("/")
 QUOTE_PATH = "/v2/stocks/quote"
+# Historico (fechamentos diarios) de um simbolo: `/quote/<simbolo>?range=&interval=`.
+# O plano gratuito so aceita range ate 3mo (visto em 2026-09-26).
+HISTORY_PATH = "/quote/"
+HISTORY_MAX_FREE_RANGE = "3mo"
 
 # Horario de Brasilia nao tem mais horario de verao desde 2019, entao um offset
 # fixo de -03:00 basta e evita uma dependencia de tzdata.
@@ -346,16 +350,14 @@ def _read_cache(symbols, now=None):
 # HTTP
 # ---------------------------------------------------------------------------
 
-def _request_quotes(symbols, timeout=None):
-    """Uma chamada HTTP, um credito. Sem cache e sem deduplicacao."""
+def _request_json(url, symbols, timeout=None):
+    """Um GET autenticado na brapi, um credito; devolve o objeto JSON da resposta."""
     token = brapi_token()
     if not token:
         raise BrapiNotConfiguredError(
             "BRAPI_TOKEN nao configurado; defina-o em backend/.env"
         )
 
-    query = urllib.parse.urlencode({"symbols": ",".join(symbols)})
-    url = f"{BRAPI_BASE_URL}{QUOTE_PATH}?{query}"
     req = urllib.request.Request(
         url,
         headers={
@@ -393,6 +395,13 @@ def _request_quotes(symbols, timeout=None):
 
     if not isinstance(payload, dict):
         raise BrapiResponseError("Resposta da brapi nao e um objeto")
+    return payload
+
+
+def _request_quotes(symbols, timeout=None):
+    """Uma chamada HTTP, um credito. Sem cache e sem deduplicacao."""
+    query = urllib.parse.urlencode({"symbols": ",".join(symbols)})
+    payload = _request_json(f"{BRAPI_BASE_URL}{QUOTE_PATH}?{query}", symbols, timeout)
 
     results = payload.get("results")
     if not isinstance(results, list):
@@ -540,3 +549,37 @@ def _fetch_deduplicated(symbols, *, timeout=None, now=None):
     if not quotes and error is not None:
         raise error
     return quotes
+
+
+def get_history(symbol, *, range_=HISTORY_MAX_FREE_RANGE, interval="1d", timeout=None):
+    """Fechamentos de um simbolo (ticker ou indice, como `^BVSP`): [(date, close)].
+
+    Um credito por chamada e sem cache aqui: quem chama guarda o resultado
+    (services/benchmarks.py grava em `benchmark_closes`). Simbolo desconhecido
+    vira BrapiHTTPError 404; lista vazia quando nao ha historico.
+    """
+    wanted = str(symbol or "").strip().upper()
+    if not wanted:
+        return []
+    query = urllib.parse.urlencode({"range": range_, "interval": interval})
+    url = f"{BRAPI_BASE_URL}{HISTORY_PATH}{urllib.parse.quote(wanted, safe='')}?{query}"
+    payload = _request_json(url, [wanted], timeout)
+
+    results = payload.get("results")
+    if not isinstance(results, list):
+        message = _error_message(payload)
+        raise BrapiResponseError(f"Resposta da brapi sem results[]: {message or 'formato desconhecido'}")
+    if not results or not isinstance(results[0], dict):
+        return []
+
+    closes = []
+    for row in results[0].get("historicalDataPrice") or []:
+        if not isinstance(row, dict):
+            continue
+        close = _safe_price(row.get("close"))
+        stamp = _safe_float(row.get("date"))
+        if close is None or close <= 0 or stamp is None:
+            continue
+        closes.append((datetime.fromtimestamp(stamp, BRT).date(), close))
+    closes.sort()
+    return closes

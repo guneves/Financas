@@ -501,3 +501,14 @@ CREATE TABLE IF NOT EXISTS investment_goals (
 
 CREATE INDEX IF NOT EXISTS idx_investment_goals_user
 ON investment_goals(user_id, created_at);
+
+-- 023: fechamentos dos indices de comparacao (Ibovespa, IFIX, IDIV) da Rentabilidade.
+CREATE TABLE IF NOT EXISTS benchmark_closes (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    benchmark TEXT NOT NULL,
+    close_date TEXT NOT NULL,
+    close REAL NOT NULL CHECK (close > 0),
+    source TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (user_id, benchmark, close_date)
+);

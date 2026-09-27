@@ -33,6 +33,7 @@ import calendar
 from dates import month_key, month_label
 from db import get_db
 from money import rounded_money
+from services.benchmarks import benchmark_note
 from services.investments import investment_cash_amount, investment_gross_proceeds
 from services.portfolio import evolution_group_key, investment_movement_date, iter_portfolio_months
 from services.prices import ticker_key
@@ -55,6 +56,7 @@ RETURN_NOTES = [
     "Mes sem fechamento no historico usa o ultimo disponivel ou o preco de hoje.",
     "Ativo no exterior: cada mes pelo cambio do fim do mes.",
     "O mes atual vai ate hoje.",
+    "Indices de comparacao: IPCA pela variacao mensal do IBGE (BCB); Ibovespa, IFIX e IDIV pelo fechamento do fim de cada mes (indices de retorno total).",
 ]
 
 # Abaixo disto (em reais) um valor ou a base do mes e zero: o mes e pulado.
@@ -271,9 +273,14 @@ def build_investment_returns(
     *,
     index_series=None,
     cdi_series=None,
+    benchmarks=None,
     asset_class=None,
 ):
-    """TWR da carteira no periodo e no ano, serie mensal, tabela ano x mes e TWR por ativo."""
+    """TWR da carteira no periodo e no ano, serie mensal, tabela ano x mes e TWR por ativo.
+
+    `benchmarks` e o que `services.benchmarks.load_benchmarks()` devolve:
+    {codigo: {"label", "monthly": {AAAA-MM: fracao}, "source", "error", ...}}.
+    """
     now = datetime.now()
     evaluated = returns_evaluated_months(months_back)
     months = list(iter_portfolio_months(investments, historical_prices, evaluated, index_series))
@@ -299,10 +306,17 @@ def build_investment_returns(
     current_year = now.year
     ytd = [item for item in monthly if item["month_start"].year == current_year]
 
+    benchmarks = benchmarks or {}
+    window_keys = [month_key(item["month_start"]) for item in window]
+    benchmark_paths = {
+        code: accumulate_benchmark(entry.get("monthly") or {}, window_keys)
+        for code, entry in benchmarks.items()
+    }
+
     series = []
     accumulated = 1.0
     cdi_accumulated = 1.0
-    for item in window:
+    for position, item in enumerate(window):
         key = month_key(item["month_start"])
         if item["return"] is not None:
             accumulated *= 1 + item["return"]
@@ -310,6 +324,13 @@ def build_investment_returns(
         if cdi_return is not None:
             cdi_accumulated *= 1 + cdi_return
         series.append({
+            "benchmarks": {
+                code: {
+                    "return_percent": percent((benchmarks[code].get("monthly") or {}).get(key)),
+                    "accumulated_percent": percent(path[position]),
+                }
+                for code, path in benchmark_paths.items()
+            },
             "month_key": key,
             "month": month_label(item["month_start"]),
             "return_percent": percent(item["return"]),
@@ -323,7 +344,6 @@ def build_investment_returns(
 
     twr = chain_returns(item["return"] for item in window)
     ytd_twr = chain_returns(item["return"] for item in ytd)
-    window_keys = [month_key(item["month_start"]) for item in window]
     ytd_keys = [month_key(item["month_start"]) for item in ytd]
     cdi_period = chain_returns(cdi.get(key) for key in window_keys) if cdi else None
     cdi_ytd = chain_returns(cdi.get(key) for key in ytd_keys) if cdi else None
@@ -386,6 +406,10 @@ def build_investment_returns(
         "ytd_cdi_percent": percent(cdi_ytd),
         "percent_of_cdi": percent_of(twr, cdi_period),
         "ytd_percent_of_cdi": percent_of(ytd_twr, cdi_ytd),
+        "benchmarks": [
+            benchmark_summary(code, benchmarks[code], window_keys, ytd_keys, twr)
+            for code in benchmarks
+        ],
         "series": series,
         # `monthly` e a janela mais o ano corrente inteiro.
         "years": year_month_table(
@@ -397,6 +421,51 @@ def build_investment_returns(
             f"(a partir de {month_label(window_start)}) — 'capped' indica a compra anterior a ela."
         ),
         "notes": RETURN_NOTES,
+    }
+
+
+def accumulate_benchmark(monthly, keys):
+    """Acumulado (fracao) de um indice em cada mes de `keys`.
+
+    None no mes sem retorno (antes do primeiro dado, ou o IPCA ainda nao
+    divulgado): a linha do grafico some ali em vez de ficar reta. O acumulado
+    segue dos meses que existem."""
+    factor = 1.0
+    path = []
+    for key in keys:
+        value = monthly.get(key)
+        if value is None:
+            path.append(None)
+            continue
+        factor *= 1 + value
+        path.append(factor - 1)
+    return path
+
+
+def benchmark_summary(code, entry, window_keys, ytd_keys, twr):
+    """Total do indice no periodo e no ano, e quantos meses do periodo ele cobre."""
+    monthly = entry.get("monthly") or {}
+    covered = [key for key in window_keys if key in monthly]
+    period = chain_returns(monthly.get(key) for key in window_keys)
+    complete = bool(window_keys) and len(covered) == len(window_keys)
+    return {
+        "code": code,
+        "label": entry.get("label") or code,
+        "available": bool(covered),
+        "complete": complete,
+        "months_covered": len(covered),
+        "months_total": len(window_keys),
+        "first_month": covered[0] if covered else None,
+        "last_month": covered[-1] if covered else None,
+        "period_percent": percent(period),
+        "ytd_percent": percent(chain_returns(monthly.get(key) for key in ytd_keys)),
+        # Diferenca em pontos percentuais so quando o indice cobre o periodo
+        # inteiro: comparar 12 meses da carteira com 3 do IFIX engana.
+        "difference_pp": (
+            round((twr - period) * 100, 2) if complete and twr is not None and period is not None else None
+        ),
+        "source": entry.get("source"),
+        "note": benchmark_note(code, entry, window_keys, covered),
     }
 
 

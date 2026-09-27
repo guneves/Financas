@@ -73,19 +73,116 @@ function percentAxis(value) {
   return `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
 }
 
-function ReturnsChart({ series, cdiAvailable, seriesLabel }) {
+// Indices de comparacao (GET /api/investments/returns -> benchmarks). A cor segue
+// o indice, nunca a posicao; o CDI e o cinza de "outros", como antes.
+const BENCHMARK_COLORS = {
+  CDI: OTHER_COLOR,
+  IPCA: SERIES[3],
+  IBOV: SERIES[1],
+  IFIX: SERIES[2],
+  IDIV: SERIES[6],
+}
+const DEFAULT_VISIBLE = ['CDI', 'IPCA', 'IBOV']
+const BENCHMARKS_STORAGE_KEY = '@financeMVP:rentabilidadeBenchmarks'
+
+function readStoredBenchmarks() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BENCHMARKS_STORAGE_KEY) || 'null')
+    return Array.isArray(saved) ? saved : DEFAULT_VISIBLE
+  } catch {
+    return DEFAULT_VISIBLE
+  }
+}
+
+// O CDI entra na mesma lista dos outros indices, para ligar/desligar igual.
+function comparisonItems(data) {
+  if (!data) return []
+  const cdi = {
+    code: 'CDI',
+    label: 'CDI',
+    available: Boolean(data.cdi_available),
+    complete: Boolean(data.cdi_available),
+    period_percent: data.cdi_percent,
+    difference_pp: hasValue(data.twr_percent) && hasValue(data.cdi_percent)
+      ? Math.round((data.twr_percent - data.cdi_percent) * 100) / 100
+      : null,
+    note: data.cdi_available ? null : 'O BCB não respondeu o CDI.',
+  }
+  return [cdi, ...(data.benchmarks || [])]
+}
+
+function comparisonHint(item) {
+  if (!item.available) return 'indisponível'
+  if (!item.complete) return `${item.months_covered} de ${item.months_total} meses`
+  if (hasValue(item.difference_pp)) {
+    const sign = item.difference_pp > 0 ? '+' : ''
+    return `carteira ${sign}${item.difference_pp.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} p.p.`
+  }
+  return 'no período'
+}
+
+// Cartoes que sao, ao mesmo tempo, o total de cada indice no periodo e o
+// liga/desliga da linha dele no grafico.
+function BenchmarkToggles({ items, visible, onToggle }) {
+  return (
+    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      {items.map((item) => {
+        const on = item.available && visible.includes(item.code)
+        return (
+          <button
+            key={item.code}
+            type="button"
+            aria-pressed={on}
+            disabled={!item.available}
+            onClick={() => onToggle(item.code)}
+            title={item.note || (on ? `Esconder ${item.label} do gráfico` : `Mostrar ${item.label} no gráfico`)}
+            className={cx(
+              'min-w-0 rounded-xl border px-3 py-2 text-left transition duration-200',
+              on ? 'border-zinc-300 bg-zinc-50' : 'border-zinc-200 bg-white',
+              item.available ? 'hover:border-zinc-400' : 'cursor-not-allowed opacity-60'
+            )}
+          >
+            <LegendDot
+              color={on ? BENCHMARK_COLORS[item.code] : CHART.axis}
+              label={item.label}
+              shape="line"
+            />
+            <p className="mt-1 text-base font-bold">
+              <Pct value={item.available ? item.period_percent : null} />
+            </p>
+            <p className="truncate text-xs text-zinc-500">{comparisonHint(item)}</p>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function ReturnsChart({ series, benchmarks, seriesLabel }) {
   const chartAnimation = useChartAnimation()
-  const data = useMemo(() => series.map((item) => ({
-    month: item.month_key,
-    carteira: item.accumulated_percent,
-    cdi: cdiAvailable ? item.cdi_accumulated_percent : null,
-  })), [series, cdiAvailable])
+  const data = useMemo(() => series.map((item) => {
+    const row = {
+      month: item.month_key,
+      carteira: item.accumulated_percent,
+      CDI: item.cdi_accumulated_percent,
+    }
+    for (const [code, values] of Object.entries(item.benchmarks || {})) {
+      row[code] = values?.accumulated_percent ?? null
+    }
+    return row
+  }), [series])
+  const names = useMemo(() => Object.fromEntries([
+    ['carteira', seriesLabel],
+    ...benchmarks.map((item) => [item.code, item.label]),
+  ]), [benchmarks, seriesLabel])
 
   return (
     <>
       <div className="mb-3 flex flex-wrap gap-4">
         <LegendDot color={SERIES[0]} label={`${seriesLabel} (TWR)`} shape="line" />
-        {cdiAvailable ? <LegendDot color={OTHER_COLOR} label="CDI" shape="line" /> : null}
+        {benchmarks.map((item) => (
+          <LegendDot key={item.code} color={BENCHMARK_COLORS[item.code]} label={item.label} shape="line" />
+        ))}
       </div>
       <div className="h-64" aria-label={`Rentabilidade acumulada: ${seriesLabel}`}>
         <ResponsiveContainer width="100%" height="100%">
@@ -98,23 +195,26 @@ function ReturnsChart({ series, cdiAvailable, seriesLabel }) {
               cursor={{ stroke: CHART.axis }}
               content={(
                 <ChartTooltip
-                  names={{ carteira: seriesLabel, cdi: 'CDI' }}
+                  names={names}
                   labelFormatter={shortMonthLabel}
                   valueFormatter={signedPercent}
                 />
               )}
             />
-            {cdiAvailable ? (
+            {benchmarks.map((item) => (
               <Line
+                key={item.code}
                 type="monotone"
-                dataKey="cdi"
-                stroke={OTHER_COLOR}
-                strokeWidth={2}
+                dataKey={item.code}
+                stroke={BENCHMARK_COLORS[item.code]}
+                strokeWidth={item.code === 'CDI' ? 2 : 1.75}
+                // Inflacao tracejada: e o piso real, nao um investimento.
+                strokeDasharray={item.code === 'IPCA' ? '5 4' : undefined}
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
                 {...chartAnimation}
               />
-            ) : null}
+            ))}
             <Line
               type="monotone"
               dataKey="carteira"
@@ -258,6 +358,23 @@ export default function Rentabilidade() {
   const data = returnsQuery.data
   const error = queryErrorMessage(returnsQuery, 'Não foi possível calcular a rentabilidade.')
 
+  const [visibleBenchmarks, setVisibleBenchmarks] = useState(readStoredBenchmarks)
+  const comparisons = useMemo(() => comparisonItems(data), [data])
+  const shownBenchmarks = comparisons.filter((item) => item.available && visibleBenchmarks.includes(item.code))
+  const benchmarkNotes = comparisons.filter((item) => item.code !== 'CDI' && item.note)
+
+  const toggleBenchmark = (code) => {
+    setVisibleBenchmarks((current) => {
+      const next = current.includes(code) ? current.filter((item) => item !== code) : [...current, code]
+      try {
+        localStorage.setItem(BENCHMARKS_STORAGE_KEY, JSON.stringify(next))
+      } catch {
+        // Preferencia so desta sessao.
+      }
+      return next
+    })
+  }
+
   const changePeriod = (value) => {
     setMonths(value)
     try {
@@ -279,7 +396,7 @@ export default function Rentabilidade() {
     <div className="space-y-6">
       <PageHeader
         title="Rentabilidade"
-        description="Retorno ponderado no tempo (TWR): aportes e resgates não distorcem o percentual, então dá para comparar com o CDI."
+        description="Retorno ponderado no tempo (TWR): aportes e resgates não distorcem o percentual, então dá para comparar com o CDI, a inflação e os índices da bolsa."
         actions={(
           <>
             <select
@@ -338,14 +455,22 @@ export default function Rentabilidade() {
           <Panel>
             <PanelHeader
               title="Rentabilidade acumulada"
-              description={data.cdi_available ? 'Carteira e CDI acumulados desde o início da janela.' : 'Carteira acumulada desde o início da janela.'}
+              description="Carteira e índices de comparação acumulados desde o início da janela. Toque em um índice para mostrar ou esconder a linha."
             />
             <div className="p-5" aria-busy={returnsQuery.isFetching}>
+              <BenchmarkToggles items={comparisons} visible={visibleBenchmarks} onToggle={toggleBenchmark} />
               {returnsQuery.isFetching && !data.series.length ? (
                 <Skeleton className="h-64 w-full" />
               ) : (
-                <ReturnsChart series={data.series} cdiAvailable={data.cdi_available} seriesLabel={classLabel || 'Carteira'} />
+                <ReturnsChart series={data.series} benchmarks={shownBenchmarks} seriesLabel={classLabel || 'Carteira'} />
               )}
+              {benchmarkNotes.length ? (
+                <ul className="mt-4 space-y-1 text-xs text-zinc-500">
+                  {benchmarkNotes.map((item) => (
+                    <li key={item.code}><span className="font-semibold text-zinc-600">{item.label}:</span> {item.note}</li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </Panel>
 

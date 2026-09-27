@@ -152,6 +152,11 @@ def market(app_module, prices_module, monkeypatch):
     monkeypatch.setattr(routes, "yf", object())
     monkeypatch.setattr(routes, "get_monthly_history", fake_history)
     monkeypatch.setattr(fixed_income, "fetch_bcb_series", fake_cdi)
+    # Indices de comparacao sem rede (test_benchmarks.py cobre esse caminho).
+    benchmarks = importlib.import_module("services.benchmarks")
+    benchmarks.reset_fetch_throttle()
+    monkeypatch.setattr(benchmarks, "download_monthly_history", lambda tickers, start: {})
+    monkeypatch.setattr(benchmarks.brapi_client, "is_configured", lambda: False)
     return app_module
 
 

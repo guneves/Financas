@@ -80,6 +80,7 @@ from services.prices import (
     ticker_key,
     yf,
 )
+from services.benchmarks import load_benchmarks
 from services.realized_results import realized_results_summary, refresh_realized_results
 from services.returns import build_investment_returns, returns_evaluated_months
 from validators import (
@@ -933,6 +934,12 @@ def get_investment_returns(current_user_id):
         cdi_series = fetch_index_history(
             datetime(first_month.year, first_month.month, 1), False,
         )
+        # IPCA, Ibovespa, IFIX e IDIV: cada um falha sozinho, sem derrubar a resposta.
+        try:
+            benchmarks = load_benchmarks(current_user_id, first_month)
+        except Exception as exc:
+            logger.exception(f"Indices de comparacao indisponiveis: {exc}")
+            benchmarks = None
         result = build_investment_returns(
             current_user_id,
             filtered_investments,
@@ -940,6 +947,7 @@ def get_investment_returns(current_user_id):
             months_back,
             index_series=index_series,
             cdi_series=(cdi_series or {}).get("cdi"),
+            benchmarks=benchmarks,
             asset_class=asset_class_filter,
         )
         return jsonify(result), 200
