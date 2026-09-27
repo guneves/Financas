@@ -18,7 +18,8 @@ const CATALOG_ASSET_CLASSES = ['STOCKS', 'REIT']
 const ASSET_TYPES = [
   { value: 'STOCKS', label: 'Ações' },
   { value: 'REIT', label: 'Fundos Imobiliários' },
-  { value: 'CATTLE', label: 'Gado' },
+  // Gado nao e mais oferecido na compra; so aparece ao vender uma posicao antiga.
+  { value: 'CATTLE', label: 'Gado', hidden: true },
   { value: 'FIXED_INCOME', label: 'Renda Fixa' },
   { value: 'OTHER', label: 'Outros' },
 ]
@@ -342,7 +343,7 @@ export default function InvestmentLaunchModal({
               disabled={mode === 'SELL'}
               className="app-select h-11"
             >
-              {ASSET_TYPES.map((type) => (
+              {ASSET_TYPES.filter((type) => !type.hidden || type.value === form.asset_class).map((type) => (
                 <option key={type.value} value={type.value}>{type.label}</option>
               ))}
             </select>

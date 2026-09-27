@@ -87,6 +87,7 @@
 | Orçamento copy: "Realizado" counts card purchases, not only account outflows | 2026-09-27 |
 | "Operação anterior ao app": an investment movement that enters the portfolio without touching the balance (`metadata.skip_cash`) | 2026-09-27 |
 | Ticker search and the buy guard cover the whole B3 (brapi `/quote/list`, `services/market_listing.py`); LEVE3, FESA4 and other small caps were refused | 2026-09-27 |
+| Fixed-income IR exemption follows the title type (`fixed_income_is_tax_free()`; LIG and Debênture incentivada added); IPCA+ directly in Rentabilidade; Gado no longer offered on a buy | 2026-09-27 |
 
 ---
 
@@ -469,3 +470,5 @@ in "Registrar operação" (buy and sell) and in the operation edit form; the Ope
 row "anterior ao app". No migration (metadata is JSON). Tests: `TestPositionBeforeTheApp` in
 `test_investment_cash_link.py`. Not built: the flag on the fixed-income redemption form in Posição
 (the backend honours it, the form does not send it), and a bulk "mark everything before date X".
+
+**Fixed-income exemption by title type (2026-09-27).** `fixed_income_is_tax_free()` in `services/fixed_income.py` is the one rule: LCI, LCA, LIG, CRI, CRA and `DEBENTURE_INCENTIVADA` are exempt; a stored `is_tax_free` is still honoured for old rows. Net value, realized tax, the portfolio flag and the IR Bens code all read it. The form has no checkbox any more: it shows "Isento de IR" / "Tributado" from the type and writes `is_tax_free` accordingly; an old `DEBENTURE` flagged exempt opens for editing as `DEBENTURE_INCENTIVADA`. "Rentabilidade" offers Pós (CDI), IPCA+ and Pré; IPCA+ is still stored as `rate_type POS` + `indexer IPCA`. `CATTLE` stays a live class (existing positions show and can be sold); only the buy picker hides it.

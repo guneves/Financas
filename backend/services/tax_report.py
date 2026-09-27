@@ -25,6 +25,7 @@ from datetime import datetime
 from db import get_db
 from irpf_text import br_money, build_irpf_text
 from money import rounded_money
+from services.fixed_income import fixed_income_is_tax_free
 from services.fx import BASE_CURRENCY, normalize_currency
 from services.proceeds import paid_proceeds_in_year
 from services.realized_results import refresh_realized_results
@@ -41,7 +42,6 @@ STOCK_RATE = 0.15
 REIT_RATE = 0.20
 FOREIGN_RATE = 0.15
 DARF_MINIMUM = 10.0
-TAX_FREE_FIXED_INCOME = {"LCI", "LCA", "CRI", "CRA"}
 
 DISCLAIMER = (
     "Apoio para a declaração, calculado só com o que foi lançado no app. Confira com as notas de "
@@ -57,8 +57,8 @@ def bens_code(asset_class, currency, metadata):
     if asset_class == "REIT":
         return "07", "03", "Fundos imobiliários (FII)"
     if asset_class == "FIXED_INCOME":
-        if (metadata or {}).get("is_tax_free") or (metadata or {}).get("fixed_income_type") in TAX_FREE_FIXED_INCOME:
-            return "04", "03", "Títulos isentos (LCI, LCA, CRI, CRA)"
+        if fixed_income_is_tax_free(metadata):
+            return "04", "03", "Títulos isentos (LCI, LCA, LIG, CRI, CRA, debêntures incentivadas)"
         return "04", "02", "Títulos sujeitos à tributação (CDB, Tesouro, debêntures...)"
     return "99", "99", "Outros bens e direitos"
 

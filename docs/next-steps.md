@@ -87,6 +87,12 @@ The `skip_cash` flag is built (see `docs/done-tasks.md`); what it left open:
 - [ ] No bulk "mark every movement before date X" for someone who already entered history without
   the box — today it is one edit per operation.
 
+### Fixed-income form (2026-09-27 night) — leftovers
+Exemption by title type, IPCA+ in Rentabilidade and Gado off the buy picker are built (see
+`docs/done-tasks.md`); what it left open:
+- [ ] Owner check in the browser: Registrar operação → Renda Fixa, pick LCA / CDB / IPCA+.
+- [ ] Should Gado also leave the class lists of Metas and Alocação? Ask the owner.
+
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
 - Fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY) — external data.

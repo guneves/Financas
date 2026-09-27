@@ -13,6 +13,7 @@ import math
 from dates import parse_iso_date
 from db import encode_metadata, get_db, row_to_dict
 from money import rounded_money
+from services.fixed_income import fixed_income_is_tax_free
 from services.investments import (
     fetch_investments,
     investment_fee_amount,
@@ -62,7 +63,7 @@ def realized_tax_rate(asset_class, metadata=None, holding_days=None):
         return explicit_rate
 
     if asset_class == "FIXED_INCOME":
-        if metadata.get("is_tax_free", False):
+        if fixed_income_is_tax_free(metadata):
             return 0
         if holding_days is not None:
             return fixed_income_tax_rate_for_days(holding_days)

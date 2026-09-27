@@ -40,7 +40,7 @@ def fixed_income_net_value(asset_class, metadata, invested_value, market_value, 
         return market_value
 
     profit = market_value - invested_value
-    if profit <= 0 or metadata.get("is_tax_free", False):
+    if profit <= 0 or fixed_income_is_tax_free(metadata):
         return market_value
 
     purchase_date = parse_iso_date(metadata.get("purchase_date"))
@@ -104,7 +104,18 @@ def fixed_income_rate_terms(metadata):
     return indexer, rate
 
 
-FIXED_INCOME_TYPES = {"CDB", "LCI", "LCA", "LC", "LF", "RDB", "DEBENTURE", "CRI", "CRA", "CCB"}
+FIXED_INCOME_TYPES = {
+    "CDB", "LCI", "LCA", "LIG", "LC", "LF", "RDB", "DEBENTURE", "DEBENTURE_INCENTIVADA",
+    "CRI", "CRA", "CCB",
+}
+# Isentos de IR para pessoa fisica pela propria especie do titulo.
+TAX_FREE_FIXED_INCOME_TYPES = {"LCI", "LCA", "LIG", "CRI", "CRA", "DEBENTURE_INCENTIVADA"}
+
+
+def fixed_income_is_tax_free(metadata):
+    """Isencao de IR do titulo: vem do tipo; `is_tax_free` gravado ainda vale (legado)."""
+    metadata = metadata or {}
+    return bool(metadata.get("is_tax_free")) or metadata.get("fixed_income_type") in TAX_FREE_FIXED_INCOME_TYPES
 FIXED_INCOME_RATE_KEYS = ("fixed_income_type", "rate_type", "indexer", "cdi_percentage", "annual_rate")
 
 

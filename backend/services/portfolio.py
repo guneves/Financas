@@ -15,6 +15,7 @@ from dates import month_end, month_key, month_label, parse_iso_date, subtract_mo
 from db import encode_metadata, get_db
 from money import rounded_money
 from services.fixed_income import (
+    fixed_income_is_tax_free,
     accrual_factor_until,
     fixed_income_net_value,
     movement_affects_fixed_income_position,
@@ -539,7 +540,7 @@ def build_portfolio_snapshot(current_user_id):
             datetime.now(),
         )
         taxes = max(current_value - net_value, 0)
-        is_tax_free = bool((data.get("metadata") or {}).get("is_tax_free", False))
+        is_tax_free = fixed_income_is_tax_free(data.get("metadata"))
         profitability = (
             ((net_value - data["total_invested"]) / data["total_invested"]) * 100
             if data["total_invested"] > 0 else 0

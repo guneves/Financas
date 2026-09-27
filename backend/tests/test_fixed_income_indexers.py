@@ -5,6 +5,7 @@ regras sejam testadas sem rede.
 """
 
 from datetime import datetime
+import importlib
 
 import pytest
 
@@ -316,3 +317,43 @@ def test_edit_with_unreadable_rate_is_refused(client, auth):
     )
     assert response.status_code == 400
     assert "taxa anual" in response.get_json()["error"]
+
+
+@pytest.mark.parametrize("fixed_income_type, exempt", [
+    ("LCI", True), ("LCA", True), ("LIG", True), ("CRI", True), ("CRA", True),
+    ("DEBENTURE_INCENTIVADA", True), ("CDB", False), ("DEBENTURE", False), (None, False),
+])
+def test_tax_exemption_follows_the_title_type(fixed_income_module, fixed_income_type, exempt):
+    assert fixed_income_module.fixed_income_is_tax_free({"fixed_income_type": fixed_income_type}) is exempt
+
+
+def test_legacy_tax_free_flag_is_still_honoured(fixed_income_module):
+    assert fixed_income_module.fixed_income_is_tax_free({"fixed_income_type": "CDB", "is_tax_free": True})
+    assert not fixed_income_module.fixed_income_is_tax_free(None)
+
+
+def test_net_value_of_a_tax_free_type_keeps_the_whole_profit(fixed_income_module):
+    net_value = fixed_income_module.fixed_income_net_value(
+        "FIXED_INCOME", {"fixed_income_type": "LCA", "purchase_date": "2025-01-02"},
+        1000, 1100, datetime(2025, 3, 1),
+    )
+    assert net_value == 1100
+    taxed = fixed_income_module.fixed_income_net_value(
+        "FIXED_INCOME", {"fixed_income_type": "CDB", "purchase_date": "2025-01-02"},
+        1000, 1100, datetime(2025, 3, 1),
+    )
+    assert taxed < 1100
+
+
+@pytest.mark.parametrize("fixed_income_type", ["LIG", "DEBENTURE_INCENTIVADA"])
+def test_new_title_types_are_accepted(client, auth, fixed_income_type):
+    response = post_fixed_income(client, auth, {
+        "fixed_income_type": fixed_income_type, "rate_type": "POS", "indexer": "IPCA", "annual_rate": 0.06,
+    })
+    assert response.status_code in (200, 201), response.get_data(as_text=True)
+
+
+def test_ir_report_puts_a_tax_free_type_in_the_exempt_code(app_module):
+    tax_report = importlib.import_module("services.tax_report")
+    assert tax_report.bens_code("FIXED_INCOME", "BRL", {"fixed_income_type": "LIG"})[:2] == ("04", "03")
+    assert tax_report.bens_code("FIXED_INCOME", "BRL", {"fixed_income_type": "CDB"})[:2] == ("04", "02")

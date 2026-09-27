@@ -7,47 +7,43 @@
 
 ---
 
-## Session — 2026-09-27 (evening) · every B3 ticker can be found
+## Session — 2026-09-27 (night) · fixed-income form: exemption by type, IPCA+, no Gado
 
-The owner reported that the app did not find LEVE3, then FESA4, and asked that all assets be
-available. Cause: the ticker search and the buy guard (`resolve_catalog_ticker`) read only the
-static ~250-ticker list in `market_catalog.py`. Five of the owner's real holdings (LEVE3, FESA4,
-RANI3, SAPR4, SOJA3) were missing from it. No `session-scout` (targeted bug). `finance-guard` ran; see below.
+The owner asked, for the "Registrar operação" renda fixa form: classify "Isento de IR"
+automatically from the title's specification, remove Gado from the asset picker, and offer IPCA+
+under "Rentabilidade". No `session-scout` (targeted request). `finance-guard` ran: no findings.
 
 ### What was done
-- `brapi_client.get_listing()`: the whole `/quote/list` (2 pages, ~2300 tickers), sharing the one-day
-  cache with `get_sectors`. `SectorInfo` gained `name` as its **last** field (tests build it positionally).
-- `services/market_listing.py`: converts the listing into catalog entries and caches them for a day.
-  After a brapi failure it waits 10 minutes before retrying, so the autocomplete never waits on a
-  timeout per keystroke. With no token or no network it returns `{}`, which leaves the static list.
-  `lookup()` only goes to the network when the static list does not know the ticker.
-- `market_catalog.search/lookup` take `extra`, and the static entry wins (better names). The mapping is
-  `LISTING_KIND`: stock/unit → Ação, bdr → BDR, fund/etf → ETF, fund/fii and **Fiagro → FII (REIT)**.
-  **FI-Infra, FIP, FIDC and untyped funds are excluded** (their tax does not match any class). The
-  fractional ticker (`LEVE3F`) is dropped when its base exists.
-- `routes/market.py` and `resolve_catalog_ticker` go through the service.
-- `conftest.py` now blanks `BRAPI_TOKEN`: the real token from `.env` was reaching the test run.
-- 8 new tests (`TestFullB3Listing`), **856 pass**. Live check against brapi: 2284 of 2332 accepted,
-  and all five of the owner's missing tickers resolve.
+- Backend: `fixed_income_is_tax_free()` in `services/fixed_income.py` is now the single exemption
+  rule (LCI, LCA, LIG, CRI, CRA, `DEBENTURE_INCENTIVADA`; a stored `is_tax_free` still counts, for
+  old rows). `fixed_income_net_value`, `realized_tax_rate`, the portfolio's `is_tax_free` and
+  `tax_report.bens_code` read it. `LIG` and `DEBENTURE_INCENTIVADA` are accepted title types.
+  Consequence: an existing LCI/LCA/CRI/CRA saved *without* the flag now nets no IR — correct by law.
+- Frontend (`lib/fixedIncome.js`, `FixedIncomeFields.jsx`): the checkbox is gone; a read-only
+  "Imposto de renda" field shows Isento / Tributado from the type, and `is_tax_free` is written from
+  it. "Rentabilidade" = Pós-fixado (CDI) / IPCA+ / Pré-fixado (IPCA+ still stored as POS + IPCA);
+  the Indexador select (% do CDI / CDI+) shows only for Pós. An old `DEBENTURE` flagged exempt opens
+  for editing as "Debênture incentivada".
+- `InvestmentLaunchModal.jsx`: Gado hidden from the class picker on a buy; it still appears when
+  selling an existing Gado position. `CATTLE` remains a live class everywhere else.
+- Tests: type-based exemption, legacy flag, net value, new types accepted, Bens code. Suite green.
 
 ### What was not done and why
-- Not tried in the browser. The **backend must be restarted** to pick this up. The first search after
-  boot takes a second or two (two brapi pages).
-- Fiagro counted as FII is a judgement call (similar tax). FI-Infra remains unbuyable as a quoted
-  asset. Ask the owner if they hold any.
-- Not opened in a browser — logged as an owner check in `next-steps.md`.
-- The fixed-income redemption form in Posição does not send the flag (backend honours it); no bulk
-  "mark everything before date X". Both logged in `next-steps.md`; wait for the owner to ask.
-- Carried from before, still open: two findings needing the owner (budgets on income categories;
-  positions whose running applied value goes ≤ 0), owner checks of benchmarks/sectors/IRPF text, the
-  brapi 1-ticker limit, two IRPF codes, **restart the backend** (`:5000` predates migrations
-  015–023), the owner walk-through, decisions 3 and 4. `docs/negociacao-2026-09-26-23-43-43.pdf` is
-  not ours — leave it out of commits.
+- Not tried in a browser; `vite build` passes. Owner check: open Registrar operação → Renda Fixa.
+- Gado is still listed in Metas / Alocação class lists (targets for existing positions); the
+  request was about the buy form. Ask the owner if it should go there too.
+- A CDB saved with a manual "Isento" tick loses it the next time it is edited and saved (the type
+  rules). Deliberate; mention if the owner had such a row.
+- Carried from before, still open: restart the backend and search LEVE3/FESA4; two findings needing
+  the owner (budgets on income categories; positions whose running applied value goes ≤ 0); owner
+  checks of benchmarks/sectors/IRPF text; the brapi 1-ticker limit; two IRPF codes; the owner
+  walk-through, decisions 3 and 4; the skip_cash flag on the Posição redemption form.
+  `docs/negociacao-2026-09-26-23-43-43.pdf` is not ours — leave it out of commits.
 
 ### Next session
-Ask the owner to restart the backend and search LEVE3/FESA4. Otherwise every open item needs the owner.
+Owner checks of this form and of the B3 listing. Otherwise every open item needs the owner.
 
 ### Learned
-- A Python heredoc through Git Bash mangles non-ASCII (ç, ã) in the script text, so an `assert old in s`
-  on Portuguese text fails. Anchor on ASCII or insert by line number.
-- `sed -i` on a CRLF file silently turns it LF; patch CRLF files with `newline=''`.
+- `sed -i` on a CRLF file turns it LF (again) — re-add `` with `sed -i 's/$//'` or patch in
+  Python with bytes.
+- Python heredoc through Git Bash: write non-ASCII as `ç` escapes and it survives.

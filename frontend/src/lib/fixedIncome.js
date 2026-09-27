@@ -12,29 +12,47 @@ export const FIXED_INCOME_TYPES = [
   { value: 'CDB', label: 'CDB' },
   { value: 'LCI', label: 'LCI' },
   { value: 'LCA', label: 'LCA' },
+  { value: 'LIG', label: 'LIG' },
   { value: 'LC', label: 'LC' },
   { value: 'LF', label: 'LF' },
   { value: 'RDB', label: 'RDB' },
   { value: 'DEBENTURE', label: 'Debênture' },
+  { value: 'DEBENTURE_INCENTIVADA', label: 'Debênture incentivada' },
   { value: 'CRI', label: 'CRI' },
   { value: 'CRA', label: 'CRA' },
   { value: 'CCB', label: 'CCB' },
 ]
 
-// Isentos de IR para pessoa fisica. Debenture incentivada tambem e, mas nem
-// toda debenture e incentivada: para ela o checkbox fica a cargo do usuario.
-export const TAX_FREE_FIXED_INCOME_TYPES = ['LCI', 'LCA', 'CRI', 'CRA']
+// Isentos de IR para pessoa fisica pela especie do titulo. A isencao nao e
+// escolhida no formulario: segue o tipo (mesma lista de services/fixed_income.py).
+export const TAX_FREE_FIXED_INCOME_TYPES = ['LCI', 'LCA', 'LIG', 'CRI', 'CRA', 'DEBENTURE_INCENTIVADA']
 
-export const RATE_TYPES = [
-  { value: 'POS', label: 'Pós-fixado' },
+export const isTaxFreeFixedIncomeType = (type) => TAX_FREE_FIXED_INCOME_TYPES.includes(type)
+
+// "Rentabilidade" no formulario: IPCA+ aparece ao lado de pos e pre, mas no
+// metadata continua sendo rate_type POS com indexer IPCA.
+export const RATE_MODES = [
+  { value: 'POS', label: 'Pós-fixado (CDI)' },
+  { value: 'IPCA', label: 'IPCA+' },
   { value: 'PRE', label: 'Pré-fixado' },
 ]
 
+// Indexadores do pos-fixado em CDI.
 export const INDEXERS = [
-  { value: 'CDI', label: 'CDI' },
+  { value: 'CDI', label: '% do CDI' },
   { value: 'CDI_PLUS', label: 'CDI+' },
-  { value: 'IPCA', label: 'IPCA+' },
 ]
+
+export function rateModeOf(fields) {
+  if (fields.rate_type === 'PRE') return 'PRE'
+  return fields.indexer === 'IPCA' ? 'IPCA' : 'POS'
+}
+
+export function rateFieldsForMode(mode) {
+  if (mode === 'PRE') return { rate_type: 'PRE', indexer: 'CDI' }
+  if (mode === 'IPCA') return { rate_type: 'POS', indexer: 'IPCA' }
+  return { rate_type: 'POS', indexer: 'CDI' }
+}
 
 export function rateFieldLabel(rateType, indexer) {
   if (rateType === 'PRE') return 'Taxa (% a.a.)'
@@ -55,7 +73,6 @@ export const emptyFixedIncomeForm = () => ({
   rate_type: 'POS',
   indexer: 'CDI',
   rate: '',
-  is_tax_free: false,
 })
 
 function formatRateInput(fraction) {
@@ -66,15 +83,18 @@ function formatRateInput(fraction) {
 
 // metadata salvo -> campos do formulario (edicao).
 export function fixedIncomeFormFromMetadata(metadata = {}) {
+  // Debenture marcada isenta antes do tipo "incentivada" existir.
+  const fixedIncomeType = metadata.fixed_income_type === 'DEBENTURE' && metadata.is_tax_free
+    ? 'DEBENTURE_INCENTIVADA'
+    : (metadata.fixed_income_type || '')
   const rateType = metadata.rate_type === 'PRE' ? 'PRE' : 'POS'
   const indexer = rateType === 'PRE' ? 'CDI' : (metadata.indexer || 'CDI')
   const rate = rateType === 'POS' && indexer === 'CDI' ? metadata.cdi_percentage : metadata.annual_rate
   return {
-    fixed_income_type: metadata.fixed_income_type || '',
+    fixed_income_type: fixedIncomeType,
     rate_type: rateType,
     indexer,
     rate: rate != null && rate !== '' ? formatRateInput(rate) : '',
-    is_tax_free: Boolean(metadata.is_tax_free),
   }
 }
 
@@ -98,7 +118,7 @@ export function fixedIncomeMetadataFromForm(fields) {
     indexer: fields.rate_type === 'POS' ? fields.indexer : undefined,
     cdi_percentage: isCdi ? rate / 100 : undefined,
     annual_rate: isCdi ? undefined : rate / 100,
-    is_tax_free: Boolean(fields.is_tax_free),
+    is_tax_free: isTaxFreeFixedIncomeType(fields.fixed_income_type),
   }
   return metadata
 }

@@ -69,6 +69,16 @@ class TestRealizedTaxRate:
         assert mod.realized_tax_rate("STOCKS", {"tax_rate": -1}) == 0.15
         assert mod.realized_tax_rate("STOCKS", {"tax_rate": "abc"}) == 0.15
 
+    @pytest.mark.parametrize("fixed_income_type", ["LCI", "LCA", "LIG", "CRI", "CRA", "DEBENTURE_INCENTIVADA"])
+    def test_tax_free_title_type_is_exempt_without_the_flag(self, mod, fixed_income_type):
+        metadata = {"fixed_income_type": fixed_income_type}
+        assert mod.realized_tax_rate("FIXED_INCOME", metadata, holding_days=30) == 0
+
+    @pytest.mark.parametrize("fixed_income_type", ["CDB", "DEBENTURE", "LC", "CCB"])
+    def test_taxed_title_type_uses_the_regressive_table(self, mod, fixed_income_type):
+        metadata = {"fixed_income_type": fixed_income_type, "is_tax_free": False}
+        assert mod.realized_tax_rate("FIXED_INCOME", metadata, holding_days=30) == 0.225
+
 
 class TestRoundedMoney:
     @pytest.mark.parametrize(
@@ -91,3 +101,4 @@ class TestRoundedMoney:
         assert mod.rounded_money(float("nan")) == 0.0
         assert mod.rounded_money(None) == 0.0
         assert mod.rounded_money("not a number") == 0.0
+
