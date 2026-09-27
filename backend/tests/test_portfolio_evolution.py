@@ -148,3 +148,49 @@ class TestFixedIncomeHistory:
         self.cdi_title(client, auth, months_ago(no_market, 4))
         past = [item for item in history(client, auth, months=6) if item["valorAplicado"] > 0][:-1]
         assert all(item["ganhoCapitalReal"] == 0 for item in past)
+
+
+class TestGrossAndNet:
+    """Duas bases na serie: bruta (a do "Carteira" da Posicao) e liquida do IR
+    estimado da renda fixa. O grafico mostra a bruta; o tooltip, as duas."""
+
+    def test_a_stock_has_the_same_gross_and_net(self, client, auth, no_market):
+        post_buy(client, auth, ticker="PETR4", quantity=100, price=10.0, current_price=12.5,
+                 date=months_ago(no_market, 2))
+
+        current = history(client, auth, months=3)[-1]
+        assert current["patrimonioBruto"] == pytest.approx(1250.0)
+        assert current["patrimonio"] == pytest.approx(1250.0)
+        assert current["ganhoCapitalBruto"] == pytest.approx(250.0)
+        assert current["ganhoCapitalReal"] == pytest.approx(250.0)
+
+    def test_fixed_income_gross_matches_the_portfolio_headline(self, client, auth, no_market, monkeypatch):
+        fixed_income = importlib.import_module("services.fixed_income")
+        fixed_income._index_history_cache.clear()
+
+        def offline(*args, **kwargs):
+            raise RuntimeError("sem rede")
+
+        monkeypatch.setattr(fixed_income, "fetch_bcb_series", offline)
+        response = client.post(
+            "/api/investments", headers=auth,
+            json=[{
+                "asset_class": "FIXED_INCOME", "ticker_or_name": "CDB BRUTO", "quantity": 1,
+                "average_price": 10000, "current_price": 11000,
+                "metadata": {"fixed_income_type": "CDB", "rate_type": "POS", "indexer": "CDI",
+                             "cdi_percentage": 1.0, "purchase_date": months_ago(no_market, 2)},
+            }],
+        )
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+
+        current = history(client, auth, months=3)[-1]
+        portfolio = client.get("/api/investments/portfolio", headers=auth).get_json()
+
+        # O IR estimado separa as duas bases...
+        assert current["patrimonioBruto"] > current["patrimonio"]
+        assert current["ganhoCapitalBruto"] == pytest.approx(
+            current["patrimonioBruto"] - current["valorAplicado"], abs=0.01,
+        )
+        # ...e cada uma bate com o numero da Posicao na mesma base.
+        assert current["patrimonioBruto"] == pytest.approx(portfolio["current_balance"], abs=0.01)
+        assert current["patrimonio"] == pytest.approx(portfolio["current_net_balance"], abs=0.01)
