@@ -517,6 +517,7 @@ class SectorInfo:
     subsector: str = ""
     type: str = ""
     sub_type: str = ""
+    name: str = ""
 
     @classmethod
     def from_payload(cls, payload):
@@ -527,6 +528,7 @@ class SectorInfo:
             return None
         return cls(
             symbol=symbol,
+            name=str(payload.get("name") or "").strip(),
             sector=str(payload.get("sector") or "").strip(),
             subsector=str(payload.get("subsector") or "").strip(),
             type=str(payload.get("type") or "").strip().lower(),
@@ -634,6 +636,31 @@ def get_sectors(symbols, *, force=False, timeout=None, now=None):
         entries = fetched
 
     return {symbol: entries[symbol] for symbol in wanted if symbol in entries}
+
+
+def get_listing(*, force=False, timeout=None, now=None):
+    """A /quote/list inteira: {ticker: SectorInfo} de toda a B3 (~2300 papeis).
+
+    Divide o cache de um dia com `get_sectors`: a lista completa lida aqui
+    tambem responde o setor, e vice-versa quando aquela chegou ao fim.
+    """
+    epoch_now = _to_brt(now).timestamp()
+    with _lock:
+        if not force and _sector_cache["expires_at"] > epoch_now and _sector_cache["complete"]:
+            return dict(_sector_cache["entries"])
+
+    fetched = {}
+    page = 1
+    has_next = True
+    while has_next and page <= LIST_MAX_PAGES:
+        page_entries, has_next = _request_sector_page(page, timeout=timeout)
+        fetched.update(page_entries)
+        page += 1
+    with _lock:
+        _sector_cache["entries"] = fetched
+        _sector_cache["expires_at"] = epoch_now + SECTOR_CACHE_TTL_SECONDS
+        _sector_cache["complete"] = not has_next
+    return dict(fetched)
 
 
 def _batches(symbols, size):

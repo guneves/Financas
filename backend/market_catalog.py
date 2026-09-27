@@ -5,10 +5,11 @@ que existem, e o backend recusa a compra de um ticker desconhecido. Isso evita o
 erro classico de digitar "PETR5" e ficar com uma posicao fantasma que nenhuma
 cotacao do yfinance consegue preencher.
 
-A lista e estatica de proposito -- nao ha dependencia de rede no caminho da
-busca. Ela e uma referencia, nao a verdade oficial da B3: quando um papel novo
-entrar no indice, basta acrescentar uma linha aqui. Tickers antigos continuam na
-lista mesmo apos mudanca de nome (CCRO3/MOTV3, ARZZ3/AZZA3), porque quem tem a
+A lista abaixo e o piso offline, com nomes legiveis. A B3 inteira (~2300
+papeis, LEVE3, FESA4 e todo small cap) vem da /quote/list da brapi e entra por
+`extra` em `search`/`lookup` -- ver `services/market_listing.py`. Este modulo
+continua puro: quem vai a rede e o servico. Tickers antigos continuam na lista
+mesmo apos mudanca de nome (CCRO3/MOTV3, ARZZ3/AZZA3), porque quem tem a
 posicao antiga precisa poder lancar movimentos nela.
 """
 
@@ -280,6 +281,36 @@ CATALOG = [_build_entry(*row) for row in _RAW_CATALOG]
 CATALOG_BY_TICKER = {entry["ticker"]: entry for entry in CATALOG}
 
 
+# (type, subType) da /quote/list -> kind. FI-Infra, FIP, FIDC e fundo sem
+# subtipo ficam de fora: a tributacao deles nao e a de nenhuma classe do app.
+LISTING_KIND = {
+    ("stock", "stock"): "ACAO",
+    ("stock", "unit"): "ACAO",
+    ("bdr", "bdr"): "BDR",
+    ("fund", "etf"): "ETF",
+    ("fund", "fii"): "FII",
+    ("fund", "fi-agro"): "FII",
+}
+
+
+def entry_from_listing(ticker, name, listing_type, sub_type):
+    """Entrada do catalogo a partir de um item da /quote/list, ou None."""
+    kind = LISTING_KIND.get((str(listing_type or "").lower(), str(sub_type or "").lower()))
+    symbol = normalize_ticker(ticker)
+    if not kind or not symbol:
+        return None
+    label = str(name or "").strip()
+    # ETF e FII vem com o proprio ticker no nome; sem nome melhor, fica o ticker.
+    return _build_entry(symbol, label or symbol, kind)
+
+
+def _entries(extra):
+    """Catalogo fixo mais os papeis de `extra` que ele nao tem (o fixo vence)."""
+    if not extra:
+        return CATALOG
+    return CATALOG + [entry for ticker, entry in extra.items() if ticker not in CATALOG_BY_TICKER]
+
+
 def normalize_ticker(value):
     """Aceita 'petr4', ' PETR4 ' e 'PETR4.SA' como o mesmo papel."""
     normalized = str(value or "").strip().upper()
@@ -288,20 +319,27 @@ def normalize_ticker(value):
     return normalized
 
 
-def lookup(ticker):
-    """Entrada do catalogo, ou None se o papel nao for conhecido."""
-    return CATALOG_BY_TICKER.get(normalize_ticker(ticker))
+def lookup(ticker, extra=None):
+    """Entrada do catalogo, ou None se o papel nao for conhecido.
+
+    `extra` e {ticker: entrada} (a lista da B3 inteira), consultado depois do fixo.
+    """
+    normalized = normalize_ticker(ticker)
+    entry = CATALOG_BY_TICKER.get(normalized)
+    if entry is None and extra:
+        entry = extra.get(normalized)
+    return entry
 
 
-def is_known(ticker):
-    return normalize_ticker(ticker) in CATALOG_BY_TICKER
+def is_known(ticker, extra=None):
+    return lookup(ticker, extra) is not None
 
 
 def _name_key(name):
     return str(name or "").strip().upper()
 
 
-def search(query="", asset_class=None, kind=None, limit=20):
+def search(query="", asset_class=None, kind=None, limit=20, extra=None):
     """Busca por ticker ou nome.
 
     A ordenacao segue o que o usuario espera de um autocomplete: quem comeca com
@@ -313,7 +351,7 @@ def search(query="", asset_class=None, kind=None, limit=20):
     normalized_kind = str(kind or "").strip().upper() or None
 
     results = []
-    for entry in CATALOG:
+    for entry in _entries(extra):
         if normalized_class and entry["asset_class"] != normalized_class:
             continue
         if normalized_kind and entry["kind"] != normalized_kind:

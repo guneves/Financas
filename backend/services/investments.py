@@ -29,6 +29,7 @@ from db import encode_metadata, get_db, new_id, parse_metadata_value, row_to_dic
 import market_catalog
 from money import rounded_money
 from services.accounts import ensure_default_account
+from services import market_listing
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from services.prices import ticker_key
 from source_types import INVESTMENT_CASH_SOURCE_TYPE
@@ -589,7 +590,7 @@ def resolve_catalog_ticker(conn, current_user_id, asset_class, ticker_or_name, q
     if not ticker:
         raise ValidationError("Informe o ativo do lancamento.")
 
-    entry = market_catalog.lookup(ticker)
+    entry = market_listing.lookup(ticker)
     if entry is None:
         # O ticker gravado pode ser o normalizado ou, num ativo antigo, o texto
         # original com sufixo.

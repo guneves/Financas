@@ -137,14 +137,15 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-848 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+856 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
 proventos per asset and total return, time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, and backup
-retention and the receipts mirror. They run
+retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
+unless it patches it in. They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
 
@@ -163,7 +164,7 @@ whose code reads the name: `db` for the backup settings, `routes.attachments` fo
 `download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, `services.fx` for
 `fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `services.benchmarks` for
 `download_monthly_history` (call its `reset_fetch_throttle()` too), `brapi_client` for `get_history` /
-`get_sectors` / `is_configured`, `routes.investments` for
+`get_sectors` / `get_listing` / `is_configured` (call `services.market_listing.reset_cache()` too), `routes.investments` for
 `refresh_market_prices` (registering a corporate action fetches a quote), and *both*
 `services.prices` and `routes.investments` for `yf`. A patch on the wrong module does not fail — it
 silently does nothing. `app.py` itself exposes almost nothing now; reach code through the module

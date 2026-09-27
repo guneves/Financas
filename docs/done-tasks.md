@@ -86,6 +86,7 @@
 | Rentabilidade and Evolução value the current month like Posição (`position_value_today()`) | 2026-09-27 |
 | Orçamento copy: "Realizado" counts card purchases, not only account outflows | 2026-09-27 |
 | "Operação anterior ao app": an investment movement that enters the portfolio without touching the balance (`metadata.skip_cash`) | 2026-09-27 |
+| Ticker search and the buy guard cover the whole B3 (brapi `/quote/list`, `services/market_listing.py`); LEVE3, FESA4 and other small caps were refused | 2026-09-27 |
 
 ---
 

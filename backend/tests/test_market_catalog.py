@@ -181,3 +181,95 @@ def _seed_legacy_asset(app_module, user_id, asset_id, ticker):
             "INSERT INTO assets (id, user_id, asset_class, ticker, name) VALUES (?, ?, ?, ?, ?)",
             (asset_id, user_id, "STOCKS", ticker, ticker),
         )
+
+
+# ---------------------------------------------------------------------------
+# A B3 inteira: a /quote/list da brapi entra atras do catalogo fixo
+# ---------------------------------------------------------------------------
+
+
+def _listing_item(symbol, name, listing_type, sub_type):
+    brapi_client = importlib.import_module("brapi_client")
+    return brapi_client.SectorInfo(symbol=symbol, name=name, type=listing_type, sub_type=sub_type)
+
+
+@pytest.fixture()
+def b3_listing(app_module, monkeypatch):
+    """Patches brapi's full listing; returns the call counter and a failure switch."""
+    brapi_client = importlib.import_module("brapi_client")
+    market_listing = importlib.import_module("services.market_listing")
+    market_listing.reset_cache()
+    state = {"calls": 0, "fail": False}
+    items = [
+        _listing_item("LEVE3", "MAHLE-METAL LEVE S.A.", "stock", "stock"),
+        _listing_item("LEVE3F", "MAHLE-METAL LEVE S.A.", "stock", "stock"),
+        _listing_item("FESA4", "CIA FERRO LIGAS DA BAHIA - FERBASA", "stock", "stock"),
+        _listing_item("SAPR11", "CIA SANEAMENTO DO PARANA - SANEPAR", "stock", "unit"),
+        _listing_item("RZAG11", "RZAG11", "fund", "fi-agro"),
+        _listing_item("JURO11", "JURO11", "fund", "fi-infra"),
+        _listing_item("PETR4", "PETROLEO BRASILEIRO S.A. PETROBRAS", "stock", "stock"),
+    ]
+
+    def fake_get_listing(**kwargs):
+        state["calls"] += 1
+        if state["fail"]:
+            raise brapi_client.BrapiUnavailableError("fora do ar")
+        return {item.symbol: item for item in items}
+
+    monkeypatch.setattr(brapi_client, "is_configured", lambda: True)
+    monkeypatch.setattr(brapi_client, "get_listing", fake_get_listing)
+    yield state
+    market_listing.reset_cache()
+
+
+class TestFullB3Listing:
+    def test_listing_types_map_to_catalog_kinds(self, catalog):
+        assert catalog.entry_from_listing("leve3", "MAHLE", "stock", "stock")["asset_class"] == "STOCKS"
+        assert catalog.entry_from_listing("SAPR11", "SANEPAR", "stock", "unit")["kind"] == "ACAO"
+        assert catalog.entry_from_listing("BOVA11", "BOVA11", "fund", "etf")["kind"] == "ETF"
+        assert catalog.entry_from_listing("RZAG11", "RZAG11", "fund", "fi-agro")["asset_class"] == "REIT"
+        assert catalog.entry_from_listing("AAPL34", "AAPL34", "bdr", "bdr")["kind"] == "BDR"
+        # Tributacao que nenhuma classe do app cobre: fica fora.
+        assert catalog.entry_from_listing("JURO11", "JURO11", "fund", "fi-infra") is None
+        assert catalog.entry_from_listing("XPTO11", "XPTO11", "fund", None) is None
+
+    def test_search_finds_a_small_cap_outside_the_fixed_catalog(self, client, auth, b3_listing):
+        response = client.get("/api/market/tickers?q=leve", headers=auth)
+        assert response.status_code == 200
+        # O fracionario nao aparece como outro papel.
+        assert [entry["ticker"] for entry in response.get_json()] == ["LEVE3"]
+
+        response = client.get("/api/market/tickers?q=ferbasa", headers=auth)
+        assert [entry["ticker"] for entry in response.get_json()] == ["FESA4"]
+
+    def test_fixed_catalog_name_wins_over_the_listing(self, client, auth, b3_listing):
+        body = client.get("/api/market/tickers/PETR4", headers=auth).get_json()
+        assert body["name"] == "Petrobras PN"
+
+    def test_detail_and_purchase_accept_a_listed_ticker(self, client, auth, b3_listing):
+        assert client.get("/api/market/tickers/FESA4", headers=auth).status_code == 200
+        response = client.post("/api/investments", json=buy("fesa4"), headers=auth)
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+
+    def test_excluded_fund_type_is_still_refused(self, client, auth, b3_listing):
+        response = client.post("/api/investments", json=buy("JURO11", asset_class="REIT"), headers=auth)
+        assert response.status_code == 400
+
+    def test_listing_is_fetched_once_and_cached(self, client, auth, b3_listing):
+        client.get("/api/market/tickers?q=leve", headers=auth)
+        client.get("/api/market/tickers?q=fesa", headers=auth)
+        assert b3_listing["calls"] == 1
+
+    def test_brapi_down_falls_back_to_the_fixed_catalog_and_backs_off(self, client, auth, b3_listing):
+        b3_listing["fail"] = True
+        response = client.get("/api/market/tickers?q=vale", headers=auth)
+        assert response.status_code == 200
+        assert response.get_json()[0]["ticker"] == "VALE3"
+        assert client.get("/api/market/tickers/LEVE3", headers=auth).status_code == 404
+        # A falha nao e tentada de novo a cada tecla.
+        client.get("/api/market/tickers?q=leve", headers=auth)
+        assert b3_listing["calls"] == 1
+
+    def test_known_ticker_does_not_need_the_listing(self, client, auth, b3_listing):
+        assert client.get("/api/market/tickers/PETR4", headers=auth).status_code == 200
+        assert b3_listing["calls"] == 0
