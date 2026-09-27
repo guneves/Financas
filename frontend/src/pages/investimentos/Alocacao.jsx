@@ -21,6 +21,7 @@ import {
   cx,
 } from '../../components/ui'
 import { getClassLabel } from './helpers'
+import SectorAllocation from './SectorAllocation'
 
 const CLASS_ORDER = ['STOCKS', 'REIT', 'FIXED_INCOME', 'CATTLE', 'OTHER']
 // Desvio que pede atencao (pontos percentuais). Abaixo disso, "no plano".
@@ -400,6 +401,8 @@ export default function Alocacao() {
               })}
             </ul>
           </Panel>
+
+          <SectorAllocation classes={data.classes} />
         </>
       ) : null}
 

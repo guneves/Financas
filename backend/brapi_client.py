@@ -490,6 +490,152 @@ def get_market_prices(symbols, *, force=False, timeout=None, now=None):
     return prices
 
 
+# ---------------------------------------------------------------------------
+# Setores (/quote/list)
+# ---------------------------------------------------------------------------
+#
+# A cotacao (/v2/stocks/quote) nao traz setor; a listagem (/quote/list) traz
+# `sector` (taxonomia em ingles, ex. "Finance") e `subsector` (em portugues,
+# ex. "Bancos Diversificados"; para FII, o segmento: "Logistica", "Shoppings").
+# Visto em 2026-09-26: uma pagina de ate 2000 papeis, ~2300 no total — duas
+# paginas cobrem a B3 inteira, entao preencher o setor da carteira toda custa
+# no maximo dois creditos, nao um por ticker. O setor muda raramente: a lista
+# fica em memoria por um dia.
+
+LIST_PATH = "/quote/list"
+LIST_PAGE_SIZE = 2000
+LIST_MAX_PAGES = 5
+SECTOR_CACHE_TTL_SECONDS = _read_int_env("BRAPI_SECTOR_CACHE_TTL_SECONDS", 86400, minimum=3600)
+
+
+@dataclass(frozen=True)
+class SectorInfo:
+    """Um item de `stocks[]` da /quote/list, so com o que a alocacao usa."""
+
+    symbol: str
+    sector: str = ""
+    subsector: str = ""
+    type: str = ""
+    sub_type: str = ""
+
+    @classmethod
+    def from_payload(cls, payload):
+        if not isinstance(payload, dict):
+            return None
+        symbol = normalize_symbol(payload.get("stock"))
+        if not symbol:
+            return None
+        return cls(
+            symbol=symbol,
+            sector=str(payload.get("sector") or "").strip(),
+            subsector=str(payload.get("subsector") or "").strip(),
+            type=str(payload.get("type") or "").strip().lower(),
+            sub_type=str(payload.get("subType") or "").strip().lower(),
+        )
+
+
+_sector_cache = {"entries": {}, "expires_at": 0.0, "complete": False}
+
+
+def clear_sector_cache():
+    with _lock:
+        _sector_cache["entries"] = {}
+        _sector_cache["expires_at"] = 0.0
+        _sector_cache["complete"] = False
+
+
+def _request_json(path, params, timeout=None):
+    token = brapi_token()
+    if not token:
+        raise BrapiNotConfiguredError(
+            "BRAPI_TOKEN nao configurado; defina-o em backend/.env"
+        )
+    url = f"{BRAPI_BASE_URL}{path}?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": "FinanceMVP/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout or REQUEST_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            status = getattr(response, "status", 200)
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        except Exception:  # noqa: BLE001 - detalhe e opcional, o status basta
+            detail = ""
+        raise BrapiHTTPError(exc.code, _error_message(detail)) from exc
+    except urllib.error.URLError as exc:
+        raise BrapiUnavailableError(f"Falha de rede ao consultar a brapi: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise BrapiUnavailableError("Tempo limite ao consultar a brapi") from exc
+
+    if not 200 <= int(status) < 300:
+        raise BrapiHTTPError(status, _error_message(body))
+    try:
+        payload = json.loads(body) if body.strip() else {}
+    except ValueError as exc:
+        raise BrapiResponseError("Resposta da brapi nao e JSON valido") from exc
+    if not isinstance(payload, dict):
+        raise BrapiResponseError("Resposta da brapi nao e um objeto")
+    return payload
+
+
+def _request_sector_page(page, timeout=None):
+    """Uma pagina da /quote/list: ({ticker: SectorInfo}, tem_proxima)."""
+    payload = _request_json(LIST_PATH, {"limit": LIST_PAGE_SIZE, "page": page}, timeout=timeout)
+    stocks = payload.get("stocks")
+    if not isinstance(stocks, list):
+        raise BrapiResponseError("Resposta da brapi sem stocks[]")
+    entries = {}
+    for item in stocks:
+        info = SectorInfo.from_payload(item)
+        if info is not None:
+            entries[info.symbol] = info
+    return entries, bool(payload.get("hasNextPage"))
+
+
+def get_sectors(symbols, *, force=False, timeout=None, now=None):
+    """Setor de cada ticker pedido: {ticker: SectorInfo}.
+
+    Le a listagem pagina a pagina ate achar todos os pedidos ou acabar a lista
+    (no maximo `LIST_MAX_PAGES`). Ticker que a brapi nao conhece nao aparece —
+    isso nao e erro. Com a lista inteira em cache, nao vai a rede.
+    """
+    wanted = normalize_symbols(symbols)
+    if not wanted:
+        return {}
+    epoch_now = _to_brt(now).timestamp()
+
+    with _lock:
+        fresh = not force and _sector_cache["expires_at"] > epoch_now
+        entries = dict(_sector_cache["entries"]) if fresh else {}
+        complete = fresh and _sector_cache["complete"]
+
+    if not complete and any(symbol not in entries for symbol in wanted):
+        page = 1
+        fetched = {}
+        has_next = True
+        while has_next and page <= LIST_MAX_PAGES:
+            page_entries, has_next = _request_sector_page(page, timeout=timeout)
+            fetched.update(page_entries)
+            if all(symbol in fetched for symbol in wanted):
+                break
+            page += 1
+        with _lock:
+            _sector_cache["entries"] = fetched
+            _sector_cache["expires_at"] = epoch_now + SECTOR_CACHE_TTL_SECONDS
+            _sector_cache["complete"] = not has_next
+        entries = fetched
+
+    return {symbol: entries[symbol] for symbol in wanted if symbol in entries}
+
+
 def _batches(symbols, size):
     for start in range(0, len(symbols), size):
         yield symbols[start:start + size]
