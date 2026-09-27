@@ -33,6 +33,9 @@ const NO_POINTS = []
 // A barra de cada mes e o valor aplicado com o ganho de capital empilhado em
 // cima; num mes de perda, a base vira o patrimonio e a perda (vermelha) completa
 // a barra ate o valor aplicado — a altura total nunca esconde o prejuizo.
+// As barras sao brutas (valor de mercado), a mesma base do "Carteira" no topo
+// da Posicao e da rosca ao lado; o liquido do IR estimado da renda fixa fica no
+// tooltip, como o "Liquido estimado" do resumo.
 export default function PortfolioOverview({ assets, getClassLabel }) {
   const chartAnimation = useChartAnimation()
   // A carteira inteira some no modo privado; as proporcoes (%) ficam.
@@ -70,12 +73,13 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
 
   const chartData = useMemo(() => evolution.map((item) => {
     const applied = Number(item.valorAplicado || 0)
-    const patrimonio = Number(item.patrimonio || 0)
-    const gain = Number(item.ganhoCapitalReal || 0)
+    const patrimonio = Number(item.patrimonioBruto ?? item.patrimonio ?? 0)
+    const gain = Number(item.ganhoCapitalBruto ?? item.ganhoCapitalReal ?? 0)
     return {
       month: item.month,
       applied,
       patrimonio,
+      patrimonioLiquido: Number(item.patrimonio || 0),
       gain,
       base: gain >= 0 ? applied : patrimonio,
       ganho: Math.max(gain, 0),
@@ -98,7 +102,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
       <Panel className="xl:col-span-2">
         <PanelHeader
           title="Evolução do Patrimônio"
-          description="Valor aplicado e ganho de capital no fim de cada mês."
+          description="Valor aplicado e ganho de capital bruto (valor de mercado) no fim de cada mês."
           actions={<SegmentedControl items={PERIODS} value={months} onChange={changePeriod} />}
         />
         <div className="p-5">
@@ -132,7 +136,14 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
                           ]}
                           names={{ applied: 'Valor aplicado', gain: row.gain >= 0 ? 'Ganho de capital' : 'Perda de capital' }}
                           valueFormatter={(value) => privateMoney(Math.abs(value))}
-                          footer={() => `Patrimônio: ${privateMoney(row.patrimonio)}`}
+                          footer={() => (
+                            <>
+                              <p>Patrimônio bruto: {privateMoney(row.patrimonio)}</p>
+                              {row.patrimonioLiquido !== row.patrimonio ? (
+                                <p>Líquido de IR estimado: {privateMoney(row.patrimonioLiquido)}</p>
+                              ) : null}
+                            </>
+                          )}
                         />
                       )
                     }}

@@ -224,26 +224,35 @@ def iter_portfolio_months(investments_data, historical_prices, months_back, inde
 
 def build_portfolio_evolution(investments_data, historical_prices, months_back, index_series=None):
     """Patrimonio mes a mes. `index_series` (CDI/IPCA, de fixed_income.index_history)
-    corrige a renda fixa nos meses passados; sem ele, eles ficam no custo."""
+    corrige a renda fixa nos meses passados; sem ele, eles ficam no custo.
+
+    Duas bases, lado a lado: `patrimonio` / `ganhoCapital*` sao liquidos do IR
+    estimado da renda fixa; `patrimonioBruto` / `ganhoCapitalBruto` sao o valor
+    de mercado, a mesma base do "Carteira" (current_balance) da Posicao."""
     evolution = []
 
     for month_start, positions in iter_portfolio_months(
         investments_data, historical_prices, months_back, index_series,
     ):
         applied_total = 0
+        gross_total = 0
         net_total = 0
         for position in positions.values():
             applied_total += position["applied"]
+            gross_total += position["gross"]
             net_total += position["net"]
 
         gain = net_total - applied_total
+        gross_gain = gross_total - applied_total
         evolution.append({
             "month": month_label(month_start),
             "month_key": month_key(month_start),
             "patrimonio": rounded_money(max(net_total, 0)),
+            "patrimonioBruto": rounded_money(max(gross_total, 0)),
             "valorAplicado": rounded_money(max(applied_total, 0)),
             "ganhoCapital": rounded_money(max(gain, 0)),
             "ganhoCapitalReal": rounded_money(gain),
+            "ganhoCapitalBruto": rounded_money(gross_gain),
         })
 
     return evolution
