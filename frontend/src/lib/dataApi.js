@@ -279,7 +279,12 @@ export const taxReportApi = {
 // Alocacao alvo (020): atual x meta; `contribution` sugere como dividir um aporte.
 export const allocationApi = {
   get: (params = {}) => apiFetch(`/api/allocation${queryString(params)}`),
-  saveTargets: (payload) => apiFetch('/api/allocation/targets', { method: 'PUT', body: JSON.stringify(payload) })
+  saveTargets: (payload) => apiFetch('/api/allocation/targets', { method: 'PUT', body: JSON.stringify(payload) }),
+  // Por setor (022): ?asset_class= filtra; a leitura preenche pela brapi o que nunca foi consultado.
+  sectors: (params = {}) => apiFetch(`/api/allocation/sectors${queryString(params)}`),
+  refreshSectors: () => apiFetch('/api/allocation/sectors/refresh', { method: 'POST' }),
+  // Setor manual; sector vazio devolve o ativo ao preenchimento automatico.
+  setSector: (assetId, payload) => apiFetch(`/api/assets/${encodeURIComponent(assetId)}/sector`, { method: 'PATCH', body: JSON.stringify(payload) })
 }
 
 // Aportes x resgates por mes, em reais (?months=12, ate 60; ?asset_class=).

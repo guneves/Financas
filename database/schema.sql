@@ -269,6 +269,11 @@ CREATE TABLE IF NOT EXISTS assets (
     metadata TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- 022: setor para a alocacao por setor. source BRAPI | MANUAL | NULL.
+    sector TEXT,
+    segment TEXT,
+    sector_source TEXT CHECK (sector_source IS NULL OR sector_source IN ('BRAPI', 'MANUAL')),
+    sector_checked_at TEXT,
     UNIQUE(user_id, asset_class, ticker)
 );
 
