@@ -7,42 +7,46 @@
 
 ---
 
-## Session — 2026-09-26 (late) · Chrome walk-through, yield on cost fix
+## Session — 2026-09-27 · Walk-through inconsistencies (three worktree subagents)
 
-The owner asked for a click-through with Claude in Chrome, then for the one real bug it found to be
-fixed. No `session-scout` (short follow-up session). `finance-guard` ran on the fix — see below.
+The owner asked to keep working on the plan with one subagent per task, at least three. The only
+open items that need no owner input were the three small inconsistencies from the 2026-09-26 Chrome
+walk-through; each went to an `isolation: "worktree"` agent, merged into main by this session. No
+`session-scout` (read the docs directly). `finance-guard` ran on `e2f7e12..HEAD`: zero findings.
 
 ### What was done
-- **Chrome walk-through on a scratch DB** (seeded with `seed_three_years_mock`, backend :5002,
-  vite :5175; the real `finance.db` untouched): Início, Extrato (search), Cartões, Importar,
-  Orçamento, Recorrentes, Metas (created a goal — forecast dez/2029 checked by hand), all six
-  Investimentos tabs, "Atualizar cotações", "+ Novo" expense (flows to Extrato, category and
-  budget), dark mode, privacy. No console errors; the headline totals reconcile across screens.
-- **Yield on cost fixed** (`services/proceeds.py`): an asset's cost is now counted once (average
-  of its events' cost at the record date) instead of once per payment; the summary sums per-asset
-  costs. Seed 2026 YTD: 1,29% → 5,88%. Tests: 838 pass (2 new). Tooltip on the Proventos by-asset
-  column now says "Custo médio nas datas com". Details in `done-tasks.md`.
+- **Posição chart gross** — "Evolução do Patrimônio" bars now use `patrimonioBruto` /
+  `ganhoCapitalBruto` (new, additive in `build_portfolio_evolution()`), same basis as the
+  "Carteira" headline and the donut; net shows in the tooltip.
+- **Rentabilidade = Posição today** — new `position_value_today()` in `services/portfolio.py`, used
+  by both `build_portfolio_snapshot()` and the current month of `portfolio_month_positions()`.
+  Root cause: the current month re-accrued unrefreshed fixed income from the series and took the
+  yfinance month close for stocks/FIIs, while Posição used stored quotes. On a refreshed seed the gap
+  was really in stocks/FIIs, not fixed income as logged.
+- **Orçamento copy** — "Realizado" hint and two descriptions now match `budget_spend_by_category()`.
+- Tests: **844 pass** (6 new). Frontend build passes. CLAUDE.md test count updated (was stale at 836).
 
 ### What was not done and why
-- Three small inconsistencies from the walk-through are **logged, not fixed** (new section in
-  `next-steps.md`): Posição chart net vs headline gross, a R$ 25,58 Rentabilidade/Posição gap in
-  fixed income, and the Orçamento "Realizado" caption.
-- Still open from the previous session: the owner checks of benchmarks, sectors and the IRPF text
-  on real data; the **brapi 1-ticker limit** (owner's call, it costs credits either way); two IRPF
-  codes to confirm (FII payouts under isentos 99; net vs gross for exclusiva 10/06); **restart the
-  backend** (the `:5000` process predates migrations 015–023); the owner walk-through; decisions 3
-  and 4.
+- Two findings from the agents are **logged in `next-steps.md`, not fixed** — both need the owner:
+  budgets on income categories add income into "Realizado"; a position whose running applied value
+  goes ≤ 0 (big profitable partial sale) drops out of the monthly valuation but stays in Posição.
+- Trade-off accepted: a fixed-income title never refreshed from the BCB now dips in the current TWR
+  month until "Atualizar cotações" (consistency with Posição won). Noted under Known limits.
+- None of the three changes opened in a browser.
+- Still open from before: owner checks of benchmarks, sectors, IRPF text on real data; the **brapi
+  1-ticker limit** (owner's call); two IRPF codes to confirm; **restart the backend** (`:5000`
+  predates migrations 015–023); the owner walk-through; decisions 3 and 4.
+- `docs/negociacao-2026-09-26-23-43-43.pdf` appeared untracked during the session — not ours, left
+  out of the commit.
 
 ### Next session
-Pick from `next-steps.md` §1 — the three small inconsistencies are quick; the owner walk-through
-still needs the owner.
+Nothing left in `next-steps.md` that Claude can do without the owner: every open item is an owner
+check or an owner decision. Ask the owner which of the two new findings / the Investidor10 ideas to
+take, or do the walk-through with them.
 
 ### Learned
-- A seeded scratch DB shows Posição and the evolution chart **disagreeing by ~R$ 22k** until
-  "Atualizar cotações" is pressed: the seed's fixed-income quotes are left at cost (stale since the
-  purchase date) while the chart accrues CDI. Not a bug — refresh before comparing screens.
-- `VITE_API_BASE_URL` is the bare origin (no `/api`). Starting vite with
-  `Start-Process powershell -ArgumentList '...$env:X="..."...'` drops the variable silently (the
-  quotes are stripped) — use a `.cmd` with `set`.
-- The Chrome extension worked for the whole session this time (screenshots, `find`, `form_input`
-  on selects, typing into React inputs).
+- Worktree agents again started on stale `36e0164`; the fast-forward instruction in the prompt worked.
+- `finance-guard` reported "836 tests pass" — it read a stale count; the real run is 844. Pytest's
+  `-q` here prints no summary line (addopts); use `-o addopts=""` to get "N passed".
+- Scripted edits to `services/portfolio.py` (CRLF) silently turn it LF — check line endings.
+- In PowerShell 5.1, `git commit -m @'...'@` with double quotes inside breaks; use `git commit -F`.

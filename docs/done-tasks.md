@@ -82,6 +82,9 @@
 | Allocation by sector/segment (brapi `/quote/list`, manual override, migration 022; "Por setor" panel on Alocação) | 2026-09-26 |
 | IRPF copy-paste text per section on the IR tab (`backend/irpf_text.py`, inside `GET /api/tax-report`) | 2026-09-26 |
 | Proventos yield on cost fixed: each asset's cost counted once (average of its events' cost at the record date), not once per payment | 2026-09-26 |
+| Posição "Evolução do Patrimônio" on the gross basis, like the headline (net in the tooltip) | 2026-09-27 |
+| Rentabilidade and Evolução value the current month like Posição (`position_value_today()`) | 2026-09-27 |
+| Orçamento copy: "Realizado" counts card purchases, not only account outflows | 2026-09-27 |
 
 ---
 
@@ -429,3 +432,24 @@ a position that grows between payments averages), and the summary's `cost_basis`
 the per-asset costs, so `summary.yield_on_cost_percent` and the by-asset column use the same
 denominator. Per-event YOC is unchanged. This matches the portfolio's `dividend_yield_12m` basis
 (one cost per asset). Tests: corrected expectation + monthly payer + growing position.
+
+### Walk-through inconsistencies — 2026-09-27
+Three small mismatches from the 2026-09-26 Chrome walk-through, fixed by three worktree subagents.
+- **Posição chart gross.** `build_portfolio_evolution()` already built a gross value per position
+  and dropped it when summing; each month now also carries `patrimonioBruto` and
+  `ganhoCapitalBruto` (net fields unchanged). The bars use gross, so chart, "Carteira" headline and
+  allocation donut share one basis; the tooltip adds "Líquido de IR estimado" when it differs.
+- **Rentabilidade = Posição today.** The monthly valuation (`portfolio_month_positions()`) priced
+  the current month its own way: fixed income without a stored BCB quote re-accrued from the series
+  to today, and stocks/FIIs took the yfinance month close instead of the stored quote. Both now go
+  through `position_value_today()` in `services/portfolio.py`, which `build_portfolio_snapshot()`
+  also uses; the current month's estimated IR uses today, like Posição. Past months unchanged.
+  Reproduced at seed scale 10: after "Atualizar cotações" the whole gap was stocks/FIIs (R$ 254,01,
+  ~R$ 25 at scale 1) — so the walk-through's "all in fixed income" was probably a misreading.
+  Trade-off: a fixed-income title never refreshed from the BCB now dips in the current TWR month
+  until quotes are refreshed (it sits at its stored price, as in Posição). `current_price_from_position()`
+  and `quote_source` were removed (no other callers). Tests: `TestCurrentMonthMatchesThePosition`
+  (4) and `TestGrossAndNet` (2).
+- **Orçamento copy.** "Realizado" hint → "Saídas e compras no cartão no mês"; page and panel
+  descriptions now say what `budget_spend_by_category()` counts (lançamentos without transfers, card
+  purchases in full in the purchase month, invoice payments never).

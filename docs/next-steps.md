@@ -69,14 +69,15 @@ Found 2026-09-26: a 2-ticker quote call returns 400 `QUOTES_PER_REQUEST_EXCEEDED
 and silently falls back to yfinance. Owner's call: set it to 1 (one credit per ticker) or leave
 yfinance as the de facto source and keep brapi for single quotes/sectors.
 
-### Small inconsistencies found in the Chrome walk-through (2026-09-26, scratch data)
-- Posição: the "Carteira" headline is **gross**, but the "Evolução do Patrimônio" bars are **net**
-  (`patrimonio` after the estimated fixed-income IR, `services/portfolio.py`), and the subtitle
-  doesn't say so. ~R$ 526 apart on the seed. Pick one basis or label the chart "líquido".
-- Rentabilidade "Carteira hoje" vs Posição "Carteira": R$ 25,58 apart on the seed (115.318,77 vs
-  115.344,35), all of it in fixed income — probably accrual to a different day. Not investigated.
-- Orçamento: the "Realizado" tile says "Saídas em conta no mês", but it includes card purchases
-  (decision 1). Copy fix.
+### Found while fixing the walk-through inconsistencies (2026-09-27)
+- **Budgets on income categories.** Orçamento offers income categories when adding a budget and the
+  backend accepts them; their "spent" is the category's income, and `build_budget_month()` adds it
+  to `totals.spent`, so the "Realizado" tile and the Início budget strip mix income into "gasto".
+  Owner's call: refuse income categories in budgets, or keep them out of the totals.
+- **A position with applied value ≤ 0 drops out of the monthly valuation.** `portfolio_month_positions()`
+  skips it; that happens to a stock after a large profitable partial sale (sales subtract the sale
+  value, not the cost). Posição keeps it, so Rentabilidade/Evolução and Posição can still disagree
+  for such an asset. Not in the seed; fixing it puts a jump into that asset's TWR — decide first.
 
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
@@ -112,7 +113,9 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
   foreign ones taken as BRL like the IR report.
 - Rentabilidade (TWR): monthly Modified Dietz on **gross** values with month-end closes; past months
   of unquoted classes (CATTLE, manual prices) sit at cost, so their gain lands in the current month;
-  a missing yfinance month reuses the previous close; the current month runs to today; a provento
+  a missing yfinance month reuses the previous close; the current month runs to today at the
+  stored quotes, like Posição (a fixed-income title never refreshed from the BCB dips in that month
+  until "Atualizar cotações"); a provento
   paid while the portfolio is empty is dropped. The response's `notes[]` lists these.
 - Total return per asset ("Rentab. c/ proventos"): base is all money ever put in (current cost +
   cost of shares sold), so an asset that paid back most of its capital isn't overstated.
