@@ -9,6 +9,29 @@
 
 ## 1. Open work, in priority order
 
+### Separate the investments area from the banking area
+Plan approved by the owner on 2026-10-12; design, decisions and traps in `docs/areas-separation.md`
+— read it before starting a phase. Today every buy, sale and redemption mirrors a lançamento into
+the Extrato, always in the default account. The rule to build: an operation touches the banking
+area only when the owner asks for it (`metadata.cash_account_id` on the movement, replacing
+`skip_cash`). Nothing is built yet. One phase per commit, in this order:
+- [ ] **Phase 1 — backend.** The link becomes opt-in and takes an account
+  (`sync_investment_cash_transaction()`, validation in `routes/investments.py`); migration 024
+  converts the flags without moving any balance (rows linked today stay linked);
+  `test_investment_cash_link.py` rewritten, the six test files that read linked rows pass the key,
+  a migration test. Rewrite the cash-link convention in `CLAUDE.md` with it.
+- [ ] **Phase 2 — forms and bulk unlink.** "Lançar no extrato" (off by default) with an account
+  picker in "Registrar operação", the Operações edit form and the Posição redemption sheet,
+  replacing "Operação anterior ao app"; Operações tags linked rows; `GET /api/investments/cash-links`
+  (preview) and `POST /api/investments/cash-links/unlink` (ids only, rows with receipts skipped),
+  behind "Desvincular do extrato…".
+- [ ] **Phase 3 — banking read side.** A linked or typed-in-"Investimento" INCOME is a resgate,
+  not a receita (Início cash flow and month result, Extrato totals); "+ Novo" becomes banking-only
+  and opens "Registrar operação" inside Investimentos. Then fold the lasting rules into `CLAUDE.md`
+  and delete `docs/areas-separation.md`.
+- [ ] Owner's call, outside the phases: the same opt-in for proventos (they never reach an account
+  today); moving Metas from Planejamento to Investimentos; remembering the checkbox's last choice.
+
 ### Owner walk-through on real data
 Everything below was built and clicked through on a seeded scratch database (Chrome + Playwright,
 2026-09-23); none of it has been used on the owner's real data yet. Restart the backend first: the
@@ -78,14 +101,6 @@ yfinance as the de facto source and keep brapi for single quotes/sectors.
   skips it; that happens to a stock after a large profitable partial sale (sales subtract the sale
   value, not the cost). Posição keeps it, so Rentabilidade/Evolução and Posição can still disagree
   for such an asset. Not in the seed; fixing it puts a jump into that asset's TWR — decide first.
-
-### "Operação anterior ao app" (2026-09-27) — leftovers
-The `skip_cash` flag is built (see `docs/done-tasks.md`); what it left open:
-- [ ] Owner check in the browser: enter an old buy with the box ticked, confirm the balance and the
-  Extrato do not move. Not opened in a browser by Claude.
-- [ ] The fixed-income redemption form in Posição has no checkbox (the backend honours the flag).
-- [ ] No bulk "mark every movement before date X" for someone who already entered history without
-  the box — today it is one edit per operation.
 
 ### Fixed-income form (2026-09-27 night) — leftovers
 Exemption by title type, IPCA+ in Rentabilidade and the removal of Gado are built (see

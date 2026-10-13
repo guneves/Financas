@@ -223,6 +223,7 @@ docs/
   next-steps.md       # the plan — open work only
   done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
+  areas-separation.md # approved plan: investment cash link becomes opt-in (deleted when built)
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
   finance-guard.md    # the pre-commit audit subagent

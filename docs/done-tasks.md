@@ -90,6 +90,7 @@
 | Fixed-income IR exemption follows the title type (`fixed_income_is_tax_free()`; LIG and Debênture incentivada added); IPCA+ directly in Rentabilidade; Gado no longer offered on a buy | 2026-09-27 |
 | `CATTLE` (Gado) asset class removed everywhere: API refuses it, no screen lists it (the real DB had no rows) | 2026-09-27 |
 | Início → "Ritmo de gastos" compares the month so far with the average of the 3 previous months at the same day | 2026-10-12 |
+| Investigation and plan: investments area separate from the banking area — the cash link becomes opt-in per operation (`docs/areas-separation.md`, four decisions taken; documents only, nothing built) | 2026-10-12 |
 
 ---
 
