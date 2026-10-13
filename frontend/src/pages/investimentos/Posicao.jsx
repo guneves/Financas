@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Briefcase, Download, Landmark, Pencil, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
+import CashLinkField, { cashLinkMetadata, emptyCashLink } from '../../components/CashLinkField'
 import {
   AlertMessage,
   Button,
@@ -123,9 +124,9 @@ export default function Posicao() {
   }
 
   // Resgate parcial de renda fixa: a base de custo resgatada e proporcional
-  // ao valor bruto resgatado. Mesmo payload de antes do sheet; um erro volta
-  // para o sheet, que o mostra.
-  const handlePartialSale = async ({ asset, amount, date }) => {
+  // ao valor bruto resgatado. So entra no extrato se a caixa do sheet estiver
+  // marcada (`cashLink`); um erro volta para o sheet, que o mostra.
+  const handlePartialSale = async ({ asset, amount, date, cashLink }) => {
     setLoading(true)
     try {
       const ratio = amount / asset.current_value
@@ -142,7 +143,8 @@ export default function Posicao() {
             is_redemption: true,
             affects_position: true,
             related_id: asset.id,
-            redemption_date: date
+            redemption_date: date,
+            ...cashLinkMetadata(cashLink)
           }
         }
       ])
@@ -444,12 +446,14 @@ function QuoteSheet({ asset, onClose, onSave }) {
 
 function RedeemSheet({ asset, onClose, onSave }) {
   const [form, setForm] = useState({ amount: '', date: '' })
+  const [cashLink, setCashLink] = useState(emptyCashLink)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [openedFor, setOpenedFor] = useState(null)
   if (asset && asset !== openedFor) {
     setOpenedFor(asset)
     setForm({ amount: '', date: getLocalDateString() })
+    setCashLink(emptyCashLink())
     setError('')
   }
 
@@ -466,7 +470,7 @@ function RedeemSheet({ asset, onClose, onSave }) {
     }
     setSaving(true)
     try {
-      await onSave({ asset, amount, date: form.date })
+      await onSave({ asset, amount, date: form.date, cashLink })
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível registrar o resgate.')
     } finally {
@@ -512,6 +516,13 @@ function RedeemSheet({ asset, onClose, onSave }) {
             required
           />
         </Field>
+        <CashLinkField
+          value={cashLink}
+          onChange={setCashLink}
+          movementType="REDEMPTION"
+          selectClassName="app-select"
+          enabled={Boolean(asset)}
+        />
       </form>
     </Sheet>
   )

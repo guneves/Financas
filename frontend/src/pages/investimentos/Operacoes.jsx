@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Download, Pencil, Plus, Receipt, Trash2 } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import FixedIncomeFields from '../../components/FixedIncomeFields'
+import CashLinkField, { cashLinkFromMetadata, cashLinkMetadata } from '../../components/CashLinkField'
 import {
   AlertMessage,
   Badge,
@@ -79,8 +80,10 @@ function describeMovement(mov) {
   const kindDetail = isRedemption
     ? formatCurrency(totalValue)
     : isFixed ? '' : `${quantityText} un.${adjusted ? ' · ajustada por evento' : ''}`
-  const kindDetailWithCash = mov.metadata?.skip_cash
-    ? [kindDetail, 'anterior ao app'].filter(Boolean).join(' · ')
+  // A operacao so tem lancamento no Extrato quando o dono pediu (CashLinkField).
+  const inStatement = cashLinkFromMetadata(mov.metadata).enabled
+  const kindDetailWithCash = inStatement
+    ? [kindDetail, 'no extrato'].filter(Boolean).join(' · ')
     : kindDetail
   const kindLabel = `${kind} de ${isRedemption ? formatCurrency(totalValue) : quantityText}`
 
@@ -91,6 +94,7 @@ function describeMovement(mov) {
     timeText: hasCustomDate ? '' : dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     kind,
     kindDetail: kindDetailWithCash,
+    inStatement,
     unitPrice,
     totalValue,
     fees,
@@ -119,11 +123,15 @@ export default function Operacoes() {
 
   const [loading, setLoading] = useState(false)
   const [editModal, setEditModal] = useState(null)
+  // Erro da edicao dentro do sheet: o aviso da pagina fica atras dele.
+  const [editError, setEditError] = useState('')
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
 
   const openEditModal = (mov) => {
     const movementDate = movementDateValue(mov)
+    const cashLink = cashLinkFromMetadata(mov.metadata)
+    setEditError('')
     setEditModal({
       id: mov.id,
       asset_class: mov.asset_class,
@@ -138,7 +146,9 @@ export default function Operacoes() {
       other_costs: mov.metadata?.other_costs ?? mov.fee_amount ?? '',
       fixed_income: fixedIncomeFormFromMetadata(mov.metadata || {}),
       movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
-      skip_cash: Boolean(mov.metadata?.skip_cash),
+      is_foreign: Boolean(mov.asset_currency) && mov.asset_currency !== 'BRL',
+      cash_link: cashLink,
+      saved_cash_account_id: cashLink.accountId,
     })
   }
 
@@ -146,6 +156,8 @@ export default function Operacoes() {
     e.preventDefault()
     setLoading(true)
     setDataError('')
+    setEditError('')
+    let saved = false
 
     try {
       const averagePrice = Number(editModal.average_price)
@@ -178,9 +190,9 @@ export default function Operacoes() {
       delete metadata.purchase_date
       delete metadata.sale_date
       delete metadata.redemption_date
-      delete metadata.skip_cash
       metadata.other_costs = otherCosts
-      if (editModal.skip_cash) metadata.skip_cash = true
+      // Sempre explicito: a conta quando marcado, `null` para tirar do extrato.
+      Object.assign(metadata, cashLinkMetadata(editModal.cash_link, { explicit: true }))
 
       if (editModal.is_redemption) {
         metadata.redemption_date = editModal.movement_date
@@ -202,6 +214,7 @@ export default function Operacoes() {
         average_price: averagePrice,
         metadata: metadata
       })
+      saved = true
 
       setEditModal(null)
       toast('Operação atualizada.')
@@ -209,7 +222,9 @@ export default function Operacoes() {
 
       await handleUpdateStockPrices(true, editModal.id)
     } catch (error) {
-      setDataError('Erro ao guardar edição: ' + error.message)
+      const message = 'Erro ao guardar edição: ' + error.message
+      if (saved) setDataError(message)
+      else setEditError(message)
     } finally {
       setLoading(false)
     }
@@ -389,6 +404,8 @@ export default function Operacoes() {
       >
         {editModal ? (
           <form id={EDIT_FORM_ID} onSubmit={handleSaveEdit} className="space-y-4">
+            <AlertMessage tone="danger" message={editError} onDismiss={() => setEditError('')} />
+
             {editModal.asset_class !== 'FIXED_INCOME' && (
               <Field label="Quantidade">
                 <input type="number" step="0.0001" value={editModal.quantity} onChange={(e) => setEditField('quantity', e.target.value)} className="app-input" required />
@@ -413,18 +430,14 @@ export default function Operacoes() {
               <input type="date" value={editModal.movement_date} onChange={(e) => setEditField('movement_date', e.target.value)} className="app-input" required />
             </Field>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm">
-              <input
-                type="checkbox"
-                checked={editModal.skip_cash}
-                onChange={(e) => setEditField('skip_cash', e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-              />
-              <span>
-                <span className="block font-medium text-zinc-800">Operação anterior ao app</span>
-                <span className="block text-zinc-600">Não gera lançamento no saldo das contas.</span>
-              </span>
-            </label>
+            <CashLinkField
+              value={editModal.cash_link}
+              onChange={(next) => setEditField('cash_link', next)}
+              movementType={editModal.is_redemption ? 'REDEMPTION' : editModal.is_sale ? 'SELL' : 'BUY'}
+              foreign={editModal.is_foreign}
+              savedAccountId={editModal.saved_cash_account_id}
+              selectClassName="app-select"
+            />
 
             {editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption && (
               <FixedIncomeFields
@@ -530,6 +543,7 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
           <span>a {formatCurrency(info.unitPrice)}</span>
           {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
           {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
+          {info.inStatement ? <span>· No extrato</span> : null}
         </div>
         {info.isBonus ? null : <Menu label={`Ações da operação de ${mov.ticker_or_name}`} size="md" items={movementMenuItems(onEdit, onDelete)} />}
       </div>
