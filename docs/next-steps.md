@@ -32,6 +32,10 @@ banking-only. The database was reset the same day, so the app starts empty. Open
   linked rows while its movements carry no `cash_account_id` — each row goes away on the next edit
   of its movement. Write a data migration first if the old data
   (`backend/backups/finance-pre-areas-separation-20261012-224633.db`) is ever brought back.
+- [ ] Foreign-currency accounts outside Início: "Pagar fatura" lists a dollar account with its
+  native balance labelled R$, and the backend debits the invoice's reais from it without converting
+  (no currency check in `routes/cards.py` or `routes/transactions.py`). Decide: refuse a non-BRL
+  account there, or convert.
 - [ ] Tests, low: pin that a refused edit also undoes the price quote and the quantity, the
   redemption branch of the "nothing to write" refusal, and a batch `POST` whose second item is
   refused. All three behave correctly in `finance-guard`'s scratch tests.

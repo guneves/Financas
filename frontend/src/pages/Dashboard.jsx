@@ -62,9 +62,9 @@ import {
   axisProps,
   compactAxis,
 } from '../components/charts'
-import { formatCurrency, formatDateBR, formatMoney, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
+import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { activeAccounts, consolidatedBalance, isInvestmentInflow, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, consolidatedBalance, isInvestmentInflow, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
 
 const HISTORY_MONTHS = 12
@@ -462,7 +462,9 @@ export default function Dashboard() {
       .map((entry) => {
         const account = accounts.find((row) => row.id === entry.accountId)
         if (!account || account.archived_at) return null
-        const accountBalance = Number(account.balance) || 0
+        // Em reais, como a fatura. Sem cambio hoje nao da para dizer se cobre.
+        const accountBalance = accountBalanceBrl(account)
+        if (accountBalance === null) return null
         return accountBalance < entry.total
           ? { ...entry, accountName: account.name, balance: accountBalance, missing: entry.total - accountBalance }
           : null
@@ -1075,9 +1077,7 @@ export default function Dashboard() {
 // lancamentos, que ficam visiveis (lib/privacy.js).
 function BalanceHero({ total, accounts, monthName, result, income, expense, invested, redeemed, className = '' }) {
   const hidden = useValuesHidden()
-  // Conta em moeda estrangeira aparece na moeda dela (o total acima ja a
-  // converte): "100" de uma conta em dolar nao pode ser lido como reais.
-  const privateMoney = usePrivateFormatter(formatMoney)
+  const privateMoney = usePrivateFormatter(formatCurrency)
 
   return (
     <section
@@ -1122,13 +1122,20 @@ function BalanceHero({ total, accounts, monthName, result, income, expense, inve
       {accounts.length > 0 ? (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
           {accounts.map((account) => {
-            const balance = Number(account.balance) || 0
+            // Tudo em reais: a conta em moeda estrangeira aparece pelo valor
+            // convertido, o mesmo que o total acima soma. Sem cambio hoje ela
+            // fica fora do total, e o cartao diz isso.
+            const balance = accountBalanceBrl(account)
             return (
               <li key={account.id} className="min-w-0 rounded-2xl bg-white/[0.08] px-4 py-3">
                 <p className="truncate text-xs font-medium text-brand-soft" title={account.name}>{account.name}</p>
-                <p className={cx('mt-0.5 whitespace-nowrap text-[15px] font-bold tabular', balance < 0 && 'text-rose-200')}>
-                  {privateMoney(balance, account.currency)}
-                </p>
+                {balance === null ? (
+                  <p className="mt-0.5 whitespace-nowrap text-sm font-medium text-brand-soft">sem câmbio hoje</p>
+                ) : (
+                  <p className={cx('mt-0.5 whitespace-nowrap text-[15px] font-bold tabular', balance < 0 && 'text-rose-200')}>
+                    {privateMoney(balance)}
+                  </p>
+                )}
               </li>
             )
           })}

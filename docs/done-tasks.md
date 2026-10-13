@@ -506,10 +506,13 @@ the same day by three subagents on disjoint files.
   sheet and the Posição redemption sheet. Operações tags linked movements "no extrato". Edit errors
   now show inside the sheet (the page alert sat behind it).
 - **Início is banking-only** — the owner reversed the plan's decision 2 so the headline is never
-  read as money to spend. The hero is "Saldo em conta" (consolidated balance, account tiles; a
-  foreign-currency account shows its own currency); the portfolio query, the "Em conta / Investido"
-  bar and Patrimônio are gone. The "no mês" pill is the accounts' net movement, equal to the chart's
-  "Resultado".
+  read as money to spend. The hero is "Saldo em conta" (consolidated balance, account tiles); the
+  portfolio query, the "Em conta / Investido" bar and Patrimônio are gone. The "no mês" pill is the
+  accounts' net movement, equal to the chart's "Resultado". Everything there is in reais: a
+  foreign-currency account's tile shows its converted balance (`accountBalanceBrl()`, the figure
+  the total sums) or "sem câmbio hoje", and the débito-automático warning compares in reais too.
+  The tile used to print the dollar amount labelled R$; a first fix showed US$, and the owner
+  corrected it — the app is in reais.
 - **A resgate is not a receita.** A linked or typed-in-"Investimento" INCOME is kept apart like the
   aporte already was (`isInvestmentInflow()` in `lib/transactions.js`): Início's cash flow (one net
   investment series, shown only when the window has such rows; the tooltip says "Investido" or

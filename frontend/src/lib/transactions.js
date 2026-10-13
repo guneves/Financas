@@ -27,10 +27,15 @@ export const isInvestmentInflow = (transaction) =>
 // servidor); sem cambio disponivel ela fica de fora em vez de somar dolar
 // como real.
 export const consolidatedBalance = (accounts = []) =>
-  accounts.reduce((acc, account) => {
-    const value = account.balance_brl !== undefined ? account.balance_brl : account.balance
-    return acc + (Number(value) || 0)
-  }, 0)
+  accounts.reduce((acc, account) => acc + (accountBalanceBrl(account) || 0), 0)
+
+// Saldo de uma conta em reais — o app e em reais, e o saldo de uma conta em
+// moeda estrangeira so aparece convertido. Devolve null quando nao ha cambio
+// hoje: quem mostra avisa, quem soma deixa de fora.
+export function accountBalanceBrl(account) {
+  const value = account?.balance_brl !== undefined ? account.balance_brl : account?.balance
+  return value === null || value === undefined ? null : Number(value) || 0
+}
 
 export const openingBalanceTotal = (accounts = []) =>
   accounts.reduce((acc, account) => acc + (Number(account.initial_balance) || 0), 0)

@@ -318,8 +318,10 @@ docs/
   without a row. Each movement decides for itself, and nothing financial reads the link (FIFO, IR
   and the portfolio read movements, not cash). The three forms share `CashLinkField` ("Lançar no
   extrato", off by default).
-- **Início is the banking area only.** Its headline is the consolidated account balance; the
-  portfolio never appears there, so nobody reads invested money as money to spend. A lançamento
+- **Início is the banking area only, and in reais.** Its headline is the consolidated account
+  balance; the portfolio never appears there, so nobody reads invested money as money to spend. A
+  foreign-currency account appears only by its converted value (`accountBalanceBrl()` in
+  `lib/transactions.js`, "sem câmbio hoje" when there is no rate) — never in its own currency. A lançamento
   that is linked, or typed in the category "Investimento", is an aporte (EXPENSE) or a resgate
   (INCOME), not a despesa or a receita — `isInvestmentOutflow()` / `isInvestmentInflow()` in
   `lib/transactions.js` — and every banking total (Início, Extrato, Recorrentes) keeps it apart.

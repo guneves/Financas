@@ -57,6 +57,9 @@ audited the fix.
 - Deleting a movement (or its asset) still deletes its linked lançamento and that row's receipts,
   unguarded, as before.
 - The owner has not seen any of it: everything was checked on a scratch database.
+- `PayInvoiceSheet` still lists a foreign-currency account with its native balance labelled R$ and
+  compares it with the invoice. Left alone: the backend posts the invoice's reais into that account
+  without converting, so the display is the small half of a real gap (in `next-steps.md`).
 - Low, from the second audit — correct in its scratch tests but not pinned by the suite: a refused
   edit also undoes the price quote and the quantity; the redemption branch of the "nothing to
   write" refusal; a refused second item of a batch `POST` undoing the first.
@@ -96,8 +99,10 @@ owner's-call items there. Nothing is half-built.
   "nothing changed" must link first and assert the row exists, or it passes on two empty lists.
 - Files in this tree have mixed line endings (most CRLF, some LF). The Edit and Write tools write
   LF: patch through a Python script that keeps the file's own ending, and count `\r\n` afterwards.
-- A dollar account's tile on Início showed its US$ amount labelled R$ (the total was right). Fixed
-  while there: the tile now uses the account's currency.
+- A dollar account's tile on Início showed its US$ amount labelled R$ (the total was right). I
+  first made it show US$; the owner corrected that — **the app is in reais** — so the tile now shows
+  the converted balance (`accountBalanceBrl()`), "sem câmbio hoje" without a rate, and the
+  débito-automático warning uses the same figure. Commit after `88411f3`.
 - To look at `finance.db` without touching it: `sqlite3.connect("file:<path>?mode=ro", uri=True)`.
 - The Grep tool returns nothing, silently, for a brace glob with a slash in it
   (`{services,routes}/*.py`); use `**/{services,routes}/*.py`.
