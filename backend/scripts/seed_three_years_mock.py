@@ -524,9 +524,12 @@ def price_path():
     return paths
 
 
-def seed_investments(api):
+def seed_investments(api, accounts):
     prices = price_path()
     events = []
+    # O caixa e por pedido (metadata.cash_account_id): o mock representa quem
+    # lanca cada operacao no extrato, na conta principal.
+    cash = {"cash_account_id": accounts["principal"]}
 
     # Aporte mensal: um papel por mes, rotativo, ~R$ 1.500. Mes com aplicacao
     # em renda fixa pula o aporte em bolsa, como faria quem aporta um valor fixo.
@@ -567,7 +570,7 @@ def seed_investments(api):
                 "quantity": quantity,
                 "average_price": round((quantity * money(price) + fee) / quantity, 6),
                 "current_price": money(price),
-                "metadata": {"purchase_date": iso(when), "other_costs": fee},
+                "metadata": {"purchase_date": iso(when), "other_costs": fee, **cash},
             }])
         elif kind == "sell":
             _, _, ticker, fraction, price = event
@@ -578,7 +581,7 @@ def seed_investments(api):
             api.post("/api/investments", [{
                 "asset_class": STOCKS[ticker][0], "ticker_or_name": ticker,
                 "quantity": -quantity, "average_price": money(price), "current_price": money(price),
-                "metadata": {"sale_date": iso(when), "sale_price": money(price), "other_costs": 4.90},
+                "metadata": {"sale_date": iso(when), "sale_price": money(price), "other_costs": 4.90, **cash},
             }])
         elif kind == "fixed":
             _, _, name, amount, metadata = event
@@ -586,7 +589,7 @@ def seed_investments(api):
             fixed_buy_ids[name] = api.post("/api/investments", [{
                 "asset_class": "FIXED_INCOME", "ticker_or_name": name, "quantity": 1,
                 "average_price": amount, "current_price": amount,
-                "metadata": {**metadata, "purchase_date": iso(when), "other_costs": 0},
+                "metadata": {**metadata, "purchase_date": iso(when), "other_costs": 0, **cash},
             }])[0]["id"]
         elif kind == "redeem":
             _, _, name, cost, received = event
@@ -595,7 +598,7 @@ def seed_investments(api):
                 "asset_class": "FIXED_INCOME", "ticker_or_name": name, "quantity": -1,
                 "average_price": cost, "current_price": received,
                 "metadata": {"is_redemption": True, "affects_position": True,
-                             "related_id": fixed_buy_ids[name], "redemption_date": iso(when)},
+                             "related_id": fixed_buy_ids[name], "redemption_date": iso(when), **cash},
             }])
         count += 1
 
@@ -662,7 +665,7 @@ def main():
     print(f"Compras no cartao: {seed_card_purchases(api, cards)}")
     print(f"Faturas pagas: {pay_past_invoices(api, cards, accounts)}")
     print(f"Orcamentos: {seed_budgets(api, category_ids)}")
-    operations, proceeds = seed_investments(api)
+    operations, proceeds = seed_investments(api, accounts)
     print(f"Operacoes de investimento: {operations} | proventos: {proceeds}")
 
     for account in api.get("/api/accounts"):

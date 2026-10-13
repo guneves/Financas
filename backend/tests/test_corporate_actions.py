@@ -28,8 +28,17 @@ def no_market(app_module, monkeypatch):
     )
 
 
-def post_movement(client, auth, *, quantity, price, date, ticker="PETR4", sale=False):
+def default_account_id(client, auth):
+    return next(
+        item["id"] for item in client.get("/api/accounts", headers=auth).get_json() if item["is_default"]
+    )
+
+
+def post_movement(client, auth, *, quantity, price, date, ticker="PETR4", sale=False, account_id=None):
     metadata = {"sale_date": date, "sale_price": price} if sale else {"purchase_date": date}
+    if account_id:
+        # So a operacao que pede o extrato tem lancamento ligado.
+        metadata["cash_account_id"] = account_id
     return client.post(
         "/api/investments",
         headers=auth,
@@ -75,7 +84,8 @@ def cash_entries(client, auth):
 
 class TestSplit:
     def test_a_split_doubles_quantity_and_halves_the_price(self, client, auth):
-        purchase = buy(client, auth, quantity=100, price=10.0, date="2026-01-10")
+        account_id = default_account_id(client, auth)
+        purchase = buy(client, auth, quantity=100, price=10.0, date="2026-01-10", account_id=account_id)
         response = create_action(client, auth, purchase["asset_id"])
         assert response.status_code == 201, response.get_data(as_text=True)
         assert response.get_json()["price_refreshed"] is False
@@ -84,7 +94,8 @@ class TestSplit:
         assert row["quantity"] == pytest.approx(200)
         assert row["average_price"] == pytest.approx(5.0)
         assert row["metadata"]["corporate_adjustments"][0]["quantity_before"] == 100
-        # O caixa da compra nao muda: continua 1.000.
+        # O caixa da compra nao muda: continua 1.000, na mesma conta.
+        assert row["metadata"]["cash_account_id"] == account_id
         assert [entry["amount"] for entry in cash_entries(client, auth)] == [pytest.approx(1000.0)]
         assert position(client, auth)["quantity"] == pytest.approx(200)
 
@@ -115,7 +126,11 @@ class TestSplit:
 
 class TestBonus:
     def test_bonus_adds_shares_at_the_attributed_cost_without_cash(self, client, auth):
-        purchase = buy(client, auth, quantity=100, price=10.0, date="2026-01-10")
+        # A compra vai ao extrato; a bonificacao nao tem caixa nenhum.
+        purchase = buy(
+            client, auth, quantity=100, price=10.0, date="2026-01-10",
+            account_id=default_account_id(client, auth),
+        )
         response = create_action(
             client, auth, purchase["asset_id"], action_type="BONUS", ratio_from=10, ratio_to=1, bonus_unit_cost=2,
         )

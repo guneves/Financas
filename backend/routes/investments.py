@@ -49,21 +49,26 @@ from services.fixed_income import (
     validate_fixed_income_metadata,
 )
 from services.investments import (
+    CASH_ACCOUNT_KEY,
     delete_investment_cash_transaction,
     fetch_investment_rows,
     fetch_investments,
     fetch_position_quantity,
     get_or_create_asset,
+    investment_cash_account_id,
+    investment_cash_receipt_count,
     investment_fee_amount,
     investment_gross_amount,
     investment_metadata_dict,
     investment_movement_type,
     investment_transaction_date,
     resolve_catalog_ticker,
+    resolve_investment_cash_account,
     serialize_investment,
     sync_investment_cash_transaction,
     validate_asset_transaction_backing,
     validate_investment_movement,
+    with_investment_cash_account,
 )
 from services.portfolio import (
     build_portfolio_evolution,
@@ -133,6 +138,16 @@ def with_fx_rate(conn, current_user_id, currency, metadata):
 BONUS_LOCKED_MESSAGE = (
     "Esta operacao e a bonificacao de um evento corporativo; "
     "para mudar ou tirar, exclua o evento em Operacoes."
+)
+
+CASH_RECEIPT_LOCKED_MESSAGE = (
+    "O lancamento desta operacao no extrato tem comprovante. "
+    "Remova o comprovante no Extrato antes de tirar a operacao de la."
+)
+
+CASH_WITHOUT_AMOUNT_MESSAGE = (
+    "Esta operacao nao tem valor para lancar no extrato. "
+    "Corrija o valor ou desmarque 'Lancar no extrato'."
 )
 
 
@@ -345,6 +360,14 @@ def investments(current_user_id):
                     ticker_or_name = ticker_key(ticker_or_name)
                     metadata_dict = with_fx_rate(conn, current_user_id, currency, metadata_dict)
                     metadata = metadata_dict
+                # So vai ao extrato a operacao que pede (metadata.cash_account_id):
+                # a conta e validada aqui, antes de qualquer escrita.
+                if CASH_ACCOUNT_KEY in metadata_dict:
+                    metadata_dict = with_investment_cash_account(
+                        metadata_dict,
+                        resolve_investment_cash_account(conn, current_user_id, metadata_dict),
+                    )
+                    metadata = metadata_dict
                 validate_investment_movement(
                     conn,
                     current_user_id,
@@ -398,11 +421,10 @@ def investments(current_user_id):
             rows = []
             for item_id in inserted:
                 row = fetch_investment_rows(conn, current_user_id, investment_id=item_id)[0]
-                sync_investment_cash_transaction(
-                    conn,
-                    current_user_id,
-                    serialize_investment(row),
-                )
+                movement = serialize_investment(row)
+                in_statement = sync_investment_cash_transaction(conn, current_user_id, movement)
+                if investment_cash_account_id(movement.get("metadata")) and not in_statement:
+                    raise ValidationError(CASH_WITHOUT_AMOUNT_MESSAGE)
                 rows.append(row)
     except ValidationError as exc:
         return validation_error(str(exc))
@@ -506,6 +528,28 @@ def investment_detail(current_user_id, investment_id):
         for kept_key in ("corporate_adjustments", "fx_rate", "fx_source"):
             if existing_metadata.get(kept_key) not in (None, "") and kept_key not in metadata:
                 metadata = {**metadata, kept_key: existing_metadata[kept_key]}
+        # A conta do extrato tambem fica quando o metadata vem sem a chave — um
+        # formulario que nao a conhece nao pode apagar um lancamento. Tirar a
+        # operacao do extrato e mandar a chave vazia (null), de proposito.
+        previous_cash_account_id = investment_cash_account_id(existing_metadata)
+        requested_cash = (
+            metadata
+            if "metadata" in payload and CASH_ACCOUNT_KEY in metadata
+            else {CASH_ACCOUNT_KEY: previous_cash_account_id}
+        )
+        try:
+            cash_account_id = resolve_investment_cash_account(
+                conn,
+                current_user_id,
+                requested_cash,
+                previous_account_id=previous_cash_account_id,
+            )
+        except ValidationError as exc:
+            return validation_error(str(exc))
+        if not cash_account_id and investment_cash_receipt_count(conn, current_user_id, investment_id):
+            # Sair do extrato apaga o lancamento, e o comprovante iria junto.
+            return validation_error(CASH_RECEIPT_LOCKED_MESSAGE, 409)
+        metadata = with_investment_cash_account(metadata, cash_account_id)
         try:
             validate_fixed_income_metadata(asset_class, quantity, metadata)
         except ValidationError as exc:
@@ -589,11 +633,17 @@ def investment_detail(current_user_id, investment_id):
             )
 
         row = fetch_investment_rows(conn, current_user_id, investment_id=investment_id)[0]
-        sync_investment_cash_transaction(
+        in_statement = sync_investment_cash_transaction(
             conn,
             current_user_id,
             serialize_investment(row),
         )
+        if cash_account_id and not in_statement:
+            # Pede o extrato mas ficou sem valor a lancar (preco zerado, custos
+            # maiores que a venda): a edicao inteira e desfeita, senao o
+            # lancamento sumiria — com os comprovantes — sem ninguem pedir.
+            conn.rollback()
+            return validation_error(CASH_WITHOUT_AMOUNT_MESSAGE)
     if not row:
         return jsonify({"error": "Investimento nao encontrado."}), 404
     refresh_realized_results(current_user_id)

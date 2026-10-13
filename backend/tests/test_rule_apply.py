@@ -168,11 +168,16 @@ def test_transfers_and_investment_cash_are_never_recategorized(client, auth):
         },
         headers=auth,
     )
+    main = next(
+        item for item in client.get("/api/accounts", headers=auth).get_json() if item["is_default"]
+    )
     client.post(
         "/api/investments",
         json={
             "asset_class": "STOCKS", "ticker_or_name": "VALE3", "quantity": 5,
-            "average_price": 60, "metadata": {"purchase_date": "2026-09-01"},
+            "average_price": 60,
+            # So a operacao que pede o extrato tem lancamento ligado.
+            "metadata": {"purchase_date": "2026-09-01", "cash_account_id": main["id"]},
         },
         headers=auth,
     )

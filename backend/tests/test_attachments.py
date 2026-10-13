@@ -49,6 +49,13 @@ def create_transaction(client, headers, **overrides):
     return response.get_json()
 
 
+def default_account_id(client, headers):
+    """A conta que recebe o lancamento de uma operacao de investimento: ele so
+    existe quando a operacao pede (`metadata.cash_account_id`)."""
+    accounts = client.get("/api/accounts", headers=headers).get_json()
+    return next(item["id"] for item in accounts if item["is_default"])
+
+
 def upload(client, headers, transaction_id, content=PDF, filename="nota.pdf"):
     return client.post(
         f"/api/transactions/{transaction_id}/attachments",
@@ -163,8 +170,8 @@ class TestUpload:
         assert upload(client, auth, "nao-existe").status_code == 404
 
     def test_investment_cash_and_invoice_rows_accept_receipts(self, client, auth):
-        # Nota de corretagem no espelho de caixa: o comprovante nao mexe no
-        # lancamento, entao nao ha motivo para bloquear.
+        # Nota de corretagem no lancamento de uma operacao que foi ao extrato:
+        # o comprovante nao mexe no lancamento, entao nao ha motivo para bloquear.
         response = client.post(
             "/api/investments",
             headers=auth,
@@ -174,7 +181,10 @@ class TestUpload:
                 "quantity": 10,
                 "average_price": 30.0,
                 "current_price": 30.0,
-                "metadata": {"purchase_date": "2026-02-10"},
+                "metadata": {
+                    "purchase_date": "2026-02-10",
+                    "cash_account_id": default_account_id(client, auth),
+                },
             },
         )
         assert response.status_code in (200, 201)
@@ -277,7 +287,10 @@ class TestDelete:
                 "quantity": 5,
                 "average_price": 60.0,
                 "current_price": 60.0,
-                "metadata": {"purchase_date": "2026-03-10"},
+                "metadata": {
+                    "purchase_date": "2026-03-10",
+                    "cash_account_id": default_account_id(client, auth),
+                },
             },
         )
         cash = [
@@ -301,7 +314,10 @@ class TestDelete:
                 "quantity": 10,
                 "average_price": 30.0,
                 "current_price": 30.0,
-                "metadata": {"purchase_date": "2026-04-10"},
+                "metadata": {
+                    "purchase_date": "2026-04-10",
+                    "cash_account_id": default_account_id(client, auth),
+                },
             },
         )
         body = response.get_json()
@@ -313,7 +329,7 @@ class TestDelete:
         attachment = upload(client, auth, cash["id"]).get_json()
         path = stored_path(app_module, user["id"], attachment["id"])
 
-        # Excluir a movimentacao apaga o espelho de caixa; a linha do
+        # Excluir a movimentacao apaga o lancamento ligado a ela; a linha do
         # comprovante vai pelo CASCADE, o arquivo fica ate a varredura.
         assert client.delete(f"/api/investments/{investment['id']}", headers=auth).status_code == 200
         assert attachment_rows(app_module, cash["id"]) == []

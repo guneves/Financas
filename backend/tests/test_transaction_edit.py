@@ -203,6 +203,9 @@ def test_transfer_destination_is_rejected_on_a_plain_transaction(client, auth):
 
 def test_investment_cash_transaction_cannot_be_edited(client, auth):
     """Mesma regra que ja vale para DELETE: a movimentacao de investimento manda."""
+    account = next(
+        item for item in client.get("/api/accounts", headers=auth).get_json() if item["is_default"]
+    )
     client.post(
         "/api/investments",
         json={
@@ -210,7 +213,8 @@ def test_investment_cash_transaction_cannot_be_edited(client, auth):
             "ticker_or_name": "VALE3",
             "quantity": 5,
             "average_price": 60,
-            "metadata": {"purchase_date": "2026-03-01"},
+            # So a operacao que pede o extrato tem lancamento ligado.
+            "metadata": {"purchase_date": "2026-03-01", "cash_account_id": account["id"]},
         },
         headers=auth,
     )

@@ -56,7 +56,10 @@ def test_transaction_without_account_id_lands_in_the_default_account(client, aut
     assert listed[0]["account_id"] == accounts[0]["id"]
 
 
-def test_investment_cash_transaction_also_lands_in_an_account(client, auth):
+def test_investment_cash_transaction_lands_in_the_account_it_names(client, auth):
+    # Uma operacao so vai ao extrato quando pede (metadata.cash_account_id), e
+    # vai para a conta que escolheu — nao mais, em silencio, para a padrao.
+    broker = create_account(client, auth, "Corretora")
     client.post(
         "/api/investments",
         json={
@@ -64,7 +67,7 @@ def test_investment_cash_transaction_also_lands_in_an_account(client, auth):
             "ticker_or_name": "PETR4",
             "quantity": 10,
             "average_price": 30,
-            "metadata": {"purchase_date": "2026-03-01"},
+            "metadata": {"purchase_date": "2026-03-01", "cash_account_id": broker["id"]},
         },
         headers=auth,
     )
@@ -73,8 +76,11 @@ def test_investment_cash_transaction_also_lands_in_an_account(client, auth):
         for item in client.get("/api/transactions", headers=auth).get_json()
         if item["source_type"] == "INVESTMENT_TRANSACTION"
     ]
-    assert cash, "a compra deveria ter gerado o lancamento de caixa espelhado"
-    assert cash[0]["account_id"] is not None
+    assert cash, "a compra que pede o extrato deveria ter gerado o lancamento ligado"
+    assert cash[0]["account_id"] == broker["id"]
+    accounts = list_accounts(client, auth)
+    assert balance_of(accounts, "Corretora") == -300
+    assert balance_of(accounts, "Conta Principal") == 0
 
 
 # --------------------------------------------------------------------------

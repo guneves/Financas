@@ -2,12 +2,13 @@
 
 Uma movimentacao (compra, venda, resgate) e uma linha de
 `investment_transactions`: quantidade negativa e venda, e o resgate de renda
-fixa vem marcado no metadata (`is_redemption`). Cada uma espelha um
-lancamento em `transactions` com `source_type = INVESTMENT_CASH_SOURCE_TYPE`
-(`sync_investment_cash_transaction()`), para o saldo da conta ver o dinheiro.
-Uma movimentacao com `metadata.skip_cash` (posicao anterior ao app, comprada
-com dinheiro que nunca passou por aqui) nao gera lancamento: entra na carteira
-sem mexer no saldo. `investment_skips_cash()` e a regra.
+fixa vem marcado no metadata (`is_redemption`). Ela so chega ao extrato quando
+o dono pede, operacao por operacao: `metadata.cash_account_id` e a conta, e
+entao existe exatamente um lancamento em `transactions` com
+`source_type = INVESTMENT_CASH_SOURCE_TYPE` nessa conta
+(`sync_investment_cash_transaction()`). Sem a chave nada e gravado: a carteira
+nao mexe no saldo. `investment_cash_account_id()` e a regra e
+`resolve_investment_cash_account()` valida a conta antes de gravar.
 `validate_asset_transaction_backing()` recusa a mudanca que deixaria uma venda
 ou resgate sem compra que a cubra.
 
@@ -28,7 +29,7 @@ from dates import parse_iso_date
 from db import encode_metadata, get_db, new_id, parse_metadata_value, row_to_dict
 import market_catalog
 from money import rounded_money
-from services.accounts import ensure_default_account
+from services.accounts import fetch_account
 from services import market_listing
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from services.prices import ticker_key
@@ -37,6 +38,8 @@ from validators import ValidationError, safe_float
 
 
 INVESTMENT_CASH_CATEGORY = "Investimento"
+# Chave do metadata da movimentacao: a conta do lancamento ligado.
+CASH_ACCOUNT_KEY = "cash_account_id"
 
 
 def ensure_asset_owner(conn, current_user_id, asset_id):
@@ -169,19 +172,76 @@ def investment_cash_metadata(investment):
     }
 
 
-def investment_skips_cash(metadata):
-    value = (metadata or {}).get("skip_cash")
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "sim", "yes"}
-    return bool(value)
+def investment_cash_account_id(metadata):
+    """A conta do lancamento ligado, ou None quando a operacao fica fora do extrato."""
+    value = (metadata or {}).get(CASH_ACCOUNT_KEY)
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def resolve_investment_cash_account(conn, current_user_id, metadata, previous_account_id=None):
+    """Valida `metadata.cash_account_id` e devolve o id (None = fora do extrato).
+
+    A conta tem que ser do usuario, em reais (o lancamento ligado e sempre em
+    reais) e ativa — a nao ser que ja fosse a conta da operacao
+    (`previous_account_id`): arquivar a conta depois nao trava a edicao.
+    """
+    value = (metadata or {}).get(CASH_ACCOUNT_KEY)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str):
+        raise ValidationError("Conta do extrato invalida.")
+    account_id = value.strip()
+    account = fetch_account(conn, current_user_id, account_id)
+    if not account:
+        raise ValidationError("Conta do extrato nao encontrada.")
+    if account["archived_at"] and account_id != previous_account_id:
+        raise ValidationError("Conta do extrato esta arquivada.")
+    if normalize_currency(account["currency"]) != BASE_CURRENCY:
+        raise ValidationError("O lancamento no extrato e em reais: escolha uma conta em reais.")
+    return account_id
+
+
+def with_investment_cash_account(metadata, account_id):
+    """O metadata com a conta ja validada, ou sem a chave quando nao ha conta."""
+    cleaned = {key: value for key, value in (metadata or {}).items() if key != CASH_ACCOUNT_KEY}
+    if account_id:
+        cleaned[CASH_ACCOUNT_KEY] = account_id
+    return cleaned
+
+
+def investment_cash_receipt_count(conn, current_user_id, investment_id):
+    """Comprovantes presos ao lancamento ligado: tirar a operacao do extrato os apagaria."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM transaction_attachments ta
+        JOIN transactions t
+          ON t.id = ta.transaction_id
+         AND t.user_id = ta.user_id
+        WHERE ta.user_id = ?
+          AND t.source_type = ?
+          AND t.source_id = ?
+        """,
+        (current_user_id, INVESTMENT_CASH_SOURCE_TYPE, investment_id),
+    ).fetchone()
+    return row["total"] if row else 0
 
 
 def sync_investment_cash_transaction(conn, current_user_id, investment):
-    # Posicao anterior ao app: sem lancamento (e sem buscar cambio para ele).
-    if investment_skips_cash(investment.get("metadata")):
+    """Deixa o lancamento ligado igual a movimentacao.
+
+    Devolve True quando a operacao ficou com lancamento no extrato. Quem grava
+    recusa a operacao que pede o extrato e nao tem valor a lancar (False com a
+    conta no metadata), para a chave nunca dizer "no extrato" sem linha la.
+    """
+    # Fora do extrato: sem lancamento (e sem buscar cambio para ele).
+    account_id = investment_cash_account_id(investment.get("metadata"))
+    if not account_id:
         if investment.get("id"):
             delete_investment_cash_transaction(conn, current_user_id, investment["id"])
-        return
+        return False
     # O caixa e em reais: operacao em moeda estrangeira converte pelo cambio dela.
     if normalize_currency(investment.get("asset_currency")) != BASE_CURRENCY:
         rate = movement_fx_rate(conn, current_user_id, investment)
@@ -190,7 +250,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
     cash_type = investment_cash_type(investment)
     investment_id = investment.get("id")
     if not investment_id:
-        return
+        return False
 
     if amount is None or cash_type is None:
         conn.execute(
@@ -200,7 +260,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
             """,
             (current_user_id, INVESTMENT_CASH_SOURCE_TYPE, investment_id),
         )
-        return
+        return False
 
     transaction_date = investment.get("transaction_date") or investment_transaction_date(
         investment.get("metadata") or {},
@@ -218,10 +278,12 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
     ).fetchone()
 
     if existing:
+        # A conta tambem: trocar a conta move o mesmo lancamento.
         conn.execute(
             """
             UPDATE transactions
-            SET amount = ?,
+            SET account_id = ?,
+                amount = ?,
                 date = ?,
                 category = ?,
                 description = ?,
@@ -230,6 +292,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
             WHERE id = ? AND user_id = ?
             """,
             (
+                account_id,
                 amount,
                 transaction_date,
                 INVESTMENT_CASH_CATEGORY,
@@ -240,7 +303,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
                 current_user_id,
             ),
         )
-        return
+        return True
 
     conn.execute(
         """
@@ -251,7 +314,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
         (
             f"cash:{investment_id}",
             current_user_id,
-            ensure_default_account(conn, current_user_id),
+            account_id,
             amount,
             transaction_date,
             INVESTMENT_CASH_CATEGORY,
@@ -262,6 +325,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
             encode_metadata(metadata),
         ),
     )
+    return True
 
 
 def delete_investment_cash_transaction(conn, current_user_id, investment_id):

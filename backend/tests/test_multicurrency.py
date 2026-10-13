@@ -3,7 +3,8 @@
 O que estes testes fixam:
 
 - a operacao guarda o cambio da data (PTAX do dia util anterior, ou o que o
-  usuario informou) e o caixa ligado sai em reais;
+  usuario informou) e, quando ela vai ao extrato, o lancamento ligado sai em
+  reais;
 - custo em reais pelo cambio da compra, valor atual pelo cambio de hoje, e o
   resultado da venda em reais (venda pelo cambio dela menos o custo da compra);
 - acao do exterior nao passa pelo catalogo da B3; renda fixa nao aceita moeda;
@@ -61,7 +62,7 @@ def buy_usd(client, auth, *, quantity=10, price=100.0, date_value="2026-03-02", 
     )
 
 
-def sell_usd(client, auth, *, quantity=10, price=130.0, date_value="2026-07-01"):
+def sell_usd(client, auth, *, quantity=10, price=130.0, date_value="2026-07-01", **meta):
     return client.post(
         "/api/investments",
         headers=auth,
@@ -72,8 +73,16 @@ def sell_usd(client, auth, *, quantity=10, price=130.0, date_value="2026-07-01")
             "quantity": -quantity,
             "average_price": price,
             "current_price": price,
-            "metadata": {"sale_date": date_value, "sale_price": price},
+            "metadata": {"sale_date": date_value, "sale_price": price, **meta},
         },
+    )
+
+
+def main_account(client, auth):
+    """A conta (em reais) do lancamento ligado: so a operacao que manda
+    `cash_account_id` vai ao extrato."""
+    return next(
+        item["id"] for item in client.get("/api/accounts", headers=auth).get_json() if item["is_default"]
     )
 
 
@@ -90,7 +99,7 @@ def portfolio_asset(client, auth, ticker="AAPL"):
 
 
 def test_a_usd_buy_stores_the_ptax_and_debits_reais(client, auth):
-    response = buy_usd(client, auth)
+    response = buy_usd(client, auth, cash_account_id=main_account(client, auth))
     assert response.status_code in (200, 201), response.get_data(as_text=True)
     movement = response.get_json()[0]
     assert movement["metadata"]["fx_rate"] == 5.0
@@ -99,8 +108,22 @@ def test_a_usd_buy_stores_the_ptax_and_debits_reais(client, auth):
     assert cash(client, auth) == [("EXPENSE", 5000.0)]
 
 
+def test_a_usd_buy_outside_the_statement_still_stores_the_rate(client, auth):
+    account_id = main_account(client, auth)
+    linked = buy_usd(client, auth, cash_account_id=account_id).get_json()[0]
+    plain = buy_usd(client, auth, quantity=3).get_json()[0]
+    assert plain["metadata"]["fx_rate"] == 5.0
+    assert "cash_account_id" not in plain["metadata"]
+    # So a compra que pediu o extrato tem lancamento.
+    rows = [
+        item for item in client.get("/api/transactions", headers=auth).get_json()
+        if item.get("source_type") == "INVESTMENT_TRANSACTION"
+    ]
+    assert [(item["source_id"], item["amount"]) for item in rows] == [(linked["id"], 5000.0)]
+
+
 def test_an_informed_rate_wins_over_the_ptax(client, auth):
-    buy_usd(client, auth, fx_rate=5.2)
+    buy_usd(client, auth, fx_rate=5.2, cash_account_id=main_account(client, auth))
     assert cash(client, auth) == [("EXPENSE", 5200.0)]
 
 
@@ -115,8 +138,9 @@ def test_portfolio_values_cost_at_purchase_rate_and_value_at_todays(client, auth
 
 
 def test_the_sale_result_is_in_reais(client, auth):
-    buy_usd(client, auth)
-    response = sell_usd(client, auth)
+    account_id = main_account(client, auth)
+    buy_usd(client, auth, cash_account_id=account_id)
+    response = sell_usd(client, auth, cash_account_id=account_id)
     assert response.status_code in (200, 201), response.get_data(as_text=True)
     sale = next(item for item in client.get("/api/investments", headers=auth).get_json() if item["quantity"] < 0)
     # 10 x 130 x 5,50 - 10 x 100 x 5,00
@@ -212,8 +236,9 @@ def test_stored_rates_are_per_user(client, user, other_user):
 
 
 def test_editing_keeps_the_locked_rate(client, auth):
-    movement = buy_usd(client, auth, fx_rate=5.2).get_json()[0]
-    # Um cliente que manda o metadata sem fx_rate nao pode trocar o cambio pela PTAX.
+    movement = buy_usd(client, auth, fx_rate=5.2, cash_account_id=main_account(client, auth)).get_json()[0]
+    # Um cliente que manda o metadata sem fx_rate nao pode trocar o cambio pela PTAX
+    # (nem, sem a conta, tirar a operacao do extrato).
     response = client.patch(
         f"/api/investments/{movement['id']}", headers=auth,
         json={"quantity": 20, "metadata": {"purchase_date": "2026-03-02"}},
