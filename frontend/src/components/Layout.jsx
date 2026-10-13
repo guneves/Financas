@@ -1,15 +1,19 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun } from 'lucide-react'
+import { CloudOff, Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun, UploadCloud } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
+import { useServerReachable } from '../lib/connection'
 import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
+import { useOutbox } from '../lib/outbox'
+import { NEEDS_ATTENTION } from '../lib/outboxRules'
 import { setValuesHidden, useValuesHidden } from '../lib/privacy'
 import { useScrollRestoration } from '../lib/scroll'
 import { toggleTheme, useIsDark } from '../lib/theme'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
+import PendingSheet from './PendingSheet'
 import { ConfirmHost, cx, Skeleton, Tabs, Toaster } from './ui'
 
 const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD']
@@ -132,6 +136,36 @@ function UserMenu({ initials, name }) {
   )
 }
 
+// Aparece so quando ha o que dizer: lancamentos guardados no aparelho a
+// espera do servidor, ou o servidor sem responder. Abre "Pendentes". Ambar e
+// aviso (recusado, sem conexao); a fila andando normalmente e neutra.
+function PendingPill({ count, attention, reachable, onClick, compact = false }) {
+  if (!count && reachable) return null
+  const warn = attention > 0 || !reachable
+  const Icon = reachable ? UploadCloud : CloudOff
+  const label = count
+    ? `${count} ${count === 1 ? 'pendente' : 'pendentes'}`
+    : 'Sem conexão'
+  const title = reachable
+    ? 'Lançamentos guardados neste aparelho, à espera do servidor'
+    : 'Sem conexão com o servidor: só novos lançamentos são guardados'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={`${label}. ${title}`}
+      className={cx(
+        'inline-flex h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition',
+        warn ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100' : roundIdle
+      )}
+    >
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      <span className={compact && !count ? 'sr-only' : undefined}>{label}</span>
+    </button>
+  )
+}
+
 function BottomTab({ to, name, icon: Icon }) {
   return (
     <NavLink
@@ -212,11 +246,30 @@ export default function Layout() {
       openInvestment()
       return
     }
+    setEditingPending(null)
     setSheetType(NEW_ENTRY_TYPE_VALUES.includes(type) ? type : 'EXPENSE')
     setSheetOpen(true)
   }, [inInvestments, openInvestment])
 
-  const closeSheet = useCallback(() => setSheetOpen(false), [])
+  const closeSheet = useCallback(() => {
+    setSheetOpen(false)
+    setEditingPending(null)
+  }, [])
+
+  // "Pendentes": a fila de envio (lib/outbox.js). Corrigir um item reabre o
+  // sheet do "+ Novo" preenchido com ele.
+  const pending = useOutbox()
+  const reachable = useServerReachable()
+  const pendingAttention = useMemo(() => pending.filter((item) => item.status === NEEDS_ATTENTION).length, [pending])
+  const [pendingOpen, setPendingOpen] = useState(false)
+  const [editingPending, setEditingPending] = useState(null)
+  const openPending = useCallback(() => setPendingOpen(true), [])
+  const closePending = useCallback(() => setPendingOpen(false), [])
+  const editPending = useCallback((item) => {
+    setPendingOpen(false)
+    setEditingPending(item)
+    setSheetOpen(true)
+  }, [])
   const closeInvestment = useCallback(() => setInvestmentOpen(false), [])
 
   const newEntryValue = useMemo(() => ({ openNewEntry }), [openNewEntry])
@@ -249,6 +302,7 @@ export default function Layout() {
               ))}
             </nav>
             <div className="flex-1" />
+            <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} />
             <ThemeToggle />
             <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
             <UserMenu initials={initials} name={name} />
@@ -268,6 +322,7 @@ export default function Layout() {
           <div className="flex h-16 items-center justify-between gap-2 px-4">
             <BrandMark />
             <div className="flex items-center gap-2">
+              <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} compact />
               <ThemeToggle />
               <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
               <NavLink
@@ -322,9 +377,11 @@ export default function Layout() {
       <NewEntrySheet
         open={sheetOpen}
         initialType={sheetType}
+        editingItem={editingPending}
         onClose={closeSheet}
         onSaved={bumpDataVersion}
       />
+      <PendingSheet open={pendingOpen} onClose={closePending} onEdit={editPending} />
       <InvestmentLaunchModal
         open={investmentOpen}
         onClose={closeInvestment}

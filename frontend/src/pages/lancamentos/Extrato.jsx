@@ -115,7 +115,10 @@ function dayLabel(date) {
 }
 
 // Lancamentos criados por outra tela (carteira, fatura) so se editam la.
+// Um pendente (lib/outbox.js) ainda nao existe no servidor: corrige-se ou
+// descarta-se em "Pendentes", nao aqui.
 function isEditableHere(transaction) {
+  if (transaction.pending) return false
   return !['INVESTMENT_TRANSACTION', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
 }
 
@@ -134,6 +137,7 @@ function AttachmentMark({ transaction }) {
 }
 
 function originLabel(transaction) {
+  if (transaction.pending) return transaction.pending_status === 'needs_attention' ? 'Recusado pelo servidor' : 'Pendente de envio'
   if (transaction.source_type === 'INVESTMENT_TRANSACTION') return 'Pela carteira'
   if (transaction.source_type === 'CC_AUTOPAY') return 'Débito automático'
   return 'Pela fatura'
@@ -167,6 +171,7 @@ export default function Extrato() {
     fetchData,
     transactions,
     balance,
+    balanceEstimated,
     projectedBalanceGlobal,
     projectedBalanceNextMonth,
     accounts,
@@ -351,7 +356,7 @@ export default function Extrato() {
   // Comprovante vale para qualquer linha — inclusive as geradas por outra
   // tela (nota de corretagem, recibo da fatura): anexar nao mexe no lancamento.
   const attachmentsButton = (transaction) => (
-    <IconButton label="Comprovantes" icon={Paperclip} size="sm" onClick={() => setAttachmentsFor(transaction)} />
+    transaction.pending ? null : <IconButton label="Comprovantes" icon={Paperclip} size="sm" onClick={() => setAttachmentsFor(transaction)} />
   )
 
   // Lancamento gerado por outra tela: sem editar aqui, so diz de onde veio.
@@ -399,6 +404,7 @@ export default function Extrato() {
 
       <ProjectionHeader
         balance={balance}
+        estimated={balanceEstimated}
         projectedBalanceNextMonth={projectedBalanceNextMonth}
         projectedBalanceGlobal={projectedBalanceGlobal}
       />

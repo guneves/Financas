@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { lazy, useEffect, useState } from 'react'
 import { getSession, onAuthStateChange } from './lib/auth'
 import { clearServerData } from './lib/queries'
+import { clearPersistedQueryCache } from './lib/queryPersist'
 import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
 import Layout from './components/Layout'
@@ -33,6 +34,7 @@ export default function App() {
     // Outra sessao (ou nenhuma): o cache do usuario anterior nao pode aparecer.
     const unsubscribe = onAuthStateChange((session) => {
       clearServerData()
+      clearPersistedQueryCache()
       setSession(session)
     })
 

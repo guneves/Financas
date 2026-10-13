@@ -6,6 +6,8 @@ import {
   creditCardsApi,
   transactionsApi,
 } from '../../lib/dataApi'
+import { useOutbox } from '../../lib/outbox'
+import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/queries'
 import { activeAccounts, consolidatedBalance } from '../../lib/transactions'
 import {
@@ -79,7 +81,21 @@ export default function useLancamentos() {
   // espera a tela aberta buscar de novo.
   const fetchData = useCallback(() => invalidateServerData(), [])
 
-  const { transactions, cards, ccExpenses, allAccounts, categories } = data
+  // O que foi lancado sem o servidor (lib/outbox.js) entra na leitura: as
+  // linhas aparecem no extrato marcadas como pendentes, e os saldos passam a
+  // ser uma estimativa — o servidor ainda nao sabe delas.
+  const pending = useOutbox()
+  const { cards, ccExpenses, categories } = data
+  const allAccounts = useMemo(() => applyPendingToAccounts(data.allAccounts, pending), [data.allAccounts, pending])
+  const transactions = useMemo(() => {
+    if (!pending.length) return data.transactions
+    const defaultAccountId = data.allAccounts.find((account) => account.is_default)?.id || ''
+    return [...pendingAsTransactions(pending, { defaultAccountId }), ...data.transactions]
+  }, [data.transactions, data.allAccounts, pending])
+  const balanceEstimated = useMemo(
+    () => pending.some((item) => item.status === PENDING && item.kind !== 'CARD' && item.kind !== 'TRANSFER'),
+    [pending]
+  )
   const accounts = useMemo(() => activeAccounts(allAccounts), [allAccounts])
   // A soma dos saldos por conta (lib/transactions.js): inclui o saldo
   // inicial de cada conta, que a soma dos lancamentos deixava de fora.
@@ -106,6 +122,7 @@ export default function useLancamentos() {
     fetchData,
     transactions,
     balance,
+    balanceEstimated,
     cards,
     ccExpenses,
     projectedBalanceGlobal,

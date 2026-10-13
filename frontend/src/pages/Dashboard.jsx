@@ -29,6 +29,8 @@ import {
   Wallet,
 } from 'lucide-react'
 import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
+import { useOutbox } from '../lib/outbox'
+import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../lib/queries'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
@@ -185,10 +187,26 @@ export default function Dashboard() {
   const budgetMonth = monthKey(new Date())
   const budgetQuery = useQuery({ queryKey: ['inicio', 'orcamento', budgetMonth], queryFn: () => budgetsApi.month(budgetMonth) })
 
-  const transactions = movementsQuery.data?.transactions || NO_ITEMS
+  // Lancamentos guardados no aparelho, ainda sem chegar ao servidor
+  // (lib/outbox.js): entram nas contas e no mes como em Lancamentos, e o
+  // saldo fica marcado como estimativa. O saldo e o historico leem a mesma
+  // lista, entao a curva continua terminando no saldo do topo.
+  const pending = useOutbox()
+  const serverTransactions = movementsQuery.data?.transactions || NO_ITEMS
+  const serverAccounts = movementsQuery.data?.allAccounts || NO_ITEMS
+  const transactions = useMemo(() => {
+    const waiting = pending.filter((item) => item.status === PENDING)
+    if (!waiting.length) return serverTransactions
+    const defaultAccountId = serverAccounts.find((account) => account.is_default)?.id || ''
+    return [...pendingAsTransactions(waiting, { defaultAccountId }), ...serverTransactions]
+  }, [serverTransactions, serverAccounts, pending])
   const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
   // Todas as contas, arquivadas inclusive: o consolidado soma todas.
-  const allAccounts = movementsQuery.data?.allAccounts || NO_ITEMS
+  const allAccounts = useMemo(() => applyPendingToAccounts(serverAccounts, pending), [serverAccounts, pending])
+  const pendingInBalance = useMemo(
+    () => pending.filter((item) => item.status === PENDING && item.kind !== 'CARD').length,
+    [pending]
+  )
   const cards = cardsQuery.data || NO_ITEMS
   const recurringItems = recurringQuery.data?.items || NO_ITEMS
   const budget = budgetQuery.data || null
@@ -631,6 +649,13 @@ export default function Dashboard() {
         error={payError}
         onConfirm={confirmPayInvoices}
       />
+
+      {pendingInBalance ? (
+        <AlertMessage
+          tone="info"
+          message={`Saldo estimado: ${pendingInBalance === 1 ? '1 lançamento guardado neste aparelho ainda não chegou' : `${pendingInBalance} lançamentos guardados neste aparelho ainda não chegaram`} ao servidor.`}
+        />
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
         <BalanceHero

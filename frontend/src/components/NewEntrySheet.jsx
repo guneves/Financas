@@ -1,14 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, CreditCard } from 'lucide-react'
-import {
-  accountsApi,
-  categoriesApi,
-  ccExpensesApi,
-  creditCardsApi,
-  transactionsApi,
-  transfersApi,
-} from '../lib/dataApi'
+import { accountsApi, categoriesApi, creditCardsApi } from '../lib/dataApi'
+import { createEntry, flush, updateItem } from '../lib/outbox'
 import {
   buildCategoryOptions,
   filterCategoryOptions,
@@ -47,7 +41,10 @@ const emptyExpenseForm = (cardId) => ({ card_id: cardId, category: '', descripti
 // (compra no cartao, via POST /api/cc-expenses/purchases — a regra da fatura
 // fica no backend). So a area bancaria: operacao de investimento se registra
 // em Investimentos, onde o "+ Novo" abre o InvestmentLaunchModal (Layout.jsx).
-export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, onSaved }) {
+//
+// `editingItem` e um item da fila de envio (lib/outbox.js) aberto para
+// corrigir: o sheet abre preenchido e Salvar regrava o item, sem criar outro.
+export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingItem = null, onClose, onSaved }) {
   const [type, setType] = useState(initialType)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -60,7 +57,10 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
   const categories = categoriesQuery.data || NO_ITEMS
   const cards = cardsQuery.data || NO_ITEMS
   const loading = open && (accountsQuery.isPending || categoriesQuery.isPending || cardsQuery.isPending)
-  const loadError = accountsQuery.error || categoriesQuery.error || cardsQuery.error
+  // Sem servidor, as listas vem do cache guardado no aparelho: a busca falha,
+  // mas ha o que mostrar, e o formulario segue valendo.
+  const missingLists = !accountsQuery.data || !categoriesQuery.data || !cardsQuery.data
+  const loadError = missingLists ? accountsQuery.error || categoriesQuery.error || cardsQuery.error : null
 
   const [transForm, setTransForm] = useState(() => emptyBankForm('EXPENSE', ''))
   const [transferForm, setTransferForm] = useState(() => emptyTransferForm(''))
@@ -72,12 +72,30 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
   // Ao abrir: tipo pedido e formularios limpos com a data de hoje.
   useEffect(() => {
     if (!open) return
-    setType(initialType || 'EXPENSE')
     setError('')
     setTransForm(emptyBankForm(initialType === 'INCOME' ? 'INCOME' : 'EXPENSE', ''))
     setTransferForm(emptyTransferForm(''))
     setExpenseForm(emptyExpenseForm(''))
-  }, [open, initialType])
+    if (!editingItem) {
+      setType(initialType || 'EXPENSE')
+      return
+    }
+    // Item da fila: o payload guardado tem os mesmos campos do formulario.
+    const { kind, payload } = editingItem
+    setType(kind)
+    if (kind === 'TRANSFER') {
+      setTransferForm({ ...emptyTransferForm(''), ...payload, amount: String(payload.amount ?? '') })
+    } else if (kind === 'CARD') {
+      setExpenseForm({
+        ...emptyExpenseForm(''),
+        ...payload,
+        total_amount: String(payload.total_amount ?? ''),
+        installments: String(payload.installments ?? '1'),
+      })
+    } else {
+      setTransForm({ ...emptyBankForm(kind, ''), ...payload, type: kind, amount: String(payload.amount ?? ''), account_id: payload.account_id || '' })
+    }
+  }, [open, initialType, editingItem])
 
   // Conta e cartao padrao assim que a lista chega (ou ja estava no cache).
   useEffect(() => {
@@ -101,10 +119,27 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
   }
 
   // Fora do Extrato nada na tela muda depois de salvar; o toast confirma.
-  const finish = async (message) => {
+  const finish = async (message, options) => {
     await onSaved?.()
     onClose()
-    toast(message)
+    toast(message, options)
+  }
+
+  // Grava no servidor ou, se o pedido nao chegou, na fila de envio. O item
+  // aberto para correcao e regravado na fila com o mesmo client_id.
+  const submitEntry = async (kind, payload, label) => {
+    if (editingItem) {
+      await updateItem(editingItem.client_id, { kind, payload })
+      flush().catch(() => {})
+      await finish(`${label} pendente atualizada.`, { tone: 'info' })
+      return
+    }
+    const result = await createEntry(kind, payload)
+    if (result.queued) {
+      await finish(`Sem conexão: ${label.toLowerCase()} guardada neste aparelho. Ela é enviada quando o servidor responder.`, { tone: 'info', duration: 6000 })
+      return
+    }
+    await finish(`${label} registrada.`)
   }
 
   const handleBankSubmit = async (event) => {
@@ -118,15 +153,14 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
     setSaving(true)
     setError('')
     try {
-      await transactionsApi.create({
+      await submitEntry(transForm.type, {
         amount,
         date: transForm.date,
         category: transForm.category,
         description: transForm.description,
         type: transForm.type,
         account_id: transForm.account_id || defaultAccountId || undefined,
-      })
-      await finish(`${transForm.type === 'INCOME' ? 'Receita' : 'Despesa'} de ${formatCurrency(amount)} registrada.`)
+      }, `${transForm.type === 'INCOME' ? 'Receita' : 'Despesa'} de ${formatCurrency(amount)}`)
     } catch (submitError) {
       setError(submitError.message || 'Não foi possível criar o lançamento.')
     } finally {
@@ -149,14 +183,13 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
     setSaving(true)
     setError('')
     try {
-      await transfersApi.create({
+      await submitEntry('TRANSFER', {
         amount,
         date: transferForm.date,
         account_id: transferForm.account_id,
         transfer_account_id: transferForm.transfer_account_id,
         description: transferForm.description,
-      })
-      await finish(`Transferência de ${formatCurrency(amount)} registrada.`)
+      }, `Transferência de ${formatCurrency(amount)}`)
     } catch (submitError) {
       setError(submitError.message || 'Não foi possível registrar a transferência.')
     } finally {
@@ -181,17 +214,16 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
     try {
       // O parcelamento e a fatura de cada parcela sao calculados no backend
       // (POST /api/cc-expenses/purchases), junto do cartao que define a regra.
-      await ccExpensesApi.createPurchase({
+      await submitEntry('CARD', {
         card_id: expenseForm.card_id,
         category: expenseForm.category,
         description: expenseForm.description,
         total_amount: totalAmount,
         purchase_date: expenseForm.purchase_date,
         installments: installmentsCount,
-      })
-      await finish(installmentsCount > 1
-        ? `Compra de ${formatCurrency(totalAmount)} em ${installmentsCount}x registrada no cartão.`
-        : `Compra de ${formatCurrency(totalAmount)} registrada no cartão.`)
+      }, installmentsCount > 1
+        ? `Compra no cartão de ${formatCurrency(totalAmount)} em ${installmentsCount}x`
+        : `Compra no cartão de ${formatCurrency(totalAmount)}`)
     } catch (submitError) {
       setError(submitError.message || 'Não foi possível criar a compra no cartão.')
     } finally {
@@ -324,7 +356,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
     <Sheet
       open={open}
       onClose={onClose}
-      title="Novo lançamento"
+      title={editingItem ? 'Corrigir lançamento pendente' : 'Novo lançamento'}
       footer={(
         <div className="flex gap-2 sm:justify-end">
           <Button type="button" variant="secondary" size="lg" onClick={onClose} className="flex-1 sm:flex-none">Cancelar</Button>
