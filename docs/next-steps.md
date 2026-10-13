@@ -32,10 +32,13 @@ banking-only. The database was reset the same day, so the app starts empty. Open
   linked rows while its movements carry no `cash_account_id` — each row goes away on the next edit
   of its movement. Write a data migration first if the old data
   (`backend/backups/finance-pre-areas-separation-20261012-224633.db`) is ever brought back.
-- [ ] Foreign-currency accounts outside Início: "Pagar fatura" lists a dollar account with its
-  native balance labelled R$, and the backend debits the invoice's reais from it without converting
-  (no currency check in `routes/cards.py` or `routes/transactions.py`). Decide: refuse a non-BRL
-  account there, or convert.
+- [ ] Owner's call — the backend still carries multi-currency (migration 018: `services/fx.py`,
+  conversion in `services/investments.py`, the IR report's exterior apuração, about a dozen
+  modules). The screens are reais-only since 2026-10-12, so nothing reaches it, but the API still
+  accepts `currency` on an account or an operation. Removing it means refusing the field, deleting
+  `test_multicurrency.py` and unpicking the conversion from the stream FIFO and IR read — a real
+  refactor with no visible change. Until then a lançamento posted into a foreign-currency account
+  is not converted (no currency check in `routes/cards.py` or `routes/transactions.py`).
 - [ ] Tests, low: pin that a refused edit also undoes the price quote and the quantity, the
   redemption branch of the "nothing to write" refusal, and a batch `POST` whose second item is
   refused. All three behave correctly in `finance-guard`'s scratch tests.
@@ -59,8 +62,6 @@ running `:5000` process predates migrations 015–018 and the brapi fix. What ea
 - [ ] Ajustes → Integrações: all green? (`BRAPI_TOKEN` is set in `backend/.env`.)
 - [ ] Corporate actions: register one real past event (if any) and compare quantities and average
   price with the broker.
-- [ ] Multi-currency: if you hold anything abroad, one purchase with the broker's exchange rate, and
-  a USD account.
 - [ ] IR tab for the last year against the broker's informe de rendimentos.
 - [ ] Motion and phone layout by eye (scripted checks passed: sheets animate out, count-up only on
   first visit, reduced motion, tab pill).
@@ -145,8 +146,9 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
 - IR report: day trade is not separated (no time of day stored); the R$ 20 mil exemption and loss
   pools follow the simplified rules in `services/tax_report.py`; proventos of foreign assets are
   taken as BRL.
-- Multi-currency: USD, EUR and GBP only (BCB PTAX); a transfer between accounts in different
-  currencies is refused (register an expense and an income); fixed income and FII are BRL.
+- Multi-currency lives only in the backend now (the screens are reais-only, see section 1): USD,
+  EUR and GBP by BCB PTAX; a transfer between accounts in different currencies is refused; fixed
+  income and FII are BRL.
 - Corporate actions: nothing can be entered before an asset's latest event — undo the event, enter
   the movement, register the event again.
 - Receipts: no server-side thumbnails (the browser scales the file); the backup mirror copies each

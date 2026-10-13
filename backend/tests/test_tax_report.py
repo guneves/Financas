@@ -173,6 +173,25 @@ def test_export_has_one_sheet_per_section(client, auth):
     assert "PETR4" in archive.read("xl/worksheets/sheet1.xml").decode()
 
 
+def test_the_export_carries_the_foreign_result_only_when_there_is_one(client, auth, other_user):
+    # The screens are reais-only, so a foreign sale can only come from the API —
+    # but if one exists its estimated tax must not vanish from the report.
+    def income_sheet(headers):
+        response = client.get("/api/tax-report/export?year=2025", headers=headers)
+        assert response.status_code == 200
+        archive = zipfile.ZipFile(io.BytesIO(response.get_data()))
+        return archive.read("xl/worksheets/sheet3.xml").decode()
+
+    trade(client, other_user["headers"], "PETR4", 100, 10.0, "2025-01-10")
+    assert "Exterior" not in income_sheet(other_user["headers"])
+
+    trade(client, auth, "AAPL", 10, 100.0, "2025-02-03", currency="USD")
+    trade(client, auth, "AAPL", -10, 120.0, "2025-05-05", currency="USD")  # 10 x 20 x 5,00
+    sheet = income_sheet(auth)
+    assert "Exterior (Lei 14.754/2023)" in sheet
+    assert "<v>1000.0</v>" in sheet and "<v>150.0</v>" in sheet
+
+
 def test_invalid_year_is_refused(client, auth):
     assert client.get("/api/tax-report?year=abc", headers=auth).status_code == 400
     assert client.get(f"/api/tax-report?year={datetime.now().year + 1}", headers=auth).status_code == 400

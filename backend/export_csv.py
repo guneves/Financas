@@ -314,7 +314,6 @@ TAX_BENS_COLUMNS = [
     Column("codigo", "Código", "text", lambda b, c: b.get("code")),
     Column("tipo", "Tipo", "text", lambda b, c: b.get("code_label")),
     Column("ativo", "Ativo", "text", lambda b, c: b.get("ticker")),
-    Column("moeda", "Moeda", "text", lambda b, c: b.get("currency")),
     Column("quantidade_anterior", "Quantidade 31/12 anterior", "quantity", lambda b, c: b.get("quantity_previous")),
     Column("custo_anterior", "Situação 31/12 anterior (R$)", "money", lambda b, c: b.get("cost_previous")),
     Column("quantidade", "Quantidade 31/12", "quantity", lambda b, c: b.get("quantity")),

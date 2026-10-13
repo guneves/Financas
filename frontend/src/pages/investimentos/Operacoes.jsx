@@ -146,7 +146,6 @@ export default function Operacoes() {
       other_costs: mov.metadata?.other_costs ?? mov.fee_amount ?? '',
       fixed_income: fixedIncomeFormFromMetadata(mov.metadata || {}),
       movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
-      is_foreign: Boolean(mov.asset_currency) && mov.asset_currency !== 'BRL',
       cash_link: cashLink,
       saved_cash_account_id: cashLink.accountId,
     })
@@ -434,7 +433,6 @@ export default function Operacoes() {
               value={editModal.cash_link}
               onChange={(next) => setEditField('cash_link', next)}
               movementType={editModal.is_redemption ? 'REDEMPTION' : editModal.is_sale ? 'SELL' : 'BUY'}
-              foreign={editModal.is_foreign}
               savedAccountId={editModal.saved_cash_account_id}
               selectClassName="app-select"
             />

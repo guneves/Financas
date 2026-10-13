@@ -137,7 +137,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-908 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+909 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
@@ -306,6 +306,14 @@ docs/
   stream FIFO, portfolio, evolution and the IR report read — returns BRL (cost at the movement's
   rate, value at today's PTAX); `fetch_investment_rows()` is native (screens, edits). The cash link
   is BRL. Anything new that computes money from movements must read `fetch_investments()`.
+- **The app is reais-only on screen** (owner, 2026-10-12: "Everything on the app should be reais").
+  No form offers a currency (accounts, operations), and no screen prints a foreign one. An account
+  balance on screen goes through `accountBalanceBrl()` (`lib/transactions.js`): the converted
+  value, or "sem câmbio hoje". The 018 machinery above stays in the backend, tested and reachable
+  only through the API — never add a currency choice or a foreign symbol back to a screen unless
+  the owner asks. One deliberate exception: the IR tab's "Aplicações no exterior" panel and the
+  matching row of the IR export appear when, and only when, the year has a foreign result (in
+  reais), so an estimated tax can never be hidden.
 - **Investments and banking are separate areas; a movement reaches the Extrato only when asked**
   (2026-10-12). `metadata.cash_account_id` on the movement is both the switch and the account:
   present, exactly one linked lançamento exists in that account (`source_type =

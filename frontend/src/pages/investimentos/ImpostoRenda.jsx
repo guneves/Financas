@@ -60,7 +60,7 @@ export default function ImpostoRenda() {
     <div className="space-y-6">
       <PageHeader
         title="Imposto de renda"
-        description="Bens e direitos, renda variável mês a mês, rendimentos e exterior — para montar a declaração."
+        description="Bens e direitos, renda variável mês a mês e rendimentos — para montar a declaração."
         actions={(
           <>
             <select
@@ -176,18 +176,23 @@ export default function ImpostoRenda() {
             </Panel>
           </div>
 
-          <Panel>
-            <PanelHeader
-              title="Aplicações no exterior"
-              description="Ativos em moeda estrangeira: apuração anual, 15% sobre o resultado do ano (Lei 14.754/2023), com o prejuízo levado para o ano seguinte."
-            />
-            <div className="grid grid-cols-2 gap-4 p-5 text-sm sm:grid-cols-4">
-              <Figure label="Resultado do ano" value={formatCurrency(report.exterior.result)} />
-              <Figure label="Prejuízo compensado" value={formatCurrency(report.exterior.loss_used)} />
-              <Figure label="Imposto estimado" value={formatCurrency(report.exterior.tax)} />
-              <Figure label="Prejuízo a compensar" value={formatCurrency(report.exterior.loss_balance)} />
-            </div>
-          </Panel>
+          {/* O app e so em reais nas telas: este painel so aparece se houver
+              resultado de ativo em moeda estrangeira (so a API cria um), para o
+              imposto estimado nao sumir. Os valores sao em reais. */}
+          {hasForeignResult(report.exterior) ? (
+            <Panel>
+              <PanelHeader
+                title="Aplicações no exterior"
+                description="Ativos em moeda estrangeira: apuração anual, 15% sobre o resultado do ano (Lei 14.754/2023), com o prejuízo levado para o ano seguinte."
+              />
+              <div className="grid grid-cols-2 gap-4 p-5 text-sm sm:grid-cols-4">
+                <Figure label="Resultado do ano" value={formatCurrency(report.exterior.result)} />
+                <Figure label="Prejuízo compensado" value={formatCurrency(report.exterior.loss_used)} />
+                <Figure label="Imposto estimado" value={formatCurrency(report.exterior.tax)} />
+                <Figure label="Prejuízo a compensar" value={formatCurrency(report.exterior.loss_balance)} />
+              </div>
+            </Panel>
+          ) : null}
 
           {report.irpf_text ? <IrpfTextPanel irpfText={report.irpf_text} /> : null}
 
@@ -278,6 +283,9 @@ function IncomeList({ items }) {
     </ul>
   )
 }
+
+const hasForeignResult = (exterior) =>
+  ['result', 'tax', 'loss_used', 'loss_balance'].some((key) => Math.abs(Number(exterior?.[key]) || 0) >= 0.005)
 
 function Figure({ label, value }) {
   return (

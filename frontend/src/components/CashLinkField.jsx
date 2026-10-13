@@ -44,7 +44,6 @@ export default function CashLinkField({
   value,
   onChange,
   movementType = 'BUY',
-  foreign = false,
   savedAccountId = '',
   enabled = true,
   selectClassName = 'app-select h-11',
@@ -79,7 +78,7 @@ export default function CashLinkField({
   }, [value, defaultAccountId, onChange])
 
   const canLink = options.length > 0
-  const hint = `${HINTS[movementType] || HINTS.BUY}${foreign ? ' O valor vai em reais, pelo câmbio da operação.' : ''}`
+  const hint = HINTS[movementType] || HINTS.BUY
 
   return (
     <div className={cx('rounded-lg border border-zinc-200 px-4 py-3 text-sm', className)}>

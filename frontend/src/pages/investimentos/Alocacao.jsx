@@ -195,8 +195,8 @@ function TargetsSheet({ open, onClose, allocation }) {
 }
 
 // Concentracao (calculada no servidor, `concentration`): ativo acima do limite
-// (10% do valor liquido) em aviso; carteira sem ativo em moeda estrangeira, nota.
-// So percentuais: o modo privado nao esconde nada aqui.
+// (10% do valor liquido) em aviso. So percentuais: o modo privado nao esconde
+// nada aqui.
 function ConcentrationAlerts({ concentration }) {
   if (!concentration) return null
   const over = concentration.assets_over_threshold || []
@@ -218,9 +218,6 @@ function ConcentrationAlerts({ concentration }) {
           </p>
           <p className="mt-0.5 font-normal">Uma queda forte em um deles pesa na carteira inteira.</p>
         </AlertMessage>
-      ) : null}
-      {!concentration.has_foreign_exposure ? (
-        <AlertMessage tone="info" message="Nenhum ativo em moeda estrangeira: a carteira não tem exposição ao exterior." />
       ) : null}
     </>
   )

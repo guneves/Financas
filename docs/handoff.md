@@ -14,8 +14,8 @@ Two parts on the same day. First an investigation run that ended in a plan
 the plan: **Início shows only the banking balance** ("so the user does not get the false sense they
 have more money to spend" — this reverses the plan's decision 2), and **the database may be wiped**
 instead of migrated. No `session-scout` (the documents were fresh in context). `finance-guard` ran
-twice on the backend diff before the commit: the first pass found one real gap (below), the second
-audited the fix.
+three times: twice on the cash-link diff (the first pass found one real gap, below; the second
+audited the fix) and once on the reais-only edits (one finding, fixed).
 
 ### What was done
 - **Backend — the link is opt-in.** A movement writes a lançamento only when
@@ -34,6 +34,12 @@ audited the fix.
 - **Banking read side.** Início's hero is "Saldo em conta" (no portfolio, no Patrimônio); a resgate
   is not a receita on Início, Extrato and Recorrentes; "+ Novo" is banking-only and opens
   "Registrar operação" inside Investimentos.
+- **Reais-only on screen.** After two corrections from the owner ("The app is in brazilian reais",
+  "Everything on the app should be reais"): no form offers a currency, every account balance on
+  screen is the converted one (`accountBalanceBrl()`), and the foreign-currency notes and export
+  column are gone. The IR tab's exterior panel and export row now appear only when the year has a
+  foreign result: my first version removed them outright and `finance-guard` pointed out that a
+  foreign sale's 15% estimate would then be shown nowhere. Detail in `docs/done-tasks.md`.
 - **Database reset.** `backend/finance.db` was moved (not deleted) to
   `backend/backups/finance-pre-areas-separation-20261012-224633.db` and verified there. The next boot
   builds an empty database from the migrations and the owner signs up again — a boot with no
@@ -43,8 +49,10 @@ audited the fix.
   in `CLAUDE.md`; what is left is the first item of `docs/next-steps.md`.
 - Built by three subagents in parallel on disjoint files (backend, forms, banking screens), at the
   owner's request; integration, verification and commits were done in the main session.
-- Commits: `785df81` (backend and tests), `35fd789` (forms), and the one that carries this
-  handoff (banking screens, `CLAUDE.md`, documents).
+- Commits: `785df81` (backend and tests), `35fd789` (forms), `88411f3` (banking screens and
+  documents), `6589e78` (Início in reais), and the one that carries this handoff (reais-only).
+- An untracked `mobile-docs/` folder appeared in the tree during the session. It is not this
+  session's work and was left untouched and unstaged.
 
 ### What was not done and why
 - **Migration 024 and the bulk "Desvincular do extrato" tool** — both existed only to carry the old
@@ -57,9 +65,9 @@ audited the fix.
 - Deleting a movement (or its asset) still deletes its linked lançamento and that row's receipts,
   unguarded, as before.
 - The owner has not seen any of it: everything was checked on a scratch database.
-- `PayInvoiceSheet` still lists a foreign-currency account with its native balance labelled R$ and
-  compares it with the invoice. Left alone: the backend posts the invoice's reais into that account
-  without converting, so the display is the small half of a real gap (in `next-steps.md`).
+- **The backend's multi-currency machinery (018) was left in place**, tested and reachable only
+  through the API. Taking it out is a refactor of the stream FIFO and IR read, with no visible
+  change; it is the owner's call in `next-steps.md`.
 - Low, from the second audit — correct in its scratch tests but not pinned by the suite: a refused
   edit also undoes the price quote and the quantity; the redemption branch of the "nothing to
   write" refusal; a refused second item of a batch `POST` undoing the first.
@@ -80,6 +88,8 @@ owner's-call items there. Nothing is half-built.
 - **In a route, `return` inside `with get_db() as conn:` commits.** To refuse after a write, call
   `conn.rollback()` first (the PATCH does) or raise so the `with` exits by exception (the POST
   does).
+- **Removing a display is not neutral when it is the only place a number is shown.** Check where
+  else a figure surfaces before deleting its panel; prefer "show only when non-zero".
 - **`pytest.ini` already passes `-q`.** Adding another `-q` hides the summary line; the exit code
   and the dots are then the only signal. Run plain `python -m pytest`.
 - **A Playwright full-page screenshot shows Início's charts empty** (only the dots of the
@@ -99,10 +109,12 @@ owner's-call items there. Nothing is half-built.
   "nothing changed" must link first and assert the row exists, or it passes on two empty lists.
 - Files in this tree have mixed line endings (most CRLF, some LF). The Edit and Write tools write
   LF: patch through a Python script that keeps the file's own ending, and count `\r\n` afterwards.
-- A dollar account's tile on Início showed its US$ amount labelled R$ (the total was right). I
-  first made it show US$; the owner corrected that — **the app is in reais** — so the tile now shows
-  the converted balance (`accountBalanceBrl()`), "sem câmbio hoje" without a rate, and the
-  débito-automático warning uses the same figure. Commit after `88411f3`.
+- **The owner reads every number as reais.** A dollar account's tile on Início showed its US$
+  amount labelled R$; I "fixed" it by printing US$ and was corrected twice. The right fix was the
+  converted balance — and then no foreign currency anywhere. When a multi-currency display looks
+  wrong, convert to reais; do not surface the other currency.
+- The scratch seed's dollar account is still the way to test that: create it through the API
+  (`"currency": "USD"`), since no screen can.
 - To look at `finance.db` without touching it: `sqlite3.connect("file:<path>?mode=ro", uri=True)`.
 - The Grep tool returns nothing, silently, for a brace glob with a slash in it
   (`{services,routes}/*.py`); use `**/{services,routes}/*.py`.

@@ -91,6 +91,7 @@
 | `CATTLE` (Gado) asset class removed everywhere: API refuses it, no screen lists it (the real DB had no rows) | 2026-09-27 |
 | Início → "Ritmo de gastos" compares the month so far with the average of the 3 previous months at the same day | 2026-10-12 |
 | Investments area separate from the banking area: the cash link is opt-in per operation (`metadata.cash_account_id`, "Lançar no extrato"), Início shows the banking area only, "+ Novo" is banking-only, a resgate is not a receita; database reset | 2026-10-12 |
+| The app is reais-only on screen: no currency choice in any form and no foreign currency on any screen for data the screens can create (the backend multi-currency machinery stays, reachable only through the API) | 2026-10-12 |
 
 ---
 
@@ -508,11 +509,7 @@ the same day by three subagents on disjoint files.
 - **Início is banking-only** — the owner reversed the plan's decision 2 so the headline is never
   read as money to spend. The hero is "Saldo em conta" (consolidated balance, account tiles); the
   portfolio query, the "Em conta / Investido" bar and Patrimônio are gone. The "no mês" pill is the
-  accounts' net movement, equal to the chart's "Resultado". Everything there is in reais: a
-  foreign-currency account's tile shows its converted balance (`accountBalanceBrl()`, the figure
-  the total sums) or "sem câmbio hoje", and the débito-automático warning compares in reais too.
-  The tile used to print the dollar amount labelled R$; a first fix showed US$, and the owner
-  corrected it — the app is in reais.
+  accounts' net movement, equal to the chart's "Resultado".
 - **A resgate is not a receita.** A linked or typed-in-"Investimento" INCOME is kept apart like the
   aporte already was (`isInvestmentInflow()` in `lib/transactions.js`): Início's cash flow (one net
   investment series, shown only when the window has such rows; the tooltip says "Investido" or
@@ -530,3 +527,36 @@ the same day by three subagents on disjoint files.
   `test_transaction_edit`, `test_multicurrency`, `test_rule_apply`); 908 in the suite. Frontend
   checked with Playwright on a scratch database (desk 1400 px and phone 390 px): Início, "+ Novo"
   in both areas, the three forms, untick/re-tick on an edit, and a ticked redemption.
+
+### Reais-only on screen — 2026-10-12
+
+The walk-through of Início on a scratch database surfaced a dollar account whose tile printed the
+dollar amount labelled R$. A first fix showed US$; the owner corrected it twice — "The app is in
+brazilian reais", then "Everything on the app should be reais". The owner's own data had never used
+another currency (2 accounts and 24 assets, all BRL; no movement with an exchange rate).
+
+- **No currency choice.** "Moeda" and "Câmbio" are gone from "Registrar operação"; "Moeda" is gone
+  from Ajustes › Contas. The operation form always says "Preço em R$" and no longer sends
+  `currency` or `fx_rate`.
+- **No foreign amount.** An account balance on any screen goes through `accountBalanceBrl()` in
+  `lib/transactions.js` (the converted `balance_brl`, or "sem câmbio hoje" when there is no rate):
+  Início's account tiles and débito-automático warning, Ajustes › Contas, the "Pagar fatura" account
+  picker and its balance check. Posição no longer prints the native quote under the price.
+- **No foreign wording.** Removed: the "Nenhum ativo em moeda estrangeira" note in Alocação, the
+  "Moeda" column of the IR `.xlsx`, the "Ativo no exterior" note in Rentabilidade, and
+  `formatMoney()`. The IR tab's "Aplicações no exterior" panel and the "Exterior" row of the IR
+  export used to be printed for everyone with zeros; they now appear only when the year has a
+  foreign result. `finance-guard` caught the first version, which dropped both outright: with a
+  foreign sale in the database (only the API can create one) the 15% estimate would have been
+  shown nowhere. Test: `test_the_export_carries_the_foreign_result_only_when_there_is_one`.
+- **Still printed if a foreign row exists** (API-only): "(exterior)" in the Bens e Direitos label
+  and "Custodiado no exterior, em USD" in its description and in the IRPF paste text.
+- **Kept on purpose:** the backend machinery of migration 018 and its tests. No screen reaches it;
+  the API still accepts a currency. Removing it is listed in `next-steps.md` as the owner's call.
+  A foreign asset already in a database could not be sold from the form any more (the API refuses
+  a movement in a different currency from the asset's) — none exists.
+- Checked with Playwright on a scratch database that holds a dollar account created through the
+  API: all 14 screens, every collapsed block opened, searched for US$, €, £, Dólar, Euro, Libra,
+  "moeda estrangeira", "exterior" and PTAX — none; Ajustes shows that account as R$ 500,00. Then a
+  dollar buy and sale posted through the API: the IR panel stays hidden for the year without the
+  sale and shows R$ 1.000,00 / R$ 150,00 for the year with it. 909 tests in the suite.

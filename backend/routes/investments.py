@@ -1092,20 +1092,24 @@ def tax_report_export(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     report = build_tax_report(current_user_id, year)
-    exterior = report["exterior"]
     income = (
         [{"section": "Rendimentos isentos", **item} for item in report["rendimentos_isentos"]]
         + [
             {"section": "Tributação exclusiva", "line": item["line"], "amount": item["gross"], "withheld": item["withheld"]}
             for item in report["tributacao_exclusiva"]
         ]
-        + [{
+    )
+    # O app e so em reais nas telas, entao esta linha so existe se houver venda
+    # de ativo em moeda estrangeira (so a API cria um): o imposto estimado nao
+    # pode sumir do relatorio. Os valores sao em reais.
+    exterior = report["exterior"]
+    if any(exterior.get(key) for key in ("result", "tax", "loss_used", "loss_balance")):
+        income.append({
             "section": "Exterior (Lei 14.754/2023)",
             "line": "Resultado do ano / imposto estimado (15%)",
             "amount": exterior["result"],
             "withheld": exterior["tax"],
-        }]
-    )
+        })
     body = export_xlsx.workbook_xlsx([
         ("Bens e Direitos", export_csv.TAX_BENS_COLUMNS, report["bens_e_direitos"], None),
         ("Renda variável", export_csv.TAX_MONTH_COLUMNS, report["renda_variavel"]["months"], None),

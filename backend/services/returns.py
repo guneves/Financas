@@ -56,7 +56,6 @@ RETURN_NOTES = [
     "Proventos pagos no mes entram como rendimento (o historico de precos nao e ajustado por proventos).",
     "Meses passados de ativos sem cotacao (outros, preco manual) ficam no custo; o ganho aparece no mes atual.",
     "Mes sem fechamento no historico usa o ultimo disponivel ou o preco de hoje.",
-    "Ativo no exterior: cada mes pelo cambio do fim do mes.",
     "O mes atual vai ate hoje, pela cotacao atual: o mesmo valor da Posicao.",
     "Indices de comparacao: IPCA pela variacao mensal do IBGE (BCB); Ibovespa, IFIX e IDIV pelo fechamento do fim de cada mes (indices de retorno total).",
 ]

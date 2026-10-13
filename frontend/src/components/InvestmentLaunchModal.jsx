@@ -4,7 +4,7 @@ import { ArrowDownRight, ArrowUpRight, CalendarDays } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { investmentsApi, marketApi } from '../lib/dataApi'
 import { AlertMessage, Button, Field, SegmentedControl, Sheet } from './ui'
-import { formatCurrency, formatMoney, getLocalDateString } from '../lib/format'
+import { formatCurrency, getLocalDateString } from '../lib/format'
 import { usePrivateFormatter } from '../lib/privacy'
 import { toast } from '../lib/toast'
 import TickerAutocomplete from './TickerAutocomplete'
@@ -25,15 +25,6 @@ const ASSET_TYPES = [
 
 const FORM_ID = 'investment-launch-form'
 
-// Moeda do ativo (018): acoes do exterior e "outros". O resto e em reais.
-const CURRENCY_CLASSES = ['STOCKS', 'OTHER']
-const CURRENCIES = [
-  { value: 'BRL', label: 'Real (R$)' },
-  { value: 'USD', label: 'Dólar (US$)' },
-  { value: 'EUR', label: 'Euro (€)' },
-  { value: 'GBP', label: 'Libra (£)' },
-]
-
 const MODE_ITEMS = [
   { value: 'BUY', label: 'Compra', icon: ArrowUpRight },
   { value: 'SELL', label: 'Venda', icon: ArrowDownRight },
@@ -48,20 +39,15 @@ const initialForm = () => ({
   quantity: '1',
   price: '',
   other_costs: '',
-  currency: 'BRL',
-  fx_rate: '',
   fixed_income: emptyFixedIncomeForm(),
   // So vai para o extrato quando o dono marca a caixa (CashLinkField).
   cash_link: emptyCashLink(),
 })
 
-const CURRENCY_SYMBOL = { BRL: 'R$', USD: 'US$', EUR: '€', GBP: '£' }
-
-// Preco sugerido na venda, na moeda do ativo (a carteira mostra reais).
+// Preco sugerido na venda: a cotacao da carteira. O app e so em reais.
 function saleUnitPrice(asset) {
   if (!asset) return ''
-  const price = asset.currency && asset.currency !== 'BRL' ? asset.native_current_price : asset.current_price
-  return price ? String(price) : ''
+  return asset.current_price ? String(asset.current_price) : ''
 }
 
 function parseAmount(value) {
@@ -127,11 +113,7 @@ export default function InvestmentLaunchModal({
       ? unitPrice + otherCosts
       : (quantity * unitPrice) + otherCosts
 
-  // Ativo em moeda estrangeira nao e da B3: nome livre, sem catalogo.
-  const currency = mode === 'SELL' ? selectedSaleAsset?.currency || 'BRL' : form.currency
-  const isForeign = currency !== 'BRL'
-  const usesCatalog = mode === 'BUY' && !isForeign && CATALOG_ASSET_CLASSES.includes(form.asset_class)
-  const formatNative = (value) => formatMoney(value, currency)
+  const usesCatalog = mode === 'BUY' && CATALOG_ASSET_CLASSES.includes(form.asset_class)
 
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }))
@@ -152,7 +134,6 @@ export default function InvestmentLaunchModal({
       asset_class: nextClass,
       ticker_or_name: '',
       ticker_confirmed: false,
-      currency: CURRENCY_CLASSES.includes(nextClass) ? current.currency : 'BRL',
     }))
   }
 
@@ -256,10 +237,8 @@ export default function InvestmentLaunchModal({
         ticker_or_name: tickerName,
         quantity: finalQuantity,
         average_price: Number(averagePrice.toFixed(6)),
-        // Cotacao na moeda do ativo: a da carteira ja vem convertida em reais.
-        current_price: existingAsset && !isForeign ? existingAsset.current_price : unitPrice,
-        currency: isForeign ? currency : undefined,
-        metadata: isForeign && parseAmount(form.fx_rate) > 0 ? { ...metadata, fx_rate: parseAmount(form.fx_rate) } : metadata,
+        current_price: existingAsset ? existingAsset.current_price : unitPrice,
+        metadata,
       },
     ])
 
@@ -289,16 +268,13 @@ export default function InvestmentLaunchModal({
         asset_class: selectedSaleAsset.class,
         ticker_or_name: selectedSaleAsset.ticker || selectedSaleAsset.name,
         quantity: -quantity,
-        // Em moeda estrangeira a carteira mostra reais; a venda vai na moeda do ativo.
-        average_price: isForeign ? unitPrice : selectedSaleAsset.average_price,
-        current_price: isForeign ? unitPrice : selectedSaleAsset.current_price,
-        currency: isForeign ? currency : undefined,
+        average_price: selectedSaleAsset.average_price,
+        current_price: selectedSaleAsset.current_price,
         metadata: {
           sale_date: form.transaction_date,
           sale_price: unitPrice,
           other_costs: otherCosts,
           ...cashLinkMetadata(form.cash_link),
-          ...(isForeign && parseAmount(form.fx_rate) > 0 ? { fx_rate: parseAmount(form.fx_rate) } : {}),
         },
       },
     ])
@@ -348,20 +324,6 @@ export default function InvestmentLaunchModal({
             </select>
           </Field>
 
-          {mode === 'BUY' && CURRENCY_CLASSES.includes(form.asset_class) ? (
-            <Field label="Moeda" hint={isForeign ? 'Ativo do exterior: fora do catálogo da B3.' : undefined}>
-              <select
-                value={form.currency}
-                onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value, ticker_confirmed: false }))}
-                className="app-select h-11"
-              >
-                {CURRENCIES.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
-
           <Field label="Ativo">
             {mode === 'BUY' && usesCatalog ? (
               <TickerAutocomplete
@@ -377,7 +339,7 @@ export default function InvestmentLaunchModal({
                   list="investment-assets"
                   value={form.ticker_or_name}
                   onChange={(event) => updateForm('ticker_or_name', event.target.value)}
-                  placeholder={form.asset_class === 'FIXED_INCOME' ? 'Ex: CDB Banco X 2027' : isForeign ? 'Ex: AAPL, VOO' : 'Selecionar ou digitar'}
+                  placeholder={form.asset_class === 'FIXED_INCOME' ? 'Ex: CDB Banco X 2027' : 'Selecionar ou digitar'}
                   className="app-input h-11"
                   required
                 />
@@ -432,7 +394,7 @@ export default function InvestmentLaunchModal({
             </Field>
           )}
 
-          <Field label={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? 'Valor aplicado em R$' : `Preço em ${CURRENCY_SYMBOL[currency] || currency}`}>
+          <Field label={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? 'Valor aplicado em R$' : 'Preço em R$'}>
             <input
               type="number"
               min="0"
@@ -459,19 +421,6 @@ export default function InvestmentLaunchModal({
             />
           </Field>
 
-          {isForeign ? (
-            <Field label={`Câmbio (R$ por ${CURRENCY_SYMBOL[currency]} 1)`} hint="Opcional: o da corretora. Vazio usa a PTAX do Banco Central na data.">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={form.fx_rate}
-                onChange={(event) => updateForm('fx_rate', event.target.value)}
-                placeholder="PTAX do dia"
-                className="app-input h-11"
-              />
-            </Field>
-          ) : null}
-
           {mode === 'BUY' && form.asset_class === 'FIXED_INCOME' ? (
             <FixedIncomeFields
               value={form.fixed_income}
@@ -486,7 +435,7 @@ export default function InvestmentLaunchModal({
           </AlertMessage>
         ) : null}
 
-        {mode === 'SELL' && selectedSaleAsset?.class === 'STOCKS' && !isForeign ? (
+        {mode === 'SELL' && selectedSaleAsset?.class === 'STOCKS' ? (
           <SaleExemptionNotice date={form.transaction_date} amount={quantity * unitPrice} />
         ) : null}
 
@@ -494,17 +443,13 @@ export default function InvestmentLaunchModal({
           value={form.cash_link}
           onChange={(next) => updateForm('cash_link', next)}
           movementType={mode}
-          foreign={isForeign}
           enabled={open}
         />
 
         <div className="flex items-center justify-between rounded-lg bg-zinc-100 px-4 py-3">
           <span className="font-semibold text-zinc-800">Valor total</span>
           <span className="text-lg font-bold tabular text-zinc-950">
-            {isForeign ? formatNative(totalValue) : formatCurrency(totalValue)}
-            {isForeign && parseAmount(form.fx_rate) > 0 ? (
-              <span className="ml-2 text-sm font-medium text-zinc-600">≈ {formatCurrency(totalValue * parseAmount(form.fx_rate))}</span>
-            ) : null}
+            {formatCurrency(totalValue)}
           </span>
         </div>
       </form>
