@@ -49,6 +49,11 @@ ATTACHMENTS_DIR = resolve_app_path(
     os.getenv("ATTACHMENTS_DIR", os.path.join("attachments")),
     BASE_DIR,
 )
+# O build do frontend que o Flask serve em `/` (routes/frontend.py).
+FRONTEND_DIST_DIR = resolve_app_path(
+    os.getenv("FRONTEND_DIST_DIR", os.path.join("frontend", "dist")),
+    PROJECT_DIR,
+)
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 

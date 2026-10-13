@@ -10,17 +10,24 @@
 .PARAMETER Tests
     Run the backend test suite instead of starting the app.
 
+.PARAMETER Built
+    Build the frontend and start the backend alone: Flask serves the build at
+    http://localhost:5000, screen and API on one origin. This is the mode the
+    phone uses (through `tailscale serve`); there is no Vite and no hot reload.
+
 .PARAMETER NoBrowser
     Do not open the browser once the frontend is up.
 
 .EXAMPLE
     .\start.ps1
     .\start.ps1 -Tests
+    .\start.ps1 -Built
 #>
 
 [CmdletBinding()]
 param(
     [switch]$Tests,
+    [switch]$Built,
     [switch]$NoBrowser
 )
 
@@ -61,6 +68,20 @@ if (-not (Test-Path (Join-Path $BackendDir '.env'))) {
     Copy-Item (Join-Path $BackendDir '.env.example') (Join-Path $BackendDir '.env')
 }
 
+if ($Built) {
+    Write-Host 'Building the frontend...' -ForegroundColor Cyan
+    Push-Location $FrontendDir
+    try {
+        npm run build
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'Frontend build failed.' -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 $jobs = @()
 
 Write-Host 'Starting backend on http://localhost:5000 ...' -ForegroundColor Cyan
@@ -70,12 +91,14 @@ $jobs += Start-Job -Name 'financas-backend' -ScriptBlock {
     & $python app.py 2>&1
 } -ArgumentList $Python, $BackendDir
 
-Write-Host 'Starting frontend on http://localhost:5173 ...' -ForegroundColor Cyan
-$jobs += Start-Job -Name 'financas-frontend' -ScriptBlock {
-    param($dir)
-    Set-Location $dir
-    npm run dev 2>&1
-} -ArgumentList $FrontendDir
+if (-not $Built) {
+    Write-Host 'Starting frontend on http://localhost:5173 ...' -ForegroundColor Cyan
+    $jobs += Start-Job -Name 'financas-frontend' -ScriptBlock {
+        param($dir)
+        Set-Location $dir
+        npm run dev 2>&1
+    } -ArgumentList $FrontendDir
+}
 
 function Wait-ForUrl {
     param([string]$Url, [int]$TimeoutSeconds = 45)
@@ -98,7 +121,14 @@ try {
         Write-Host 'Backend did not answer /api/health in time — check the log below.' -ForegroundColor Yellow
     }
 
-    if (Wait-ForUrl 'http://localhost:5173') {
+    if ($Built) {
+        if (Wait-ForUrl 'http://localhost:5000/') {
+            Write-Host 'The built app is served at http://localhost:5000.' -ForegroundColor Green
+            if (-not $NoBrowser) { Start-Process 'http://localhost:5000' }
+        } else {
+            Write-Host 'The backend did not serve the build in time. Check the log below.' -ForegroundColor Yellow
+        }
+    } elseif (Wait-ForUrl 'http://localhost:5173') {
         Write-Host 'Frontend is up.' -ForegroundColor Green
         if (-not $NoBrowser) { Start-Process 'http://localhost:5173' }
     } else {
@@ -106,7 +136,7 @@ try {
     }
 
     Write-Host ''
-    Write-Host 'Both services are running. Press Ctrl+C to stop them.' -ForegroundColor Cyan
+    Write-Host 'Running. Press Ctrl+C to stop.' -ForegroundColor Cyan
     Write-Host ''
 
     while ($true) {

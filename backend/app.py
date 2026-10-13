@@ -21,6 +21,7 @@ from routes import (
     auth as auth_routes,
     budgets as budget_routes,
     cards as card_routes,
+    frontend as frontend_routes,
     goals as goal_routes,
     imports as import_routes,
     investments as investment_routes,
@@ -53,6 +54,7 @@ for blueprint_module in (
     market_routes,
     allocation_routes,
     goal_routes,
+    frontend_routes,
 ):
     app.register_blueprint(blueprint_module.bp)
 

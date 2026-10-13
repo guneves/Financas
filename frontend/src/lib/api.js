@@ -1,8 +1,45 @@
-const DEFAULT_API_BASE_URL = 'http://localhost:5000'
+// Em desenvolvimento o Vite (5173) fala com o Flask (5000). O build e servido
+// pelo proprio Flask (routes/frontend.py), entao a API e a mesma origem da
+// tela: e o que o celular abre pelo endereco do Tailscale. VITE_API_BASE_URL
+// vence os dois (o APK aponta para o endereco do Tailscale no build).
+const DEFAULT_API_BASE_URL = import.meta.env.DEV ? 'http://localhost:5000' : ''
 const AUTH_STORAGE_KEY = '@financeMVP:auth'
 
 const normalizeBaseUrl = (value) => {
   return (value || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
+}
+
+// O pedido nao chegou ao servidor (sem rede, backend parado). So este erro
+// manda uma criacao para a fila (lib/outbox.js): uma resposta do servidor,
+// qualquer que seja, nunca e reenviada sozinha.
+export class ApiNetworkError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'ApiNetworkError'
+    this.network = true
+  }
+}
+
+const NETWORK_MESSAGE = 'Sem conexão com o servidor. Esta ação só funciona conectado.'
+
+// O servidor respondeu da ultima vez? Quem mostra o aviso de "sem conexao"
+// (Layout) assina aqui; muda a cada pedido, com ou sem sucesso.
+let serverReachable = true
+const reachabilityListeners = new Set()
+
+function setServerReachable(value) {
+  if (serverReachable === value) return
+  serverReachable = value
+  reachabilityListeners.forEach((listener) => listener())
+}
+
+export function subscribeServerReachable(listener) {
+  reachabilityListeners.add(listener)
+  return () => reachabilityListeners.delete(listener)
+}
+
+export function isServerReachable() {
+  return serverReachable
 }
 
 const normalizePath = (path) => {
@@ -55,7 +92,9 @@ export async function apiFetch(path, options = {}) {
     const authData = getStoredAuth()
     if (!authData?.access_token) {
       clearStoredAuth()
-      throw new Error('Sessao expirada. Entre novamente para continuar.')
+      const expired = new Error('Sessao expirada. Entre novamente para continuar.')
+      expired.status = 401
+      throw expired
     }
     headers.set('Authorization', `Bearer ${authData.access_token}`)
   }
@@ -72,8 +111,10 @@ export async function apiFetch(path, options = {}) {
       headers
     })
   } catch {
-    throw new Error(`API indisponivel em ${API_BASE_URL}. Verifique se o backend Flask esta rodando.`)
+    setServerReachable(false)
+    throw new ApiNetworkError(NETWORK_MESSAGE)
   }
+  setServerReachable(true)
 
   const contentType = response.headers.get('content-type') || ''
   const payload = contentType.includes('application/json')
@@ -89,7 +130,9 @@ export async function apiFetch(path, options = {}) {
       ? payload.error || payload.message
       : payload
 
-    throw new Error(message || `Erro HTTP ${response.status}`)
+    const failure = new Error(message || `Erro HTTP ${response.status}`)
+    failure.status = response.status
+    throw failure
   }
 
   if (mutationListener && isWrite(fetchOptions.method, normalizePath(path))) mutationListener()
@@ -120,8 +163,10 @@ export async function apiBlob(path) {
       headers: { Authorization: `Bearer ${authData.access_token}` }
     })
   } catch {
-    throw new Error(`API indisponivel em ${API_BASE_URL}. Verifique se o backend Flask esta rodando.`)
+    setServerReachable(false)
+    throw new ApiNetworkError(NETWORK_MESSAGE)
   }
+  setServerReachable(true)
 
   if (!response.ok) {
     if (response.status === 401) clearStoredAuth()
