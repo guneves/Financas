@@ -110,6 +110,28 @@ def resolve_account_id(conn, current_user_id, payload, key="account_id", label="
     return require_account(conn, current_user_id, str(raw), label)["id"]
 
 
+# Despesa/receita e transferencia dividem o indice do client_id: o mesmo id
+# reenviado para a outra rota nao pode devolver, como se fosse sucesso, um
+# lancamento de outro tipo.
+CLIENT_ID_OTHER_KIND_MESSAGE = (
+    "Este envio ja foi gravado como outro tipo de lancamento. Confira o extrato."
+)
+
+
+def fetch_transaction_by_client_id(conn, current_user_id, client_id):
+    """O lancamento que um envio com este client_id ja criou (024), ou None.
+
+    Despesa, receita e transferencia dividem a tabela e o indice unico, entao
+    a consulta e a mesma para as duas rotas que criam.
+    """
+    if not client_id:
+        return None
+    return conn.execute(
+        "SELECT * FROM transactions WHERE user_id = ? AND client_id = ?",
+        (current_user_id, client_id),
+    ).fetchone()
+
+
 def fetch_category(conn, current_user_id, category_id):
     if not category_id:
         return None

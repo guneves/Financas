@@ -14,10 +14,12 @@ from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
 from money import rounded_money
 from services.accounts import (
+    CLIENT_ID_OTHER_KIND_MESSAGE,
     account_balance_rows,
     ensure_default_account,
     fetch_account,
     fetch_category,
+    fetch_transaction_by_client_id,
     require_account,
     resolve_category,
     seed_default_categories,
@@ -27,6 +29,7 @@ from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_o
 from services.invoices import apply_due_autopay
 from validators import (
     ValidationError,
+    optional_client_id,
     optional_string,
     parse_json_body,
     parse_number,
@@ -215,6 +218,14 @@ def create_transfer(current_user_id):
     payload = parse_json_body()
     with get_db() as conn:
         try:
+            client_id = optional_client_id(payload)
+            # Segunda entrega do mesmo envio (024): devolve a transferencia que
+            # a primeira criou, sem gravar outra.
+            existing = fetch_transaction_by_client_id(conn, current_user_id, client_id)
+            if existing:
+                if existing["type"] != "TRANSFER":
+                    return validation_error(CLIENT_ID_OTHER_KIND_MESSAGE, 409)
+                return jsonify(serialize_transaction(existing)), 200
             amount = rounded_money(
                 parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
             )
@@ -244,25 +255,34 @@ def create_transfer(current_user_id):
 
         item_id = new_id()
         default_description = "{} -> {}".format(origin["name"], destination["name"])
-        conn.execute(
-            """
-            INSERT INTO transactions
-            (id, user_id, account_id, transfer_account_id, amount, date,
-             category, category_id, description, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER')
-            """,
-            (
-                item_id,
-                current_user_id,
-                origin["id"],
-                destination["id"],
-                amount,
-                date_value,
-                category or TRANSFER_CATEGORY,
-                category_id,
-                description or default_description,
-            ),
-        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO transactions
+                (id, user_id, account_id, transfer_account_id, amount, date,
+                 category, category_id, description, type, client_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER', ?)
+                """,
+                (
+                    item_id,
+                    current_user_id,
+                    origin["id"],
+                    destination["id"],
+                    amount,
+                    date_value,
+                    category or TRANSFER_CATEGORY,
+                    category_id,
+                    description or default_description,
+                    client_id,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            # Entregas simultaneas do mesmo envio: a outra ja gravou.
+            conn.rollback()
+            existing = fetch_transaction_by_client_id(conn, current_user_id, client_id)
+            if not existing:
+                raise
+            return jsonify(serialize_transaction(existing)), 200
         item = conn.execute(
             "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),

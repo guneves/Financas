@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     source_id TEXT,
     metadata TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- 024: id gerado pelo cliente; repetir o envio nao duplica o lancamento.
+    client_id TEXT,
     CHECK (type <> 'TRANSFER' OR (account_id IS NOT NULL
                                   AND transfer_account_id IS NOT NULL
                                   AND account_id <> transfer_account_id)),
@@ -118,6 +120,10 @@ ON transactions(user_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_user_source
 ON transactions(user_id, source_type, source_id)
 WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_user_client
+ON transactions(user_id, client_id)
+WHERE client_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_category_date
 ON transactions(user_id, category, date DESC);
@@ -430,8 +436,14 @@ CREATE TABLE IF NOT EXISTS cc_expenses (
     invoice_year INTEGER NOT NULL CHECK (invoice_year >= 2000),
     installment_info TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'PAID')),
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- 024: id do envio da compra, o mesmo em todas as parcelas.
+    client_id TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_client
+ON cc_expenses(user_id, client_id, installment_info)
+WHERE client_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_cc_expenses_invoice
 ON cc_expenses(user_id, invoice_year, invoice_month);

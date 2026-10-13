@@ -27,6 +27,7 @@ from services.invoices import (
 from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE
 from validators import (
     ValidationError,
+    optional_client_id,
     optional_date,
     parse_int_number,
     parse_json_body,
@@ -38,6 +39,20 @@ from validators import (
 )
 
 bp = Blueprint("cards", __name__)
+
+
+def fetch_purchase_by_client_id(conn, current_user_id, client_id):
+    """As parcelas que um envio com este client_id ja criou (024), na ordem das faturas."""
+    if not client_id:
+        return []
+    return conn.execute(
+        """
+        SELECT * FROM cc_expenses
+        WHERE user_id = ? AND client_id = ?
+        ORDER BY invoice_year ASC, invoice_month ASC
+        """,
+        (current_user_id, client_id),
+    ).fetchall()
 
 
 ALLOWED_CC_STATUS = {"OPEN", "PAID"}
@@ -300,7 +315,16 @@ def create_cc_purchase(current_user_id):
     if not isinstance(payload, dict):
         return validation_error("Informe uma compra valida.")
 
+    client_id = None
     try:
+        client_id = optional_client_id(payload)
+        # Segunda entrega do mesmo envio: devolve as parcelas que a primeira
+        # criou, antes de validar — o cartao pode ter sido alterado nesse meio.
+        with get_db() as conn:
+            existing = fetch_purchase_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return jsonify([row_to_dict(row) for row in existing]), 200
+
         card_id = require_string(payload, "card_id", "Cartao")
         purchase = {
             "card_id": card_id,
@@ -328,8 +352,8 @@ def create_cc_purchase(current_user_id):
                     """
                     INSERT INTO cc_expenses
                     (id, user_id, card_id, category, description, amount, purchase_date,
-                     invoice_month, invoice_year, installment_info, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     invoice_month, invoice_year, installment_info, status, client_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item_id,
@@ -343,19 +367,26 @@ def create_cc_purchase(current_user_id):
                         row["invoice_year"],
                         row["installment_info"],
                         row["status"],
+                        client_id,
                     ),
                 )
                 inserted.append(item_id)
 
             placeholders = ",".join("?" for _ in inserted)
             created = conn.execute(
-                f"SELECT * FROM cc_expenses WHERE id IN ({placeholders})"
+                f"SELECT * FROM cc_expenses WHERE user_id = ? AND id IN ({placeholders})"
                 " ORDER BY invoice_year ASC, invoice_month ASC",
-                inserted,
+                (current_user_id, *inserted),
             ).fetchall()
     except ValidationError as exc:
         return validation_error(str(exc))
     except sqlite3.IntegrityError:
+        # Com client_id, a recusa do indice unico quer dizer que outra entrega
+        # do mesmo envio gravou primeiro (esta foi desfeita inteira).
+        with get_db() as conn:
+            existing = fetch_purchase_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return jsonify([row_to_dict(row) for row in existing]), 200
         return jsonify({"error": "Nao foi possivel criar a compra no cartao."}), 400
 
     return jsonify([row_to_dict(row) for row in created]), 201

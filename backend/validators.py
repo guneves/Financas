@@ -6,6 +6,7 @@ portugues que vai para a tela; a rota a transforma em 400 com
 """
 
 import math
+import re
 from datetime import datetime
 
 from flask import jsonify, request
@@ -42,6 +43,23 @@ def optional_string(payload, key, max_length=500):
     value = str(value).strip()
     if len(value) > max_length:
         raise ValidationError(f"{key} deve ter no maximo {max_length} caracteres.")
+    return value
+
+
+CLIENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,63}$")
+
+
+def optional_client_id(payload):
+    """Id que o cliente gera para uma criacao (024); None quando nao veio.
+
+    Repetir o envio com o mesmo id nao duplica o lancamento. O formato e
+    fechado (um UUID cabe) porque o valor vai para um indice unico.
+    """
+    value = payload.get("client_id")
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not CLIENT_ID_PATTERN.match(value):
+        raise ValidationError("Identificador do envio (client_id) invalido.")
     return value
 
 

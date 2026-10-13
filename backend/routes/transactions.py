@@ -5,6 +5,7 @@ entre contas proprias nao e receita nem despesa. O pagamento de fatura e o
 caixa de investimento nascem de outros fluxos e nao sao editados por aqui.
 """
 
+import sqlite3
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
@@ -14,7 +15,13 @@ from db import get_db, new_id, serialize_transaction
 from money import rounded_money
 from export_csv import ColumnError
 from responses import export_response, read_export_options
-from services.accounts import require_account, resolve_account_id, resolve_category
+from services.accounts import (
+    CLIENT_ID_OTHER_KIND_MESSAGE,
+    fetch_transaction_by_client_id,
+    require_account,
+    resolve_account_id,
+    resolve_category,
+)
 from services.attachments import remove_attachment_files
 from services.invoices import apply_due_autopay
 from source_types import (
@@ -24,6 +31,7 @@ from source_types import (
 )
 from validators import (
     ValidationError,
+    optional_client_id,
     optional_date,
     optional_string,
     parse_json_body,
@@ -153,6 +161,14 @@ def transactions(current_user_id):
     item_id = new_id()
     with get_db() as conn:
         try:
+            client_id = optional_client_id(payload)
+            # Segunda entrega do mesmo envio: devolve o que a primeira criou,
+            # antes de validar — a conta pode ter sido arquivada nesse meio.
+            existing = fetch_transaction_by_client_id(conn, current_user_id, client_id)
+            if existing:
+                if existing["type"] == "TRANSFER":
+                    return validation_error(CLIENT_ID_OTHER_KIND_MESSAGE, 409)
+                return jsonify(serialize_transaction(existing)), 200
             amount = parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
             date_value = require_date(payload, "date", "Data")
             description = optional_string(payload, "description")
@@ -166,25 +182,39 @@ def transactions(current_user_id):
         except ValidationError as exc:
             return validation_error(str(exc))
 
-        conn.execute(
-            """
-            INSERT INTO transactions
-            (id, user_id, account_id, amount, date, category, category_id, description, type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                item_id,
-                current_user_id,
-                account_id,
-                rounded_money(amount),
-                date_value,
-                category,
-                category_id,
-                description,
-                transaction_type,
-            ),
-        )
-        item = conn.execute("SELECT * FROM transactions WHERE id = ?", (item_id,)).fetchone()
+        try:
+            conn.execute(
+                """
+                INSERT INTO transactions
+                (id, user_id, account_id, amount, date, category, category_id, description, type,
+                 client_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item_id,
+                    current_user_id,
+                    account_id,
+                    rounded_money(amount),
+                    date_value,
+                    category,
+                    category_id,
+                    description,
+                    transaction_type,
+                    client_id,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            # Duas entregas do mesmo envio ao mesmo tempo: o indice unico
+            # recusou esta, a outra ja gravou.
+            conn.rollback()
+            existing = fetch_transaction_by_client_id(conn, current_user_id, client_id)
+            if not existing:
+                raise
+            return jsonify(serialize_transaction(existing)), 200
+        item = conn.execute(
+            "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
+            (item_id, current_user_id),
+        ).fetchone()
     return jsonify(serialize_transaction(item)), 201
 
 
