@@ -1,14 +1,21 @@
-// Aporte nao e despesa: o dinheiro sai da conta mas continua no patrimonio.
+// Investimento no extrato: aporte nao e despesa e resgate nao e receita.
 //
-// No banco um aporte e uma linha EXPENSE comum (o saldo da conta precisa
-// dela), entao a distincao e feita na leitura. Cobre o lancamento gerado por
-// uma compra de investimento (source_type) e o lancado a mao na categoria
-// Investimento.
+// As areas sao separadas: uma operacao da carteira so chega ao extrato quando
+// o dono pede, operacao por operacao (o lancamento ligado, source_type), ou
+// quando ele lanca a mao na categoria Investimento. No banco sao linhas
+// EXPENSE / INCOME comuns (o saldo da conta precisa delas), entao a distincao
+// e feita na leitura: o aporte sai da conta sem ser gasto, e o resgate volta
+// sem ser renda.
 export const INVESTMENT_CATEGORY = 'Investimento'
 
+const isInvestmentRow = (transaction) =>
+  transaction?.source_type === 'INVESTMENT_TRANSACTION' || transaction?.category === INVESTMENT_CATEGORY
+
 export const isInvestmentOutflow = (transaction) =>
-  transaction?.type === 'EXPENSE' &&
-  (transaction.source_type === 'INVESTMENT_TRANSACTION' || transaction.category === INVESTMENT_CATEGORY)
+  transaction?.type === 'EXPENSE' && isInvestmentRow(transaction)
+
+export const isInvestmentInflow = (transaction) =>
+  transaction?.type === 'INCOME' && isInvestmentRow(transaction)
 
 // Saldo consolidado das contas: a soma dos saldos que /api/accounts devolve
 // (saldo inicial + movimentacoes, calculado no servidor). Passe a lista COM

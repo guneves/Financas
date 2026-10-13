@@ -13,7 +13,7 @@ import {
 import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../lib/format'
 import { invalidateServerData, useQuery, useReportQueryError } from '../lib/queries'
-import { isInvestmentOutflow } from '../lib/transactions'
+import { isInvestmentInflow, isInvestmentOutflow } from '../lib/transactions'
 import {
   AlertMessage,
   Badge,
@@ -395,7 +395,7 @@ export default function Recorrentes() {
                     ) : null}
                   </div>
                   <p className="mt-1 text-sm text-zinc-600">
-                    {item.type === 'INCOME' ? 'Receita' : isInvestmentOutflow(item) ? 'Investimento' : 'Despesa'} · {item.category} · {frequencyLabel(item)} ·{' '}
+                    {isInvestmentInflow(item) ? 'Resgate' : item.type === 'INCOME' ? 'Receita' : isInvestmentOutflow(item) ? 'Investimento' : 'Despesa'} · {item.category} · {frequencyLabel(item)} ·{' '}
                     {item.status === 'PAUSED' && item.paused_at
                       ? `pausada desde ${formatDateBR(item.paused_at)}`
                       : item.next_run_date

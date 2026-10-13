@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Briefcase, CreditCard } from 'lucide-react'
+import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, CreditCard } from 'lucide-react'
 import {
   accountsApi,
   categoriesApi,
@@ -28,7 +28,6 @@ export const NEW_ENTRY_TYPES = [
   { value: 'INCOME', label: 'Receita', icon: ArrowUpCircle },
   { value: 'TRANSFER', label: 'Transferência', icon: ArrowLeftRight },
   { value: 'CARD', label: 'Compra no cartão', icon: CreditCard },
-  { value: 'INVESTMENT', label: 'Investimento', icon: Briefcase },
 ]
 
 const settingsLink = (hash, text) => (
@@ -46,9 +45,9 @@ const emptyExpenseForm = (cardId) => ({ card_id: cardId, category: '', descripti
 // O "+ Novo": todos os formularios de lancamento num lugar so. Os handlers de
 // envio vieram de Transactions.jsx (banco, transferencia) e de Carteira.jsx
 // (compra no cartao, via POST /api/cc-expenses/purchases — a regra da fatura
-// fica no backend). "Investimento" nao tem formulario aqui: `onPickInvestment`
-// abre o InvestmentLaunchModal.
-export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, onSaved, onPickInvestment }) {
+// fica no backend). So a area bancaria: operacao de investimento se registra
+// em Investimentos, onde o "+ Novo" abre o InvestmentLaunchModal (Layout.jsx).
+export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, onSaved }) {
   const [type, setType] = useState(initialType)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -73,7 +72,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
   // Ao abrir: tipo pedido e formularios limpos com a data de hoje.
   useEffect(() => {
     if (!open) return
-    setType(initialType === 'INVESTMENT' ? 'EXPENSE' : initialType || 'EXPENSE')
+    setType(initialType || 'EXPENSE')
     setError('')
     setTransForm(emptyBankForm(initialType === 'INCOME' ? 'INCOME' : 'EXPENSE', ''))
     setTransferForm(emptyTransferForm(''))
@@ -93,10 +92,6 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', onClose, 
   }, [open, loadError])
 
   const handleTypeChange = (nextType) => {
-    if (nextType === 'INVESTMENT') {
-      onPickInvestment?.()
-      return
-    }
     setType(nextType)
     setError('')
     if (nextType === 'EXPENSE' || nextType === 'INCOME') {

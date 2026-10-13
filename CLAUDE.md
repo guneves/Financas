@@ -137,9 +137,9 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-856 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+908 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
-invoice-month rule), the investment↔cash link, bank accounts and transfers, categories, editing a
+invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
@@ -216,14 +216,14 @@ database/
 frontend/src/
   pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, Metas, investimentos/,
                       # Proventos, Ajustes + ajustes/, Importar — screen map in lib/navigation.js
-  components/         # Layout (nav, "+ Novo" sheet host), NewEntrySheet, ui.jsx (the UI kit)
+  components/         # Layout (nav, "+ Novo" host), NewEntrySheet (banking only), CashLinkField
+                      # ("Lançar no extrato"), ui.jsx (the UI kit)
   lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js,
                       # queries.js (TanStack Query), confirm.js, toast.js, scroll.js
 docs/
   next-steps.md       # the plan — open work only
   done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
-  areas-separation.md # approved plan: investment cash link becomes opt-in (deleted when built)
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
   finance-guard.md    # the pre-commit audit subagent
@@ -306,10 +306,25 @@ docs/
   stream FIFO, portfolio, evolution and the IR report read — returns BRL (cost at the movement's
   rate, value at today's PTAX); `fetch_investment_rows()` is native (screens, edits). The cash link
   is BRL. Anything new that computes money from movements must read `fetch_investments()`.
-- **A movement can opt out of the cash link** (`metadata.skip_cash`, "Operação anterior ao app"):
-  a position bought before the app enters the portfolio without a lançamento. The rule is
-  `investment_skips_cash()`, checked first in `sync_investment_cash_transaction()`; nothing else
-  changes (FIFO, IR and the portfolio read movements, not cash).
+- **Investments and banking are separate areas; a movement reaches the Extrato only when asked**
+  (2026-10-12). `metadata.cash_account_id` on the movement is both the switch and the account:
+  present, exactly one linked lançamento exists in that account (`source_type =
+  'INVESTMENT_TRANSACTION'`, `source_id` = the movement id, BRL, category "Investimento"); absent,
+  nothing is written. The rule is `investment_cash_account_id()`, checked first in
+  `sync_investment_cash_transaction()`; `resolve_investment_cash_account()` validates the account
+  (the user's, active, BRL) before any write. On `PATCH` an omitted key keeps the link and `null`
+  removes it — refused (409) while the lançamento has a receipt. A movement that asks for the
+  Extrato but has no cash amount to write is refused (400), so the key never says "no extrato"
+  without a row. Each movement decides for itself, and nothing financial reads the link (FIFO, IR
+  and the portfolio read movements, not cash). The three forms share `CashLinkField` ("Lançar no
+  extrato", off by default).
+- **Início is the banking area only.** Its headline is the consolidated account balance; the
+  portfolio never appears there, so nobody reads invested money as money to spend. A lançamento
+  that is linked, or typed in the category "Investimento", is an aporte (EXPENSE) or a resgate
+  (INCOME), not a despesa or a receita — `isInvestmentOutflow()` / `isInvestmentInflow()` in
+  `lib/transactions.js` — and every banking total (Início, Extrato, Recorrentes) keeps it apart.
+  "+ Novo" is banking-only (despesa, receita, transferência, cartão); inside `/investimentos` the
+  same button opens "Registrar operação".
 - **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
   payments never count.
 - **Allocation targets and goals are plans, like budgets** (020, 021): `PUT /api/allocation/targets`
@@ -354,7 +369,7 @@ docs/
   behind a `Menu` ("⋯"), a success message is `toast()` from `lib/toast.js` (errors stay in
   `AlertMessage`), a destructive confirmation is `await confirmAction({...})` from
   `lib/confirm.js`, and nothing uses `window.confirm` / `prompt` / `alert`.
-- **Privacy mode** (the eye) hides balances, net worth and the portfolio only, and never remounts
+- **Privacy mode** (the eye) hides balances and the portfolio only, and never remounts
   the page. `formatCurrency` and friends always show the value; a sensitive spot uses
   `usePrivateFormatter()` / `usePrivateAxisFormatter()` or `MetricCard sensitive` from
   `lib/privacy.js`, which re-render on toggle through `useSyncExternalStore`.

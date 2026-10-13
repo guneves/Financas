@@ -2,7 +2,8 @@ import { createContext, useContext } from 'react'
 
 // "+ Novo" mora no Layout, fora das paginas. Qualquer pagina abre o sheet com
 // `openNewEntry('CARD')` (ou sem tipo, para a escolha padrao).
-// Tipos: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'CARD' | 'INVESTMENT'.
+// Tipos: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'CARD' — so a area bancaria. Sem
+// tipo, dentro de Investimentos, abre "Registrar operacao" em vez do sheet.
 export const NewEntryContext = createContext({ openNewEntry: () => {} })
 
 export function useNewEntry() {

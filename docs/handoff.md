@@ -7,70 +7,99 @@
 
 ---
 
-## Session — 2026-10-12 · Plan: investments area separate from the banking area
+## Session — 2026-10-12 · Investments separate from banking: planned, then built
 
-The owner asked to investigate making the investments area and the expenses (banking) area
-separate, with the option of creating the lançamento in the banking area when they want it. This
-was an investigation run: a plan was presented, the owner approved it, and the documents were
-written. **No code changed.** No `session-scout` (the documents were read directly, since this
-session rewrites them). No `finance-guard`: there is no backend diff to audit.
+Two parts on the same day. First an investigation run that ended in a plan
+(`docs/areas-separation.md`, commit `57ee057`). Then the owner said to build it, with two changes to
+the plan: **Início shows only the banking balance** ("so the user does not get the false sense they
+have more money to spend" — this reverses the plan's decision 2), and **the database may be wiped**
+instead of migrated. No `session-scout` (the documents were fresh in context). `finance-guard` ran
+twice on the backend diff before the commit: the first pass found one real gap (below), the second
+audited the fix.
 
 ### What was done
-- Investigation of the coupling. It is one function — `sync_investment_cash_transaction()` in
-  `backend/services/investments.py`, called after `POST` and `PATCH /api/investments` — and no
-  financial calculation reads the linked rows (FIFO, IR, portfolio, TWR and aportes read
-  movements).
-- `docs/areas-separation.md`: the design. The rule is that an operation touches the banking area
-  only when the owner asks for it, through `metadata.cash_account_id` on the movement (replacing
-  `skip_cash`); three phases with files, tests, a migration sketch, what gets removed and the traps.
-- The owner's four decisions (all in the design doc): rows already linked stay linked and are
-  unlinked in bulk from a preview; Início keeps Patrimônio = contas + carteira; "+ Novo" becomes
-  banking-only; this run stops at documents.
-- `docs/next-steps.md`: the three phases are the first open item. The "Operação anterior ao app —
-  leftovers" section was removed — the plan supersedes all three of its items.
-- `CLAUDE.md`: one line in the layout listing. Its conventions still describe the code as it is
-  (`skip_cash`, the automatic link); they change with phase 1.
+- **Backend — the link is opt-in.** A movement writes a lançamento only when
+  `metadata.cash_account_id` names one of the user's active BRL accounts
+  (`investment_cash_account_id()`, `resolve_investment_cash_account()` in
+  `services/investments.py`; validation in `POST`/`PATCH /api/investments`). `skip_cash` and the
+  silent default-account link are gone. Detail in `docs/done-tasks.md`.
+- **The audit's finding, fixed.** An edit that zeroed an operation's cash amount (price 0, or costs
+  above the sale) made the sync delete the linked lançamento and its receipt without passing the
+  unlink guard. Now `sync_investment_cash_transaction()` returns whether a row is in place, and
+  `POST`/`PATCH` refuse (400, everything rolled back) a movement that asks for the Extrato with
+  nothing to write.
+- **Forms.** `components/CashLinkField.jsx` ("Lançar no extrato", off by default) in "Registrar
+  operação", the Operações edit sheet and the Posição redemption sheet; Operações tags linked
+  movements "no extrato".
+- **Banking read side.** Início's hero is "Saldo em conta" (no portfolio, no Patrimônio); a resgate
+  is not a receita on Início, Extrato and Recorrentes; "+ Novo" is banking-only and opens
+  "Registrar operação" inside Investimentos.
+- **Database reset.** `backend/finance.db` was moved (not deleted) to
+  `backend/backups/finance-pre-areas-separation-20261012-224633.db` and verified there. The next boot
+  builds an empty database from the migrations and the owner signs up again — a boot with no
+  database file was rehearsed on a scratch path (23 migrations, boot backup, signup, a plain and a
+  linked buy).
+- **Documents.** `docs/areas-separation.md` deleted (built); its lasting rules are two conventions
+  in `CLAUDE.md`; what is left is the first item of `docs/next-steps.md`.
+- Built by three subagents in parallel on disjoint files (backend, forms, banking screens), at the
+  owner's request; integration, verification and commits were done in the main session.
+- Commits: `785df81` (backend and tests), `35fd789` (forms), and the one that carries this
+  handoff (banking screens, `CLAUDE.md`, documents).
 
 ### What was not done and why
-- Nothing is built: phases 1–3 are open, by the owner's decision 4.
-- The migration 024 SQL in the design doc is a sketch — never run. Phase 1's migration test is what
-  proves it.
-- The frontend findings come from reading the code, not from running the app.
-- Not decided, listed in `next-steps.md`: the same opt-in for proventos, moving Metas to
-  Investimentos, remembering the checkbox's last choice.
-- From the earlier session today (Ritmo de gastos, commit `550649e`), still open: the panel was not
-  seen on the owner's real data; "Despesas por categoria" still compares with last month's whole
-  total; no automated test (the frontend has no runner).
+- **Migration 024 and the bulk "Desvincular do extrato" tool** — both existed only to carry the old
+  linked rows across. The owner chose a reset instead. Consequence: the old backup cannot simply be
+  restored into this code (see `next-steps.md`).
+- **`NET_WORTH` goals still add accounts and portfolio.** The owner's instruction was about Início;
+  Metas was left alone and is listed as the owner's call.
+- **The "no mês" pill changed meaning** (accounts' net movement instead of receitas − despesas).
+  A judgement call that follows from the banking-only hero; listed for the owner to confirm.
+- Deleting a movement (or its asset) still deletes its linked lançamento and that row's receipts,
+  unguarded, as before.
+- The owner has not seen any of it: everything was checked on a scratch database.
+- Low, from the second audit — correct in its scratch tests but not pinned by the suite: a refused
+  edit also undoes the price quote and the quantity; the redemption branch of the "nothing to
+  write" refusal; a refused second item of a batch `POST` undoing the first.
+- From the earlier session today (Ritmo de gastos, commit `550649e`), still open: "Despesas por
+  categoria" still compares with last month's whole total; no automated test (the frontend has no
+  runner).
 - Carried from before, still open: restart the backend and search LEVE3/FESA4; owner check of the
   fixed-income form (a CDB saved with a manual "Isento" tick loses it on the next edit —
   deliberate); two findings needing the owner (budgets on income categories; positions whose
   running applied value goes ≤ 0); owner checks of benchmarks/sectors/IRPF text; the brapi
   1-ticker limit; two IRPF codes; the owner walk-through, decisions 3 and 4.
-- Dropped from the carry-over: the `skip_cash` box on the Posição redemption form (it is phase 2
-  now) and the note about `docs/negociacao-…pdf` (the file is no longer in `docs/`).
 
 ### Next session
-Phase 1 of `docs/areas-separation.md` — backend only: the opt-in link, migration 024, the tests.
-Read the design doc's "Risks and traps" first. Run `finance-guard` before committing: the new
-account id must be checked against `user_id`.
+The owner walk-through on the fresh database (first item of `docs/next-steps.md`), then the three
+owner's-call items there. Nothing is half-built.
 
 ### Learned
-- Six test files read linked rows (listed in the design doc). All of them index into the row or
-  compare it with a concrete value, so they fail loudly when the default flips — fix them by
-  sending the key, not by loosening the assertion. A *new* test asserting "linked rows did not
-  change" is the one that can pass on two empty lists.
-- The Edit tool rewrote `docs/done-tasks.md` and `CLAUDE.md` with LF endings (the docs are CRLF;
-  `next-steps.md` kept its own). Count `\r\n` in bytes after editing and normalise in Python.
-- A linked sale or redemption is an INCOME row and Início and Extrato count it as Receita. Nobody
-  saw it because the local database holds no sale. Phase 3 fixes it.
-- Local `backend/finance.db`, read-only counts: two users — one with 36 buys, all linked, all in
-  the default account (36 of its 49 Extrato rows); the other with 12 operations, every one flagged
-  `skip_cash`, and no lançamento. So migration 024 has real rows of both kinds to convert.
-- To look at `finance.db` without touching it: `sqlite3.connect("file:<path>?mode=ro", uri=True)`
-  from the venv's Python. Counts only; the app was never started against it.
+- **In a route, `return` inside `with get_db() as conn:` commits.** To refuse after a write, call
+  `conn.rollback()` first (the PATCH does) or raise so the `with` exits by exception (the POST
+  does).
+- **`pytest.ini` already passes `-q`.** Adding another `-q` hides the summary line; the exit code
+  and the dots are then the only signal. Run plain `python -m pytest`.
+- **A Playwright full-page screenshot shows Início's charts empty** (only the dots of the
+  "Resultado" line). The bars and lines are there — measured in the DOM, and an element screenshot
+  of the chart shows them. Screenshot the chart element, not the page.
+- **The "⋯" `Menu` closes on scroll**, and Playwright's click scrolls the button into view first.
+  Scroll the button into view, wait, then click; click the menu item through `evaluate`.
+- On desktop the first DOM match for a ticker in Operações is the hidden mobile card: use
+  `text=… >> visible=true`.
+- Posição keeps fixed income behind the "Renda fixa" switch of the table.
+- Git Bash rewrites an argument that starts with `/` (`/investimentos/…` became a Windows path):
+  set `MSYS_NO_PATHCONV=1`.
+- `scripts/seed_three_years_mock.py` writes its "pre-mock" copy to `backend/backups` whatever
+  `DATABASE_PATH` says; to try it on a scratch database, import it and point `BACKEND_DIR`
+  elsewhere before calling `main()`.
+- Six test files read linked rows; they now send `cash_account_id` explicitly. A new test asserting
+  "nothing changed" must link first and assert the row exists, or it passes on two empty lists.
+- Files in this tree have mixed line endings (most CRLF, some LF). The Edit and Write tools write
+  LF: patch through a Python script that keeps the file's own ending, and count `\r\n` afterwards.
+- A dollar account's tile on Início showed its US$ amount labelled R$ (the total was right). Fixed
+  while there: the tile now uses the account's currency.
+- To look at `finance.db` without touching it: `sqlite3.connect("file:<path>?mode=ro", uri=True)`.
 - The Grep tool returns nothing, silently, for a brace glob with a slash in it
   (`{services,routes}/*.py`); use `**/{services,routes}/*.py`.
-- From the earlier session today: Playwright's cached package wants
-  `chromium_headless_shell-1234` but the installed build is `-1243` — pass `executablePath` to
-  `chromium.launch()`. A Bash heredoc holding JSX with quotes and backticks breaks; write the edit
-  script with Write. `sed -i` on a CRLF file turns it LF — patch in Python with bytes.
+- Playwright's cached package wants `chromium_headless_shell-1234` but the installed build is
+  `-1243` — pass `executablePath` to `chromium.launch()`.

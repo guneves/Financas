@@ -12,7 +12,9 @@ import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
 import { ConfirmHost, cx, Skeleton, Tabs, Toaster } from './ui'
 
-const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD', 'INVESTMENT']
+const NEW_ENTRY_TYPE_VALUES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD']
+// Secao em que o "+ Novo" registra uma operacao em vez de um lancamento.
+const INVESTMENTS_PATH = '/investimentos'
 
 export function BrandMark({ compact = false }) {
   return (
@@ -173,10 +175,13 @@ export default function Layout() {
   // Tela nova comeca do topo; voltar/avancar devolve a rolagem (lib/scroll.js).
   useScrollRestoration()
 
-  // "+ Novo" (docs/ux-reorganization.md D5): o sheet e o modal de investimento
-  // moram aqui, fora das paginas. A gravacao invalida o cache de dados
-  // (lib/queries.js, pelo apiFetch); dataVersion so conta as gravacoes do
-  // "+ Novo", para o Extrato piscar a linha nova (useArrivals).
+  // "+ Novo": o sheet e o modal de investimento moram aqui, fora das paginas.
+  // O sheet e so da area bancaria (despesa, receita, transferencia, cartao);
+  // dentro de Investimentos o mesmo botao abre "Registrar operacao". A gravacao
+  // invalida o cache de dados (lib/queries.js, pelo apiFetch); dataVersion so
+  // conta as gravacoes do "+ Novo", para o Extrato piscar a linha nova
+  // (useArrivals).
+  const inInvestments = section?.path === INVESTMENTS_PATH
   const [dataVersion, setDataVersion] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState('EXPENSE')
@@ -193,7 +198,6 @@ export default function Layout() {
   }, [])
 
   const openInvestment = useCallback(() => {
-    setSheetOpen(false)
     setInvestmentOpen(true)
     // Mesma carga da tela de investimentos: o modal precisa dos ativos da carteira.
     apiFetch('/api/investments/portfolio?refresh_prices=false')
@@ -201,15 +205,16 @@ export default function Layout() {
       .catch((error) => console.warn('Erro ao buscar ativos:', error))
   }, [])
 
+  // Sem tipo, o botao segue a area em que se esta. Com tipo
+  // (`openNewEntry('CARD')`) e sempre o sheet bancario.
   const openNewEntry = useCallback((type) => {
-    const nextType = NEW_ENTRY_TYPE_VALUES.includes(type) ? type : 'EXPENSE'
-    if (nextType === 'INVESTMENT') {
+    if (!type && inInvestments) {
       openInvestment()
       return
     }
-    setSheetType(nextType)
+    setSheetType(NEW_ENTRY_TYPE_VALUES.includes(type) ? type : 'EXPENSE')
     setSheetOpen(true)
-  }, [openInvestment])
+  }, [inInvestments, openInvestment])
 
   const closeSheet = useCallback(() => setSheetOpen(false), [])
   const closeInvestment = useCallback(() => setInvestmentOpen(false), [])
@@ -250,6 +255,7 @@ export default function Layout() {
             <button
               type="button"
               onClick={() => openNewEntry()}
+              title={inInvestments ? 'Registrar operação' : 'Novo lançamento'}
               className="inline-flex h-11 items-center gap-2 rounded-full bg-emerald-500 px-5 text-sm font-bold text-on-accent transition hover:bg-emerald-400 active:scale-[0.97]"
             >
               <Plus className="h-5 w-5" strokeWidth={2.4} />
@@ -300,7 +306,7 @@ export default function Layout() {
               <button
                 type="button"
                 onClick={() => openNewEntry()}
-                aria-label="Novo lançamento"
+                aria-label={inInvestments ? 'Registrar operação' : 'Novo lançamento'}
                 className="flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-2xl bg-emerald-500 text-on-accent transition active:scale-95"
               >
                 <Plus className="h-6 w-6" strokeWidth={2.4} />
@@ -318,7 +324,6 @@ export default function Layout() {
         initialType={sheetType}
         onClose={closeSheet}
         onSaved={bumpDataVersion}
-        onPickInvestment={openInvestment}
       />
       <InvestmentLaunchModal
         open={investmentOpen}

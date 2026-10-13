@@ -85,12 +85,12 @@
 | Posição "Evolução do Patrimônio" on the gross basis, like the headline (net in the tooltip) | 2026-09-27 |
 | Rentabilidade and Evolução value the current month like Posição (`position_value_today()`) | 2026-09-27 |
 | Orçamento copy: "Realizado" counts card purchases, not only account outflows | 2026-09-27 |
-| "Operação anterior ao app": an investment movement that enters the portfolio without touching the balance (`metadata.skip_cash`) | 2026-09-27 |
+| "Operação anterior ao app": an investment movement that enters the portfolio without touching the balance (`metadata.skip_cash`) — replaced by the opt-in link on 2026-10-12 | 2026-09-27 |
 | Ticker search and the buy guard cover the whole B3 (brapi `/quote/list`, `services/market_listing.py`); LEVE3, FESA4 and other small caps were refused | 2026-09-27 |
 | Fixed-income IR exemption follows the title type (`fixed_income_is_tax_free()`; LIG and Debênture incentivada added); IPCA+ directly in Rentabilidade; Gado no longer offered on a buy | 2026-09-27 |
 | `CATTLE` (Gado) asset class removed everywhere: API refuses it, no screen lists it (the real DB had no rows) | 2026-09-27 |
 | Início → "Ritmo de gastos" compares the month so far with the average of the 3 previous months at the same day | 2026-10-12 |
-| Investigation and plan: investments area separate from the banking area — the cash link becomes opt-in per operation (`docs/areas-separation.md`, four decisions taken; documents only, nothing built) | 2026-10-12 |
+| Investments area separate from the banking area: the cash link is opt-in per operation (`metadata.cash_account_id`, "Lançar no extrato"), Início shows the banking area only, "+ Novo" is banking-only, a resgate is not a receita; database reset | 2026-10-12 |
 
 ---
 
@@ -473,7 +473,57 @@ in "Registrar operação" (buy and sell) and in the operation edit form; the Ope
 row "anterior ao app". No migration (metadata is JSON). Tests: `TestPositionBeforeTheApp` in
 `test_investment_cash_link.py`. Not built: the flag on the fixed-income redemption form in Posição
 (the backend honours it, the form does not send it), and a bulk "mark everything before date X".
+Superseded on 2026-10-12: the link became opt-in and `skip_cash`, the checkbox and the tag were
+removed ("Investments separate from banking", below).
 
 **Fixed-income exemption by title type (2026-09-27).** `fixed_income_is_tax_free()` in `services/fixed_income.py` is the one rule: LCI, LCA, LIG, CRI, CRA and `DEBENTURE_INCENTIVADA` are exempt; a stored `is_tax_free` is still honoured for old rows. Net value, realized tax, the portfolio flag and the IR Bens code all read it. The form has no checkbox any more: it shows "Isento de IR" / "Tributado" from the type and writes `is_tax_free` accordingly; an old `DEBENTURE` flagged exempt opens for editing as `DEBENTURE_INCENTIVADA`. "Rentabilidade" offers Pós (CDI), IPCA+ and Pré; IPCA+ is still stored as `rate_type POS` + `indexer IPCA`. `CATTLE` stays a live class (existing positions show and can be sold); only the buy picker hides it. Superseded the same night: the owner asked to remove `CATTLE` everywhere — `ALLOWED_ASSET_CLASSES`, labels, its tax rate, the mortality rule in the portfolio value, the GCAP filter (now `OTHER` only) and every frontend class list. The real `finance.db` had 0 CATTLE movements and 0 targets. The migrations' CHECK constraints still list it; not worth a table rebuild.
 
 **Ritmo de gastos against the 3-month average (2026-10-12).** Asked by the owner: "am I spending too much?" The Início panel used to draw this month against last month only. Now `spendingPace` in `pages/Dashboard.jsx` averages the cumulative spending of the `PACE_MONTHS = 3` previous months day by day (same `buildSpending()` definition: account expenses without invoice payments and investment outflows, card purchases in full on the purchase date). The panel shows the amount above/below the average up to today's day, the percentage badge, the average full-month total, one figure per month at the same day, and the average as the grey line. A month with no spending at all is left out of the average (it is a month before the app was in use); a month shorter than today's day counts by its total. "Até hoje" is now the cumulative up to today, not the whole month's total (they differ only with future-dated lançamentos). Frontend only, no endpoint. Checked with Playwright on a scratch database with known values (desk 1400 px and phone 390 px).
+
+### Investments separate from banking — 2026-10-12
+
+Asked by the owner: the investments area and the expenses area should be separate, with the option
+of creating the lançamento in the banking area per operation. Investigated first (the coupling was
+one function, `sync_investment_cash_transaction()`, and no financial calculation read the linked
+rows), planned in `docs/areas-separation.md` (deleted once built — `git log` has it), then built
+the same day by three subagents on disjoint files.
+
+- **The rule.** A movement writes a lançamento only when `metadata.cash_account_id` names one of the
+  user's active BRL accounts: exactly one linked row in that account, same shape as before
+  (`source_type = 'INVESTMENT_TRANSACTION'`, id `cash:<movement>`, category "Investimento"). Absent,
+  nothing is written. `investment_cash_account_id()` is the rule; `resolve_investment_cash_account()`
+  validates before any write (unknown or another user's account, archived, non-BRL and non-string
+  values are refused with a 400, and nothing of the request is written). Changing the account on an
+  edit moves the same row. On `PATCH` an omitted key keeps the link — a form that rebuilds the
+  metadata cannot delete a lançamento by accident — and `null` removes it, refused with 409 while
+  the linked row has a receipt. An account archived after linking does not block later edits.
+  A linked movement always has its row: one that asks for the Extrato with no cash amount to write
+  (price zero, costs above the sale) is refused with a 400 and the whole request is undone —
+  `finance-guard` found that such an edit used to delete the row and its receipt past the guard.
+  `metadata.skip_cash`, `investment_skips_cash()` and the silent default-account link are gone.
+- **Forms.** `components/CashLinkField.jsx` ("Lançar no extrato" + account picker, BRL accounts
+  only, default account preselected, off by default) in "Registrar operação", the Operações edit
+  sheet and the Posição redemption sheet. Operações tags linked movements "no extrato". Edit errors
+  now show inside the sheet (the page alert sat behind it).
+- **Início is banking-only** — the owner reversed the plan's decision 2 so the headline is never
+  read as money to spend. The hero is "Saldo em conta" (consolidated balance, account tiles; a
+  foreign-currency account shows its own currency); the portfolio query, the "Em conta / Investido"
+  bar and Patrimônio are gone. The "no mês" pill is the accounts' net movement, equal to the chart's
+  "Resultado".
+- **A resgate is not a receita.** A linked or typed-in-"Investimento" INCOME is kept apart like the
+  aporte already was (`isInvestmentInflow()` in `lib/transactions.js`): Início's cash flow (one net
+  investment series, shown only when the window has such rows; the tooltip says "Investido" or
+  "Resgatado"), Extrato totals and badge ("Resgate"), Recorrentes label.
+- **"+ Novo" is banking-only**; inside `/investimentos` the same button opens "Registrar operação".
+- **Not built, on purpose** (the owner allowed a database reset instead): migration 024 and the
+  bulk "Desvincular do extrato" tool of the plan. `backend/finance.db` was moved to
+  `backend/backups/finance-pre-areas-separation-20261012-224633.db` (verified after the move: same size,
+  same row counts, integrity ok; a name the retention never prunes) and the app starts from an
+  empty database built by the migrations.
+- **Also changed:** `scripts/seed_three_years_mock.py` asks for the link on every operation (its
+  mock models someone who records them in the main account); `lib/portfolio.js` deleted (unused).
+- Tests: `test_investment_cash_link.py` rewritten around the opt-in; six files that read linked rows
+  now send the key (`test_attachments`, `test_accounts_and_transfers`, `test_corporate_actions`,
+  `test_transaction_edit`, `test_multicurrency`, `test_rule_apply`); 908 in the suite. Frontend
+  checked with Playwright on a scratch database (desk 1400 px and phone 390 px): Início, "+ Novo"
+  in both areas, the three forms, untick/re-tick on an edit, and a ticked redemption.

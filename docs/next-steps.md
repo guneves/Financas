@@ -9,28 +9,32 @@
 
 ## 1. Open work, in priority order
 
-### Separate the investments area from the banking area
-Plan approved by the owner on 2026-10-12; design, decisions and traps in `docs/areas-separation.md`
-— read it before starting a phase. Today every buy, sale and redemption mirrors a lançamento into
-the Extrato, always in the default account. The rule to build: an operation touches the banking
-area only when the owner asks for it (`metadata.cash_account_id` on the movement, replacing
-`skip_cash`). Nothing is built yet. One phase per commit, in this order:
-- [ ] **Phase 1 — backend.** The link becomes opt-in and takes an account
-  (`sync_investment_cash_transaction()`, validation in `routes/investments.py`); migration 024
-  converts the flags without moving any balance (rows linked today stay linked);
-  `test_investment_cash_link.py` rewritten, the six test files that read linked rows pass the key,
-  a migration test. Rewrite the cash-link convention in `CLAUDE.md` with it.
-- [ ] **Phase 2 — forms and bulk unlink.** "Lançar no extrato" (off by default) with an account
-  picker in "Registrar operação", the Operações edit form and the Posição redemption sheet,
-  replacing "Operação anterior ao app"; Operações tags linked rows; `GET /api/investments/cash-links`
-  (preview) and `POST /api/investments/cash-links/unlink` (ids only, rows with receipts skipped),
-  behind "Desvincular do extrato…".
-- [ ] **Phase 3 — banking read side.** A linked or typed-in-"Investimento" INCOME is a resgate,
-  not a receita (Início cash flow and month result, Extrato totals); "+ Novo" becomes banking-only
-  and opens "Registrar operação" inside Investimentos. Then fold the lasting rules into `CLAUDE.md`
-  and delete `docs/areas-separation.md`.
-- [ ] Owner's call, outside the phases: the same opt-in for proventos (they never reach an account
-  today); moving Metas from Planejamento to Investimentos; remembering the checkbox's last choice.
+### Investments separate from banking — what is left
+Built on 2026-10-12 (see `docs/done-tasks.md`): an operation reaches the Extrato only when
+"Lançar no extrato" is ticked on it, Início shows the banking area only, and "+ Novo" is
+banking-only. The database was reset the same day, so the app starts empty. Open:
+- [ ] Owner walk-through on the fresh database: sign up again; register one operation with
+  "Lançar no extrato" ticked and one without; check the Extrato ("Pela carteira"), Operações
+  ("no extrato"), Início, and "+ Novo" inside and outside Investimentos. Built and clicked through
+  on a scratch database only.
+- [ ] Owner's call — the "no mês" pill on Início is now the accounts' net movement (receitas −
+  despesas − aportes + resgates, the chart's "Resultado"). It used to be receitas − despesas,
+  which read as "how much net worth moved". Say so if the old meaning is the wanted one.
+- [ ] Owner's call — goals: a `NET_WORTH` goal (Planejamento → Metas) still adds accounts and
+  portfolio. It is the one place left where the two areas are summed. Related: moving Metas to
+  Investimentos.
+- [ ] Owner's call: the same opt-in for proventos (they never reach an account); remembering the
+  checkbox's last choice on this device.
+- [ ] Not guarded: deleting a movement (or its whole asset) removes the linked lançamento together
+  with its receipts, as before. The explicit unlink and an edit that would leave nothing to write
+  are refused.
+- [ ] No migration was written: a database from before 2026-10-12 restored into this code keeps its
+  linked rows while its movements carry no `cash_account_id` — each row goes away on the next edit
+  of its movement. Write a data migration first if the old data
+  (`backend/backups/finance-pre-areas-separation-20261012-224633.db`) is ever brought back.
+- [ ] Tests, low: pin that a refused edit also undoes the price quote and the quantity, the
+  redemption branch of the "nothing to write" refusal, and a batch `POST` whose second item is
+  refused. All three behave correctly in `finance-guard`'s scratch tests.
 
 ### Owner walk-through on real data
 Everything below was built and clicked through on a seeded scratch database (Chrome + Playwright,

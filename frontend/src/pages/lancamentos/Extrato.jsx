@@ -19,7 +19,7 @@ import {
   useArrivals,
 } from '../../components/ui'
 import { formatSignedCurrency } from '../../lib/format'
-import { isInvestmentOutflow } from '../../lib/transactions'
+import { isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
 import { categoryLabel, getNow } from './helpers'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import ProjectionHeader from './ProjectionHeader'
@@ -61,8 +61,9 @@ function countHiddenFilters(filters) {
 // linha era alarme sem motivo.
 function TypeBadge({ transaction }) {
   if (transaction.type === 'TRANSFER') return <Badge>Transferência</Badge>
-  // Aporte sai da conta, mas nao e despesa.
+  // Aporte sai da conta, mas nao e despesa; o resgate volta, mas nao e receita.
   if (isInvestmentOutflow(transaction)) return <Badge>Investimento</Badge>
+  if (isInvestmentInflow(transaction)) return <Badge>Resgate</Badge>
   return null
 }
 
@@ -228,10 +229,13 @@ export default function Extrato() {
   // com os filtros da URL. Sem filtro, sai o extrato inteiro.
   const handleExport = (options) => transactionsApi.exportFile({ ...filters, ...options })
 
+  // Investimento e liquido: aportes menos resgates. O resgate nao soma na
+  // receita, como o aporte nao soma na despesa.
   const statementTotals = useMemo(() => {
     return statementTransactions.reduce((acc, item) => {
       const amount = Number(item.amount || 0)
-      if (item.type === 'INCOME') acc.income += amount
+      if (isInvestmentInflow(item)) acc.investment -= amount
+      else if (item.type === 'INCOME') acc.income += amount
       else if (isInvestmentOutflow(item)) acc.investment += amount
       else if (item.type === 'EXPENSE') acc.expense += amount
       return acc
@@ -409,8 +413,10 @@ export default function Extrato() {
                 <>
                   <Badge tone="success">{formatSignedCurrency(statementTotals.income, 1)}</Badge>
                   <Badge>{formatSignedCurrency(statementTotals.expense, -1)}</Badge>
-                  {statementTotals.investment > 0 ? (
-                    <Badge>Investido {formatSignedCurrency(statementTotals.investment, 0)}</Badge>
+                  {Math.abs(statementTotals.investment) >= 0.005 ? (
+                    <Badge>
+                      {statementTotals.investment > 0 ? 'Investido' : 'Resgatado'} {formatSignedCurrency(statementTotals.investment, 0)}
+                    </Badge>
                   ) : null}
                 </>
               ) : null}

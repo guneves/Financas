@@ -28,10 +28,8 @@ import {
   Target,
   Wallet,
 } from 'lucide-react'
-import { apiFetch } from '../lib/api'
 import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../lib/queries'
-import { EMPTY_PORTFOLIO } from '../lib/portfolio'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
   BUDGET_STATUS_LABELS,
@@ -64,9 +62,9 @@ import {
   axisProps,
   compactAxis,
 } from '../components/charts'
-import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
+import { formatCurrency, formatDateBR, formatMoney, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { activeAccounts, consolidatedBalance, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { activeAccounts, consolidatedBalance, isInvestmentInflow, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
 
 const HISTORY_MONTHS = 12
@@ -150,7 +148,9 @@ function buildSpending(transactions, ccExpenses, key) {
 const NO_ITEMS = []
 
 export default function Dashboard() {
-  // Modo privado: saldos, patrimonio e carteira somem; fluxo, gastos e faturas ficam.
+  // Inicio e so a area bancaria: nada da carteira entra aqui, para o saldo
+  // nao parecer dinheiro que da para gastar. Modo privado: os saldos somem;
+  // fluxo, gastos e faturas ficam.
   const privateMoney = usePrivateFormatter(formatCurrency)
   const privateAxis = usePrivateAxisFormatter(compactAxis)
   const chartAnimation = useChartAnimation()
@@ -161,13 +161,9 @@ export default function Dashboard() {
   const [payError, setPayError] = useState('')
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
 
-  // Cinco queries independentes: uma que falha nao derruba as outras. Carteira
-  // e movimentacoes mostram erro; cartoes, recorrencias e orcamento so
-  // escondem o aviso ou a faixa que dependem deles.
-  const portfolioQuery = useQuery({
-    queryKey: ['inicio', 'carteira'],
-    queryFn: () => apiFetch('/api/investments/portfolio?refresh_prices=false'),
-  })
+  // Quatro queries independentes: uma que falha nao derruba as outras. As
+  // movimentacoes mostram erro; cartoes, recorrencias e orcamento so escondem
+  // o aviso ou a faixa que dependem deles.
   // Todas as compras do cartao, nao so as abertas: o ritmo de gastos do mes
   // passado precisa das compras que ja foram pagas.
   const movementsQuery = useQuery({
@@ -189,8 +185,6 @@ export default function Dashboard() {
   const budgetMonth = monthKey(new Date())
   const budgetQuery = useQuery({ queryKey: ['inicio', 'orcamento', budgetMonth], queryFn: () => budgetsApi.month(budgetMonth) })
 
-  const portfolioError = queryErrorMessage(portfolioQuery, 'Não foi possível carregar a carteira.')
-  const portfolio = portfolioQuery.data || (portfolioQuery.error ? EMPTY_PORTFOLIO : null)
   const transactions = movementsQuery.data?.transactions || NO_ITEMS
   const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
   // Todas as contas, arquivadas inclusive: o consolidado soma todas.
@@ -246,12 +240,13 @@ export default function Dashboard() {
   // que a soma dos lancamentos deixava de fora (lib/transactions.js).
   const bankBalance = useMemo(() => consolidatedBalance(allAccounts), [allAccounts])
 
-  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses. As saidas se
-  // dividem em despesa e aporte: investir tira dinheiro da conta, mas nao e gasto.
+  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses. Investimento
+  // fica a parte (lib/transactions.js): o aporte tira dinheiro da conta mas nao
+  // e gasto, e o resgate devolve mas nao e receita. Todos mexem no saldo.
   const monthlyHistory = useMemo(() => {
     const keys = Array.from({ length: HISTORY_MONTHS }, (_, index) => shiftMonth(currentKey, index - (HISTORY_MONTHS - 1)))
     const firstKey = keys[0]
-    const byKey = Object.fromEntries(keys.map((key) => [key, { income: 0, expense: 0, investment: 0 }]))
+    const byKey = Object.fromEntries(keys.map((key) => [key, { income: 0, expense: 0, invested: 0, redeemed: 0 }]))
     // Saldo inicial das contas + tudo antes da janela: a curva termina no
     // mesmo saldo do topo da pagina.
     let openingBalance = openingBalanceTotal(allAccounts)
@@ -266,30 +261,37 @@ export default function Dashboard() {
         return
       }
       if (!byKey[key]) return
-      if (transaction.type === 'INCOME') byKey[key].income += amount
-      else if (isInvestmentOutflow(transaction)) byKey[key].investment += amount
+      if (isInvestmentInflow(transaction)) byKey[key].redeemed += amount
+      else if (transaction.type === 'INCOME') byKey[key].income += amount
+      else if (isInvestmentOutflow(transaction)) byKey[key].invested += amount
       else byKey[key].expense += amount
     })
 
     let running = openingBalance
     return keys.map((key) => {
-      const { income, expense, investment } = byKey[key]
-      running += income - expense - investment
+      const { income, expense, invested, redeemed } = byKey[key]
+      const net = income - expense - invested + redeemed
+      running += net
       return {
         key,
         label: shortMonth(key),
         income: Number(income.toFixed(2)),
         // Desenhadas abaixo do zero: a posicao diz "saida" sem depender da cor.
         expense: -Number(expense.toFixed(2)),
-        investment: -Number(investment.toFixed(2)),
-        net: Number((income - expense - investment).toFixed(2)),
+        // Uma serie so, liquida (aportes menos resgates): abaixo do zero quando
+        // saiu mais do que voltou, acima no mes em que o resgate foi maior.
+        investment: -Number((invested - redeemed).toFixed(2)),
+        invested: Number(invested.toFixed(2)),
+        redeemed: Number(redeemed.toFixed(2)),
+        net: Number(net.toFixed(2)),
         balance: Number(running.toFixed(2)),
       }
     })
   }, [transactions, allAccounts, currentKey])
 
   const flowSummary = useMemo(() => {
-    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0 || item.investment !== 0)
+    const hasInvestment = (item) => item.invested !== 0 || item.redeemed !== 0
+    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0 || hasInvestment(item))
     const income = monthlyHistory.reduce((acc, item) => acc + item.income, 0)
     const expense = monthlyHistory.reduce((acc, item) => acc - item.expense, 0)
     const investment = monthlyHistory.reduce((acc, item) => acc - item.investment, 0)
@@ -298,9 +300,13 @@ export default function Dashboard() {
       avgIncome: income / months,
       avgExpense: expense / months,
       avgInvestment: investment / months,
-      // O que foi investido conta como poupado: so a despesa reduz a taxa.
+      // O que foi investido conta como poupado: so a despesa reduz a taxa. O
+      // resgate ja ficou fora da receita.
       savingsRate: income > 0 ? ((income - expense) / income) * 100 : null,
       hasData: active.length > 0,
+      // So existe investimento aqui se algum aporte ou resgate passou pelo
+      // extrato; sem isso a media e a serie do grafico nem aparecem.
+      hasInvestment: monthlyHistory.some(hasInvestment),
     }
   }, [monthlyHistory])
 
@@ -584,34 +590,28 @@ export default function Dashboard() {
     }
   }
 
-  // Esqueleto ate carteira e movimentacoes chegarem: com so uma delas, os
-  // numeros de cima piscariam zerados.
-  if (!portfolio || movementsQuery.isPending) {
+  // Esqueleto ate as movimentacoes chegarem: sem elas os numeros de cima
+  // piscariam zerados.
+  if (movementsQuery.isPending) {
     return <DashboardSkeleton />
   }
 
-  const investmentsNetBalance = portfolio?.current_net_balance ?? portfolio?.current_balance ?? 0
-  const totalWealth = (bankBalance || 0) + investmentsNetBalance
   const daysRemainingInMonth = getDaysRemainingInMonth()
   const dailyAvailable = (bankBalance - currentMonthInvoice) / daysRemainingInMonth
   const paceMonths = spendingPace.months.length
   const paceDifference = spendingPace.currentToDate - spendingPace.averageToDate
   const spendingVsAverage = paceMonths > 0 ? percentChange(spendingPace.currentToDate, spendingPace.averageToDate) : null
   const paceAverageLabel = paceMonths > 1 ? `Média de ${paceMonths} meses` : `Mês de ${shortMonth(spendingPace.months[0]?.key)}`
-  // Resultado do mes: entradas menos despesas. Aporte nao e despesa
-  // (lib/transactions.js) — aparece a parte.
-  const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, investment: 0 }
+  // Movimento do mes nas contas: receitas menos despesas, menos aportes, mais
+  // resgates — o "Resultado" do fluxo de caixa. Aporte e resgate nao sao
+  // despesa nem receita (lib/transactions.js) e aparecem a parte.
+  const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, invested: 0, redeemed: 0, net: 0 }
   const monthIncome = currentMonth.income
   const monthExpense = -currentMonth.expense
-  const monthInvested = -currentMonth.investment
 
   return (
     <div className="space-y-5">
       <h1 className="sr-only">Início</h1>
-      {portfolioError ? (
-        <AlertMessage tone="warning" message={`Não foi possível carregar os investimentos agora. Detalhe: ${portfolioError}`} />
-      ) : null}
-
       {dataError ? (
         <AlertMessage tone="danger" message={`Movimentações indisponíveis no momento. Detalhe: ${dataError}`} />
       ) : null}
@@ -631,16 +631,16 @@ export default function Dashboard() {
       />
 
       <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
-        <WealthHero
+        <BalanceHero
           className="xl:col-span-8"
-          total={totalWealth}
-          cash={bankBalance}
-          investments={investmentsNetBalance}
+          total={bankBalance}
           accounts={accounts}
           monthName={monthLabel(currentKey)}
+          result={currentMonth.net}
           income={monthIncome}
           expense={monthExpense}
-          invested={monthInvested}
+          invested={currentMonth.invested}
+          redeemed={currentMonth.redeemed}
         />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:col-span-4 xl:grid-cols-1">
           <DailyTile
@@ -678,19 +678,29 @@ export default function Dashboard() {
         <Panel className="flex flex-col xl:col-span-3">
           <PanelHeader
             title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
-            description="Receitas, despesas e aportes da conta nos últimos 12 meses. Transferências entre contas não entram."
+            description={flowSummary.hasInvestment
+              ? 'Receitas, despesas e investimentos (aportes menos resgates) lançados nas contas nos últimos 12 meses. Transferências entre contas não entram.'
+              : 'Receitas e despesas das contas nos últimos 12 meses. Transferências entre contas não entram.'}
           />
           <div className="flex flex-1 flex-col p-5">
             {flowSummary.hasData ? (
               <>
-                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {/* Sem investimento no extrato sao tres numeros: a taxa ocupa a
+                    linha inteira no celular para nao sobrar um buraco. */}
+                <div className={cx('mb-4 grid grid-cols-2 gap-3', flowSummary.hasInvestment ? 'sm:grid-cols-4' : 'sm:grid-cols-3')}>
                   <InlineStat label="Média de receitas" value={formatCurrency(flowSummary.avgIncome)} />
                   <InlineStat label="Média de despesas" value={formatCurrency(flowSummary.avgExpense)} />
-                  <InlineStat label="Média investida" value={formatCurrency(flowSummary.avgInvestment)} />
+                  {flowSummary.hasInvestment ? (
+                    <InlineStat
+                      label={flowSummary.avgInvestment < 0 ? 'Média resgatada' : 'Média investida'}
+                      value={formatCurrency(Math.abs(flowSummary.avgInvestment))}
+                    />
+                  ) : null}
                   <InlineStat
                     label="Taxa de poupança"
                     value={flowSummary.savingsRate === null ? '—' : `${flowSummary.savingsRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
                     valueClassName={flowSummary.savingsRate !== null && flowSummary.savingsRate < 0 ? 'text-rose-600' : 'text-emerald-700'}
+                    className={flowSummary.hasInvestment ? '' : 'col-span-2 sm:col-span-1'}
                   />
                 </div>
                 {/* Legenda junto do grafico, nao no cabecalho: la ela espremia a
@@ -698,7 +708,7 @@ export default function Dashboard() {
                 <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
                   <LegendDot color={FLOW.income} label="Receitas" />
                   <LegendDot color={FLOW.expense} label="Despesas" />
-                  <LegendDot color={FLOW.investment} label="Investimentos" />
+                  {flowSummary.hasInvestment ? <LegendDot color={FLOW.investment} label="Investimentos" /> : null}
                   <LegendDot color={FLOW.net} label="Resultado" shape="line" />
                 </div>
                 <div className="h-72 xl:h-auto xl:min-h-72 xl:flex-1">
@@ -708,19 +718,12 @@ export default function Dashboard() {
                       <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" />
                       <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
                       <ReferenceLine y={0} stroke={CHART.axis} />
-                      <Tooltip
-                        cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
-                        content={(
-                          <ChartTooltip
-                            absolute
-                            names={{ income: 'Receitas', expense: 'Despesas', investment: 'Investimentos', net: 'Resultado' }}
-                            labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
-                          />
-                        )}
-                      />
+                      <Tooltip cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }} content={<FlowTooltip />} />
                       <Bar dataKey="income" stackId="flow" fill={FLOW.income} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
                       <Bar dataKey="expense" stackId="flow" fill={FLOW.expense} maxBarSize={24} {...chartAnimation} />
-                      <Bar dataKey="investment" stackId="flow" fill={FLOW.investment} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
+                      {flowSummary.hasInvestment ? (
+                        <Bar dataKey="investment" stackId="flow" fill={FLOW.investment} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
+                      ) : null}
                       <Line
                         type="monotone"
                         dataKey="net"
@@ -736,7 +739,7 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver receitas, despesas ou aportes lançados." />
+              <EmptyState icon={Receipt} title="Sem movimentações" message="O fluxo aparece assim que houver receitas ou despesas lançadas." />
             )}
           </div>
         </Panel>
@@ -1065,26 +1068,24 @@ export default function Dashboard() {
   )
 }
 
-// Bloco de patrimonio (direcao C): o numero que se abre o app para ver, o
-// resultado do mes e as contas. Patrimonio, contas e investido sao saldos e
-// somem no modo privado; o resultado do mes vem dos lancamentos, que ficam
-// visiveis (lib/privacy.js).
-function WealthHero({ total, cash, investments, accounts, monthName, income, expense, invested, className = '' }) {
+// Bloco do saldo (direcao C): o numero que se abre o app para ver, o movimento
+// do mes e as contas. So a area bancaria — a carteira fica em Investimentos,
+// para o numero daqui ser o dinheiro que existe nas contas. Saldo e contas
+// somem no modo privado; receitas, despesas, aportes e resgates do mes vem dos
+// lancamentos, que ficam visiveis (lib/privacy.js).
+function BalanceHero({ total, accounts, monthName, result, income, expense, invested, redeemed, className = '' }) {
   const hidden = useValuesHidden()
-  const privateMoney = usePrivateFormatter(formatCurrency)
-  const result = income - expense
-  const positiveCash = Math.max(cash, 0)
-  const positiveInvestments = Math.max(investments, 0)
-  const split = positiveCash + positiveInvestments
-  const cashShare = split > 0 ? (positiveCash / split) * 100 : 0
+  // Conta em moeda estrangeira aparece na moeda dela (o total acima ja a
+  // converte): "100" de uma conta em dolar nao pode ser lido como reais.
+  const privateMoney = usePrivateFormatter(formatMoney)
 
   return (
     <section
-      aria-labelledby="patrimonio"
+      aria-labelledby="saldo-em-conta"
       className={cx('flex min-w-0 flex-col gap-5 rounded-[1.75rem] bg-brand p-5 text-brand-ink sm:p-8', className)}
     >
       <div className="flex items-center gap-3">
-        <h2 id="patrimonio" className="flex-1 text-sm font-semibold text-brand-soft">Patrimônio</h2>
+        <h2 id="saldo-em-conta" className="flex-1 text-sm font-semibold text-brand-soft">Saldo em conta</h2>
         <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">{sentenceCase(monthName)}</span>
       </div>
 
@@ -1094,12 +1095,12 @@ function WealthHero({ total, cash, investments, accounts, monthName, income, exp
         minSize={30}
         className="font-extrabold tracking-tight"
       >
-        <AnimatedNumber value={total} format={formatCurrency} masked={hidden} cacheKey="inicio|patrimonio" />
+        <AnimatedNumber value={total} format={formatCurrency} masked={hidden} cacheKey="inicio|saldo" />
       </FitValue>
 
       <div className="flex flex-wrap gap-2">
-        {/* O resultado do mes some com o olho (decisao 9): perto do patrimonio
-            ele diz quanto o patrimonio andou. A cor sai junto, senao o sinal vaza. */}
+        {/* O movimento do mes some com o olho (decisao 9): ao lado do saldo ele
+            diz quanto o saldo andou. A cor sai junto, senao o sinal vaza. */}
         <span
           className={cx(
             'rounded-full px-3 py-1.5 text-sm font-bold tabular',
@@ -1113,20 +1114,10 @@ function WealthHero({ total, cash, investments, accounts, monthName, income, exp
         {invested > 0 ? (
           <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Aportes {formatCurrency(invested)}</span>
         ) : null}
+        {redeemed > 0 ? (
+          <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Resgates {formatCurrency(redeemed)}</span>
+        ) : null}
       </div>
-
-      {split > 0 ? (
-        <div className="space-y-2">
-          <div className="flex h-2 gap-1 overflow-hidden rounded-full" aria-hidden="true">
-            <div className="bar-grow h-full rounded-full bg-brand-soft" style={{ width: `${cashShare}%` }} />
-            <div className="bar-grow h-full flex-1 rounded-full bg-emerald-400" style={{ animationDelay: '120ms' }} />
-          </div>
-          <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm">
-            <span className="text-brand-soft">Em conta <b className="font-bold text-brand-ink tabular">{privateMoney(cash)}</b></span>
-            <span className="text-brand-soft">Investido <b className="font-bold text-brand-ink tabular">{privateMoney(investments)}</b></span>
-          </div>
-        </div>
-      ) : null}
 
       {accounts.length > 0 ? (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
@@ -1136,7 +1127,7 @@ function WealthHero({ total, cash, investments, accounts, monthName, income, exp
               <li key={account.id} className="min-w-0 rounded-2xl bg-white/[0.08] px-4 py-3">
                 <p className="truncate text-xs font-medium text-brand-soft" title={account.name}>{account.name}</p>
                 <p className={cx('mt-0.5 whitespace-nowrap text-[15px] font-bold tabular', balance < 0 && 'text-rose-200')}>
-                  {privateMoney(balance)}
+                  {privateMoney(balance, account.currency)}
                 </p>
               </li>
             )
@@ -1464,9 +1455,28 @@ function AttentionLink({ to, children }) {
   )
 }
 
-function InlineStat({ label, value, valueClassName = 'text-zinc-950' }) {
+// Tooltip do fluxo de caixa. As saidas sao desenhadas abaixo do zero e aparecem
+// em modulo; o resultado mantem o sinal. A serie de investimento e liquida:
+// abaixo do zero o mes investiu, acima resgatou, e o rotulo diz qual dos dois.
+function FlowTooltip({ payload, ...props }) {
+  const rows = payload?.map((item) => {
+    if (item.dataKey === 'net' || item.value === null || item.value === undefined) return item
+    const redeemed = item.dataKey === 'investment' && item.value > 0
+    return { ...item, dataKey: redeemed ? 'redeemed' : item.dataKey, value: Math.abs(Number(item.value)) }
+  })
   return (
-    <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-3 py-2.5">
+    <ChartTooltip
+      {...props}
+      payload={rows}
+      names={{ income: 'Receitas', expense: 'Despesas', investment: 'Investido', redeemed: 'Resgatado', net: 'Resultado' }}
+      labelFormatter={(_, items) => monthLabel(items?.[0]?.payload?.key)}
+    />
+  )
+}
+
+function InlineStat({ label, value, valueClassName = 'text-zinc-950', className = '' }) {
+  return (
+    <div className={cx('rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-3 py-2.5', className)}>
       <p className="text-xs font-semibold leading-4 text-zinc-500">{label}</p>
       <FitValue measure={value} baseSize={16} minSize={12} className={cx('mt-1 font-bold', valueClassName)}>{value}</FitValue>
     </div>
