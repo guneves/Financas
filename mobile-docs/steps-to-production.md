@@ -116,11 +116,15 @@ The four "+ Novo" forms use three endpoints: `POST /api/transactions` (despesa a
 
 Done when: the suite passes and posting the same payload twice by hand leaves one lançamento.
 
-## Phase 4 — Offline: cache and outbox (browser) (built 2026-10-13, not yet opened in a browser)
+## Phase 4 — Offline: cache and outbox (browser) (built and checked in a desktop browser, 2026-10-13)
 
 Built: steps 1 to 6. Step 7 is partial: the header says when the server is unreachable and an
 online-only action fails with a clear message, but buttons are not disabled screen by screen.
-The "done when" below has **not** been run; it is the first open item in `docs/next-steps.md`.
+The "done when" below was run in a scripted desktop browser on a scratch database and holds,
+including the cases it does not name: "+ Novo" opened for the first time with the server down, a
+pending item corrected before sending, and a request that reached the server while its answer was
+lost (resent, it creates nothing). One limit of the browser, which the APK does not have: a screen
+never visited cannot be loaded with the server down, because its code is fetched on first visit.
 
 Built and checked in a desktop browser. The APK reuses everything here except the storage and the
 sender, which Phase 5 swaps for the native ones.

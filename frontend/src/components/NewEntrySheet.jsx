@@ -50,9 +50,11 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   const [error, setError] = useState('')
   // Contas, cartoes e categorias pelo cache compartilhado (lib/queries.js):
   // qualquer gravacao o invalida, entao o que mudou em Ajustes ja chega aqui.
-  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list(), enabled: open })
-  const categoriesQuery = useQuery({ queryKey: ['categorias', 'ativas'], queryFn: () => categoriesApi.list(), enabled: open })
-  const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list(), enabled: open })
+  // Buscadas com o app aberto, nao so com o sheet: sem servidor o "+ Novo"
+  // precisa delas no cache guardado mesmo que nunca tenha sido aberto antes.
+  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
+  const categoriesQuery = useQuery({ queryKey: ['categorias', 'ativas'], queryFn: () => categoriesApi.list() })
+  const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
   const accounts = accountsQuery.data || NO_ITEMS
   const categories = categoriesQuery.data || NO_ITEMS
   const cards = cardsQuery.data || NO_ITEMS
@@ -136,7 +138,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
     }
     const result = await createEntry(kind, payload)
     if (result.queued) {
-      await finish(`Sem conexão: ${label.toLowerCase()} guardada neste aparelho. Ela é enviada quando o servidor responder.`, { tone: 'info', duration: 6000 })
+      await finish(`Sem conexão: ${label.charAt(0).toLowerCase()}${label.slice(1)} guardada neste aparelho. Ela é enviada quando o servidor responder.`, { tone: 'info', duration: 6000 })
       return
     }
     await finish(`${label} registrada.`)

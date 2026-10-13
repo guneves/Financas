@@ -55,11 +55,13 @@ the session and `finance-guard` audited the change, both found directly by `suba
 - 948 backend tests (909 before), 16 frontend rule tests.
 
 ### What was not done and why
-- **Phase 4 has not been opened in a browser.** It compiles and its rules are tested, but the
-  queue, the sheet, the pending rows and the cache restore have never run. The scratch backend was
-  stopped by Claude Code's low-memory guard during the session, and its notice said not to restart
-  it unasked; a headless browser on top would have made that worse. This is the first open item in
-  `docs/next-steps.md`, with the exact check. Treat the UI as unverified until then.
+- **Phase 4 was checked by script, not by eye.** Its "done when" ran in headless Chromium against
+  a scratch backend and passed (17 steps: three entries recorded with the backend stopped, one
+  corrected, the browser closed and reopened, each arriving once with balances moved once; plus a
+  request whose answer was lost, resent without a second lançamento). The owner has not looked at
+  the screens. The first run of the check found a real gap, now fixed: the "+ Novo" lists were
+  fetched only while the sheet was open, so offline the form was empty unless it had been opened
+  online before. They now load with the app.
 - **`backend/.env` was not edited** (the owner's secrets). `JWT_SECRET`, `JWT_EXP_DAYS=180` and
   `CORS_ORIGINS` are in `.env.example` and listed for the owner.
 - **Phase 4, step 7 is partial:** the header says when the server is unreachable and an
@@ -84,7 +86,6 @@ the session and `finance-guard` audited the change, both found directly by `suba
   multi-currency removal, three low test pins, the brapi 1-ticker limit.
 
 ### Next session
-Run the Phase 4 browser check (first item of `docs/next-steps.md`) and fix what it shows. Then
 Phase 2 can start on the PC at 360–412 px while the owner sets up Tailscale.
 
 ### Learned
@@ -93,6 +94,13 @@ Phase 2 can start on the PC at 360–412 px while the owner sets up Tailscale.
   harmless. What does bite: a Python patch script must open files with `encoding="utf-8"` — the
   Windows default (cp1252) wrote an em dash as byte `0x97` and the module stopped importing.
 - A heredoc with `"""` in the Bash tool fails to parse; write the script with the Write tool.
+- **Chrome refuses ports 5060 and 5061** (its unsafe-port list): a scratch backend there answers
+  curl and shows an error page in the browser. Use another port.
+- With the backend stopped a browser tab cannot load a route chunk it has not fetched yet, so an
+  offline check must visit each screen online first, and "reopen the tab offline" is simulated by
+  serving the build while aborting `/api/*` (Playwright `context.route`). To lose only the answer:
+  `await route.fetch()` then `route.abort()`. The desktop "+ Novo" button is named "Novo"; "Novo
+  lançamento" is the hidden mobile one, and there are two `<header>` elements (`header:visible`).
 - `tmp_path` fails on this machine (`PermissionError` on `%TEMP%\pytest-of-User`). Use
   `tempfile.mkdtemp(dir=os.path.dirname(db_module.DATABASE_PATH))`, as `test_backups.py` does.
 - `node --test src/lib` treats the directory as a file and fails; pass the glob

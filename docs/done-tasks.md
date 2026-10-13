@@ -92,7 +92,7 @@
 | Início → "Ritmo de gastos" compares the month so far with the average of the 3 previous months at the same day | 2026-10-12 |
 | Investments area separate from the banking area: the cash link is opt-in per operation (`metadata.cash_account_id`, "Lançar no extrato"), Início shows the banking area only, "+ Novo" is banking-only, a resgate is not a receita; database reset | 2026-10-12 |
 | The app is reais-only on screen: no currency choice in any form and no foreign currency on any screen for data the screens can create (the backend multi-currency machinery stays, reachable only through the API) | 2026-10-12 |
-| Mobile plan verified and rewritten (`mobile-docs/steps-to-production.md`); idempotent creation by `client_id` on the three "+ Novo" endpoints (migration 024); Flask serves the built frontend on one origin (`start.ps1 -Built`); offline outbox and saved read cache in the frontend (built, not yet opened in a browser) | 2026-10-13 |
+| Mobile plan verified and rewritten (`mobile-docs/steps-to-production.md`); idempotent creation by `client_id` on the three "+ Novo" endpoints (migration 024); Flask serves the built frontend on one origin (`start.ps1 -Built`); offline outbox and saved read cache in the frontend, its "done when" checked in a scripted desktop browser (17 steps; two fixes from it: "+ Novo" lists load with the app, so the form works offline even if never opened before, and the offline toast no longer prints "r$") | 2026-10-13 |
 
 ---
 

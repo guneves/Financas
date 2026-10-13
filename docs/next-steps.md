@@ -13,13 +13,11 @@
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
 Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13 (see
 `docs/done-tasks.md`). Open, in order:
-- [ ] **Check Phase 4 in a browser — not done.** The outbox, the "Pendentes" sheet, the pending
-  rows in the Extrato and the estimated balances compile (`npm run build`) and their rules pass
-  `npm test`, but nobody has opened them: the scratch backend was stopped by a low-memory guard
-  before the browser run. The check is the phase's "done when": `.\start.ps1 -Built` on a scratch
-  database, stop the backend, record a despesa, a transferência and a card purchase, close and
-  reopen the tab, restart the backend, and see each arrive once. Also open "+ Novo" with the
-  backend stopped (the lists must come from the saved cache) and "Corrigir" a pending item.
+- [ ] Owner look at Phase 4 on the PC. Its "done when" passed in a scripted desktop browser on a
+  scratch database (2026-10-13, see `docs/done-tasks.md`); nobody has yet judged the screens by
+  eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the
+  backend stopped a browser cannot load a screen it has not visited (each screen's code comes from
+  the server on first visit, and there is no service worker), so only the APK opens cold offline.
 - [ ] Owner, on the PC: in `backend/.env` set a real `JWT_SECRET` (changing it logs every device
   out), `JWT_EXP_DAYS=180` and `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://localhost`
   (`backend/.env.example` has the three). Not edited by Claude: it is the owner's secrets file.
@@ -31,6 +29,9 @@ Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 
   but the buttons themselves are not disabled screen by screen.
 - [ ] A pending item's "Corrigir" reopens the "+ Novo" sheet; a pending card purchase has no row
   on the Cartões screen (it is listed only in "Pendentes").
+- [ ] Início's notice counts only the pending items that move a balance ("Saldo estimado: 2
+  lançamentos…" beside a header pill saying "3 pendentes" when the third is a card purchase).
+  Correct, but the two numbers side by side may read as a mismatch; owner's call.
 - [ ] Phase 2 (phone-width layout), then Phases 5 to 9 (APK, notification listener, inbox,
   statement dedup, hardening). Each needs the phone, Android Studio or real notification texts;
   what is needed from the owner is listed at the top of each phase in the plan.
