@@ -9,6 +9,32 @@
 
 ## 1. Open work, in priority order
 
+### Mobile app — an Android APK with offline entry and bank notifications
+The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
+Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13 (see
+`docs/done-tasks.md`). Open, in order:
+- [ ] **Check Phase 4 in a browser — not done.** The outbox, the "Pendentes" sheet, the pending
+  rows in the Extrato and the estimated balances compile (`npm run build`) and their rules pass
+  `npm test`, but nobody has opened them: the scratch backend was stopped by a low-memory guard
+  before the browser run. The check is the phase's "done when": `.\start.ps1 -Built` on a scratch
+  database, stop the backend, record a despesa, a transferência and a card purchase, close and
+  reopen the tab, restart the backend, and see each arrive once. Also open "+ Novo" with the
+  backend stopped (the lists must come from the saved cache) and "Corrigir" a pending item.
+- [ ] Owner, on the PC: in `backend/.env` set a real `JWT_SECRET` (changing it logs every device
+  out), `JWT_EXP_DAYS=180` and `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://localhost`
+  (`backend/.env.example` has the three). Not edited by Claude: it is the owner's secrets file.
+- [ ] Phase 1, phone half: install Tailscale on PC and phone, enable MagicDNS and HTTPS
+  certificates in the tailnet, run `tailscale serve` in front of port 5000, open the address in
+  the phone's browser and record a despesa.
+- [ ] Phase 4, step 7, partly built: with the server unreachable a pill in the header says so and
+  an online-only action fails with "Sem conexão com o servidor. Esta ação só funciona conectado.",
+  but the buttons themselves are not disabled screen by screen.
+- [ ] A pending item's "Corrigir" reopens the "+ Novo" sheet; a pending card purchase has no row
+  on the Cartões screen (it is listed only in "Pendentes").
+- [ ] Phase 2 (phone-width layout), then Phases 5 to 9 (APK, notification listener, inbox,
+  statement dedup, hardening). Each needs the phone, Android Studio or real notification texts;
+  what is needed from the owner is listed at the top of each phase in the plan.
+
 ### Investments separate from banking — what is left
 Built on 2026-10-12 (see `docs/done-tasks.md`): an operation reaches the Extrato only when
 "Lançar no extrato" is ticked on it, Início shows the banking area only, and "+ Novo" is
@@ -183,4 +209,3 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
 ## 2. Open decisions
 
 3. **Single-user or multi-user?** Schema is ready for either; SQLite is enough for personal use.
-4. **Desktop only or phone access?** The layout is responsive; hosting with HTTPS is undecided.

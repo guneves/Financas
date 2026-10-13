@@ -137,13 +137,13 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-909 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+948 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, and backup
+proventos per asset and total return, time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in. They run
 against a throwaway SQLite database built by the real migrations — **the real
@@ -176,6 +176,10 @@ Fixtures: `client`, `user`, `other_user`, `auth`, `app_module`, `db_module`, `in
 **Add tests for financial rules you touch.** That is the whole reason they exist — the Phase 5 split
 of `app.py` was only safe because the suite was in place.
 
+The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
+`cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `lib/outboxRules.test.js`,
+16 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+
 ## Layout
 
 ```
@@ -202,7 +206,7 @@ backend/
                       # sectors (brapi sector per asset, breakdown), health (integrations)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
-                      # proceeds, market, allocation, goals
+                      # proceeds, market, allocation, goals, frontend (serves frontend/dist at /)
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
   export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
@@ -219,11 +223,15 @@ frontend/src/
   components/         # Layout (nav, "+ Novo" host), NewEntrySheet (banking only), CashLinkField
                       # ("Lançar no extrato"), ui.jsx (the UI kit)
   lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js,
-                      # queries.js (TanStack Query), confirm.js, toast.js, scroll.js
+                      # queries.js (TanStack Query), confirm.js, toast.js, scroll.js,
+                      # outbox.js + outboxRules.js (offline queue), offlineStore.js (IndexedDB),
+                      # queryPersist.js (saved read cache), connection.js
 docs/
   next-steps.md       # the plan — open work only
   done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
+mobile-docs/
+  steps-to-production.md  # the Android app plan: decisions, phases and their status
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
   finance-guard.md    # the pre-commit audit subagent
@@ -283,6 +291,24 @@ docs/
   autopay. Two identical rows in one file get an occurrence suffix, so they are still two
   lançamentos. Parsing lives in `backend/statement_import.py` (pure functions, no DB) and
   `POST /api/import/preview` never writes.
+- **A "+ Novo" creation is idempotent by `client_id`** (024). `POST /api/transactions`,
+  `/api/transfers` and `/api/cc-expenses/purchases` take an optional `client_id`; a repeated one
+  returns what the first delivery created, with 200, and writes nothing. The lookup runs *before*
+  validation, so a replay succeeds even if the account was archived in between. It is a column,
+  not `source_type`/`source_id`: such a row was typed by the owner and stays "Manual", editable and
+  deletable. All installments of a purchase share the id (the `cc_expenses` index includes
+  `installment_info`). The frontend always sends one (`createEntry()` in `lib/outbox.js`).
+- **The outbox holds creations only, and only when the request never reached the server**
+  (`ApiNetworkError` in `lib/api.js`). A response from the server, whatever it is, is never queued
+  or retried on its own. One queue and one sender per platform: IndexedDB and `flush()` in the
+  browser; in the APK both become native (`setOutboxBackend()`), because sending must work with
+  the app closed. The rules — what each response does to an item, what a pending item does to a
+  balance — live in `lib/outboxRules.js` with tests; a pending transfer leaves the consolidated
+  balance alone and a pending card purchase touches no account. A balance that counts pending
+  items is labelled an estimate.
+- **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Built`): screen and API
+  on one origin, which is what the phone opens. A production build calls the API same-origin;
+  `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.
 - **Rules touch the past only on confirmation.** `POST /api/import-rules/apply/preview` never writes;
   `POST /api/import-rules/apply` rewrites only the `transaction_ids` it is sent, and re-runs the
   rule on each before writing, so a stale list cannot recategorize a row the rule no longer matches.

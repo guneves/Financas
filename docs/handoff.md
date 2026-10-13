@@ -7,116 +7,111 @@
 
 ---
 
-## Session — 2026-10-12 · Investments separate from banking: planned, then built
+## Session — 2026-10-13 · Mobile app: plan verified, idempotent creation, one origin, offline outbox
 
-Two parts on the same day. First an investigation run that ended in a plan
-(`docs/areas-separation.md`, commit `57ee057`). Then the owner said to build it, with two changes to
-the plan: **Início shows only the banking balance** ("so the user does not get the false sense they
-have more money to spend" — this reverses the plan's decision 2), and **the database may be wiped**
-instead of migrated. No `session-scout` (the documents were fresh in context). `finance-guard` ran
-three times: twice on the cash-link diff (the first pass found one real gap, below; the second
-audited the fix) and once on the reais-only edits (one finding, fixed).
+The previous session wrote `mobile-docs/steps-to-production.md` (an Android APK with offline entry
+and bank notifications) and built nothing. This one checked the plan against the code and the web,
+rewrote it, and built the phases that need neither the phone nor Tailscale. `session-scout` opened
+the session and `finance-guard` audited the change, both found directly by `subagent_type`.
 
 ### What was done
-- **Backend — the link is opt-in.** A movement writes a lançamento only when
-  `metadata.cash_account_id` names one of the user's active BRL accounts
-  (`investment_cash_account_id()`, `resolve_investment_cash_account()` in
-  `services/investments.py`; validation in `POST`/`PATCH /api/investments`). `skip_cash` and the
-  silent default-account link are gone. Detail in `docs/done-tasks.md`.
-- **The audit's finding, fixed.** An edit that zeroed an operation's cash amount (price 0, or costs
-  above the sale) made the sync delete the linked lançamento and its receipt without passing the
-  unlink guard. Now `sync_investment_cash_transaction()` returns whether a row is in place, and
-  `POST`/`PATCH` refuse (400, everything rolled back) a movement that asks for the Extrato with
-  nothing to write.
-- **Forms.** `components/CashLinkField.jsx` ("Lançar no extrato", off by default) in "Registrar
-  operação", the Operações edit sheet and the Posição redemption sheet; Operações tags linked
-  movements "no extrato".
-- **Banking read side.** Início's hero is "Saldo em conta" (no portfolio, no Patrimônio); a resgate
-  is not a receita on Início, Extrato and Recorrentes; "+ Novo" is banking-only and opens
-  "Registrar operação" inside Investimentos.
-- **Reais-only on screen.** After two corrections from the owner ("The app is in brazilian reais",
-  "Everything on the app should be reais"): no form offers a currency, every account balance on
-  screen is the converted one (`accountBalanceBrl()`), and the foreign-currency notes and export
-  column are gone. The IR tab's exterior panel and export row now appear only when the year has a
-  foreign result: my first version removed them outright and `finance-guard` pointed out that a
-  foreign sale's 15% estimate would then be shown nowhere. Detail in `docs/done-tasks.md`.
-- **Database reset.** `backend/finance.db` was moved (not deleted) to
-  `backend/backups/finance-pre-areas-separation-20261012-224633.db` and verified there. The next boot
-  builds an empty database from the migrations and the owner signs up again — a boot with no
-  database file was rehearsed on a scratch path (23 migrations, boot backup, signup, a plain and a
-  linked buy).
-- **Documents.** `docs/areas-separation.md` deleted (built); its lasting rules are two conventions
-  in `CLAUDE.md`; what is left is the first item of `docs/next-steps.md`.
-- Built by three subagents in parallel on disjoint files (backend, forms, banking screens), at the
-  owner's request; integration, verification and commits were done in the main session.
-- Commits: `785df81` (backend and tests), `35fd789` (forms), `88411f3` (banking screens and
-  documents), `6589e78` (Início in reais), and the one that carries this handoff (reais-only).
-- An untracked `mobile-docs/` folder appeared in the tree during the session. It is not this
-  session's work and was left untouched and unstaged.
+- **The plan, verified and rewritten.** Its last section is a table of every claim and what
+  checking found. The corrections that changed the design:
+  - transfers use `POST /api/transfers`, so creation is three endpoints, not two;
+  - a unique index on `(user_id, client id)` cannot be shared by N installments — the
+    `cc_expenses` index includes `installment_info`;
+  - the id is a `client_id` column, not `source_type = 'OFFLINE_ENTRY'` (an empty `source_type`
+    means "typed" to the export and the Extrato);
+  - **the outbox cannot live in the WebView on the phone.** The notification's Confirmar button
+    and background sync must work with the app closed, so in the APK the queue and the sender are
+    native (SQLite + `WorkManager`); the browser keeps IndexedDB. See "Where the outbox lives";
+  - the category of a detected purchase is chosen by the server (`auto_category`, Phase 7), since
+    the import rules live there and parsing runs with the app closed (so the parsers are Kotlin);
+  - Itaú Cartões (`com.itaucard.activity`) and Ourocard (`br.com.bb.oewallet`) are separate apps
+    and were added to the allow-list.
+- **Owner decisions, recorded in the plan:** Flash and every VA/VR benefit are out of the app (no
+  account type, no notifications); login lasts 180 days through the one `JWT_EXP_DAYS` setting.
+- **Phase 3 — idempotent creation** (migration `024_client_entry_ids.sql`). `POST
+  /api/transactions`, `/api/transfers` and `/api/cc-expenses/purchases` take an optional
+  `client_id`; a repeat returns the first delivery's rows with 200. Convention in `CLAUDE.md`.
+  Checked by hand on a scratch server: each of the four kinds posted twice answered 201 then 200
+  and left 3 lançamentos, 3 installments summing R$ 100,00 and the balances moved once.
+- **Phase 1, PC half.** `routes/frontend.py` serves `frontend/dist` at `/` with an `index.html`
+  fallback (`FRONTEND_DIST_DIR`); a production build calls the API same-origin; `.\start.ps1
+  -Built` builds and starts the backend alone. Checked with Flask's test client against the real
+  build: `/`, a hashed asset, two client routes, `/api/health`, a JSON 404 for an unknown `/api`
+  path, 401 without a token, and no `localhost:5000` left in the bundle.
+- **Phase 4 — offline, in the browser.** `lib/outbox.js` (queue, `createEntry()`, `flush()`),
+  `lib/outboxRules.js` (the rules, pure, 16 tests under `npm test`), `lib/offlineStore.js`
+  (IndexedDB), `lib/queryPersist.js` (the read cache saved per user, restored before first paint,
+  cleared when the session changes), a "Pendentes" sheet and header pill, pending rows in the
+  Extrato, estimated balances on Início and Lançamentos. The four forms always send a `client_id`.
+- **From the audit, fixed:** correcting a pending item whose first attempt had in fact reached the
+  server would have dropped the correction in silence (the replay returns the old row). An edited
+  item now compares what the server returned with what it asked (`deliveredDiffers()`) and stays in
+  the list as "Recusado" with an explanation. Also: a `client_id` replayed on the other
+  `transactions` endpoint is refused (409) instead of returning a row of another kind, and the
+  concurrent-delivery branch of each route has a test.
+- 948 backend tests (909 before), 16 frontend rule tests.
 
 ### What was not done and why
-- **Migration 024 and the bulk "Desvincular do extrato" tool** — both existed only to carry the old
-  linked rows across. The owner chose a reset instead. Consequence: the old backup cannot simply be
-  restored into this code (see `next-steps.md`).
-- **`NET_WORTH` goals still add accounts and portfolio.** The owner's instruction was about Início;
-  Metas was left alone and is listed as the owner's call.
-- **The "no mês" pill changed meaning** (accounts' net movement instead of receitas − despesas).
-  A judgement call that follows from the banking-only hero; listed for the owner to confirm.
-- Deleting a movement (or its asset) still deletes its linked lançamento and that row's receipts,
-  unguarded, as before.
-- The owner has not seen any of it: everything was checked on a scratch database.
-- **The backend's multi-currency machinery (018) was left in place**, tested and reachable only
-  through the API. Taking it out is a refactor of the stream FIFO and IR read, with no visible
-  change; it is the owner's call in `next-steps.md`.
-- Low, from the second audit — correct in its scratch tests but not pinned by the suite: a refused
-  edit also undoes the price quote and the quantity; the redemption branch of the "nothing to
-  write" refusal; a refused second item of a batch `POST` undoing the first.
-- From the earlier session today (Ritmo de gastos, commit `550649e`), still open: "Despesas por
-  categoria" still compares with last month's whole total; no automated test (the frontend has no
-  runner).
-- Carried from before, still open: restart the backend and search LEVE3/FESA4; owner check of the
-  fixed-income form (a CDB saved with a manual "Isento" tick loses it on the next edit —
-  deliberate); two findings needing the owner (budgets on income categories; positions whose
-  running applied value goes ≤ 0); owner checks of benchmarks/sectors/IRPF text; the brapi
-  1-ticker limit; two IRPF codes; the owner walk-through, decisions 3 and 4.
+- **Phase 4 has not been opened in a browser.** It compiles and its rules are tested, but the
+  queue, the sheet, the pending rows and the cache restore have never run. The scratch backend was
+  stopped by Claude Code's low-memory guard during the session, and its notice said not to restart
+  it unasked; a headless browser on top would have made that worse. This is the first open item in
+  `docs/next-steps.md`, with the exact check. Treat the UI as unverified until then.
+- **`backend/.env` was not edited** (the owner's secrets). `JWT_SECRET`, `JWT_EXP_DAYS=180` and
+  `CORS_ORIGINS` are in `.env.example` and listed for the owner.
+- **Phase 4, step 7 is partial:** the header says when the server is unreachable and an
+  online-only action fails with a clear message; buttons are not disabled screen by screen.
+- A second `finance-guard` run after the three fixes was skipped (small changes, each with a test,
+  and memory was short).
+- Phases 2 and 5–9 need the phone, Android Studio, Tailscale or real notification texts.
+- Not mine and untouched: the reais-only work was committed by its own session during this one
+  (`d8f2db8`).
+
+### Waiting on the owner
+- For Phase 1: Tailscale on PC and phone, MagicDNS and HTTPS certificates enabled in the tailnet
+  (this publishes the PC's machine name in the public certificate log), and the `.env` values.
+- For Phase 5: Android Studio with the SDK, the phone with USB debugging, a place outside the
+  repository for the release keystore.
+- For Phase 6: at least five real notification texts per bank app (Itaú, BTG, Banco do Brasil),
+  copied exactly — credit, debit, Pix sent and received, an estorno, a declined purchase — and
+  which apps are installed (Itaú Cartões? Ourocard?). They stay on this machine.
+- For Phase 8: one real statement file per bank, for the dedup test.
+- Carried from the previous session, all still open in `docs/next-steps.md`: the walk-through on
+  the fresh database, the "no mês" pill, `NET_WORTH` goals, the unguarded movement delete, the
+  multi-currency removal, three low test pins, the brapi 1-ticker limit.
 
 ### Next session
-The owner walk-through on the fresh database (first item of `docs/next-steps.md`), then the three
-owner's-call items there. Nothing is half-built.
+Run the Phase 4 browser check (first item of `docs/next-steps.md`) and fix what it shows. Then
+Phase 2 can start on the PC at 360–412 px while the owner sets up Tailscale.
 
 ### Learned
-- **In a route, `return` inside `with get_db() as conn:` commits.** To refuse after a write, call
-  `conn.rollback()` first (the PATCH does) or raise so the `with` exits by exception (the POST
-  does).
-- **Removing a display is not neutral when it is the only place a number is shown.** Check where
-  else a figure surfaces before deleting its panel; prefer "show only when non-zero".
-- **`pytest.ini` already passes `-q`.** Adding another `-q` hides the summary line; the exit code
-  and the dots are then the only signal. Run plain `python -m pytest`.
-- **A Playwright full-page screenshot shows Início's charts empty** (only the dots of the
-  "Resultado" line). The bars and lines are there — measured in the DOM, and an element screenshot
-  of the chart shows them. Screenshot the chart element, not the page.
-- **The "⋯" `Menu` closes on scroll**, and Playwright's click scrolls the button into view first.
-  Scroll the button into view, wait, then click; click the menu item through `evaluate`.
-- On desktop the first DOM match for a ticker in Operações is the hidden mobile card: use
-  `text=… >> visible=true`.
-- Posição keeps fixed income behind the "Renda fixa" switch of the table.
-- Git Bash rewrites an argument that starts with `/` (`/investimentos/…` became a Windows path):
-  set `MSYS_NO_PATHCONV=1`.
-- `scripts/seed_three_years_mock.py` writes its "pre-mock" copy to `backend/backups` whatever
-  `DATABASE_PATH` says; to try it on a scratch database, import it and point `BACKEND_DIR`
-  elsewhere before calling `main()`.
-- Six test files read linked rows; they now send `cash_account_id` explicitly. A new test asserting
-  "nothing changed" must link first and assert the row exists, or it passes on two empty lists.
-- Files in this tree have mixed line endings (most CRLF, some LF). The Edit and Write tools write
-  LF: patch through a Python script that keeps the file's own ending, and count `\r\n` afterwards.
-- **The owner reads every number as reais.** A dollar account's tile on Início showed its US$
-  amount labelled R$; I "fixed" it by printing US$ and was corrected twice. The right fix was the
-  converted balance — and then no foreign currency anywhere. When a multi-currency display looks
-  wrong, convert to reais; do not surface the other currency.
-- The scratch seed's dollar account is still the way to test that: create it through the API
-  (`"currency": "USD"`), since no screen can.
+- **`core.autocrlf` is `true` here**: the repository stores LF and the working copies are CRLF (a
+  few LF). The mixed endings never reach a commit, so an LF file written by the Edit tool is
+  harmless. What does bite: a Python patch script must open files with `encoding="utf-8"` — the
+  Windows default (cp1252) wrote an em dash as byte `0x97` and the module stopped importing.
+- A heredoc with `"""` in the Bash tool fails to parse; write the script with the Write tool.
+- `tmp_path` fails on this machine (`PermissionError` on `%TEMP%\pytest-of-User`). Use
+  `tempfile.mkdtemp(dir=os.path.dirname(db_module.DATABASE_PATH))`, as `test_backups.py` does.
+- `node --test src/lib` treats the directory as a file and fails; pass the glob
+  (`"src/**/*.test.js"`, which `npm test` does).
+- The catch-all frontend route is GET-only, so a POST to an unknown path is now 405, not 404.
+- A scratch backend for a by-hand check: set `DATABASE_PATH`, `DATABASE_BACKUP_DIR`,
+  `ATTACHMENTS_DIR`, `AUTO_BACKUP_ON_BOOT=0`, `LOG_TO_FILE=0` in `os.environ`, then `import app`
+  and `app.app.run(port=...)`; assert `config.DATABASE_PATH` before serving. For a check that
+  needs no browser, `app.app.test_client()` does the same without a server process.
+- In a route, `return` inside `with get_db() as conn:` commits; to refuse after a write, call
+  `conn.rollback()` first or raise.
+- `pytest.ini` already passes `-q`; run plain `python -m pytest` or the summary line disappears.
+- Playwright here: pass `executablePath` to `chromium.launch()` (the cached package wants
+  `chromium_headless_shell-1234`, the installed build is `-1243`); screenshot a chart element, not
+  the page; the "⋯" `Menu` closes on scroll, so scroll its button into view before clicking; on
+  desktop the first DOM match in Operações is the hidden mobile card (`>> visible=true`); set
+  `MSYS_NO_PATHCONV=1` in Git Bash for arguments that start with `/`.
+- The owner reads every number as reais: when a multi-currency display looks wrong, convert, never
+  surface the other currency. A dollar account for testing can only be created through the API.
 - To look at `finance.db` without touching it: `sqlite3.connect("file:<path>?mode=ro", uri=True)`.
-- The Grep tool returns nothing, silently, for a brace glob with a slash in it
-  (`{services,routes}/*.py`); use `**/{services,routes}/*.py`.
-- Playwright's cached package wants `chromium_headless_shell-1234` but the installed build is
-  `-1243` — pass `executablePath` to `chromium.launch()`.
+- The Grep tool returns nothing, silently, for a brace glob with a slash in it; use
+  `**/{services,routes}/*.py`.
