@@ -92,6 +92,16 @@ Exemption by title type, IPCA+ in Rentabilidade and the removal of Gado are buil
 `docs/done-tasks.md`); what it left open:
 - [ ] Owner check in the browser: Registrar operação → Renda Fixa, pick LCA / CDB / IPCA+.
 
+### Ritmo de gastos against the 3-month average (2026-10-12) — leftovers
+The Início panel now compares the month so far with the average of the 3 previous months at the same
+day (see `docs/done-tasks.md`); what it left open:
+- [ ] Owner check on real data: Início → Ritmo de gastos. Do the three months' figures look right?
+- [ ] "Despesas por categoria" still compares each category with last month's **whole** total, so
+  its arrows and the pace panel answer different questions. Owner's call: move the category arrows
+  to the same 3-month, same-day average (it would say *where* the overspending is).
+- [ ] A month only partly recorded (the app started mid-month) still enters the average and pulls
+  it down; only a month with no spending at all is left out.
+
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
 - Fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY) — external data.

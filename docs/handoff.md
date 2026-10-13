@@ -7,44 +7,43 @@
 
 ---
 
-## Session — 2026-09-27 (night) · fixed-income form: exemption by type, IPCA+; Gado removed
+## Session — 2026-10-12 · Ritmo de gastos against the 3-month average
 
-The owner asked, for the "Registrar operação" renda fixa form: classify "Isento de IR"
-automatically from the title's specification, remove Gado from the asset picker, and offer IPCA+
-under "Rentabilidade". No `session-scout` (targeted request). `finance-guard` ran twice (fixed income, then the Gado removal): no findings.
+The owner asked for a way to compare this month's spending so far with the same stretch of the
+last 3 months, averaged, to tell whether they are spending too much. No `session-scout` (the
+documents were read directly). No `finance-guard`: the change is frontend only — no query, no
+migration, no endpoint, no backend money rounding for it to audit.
 
 ### What was done
-- Backend: `fixed_income_is_tax_free()` in `services/fixed_income.py` is now the single exemption
-  rule (LCI, LCA, LIG, CRI, CRA, `DEBENTURE_INCENTIVADA`; a stored `is_tax_free` still counts, for
-  old rows). `fixed_income_net_value`, `realized_tax_rate`, the portfolio's `is_tax_free` and
-  `tax_report.bens_code` read it. `LIG` and `DEBENTURE_INCENTIVADA` are accepted title types.
-  Consequence: an existing LCI/LCA/CRI/CRA saved *without* the flag now nets no IR — correct by law.
-- Frontend (`lib/fixedIncome.js`, `FixedIncomeFields.jsx`): the checkbox is gone; a read-only
-  "Imposto de renda" field shows Isento / Tributado from the type, and `is_tax_free` is written from
-  it. "Rentabilidade" = Pós-fixado (CDI) / IPCA+ / Pré-fixado (IPCA+ still stored as POS + IPCA);
-  the Indexador select (% do CDI / CDI+) shows only for Pós. An old `DEBENTURE` flagged exempt opens
-  for editing as "Debênture incentivada".
-- Then the owner asked to remove Gado everywhere: `CATTLE` is gone from `ALLOWED_ASSET_CLASSES`
-  (the API answers 400), the labels, its 15% default rate, the mortality rule in the portfolio value,
-  the GCAP filter (now `OTHER` only) and every frontend class list. Checked read-only first: the
-  real `finance.db` has 0 CATTLE movements and 0 allocation targets. The migrations' `CHECK`
-  constraints still list it (append-only; a table rebuild for this is not worth it). CLAUDE.md updated.
-- Tests: type-based exemption, legacy flag, net value, new types accepted, Bens code. Suite green.
+- `frontend/src/pages/Dashboard.jsx`, panel "Ritmo de gastos" (Início): `pastSpending` builds the
+  3 previous months with the existing `buildSpending()`, and `spendingPace` averages their
+  cumulative spending day by day. The panel shows "R$ X acima/abaixo do que você costuma gastar
+  até o dia N", the % badge, the average full-month total, one tile per month at the same day, and
+  the average as the grey line (it used to be last month alone).
+- Rules: a month with no spending at all is left out of the average; a month shorter than today's
+  day counts by its total; "Até hoje" is the cumulative up to today (was the whole month's total).
+- Checked with Playwright on a scratch database seeded with known values (current R$ 1.200 against
+  an average of R$ 600; months 600 / 900 / 300; full-month average R$ 1.333,33) at 1400 px and
+  390 px, no console errors. `vite build` passes. `backend/finance.db` untouched.
 
 ### What was not done and why
-- Not tried in a browser; `vite build` passes. Owner check: open Registrar operação → Renda Fixa.
-- A CDB saved with a manual "Isento" tick loses it the next time it is edited and saved (the type
-  rules). Deliberate; mention if the owner had such a row.
-- Carried from before, still open: restart the backend and search LEVE3/FESA4; two findings needing
-  the owner (budgets on income categories; positions whose running applied value goes ≤ 0); owner
-  checks of benchmarks/sectors/IRPF text; the brapi 1-ticker limit; two IRPF codes; the owner
-  walk-through, decisions 3 and 4; the skip_cash flag on the Posição redemption form.
-  `docs/negociacao-2026-09-26-23-43-43.pdf` is not ours — leave it out of commits.
+- No automated test: the frontend has no test runner and the logic lives in the component.
+- Not seen on the owner's real data.
+- "Despesas por categoria" still compares with last month's whole total — left as it was, listed
+  in `next-steps.md` as the owner's call.
+- Carried from before, still open: restart the backend and search LEVE3/FESA4; owner check of the
+  fixed-income form (a CDB saved with a manual "Isento" tick loses it on the next edit — deliberate);
+  two findings needing the owner (budgets on income categories; positions whose running applied
+  value goes ≤ 0); owner checks of benchmarks/sectors/IRPF text; the brapi 1-ticker limit; two IRPF
+  codes; the owner walk-through, decisions 3 and 4; the skip_cash flag on the Posição redemption
+  form. `docs/negociacao-2026-09-26-23-43-43.pdf` is not ours — leave it out of commits.
 
 ### Next session
-Owner checks of this form and of the B3 listing. Otherwise every open item needs the owner.
+If the owner likes the panel, the category arrows on the same 3-month same-day basis are the
+natural follow-up. Otherwise every open item needs the owner.
 
 ### Learned
-- `sed -i` on a CRLF file turns it LF (again) — re-add `` with `sed -i 's/$//'` or patch in
-  Python with bytes.
-- Python heredoc through Git Bash: write non-ASCII as `ç` escapes and it survives.
+- Playwright's cached package now wants `chromium_headless_shell-1234`, but the installed build is
+  `-1243`: pass `executablePath` to `chromium.launch()` instead of reinstalling.
+- A Bash heredoc holding JSX with quotes and backticks breaks; write the edit script with Write.
+- `sed -i` on a CRLF file turns it LF — patch in Python with bytes.

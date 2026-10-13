@@ -71,6 +71,8 @@ import { toast } from '../lib/toast'
 
 const HISTORY_MONTHS = 12
 const INVOICE_MONTHS = 6
+// Meses anteriores que formam a media do "Ritmo de gastos".
+const PACE_MONTHS = 3
 
 const getDaysRemainingInMonth = () => {
   const today = new Date()
@@ -235,7 +237,6 @@ export default function Dashboard() {
 
   const today = new Date()
   const currentKey = monthKey(today)
-  const previousKey = shiftMonth(currentKey, -1)
   const nextKey = shiftMonth(currentKey, 1)
 
   const openCcExpenses = useMemo(() => ccExpenses.filter((expense) => expense.status === 'OPEN'), [ccExpenses])
@@ -304,28 +305,56 @@ export default function Dashboard() {
   }, [monthlyHistory])
 
   const currentSpending = useMemo(() => buildSpending(transactions, ccExpenses, currentKey), [transactions, ccExpenses, currentKey])
-  const previousSpending = useMemo(() => buildSpending(transactions, ccExpenses, previousKey), [transactions, ccExpenses, previousKey])
+  // Os meses anteriores, do mais recente para o mais antigo.
+  const pastSpending = useMemo(
+    () => Array.from({ length: PACE_MONTHS }, (_, index) => {
+      const key = shiftMonth(currentKey, -(index + 1))
+      return { key, ...buildSpending(transactions, ccExpenses, key) }
+    }),
+    [transactions, ccExpenses, currentKey]
+  )
+  const previousSpending = pastSpending[0]
 
-  // Acumulado dia a dia: este mes (ate hoje) contra o mes passado inteiro.
+  // Acumulado dia a dia: este mes (ate hoje) contra a media dos meses
+  // anteriores no mesmo dia. Mes sem nenhum gasto e mes sem registro (antes de
+  // comecar a usar o app) e fica fora da media, senao ela puxaria para baixo.
+  // Mes mais curto que o dia de hoje entra pelo total dele.
   const spendingPace = useMemo(() => {
     const daysInCurrent = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
-    const daysInPrevious = new Date(today.getFullYear(), today.getMonth(), 0).getDate()
     const todayDay = today.getDate()
+    const baseline = pastSpending.filter((month) => month.total > 0)
+    const running = baseline.map(() => 0)
     let current = 0
-    let previous = 0
+    let currentToDate = 0
+    let averageToDate = 0
+    let monthsToDate = baseline.map(() => 0)
     const rows = []
-    for (let day = 1; day <= Math.max(daysInCurrent, daysInPrevious); day += 1) {
+    for (let day = 1; day <= Math.max(daysInCurrent, 31); day += 1) {
       current += currentSpending.byDay[day] || 0
-      previous += previousSpending.byDay[day] || 0
+      baseline.forEach((month, index) => {
+        running[index] += month.byDay[day] || 0
+      })
+      const average = baseline.length > 0 ? running.reduce((acc, value) => acc + value, 0) / baseline.length : null
+      if (day === todayDay) {
+        currentToDate = current
+        averageToDate = average || 0
+        monthsToDate = [...running]
+      }
       rows.push({
         day,
         current: day <= todayDay ? Number(current.toFixed(2)) : null,
-        previous: day <= daysInPrevious ? Number(previous.toFixed(2)) : null,
+        average: average === null ? null : Number(average.toFixed(2)),
       })
     }
-    const previousAtSameDay = rows[Math.min(todayDay, daysInPrevious) - 1]?.previous || 0
-    return { rows, todayDay, previousAtSameDay }
-  }, [currentSpending, previousSpending])
+    return {
+      rows,
+      todayDay,
+      currentToDate,
+      averageToDate,
+      averageMonth: baseline.length > 0 ? baseline.reduce((acc, month) => acc + month.total, 0) / baseline.length : 0,
+      months: baseline.map((month, index) => ({ key: month.key, toDate: monthsToDate[index] })),
+    }
+  }, [currentSpending, pastSpending])
 
   const categoryBreakdown = useMemo(() => {
     return Object.entries(currentSpending.byCategory)
@@ -565,7 +594,10 @@ export default function Dashboard() {
   const totalWealth = (bankBalance || 0) + investmentsNetBalance
   const daysRemainingInMonth = getDaysRemainingInMonth()
   const dailyAvailable = (bankBalance - currentMonthInvoice) / daysRemainingInMonth
-  const spendingVsLastMonth = percentChange(currentSpending.total, spendingPace.previousAtSameDay)
+  const paceMonths = spendingPace.months.length
+  const paceDifference = spendingPace.currentToDate - spendingPace.averageToDate
+  const spendingVsAverage = paceMonths > 0 ? percentChange(spendingPace.currentToDate, spendingPace.averageToDate) : null
+  const paceAverageLabel = paceMonths > 1 ? `Média de ${paceMonths} meses` : `Mês de ${shortMonth(spendingPace.months[0]?.key)}`
   // Resultado do mes: entradas menos despesas. Aporte nao e despesa
   // (lib/transactions.js) — aparece a parte.
   const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, investment: 0 }
@@ -889,23 +921,44 @@ export default function Dashboard() {
         <Panel className="xl:col-span-3">
           <PanelHeader
             title="Ritmo de gastos"
-            description="Gasto acumulado dia a dia: conta corrente e compras no cartão, contra o mês passado."
+            description={`Gasto acumulado dia a dia (conta corrente e compras no cartão), contra a média dos ${PACE_MONTHS} meses anteriores no mesmo dia do mês.`}
             actions={(
               <div className="text-right">
                 <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Até hoje</p>
                 <div className="flex items-center justify-end gap-2">
-                  <DeltaBadge value={spendingVsLastMonth} inverse />
-                  <p className="text-lg font-bold tabular text-zinc-950">{formatCurrency(currentSpending.total)}</p>
+                  <DeltaBadge value={spendingVsAverage} inverse />
+                  <p className="text-lg font-bold tabular text-zinc-950">{formatCurrency(spendingPace.currentToDate)}</p>
                 </div>
               </div>
             )}
           />
           <div className="p-5">
-            {currentSpending.total > 0 || previousSpending.total > 0 ? (
+            {currentSpending.total > 0 || paceMonths > 0 ? (
               <>
+                {paceMonths > 0 ? (
+                  <>
+                    <p className="mb-3 text-sm text-zinc-600">
+                      {Math.abs(paceDifference) < 0.005 ? (
+                        <span className="font-semibold text-zinc-950">Na média</span>
+                      ) : (
+                        <span className={cx('font-semibold tabular', paceDifference > 0 ? 'text-rose-600' : 'text-emerald-700')}>
+                          {formatCurrency(Math.abs(paceDifference))} {paceDifference > 0 ? 'acima' : 'abaixo'}
+                        </span>
+                      )}
+                      {' '}do que você costuma gastar até o dia {spendingPace.todayDay}.
+                      {' '}Um mês inteiro fecha, em média, em <span className="tabular">{formatCurrency(spendingPace.averageMonth)}</span>.
+                    </p>
+                    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <InlineStat label={`${paceAverageLabel} até o dia ${spendingPace.todayDay}`} value={formatCurrency(spendingPace.averageToDate)} />
+                      {paceMonths > 1 ? spendingPace.months.map((month) => (
+                        <InlineStat key={month.key} label={`${shortMonth(month.key)} até o dia ${spendingPace.todayDay}`} value={formatCurrency(month.toDate)} />
+                      )) : null}
+                    </div>
+                  </>
+                ) : null}
                 <div className="mb-3 flex flex-wrap gap-4">
                   <LegendDot color={SERIES[0]} label={`Este mês (${shortMonth(currentKey)})`} shape="line" />
-                  <LegendDot color={OTHER_COLOR} label={`Mês passado (${shortMonth(previousKey)})`} shape="line" />
+                  {paceMonths > 0 ? <LegendDot color={OTHER_COLOR} label={paceAverageLabel} shape="line" /> : null}
                 </div>
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -922,14 +975,14 @@ export default function Dashboard() {
                         cursor={{ stroke: CHART.axis }}
                         content={(
                           <ChartTooltip
-                            names={{ current: 'Este mês', previous: 'Mês passado' }}
+                            names={{ current: 'Este mês', average: paceAverageLabel }}
                             labelFormatter={(day) => `Dia ${day}`}
                           />
                         )}
                       />
                       <Line
                         type="monotone"
-                        dataKey="previous"
+                        dataKey="average"
                         stroke={OTHER_COLOR}
                         strokeWidth={2}
                         dot={false}
@@ -953,7 +1006,7 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <EmptyState icon={Receipt} title="Nenhum gasto registrado" message="O ritmo aparece com os primeiros gastos deste mês ou do anterior." />
+              <EmptyState icon={Receipt} title="Nenhum gasto registrado" message="O ritmo aparece com os primeiros gastos deste mês ou dos anteriores." />
             )}
           </div>
         </Panel>
