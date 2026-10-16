@@ -84,8 +84,17 @@ function isWrite(method, path) {
   return !/\/preview(\?|$)/.test(path) && !path.startsWith('/api/auth/login') && !path.startsWith('/api/auth/signup')
 }
 
+// Leituras desistem sozinhas: no celular, com a VPN do Tailscale "conectada"
+// sem rede por baixo (modo aviao), um pedido nao falha, fica pendurado. Escritas
+// so desistem quando pedem (`timeoutMs`): uma edicao que estourou o tempo pode ter
+// sido gravada. As criacoes do "+ Novo" pedem, porque o client_id torna o reenvio
+// seguro (lib/outbox.js).
+const READ_TIMEOUT_MS = 45_000
+
 export async function apiFetch(path, options = {}) {
-  const { auth = true, ...fetchOptions } = options
+  const { auth = true, timeoutMs, ...fetchOptions } = options
+  const isRead = !fetchOptions.method || ['GET', 'HEAD'].includes(String(fetchOptions.method).toUpperCase())
+  const limit = timeoutMs ?? (isRead ? READ_TIMEOUT_MS : 0)
   const headers = new Headers(fetchOptions.headers || {})
 
   if (auth) {
@@ -105,14 +114,20 @@ export async function apiFetch(path, options = {}) {
   }
 
   let response
+  // Sem resposta no prazo conta como "nao chegou" (ApiNetworkError), igual a sem rede.
+  const controller = limit && !fetchOptions.signal ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), limit) : null
   try {
     response = await fetch(`${API_BASE_URL}${normalizePath(path)}`, {
       ...fetchOptions,
+      ...(controller ? { signal: controller.signal } : {}),
       headers
     })
   } catch {
     setServerReachable(false)
     throw new ApiNetworkError(NETWORK_MESSAGE)
+  } finally {
+    if (timer) clearTimeout(timer)
   }
   setServerReachable(true)
 

@@ -28,6 +28,11 @@ import {
 // O evento `online` nao basta: no PC o backend pode estar parado com a rede no ar.
 const RETRY_MS = 30_000
 
+// Uma criacao sem resposta neste prazo vai para a fila (o client_id torna o
+// reenvio seguro). Sem isso, no celular com a VPN de pe e sem rede, o Salvar
+// ficava girando.
+const CREATE_TIMEOUT_MS = 10_000
+
 const browserBackend = {
   all: () => storeAll(OUTBOX_STORE),
   put: (item) => storePut(OUTBOX_STORE, item),
@@ -35,7 +40,7 @@ const browserBackend = {
   // Devolve { ok: true, data } | { network: true } | { status, message }.
   async send(item) {
     try {
-      const data = await apiFetch(endpointFor(item.kind), { method: 'POST', body: JSON.stringify(item.payload) })
+      const data = await apiFetch(endpointFor(item.kind), { method: 'POST', body: JSON.stringify(item.payload), timeoutMs: CREATE_TIMEOUT_MS })
       return { ok: true, data }
     } catch (error) {
       if (error instanceof ApiNetworkError) return { network: true }
@@ -209,7 +214,7 @@ export function flush({ retryAttention = false } = {}) {
 export async function createEntry(kind, payload) {
   const body = { ...payload, client_id: payload.client_id || newClientId() }
   try {
-    const data = await apiFetch(endpointFor(kind), { method: 'POST', body: JSON.stringify(body) })
+    const data = await apiFetch(endpointFor(kind), { method: 'POST', body: JSON.stringify(body), timeoutMs: CREATE_TIMEOUT_MS })
     return { queued: false, data }
   } catch (error) {
     if (!(error instanceof ApiNetworkError)) throw error

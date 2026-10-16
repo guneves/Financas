@@ -398,6 +398,11 @@ export function DeltaBadge({ value, inverse = false, suffix = '', className = ''
 // `measure` — o texto final — numa copia invisivel no tamanho base, e reduz a
 // fonte na proporcao que falta; a altura da linha fica a do tamanho base, para
 // o cartao nao mudar de altura. Sem `measure`, so nao quebra a linha.
+// As larguras sao fracionarias (getBoundingClientRect) e sobra uma folga de 2%:
+// medido em pixels inteiros, o texto ajustado "no limite" ficava 288,4 px numa
+// caixa de 288 e virava "R$ 1.000,…" (no celular, com o zoom de texto do sistema).
+const FIT_SLACK = 0.98
+
 export function FitValue({ children, measure, baseSize = 24, minSize = 15, className = '' }) {
   const boxRef = useRef(null)
   const probeRef = useRef(null)
@@ -409,8 +414,8 @@ export function FitValue({ children, measure, baseSize = 24, minSize = 15, class
       const box = boxRef.current
       const probe = probeRef.current
       if (!active || !box || !probe) return
-      const available = box.clientWidth
-      const needed = probe.scrollWidth
+      const available = box.getBoundingClientRect().width * FIT_SLACK
+      const needed = probe.getBoundingClientRect().width
       if (!available || !needed) return
       setSize(Math.max(minSize, Math.min(baseSize, Math.floor((baseSize * available * 10) / needed) / 10)))
     }
