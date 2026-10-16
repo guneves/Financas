@@ -59,7 +59,9 @@ each committing its own paths.
   movement behind it counts as neither spent nor invested.
 
 ### Next
-- Owner: restart `:5000`, set a plan, check it on the phone after `build-apk.ps1`.
+- Owner: set a plan and check it on the phone. Done since: `:5000` restarted at 16:17 (025
+  applied), and the APK was rebuilt from a clean `9465e24` and installed at 16:19
+  (`versionCode=201`, `2026.10.16-9465e24`). It also carries the Esc/back-button fix below.
 
 ## Session — 2026-10-16 (third, parallel) · Bug pass on the Android and desktop apps
 
