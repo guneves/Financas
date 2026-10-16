@@ -39,10 +39,12 @@ function syncSession() {
   return call.catch((error) => console.warn('Sessao do envio nativo:', error))
 }
 
+// O fundo de cada tema (os mesmos de lib/theme.js e de res/values*/app_colors.xml).
+// Nao le o meta theme-color: na abertura o index.html poe a classe `dark` mas
+// deixa o meta no valor claro, e as barras ficavam claras sob um app escuro.
 function applyTheme() {
   const dark = document.documentElement.classList.contains('dark')
-  const background = document.querySelector('meta[name="theme-color"]')?.getAttribute('content')
-  Shell.setTheme({ dark, background: background || (dark ? '#0B1210' : '#EFF2ED') }).catch(() => {})
+  Shell.setTheme({ dark, background: dark ? '#0B1210' : '#EFF2ED' }).catch(() => {})
 }
 
 // Algo aberto por cima da tela (sheet, confirmacao, menu)? O voltar fecha isso
