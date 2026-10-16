@@ -71,6 +71,34 @@ def movement_affects_fixed_income_position(investment):
     )
 
 
+# Meio centavo: a soma dos custos resgatados pode sobrar um resto de ponto flutuante.
+CLOSED_TITLE_TOLERANCE = 0.005
+
+
+def fixed_income_title_closed(remaining_applied):
+    """Titulo todo resgatado: o resgate total deixa a quantidade em 1 e o aplicado em 0."""
+    return remaining_applied <= CLOSED_TITLE_TOLERANCE
+
+
+def closed_fixed_income_title_ids(investments):
+    """Ids das compras de renda fixa cujos resgates ja levaram todo o valor aplicado."""
+    remaining = {}
+    for inv in investments:
+        if inv.get("asset_class") != "FIXED_INCOME":
+            continue
+        metadata = inv.get("metadata") or {}
+        quantity = safe_float(inv.get("quantity"))
+        applied = quantity * safe_float(inv.get("average_price"))
+        if movement_affects_fixed_income_position(inv):
+            key = str(metadata.get("related_id"))
+        elif quantity > 0 and not metadata.get("is_redemption"):
+            key = str(inv.get("id"))
+        else:
+            continue
+        remaining[key] = remaining.get(key, 0) + applied
+    return {key for key, value in remaining.items() if fixed_income_title_closed(value)}
+
+
 FIXED_INCOME_INDEXERS = {"CDI", "CDI_PLUS", "IPCA"}
 BUSINESS_DAYS_PER_YEAR = 252
 BCB_SERIES_CDI = 12
@@ -269,15 +297,17 @@ def start_fixed_income_refresh(investments_to_update):
     Cada serie (CDI e, se algum titulo for IPCA+, o IPCA) e buscada uma unica
     vez, a partir da compra mais antiga; cada titulo usa o trecho desde a sua
     compra. Resgates tem quantidade negativa e nao sao titulos: corrigi-los
-    so gerava uma falha "Taxa do titulo nao informada".
+    so gerava uma falha "Taxa do titulo nao informada". Titulo ja todo
+    resgatado tambem fica de fora: nao vale mais nada a corrigir.
     """
     titles = []
     failed_assets = []
+    closed_ids = closed_fixed_income_title_ids(investments_to_update)
     for inv in investments_to_update:
         if inv.get("asset_class") != "FIXED_INCOME" or safe_float(inv.get("quantity")) <= 0:
             continue
         meta = inv.get("metadata") or {}
-        if meta.get("is_redemption"):
+        if meta.get("is_redemption") or str(inv.get("id")) in closed_ids:
             continue
 
         indexer, rate = fixed_income_rate_terms(meta)

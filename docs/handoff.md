@@ -7,6 +7,40 @@
 
 ---
 
+## Session — 2026-10-16 (sixth, parallel) · Investidor10 import, closed renda fixa titles
+
+Ran alongside the monthly-plan session (`025`, uncommitted in the tree); committed only its own paths.
+
+### What was done
+- **Data, not code: the owner's Investidor10 wallet copied into `wgrrodrigues6@gmail.com`**
+  (user `e248c5db…`, which had no investments). 567 lançamentos read from Investidor10's own JSON
+  (`/wallet/api/proxy/wallet-app/entries/<wallet>/<1|3|5>`) through Claude in Chrome, imported
+  in-process through the real API (Flask test client), chronologically: 407 buys, 98 sells, 8
+  bonificações and 3 splits as `corporate_actions` (a bonus uses ratio = holding:quantity so the
+  quantity is Investidor10's exact one), 17 renda fixa + 16 Tesouro buys, 20 redemptions linked by
+  `related_id`. No Extrato rows. Every row has `metadata.imported_from = "investidor10"` and
+  `external_id`. Open positions matched Investidor10's running totals. GALG11, JBSS3, NEOE3 are off
+  the B3 list and were created as existing assets. Pre-import backup and the scripts live in the
+  session scratchpad, not the repo.
+- **Tesouro rates:** Investidor10 has no contracted rate, so "Atualizar cotações" failed every
+  Tesouro title. Each buy now carries the rate from Tesouro Transparente's
+  `PrecoTaxaTesouroDireto.csv`, taken on the day whose "PU Compra Manhã" is closest to the price
+  paid (11 of 16 exact, all within 0.51%). IPCA+ / Renda+ → `indexer IPCA`; Selic → `CDI_PLUS` +
+  its spread (the app has no Selic series; CDI ≈ Selic − 0.10 pp).
+- **Bug fixed: a fully redeemed renda fixa title stayed open.** A full resgate leaves quantity 1
+  and applied 0, so the title was listed at R$ 0, re-corrected against the BCB on every refresh,
+  and reported stale. `closed_fixed_income_title_ids()` / `fixed_income_title_closed()` in
+  `services/fixed_income.py` (half-a-centavo tolerance); the refresh, `build_portfolio_snapshot()`
+  and `portfolio_month_positions()` skip it. Two tests in `test_fixed_income_indexers.py`.
+
+### What was not done and why
+- **The running `:5000` still has the old code** until the owner restarts it, so until then the app
+  still lists closed titles. The data fixes are already in `finance.db`.
+- Tesouro is valued on the curve (rate accrual), like every renda fixa here, not at the Tesouro's
+  daily market price. Renda+ is modelled as IPCA+ to 2065. No "Tesouro" title type exists in the form.
+- Redemption cost on the LCI Inter 90% (two buys, three resgates) is proportional to the amount
+  redeemed; Investidor10 has no per-resgate cost.
+
 ## Session — 2026-10-16 (fifth) · Phone: APK rebuilds, masked e-mail, demo data out, load time
 
 ### What was done

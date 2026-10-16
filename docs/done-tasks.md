@@ -101,6 +101,8 @@
 | Perfil shows the login e-mail masked (`maskEmail()` in `lib/format.js`, "fu•••@g•••.com"), owner's request | 2026-10-16 |
 | "Dados de exemplo" removed from Ajustes at the owner's request (`DemoDataSection.jsx` deleted; it was frontend-only). The seed scripts in `backend/scripts/` are untouched | 2026-10-16 |
 | Phone load time: CORS preflights cached 2 h (`max_age=7200`; Chrome's default was 5 s, so almost every APK request was two round trips); navigation in a React transition (`v7_startTransition`) keeps the current screen until the next is ready; page chunks preloaded 1.5 s after start; query `gcTime` = the persisted cache's 14 days, so a screen not opened this session still has data on the next launch | 2026-10-16 |
+| A fully redeemed renda fixa title is closed: not corrected by the BCB, not listed in Posição, out of the evolution (`closed_fixed_income_title_ids()` in `services/fixed_income.py`, half-a-centavo tolerance). Before, a full resgate left a R$ 0 row that failed/stale on every refresh | 2026-10-16 |
+| Owner's Investidor10 wallet (567 lançamentos: renda variável with splits and bonificações, renda fixa, Tesouro) imported through the API into `wgrrodrigues6@gmail.com`; Tesouro rates from Tesouro Transparente. Data only, see the 2026-10-16 handoff | 2026-10-16 |
 
 ---
 

@@ -162,6 +162,56 @@ def test_refresh_ignores_redemption_rows(fixed_income_module, client, auth, monk
     assert [asset["investment_id"] for asset in body["updated_assets"]] == [title]
 
 
+def redeem_fixed_income(client, auth, name, title, cost, date):
+    create_fixed_income(client, auth, name, {
+        "is_redemption": True, "affects_position": True, "related_id": title,
+        "redemption_date": date,
+    }, quantity=-1, price=cost)
+
+
+def test_fully_redeemed_title_is_closed(fixed_income_module, client, auth, monkeypatch):
+    # O resgate total deixa a quantidade em 1 e o aplicado em 0: o titulo saiu
+    # da carteira -- nada de corrigir pelo BCB nem de linha de R$ 0 na Posicao.
+    monkeypatch.setattr(
+        fixed_income_module,
+        "fetch_bcb_series",
+        lambda code, start, end=None: [(datetime(2026, 1, 1), 0.0004)] * 10,
+    )
+    rate = {"rate_type": "POS", "indexer": "CDI", "cdi_percentage": 1.0, "purchase_date": "2025-01-02"}
+    closed = create_fixed_income(client, auth, "LCI TODA RESGATADA", rate, price=1000)
+    # Dois resgates cujos custos somam o aplicado (com o resto de ponto flutuante).
+    redeem_fixed_income(client, auth, "LCI TODA RESGATADA", closed, 700.1, "2025-06-01")
+    redeem_fixed_income(client, auth, "LCI TODA RESGATADA", closed, 299.9, "2025-07-01")
+    open_title = create_fixed_income(client, auth, "LCI EM PARTE", rate, price=1000)
+    redeem_fixed_income(client, auth, "LCI EM PARTE", open_title, 999.99, "2025-07-01")
+
+    refresh = client.post("/api/investments/update-prices", json={}, headers=auth)
+    assert refresh.status_code == 200, refresh.get_data(as_text=True)
+    body = refresh.get_json()
+    assert body["failed_assets"] == []
+    assert [asset["investment_id"] for asset in body["updated_assets"]] == [open_title]
+    assert [asset["name"] for asset in body["stale_assets"]] == []
+
+    portfolio = client.get("/api/investments/portfolio", headers=auth).get_json()
+    assert [asset["source_transaction_id"] for asset in portfolio["assets"]] == [open_title]
+
+
+def test_closed_title_ids_need_the_whole_cost_redeemed(fixed_income_module):
+    def movement(movement_id, quantity, price, **metadata):
+        return {"id": movement_id, "asset_class": "FIXED_INCOME", "quantity": quantity,
+                "average_price": price, "metadata": metadata}
+
+    redemption = {"is_redemption": True, "affects_position": True}
+    investments = [
+        movement("a", 1, 1000),
+        movement("r1", -1, 1000, related_id="a", **redemption),
+        movement("b", 1, 500),
+        movement("r2", -1, 499.99, related_id="b", **redemption),
+        movement("c", 1, 300),
+    ]
+    assert fixed_income_module.closed_fixed_income_title_ids(investments) == {"a"}
+
+
 def test_bcb_failure_fails_every_title_without_breaking_the_request(fixed_income_module, client, auth, monkeypatch):
     def broken_series(code, start, end=None):
         raise RuntimeError("BCB respondeu 503")

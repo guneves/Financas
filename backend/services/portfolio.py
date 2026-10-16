@@ -18,6 +18,7 @@ from services.fixed_income import (
     fixed_income_is_tax_free,
     accrual_factor_until,
     fixed_income_net_value,
+    fixed_income_title_closed,
     movement_affects_fixed_income_position,
 )
 from services.investments import fetch_investments
@@ -162,6 +163,8 @@ def portfolio_month_positions(investments_data, historical_prices, month_start, 
         quantity = position["quantity"]
         applied_value = position["applied"]
         if quantity <= 0 or applied_value <= 0:
+            continue
+        if position["class"] == "FIXED_INCOME" and fixed_income_title_closed(applied_value):
             continue
 
         is_current_month = target_key == current_month_key
@@ -513,6 +516,9 @@ def build_portfolio_snapshot(current_user_id):
 
     for data in grouped_assets.values():
         if data["total_quantity"] <= 0:
+            continue
+        # Renda fixa toda resgatada continua com quantidade 1 e aplicado 0: encerrada.
+        if data["class"] == "FIXED_INCOME" and fixed_income_title_closed(data["total_invested"]):
             continue
 
         avg_price_calculated = (
