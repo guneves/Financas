@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- O fundo da tela no tema escuro (meta theme-color em lib/theme.js). -->
+    <color name="app_background">#0B1210</color>
+</resources>

@@ -230,6 +230,11 @@ docs/
   next-steps.md       # the plan — open work only
   done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
+frontend/android/      # Capacitor's Android project (committed); native code in
+                      # app/src/main/java/br/financas/app/ (outbox/ = the native queue and sender)
+mobile/
+  build-apk.ps1       # web build for the APK + cap sync + signed release + adb install
+  new-keystore.ps1    # creates the release key outside the repo; run once, back it up
 mobile-docs/
   steps-to-production.md  # the Android app plan: decisions, phases and their status
 .claude/agents/
@@ -305,7 +310,9 @@ mobile-docs/
   the app closed. The rules — what each response does to an item, what a pending item does to a
   balance — live in `lib/outboxRules.js` with tests; a pending transfer leaves the consolidated
   balance alone and a pending card purchase touches no account. A balance that counts pending
-  items is labelled an estimate.
+  items is labelled an estimate. In the APK the queue and the sender are Java
+  (`frontend/android/.../outbox/`, swapped in by `lib/nativeApp.js`), and `OutboxRules.java` is a
+  port of `outboxRules.js`: change one, change the other, with a test on each side.
 - **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
   `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.

@@ -61,8 +61,10 @@ server's `client_id` makes a double delivery harmless either way.
 
 ## Phase 1 — One origin, reachable from the phone (PC half built 2026-10-13)
 
-Built: steps 1, 2 and 4, and `backend/.env.example` for step 3. Open: the owner's `backend/.env`
-(step 3), `tailscale serve` (step 5) and the phone half of "done when".
+Built: steps 1, 2 and 4, and `backend/.env.example` for step 3. On 2026-10-16 `backend/.env` had a
+real `JWT_SECRET`, and Claude set `JWT_EXP_DAYS=180` and added `https://localhost` to `CORS_ORIGINS`.
+`tailscale serve` already proxies `https://financas.tail5084ff.ts.net` to `127.0.0.1:5000` (step 5).
+Open: the phone half of "done when" — nobody has opened the address on the phone yet.
 
 1. Flask serves the built frontend (`frontend/dist`) at `/`, with a fallback to `index.html` for
    client routes. `/api/*` is unchanged, and an unknown `/api/...` path stays a JSON 404.
@@ -181,26 +183,70 @@ Done when, on the PC: with the backend stopped, three entries are recorded, the 
 reopened (the entries are still listed as pending), and after the backend returns all three appear
 once in the Extrato. The phone repeats this test in Phase 5.
 
-## Phase 5 — The APK (not started)
+## Phase 5 — The APK (code written 2026-10-16; not yet compiled — no JDK or SDK on the PC)
 
-1. Add Capacitor to `frontend/` and generate `frontend/android/`. The app bundles `frontend/dist`,
-   so it opens with no connection.
-2. The APK's API base is the Tailscale HTTPS address, set at build time (`VITE_API_BASE_URL`). The
-   WebView's origin is `https://localhost` (Capacitor's default `androidScheme` and `hostname`);
-   add it to `CORS_ORIGINS`. The Tailscale certificate comes from a public CA, so the WebView needs
-   no cleartext or certificate configuration.
-3. The native outbox: a Capacitor plugin over a SQLite table with the same item shape as Phase 4,
-   a `WorkManager` job (network constraint, exponential backoff) that posts each item to the
-   server, and `setSession` / `clearSession` for the API address and token, kept in encrypted
-   storage. `outbox.js` picks this storage when it runs inside the APK. The response rules are the
-   ones in Phase 4, step 4; on 401 the job stops and posts a notification asking for login. Native
-   requests carry no `Origin`, so CORS does not apply to them.
-4. Handle what the browser gave for free: the Android back button, the status bar colour in both
-   themes, safe-area insets, the keyboard resizing sheets.
-5. App icon, splash screen, app name.
-6. Create the release keystore, store it outside the repository and back it up. Losing it means
-   uninstalling the app to install a new build.
-7. A build script that produces the signed APK and installs it over USB (`adb install`).
+Written: steps 1 to 7, as files. Nothing has been compiled: the PC has no JDK and no Android SDK,
+and the owner chose to install Android Studio rather than have the command-line tools installed.
+So the Java has been proofread but never built, and the first `.\mobile\build-apk.ps1` is also its
+first compile. Open: the owner's Android Studio, `new-keystore.ps1`, the first build and install,
+and the "done when" on the phone.
+
+1. Capacitor 8.5 in `frontend/` (`capacitor.config.json`, app id `br.financas.app`, name
+   "Finanças"); `frontend/android/` generated and committed. The APK bundles its own build of the
+   frontend, so it opens with no connection.
+2. The API base is set at build time: `build-apk.ps1` builds with `VITE_API_BASE_URL` into
+   `frontend/dist-android/` (gitignored), so `frontend/dist`, which Flask serves on the PC and to
+   the phone's browser, keeps calling its own origin. The default address is
+   `https://financas.tail5084ff.ts.net`: the PC's MagicDNS name is `financas`, not its Windows
+   hostname (`desktop-behm4lb` does not resolve in the tailnet). `-ApiBase` overrides it.
+   `https://localhost` is in `CORS_ORIGINS` in `backend/.env`.
+3. The native outbox, Java, in `android/app/src/main/java/br/financas/app/outbox/`:
+   - `OutboxStore`: a SQLite table holding each item whole, in the Phase 4 shape;
+   - `OutboxRules`: `outcomeOf`, `endpointFor` and `deliveredDiffers`, ported from
+     `outboxRules.js`, with JVM tests in `app/src/test/` (`build-apk.ps1` runs them);
+   - `OutboxSender`: one run at a time behind a lock, one item at a time, in order, with the
+     Phase 4 rules. A run also takes items queued while it runs. Redirects are not followed, and
+     a 2xx counts only when its body is the created row. The result is written only to the
+     version that was sent, so an item corrected or discarded mid-request stays as the screen
+     left it;
+   - `OutboxWorker`: WorkManager, network constraint, exponential backoff from 30 s, unique work
+     with `KEEP`. On 401, or with no session, it posts a "Sessão expirada" notification and does
+     not retry; the next `setSession` schedules a new run;
+   - `Session`: API address, user id and token. The token is encrypted with an AES-GCM key from
+     the Android Keystore;
+   - `OutboxPlugin` (`Outbox`): `all`, `put`, `remove`, `flush` (runs a round now and returns
+     the same summary as the browser's `flush()`), `setSession`, `clearSession`, and a `changed`
+     event when the background sender moved the queue.
+
+   `lib/nativeApp.js` swaps it in with `setOutboxBackend()` before `startOutbox()`. It hands over
+   the session on every `finance-auth-change` and, on `changed`, reloads the queue and invalidates
+   the server data. Java instead of Kotlin: the generated project is Java, and plain Java does not
+   depend on matching a Kotlin plugin version to a build nobody could run here. Phase 6's parsers
+   can bring Kotlin in.
+4. Android details:
+   - the back button closes the open sheet, confirmation or menu (by the same Escape the keyboard
+     uses), then goes back a screen, and on Início minimises the app;
+   - the status and gesture bars take the app's theme (the `Shell` plugin, fed by
+     `finance-theme-change` from `lib/theme.js`). This matters because the theme toggle can
+     differ from the system's;
+   - `SystemBars` `insetsHandling: native` pads the WebView, so nothing sits under the bars;
+   - the same padding follows the keyboard;
+   - `POST_NOTIFICATIONS` is asked for once, at first launch;
+   - `allowBackup="false"`: nothing goes to Google's backup.
+5. The icon is the favicon's chart as an adaptive vector icon (emerald background; a monochrome
+   layer for themed icons). The launch screen is that icon on the app's background, light or dark.
+   The name is "Finanças". The small notification icon is a white vector of the same chart.
+6. `mobile/new-keystore.ps1` creates `%USERPROFILE%\.financas-android\financas-release.jks`
+   (PKCS12, RSA 4096, 100 years) and `keystore.properties` with a generated password. It refuses
+   to run if a key already exists. Gradle reads the properties file (or
+   `FINANCAS_KEYSTORE_PROPERTIES`). The folder must be backed up.
+7. `mobile/build-apk.ps1` runs the web build, `cap sync`, the JVM tests and `assembleRelease`
+   with the version (commit count; date + commit, plus `-dirty`), then `apksigner verify` and
+   `adb install -r` on the single connected device. It never uninstalls: on a signature mismatch
+   it stops and says to empty "Pendentes" first.
+
+Not done: showing the version in Ajustes (Phase 9, step 4). The version is already stamped into
+every build.
 
 Done when: with the phone in airplane mode, three entries are recorded, the app is closed, and
 after reconnecting — without opening the app — all three appear once on the PC.

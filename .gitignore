@@ -39,6 +39,8 @@ node_modules/
 # Pastas de build de produção do Vite
 dist/
 dist-ssr/
+# Build do APK (mobile/build-apk.ps1), com a API apontada para o Tailscale
+dist-android/
 build/
 
 # Logs de erro do NPM

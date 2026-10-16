@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O grafico de public/favicon.svg (viewBox 32), ampliado 3x e centrado no
+     quadro de 108 dp do icone adaptativo, dentro da zona segura de 66 dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="6" android:translateY="3" android:scaleX="3" android:scaleY="3">
+        <path
+            android:pathData="M8,21.5L13.5,16L17,19.5L24,12.5"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M19,12.5L24,12.5L24,17.5"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

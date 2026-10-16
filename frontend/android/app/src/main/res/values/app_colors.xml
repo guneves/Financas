@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- O fundo da tela no tema claro (meta theme-color em lib/theme.js). Atras das
+         barras do sistema e na abertura, antes da tela carregar. -->
+    <color name="app_background">#EFF2ED</color>
+</resources>

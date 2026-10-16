@@ -11,19 +11,35 @@
 
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
-Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13 (see
-`docs/done-tasks.md`). Open, in order:
+Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2
+on the PC and Phase 5's code on 2026-10-16 (see `docs/done-tasks.md`). Open, in order:
+- [ ] Phase 5, first build. The code is written but has never been compiled: the PC has no JDK or
+  Android SDK. The owner installs Android Studio (it brings both; open it once so it downloads
+  the SDK and accept its licences), then runs `.\mobile\new-keystore.ps1` once and backs up
+  `%USERPROFILE%\.financas-android`. Then `.\mobile\build-apk.ps1` with the phone on USB
+  debugging. Expect compile fixes on that first run: nothing native has been built yet. Then the
+  phone checks, in this order:
+  - it opens offline;
+  - login works through `https://financas.tail5084ff.ts.net`, with the backend restarted so it
+    reads the new `CORS_ORIGINS`;
+  - the back button, the bars in both themes, the keyboard over "+ Novo";
+  - Phase 5's "done when": airplane mode, three entries, close the app, reconnect, all three on
+    the PC once.
+- [ ] Browser outbox (`lib/outbox.js` `flush()`): it writes the result back from the item it sent,
+  so an item corrected or discarded during that one request can be overwritten, removed or
+  brought back. The native sender compares versions first (`OutboxStore.removeIfUnchanged`); do
+  the same on the web side, with a rule test. A small window, found by `finance-guard` on 2026-10-16.
+- [ ] Phase 5, not built: the app version in Ajustes (Phase 9, step 4). Builds already carry
+  `versionName` = date + commit.
 - [ ] Owner look at Phase 4 on the PC. Its "done when" passed in a scripted desktop browser on a
   scratch database (2026-10-13, see `docs/done-tasks.md`); nobody has yet judged the screens by
   eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the
   backend stopped a browser cannot load a screen it has not visited (each screen's code comes from
   the server on first visit, and there is no service worker), so only the APK opens cold offline.
-- [ ] Owner, on the PC: in `backend/.env` set a real `JWT_SECRET` (changing it logs every device
-  out), `JWT_EXP_DAYS=180` and `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://localhost`
-  (`backend/.env.example` has the three). Not edited by Claude: it is the owner's secrets file.
-- [ ] Phase 1, phone half: install Tailscale on PC and phone, enable MagicDNS and HTTPS
-  certificates in the tailnet, run `tailscale serve` in front of port 5000, open the address in
-  the phone's browser and record a despesa.
+- [ ] Phase 1, phone half: Tailscale is on PC and phone and `tailscale serve` already proxies
+  `https://financas.tail5084ff.ts.net` to port 5000 (seen 2026-10-16). Left: start the backend
+  (`.\start.ps1 -Built`), open that address in the phone's browser on mobile data and record a
+  despesa.
 - [ ] Phase 4, step 7, partly built: with the server unreachable a pill in the header says so and
   an online-only action fails with "Sem conexão com o servidor. Esta ação só funciona conectado.",
   but the buttons themselves are not disabled screen by screen.
@@ -36,8 +52,8 @@ Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 
   one-handed in under ten seconds, and check that the amount field's keyboard types a comma the
   field accepts (`type="number"` with `inputMode="decimal"`; keyboards differ). The layout itself
   was fixed on the PC on 2026-10-16 (see `docs/done-tasks.md` and Phase 2 in the plan).
-- [ ] Phases 5 to 9 (APK, notification listener, inbox, statement dedup, hardening). Each needs
-  the phone, Android Studio or real notification texts; what is needed from the owner is listed
+- [ ] Phases 6 to 9 (notification listener, inbox, statement dedup, hardening). Each needs the
+  phone, a working APK build or real notification texts; what is needed from the owner is listed
   at the top of each phase in the plan.
 
 ### Investments separate from banking — what is left

@@ -48,7 +48,8 @@ const browserBackend = {
 
 let backend = browserBackend
 
-// Fase 5 (APK): o plugin nativo entra aqui, com os mesmos quatro metodos.
+// Fase 5 (APK): o plugin nativo entra aqui (lib/nativeApp.js), com all, put,
+// remove e um flush que envia do lado nativo e devolve o resumo da rodada.
 export function setOutboxBackend(next) {
   backend = { ...browserBackend, ...next }
   return load()
@@ -95,6 +96,11 @@ export function useOutbox() {
 
 export function outboxItems() {
   return getSnapshot()
+}
+
+// O remetente nativo mexeu na fila sem a tela pedir (enviou, ou o servidor recusou).
+export function reloadOutbox() {
+  return load()
 }
 
 async function load() {
@@ -155,9 +161,10 @@ export function flush({ retryAttention = false } = {}) {
     const summary = { sent: 0, kept: 0, attention: 0, stopped: '' }
     if (!loaded) await load()
     if (backend.sendsOnItsOwn) {
-      await backend.flush?.()
+      // APK: a rodada acontece no Java, com o mesmo resumo e as mesmas regras.
+      const native = await backend.flush?.({ retryAttention })
       await load()
-      return summary
+      return { ...summary, ...(native || {}) }
     }
     const queue = getSnapshot().filter((item) => item.status === PENDING || retryAttention)
     if (!queue.length) return summary
