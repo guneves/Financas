@@ -236,7 +236,7 @@ export default function Orcamento() {
               </Field>
               <Field label="Valor planejado">
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   step="0.01"
                   min="0"
                   placeholder="0,00"
@@ -317,7 +317,7 @@ export default function Orcamento() {
                     {editingId === item.id ? (
                       <>
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           step="0.01"
                           min="0"
                           value={editValue}

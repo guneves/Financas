@@ -85,9 +85,10 @@ const buttonVariants = {
   subtle: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 border-zinc-100',
 }
 
+// 44px no toque, como o IconButton; no desktop (lg) a altura compacta.
 const buttonSizes = {
-  sm: 'h-9 px-3.5 text-sm',
-  md: 'h-10 px-4 text-sm',
+  sm: 'h-11 px-3.5 text-sm lg:h-9',
+  md: 'h-11 px-4 text-sm lg:h-10',
   lg: 'h-11 px-5 text-sm',
 }
 
@@ -594,7 +595,7 @@ export function SegmentedControl({ items, value, onChange, className = '' }) {
             aria-pressed={isActive}
             onClick={() => onChange(item.value)}
             className={cx(
-              'relative inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold transition duration-200',
+              'relative inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold transition duration-200 lg:h-9',
               isActive
                 ? cx('text-zinc-950', !pill.box && 'bg-zinc-100')
                 : 'text-zinc-600 hover:text-zinc-950'
@@ -775,13 +776,14 @@ export function Tabs({ items, className = '' }) {
             key={item.to}
             to={item.to}
             className={({ isActive }) => cx(
-              'relative inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold transition duration-200 lg:h-9',
+              // No celular sem icone e com menos folga: tres abas cabem em 360px.
+              'relative inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-3.5 text-sm font-semibold transition duration-200 sm:px-4 lg:h-9',
               isActive
                 ? cx('text-zinc-950', !pill.box && 'bg-zinc-100')
                 : 'text-zinc-600 hover:text-zinc-950'
             )}
           >
-            {Icon ? <Icon className="h-4 w-4" /> : null}
+            {Icon ? <Icon className="hidden h-4 w-4 sm:block" /> : null}
             {item.label}
           </NavLink>
         )
@@ -887,6 +889,9 @@ export function Expand({ open, id, className = '', innerClassName = '', children
 }
 
 // Modal no desktop, folha que sobe de baixo no celular. Esc e clique fora fecham.
+// Com o teclado aberto o rodape (Salvar) continua visivel: o index.html pede
+// interactive-widget=resizes-content, entao `inset-0` e `dvh` encolhem junto
+// com a area visivel (no APK, o adjustResize faz o mesmo).
 // Vai para document.body via portal: o wrapper animado do Layout tem transform,
 // o que faria `fixed` se medir pela pagina e nao pela janela.
 export function Sheet({ open, onClose, title, description, children, footer, className = '' }) {
@@ -924,7 +929,7 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
       <div className={cx('absolute inset-0 bg-zinc-950/40 backdrop-blur-sm', closing ? 'animate-fade-out' : 'animate-fade-in')} onClick={onClose} />
       <div
         className={cx(
-          'relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[1.75rem] bg-white shadow-lift',
+          'relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[1.75rem] bg-white shadow-lift',
           'sm:max-w-xl sm:rounded-[1.75rem]',
           closing ? 'animate-slide-out-down sm:animate-scale-out' : 'animate-fade-up sm:animate-scale-in',
           className

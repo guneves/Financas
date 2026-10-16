@@ -170,10 +170,10 @@ export default function CartoesSection() {
                 <input type="text" placeholder="Ex: Nubank" value={cardForm.name} onChange={(event) => setCardForm({ ...cardForm, name: event.target.value })} className="app-input" required />
               </Field>
               <Field label="Vencimento">
-                <input type="number" min="1" max="31" placeholder="Dia" value={cardForm.due_day} onChange={handleDueDayChange} className="app-input" required />
+                <input type="number" inputMode="numeric" min="1" max="31" placeholder="Dia" value={cardForm.due_day} onChange={handleDueDayChange} className="app-input" required />
               </Field>
               <Field label="Fechamento" hint="Preenchido 7 dias antes; ajuste se precisar.">
-                <input type="number" min="1" max="31" placeholder="Dia" value={cardForm.closing_day} onChange={(event) => setCardForm({ ...cardForm, closing_day: event.target.value })} className="app-input" required />
+                <input type="number" inputMode="numeric" min="1" max="31" placeholder="Dia" value={cardForm.closing_day} onChange={(event) => setCardForm({ ...cardForm, closing_day: event.target.value })} className="app-input" required />
               </Field>
               <Field label="Débito automático" hint="Paga a fatura no vencimento com o saldo da conta.">
                 <select value={cardForm.autopay_account_id} onChange={(event) => setCardForm({ ...cardForm, autopay_account_id: event.target.value })} className="app-input">

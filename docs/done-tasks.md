@@ -93,6 +93,7 @@
 | Investments area separate from the banking area: the cash link is opt-in per operation (`metadata.cash_account_id`, "Lançar no extrato"), Início shows the banking area only, "+ Novo" is banking-only, a resgate is not a receita; database reset | 2026-10-12 |
 | The app is reais-only on screen: no currency choice in any form and no foreign currency on any screen for data the screens can create (the backend multi-currency machinery stays, reachable only through the API) | 2026-10-12 |
 | Mobile plan verified and rewritten (`mobile-docs/steps-to-production.md`); idempotent creation by `client_id` on the three "+ Novo" endpoints (migration 024); Flask serves the built frontend on one origin (`start.ps1 -Built`); offline outbox and saved read cache in the frontend, its "done when" checked in a scripted desktop browser (17 steps; two fixes from it: "+ Novo" lists load with the app, so the form works offline even if never opened before, and the offline toast no longer prints "r$") | 2026-10-13 |
+| Mobile Phase 2, phone-width layout, on the PC: banking screens walked at 360/412 px; tabs fit, Cartões invoice badges no longer overlap the amount, 44 px touch targets below `lg`, "+ Novo" amount-first with a one-row type picker and the amount focused for every type, sheet stays above the keyboard, `inputMode` on numeric fields. The one-handed ten-second test waits for the phone (details in `mobile-docs/steps-to-production.md`, Phase 2) | 2026-10-16 |
 
 ---
 

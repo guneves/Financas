@@ -411,7 +411,11 @@ mobile-docs/
   `lib/privacy.js`, which re-render on toggle through `useSyncExternalStore`.
 - **Visual rules** (2026-09-22 design pass): green/red/amber/sky only when they mean gain, loss,
   warning or info — labels, counts and normal states are neutral. A signed amount in a list goes
-  through `formatSignedCurrency`; a numeric table cell gets `.num` (right-aligned, no wrap). Tables
+  through `formatSignedCurrency`; a numeric table cell gets `.num` (right-aligned, no wrap).
+  Touch targets are 44 px below `lg` (Phase 2, 2026-10-16): `Button`, `IconButton`,
+  `SegmentedControl` and `Tabs` already do it, so don't add `h-11 lg:h-9` by hand; a numeric
+  field gets `inputMode` (`decimal` for money, `numeric` for counts — not where a value can be
+  negative). The "+ Novo" forms open on a large, focused amount field, in typing order. Tables
   must not sit inside an `overflow-x` / `overflow-hidden` wrapper, or the sticky header stops
   sticking (use `overflow-clip` on the panel for rounded corners). Row actions use
   `IconButton size="sm"`; a big money value in a card uses `FitValue`, never `truncate`.

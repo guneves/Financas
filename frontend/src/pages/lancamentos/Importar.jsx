@@ -375,7 +375,7 @@ export default function Importar() {
               </Field>
               <Field label="Linhas a pular" hint="Cabeçalho de relatório antes da tabela.">
                 <input
-                  type="number"
+                  type="number" inputMode="numeric"
                   min="0"
                   value={options.skip_rows}
                   onChange={(event) => handleOptionChange({ skip_rows: event.target.value })}

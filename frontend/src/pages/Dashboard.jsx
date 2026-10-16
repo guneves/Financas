@@ -1358,7 +1358,7 @@ function PanelLink({ to, children }) {
   return (
     <Link
       to={to}
-      className="group inline-flex items-center gap-1 rounded-sm text-zinc-950 transition-colors hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+      className="group -my-2.5 inline-flex items-center gap-1 rounded-sm py-2.5 text-zinc-950 transition-colors hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
     >
       {children}
       <ChevronRight
@@ -1480,7 +1480,7 @@ function AttentionItem({ icon: Icon, title, detail, action, tone = 'warning' }) 
 
 function AttentionLink({ to, children }) {
   return (
-    <Link to={to} className="inline-flex min-h-9 items-center gap-1 text-sm font-bold text-emerald-700 underline-offset-2 hover:underline">
+    <Link to={to} className="inline-flex min-h-11 items-center gap-1 text-sm font-bold text-emerald-700 lg:min-h-9 underline-offset-2 hover:underline">
       {children}
       <ChevronRight className="h-4 w-4" aria-hidden="true" />
     </Link>

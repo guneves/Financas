@@ -272,7 +272,7 @@ export default function Recorrentes() {
               </Field>
               <Field label="Valor">
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   step="0.01"
                   min="0"
                   placeholder="0,00"
@@ -334,7 +334,7 @@ export default function Recorrentes() {
               </Field>
               <Field label="A cada" hint="1 = todo período">
                 <input
-                  type="number"
+                  type="number" inputMode="numeric"
                   min="1"
                   max="60"
                   step="1"
@@ -409,7 +409,7 @@ export default function Recorrentes() {
                   {editingId === item.id ? (
                     <>
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         step="0.01"
                         min="0"
                         value={editValue}

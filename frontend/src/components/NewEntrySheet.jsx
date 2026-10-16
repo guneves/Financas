@@ -10,19 +10,53 @@ import {
   parseLocalDate,
   pickDefaultAccountId,
 } from '../pages/lancamentos/helpers'
-import { AlertMessage, Button, EmptyState, Field, SegmentedControl, Sheet } from './ui'
+import { AlertMessage, Button, cx, EmptyState, Field, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
 import { toast } from '../lib/toast'
 import { useQuery } from '../lib/queries'
 
 const FORM_ID = 'new-entry-form'
 
+// `short` e o rotulo do botao: os quatro cabem lado a lado num celular de 360px.
 export const NEW_ENTRY_TYPES = [
-  { value: 'EXPENSE', label: 'Despesa', icon: ArrowDownCircle },
-  { value: 'INCOME', label: 'Receita', icon: ArrowUpCircle },
-  { value: 'TRANSFER', label: 'Transferência', icon: ArrowLeftRight },
-  { value: 'CARD', label: 'Compra no cartão', icon: CreditCard },
+  { value: 'EXPENSE', label: 'Despesa', short: 'Despesa', icon: ArrowDownCircle },
+  { value: 'INCOME', label: 'Receita', short: 'Receita', icon: ArrowUpCircle },
+  { value: 'TRANSFER', label: 'Transferência', short: 'Transferir', icon: ArrowLeftRight },
+  { value: 'CARD', label: 'Compra no cartão', short: 'Cartão', icon: CreditCard },
 ]
+
+// O valor e o primeiro campo e o maior: e o que se digita assim que o sheet abre.
+const AMOUNT_INPUT = 'app-input py-3 text-2xl font-bold tabular'
+
+// Os quatro tipos numa linha so, icone sobre o rotulo, 56px de altura: o
+// polegar acerta sem mirar, e o formulario sobe para caber acima do teclado.
+function EntryTypePicker({ value, onChange }) {
+  return (
+    <div role="group" aria-label="Tipo de lançamento" className="grid grid-cols-4 gap-1 rounded-[1.375rem] border border-zinc-200 bg-white p-1">
+      {NEW_ENTRY_TYPES.map((item) => {
+        const Icon = item.icon
+        const active = item.value === value
+        return (
+          <button
+            key={item.value}
+            type="button"
+            aria-pressed={active}
+            aria-label={item.label}
+            title={item.label}
+            onClick={() => onChange(item.value)}
+            className={cx(
+              'flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-[1.125rem] text-xs font-semibold transition duration-150',
+              active ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-600 hover:text-zinc-950'
+            )}
+          >
+            <Icon className="h-5 w-5" aria-hidden="true" />
+            <span className="max-w-full truncate px-1">{item.short}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 const settingsLink = (hash, text) => (
   <Link to={`/ajustes#${hash}`} className="font-semibold text-emerald-700 underline-offset-2 hover:underline">{text}</Link>
@@ -243,15 +277,14 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
     || (type === 'TRANSFER' && accounts.length < 2)
     || (type === 'CARD' && cards.length === 0)
 
+  // Ordem do formulario = ordem do que se digita: valor, categoria, descricao.
+  // Data e conta quase sempre ficam no padrao, entao vao no fim, lado a lado.
   const renderBankForm = () => (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <Field label="Valor">
-        <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className="app-input" required autoFocus />
+    <div className="grid grid-cols-2 gap-x-3 gap-y-4">
+      <Field label="Valor" className="col-span-2">
+        <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
       </Field>
-      <Field label="Data">
-        <input type="date" value={transForm.date} onChange={(event) => setTransForm({ ...transForm, date: event.target.value })} className="app-input" required />
-      </Field>
-      <Field label="Categoria">
+      <Field label="Categoria" className="col-span-2">
         <select value={transForm.category} onChange={(event) => setTransForm({ ...transForm, category: event.target.value })} className="app-select" required>
           <option value="">Selecione...</option>
           {filterCategoryOptions(categoryOptions, transForm.type).map((category) => (
@@ -259,10 +292,13 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
           ))}
         </select>
       </Field>
-      <Field label="Descrição">
+      <Field label="Descrição" className="col-span-2">
         <input type="text" placeholder={transForm.type === 'INCOME' ? 'Ex: Salário' : 'Ex: Mercado'} value={transForm.description} onChange={(event) => setTransForm({ ...transForm, description: event.target.value })} className="app-input" required />
       </Field>
-      <Field label="Conta" className="sm:col-span-2">
+      <Field label="Data" className="min-w-0">
+        <input type="date" value={transForm.date} onChange={(event) => setTransForm({ ...transForm, date: event.target.value })} className="app-input" required />
+      </Field>
+      <Field label="Conta" className="min-w-0">
         <select value={transForm.account_id || defaultAccountId} onChange={(event) => setTransForm({ ...transForm, account_id: event.target.value })} className="app-select" required>
           {accounts.map((account) => (
             <option key={account.id} value={account.id}>{account.name}</option>
@@ -276,8 +312,11 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   )
 
   const renderTransferForm = () => (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <Field label="De">
+    <div className="grid grid-cols-2 gap-x-3 gap-y-4">
+      <Field label="Valor" className="col-span-2">
+        <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={transferForm.amount} onChange={(event) => setTransferForm({ ...transferForm, amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
+      </Field>
+      <Field label="De" className="min-w-0">
         <select value={transferForm.account_id} onChange={(event) => setTransferForm({ ...transferForm, account_id: event.target.value })} className="app-select" required>
           <option value="">Selecione...</option>
           {accounts.map((account) => (
@@ -285,7 +324,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
           ))}
         </select>
       </Field>
-      <Field label="Para">
+      <Field label="Para" className="min-w-0">
         <select value={transferForm.transfer_account_id} onChange={(event) => setTransferForm({ ...transferForm, transfer_account_id: event.target.value })} className="app-select" required>
           <option value="">Selecione...</option>
           {accounts.filter((account) => account.id !== transferForm.account_id).map((account) => (
@@ -293,17 +332,14 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
           ))}
         </select>
       </Field>
-      <Field label="Valor">
-        <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={transferForm.amount} onChange={(event) => setTransferForm({ ...transferForm, amount: event.target.value })} className="app-input" required />
-      </Field>
-      <Field label="Data">
+      <Field label="Data" className="col-span-2">
         <input type="date" value={transferForm.date} onChange={(event) => setTransferForm({ ...transferForm, date: event.target.value })} className="app-input" required />
       </Field>
-      <Field label="Descrição" hint="Opcional" className="sm:col-span-2">
+      <Field label="Descrição" hint="Opcional" className="col-span-2">
         <input type="text" placeholder="Ex: Reserva do mês" value={transferForm.description} onChange={(event) => setTransferForm({ ...transferForm, description: event.target.value })} className="app-input" />
       </Field>
       {!loading && accounts.length < 2 ? (
-        <p className="text-sm text-zinc-600 sm:col-span-2">
+        <p className="col-span-2 text-sm text-zinc-600">
           Cadastre uma segunda conta em {settingsLink('contas', 'Ajustes › Contas')} para transferir.
         </p>
       ) : null}
@@ -323,14 +359,14 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
       )
     }
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Valor total">
-          <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={expenseForm.total_amount} onChange={(event) => setExpenseForm({ ...expenseForm, total_amount: event.target.value })} className="app-input" required />
+      <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-x-3 gap-y-4">
+        <Field label="Valor total" className="min-w-0">
+          <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={expenseForm.total_amount} onChange={(event) => setExpenseForm({ ...expenseForm, total_amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
         </Field>
         <Field label="Parcelas">
-          <input type="number" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className="app-input" required />
+          <input type="number" inputMode="numeric" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className={cx(AMOUNT_INPUT, 'text-center')} required />
         </Field>
-        <Field label="Categoria">
+        <Field label="Categoria" className="col-span-2">
           <select value={expenseForm.category} onChange={(event) => setExpenseForm({ ...expenseForm, category: event.target.value })} className="app-select" required>
             <option value="">Selecione...</option>
             {filterCategoryOptions(categoryOptions, 'EXPENSE').map((category) => (
@@ -338,16 +374,16 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
             ))}
           </select>
         </Field>
-        <Field label="Descrição">
+        <Field label="Descrição" className="col-span-2">
           <input type="text" placeholder="O que você comprou?" value={expenseForm.description} onChange={(event) => setExpenseForm({ ...expenseForm, description: event.target.value })} className="app-input" required />
         </Field>
-        <Field label="Cartão">
+        <Field label="Cartão" className="col-span-2">
           <select value={expenseForm.card_id} onChange={(event) => setExpenseForm({ ...expenseForm, card_id: event.target.value })} className="app-select" required>
             <option value="">Selecione...</option>
             {cards.map((card) => <option key={card.id} value={card.id}>{card.name} (vence dia {card.due_day})</option>)}
           </select>
         </Field>
-        <Field label="Data da compra">
+        <Field label="Data da compra" className="col-span-2">
           <input type="date" value={expenseForm.purchase_date} onChange={(event) => setExpenseForm({ ...expenseForm, purchase_date: event.target.value })} className="app-input" required />
         </Field>
       </div>
@@ -367,7 +403,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
       )}
     >
       <form id={FORM_ID} onSubmit={onSubmit} className="space-y-4">
-        <SegmentedControl items={NEW_ENTRY_TYPES} value={type} onChange={handleTypeChange} className="w-full flex-wrap" />
+        <EntryTypePicker value={type} onChange={handleTypeChange} />
         <AlertMessage tone="danger" message={error} onDismiss={() => setError('')} />
         {type === 'TRANSFER' ? renderTransferForm() : type === 'CARD' ? renderCardForm() : renderBankForm()}
       </form>

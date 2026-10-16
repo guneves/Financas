@@ -82,7 +82,7 @@ Done when, on the PC: `http://localhost:5000/` opens the app, a client route suc
 `/lancamentos` survives a reload, and a despesa is recorded. Then, on the phone: its browser opens
 the Tailscale HTTPS address on mobile data, logs in and records a despesa.
 
-## Phase 2 — Phone-width layout (not started)
+## Phase 2 — Phone-width layout (built on the PC 2026-10-16; the "done when" needs the phone)
 
 1. Walk every banking screen at 360–412 px: Início, Extrato, "+ Novo" (all four forms), Orçamento,
    Recorrentes, cards and invoices.
@@ -92,6 +92,31 @@ the Tailscale HTTPS address on mobile data, logs in and records a despesa.
 
 Done when: a despesa can be entered one-handed in under ten seconds. Investment screens only need
 to be readable, not optimised.
+
+What the walk found (Playwright, phone emulation at 360 and 412 px, scratch database with the
+three-year mock): **no screen scrolled sideways**; the gaps were elsewhere.
+- Section tabs overflowed at 360 px (Metas and Importar cut off). Below `sm` they now drop the icon
+  and some padding, and three tabs fit.
+- Cartões: next to the amount and "Pagar", an invoice label had ~40 px left and the "Fechada" /
+  "Próxima" badges were drawn over the amount. On phones the amount now sits under the label.
+- Touch targets: `Button` `sm`/`md`, `SegmentedControl` and `Tabs` were 36–40 px. They are 44 px
+  below `lg` now (the `IconButton` rule), so the per-call `h-11 lg:h-9` overrides are no longer
+  needed. Início's panel-title links get a 46 px hit area without moving.
+- "+ Novo": the type picker took three rows. It is one row of four 56 px buttons (icon over a short
+  label: Despesa, Receita, Transferir, Cartão). Every form starts with a large amount field, and the
+  amount gets focus whichever type opens the sheet (before, only despesa/receita). Despesa/receita
+  ask in typing order — valor, categoria, descrição — with data and conta (almost always the
+  default) side by side at the end. The whole despesa form plus Salvar fits in 360×780.
+- Keyboard: `interactive-widget=resizes-content` in `index.html` and a `92dvh` sheet height. With
+  the viewport shrunk to 360×420 (what the keyboard leaves) the amount field and Salvar are both on
+  screen. In the APK, Capacitor's default `adjustResize` does the same.
+- `inputMode` on every numeric field of the banking screens and Ajustes (`decimal` for money,
+  `numeric` for parcelas, days, interval, rows to skip). The initial balance in Ajustes › Contas is
+  left alone: it can be negative and Android's decimal keyboard has no minus key.
+
+Still open, and only the phone can answer it: the ten-second test itself, and whether the decimal
+keyboard of the owner's phone types a comma that `type="number"` accepts (Chrome accepts the
+locale's separator, but keyboards differ).
 
 ## Phase 3 — Backend: idempotent creation (built 2026-10-13)
 

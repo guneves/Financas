@@ -32,9 +32,13 @@ Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 
 - [ ] Início's notice counts only the pending items that move a balance ("Saldo estimado: 2
   lançamentos…" beside a header pill saying "3 pendentes" when the third is a card purchase).
   Correct, but the two numbers side by side may read as a mismatch; owner's call.
-- [ ] Phase 2 (phone-width layout), then Phases 5 to 9 (APK, notification listener, inbox,
-  statement dedup, hardening). Each needs the phone, Android Studio or real notification texts;
-  what is needed from the owner is listed at the top of each phase in the plan.
+- [ ] Phase 2's "done when", on the phone once Phase 1's phone half works: enter a despesa
+  one-handed in under ten seconds, and check that the amount field's keyboard types a comma the
+  field accepts (`type="number"` with `inputMode="decimal"`; keyboards differ). The layout itself
+  was fixed on the PC on 2026-10-16 (see `docs/done-tasks.md` and Phase 2 in the plan).
+- [ ] Phases 5 to 9 (APK, notification listener, inbox, statement dedup, hardening). Each needs
+  the phone, Android Studio or real notification texts; what is needed from the owner is listed
+  at the top of each phase in the plan.
 
 ### Investments separate from banking — what is left
 Built on 2026-10-12 (see `docs/done-tasks.md`): an operation reaches the Extrato only when

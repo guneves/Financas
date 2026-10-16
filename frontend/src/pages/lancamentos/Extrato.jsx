@@ -343,7 +343,7 @@ export default function Extrato() {
           <option value="INCOME">Receita</option>
         </select>
       ),
-      amount: <input type="number" step="0.01" value={editForm.amount} onChange={setEditField('amount')} className="app-input" />,
+      amount: <input type="number" inputMode="decimal" step="0.01" value={editForm.amount} onChange={setEditField('amount')} className="app-input" />,
       actions: (
         <>
           <IconButton label="Salvar alterações" icon={Check} disabled={saving} onClick={() => handleEditSubmit(transaction)} />
@@ -503,10 +503,10 @@ export default function Extrato() {
               </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Valor mín.">
-                  <input type="number" min="0" step="0.01" value={filters.min_amount} onChange={(event) => updateFilter('min_amount', event.target.value)} className="app-input" />
+                  <input type="number" inputMode="decimal" min="0" step="0.01" value={filters.min_amount} onChange={(event) => updateFilter('min_amount', event.target.value)} className="app-input" />
                 </Field>
                 <Field label="Valor máx.">
-                  <input type="number" min="0" step="0.01" value={filters.max_amount} onChange={(event) => updateFilter('max_amount', event.target.value)} className="app-input" />
+                  <input type="number" inputMode="decimal" min="0" step="0.01" value={filters.max_amount} onChange={(event) => updateFilter('max_amount', event.target.value)} className="app-input" />
                 </Field>
               </div>
             </div>

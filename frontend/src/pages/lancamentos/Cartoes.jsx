@@ -299,10 +299,13 @@ export default function Cartoes() {
                 {future ? null : getInvoiceStatus(invoice, cardGroup.dueDay)}
                 {isNearest ? <Badge>Próxima</Badge> : null}
               </div>
+              {/* No celular o valor desce para baixo do rotulo: ao lado, com o
+                  Pagar, sobravam ~40px e os selos passavam por cima dele. */}
+              <p className="num mt-0.5 whitespace-nowrap font-semibold text-zinc-950 sm:hidden">{formatCurrency(invoice.total)}</p>
               {hint ? <p className="mt-0.5 truncate text-xs text-zinc-500">{hint}</p> : null}
             </div>
           </button>
-          <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(invoice.total)}</p>
+          <p className="num hidden whitespace-nowrap font-semibold text-zinc-950 sm:block">{formatCurrency(invoice.total)}</p>
           {invoice.closed ? (
             <Button
               type="button"
@@ -311,14 +314,13 @@ export default function Cartoes() {
               icon={CheckCircle}
               loading={saving}
               onClick={() => handlePayInvoice(invoice, cardGroup)}
-              className="h-11 lg:h-9"
             >
               Pagar
             </Button>
           ) : null}
         </div>
 
-        <Expand open={expanded} innerClassName="px-5 pb-4">
+        <Expand open={expanded} innerClassName="px-3 pb-4 sm:px-5">
           <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200/70">
             {invoice.purchases.map((purchase) => (
               <li key={purchase.purchaseKey} className="flex items-center gap-3 py-1.5 pl-4 pr-2">
