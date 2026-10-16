@@ -7,6 +7,60 @@
 
 ---
 
+## Session — 2026-10-16 (fourth, parallel) · Plano do mês: spend and invest in reais, with flags
+
+The owner asked for a monthly plan in Orçamento: how much they will **spend** and **invest** each
+month, in reais, with flags that help them reach their goals. Then: "make sure this works in the
+phone as well". This ran alongside `financas-2a` (brapi) and `financas-39` (the bug pass above),
+each committing its own paths.
+
+### What was done
+- **Migration 025 `monthly_plans`**: `(user_id, month)` unique, `spend_amount`, `invest_amount`,
+  optional `income_amount`. It also went into `schema.sql`. A month without its own row inherits
+  the most recent earlier plan, so the owner sets it once.
+- **`services/monthly_plan.py` + `routes/monthly_plan.py`**: `GET/PUT/DELETE /api/monthly-plan?month=`.
+  `DELETE` removes only that month's own row (the month then inherits again). It is a plan, so
+  there is no guard.
+  - Spent is account EXPENSE rows, minus transfers, invoice payments and aportes (the
+    `isInvestmentOutflow()` rule), plus card purchases in full in the purchase month (decision 1).
+  - Invested is aportes − resgates of the portfolio's movements (`movement_flow()`), not the
+    linked cash, which would count it twice.
+- **Flags** are codes plus amounts; the text is built by `lib/monthlyPlan.js`:
+  - `PLAN_OVER_INCOME`;
+  - `SPEND_OVER` / `SPEND_PACE` (from day 8: month-end projection more than 10% above the
+    proportional pace) / `SPEND_NEAR` (80%) / `SPEND_KEPT` (past month);
+  - `INVEST_DONE` / `INVEST_PENDING` (info, warning in the last 7 days) / `INVEST_MISSED`;
+  - `GOAL_SHORT` / `GOAL_COVERED`, one per goal with a target date: the planned aporte against
+    that goal's `required_contribution`. Never summed: one aporte feeds the portfolio *and* the
+    net-worth goal. There are no goal flags on past months.
+- **Frontend**: `MonthlyPlanPanel` at the top of Orçamento, with an edit `Sheet`. The amount
+  fields are `type="text" inputMode="decimal"` parsed by `parseMoneyInput()`, which accepts
+  "1.234,56", "1234.56" and "3.000" (thousands). That sidesteps the open question of whether
+  `type="number"` takes the Android comma.
+- **Tests**:
+  - backend: `test_monthly_plan.py` (22), plus the route map;
+  - frontend: `monthlyPlan.test.js` (5; `npm test` is 21);
+  - the full backend suite is green in a clean worktree at HEAD + this change.
+- **Phone width**: a Playwright walk at 390 px (`isMobile`, touch, keyboard simulated by a shorter
+  viewport) on a scratch DB from that clean worktree:
+  - no horizontal scroll and no page errors;
+  - "5.000,50" saved as 5000.5;
+  - the sheet's Save stays visible over the keyboard.
+- `finance-guard`: no blocking findings. It flagged only the missing `schema.sql` entry, now fixed.
+
+### What was not done and why
+- **Not on the real phone.** The APK talks to the `:5000` backend, which was not restarted. It
+  belongs to the owner and has to boot to apply 025 and register the route. Until it does, the
+  Orçamento panel shows "Não foi possível carregar o plano do mês" (`financas-39` rebuilt
+  `frontend/dist` with this change, so the desktop shows the same). After the restart, run
+  `mobile/build-apk.ps1` to put the new screen in the APK.
+- No Início strip for the plan. Only Orçamento shows it.
+- Invested reads portfolio movements only. A banking lançamento typed "Investimento" with no
+  movement behind it counts as neither spent nor invested.
+
+### Next
+- Owner: restart `:5000`, set a plan, check it on the phone after `build-apk.ps1`.
+
 ## Session — 2026-10-16 (third, parallel) · Bug pass on the Android and desktop apps
 
 The owner asked to check both apps for bugs. Another session (`financas-d5`, the monthly plan,

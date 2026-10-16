@@ -37,6 +37,7 @@ import {
   BudgetProgressBar as ProgressBar,
 } from '../components/BudgetProgress'
 import { confirmAction } from '../lib/confirm'
+import MonthlyPlanPanel from '../components/MonthlyPlanPanel'
 
 const emptyBudgetForm = () => ({ category_id: '', planned_amount: '', rollover: false, note: '' })
 
@@ -171,7 +172,7 @@ export default function Orcamento() {
     <div className="space-y-6">
       <PageHeader
         title="Orçamento"
-        description="Quanto você planejou gastar em cada categoria neste mês, e quanto já gastou."
+        description="Quanto você vai gastar e investir no mês, e o limite de cada categoria."
         actions={
           <div className="flex items-center gap-1">
             <IconButton label="Mês anterior" icon={ChevronLeft} onClick={() => setMonth(shiftMonth(month, -1))} />
@@ -184,6 +185,8 @@ export default function Orcamento() {
       />
 
       <AlertMessage message={error} onDismiss={() => setError('')} />
+
+      <MonthlyPlanPanel month={month} />
 
       <SummaryPanel
         lead={{

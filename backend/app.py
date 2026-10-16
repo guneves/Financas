@@ -26,6 +26,7 @@ from routes import (
     imports as import_routes,
     investments as investment_routes,
     market as market_routes,
+    monthly_plan as monthly_plan_routes,
     proceeds as proceeds_routes,
     recurring as recurring_routes,
     system as system_routes,
@@ -54,6 +55,7 @@ for blueprint_module in (
     market_routes,
     allocation_routes,
     goal_routes,
+    monthly_plan_routes,
     frontend_routes,
 ):
     app.register_blueprint(blueprint_module.bp)

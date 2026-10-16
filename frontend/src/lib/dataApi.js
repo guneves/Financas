@@ -81,6 +81,17 @@ export const categoriesApi = {
   archive: (id) => apiFetch(`/api/categories/${id}`, { method: 'DELETE' })
 }
 
+// Plano do mes: quanto gastar e investir (services/monthly_plan.py). Um mes
+// sem plano proprio herda o anterior; DELETE apaga so o do mes.
+export const monthlyPlanApi = {
+  month: (month) => apiFetch(`/api/monthly-plan${queryString({ month })}`),
+  save: (payload) => apiFetch('/api/monthly-plan', {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  }),
+  remove: (month) => apiFetch(`/api/monthly-plan${queryString({ month })}`, { method: 'DELETE' })
+}
+
 export const budgetsApi = {
   month: (month) => apiFetch(`/api/budgets${queryString({ month })}`),
   create: (payload) => apiFetch('/api/budgets', {

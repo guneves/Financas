@@ -73,6 +73,7 @@ EXPECTED_ROUTES = {
     ("/api/assets/<asset_id>/sector", "PATCH"),
     ("/api/goals", "GET,POST"),
     ("/api/goals/<goal_id>", "DELETE,GET,PATCH"),
+    ("/api/monthly-plan", "DELETE,GET,PUT"),
     ("/api/corporate-actions/<action_id>", "DELETE"),
     ("/api/investments/price-by-asset/<asset_id>", "PATCH"),
     ("/api/investments/price-by-ticker", "PATCH"),

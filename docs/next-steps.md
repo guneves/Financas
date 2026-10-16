@@ -96,6 +96,12 @@ banking-only. The database was reset the same day, so the app starts empty. Open
   redemption branch of the "nothing to write" refusal, and a batch `POST` whose second item is
   refused. All three behave correctly in `finance-guard`'s scratch tests.
 
+### Plano do mês (2026-10-16) — owner checks
+- [ ] Restart `:5000` (it predates migration 025, so the Orçamento panel errors until then), then
+  rebuild the APK with `mobile/build-apk.ps1`. Set a plan on the phone, type a comma amount, and
+  confirm the flags make sense against a real month.
+- [ ] Decide whether Início should show a one-line plan strip (spent / invested vs plan).
+
 ### Owner walk-through on real data
 Everything below was built and clicked through on a seeded scratch database (Chrome + Playwright,
 2026-09-23); none of it has been used on the owner's real data yet. Restart the backend first: the

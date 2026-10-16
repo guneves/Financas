@@ -160,7 +160,7 @@ the top of the file — reach it through a fixture or `importlib.import_module` 
 **Patch where the name is read, not where it is defined.** Modules import settings and helpers by
 name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
 whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
-*both* `services.invoices` and `routes.cards` for the `local_today` clock (`services.goals` for goals), `services.prices` for
+*both* `services.invoices` and `routes.cards` for the `local_today` clock (`services.goals` for goals, `services.monthly_plan` *and* `services.goals` for the monthly plan), `services.prices` for
 `download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, `services.fx` for
 `fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `services.benchmarks` for
 `download_monthly_history` (call its `reset_fetch_throttle()` too), `brapi_client` for `get_history` /
@@ -373,6 +373,13 @@ mobile-docs/
   same button opens "Registrar operação".
 - **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
   payments never count.
+- **The monthly plan is a plan, like budgets** (025, `services/monthly_plan.py`): `PUT
+  /api/monthly-plan` writes one month's spend/invest (and optional income) amounts, a month
+  without a row inherits the latest earlier one, and `DELETE` is real with no guard. Spent and
+  invested are computed on read: spent is the budget's rule without categories (no transfers,
+  invoice payments or aportes; card purchases in full in the purchase month), invested is
+  aportes − resgates of movements, never the linked cash. Flags are codes plus amounts; the
+  Portuguese text lives in `lib/monthlyPlan.js`. Goal flags are per goal, never summed.
 - **Allocation targets and goals are plans, like budgets** (020, 021): `PUT /api/allocation/targets`
   replaces the whole set (class targets sum to 100%; asset targets are % *within* their class and
   sum to 100% in any class that has one), and `DELETE /api/goals/<id>` is a real delete with no

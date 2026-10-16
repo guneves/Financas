@@ -529,3 +529,18 @@ CREATE TABLE IF NOT EXISTS benchmark_closes (
     fetched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (user_id, benchmark, close_date)
 );
+
+-- Plano do mes (025): quanto gastar e investir por mes, em reais. Um mes sem
+-- linha propria herda o plano mais recente anterior; o realizado e os alertas
+-- sao calculados na leitura (services/monthly_plan.py).
+CREATE TABLE IF NOT EXISTS monthly_plans (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+    spend_amount REAL NOT NULL CHECK (spend_amount >= 0),
+    invest_amount REAL NOT NULL CHECK (invest_amount >= 0),
+    income_amount REAL CHECK (income_amount IS NULL OR income_amount >= 0),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(user_id, month)
+);
