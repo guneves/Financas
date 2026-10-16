@@ -75,6 +75,13 @@ CACHE_TTL_SECONDS = _read_int_env("BRAPI_CACHE_TTL_SECONDS", 300, minimum=300)
 REQUEST_TIMEOUT_SECONDS = _read_float_env(
     "BRAPI_TIMEOUT_SECONDS", 8.0, minimum=1.0, maximum=30.0
 )
+# A brapi as vezes nao responde a primeira requisicao depois de um tempo parada
+# (conexao e TLS em 0,1 s, depois silencio), e a seguinte volta em ~0,3 s. Por
+# isso a primeira tentativa tem um limite curto e, so em tempo esgotado, ha uma
+# segunda com o resto do orcamento — as duas cabem nos 6 s de quem chama.
+FIRST_ATTEMPT_TIMEOUT_SECONDS = _read_float_env(
+    "BRAPI_FIRST_ATTEMPT_TIMEOUT_SECONDS", 2.5, minimum=0.5, maximum=30.0
+)
 
 
 class BrapiError(RuntimeError):
@@ -350,8 +357,18 @@ def _read_cache(symbols, now=None):
 # HTTP
 # ---------------------------------------------------------------------------
 
-def _request_json(url, symbols, timeout=None):
-    """Um GET autenticado na brapi, um credito; devolve o objeto JSON da resposta."""
+def _is_timeout(exc):
+    if isinstance(exc, TimeoutError):
+        return True
+    return isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError)
+
+
+def _send(url, symbols=None, timeout=None):
+    """GET autenticado: (corpo, status). Uma segunda tentativa so em tempo esgotado.
+
+    Erro HTTP e falha de rede que nao seja tempo nao repetem: a resposta veio,
+    ou a rede nao existe, e insistir so gastaria credito ou tempo.
+    """
     token = brapi_token()
     if not token:
         raise BrapiNotConfiguredError(
@@ -367,23 +384,32 @@ def _request_json(url, symbols, timeout=None):
         },
     )
 
-    try:
-        with urllib.request.urlopen(
-            req, timeout=timeout or REQUEST_TIMEOUT_SECONDS
-        ) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            status = getattr(response, "status", 200)
-    except urllib.error.HTTPError as exc:
-        detail = ""
+    budget = timeout or REQUEST_TIMEOUT_SECONDS
+    first = min(budget, FIRST_ATTEMPT_TIMEOUT_SECONDS)
+    attempts = [first] if budget - first < 0.5 else [first, budget - first]
+    for index, attempt_timeout in enumerate(attempts):
         try:
-            detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        except Exception:  # noqa: BLE001 - detalhe e opcional, o status basta
+            with urllib.request.urlopen(req, timeout=attempt_timeout) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                return body, getattr(response, "status", 200)
+        except urllib.error.HTTPError as exc:
             detail = ""
-        raise BrapiHTTPError(exc.code, _error_message(detail), symbols) from exc
-    except urllib.error.URLError as exc:
-        raise BrapiUnavailableError(f"Falha de rede ao consultar a brapi: {exc.reason}") from exc
-    except TimeoutError as exc:
-        raise BrapiUnavailableError("Tempo limite ao consultar a brapi") from exc
+            try:
+                detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            except Exception:  # noqa: BLE001 - detalhe e opcional, o status basta
+                detail = ""
+            raise BrapiHTTPError(exc.code, _error_message(detail), symbols) from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if _is_timeout(exc):
+                if index + 1 < len(attempts):
+                    continue
+                raise BrapiUnavailableError("Tempo limite ao consultar a brapi") from exc
+            raise BrapiUnavailableError(f"Falha de rede ao consultar a brapi: {exc.reason}") from exc
+
+
+def _request_json(url, symbols, timeout=None):
+    """Um GET autenticado na brapi, um credito; devolve o objeto JSON da resposta."""
+    body, status = _send(url, symbols, timeout)
 
     if not 200 <= int(status) < 300:
         raise BrapiHTTPError(status, _error_message(body), symbols)
@@ -547,35 +573,8 @@ def clear_sector_cache():
 
 
 def _request_list_json(path, params, timeout=None):
-    token = brapi_token()
-    if not token:
-        raise BrapiNotConfiguredError(
-            "BRAPI_TOKEN nao configurado; defina-o em backend/.env"
-        )
     url = f"{BRAPI_BASE_URL}{path}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "User-Agent": "FinanceMVP/1.0",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout or REQUEST_TIMEOUT_SECONDS) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            status = getattr(response, "status", 200)
-    except urllib.error.HTTPError as exc:
-        detail = ""
-        try:
-            detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        except Exception:  # noqa: BLE001 - detalhe e opcional, o status basta
-            detail = ""
-        raise BrapiHTTPError(exc.code, _error_message(detail)) from exc
-    except urllib.error.URLError as exc:
-        raise BrapiUnavailableError(f"Falha de rede ao consultar a brapi: {exc.reason}") from exc
-    except TimeoutError as exc:
-        raise BrapiUnavailableError("Tempo limite ao consultar a brapi") from exc
+    body, status = _send(url, timeout=timeout)
 
     if not 200 <= int(status) < 300:
         raise BrapiHTTPError(status, _error_message(body))

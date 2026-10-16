@@ -301,6 +301,61 @@ def test_body_without_results_raises_response_error(monkeypatch):
     assert "token invalido" in str(excinfo.value)
 
 
+def test_a_timeout_is_retried_once_within_the_budget(monkeypatch):
+    # A brapi as vezes fica muda na primeira requisicao depois de parada.
+    calls = []
+    answer = fake_urlopen([], {"PETR4": quote_payload("PETR4", 38.42)})
+
+    def _urlopen(request, timeout=None):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise TimeoutError("The read operation timed out")
+        return answer(request, timeout)
+
+    monkeypatch.setattr(brapi_client.urllib.request, "urlopen", _urlopen)
+
+    assert brapi_client.get_market_prices(["PETR4"], force=True, timeout=6.0) == {"PETR4": 38.42}
+    assert calls == [brapi_client.FIRST_ATTEMPT_TIMEOUT_SECONDS, 6.0 - brapi_client.FIRST_ATTEMPT_TIMEOUT_SECONDS]
+
+
+def test_a_connect_timeout_wrapped_in_urlerror_is_retried_too(monkeypatch):
+    calls = []
+
+    def _urlopen(request, timeout=None):
+        calls.append(timeout)
+        raise urllib.error.URLError(TimeoutError("timed out"))
+
+    monkeypatch.setattr(brapi_client.urllib.request, "urlopen", _urlopen)
+
+    with pytest.raises(brapi_client.BrapiUnavailableError, match="Tempo limite"):
+        brapi_client.get_stock_quotes(["PETR4"])
+    assert len(calls) == 2
+
+
+def test_other_failures_are_not_retried(monkeypatch):
+    calls = []
+
+    def _urlopen(request, timeout=None):
+        calls.append(timeout)
+        raise urllib.error.HTTPError(request.full_url, 402, "Payment Required", {}, None)
+
+    monkeypatch.setattr(brapi_client.urllib.request, "urlopen", _urlopen)
+    with pytest.raises(brapi_client.BrapiHTTPError):
+        brapi_client.get_stock_quotes(["PETR4"])
+    assert len(calls) == 1
+
+    calls.clear()
+
+    def _offline(request, timeout=None):
+        calls.append(timeout)
+        raise urllib.error.URLError("sem rede")
+
+    monkeypatch.setattr(brapi_client.urllib.request, "urlopen", _offline)
+    with pytest.raises(brapi_client.BrapiUnavailableError, match="Falha de rede"):
+        brapi_client.get_stock_quotes(["PETR4"])
+    assert len(calls) == 1
+
+
 def test_a_failed_fetch_does_not_poison_the_inflight_map(monkeypatch):
     def _failing(request, timeout=None):
         raise urllib.error.URLError("sem rede")
