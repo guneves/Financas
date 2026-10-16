@@ -1,5 +1,10 @@
 package br.financas.app.outbox;
 
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -69,6 +74,32 @@ public class OutboxPlugin extends Plugin {
         }
         OutboxStore.get(getContext()).remove(clientId);
         call.resolve();
+    }
+
+    /**
+     * Ha alguma rede de verdade por baixo? A VPN do Tailscale continua "conectada" em modo
+     * aviao e o pedido fica pendurado, entao ela nao conta: sem outra rede com internet, o
+     * "+ Novo" guarda direto na fila em vez de esperar o prazo.
+     */
+    @PluginMethod
+    public void hasNetwork(PluginCall call) {
+        boolean online = false;
+        ConnectivityManager manager = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (manager != null) {
+            for (Network network : manager.getAllNetworks()) {
+                NetworkCapabilities caps = manager.getNetworkCapabilities(network);
+                if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
+                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    online = true;
+                    break;
+                }
+            }
+        } else {
+            online = true;
+        }
+        JSObject result = new JSObject();
+        result.put("online", online);
+        call.resolve(result);
     }
 
     /** "Sincronizar agora" e os gatilhos da tela: uma rodada ja, com o resumo de volta. */

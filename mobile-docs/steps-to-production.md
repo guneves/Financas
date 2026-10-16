@@ -194,7 +194,8 @@ in `docs/next-steps.md`.
 
 Two things the phone taught:
 - With the Tailscale VPN up and no network under it, a request does not fail, it hangs. So
-  `apiFetch` has timeouts (`timeoutMs`): a "+ Novo" creation gives up after 10 s and goes to the
+  `apiFetch` has timeouts (`timeoutMs`): with no real network (`Outbox.hasNetwork()` ignores the VPN) a "+ Novo" creation is
+  queued at once; otherwise it gives up after 6 s and goes to the
   queue (safe: `client_id`), a read after 45 s; edits and deletes wait, since a timed-out one may
   have gone through.
 - The phone's text zoom makes `FitValue` land a fraction of a pixel over the box, which showed

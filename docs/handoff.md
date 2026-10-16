@@ -62,8 +62,11 @@ Commits:
     but leaves the meta theme-color light. `applyTheme()` now reads the class.
   - **"Salvar" spun forever in airplane mode.** With the Tailscale VPN "connected" and no network
     under it, fetch hangs instead of failing. `apiFetch` gained `timeoutMs`: a "+ Novo" creation
-    gives up after 10 s and goes to the queue (`CREATE_TIMEOUT_MS` in `outbox.js`), reads after
-    45 s, and edits and deletes have none. CLAUDE.md's outbox convention says why.
+    gives up after 6 s and goes to the queue (`CREATE_TIMEOUT_MS` in `outbox.js`), reads after
+    45 s, and edits and deletes have none. CLAUDE.md's outbox convention says why. Ten seconds
+    was still too slow for the owner, so with no real network (`Outbox.hasNetwork()`: any
+    non-VPN network with internet; `navigator.onLine` in the browser) `createEntry()` now queues
+    at once without trying.
   - **"R$ 1.000,…" on Início.** The phone's 90% text zoom left the fitted text 288.4 px wide in
     a 288 px box: integer `clientWidth`/`scrollWidth` hid the overflow. `FitValue` now measures
     with `getBoundingClientRect` and leaves 2% slack (`FIT_SLACK`). Checked on the phone: 281.7
@@ -74,7 +77,8 @@ Commits:
   - the owner's real data loads;
   - the bars follow the theme;
   - the balance fits;
-  - offline, an entry goes to "Pendentes" within 10 s. On reconnect the **WorkManager job** sent
+  - offline, an entry went to "Pendentes" (then within 10 s; now at once in airplane mode, not yet
+    re-checked by the owner). On reconnect the **WorkManager job** sent
     it: logcat shows `OutboxWorker` RETRY at 15:51:44, then SUCCESS at 15:52:15. It arrived on
     the PC once (read-only query on `finance.db`).
 - `backend/.env`: `https://localhost` was added to `CORS_ORIGINS`, and `JWT_EXP_DAYS=180` was set.

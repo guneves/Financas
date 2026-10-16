@@ -26,6 +26,7 @@ const nativeOutboxBackend = {
   put: (item) => Outbox.put({ item }),
   remove: (clientId) => Outbox.remove({ clientId }),
   flush: ({ retryAttention = false } = {}) => Outbox.flush({ retryAttention }),
+  isOffline: async () => !(await Outbox.hasNetwork()).online,
   sendsOnItsOwn: true,
 }
 

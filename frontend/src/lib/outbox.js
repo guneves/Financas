@@ -30,8 +30,9 @@ const RETRY_MS = 30_000
 
 // Uma criacao sem resposta neste prazo vai para a fila (o client_id torna o
 // reenvio seguro). Sem isso, no celular com a VPN de pe e sem rede, o Salvar
-// ficava girando.
-const CREATE_TIMEOUT_MS = 10_000
+// ficava girando. Sem rede nenhuma nem se tenta (backend.isOffline); o prazo
+// e para sinal fraco ou o PC desligado.
+const CREATE_TIMEOUT_MS = 6_000
 
 const browserBackend = {
   all: () => storeAll(OUTBOX_STORE),
@@ -47,6 +48,7 @@ const browserBackend = {
       return { status: error.status || 0, message: error.message }
     }
   },
+  isOffline: () => navigator.onLine === false,
   // No navegador o envio so acontece com a tela aberta, por flush().
   sendsOnItsOwn: false,
 }
@@ -213,6 +215,8 @@ export function flush({ retryAttention = false } = {}) {
 // que o servidor respondeu (validacao, 401...) sobe como sempre.
 export async function createEntry(kind, payload) {
   const body = { ...payload, client_id: payload.client_id || newClientId() }
+  const offline = await Promise.resolve(backend.isOffline?.()).catch(() => false)
+  if (offline) return { queued: true, item: await enqueue({ kind, payload: body }) }
   try {
     const data = await apiFetch(endpointFor(kind), { method: 'POST', body: JSON.stringify(body), timeoutMs: CREATE_TIMEOUT_MS })
     return { queued: false, data }
