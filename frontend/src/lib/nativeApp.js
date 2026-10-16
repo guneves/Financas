@@ -13,6 +13,7 @@ import { App } from '@capacitor/app'
 import { API_BASE_URL, getStoredAuth } from './api'
 import { reloadOutbox, setOutboxBackend } from './outbox'
 import { invalidateServerData } from './queries'
+import { closeTopLayer } from './layers'
 
 const Outbox = registerPlugin('Outbox')
 const Shell = registerPlugin('Shell')
@@ -48,18 +49,10 @@ function applyTheme() {
   Shell.setTheme({ dark, background: dark ? '#0B1210' : '#EFF2ED' }).catch(() => {})
 }
 
-// Algo aberto por cima da tela (sheet, confirmacao, menu)? O voltar fecha isso
-// primeiro, pelo mesmo Escape que o teclado ja usa em cada um deles.
-function closeTopmostOverlay() {
-  const open = document.querySelector('[role="dialog"], [role="menu"]')
-  if (!open) return false
-  const target = document.activeElement && document.activeElement !== document.body ? document.activeElement : document
-  target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-  return true
-}
-
+// Algo aberto por cima da tela (sheet, confirmacao, menu)? O voltar fecha so o
+// de cima, como o Esc (lib/layers.js).
 function onBackButton({ canGoBack }) {
-  if (closeTopmostOverlay()) return
+  if (closeTopLayer()) return
   if (canGoBack && window.location.pathname !== '/') {
     window.history.back()
     return

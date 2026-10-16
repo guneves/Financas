@@ -9,6 +9,7 @@ import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
 import { useOutbox } from '../lib/outbox'
 import { NEEDS_ATTENTION } from '../lib/outboxRules'
 import { setValuesHidden, useValuesHidden } from '../lib/privacy'
+import { useLayer } from '../lib/layers'
 import { useScrollRestoration } from '../lib/scroll'
 import { toggleTheme, useIsDark } from '../lib/theme'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
@@ -91,19 +92,14 @@ function UserMenu({ initials, name }) {
     const onPointer = (event) => {
       if (!rootRef.current?.contains(event.target)) setOpen(false)
     }
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        setOpen(false)
-        buttonRef.current?.focus()
-      }
-    }
     document.addEventListener('pointerdown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
+    return () => document.removeEventListener('pointerdown', onPointer)
   }, [open])
+
+  useLayer(open, () => {
+    setOpen(false)
+    buttonRef.current?.focus()
+  })
 
   return (
     <div ref={rootRef} className="relative">

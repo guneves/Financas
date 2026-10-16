@@ -22,6 +22,16 @@ on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/d
     management holds the job with the app closed, set the app's battery use to "Sem restrições";
   - the back button, the theme toggle, the keyboard over "+ Novo" (and whether the decimal
     keypad's comma is accepted by the amount field), the notification permission prompt.
+- [ ] Native sender backoff (`OutboxWorker`): `Result.retry()` with EXPONENTIAL from 30 s, which
+  WorkManager caps at 5 h. With the PC off or Tailscale down for an hour or two, the job is
+  already waiting about an hour between tries, so with the app closed an entry can sit that long
+  after the server is back. Opening the app sends at once (the screen's flush). Consider LINEAR
+  backoff or a cap (re-enqueue with a fixed delay after N tries) and test it on the phone.
+- [ ] Native `OutboxWorker.schedule()` uses `ExistingWorkPolicy.KEEP`: an item put just as a
+  running job finishes its last pass is not picked up until the next trigger (app opened, the
+  screen's 30 s flush). A small window; `APPEND_OR_REPLACE` would close it.
+- [ ] The phone runs `44542b8-dirty`: it lacks `592cdd5` (queue at once with no network) and the
+  2026-10-16 overlay fix. Rebuild with `mobile/build-apk.ps1` when the owner is at the PC.
 - [ ] Browser outbox (`lib/outbox.js` `flush()`): it writes the result back from the item it sent,
   so an item corrected or discarded during that one request can be overwritten, removed or
   brought back. The native sender compares versions first (`OutboxStore.removeIfUnchanged`); do

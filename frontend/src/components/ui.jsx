@@ -14,6 +14,7 @@ import {
 import { MASKED_CURRENCY, useValuesHidden } from '../lib/privacy'
 import { dismissToast, useToasts } from '../lib/toast'
 import { settleConfirm, useConfirmRequest } from '../lib/confirm'
+import { useLayer } from '../lib/layers'
 
 export function cx(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -163,6 +164,8 @@ export function Menu({ label = 'Mais ações', items, size = 'sm', className = '
     if (restoreFocus) buttonRef.current?.focus()
   }
 
+  useLayer(open, () => close(true))
+
   const toggle = () => {
     if (open) {
       close()
@@ -184,11 +187,6 @@ export function Menu({ label = 'Mais ações', items, size = 'sm', className = '
       if (!menuRef.current?.contains(event.target) && !buttonRef.current?.contains(event.target)) close()
     }
     const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        close(true)
-        return
-      }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
       event.preventDefault()
       const options = [...(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])]
@@ -908,19 +906,7 @@ export function Sheet({ open, onClose, title, description, children, footer, cla
   if (open) lastOpenRef.current = { title, description, children, footer }
   const shown = open ? { title, description, children, footer } : lastOpenRef.current || {}
 
-  useEffect(() => {
-    if (!open) return undefined
-    const onKey = (event) => {
-      if (event.key === 'Escape') onClose?.()
-    }
-    document.addEventListener('keydown', onKey)
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = previousOverflow
-    }
-  }, [open, onClose])
+  useLayer(open, onClose, { locksScroll: true })
 
   if (!mounted) return null
 

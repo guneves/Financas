@@ -7,6 +7,56 @@
 
 ---
 
+## Session — 2026-10-16 (third, parallel) · Bug pass on the Android and desktop apps
+
+The owner asked to check both apps for bugs. Another session (`financas-d5`, the monthly plan,
+migration 025) was working in the same tree at the same time, and each session committed only its
+own paths. The entry below this one is the previous session's, kept because it is still the
+reference for Phase 5.
+
+### What was done
+- Backend suite, and frontend `npm test` (16), both green.
+- **Desktop.** A Playwright walk of all 14 screens at 1400 px and 390 px, on a seeded scratch
+  database (port 5003, vite 5178). It found no console errors, no 4xx/5xx and no horizontal
+  overflow. The offline "+ Novo" → "Pendentes" → "Sincronizar agora" flow arrives on the server
+  once.
+- **Bug fixed, both platforms** (`lib/layers.js`):
+  - Every Sheet and Menu listened for Escape on `document` by itself, and so did the Android back
+    button, which sends Escape.
+  - With the discard confirmation open over "Pendentes", one Escape closed the *underneath* sheet
+    and left the question orphaned. React re-rendered between listeners, and the confirm's
+    listener was re-registered mid-dispatch.
+  - Escape on a "⋯" menu inside a sheet closed the sheet as well.
+  - Each sheet saved and restored `body.style.overflow`, so two closing out of order left the
+    page unable to scroll.
+
+  Now there is one stack: only the top layer handles Escape, the scroll lock is counted, and
+  `nativeApp.js` back calls `closeTopLayer()`. This also fixes back being swallowed during a
+  sheet's 200 ms exit animation, when the old code still found `[role=dialog]` in the DOM.
+  Verified in Playwright: each Escape closes one layer, and scroll unlocks after the last.
+- **Phone, read-only.** The installed APK is `44542b8-dirty`. The owner was using the phone
+  (a Samsung Pass prompt was open, and they entered data), so nothing was tapped there.
+- Static review of the native outbox: two findings, both added to `docs/next-steps.md`. Backoff
+  can reach hours with the app closed after a long outage. `KEEP` has a small scheduling window.
+
+### What was not done and why
+- No APK rebuild: the owner was on the phone. The back-button fix reaches the phone only with
+  the next `mobile/build-apk.ps1`.
+- `lib/layers.js` has no automated test: it imports React, and the node test runner has no DOM.
+  It is covered by the Playwright flow only (scratchpad, not committed).
+- The backoff and `KEEP` findings were left unfixed: they need a test on the phone.
+- `frontend/dist` was rebuilt at about 16:15 from a tree that included the other session's
+  uncommitted work. Rebuild after both sessions commit.
+- `backend/brapi_client.py` had a SyntaxError in the tree (not this session's, nor
+  `financas-d5`'s, per its message). Check it before restarting the backend.
+
+### Learned
+- A browser-dispatched keydown runs microtasks between listeners, so a React 18 update from one
+  `document` listener can re-render and re-register the next listener before it fires. Never
+  rely on several independent Escape listeners agreeing; use `useLayer()`.
+
+---
+
 ## Session — 2026-10-16 (second) · Mobile Phase 5: the APK, built and on the phone
 
 The owner asked for Phase 5:

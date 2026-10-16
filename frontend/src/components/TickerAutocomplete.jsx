@@ -132,7 +132,9 @@ export default function TickerAutocomplete({
         event.preventDefault()
         selectOption(options[highlight])
       }
-    } else if (event.key === 'Escape') {
+    } else if (event.key === 'Escape' && open) {
+      // So a lista de sugestoes fecha; o sheet em volta fica (lib/layers.js).
+      event.preventDefault()
       setOpen(false)
     }
   }
