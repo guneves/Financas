@@ -96,6 +96,27 @@ banking-only. The database was reset the same day, so the app starts empty. Open
   redemption branch of the "nothing to write" refusal, and a batch `POST` whose second item is
   refused. All three behave correctly in `finance-guard`'s scratch tests.
 
+### Automatic proventos and the investments Extrato (2026-10-16) — what is left
+- [ ] Owner walk-through: Lançamentos → Extrato → "Investimentos" (operações + proventos, search,
+  Tudo/Operações/Proventos), and Investimentos → Proventos → "Atualizar". Register a buy with a
+  date last year on a stock that paid since, and check its proventos appear within a few seconds;
+  delete it and check they go. Tested in pytest and node only; not opened in a browser.
+- [ ] **Restart `:5000`** — the running process predates migration 026 and the sync route, so the
+  screens cannot call it until then (the 279 rows are already in `finance.db`).
+- [ ] The sync only runs while the app is open (screen open or an investment write). A provento
+  announced while nobody opens Investimentos lands the next time someone does. A daily job would
+  need a scheduler the app does not have.
+- [ ] Left after the reconciliation with Investidor10 (R$ 3.930,20 here vs R$ 3.939,91 there):
+  GALG11 (one R$ 1,01 dividend, Jan 2024) — StatusInvest has no GALG11; three CMIG4 JCP
+  installments with later payment dates that StatusInvest does not list; a few ITSA4 monthly JCP
+  values that differ by centavos between the two sources. Type them by hand if they matter.
+- [ ] A ticker that changes code needs a line in `TICKER_ALIASES` (`statusinvest_client.py`);
+  until then its proventos stop at the old code. No screen says so.
+- [ ] StatusInvest is not in the integrations healthcheck (`services/health.py`): its result is
+  recorded (`record_provider_result("statusinvest", ...)`) but no card shows it.
+- [ ] Proventos of ETFs (IVVB11, LFTB11) and AUPO11 are not on StatusInvest's endpoints; none were
+  expected for these.
+
 ### Plano do mês (2026-10-16) — owner checks
 - [ ] Restart `:5000` (it predates migration 025, so the Orçamento panel errors until then), then
   rebuild the APK with `mobile/build-apk.ps1`. Set a plan on the phone, type a comma amount, and
@@ -188,7 +209,8 @@ day (see `docs/done-tasks.md`); what it left open:
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
 Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
 - Fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY) — external data.
-- B3 import of trades and proventos (the investor-area spreadsheet, via the existing import).
+- B3 import of trades (the investor-area spreadsheet, via the existing import). Proventos are
+  automatic since 2026-10-16.
 - Sector targets/rebalancing (today the sector view is a breakdown only).
 
 ### Known limits, accepted for now

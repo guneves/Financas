@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Check, Download, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, X } from 'lucide-react'
+import { Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, X } from 'lucide-react'
 import { transactionsApi } from '../../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
@@ -15,6 +15,7 @@ import {
   PageHeader,
   Panel,
   PanelHeader,
+  SegmentedControl,
   cx,
   useArrivals,
 } from '../../components/ui'
@@ -28,6 +29,7 @@ import { confirmAction } from '../../lib/confirm'
 import ExportSheet from '../../components/ExportSheet'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 import useDebouncedValue from '../../lib/useDebouncedValue'
+import ExtratoInvestimentos from './ExtratoInvestimentos'
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
@@ -161,7 +163,45 @@ function useIsXl() {
   return useSyncExternalStore(subscribeXl, () => window.matchMedia(XL_QUERY).matches, () => true)
 }
 
+// Qual extrato mostrar: o das contas (lancamentos bancarios) ou o dos
+// investimentos (operacoes e proventos). Mora na URL (?ver=investimentos) e a
+// ultima escolha fica no aparelho, para abrir onde o dono parou.
+const VIEW_KEY = 'financas.extrato.view'
+const VIEW_ITEMS = [
+  { value: 'contas', label: 'Contas', icon: Landmark },
+  { value: 'investimentos', label: 'Investimentos', icon: TrendingUp },
+]
+
+function readStoredView() {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === 'investimentos' ? 'investimentos' : 'contas'
+  } catch {
+    return 'contas'
+  }
+}
+
 export default function Extrato() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const fromUrl = searchParams.get('ver')
+  const view = fromUrl === 'investimentos' || fromUrl === 'contas' ? fromUrl : readStoredView()
+
+  const chooseView = (next) => {
+    try {
+      window.localStorage.setItem(VIEW_KEY, next)
+    } catch {
+      // sem armazenamento: vale so a URL
+    }
+    // Trocar de extrato limpa os filtros do outro.
+    setSearchParams(next === 'contas' ? {} : { ver: next }, { replace: true })
+  }
+
+  const viewSwitch = <SegmentedControl items={VIEW_ITEMS} value={view} onChange={chooseView} />
+  return view === 'investimentos'
+    ? <ExtratoInvestimentos viewSwitch={viewSwitch} />
+    : <ExtratoContas viewSwitch={viewSwitch} />
+}
+
+function ExtratoContas({ viewSwitch }) {
   const showAccount = useIsXl()
   const { openNewEntry } = useNewEntry()
   const {
@@ -399,6 +439,8 @@ export default function Extrato() {
           </>
         )}
       />
+
+      {viewSwitch}
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 

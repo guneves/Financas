@@ -396,6 +396,8 @@ CREATE TABLE IF NOT EXISTS investment_proceeds (
     metadata TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    sync_key TEXT,                              -- 026
+    sync_locked INTEGER NOT NULL DEFAULT 0,     -- 026
     CHECK (net_amount >= 0),
     CHECK (tax_amount <= gross_amount)
 );
@@ -543,4 +545,18 @@ CREATE TABLE IF NOT EXISTS monthly_plans (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE(user_id, month)
+);
+
+-- Proventos automaticos (026): sync_key identifica o evento na StatusInvest
+-- (services/proceeds_sync.py); um automatico excluido pelo dono fica aqui para
+-- nao voltar.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_investment_proceeds_user_sync_key
+ON investment_proceeds(user_id, sync_key)
+WHERE sync_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS proceeds_sync_dismissed (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sync_key TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (user_id, sync_key)
 );

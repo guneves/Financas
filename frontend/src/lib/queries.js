@@ -12,6 +12,7 @@
 import { useEffect } from 'react'
 import { keepPreviousData, QueryClient, useQuery } from '@tanstack/react-query'
 import { setMutationListener } from './api'
+import { changesPositions, scheduleProceedsSync } from './proceedsSync'
 
 // O mesmo prazo de lib/queryPersist.js (que importa daqui): uma copia mais
 // velha que isto nao e mostrada.
@@ -39,8 +40,11 @@ export function invalidateServerData() {
 // Toda gravacao que passa por apiFetch invalida o cache sozinha (lib/api.js);
 // as telas ainda chamam invalidateServerData() quando querem esperar a busca
 // nova antes de seguir (ex.: fechar um sheet so com o dado ja atualizado).
-setMutationListener(() => {
+// Gravar uma operacao muda a posicao em alguma data, e com ela os proventos
+// automaticos: a sincronizacao vem logo depois (lib/proceedsSync.js).
+setMutationListener((path) => {
   invalidateServerData()
+  if (changesPositions(path)) scheduleProceedsSync()
 })
 
 export function clearServerData() {

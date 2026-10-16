@@ -103,6 +103,7 @@
 | Phone load time: CORS preflights cached 2 h (`max_age=7200`; Chrome's default was 5 s, so almost every APK request was two round trips); navigation in a React transition (`v7_startTransition`) keeps the current screen until the next is ready; page chunks preloaded 1.5 s after start; query `gcTime` = the persisted cache's 14 days, so a screen not opened this session still has data on the next launch | 2026-10-16 |
 | A fully redeemed renda fixa title is closed: not corrected by the BCB, not listed in Posição, out of the evolution (`closed_fixed_income_title_ids()` in `services/fixed_income.py`, half-a-centavo tolerance). Before, a full resgate left a R$ 0 row that failed/stale on every refresh | 2026-10-16 |
 | Owner's Investidor10 wallet (567 lançamentos: renda variável with splits and bonificações, renda fixa, Tesouro) imported through the API into `wgrrodrigues6@gmail.com`; Tesouro rates from Tesouro Transparente. Data only, see the 2026-10-16 handoff | 2026-10-16 |
+| Automatic proventos (026): position on each data com × StatusInvest's value per share, idempotent sync (`POST /api/investment-proceeds/sync`), edits locked and deletions remembered; JCP tax 15% → 17.5% from 2026 data com; Extrato gets a Contas / Investimentos selector with a read-only operações + proventos statement. 279 proventos written for `wgrrodrigues6@gmail.com`, reconciled with Investidor10 | 2026-10-16 |
 
 ---
 
@@ -571,3 +572,19 @@ another currency (2 accounts and 24 assets, all BRL; no movement with an exchang
   "moeda estrangeira", "exterior" and PTAX — none; Ajustes shows that account as R$ 500,00. Then a
   dollar buy and sale posted through the API: the IR panel stays hidden for the year without the
   sale and shows R$ 1.000,00 / R$ 150,00 for the year with it. 909 tests in the suite.
+
+### Automatic proventos — 2026-10-16
+- **Source.** brapi's dividends module answers 403 on the free plan ("requer o plano Startup").
+  StatusInvest's `companytickerprovents` is public JSON with data com, payment date, type and
+  value. Investidor10's own earnings API needs the owner's session, so it was used only to check.
+- **Basis.** StatusInvest marks pre-split values `adj: true` (already in today's basis, like our
+  rescaled quantities) and leaves pre-bonificação values unadjusted (our bonificação is a buy on the
+  ex date). Quantity on the data com × value matched Investidor10 on BBAS3 (split 2024), ITSA4,
+  KLBN4, GOAU4, CMIG4 (bonificações).
+- **Tax.** Investidor10's net/gross ratios: JCP 0.85 for data com up to 2025, 0.825 from 2026;
+  "Rend. Trib." 0.775. That is the rule now.
+- **Reconciliation** for `wgrrodrigues6@gmail.com`: 279 rows, R$ 3.930,20 net against
+  Investidor10's 283 rows, R$ 3.939,91. Every matched event had the same quantity. MALL11 needed
+  the alias to PMLL11. One StatusInvest row (ITSA4, paid before its own data com) is dropped as a
+  typo.
+

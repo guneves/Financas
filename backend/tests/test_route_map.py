@@ -47,6 +47,7 @@ EXPECTED_ROUTES = {
     ("/api/investment-proceeds/<proceed_id>", "DELETE,PATCH"),
     ("/api/investment-proceeds/calendar", "GET"),
     ("/api/investment-proceeds/summary", "GET"),
+    ("/api/investment-proceeds/sync", "POST"),
     ("/api/investment-realized-results", "GET"),
     ("/api/investment-transactions", "GET"),
     ("/api/investments", "GET,POST"),

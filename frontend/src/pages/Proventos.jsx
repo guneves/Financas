@@ -33,6 +33,7 @@ import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLoc
 import { confirmAction } from '../lib/confirm'
 import { usePrivateFormatter } from '../lib/privacy'
 import ExportSheet from '../components/ExportSheet'
+import { syncProceeds, useProceedsSync } from '../lib/proceedsSync'
 
 const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos' },
@@ -140,6 +141,9 @@ export default function Proventos() {
 
   // Os filtros valem ao mudar, como no extrato: cada combinacao e uma query
   // (a resposta de uma busca velha nunca sobrescreve a nova).
+  // Abrir a tela traz os proventos anunciados desde a ultima vez.
+  useProceedsSync()
+
   const proceedsQuery = useQuery({
     queryKey: ['proventos', filteredParams],
     queryFn: async () => {
@@ -172,6 +176,25 @@ export default function Proventos() {
   const chartData = useMemo(() => receiptsChartData(summary?.by_month, chartPeriod), [summary, chartPeriod])
 
   const fetchData = () => invalidateServerData()
+
+  // "Atualizar" pergunta de novo a fonte (sem o cache de horas do servidor)
+  // e recalcula cada provento pela posicao na data com.
+  const [syncing, setSyncing] = useState(false)
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const result = await syncProceeds({ force: true })
+      await invalidateServerData()
+      if (!result) setError('Não foi possível buscar os proventos agora.')
+      else if (result.message) setError(result.message)
+      else {
+        const changed = (result.created || 0) + (result.updated || 0) + (result.removed || 0)
+        toast(changed ? `Proventos atualizados: ${result.created} novo(s), ${result.updated} corrigido(s), ${result.removed} removido(s).` : 'Proventos já estavam em dia.')
+      }
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   useEffect(() => {
     if (!form.asset_id && assets[0]?.id && !editingId) {
@@ -259,7 +282,7 @@ export default function Proventos() {
   const handleDelete = async (item) => {
     const confirmed = await confirmAction({
       title: 'Excluir este provento?',
-      message: `${item.asset?.ticker || 'Ativo'}, pago em ${formatDateBR(item.payment_date)}.`,
+      message: `${item.asset?.ticker || 'Ativo'}, pago em ${formatDateBR(item.payment_date)}.${item.sync_key ? ' Ele foi calculado automaticamente e não volta nas próximas atualizações.' : ''}`,
       confirmLabel: 'Excluir',
     })
     if (!confirmed) return
@@ -288,10 +311,10 @@ export default function Proventos() {
     <div className="space-y-6">
       <PageHeader
         title="Proventos"
-        description="Dividendos, JCP, amortizações, yield on cost e agenda de pagamentos."
+        description="Calculados pela sua posição na data com de cada provento; os de ações e FIIs entram sozinhos."
         actions={(
           <>
-            <Button type="button" variant="secondary" icon={RefreshCw} loading={loading} onClick={fetchData}>
+            <Button type="button" variant="secondary" icon={RefreshCw} loading={loading || syncing} onClick={handleSync}>
               Atualizar
             </Button>
             <Button type="button" variant="secondary" icon={Download} disabled={proceeds.length === 0} onClick={() => setExportOpen(true)}>

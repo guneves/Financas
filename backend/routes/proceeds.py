@@ -1,6 +1,7 @@
 """Proventos: dividendos, JCP e amortizacoes recebidos (ou a receber).
 
-O imposto padrao do JCP e 15% na fonte (`DEFAULT_JCP_TAX_RATE`); dividendo e
+O imposto padrao do JCP e o da fonte (`default_tax_for_proceed()` em
+services/proceeds.py: 15%, ou 17,5% com data com desde 2026); dividendo e
 amortizacao nao tem. `investment_position_at_date()` da a quantidade elegivel
 na data com, que vezes o valor por cota da o bruto. A leitura (lista, status,
 YOC e os resumos) mora em `services/proceeds.py`; aqui fica a escrita.
@@ -17,9 +18,11 @@ from export_csv import ColumnError
 from money import rounded_money
 from responses import export_response, read_export_options
 from services.investments import ensure_asset_owner, investment_metadata_dict
+from services.proceeds_sync import sync_proceeds
 from services.proceeds import (
     ALLOWED_PROCEEDS_TYPES,
     build_investment_proceeds_summary,
+    default_tax_for_proceed,
     fetch_investment_proceed_by_id,
     fetch_investment_proceeds,
     investment_position_at_date,
@@ -41,15 +44,6 @@ from validators import (
 )
 
 bp = Blueprint("proceeds", __name__)
-
-
-DEFAULT_JCP_TAX_RATE = 0.15
-
-
-def default_tax_for_proceed(proceeds_type, gross_amount):
-    if proceeds_type == "JCP":
-        return gross_amount * DEFAULT_JCP_TAX_RATE
-    return 0
 
 
 def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
@@ -134,7 +128,12 @@ def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
         )
     )
     if tax_amount is None or should_recalculate_tax:
-        tax_amount = default_tax_for_proceed(proceeds_type, gross_amount)
+        tax_amount = default_tax_for_proceed(
+            proceeds_type,
+            gross_amount,
+            record_date,
+            (parse_metadata_value(merged.get("metadata")) or {}).get("kind"),
+        )
 
     gross_amount = rounded_money(gross_amount)
     tax_amount = rounded_money(tax_amount)
@@ -253,6 +252,19 @@ def investment_proceeds(current_user_id):
     return jsonify(item), 201
 
 
+@bp.route("/api/investment-proceeds/sync", methods=["POST"])
+@token_required
+def investment_proceeds_sync(current_user_id):
+    """Proventos automaticos: posicao na data com x valor da StatusInvest.
+
+    `{"force": true}` ignora o cache do historico. Falha na fonte nao e erro
+    HTTP: a resposta diz o status e os tickers que ficaram de fora.
+    """
+    payload = parse_json_body()
+    force = bool(isinstance(payload, dict) and payload.get("force"))
+    return jsonify(sync_proceeds(current_user_id, force=force)), 200
+
+
 @bp.route("/api/investment-proceeds/export", methods=["GET"])
 @token_required
 def export_investment_proceeds(current_user_id):
@@ -316,6 +328,12 @@ def investment_proceed_detail(current_user_id, proceed_id):
             return jsonify({"error": "Provento nao encontrado."}), 404
 
         if request.method == "DELETE":
+            # Automatico excluido nao volta na proxima sincronizacao.
+            if existing_row["sync_key"]:
+                conn.execute(
+                    "INSERT OR IGNORE INTO proceeds_sync_dismissed (user_id, sync_key) VALUES (?, ?)",
+                    (current_user_id, existing_row["sync_key"]),
+                )
             cursor = conn.execute(
                 "DELETE FROM investment_proceeds WHERE id = ? AND user_id = ?",
                 (proceed_id, current_user_id),
@@ -346,6 +364,7 @@ def investment_proceed_detail(current_user_id, proceed_id):
                     source = ?,
                     notes = ?,
                     metadata = ?,
+                    sync_locked = CASE WHEN sync_key IS NULL THEN 0 ELSE 1 END,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE id = ? AND user_id = ?
                 """,

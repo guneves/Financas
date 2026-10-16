@@ -150,7 +150,7 @@ export async function apiFetch(path, options = {}) {
     throw failure
   }
 
-  if (mutationListener && isWrite(fetchOptions.method, normalizePath(path))) mutationListener()
+  if (mutationListener && isWrite(fetchOptions.method, normalizePath(path))) mutationListener(normalizePath(path))
   return payload
 }
 

@@ -20,6 +20,30 @@ from validators import ValidationError, require_date, safe_float
 
 ALLOWED_PROCEEDS_TYPES = {"DIVIDEND", "JCP", "AMORTIZATION"}
 
+# IR retido na fonte sobre JCP: 15% ate 2025, 17,5% com data com a partir de
+# 2026 (LC 224/2025) — a mesma regra que o Investidor10 aplica, conferida
+# linha a linha em 2026-10-16. "Rendimento tributavel" (atualizacao de
+# proventos atrasados, gravado como JCP com metadata.kind) paga 22,5%.
+JCP_TAX_RATE = 0.15
+JCP_TAX_RATE_FROM_2026 = 0.175
+JCP_TAX_RATE_2026_START = "2026-01-01"
+TAXABLE_INCOME_TAX_RATE = 0.225
+TAXABLE_INCOME_KIND = "TAXABLE_INCOME"
+
+
+def default_tax_rate(proceeds_type, record_date=None, kind=None):
+    if proceeds_type != "JCP":
+        return 0.0
+    if kind == TAXABLE_INCOME_KIND:
+        return TAXABLE_INCOME_TAX_RATE
+    if record_date and str(record_date) >= JCP_TAX_RATE_2026_START:
+        return JCP_TAX_RATE_FROM_2026
+    return JCP_TAX_RATE
+
+
+def default_tax_for_proceed(proceeds_type, gross_amount, record_date=None, kind=None):
+    return gross_amount * default_tax_rate(proceeds_type, record_date, kind)
+
 # Janela do "ultimos 12 meses": pagamento em (hoje - 365 dias, hoje], a mesma
 # de `income_last_12_months()` das metas.
 TRAILING_DAYS = 365
@@ -32,8 +56,12 @@ def trailing_window(today=None):
 
 def investment_position_at_date(conn, current_user_id, asset_id, date_value):
     target_date = require_date({"date": date_value}, "date", "Data de referencia")
-    rows = conn.execute(
-        """
+    return accumulate_position(asset_movement_rows(conn, current_user_id, asset_id, target_date))
+
+
+def asset_movement_rows(conn, current_user_id, asset_id, until_date=None):
+    """Operacoes do ativo em ordem de data (e de gravacao), ate `until_date` inclusive."""
+    sql = """
         SELECT
             id,
             movement_type,
@@ -46,12 +74,17 @@ def investment_position_at_date(conn, current_user_id, asset_id, date_value):
         FROM investment_transactions
         WHERE user_id = ?
           AND asset_id = ?
-          AND transaction_date <= ?
-        ORDER BY transaction_date ASC, created_at ASC, id ASC
-        """,
-        (current_user_id, asset_id, target_date),
-    ).fetchall()
+    """
+    params = [current_user_id, asset_id]
+    if until_date:
+        sql += " AND transaction_date <= ?"
+        params.append(until_date)
+    sql += " ORDER BY transaction_date ASC, created_at ASC, id ASC"
+    return conn.execute(sql, params).fetchall()
 
+
+def accumulate_position(rows):
+    """Quantidade e custo depois de `rows` (ja em ordem), pelo custo medio."""
     quantity = 0.0
     cost_basis = 0.0
     for row in rows:

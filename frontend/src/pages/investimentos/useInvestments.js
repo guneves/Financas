@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { investmentsApi } from '../../lib/dataApi'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/queries'
+import { useProceedsSync } from '../../lib/proceedsSync'
 
 async function fetchPortfolio() {
   const data = await apiFetch('/api/investments/portfolio?refresh_prices=false')
@@ -23,6 +24,7 @@ const NO_MOVEMENTS = []
 // erro e a atualizacao de cotacoes. Duas queries (carteira e operacoes);
 // gravar qualquer coisa invalida as duas (lib/queries.js).
 export default function useInvestments() {
+  useProceedsSync()
   const portfolioQuery = useQuery({ queryKey: ['investimentos', 'carteira'], queryFn: fetchPortfolio })
   const movementsQuery = useQuery({
     queryKey: ['investimentos', 'operacoes'],

@@ -7,263 +7,107 @@
 
 ---
 
-## Session — 2026-10-16 (sixth, parallel) · Investidor10 import, closed renda fixa titles
+## Session — 2026-10-16 (seventh) · Automatic proventos, investments Extrato
 
-Ran alongside the monthly-plan session (`025`, uncommitted in the tree); committed only its own paths.
+The owner asked for three things:
+- investment lançamentos visible in the app. Asked to clarify, they answered "make it so the user
+  selects which extrato he wants to see";
+- proventos derived from positions by date, including a position entered with a past date;
+- the proventos for `wgrrodrigues6@gmail.com` updated against their Investidor10 earnings page,
+  and kept working in the future.
 
-### What was done
-- **Data, not code: the owner's Investidor10 wallet copied into `wgrrodrigues6@gmail.com`**
-  (user `e248c5db…`, which had no investments). 567 lançamentos read from Investidor10's own JSON
-  (`/wallet/api/proxy/wallet-app/entries/<wallet>/<1|3|5>`) through Claude in Chrome, imported
-  in-process through the real API (Flask test client), chronologically: 407 buys, 98 sells, 8
-  bonificações and 3 splits as `corporate_actions` (a bonus uses ratio = holding:quantity so the
-  quantity is Investidor10's exact one), 17 renda fixa + 16 Tesouro buys, 20 redemptions linked by
-  `related_id`. No Extrato rows. Every row has `metadata.imported_from = "investidor10"` and
-  `external_id`. Open positions matched Investidor10's running totals. GALG11, JBSS3, NEOE3 are off
-  the B3 list and were created as existing assets. Pre-import backup and the scripts live in the
-  session scratchpad, not the repo.
-- **Tesouro rates:** Investidor10 has no contracted rate, so "Atualizar cotações" failed every
-  Tesouro title. Each buy now carries the rate from Tesouro Transparente's
-  `PrecoTaxaTesouroDireto.csv`, taken on the day whose "PU Compra Manhã" is closest to the price
-  paid (11 of 16 exact, all within 0.51%). IPCA+ / Renda+ → `indexer IPCA`; Selic → `CDI_PLUS` +
-  its spread (the app has no Selic series; CDI ≈ Selic − 0.10 pp).
-- **Bug fixed: a fully redeemed renda fixa title stayed open.** A full resgate leaves quantity 1
-  and applied 0, so the title was listed at R$ 0, re-corrected against the BCB on every refresh,
-  and reported stale. `closed_fixed_income_title_ids()` / `fixed_income_title_closed()` in
-  `services/fixed_income.py` (half-a-centavo tolerance); the refresh, `build_portfolio_snapshot()`
-  and `portfolio_month_positions()` skip it. Two tests in `test_fixed_income_indexers.py`.
-
-### What was not done and why
-- **The running `:5000` still has the old code** until the owner restarts it, so until then the app
-  still lists closed titles. The data fixes are already in `finance.db`.
-- Tesouro is valued on the curve (rate accrual), like every renda fixa here, not at the Tesouro's
-  daily market price. Renda+ is modelled as IPCA+ to 2065. No "Tesouro" title type exists in the form.
-- Redemption cost on the LCI Inter 90% (two buys, three resgates) is proportional to the amount
-  redeemed; Investidor10 has no per-resgate cost.
-
-## Session — 2026-10-16 (fifth) · Phone: APK rebuilds, masked e-mail, demo data out, load time
+The opening briefing came from `session-scout`.
 
 ### What was done
-- APK rebuilt and installed three times, ending on the commit after this one's code.
-- Perfil shows the login e-mail masked (`maskEmail()` in `lib/format.js`, tested).
-- "Dados de exemplo" removed from Ajustes (frontend-only; `backend/scripts/` seeds untouched).
-- **Load time on the phone.** The owner said screens take too long, and asked to keep the previous
-  screen while the new one loads. Measured first:
-  - server: 2–8 ms per endpoint on a copy of `finance.db` (`/returns` 1.3 s once, benchmark fetch);
-  - phone → PC over Tailscale: ~36 ms ping, HTTP/2 through `tailscale serve`;
-  - the real cost: **48 of 120 phone requests were CORS preflights.** The APK's origin is
-    `https://localhost`, every GET carries `Authorization`, and Flask-CORS sent no
-    `Access-Control-Max-Age`, so Chrome kept each preflight 5 s. Now `max_age=7200` (Chrome's
-    cap), `test_cors.py`.
-  - `App.jsx`: React Router `v7_startTransition` (a navigation keeps the current screen until the
-    next one's code is ready) and all page chunks preloaded 1.5 s after start.
-  - `queries.js`: `gcTime` was 10 min, and the persisted cache saves only what is in memory, so a
-    screen not opened in a session lost its saved data and showed a skeleton next launch. Now
-    `gcTime` = the persisted 14 days (`PERSISTED_CACHE_MAX_AGE_MS`).
-  - Playwright at 390 px with 300 ms latency on a scratch server: no page-level skeleton on any
-    navigation; list skeletons only on a screen's first-ever load; none on the second pass.
+- **Migration 026** (`026_proceeds_sync.sql`):
+  - `investment_proceeds.sync_key` + `sync_locked`;
+  - a unique partial index on `(user_id, sync_key)`;
+  - the `proceeds_sync_dismissed` table.
+- **`backend/statusinvest_client.py`** (pure, cached 6 h, paced 0.6 s, one retry on 429/403).
+  - It reads StatusInvest's public `companytickerprovents` JSON.
+  - brapi was tried first. Its dividends need the paid "Startup" plan, and it answered 403.
+  - `TICKER_ALIASES` maps MALL11 → PMLL11.
+  - A row paid before its own data com is dropped as a source typo.
+- **`backend/services/proceeds_sync.py`** (`POST /api/investment-proceeds/sync`, `{"force": true}`
+  skips the cache):
+  - quantity = `accumulate_position()` on the data com (the manual form's rule, factored out of
+    `investment_position_at_date()`);
+  - writes, corrects or removes automatic rows; never touches a typed one;
+  - an edit locks the row (PATCH sets `sync_locked`), and a DELETE records the key so it never
+    comes back;
+  - a failed ticker keeps its rows.
+- **Tax rule** moved to `services/proceeds.py` (`default_tax_rate()`):
+  - JCP pays 15% with data com up to 2025 and 17.5% from 2026;
+  - "rendimento tributável" pays 22.5%;
+  - this is the rule Investidor10 applies to every row of the owner's wallet.
+
+  The manual form uses it too. One fixture in `test_proceeds_by_asset.py` now gives its JCP a
+  2025 data com to keep the 15% figures.
+- **Frontend.**
+  - `lib/proceedsSync.js` triggers the sync on opening Proventos/Investimentos (at most every
+    10 min). It also runs 1.5 s after any write to `/api/investments*` or
+    `/api/corporate-actions*`; `apiFetch`'s mutation listener now receives the path.
+  - Proventos' "Atualizar" forces a sync and toasts the counts.
+  - Extrato has a **Contas | Investimentos** selector (`?ver=`, last choice in localStorage).
+  - The investments view is `ExtratoInvestimentos.jsx` over `lib/investmentStatement.js`, with 6
+    node tests. It is read-only: operações and proventos by day, with search and a Tudo /
+    Operações / Proventos filter.
+- **Data, on purpose, in the real `finance.db`.** Migration 026 was applied, and the sync was run
+  for `wgrrodrigues6@gmail.com` (in-process script):
+  - **279 proventos, R$ 3.930,20 net**, against Investidor10's 283 rows and R$ 3.939,91;
+  - every matched event had the same quantity as Investidor10;
+  - a second run writes nothing.
+
+  Investidor10's list came from its own API
+  (`/wallet/api/proxy/wallet-app/earnings/list/1138417`, via Claude in Chrome).
+- Tests: backend **989** passed (14 new in `test_proceeds_sync.py`); frontend `npm test` 29 passed;
+  `npm run build` OK.
+
+- **finance-guard** (run directly; discovery worked):
+  - `user_id` scoping, rounding, the migration and the guards all passed.
+  - It found that a typed provento would get an automatic twin for the same event. Fixed: a
+    typed row with the same type and data com now stands in for the automatic one, with a test.
+    The real DB had no typed proventos, so no duplicates exist there.
+  - It also asked for a test that a row removed for zero position comes back when a backdated
+    buy restores it. Added, and it passes.
 
 ### What was not done and why
-- **The CORS fix needs `:5000` restarted** — the owner's process; until then the phone still sends
-  a preflight per request. The frontend half works without it.
-- A screen opened for the very first time (empty cache) still shows its list skeleton. Prefetching
-  every screen's data at start would need the query keys centralised; not worth it while the
-  persisted cache covers every later visit.
+- **`:5000` was not restarted.** It is the owner's process, and it predates 026 and the sync
+  route. Until the owner restarts it, the screens' sync call fails silently. The data is already
+  in the DB.
+- **Not opened in a browser:** the Extrato selector, the investments statement and "Atualizar".
+  They are covered by the build and the node tests only.
+- **The R$ 9,71 left against Investidor10:**
+  - GALG11 (not on StatusInvest);
+  - three CMIG4 JCP installments that StatusInvest does not list;
+  - centavo differences in ITSA4 monthly JCP.
 
-## Session — 2026-10-16 (third, parallel) · Bug pass on the Android and desktop apps
-
-The owner asked to check both apps for bugs. Another session (`financas-d5`, the monthly plan,
-migration 025) was working in the same tree at the same time, and each session committed only its
-own paths. The entry below this one is the previous session's, kept because it is still the
-reference for Phase 5.
-
-### What was done
-- Backend suite, and frontend `npm test` (16), both green.
-- **Desktop.** A Playwright walk of all 14 screens at 1400 px and 390 px, on a seeded scratch
-  database (port 5003, vite 5178). It found no console errors, no 4xx/5xx and no horizontal
-  overflow. The offline "+ Novo" → "Pendentes" → "Sincronizar agora" flow arrives on the server
-  once.
-- **Bug fixed, both platforms** (`lib/layers.js`):
-  - Every Sheet and Menu listened for Escape on `document` by itself, and so did the Android back
-    button, which sends Escape.
-  - With the discard confirmation open over "Pendentes", one Escape closed the *underneath* sheet
-    and left the question orphaned. React re-rendered between listeners, and the confirm's
-    listener was re-registered mid-dispatch.
-  - Escape on a "⋯" menu inside a sheet closed the sheet as well.
-  - Each sheet saved and restored `body.style.overflow`, so two closing out of order left the
-    page unable to scroll.
-
-  Now there is one stack: only the top layer handles Escape, the scroll lock is counted, and
-  `nativeApp.js` back calls `closeTopLayer()`. This also fixes back being swallowed during a
-  sheet's 200 ms exit animation, when the old code still found `[role=dialog]` in the DOM.
-  Verified in Playwright: each Escape closes one layer, and scroll unlocks after the last.
-- **Phone, read-only.** The installed APK is `44542b8-dirty`. The owner was using the phone
-  (a Samsung Pass prompt was open, and they entered data), so nothing was tapped there.
-- Static review of the native outbox: two findings, both added to `docs/next-steps.md`. Backoff
-  can reach hours with the app closed after a long outage. `KEEP` has a small scheduling window.
-
-### What was not done and why
-- No APK rebuild: the owner was on the phone. The back-button fix reaches the phone only with
-  the next `mobile/build-apk.ps1`.
-- `lib/layers.js` has no automated test: it imports React, and the node test runner has no DOM.
-  It is covered by the Playwright flow only (scratchpad, not committed).
-- The backoff and `KEEP` findings were left unfixed: they need a test on the phone.
-- `frontend/dist` was rebuilt at about 16:15 from a tree that included the other session's
-  uncommitted work. Rebuild after both sessions commit.
-- `backend/brapi_client.py` briefly had a SyntaxError in the tree (another session's edit). It was
-  back to `HEAD` when this session committed.
-
-### Learned
-- A browser-dispatched keydown runs microtasks between listeners, so a React 18 update from one
-  `document` listener can re-render and re-register the next listener before it fires. Never
-  rely on several independent Escape listeners agreeing; use `useLayer()`.
-
----
-
-## Session — 2026-10-16 (second) · Mobile Phase 5: the APK, built and on the phone
-
-The owner asked for Phase 5:
-- Capacitor, pointed at the Tailscale address;
-- the offline queue in native Android code;
-- their own signing key, plus a build-and-install script.
-
-The PC had no JDK or SDK. The owner chose to install Android Studio themselves, then enabled USB
-debugging and tested on their phone, a Galaxy S25 (adb serial `RQCY10655FW`). The docs were read
-directly (no `session-scout`). `finance-guard` audited the code commit (`4da45c4`); see below.
-
-Commits:
-
-| Commit | What |
-|---|---|
-| `4da45c4` | The code: Capacitor, native outbox, scripts |
-| `ae777c7` | Gradle 9.1; scripts no longer treat stderr as failure |
-| `f3efbdc` | Bars' colour at launch |
-| `b2a9741` | `apiFetch` timeouts and `FitValue` slack |
-| (this one) | Docs |
-
-### What was done
-- **Capacitor 8.5.3** in `frontend/`:
-  - `capacitor.config.json`: id `br.financas.app`, name "Finanças", `webDir: dist-android`,
-    `SystemBars.insetsHandling: native`;
-  - `frontend/android/` is committed.
-- **The APK's own web build:** `dist-android/` (gitignored), built with
-  `VITE_API_BASE_URL=https://financas.tail5084ff.ts.net`. `frontend/dist`, which Flask serves,
-  still calls its own origin.
-- **The address is `financas.tail5084ff.ts.net`, not `desktop-behm4lb…`.** `desktop-behm4lb` is
-  the Windows hostname the owner gave, and it does not resolve in the tailnet. `tailscale serve`
-  (saved, survives restarts) proxies the address to `127.0.0.1:5000`.
-- **Native outbox** (`frontend/android/app/src/main/java/br/financas/app/outbox/`), in Java:
-  - `OutboxStore`: SQLite;
-  - `OutboxRules`: a port of `outboxRules.js`, with 9 JVM tests;
-  - `OutboxSender`: no redirects followed; a 2xx counts only when its body is the created row;
-    results are written back only to the version that was sent;
-  - `OutboxWorker`: WorkManager, `CONNECTED` constraint, backoff from 30 s;
-  - `Session`: the token is encrypted with a Keystore AES-GCM key;
-  - `LoginNotifier`;
-  - `OutboxPlugin`.
-
-  `lib/nativeApp.js` swaps it in. It also wires the back button and the bars' theme (`ShellPlugin`).
-- **Signing and build:**
-  - `mobile/new-keystore.ps1` was run: the key is in `%USERPROFILE%\.financas-android`;
-  - `mobile/build-apk.ps1` builds, signs, verifies and runs `adb install -r`. It never
-    uninstalls.
-- **First build.** Android Studio's JDK is **Java 25**: Gradle 8.14 failed with "Unsupported
-  class file major version 69", so the wrapper is now **Gradle 9.1.0**. AGP stays at 8.13.0 and
-  compileSdk/targetSdk at 36. It compiled first time after that, and the JVM tests pass.
-- **Fixed on the phone:**
-  - **The bars were light under the dark theme at launch.** `index.html` sets the `dark` class
-    but leaves the meta theme-color light. `applyTheme()` now reads the class.
-  - **"Salvar" spun forever in airplane mode.** With the Tailscale VPN "connected" and no network
-    under it, fetch hangs instead of failing. `apiFetch` gained `timeoutMs`: a "+ Novo" creation
-    gives up after 6 s and goes to the queue (`CREATE_TIMEOUT_MS` in `outbox.js`), reads after
-    45 s, and edits and deletes have none. CLAUDE.md's outbox convention says why. Ten seconds
-    was still too slow for the owner, so with no real network (`Outbox.hasNetwork()`: any
-    non-VPN network with internet; `navigator.onLine` in the browser) `createEntry()` now queues
-    at once without trying.
-  - **"R$ 1.000,…" on Início.** The phone's 90% text zoom left the fitted text 288.4 px wide in
-    a 288 px box: integer `clientWidth`/`scrollWidth` hid the overflow. `FitValue` now measures
-    with `getBoundingClientRect` and leaves 2% slack (`FIT_SLACK`). Checked on the phone: 281.7
-    in 288.
-- **On the phone, verified:**
-  - it installs and opens;
-  - login works through Tailscale;
-  - the owner's real data loads;
-  - the bars follow the theme;
-  - the balance fits;
-  - offline, an entry went to "Pendentes" (then within 10 s; now at once in airplane mode, not yet
-    re-checked by the owner). On reconnect the **WorkManager job** sent
-    it: logcat shows `OutboxWorker` RETRY at 15:51:44, then SUCCESS at 15:52:15. It arrived on
-    the PC once (read-only query on `finance.db`).
-- `backend/.env`: `https://localhost` was added to `CORS_ORIGINS`, and `JWT_EXP_DAYS=180` was set.
-  `JWT_SECRET` was not touched.
-- **finance-guard** (code commit): no cross-user leak and no duplicate path. It found two ways to
-  *lose* a queued item, a redirect read as success and a write-back from a stale snapshot. Both
-  were fixed before commit (see `4da45c4`). The later fixes are frontend-only, with no financial
-  rule; they did not get a second audit.
-
-### What was not done and why
-- **The "done when" with the app closed is unproven.** In the owner's test the app was still on
-  screen when the job sent. The job is the same code either way, but Samsung's battery management
-  could hold it once the app is swiped away. `docs/next-steps.md` has the check and the fallback:
-  battery use "Sem restrições".
-- Not walked on the phone:
-  - the back button;
-  - the theme toggle at runtime;
-  - the keyboard over "+ Novo", and whether the decimal keypad's comma is accepted;
-  - the notification permission prompt.
-- **The version in Ajustes** (Phase 9, step 4). Builds already stamp `versionName`.
-- The browser `flush()` snapshot issue is still open (`docs/next-steps.md`).
-- The pre-26 PNG launcher icons are Capacitor's defaults. Only Android 7 and older would show
-  them.
-
-### Waiting on the owner
-- **Back up `%USERPROFILE%\.financas-android` off this PC.** Without that key, no future build
-  can update the installed app, and reinstalling means emptying "Pendentes" first.
-- Repeat the offline test with the app swiped away.
-- For daily use the PC needs three things:
-  - the backend (`.\start.ps1 -Built -NoBrowser`);
-  - Tailscale connected on both devices;
-  - the PC awake.
-- Carried:
-  - Phase 6 needs real notification texts;
-  - Phase 8 needs one statement file per bank;
-  - an eye on Phase 4's screens.
+  Listed in next-steps.
+- **No scheduled sync:** it runs only while the app is used.
+- **No healthcheck card for StatusInvest.**
+- **No APK rebuild.** A background Taildrop send from an earlier session was killed by Claude
+  Code for low memory, so the phone may still have an older APK.
 
 ### Next session
-If the owner reports the closed-app test passed, close Phase 5 in the docs. Then either the version
-in Ajustes (small) or the browser `flush()` fix. Phase 6 waits on notification texts.
+1. Owner restarts `:5000` and walks the Extrato → Investimentos view and Proventos → Atualizar.
+2. Rebuild the APK (`mobile/build-apk.ps1`) so the phone gets the selector.
+3. Then whatever the owner picks from next-steps.
+
+### Carried from earlier sessions (still open)
+- Back up `%USERPROFILE%\.financas-android` off this PC.
+- Repeat the offline "+ Novo" test with the APK swiped away.
+- Daily use needs `.\start.ps1 -Built -NoBrowser`, Tailscale on both devices, and the PC awake.
+- The `:5000` restart also activates the CORS preflight cache (`max_age=7200`) and the
+  closed-renda-fixa fix.
 
 ### Learned
-- **Build toolchain:**
-  - Android Studio's JBR is Java 25, which needs Gradle 9.1+;
-  - `mobile/android-tools.ps1` finds the JBR and `%LOCALAPPDATA%\Android\Sdk`.
-- **Windows PowerShell 5.1** throws on a native command's stderr under
-  `$ErrorActionPreference = 'Stop'` when output is redirected. Keytool, Gradle and adb all hit
-  it. The scripts switch to `Continue` around native calls and check `$LASTEXITCODE`.
-- **Debugging the WebView on the phone:**
-  1. temporarily add `"webContentsDebuggingEnabled": true` under `android` in
-     `capacitor.config.json` and rebuild;
-  2. find the socket with `adb shell cat /proc/net/unix | grep webview_devtools_remote`;
-  3. run `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`;
-  4. send `Runtime.evaluate` over the CDP websocket from `http://127.0.0.1:9333/json` (a
-     20-line node script);
-  5. remove the flag and rebuild.
-- **Screenshots** with `adb exec-out screencap -p > file` from Bash. PowerShell's `>` corrupts
-  binary output.
-- **Background sends** show in `adb logcat` under `WM-WorkerWrapper ... OutboxWorker`.
-- **Tailscale:**
-  - the tailnet name is in `tailscale status --json` (`Self.DNSName`);
-  - `tailscale.exe` is in `C:\Program Files\Tailscale\`;
-  - `tailscale serve status` shows the proxy.
-- **Capacitor 8 specifics:**
-  - `SystemBars` is built in, with no status-bar plugin;
-  - its `native` insets handling also pads for the IME;
-  - plugins of our own are registered in `MainActivity` before `super.onCreate`.
-- **Bash tool:** it collapses `\\` in heredocs. Write edit scripts with Write, then grep for
-  `[\x00-\x08\x0b\x0c]`.
-- Carried:
-  - `core.autocrlf` is true;
-  - `tmp_path` fails here, so use `tempfile.mkdtemp(dir=...)`;
-  - run `python -m pytest` plain;
-  - `node --test` wants the glob;
-  - open `finance.db` read-only with `file:<path>?mode=ro`.
+- `finance.db` runs in **WAL mode**. A file copy is not a backup; use `sqlite3`'s `backup()`. The
+  pre-sync backup is in this session's scratchpad (`finance.before-proceeds-sync.db`).
+- StatusInvest values before a split are already in today's share basis (`adj: true`); values
+  before a bonificação are not. That matches how this app stores both, so no un-scaling is needed.
+- StatusInvest answers a burst of ~20 tickers with 429/403; pacing at 0.6 s fixed it.
+- Investidor10's earnings list has the same event twice when a company pays in installments
+  (KLBN4 ×4 on one data com). The sync keys include the payment date plus an occurrence index.
+- Claude in Chrome blocks returning query strings from JS. To move bulk data out of a logged-in
+  page, POST it to a throwaway `127.0.0.1` listener (`recv.py` in the scratchpad), then kill the
+  listener.

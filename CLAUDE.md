@@ -137,15 +137,16 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-948 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+989 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
-unless it patches it in. They run
+unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
+`statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
 
@@ -177,8 +178,8 @@ Fixtures: `client`, `user`, `other_user`, `auth`, `app_module`, `db_module`, `in
 of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
-`cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `lib/outboxRules.test.js`,
-16 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
+`monthlyPlan` and `investmentStatement`, 29 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -201,7 +202,7 @@ backend/
                       # BRL conversion), corporate_actions, realized_results (FIFO, tax),
                       # portfolio (positions, evolution), tax_report (IR, exemption meter),
                       # allocation (targets, contribution split, concentration), goals,
-                      # proceeds (proventos read, by asset), returns (TWR), contributions
+                      # proceeds (proventos read, by asset), proceeds_sync (automatic proventos), returns (TWR), contributions
                       # (aportes x resgates), benchmarks (IPCA/IBOV/IFIX/IDIV closes),
                       # sectors (brapi sector per asset, breakdown), health (integrations)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
@@ -211,6 +212,7 @@ backend/
   export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
   export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
   irpf_text.py        # texto para colar no programa do IRPF, sobre o relatorio de IR (funcoes puras)
+  statusinvest_client.py # historico de proventos por ticker na StatusInvest (funcoes puras + cache)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -373,6 +375,28 @@ mobile-docs/
   same button opens "Registrar operação".
 - **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
   payments never count.
+- **Proventos of ações/FIIs are computed, not typed** (026, `services/proceeds_sync.py`):
+  `POST /api/investment-proceeds/sync` takes each event from StatusInvest (`statusinvest_client.py`;
+  brapi's dividends need a paid plan) and multiplies its value per share by the position on its
+  *data com* (`accumulate_position()`, the manual form's rule), so a buy entered with a past date
+  brings the proventos it earned and deleting one takes them away. Idempotent like recurrences:
+  `sync_key` = `<ticker>:<kind>:<data com>:<pagamento>#n` with a unique partial index. A typed
+  provento (`sync_key` NULL) is never touched and stands in for the automatic one of the same type and
+  data com, an edited automatic one is `sync_locked`, a deleted
+  one goes to `proceeds_sync_dismissed` and stays gone; a ticker whose fetch fails keeps its rows.
+  The frontend asks for it (`lib/proceedsSync.js`) when an investments screen opens (at most every
+  10 min) and 1.5 s after any write to `/api/investments*` or `/api/corporate-actions*`; the server
+  caches each ticker's history for 6 h and paces requests (StatusInvest answers bursts with 429/403).
+  StatusInvest's values before a split are already in today's basis, as are our stored quantities;
+  before a bonificação they are not, and neither are ours — so quantity × value is right either way
+  (checked against Investidor10). A renamed ticker needs an entry in `TICKER_ALIASES`. JCP's
+  default tax is 15% with data com up to 2025 and 17.5% from 2026; "rendimento tributável" is a
+  JCP row with `metadata.kind = TAXABLE_INCOME` at 22.5% (`default_tax_rate()` in
+  `services/proceeds.py`).
+- **The Extrato has two views** (`?ver=contas|investimentos`, last choice kept on the device): the
+  accounts' lançamentos, and a read-only investments statement of operações + proventos
+  (`lib/investmentStatement.js`, tested). The investments one writes nothing and never touches an
+  account balance; editing stays in Operações and Proventos.
 - **The monthly plan is a plan, like budgets** (025, `services/monthly_plan.py`): `PUT
   /api/monthly-plan` writes one month's spend/invest (and optional income) amounts, a month
   without a row inherits the latest earlier one, and `DELETE` is real with no guard. Spent and

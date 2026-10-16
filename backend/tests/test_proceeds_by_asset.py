@@ -111,7 +111,8 @@ def two_assets(client, auth):
     petr = trade(client, auth, "PETR4", 100, 10.0, days(-800))
     itsa = trade(client, auth, "ITSA4", 200, 5.0, days(-800))
     provento(client, auth, petr, days(-30), per_unit=1.0)
-    provento(client, auth, petr, days(-60), kind="JCP", per_unit=0.5)
+    # data com em 2025: JCP a 15% (com data com em 2026 seria 17,5%)
+    provento(client, auth, petr, days(-60), kind="JCP", per_unit=0.5, record="2025-12-01")
     provento(client, auth, itsa, days(-400), per_unit=0.1)
     return {"PETR4": petr, "ITSA4": itsa}
 
