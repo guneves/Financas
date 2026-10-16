@@ -45,7 +45,11 @@ $Apk = Join-Path $AndroidDir 'app\build\outputs\apk\release\app-release.apk'
 
 function Invoke-Step([string]$Title, [scriptblock]$Action) {
     Write-Host "==> $Title" -ForegroundColor Cyan
+    # Gradle, npm and apksigner print progress on stderr; under 'Stop', Windows PowerShell
+    # would call that a failure when the output is redirected. The exit code decides.
+    $ErrorActionPreference = 'Continue'
     & $Action
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Failed: $Title (exit code $LASTEXITCODE)" -ForegroundColor Red
         exit $LASTEXITCODE

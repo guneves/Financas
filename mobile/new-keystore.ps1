@@ -49,6 +49,9 @@ $password = -join ($bytes | ForEach-Object { $_.ToString('x2') })
 # The password goes through the environment, not the command line, so it does not
 # show up in the process list. PKCS12 uses one password for the store and the key.
 $env:FINANCAS_KEYSTORE_PASSWORD = $password
+# keytool prints its progress on stderr; under 'Stop', Windows PowerShell would treat
+# that as a failure whenever the output is redirected. The exit code is the real check.
+$ErrorActionPreference = 'Continue'
 try {
     & $Keytool -genkeypair -v `
         -keystore $Keystore -storetype PKCS12 `
@@ -58,6 +61,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "keytool failed with exit code $LASTEXITCODE" }
 } finally {
     Remove-Item Env:\FINANCAS_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
+    $ErrorActionPreference = 'Stop'
 }
 
 # Forward slashes: a backslash is an escape character in a .properties file.
