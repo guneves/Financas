@@ -38,7 +38,12 @@ app = Flask(__name__)
 cors_origins = "*" if CORS_ORIGINS == "*" else [
     origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()
 ] or "*"
-CORS(app, resources={r"/api/*": {"origins": cors_origins}})
+# O APK (origem https://localhost) chama a API em outra origem com Authorization:
+# cada GET precisa de um preflight OPTIONS. Sem Max-Age o Chrome guarda a
+# resposta por 5 s, e quase todo pedido do celular virava duas idas ao PC.
+# 7200 s e o teto do Chrome.
+CORS_PREFLIGHT_MAX_AGE = 7200
+CORS(app, resources={r"/api/*": {"origins": cors_origins}}, max_age=CORS_PREFLIGHT_MAX_AGE)
 
 for blueprint_module in (
     system_routes,

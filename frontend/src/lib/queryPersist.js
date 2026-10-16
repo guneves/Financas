@@ -8,12 +8,13 @@
 import { dehydrate, hydrate } from '@tanstack/react-query'
 import { getStoredAuth } from './api'
 import { CACHE_STORE, storeDelete, storeGet, storePut } from './offlineStore'
+import { PERSISTED_CACHE_MAX_AGE_MS } from './queries'
 
 const CACHE_KEY = 'react-query'
 const SAVE_DELAY_MS = 1000
 // Uma copia mais velha que isto nao e mostrada: um saldo de um mes atras
 // engana mais do que ajuda.
-const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+const MAX_AGE_MS = PERSISTED_CACHE_MAX_AGE_MS
 
 const currentUserId = () => getStoredAuth()?.user?.id || ''
 

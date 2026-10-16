@@ -13,12 +13,19 @@ import { useEffect } from 'react'
 import { keepPreviousData, QueryClient, useQuery } from '@tanstack/react-query'
 import { setMutationListener } from './api'
 
+// O mesmo prazo de lib/queryPersist.js (que importa daqui): uma copia mais
+// velha que isto nao e mostrada.
+export const PERSISTED_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // Dado com menos de 30 s nao e rebuscado so por remontar a tela.
       staleTime: 30_000,
-      gcTime: 10 * 60_000,
+      // O cache guardado no aparelho (lib/queryPersist.js) so leva o que ainda
+      // esta aqui: com 10 min, uma tela nao aberta na sessao voltava vazia na
+      // proxima abertura, com esqueleto. Fica o mesmo prazo da copia guardada.
+      gcTime: PERSISTED_CACHE_MAX_AGE_MS,
       retry: 1,
       refetchOnWindowFocus: false,
     },

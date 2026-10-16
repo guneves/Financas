@@ -9,23 +9,58 @@ import Layout from './components/Layout'
 
 // Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
 // mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Extrato = lazy(() => import('./pages/lancamentos/Extrato'))
-const Cartoes = lazy(() => import('./pages/lancamentos/Cartoes'))
-const Importar = lazy(() => import('./pages/lancamentos/Importar'))
-const Investments = lazy(() => import('./pages/Investments'))
-const Proventos = lazy(() => import('./pages/Proventos'))
-const ImpostoRenda = lazy(() => import('./pages/investimentos/ImpostoRenda'))
-const Orcamento = lazy(() => import('./pages/Orcamento'))
-const Recorrentes = lazy(() => import('./pages/Recorrentes'))
-const Metas = lazy(() => import('./pages/Metas'))
-const Alocacao = lazy(() => import('./pages/investimentos/Alocacao'))
-const Rentabilidade = lazy(() => import('./pages/investimentos/Rentabilidade'))
-const Ajustes = lazy(() => import('./pages/Ajustes'))
+const PAGE_LOADERS = {
+  Dashboard: () => import('./pages/Dashboard'),
+  Extrato: () => import('./pages/lancamentos/Extrato'),
+  Cartoes: () => import('./pages/lancamentos/Cartoes'),
+  Importar: () => import('./pages/lancamentos/Importar'),
+  Investments: () => import('./pages/Investments'),
+  Proventos: () => import('./pages/Proventos'),
+  ImpostoRenda: () => import('./pages/investimentos/ImpostoRenda'),
+  Orcamento: () => import('./pages/Orcamento'),
+  Recorrentes: () => import('./pages/Recorrentes'),
+  Metas: () => import('./pages/Metas'),
+  Alocacao: () => import('./pages/investimentos/Alocacao'),
+  Rentabilidade: () => import('./pages/investimentos/Rentabilidade'),
+  Ajustes: () => import('./pages/Ajustes'),
+}
+
+const Dashboard = lazy(PAGE_LOADERS.Dashboard)
+const Extrato = lazy(PAGE_LOADERS.Extrato)
+const Cartoes = lazy(PAGE_LOADERS.Cartoes)
+const Importar = lazy(PAGE_LOADERS.Importar)
+const Investments = lazy(PAGE_LOADERS.Investments)
+const Proventos = lazy(PAGE_LOADERS.Proventos)
+const ImpostoRenda = lazy(PAGE_LOADERS.ImpostoRenda)
+const Orcamento = lazy(PAGE_LOADERS.Orcamento)
+const Recorrentes = lazy(PAGE_LOADERS.Recorrentes)
+const Metas = lazy(PAGE_LOADERS.Metas)
+const Alocacao = lazy(PAGE_LOADERS.Alocacao)
+const Rentabilidade = lazy(PAGE_LOADERS.Rentabilidade)
+const Ajustes = lazy(PAGE_LOADERS.Ajustes)
+
+// Depois que a primeira tela abriu, baixa o codigo das outras em segundo plano:
+// a primeira visita a uma tela deixa de esperar pelo chunk. No APK os chunks
+// sao arquivos locais, entao isto custa so o parse. Um que falhe e baixado de
+// novo pelo lazy() quando a tela abrir.
+const PRELOAD_DELAY_MS = 1500
+function preloadPages() {
+  Object.values(PAGE_LOADERS).forEach((load) => load().catch(() => {}))
+}
+
+// Navegar dentro de uma transicao do React: enquanto o codigo da proxima tela
+// carrega, a tela atual continua na frente em vez de virar esqueleto.
+const ROUTER_FUTURE = { v7_startTransition: true }
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!session) return undefined
+    const timer = setTimeout(preloadPages, PRELOAD_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [session])
 
   useEffect(() => {
     setSession(getSession())
@@ -44,7 +79,7 @@ export default function App() {
   if (loading) return <div className="flex h-screen items-center justify-center text-zinc-500">Carregando...</div>
 
   return (
-    <Router>
+    <Router future={ROUTER_FUTURE}>
       <Routes>
         <Route path="/" element={!session ? <Auth /> : <Navigate to="/inicio" replace />} />
 

@@ -100,6 +100,7 @@
 | Plano do mês (migration 025): monthly spend and invest amounts in reais on Orçamento, inherited until changed; spent/invested computed on read; flags for pace, over plan, aporte pending/done/missed, plan over income, and each dated goal covered or not by the planned aporte; comma-safe amount fields; checked at 390 px | 2026-10-16 |
 | Perfil shows the login e-mail masked (`maskEmail()` in `lib/format.js`, "fu•••@g•••.com"), owner's request | 2026-10-16 |
 | "Dados de exemplo" removed from Ajustes at the owner's request (`DemoDataSection.jsx` deleted; it was frontend-only). The seed scripts in `backend/scripts/` are untouched | 2026-10-16 |
+| Phone load time: CORS preflights cached 2 h (`max_age=7200`; Chrome's default was 5 s, so almost every APK request was two round trips); navigation in a React transition (`v7_startTransition`) keeps the current screen until the next is ready; page chunks preloaded 1.5 s after start; query `gcTime` = the persisted cache's 14 days, so a screen not opened this session still has data on the next launch | 2026-10-16 |
 
 ---
 

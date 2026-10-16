@@ -7,61 +7,34 @@
 
 ---
 
-## Session — 2026-10-16 (fourth, parallel) · Plano do mês: spend and invest in reais, with flags
-
-The owner asked for a monthly plan in Orçamento: how much they will **spend** and **invest** each
-month, in reais, with flags that help them reach their goals. Then: "make sure this works in the
-phone as well". This ran alongside `financas-2a` (brapi) and `financas-39` (the bug pass above),
-each committing its own paths.
+## Session — 2026-10-16 (fifth) · Phone: APK rebuilds, masked e-mail, demo data out, load time
 
 ### What was done
-- **Migration 025 `monthly_plans`**: `(user_id, month)` unique, `spend_amount`, `invest_amount`,
-  optional `income_amount`. It also went into `schema.sql`. A month without its own row inherits
-  the most recent earlier plan, so the owner sets it once.
-- **`services/monthly_plan.py` + `routes/monthly_plan.py`**: `GET/PUT/DELETE /api/monthly-plan?month=`.
-  `DELETE` removes only that month's own row (the month then inherits again). It is a plan, so
-  there is no guard.
-  - Spent is account EXPENSE rows, minus transfers, invoice payments and aportes (the
-    `isInvestmentOutflow()` rule), plus card purchases in full in the purchase month (decision 1).
-  - Invested is aportes − resgates of the portfolio's movements (`movement_flow()`), not the
-    linked cash, which would count it twice.
-- **Flags** are codes plus amounts; the text is built by `lib/monthlyPlan.js`:
-  - `PLAN_OVER_INCOME`;
-  - `SPEND_OVER` / `SPEND_PACE` (from day 8: month-end projection more than 10% above the
-    proportional pace) / `SPEND_NEAR` (80%) / `SPEND_KEPT` (past month);
-  - `INVEST_DONE` / `INVEST_PENDING` (info, warning in the last 7 days) / `INVEST_MISSED`;
-  - `GOAL_SHORT` / `GOAL_COVERED`, one per goal with a target date: the planned aporte against
-    that goal's `required_contribution`. Never summed: one aporte feeds the portfolio *and* the
-    net-worth goal. There are no goal flags on past months.
-- **Frontend**: `MonthlyPlanPanel` at the top of Orçamento, with an edit `Sheet`. The amount
-  fields are `type="text" inputMode="decimal"` parsed by `parseMoneyInput()`, which accepts
-  "1.234,56", "1234.56" and "3.000" (thousands). That sidesteps the open question of whether
-  `type="number"` takes the Android comma.
-- **Tests**:
-  - backend: `test_monthly_plan.py` (21), plus the route map;
-  - frontend: `monthlyPlan.test.js` (5; `npm test` is 21);
-  - the full backend suite is green in a clean worktree at HEAD + this change.
-- **Phone width**: a Playwright walk at 390 px (`isMobile`, touch, keyboard simulated by a shorter
-  viewport) on a scratch DB from that clean worktree:
-  - no horizontal scroll and no page errors;
-  - "5.000,50" saved as 5000.5;
-  - the sheet's Save stays visible over the keyboard.
-- `finance-guard`: no blocking findings. It flagged only the missing `schema.sql` entry, now fixed.
+- APK rebuilt and installed three times, ending on the commit after this one's code.
+- Perfil shows the login e-mail masked (`maskEmail()` in `lib/format.js`, tested).
+- "Dados de exemplo" removed from Ajustes (frontend-only; `backend/scripts/` seeds untouched).
+- **Load time on the phone.** The owner said screens take too long, and asked to keep the previous
+  screen while the new one loads. Measured first:
+  - server: 2–8 ms per endpoint on a copy of `finance.db` (`/returns` 1.3 s once, benchmark fetch);
+  - phone → PC over Tailscale: ~36 ms ping, HTTP/2 through `tailscale serve`;
+  - the real cost: **48 of 120 phone requests were CORS preflights.** The APK's origin is
+    `https://localhost`, every GET carries `Authorization`, and Flask-CORS sent no
+    `Access-Control-Max-Age`, so Chrome kept each preflight 5 s. Now `max_age=7200` (Chrome's
+    cap), `test_cors.py`.
+  - `App.jsx`: React Router `v7_startTransition` (a navigation keeps the current screen until the
+    next one's code is ready) and all page chunks preloaded 1.5 s after start.
+  - `queries.js`: `gcTime` was 10 min, and the persisted cache saves only what is in memory, so a
+    screen not opened in a session lost its saved data and showed a skeleton next launch. Now
+    `gcTime` = the persisted 14 days (`PERSISTED_CACHE_MAX_AGE_MS`).
+  - Playwright at 390 px with 300 ms latency on a scratch server: no page-level skeleton on any
+    navigation; list skeletons only on a screen's first-ever load; none on the second pass.
 
 ### What was not done and why
-- **Not on the real phone.** The APK talks to the `:5000` backend, which was not restarted. It
-  belongs to the owner and has to boot to apply 025 and register the route. Until it does, the
-  Orçamento panel shows "Não foi possível carregar o plano do mês" (`financas-39` rebuilt
-  `frontend/dist` with this change, so the desktop shows the same). After the restart, run
-  `mobile/build-apk.ps1` to put the new screen in the APK.
-- No Início strip for the plan. Only Orçamento shows it.
-- Invested reads portfolio movements only. A banking lançamento typed "Investimento" with no
-  movement behind it counts as neither spent nor invested.
-
-### Next
-- Owner: set a plan and check it on the phone. Done since: `:5000` restarted at 16:17 (025
-  applied), and the APK was rebuilt from a clean `9465e24` and installed at 16:19
-  (`versionCode=201`, `2026.10.16-9465e24`). It also carries the Esc/back-button fix below.
+- **The CORS fix needs `:5000` restarted** — the owner's process; until then the phone still sends
+  a preflight per request. The frontend half works without it.
+- A screen opened for the very first time (empty cache) still shows its list skeleton. Prefetching
+  every screen's data at start would need the query keys centralised; not worth it while the
+  persisted cache covers every later visit.
 
 ## Session — 2026-10-16 (third, parallel) · Bug pass on the Android and desktop apps
 
