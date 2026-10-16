@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { LogOut, Save } from 'lucide-react'
 import { displayName, getCurrentUser, signOut, updateUsername } from '../../lib/auth'
+import { maskEmail } from '../../lib/format'
 import { AlertMessage, Button, Field, Panel, PanelHeader } from '../../components/ui'
 
 // Perfil: nome de usuario exibido no app e a saida da sessao. O e-mail so
-// aparece aqui, como informacao de login.
+// aparece aqui, mascarado (maskEmail), como informacao de login.
 export default function PerfilSection() {
   const user = getCurrentUser()
   const [username, setUsername] = useState(user?.username || '')
@@ -59,7 +60,7 @@ export default function PerfilSection() {
         <div className="flex flex-col gap-3 border-t border-zinc-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">E-mail de acesso</p>
-            <p className="truncate text-sm font-semibold text-zinc-900">{user?.email}</p>
+            <p className="truncate text-sm font-semibold text-zinc-900">{maskEmail(user?.email)}</p>
           </div>
           <Button variant="danger" icon={LogOut} onClick={signOut}>Sair</Button>
         </div>

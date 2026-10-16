@@ -113,3 +113,18 @@ export function shiftMonth(key, offset) {
   const index = year * 12 + (month - 1) + offset
   return `${String(Math.floor(index / 12)).padStart(4, '0')}-${String((index % 12) + 1).padStart(2, '0')}`
 }
+
+// E-mail mascarado para exibir na tela: as duas primeiras letras do usuario, a
+// primeira do dominio e o final (".com"). "fulano@gmail.com" -> "fu•••@g•••.com".
+export function maskEmail(email) {
+  const text = String(email || '').trim()
+  const at = text.lastIndexOf('@')
+  if (at < 1) return text ? `${text.slice(0, 2)}•••` : ''
+  const local = text.slice(0, at)
+  const domain = text.slice(at + 1)
+  const dot = domain.indexOf('.')
+  const name = dot > 0 ? domain.slice(0, dot) : domain
+  const suffix = dot > 0 ? domain.slice(dot) : ''
+  const keep = local.length > 2 ? 2 : 1
+  return `${local.slice(0, keep)}•••@${name.slice(0, 1)}•••${suffix}`
+}
