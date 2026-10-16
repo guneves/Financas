@@ -38,7 +38,7 @@ each committing its own paths.
   "1.234,56", "1234.56" and "3.000" (thousands). That sidesteps the open question of whether
   `type="number"` takes the Android comma.
 - **Tests**:
-  - backend: `test_monthly_plan.py` (22), plus the route map;
+  - backend: `test_monthly_plan.py` (21), plus the route map;
   - frontend: `monthlyPlan.test.js` (5; `npm test` is 21);
   - the full backend suite is green in a clean worktree at HEAD + this change.
 - **Phone width**: a Playwright walk at 390 px (`isMobile`, touch, keyboard simulated by a shorter
