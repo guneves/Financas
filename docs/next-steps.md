@@ -12,19 +12,16 @@
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
 Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2
-on the PC and Phase 5's code on 2026-10-16 (see `docs/done-tasks.md`). Open, in order:
-- [ ] Phase 5, first build. The code is written but has never been compiled: the PC has no JDK or
-  Android SDK. The owner installs Android Studio (it brings both; open it once so it downloads
-  the SDK and accept its licences), then runs `.\mobile\new-keystore.ps1` once and backs up
-  `%USERPROFILE%\.financas-android`. Then `.\mobile\build-apk.ps1` with the phone on USB
-  debugging. Expect compile fixes on that first run: nothing native has been built yet. Then the
-  phone checks, in this order:
-  - it opens offline;
-  - login works through `https://financas.tail5084ff.ts.net`, with the backend restarted so it
-    reads the new `CORS_ORIGINS`;
-  - the back button, the bars in both themes, the keyboard over "+ Novo";
-  - Phase 5's "done when": airplane mode, three entries, close the app, reconnect, all three on
-    the PC once.
+on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/done-tasks.md`). Open, in order:
+- [ ] Phase 5, the last phone checks. The APK is built, signed and installed on the owner's Galaxy
+  S25; login, real data, the bars in the theme and the offline queue work there. Left:
+  - the "done when" with the app really **closed** (swiped from recent apps): airplane mode,
+    three entries, close, reconnect without opening it, all three on the PC once. On 2026-10-16
+    one offline entry was sent by the WorkManager job (logcat: `OutboxWorker` RETRY, then
+    SUCCESS 30 s later) and arrived once, but the app was still on screen. If Samsung's battery
+    management holds the job with the app closed, set the app's battery use to "Sem restrições";
+  - the back button, the theme toggle, the keyboard over "+ Novo" (and whether the decimal
+    keypad's comma is accepted by the amount field), the notification permission prompt.
 - [ ] Browser outbox (`lib/outbox.js` `flush()`): it writes the result back from the item it sent,
   so an item corrected or discarded during that one request can be overwritten, removed or
   brought back. The native sender compares versions first (`OutboxStore.removeIfUnchanged`); do
@@ -36,10 +33,9 @@ on the PC and Phase 5's code on 2026-10-16 (see `docs/done-tasks.md`). Open, in 
   eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the
   backend stopped a browser cannot load a screen it has not visited (each screen's code comes from
   the server on first visit, and there is no service worker), so only the APK opens cold offline.
-- [ ] Phase 1, phone half: Tailscale is on PC and phone and `tailscale serve` already proxies
-  `https://financas.tail5084ff.ts.net` to port 5000 (seen 2026-10-16). Left: start the backend
-  (`.\start.ps1 -Built`), open that address in the phone's browser on mobile data and record a
-  despesa.
+- [ ] Phase 1, phone half: the APK reaches `https://financas.tail5084ff.ts.net` from the phone
+  (2026-10-16), so the tailnet path works. Left only the phone's *browser* on mobile data, which
+  matters little now that the APK exists.
 - [ ] Phase 4, step 7, partly built: with the server unreachable a pill in the header says so and
   an online-only action fails with "Sem conexão com o servidor. Esta ação só funciona conectado.",
   but the buttons themselves are not disabled screen by screen.

@@ -64,7 +64,7 @@ server's `client_id` makes a double delivery harmless either way.
 Built: steps 1, 2 and 4, and `backend/.env.example` for step 3. On 2026-10-16 `backend/.env` had a
 real `JWT_SECRET`, and Claude set `JWT_EXP_DAYS=180` and added `https://localhost` to `CORS_ORIGINS`.
 `tailscale serve` already proxies `https://financas.tail5084ff.ts.net` to `127.0.0.1:5000` (step 5).
-Open: the phone half of "done when" — nobody has opened the address on the phone yet.
+Open: the phone's browser on mobile data. The APK reaches the address from the phone (2026-10-16).
 
 1. Flask serves the built frontend (`frontend/dist`) at `/`, with a fallback to `index.html` for
    client routes. `/api/*` is unchanged, and an unknown `/api/...` path stays a JSON 404.
@@ -183,13 +183,22 @@ Done when, on the PC: with the backend stopped, three entries are recorded, the 
 reopened (the entries are still listed as pending), and after the backend returns all three appear
 once in the Extrato. The phone repeats this test in Phase 5.
 
-## Phase 5 — The APK (code written 2026-10-16; not yet compiled — no JDK or SDK on the PC)
+## Phase 5 — The APK (built and installed on the phone 2026-10-16; closed-app check open)
 
-Written: steps 1 to 7, as files. Nothing has been compiled: the PC has no JDK and no Android SDK,
-and the owner chose to install Android Studio rather than have the command-line tools installed.
-So the Java has been proofread but never built, and the first `.\mobile\build-apk.ps1` is also its
-first compile. Open: the owner's Android Studio, `new-keystore.ps1`, the first build and install,
-and the "done when" on the phone.
+Built: steps 1 to 7. The owner installed Android Studio; its JDK is Java 25, which needs Gradle
+9.1 (the wrapper was bumped; AGP stays 8.13). The key exists in `%USERPROFILE%\.financas-android`
+and the APK is installed on the owner's Galaxy S25. On the phone: login through Tailscale, real
+data, the bars in the theme, and an offline entry queued and then sent by the WorkManager job on
+reconnect, once. Open: the "done when" with the app actually closed, and the smaller checks listed
+in `docs/next-steps.md`.
+
+Two things the phone taught:
+- With the Tailscale VPN up and no network under it, a request does not fail, it hangs. So
+  `apiFetch` has timeouts (`timeoutMs`): a "+ Novo" creation gives up after 10 s and goes to the
+  queue (safe: `client_id`), a read after 45 s; edits and deletes wait, since a timed-out one may
+  have gone through.
+- The phone's text zoom makes `FitValue` land a fraction of a pixel over the box, which showed
+  "R$ 1.000,…". It measures fractional widths and leaves 2% slack.
 
 1. Capacitor 8.5 in `frontend/` (`capacitor.config.json`, app id `br.financas.app`, name
    "Finanças"); `frontend/android/` generated and committed. The APK bundles its own build of the

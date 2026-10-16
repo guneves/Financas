@@ -305,7 +305,9 @@ mobile-docs/
   `installment_info`). The frontend always sends one (`createEntry()` in `lib/outbox.js`).
 - **The outbox holds creations only, and only when the request never reached the server**
   (`ApiNetworkError` in `lib/api.js`). A response from the server, whatever it is, is never queued
-  or retried on its own. One queue and one sender per platform: IndexedDB and `flush()` in the
+  or retried on its own. A timeout counts as never reaching it only where that is safe: a
+  creation (`timeoutMs`, 10 s; `client_id` makes the resend harmless) and a read (45 s); an edit
+  or delete has no timeout, because one that timed out may have gone through. One queue and one sender per platform: IndexedDB and `flush()` in the
   browser; in the APK both become native (`setOutboxBackend()`), because sending must work with
   the app closed. The rules — what each response does to an item, what a pending item does to a
   balance — live in `lib/outboxRules.js` with tests; a pending transfer leaves the consolidated
