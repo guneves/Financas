@@ -98,6 +98,8 @@
 | Mobile Phase 5, first build and install: Gradle 9.1 (Android Studio's JDK is Java 25), release key created, APK installed on the phone over USB; fixed on the phone: the bars' colour at launch, "Salvar" hanging offline (no network under the VPN: "+ Novo" queues at once, `Outbox.hasNetwork()`; otherwise `apiFetch` timeouts, 6 s for a creation, then the queue, 45 s for reads), `FitValue` cutting "R$ 1.000,00" by a sub-pixel; an offline entry sent by the WorkManager job on reconnect, once | 2026-10-16 |
 | Bug pass, Android + desktop: one layer stack for overlays (`lib/layers.js`). Escape and the Android back button close only the topmost Sheet/Menu (a confirmation over "Pendentes" used to close the sheet underneath; Escape on a "⋯" inside a sheet closed the sheet). The body scroll lock is counted, so two sheets closing out of order no longer leave the page unable to scroll. Autocomplete Escape closes only its list | 2026-10-16 |
 | Plano do mês (migration 025): monthly spend and invest amounts in reais on Orçamento, inherited until changed; spent/invested computed on read; flags for pace, over plan, aporte pending/done/missed, plan over income, and each dated goal covered or not by the planned aporte; comma-safe amount fields; checked at 390 px | 2026-10-16 |
+| Perfil shows the login e-mail masked (`maskEmail()` in `lib/format.js`, "fu•••@g•••.com"), owner's request | 2026-10-16 |
+| "Dados de exemplo" removed from Ajustes at the owner's request (`DemoDataSection.jsx` deleted; it was frontend-only). The seed scripts in `backend/scripts/` are untouched | 2026-10-16 |
 
 ---
 

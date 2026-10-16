@@ -4,11 +4,9 @@ import { PageHeader } from '../components/ui'
 import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
-import DemoDataSection from './ajustes/DemoDataSection'
 import IntegracoesSection from './ajustes/IntegracoesSection'
 import PerfilSection from './ajustes/PerfilSection'
 import RegrasSection from './ajustes/RegrasSection'
-import { invalidateServerData } from '../lib/queries'
 
 const SECTION_LINKS = [
   { id: 'contas', label: 'Contas' },
@@ -16,7 +14,6 @@ const SECTION_LINKS = [
   { id: 'categorias', label: 'Categorias' },
   { id: 'regras-de-importacao', label: 'Regras de importação' },
   { id: 'integracoes', label: 'Integrações' },
-  { id: 'dados-de-exemplo', label: 'Dados de exemplo' },
   { id: 'perfil', label: 'Perfil' },
 ]
 
@@ -41,7 +38,7 @@ function useHashScroll() {
   }, [hash])
 }
 
-// Configuracao feita uma vez: contas, cartoes, categorias, dados de exemplo, perfil.
+// Configuracao feita uma vez: contas, cartoes, categorias, regras, integracoes, perfil.
 export default function Ajustes() {
   useHashScroll()
   // Os chips do cabecalho rolam tambem no clique: repetir a mesma ancora nao muda a URL.
@@ -73,10 +70,6 @@ export default function Ajustes() {
       <CategoriasSection />
       <RegrasSection />
       <IntegracoesSection />
-      {/* Os dados de exemplo criam cartoes e mexem nos saldos: invalidar o
-          cache faz as outras secoes buscarem de novo. */}
-      <DemoDataSection onDataChanged={invalidateServerData} />
-
       <PerfilSection />
     </div>
   )
