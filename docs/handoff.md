@@ -47,8 +47,8 @@ reference for Phase 5.
 - The backoff and `KEEP` findings were left unfixed: they need a test on the phone.
 - `frontend/dist` was rebuilt at about 16:15 from a tree that included the other session's
   uncommitted work. Rebuild after both sessions commit.
-- `backend/brapi_client.py` had a SyntaxError in the tree (not this session's, nor
-  `financas-d5`'s, per its message). Check it before restarting the backend.
+- `backend/brapi_client.py` briefly had a SyntaxError in the tree (another session's edit). It was
+  back to `HEAD` when this session committed.
 
 ### Learned
 - A browser-dispatched keydown runs microtasks between listeners, so a React 18 update from one
