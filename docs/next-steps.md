@@ -48,8 +48,17 @@ on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/d
   so an item corrected or discarded during that one request can be overwritten, removed or
   brought back. The native sender compares versions first (`OutboxStore.removeIfUnchanged`); do
   the same on the web side, with a rule test. A small window, found by `finance-guard` on 2026-10-16.
-- [ ] Phase 5, not built: the app version in Ajustes (Phase 9, step 4). Builds already carry
-  `versionName` = date + commit.
+- [ ] **Screen self-update, the phone check** (built 2026-10-17, "The screens update themselves"
+  in the plan). Install the new APK once over USB (`.\mobile\build-apk.ps1`, from a clean tree so
+  the version is not `-dirty`). Then: Ajustes › Versão do app says "A tela está na versão do
+  servidor"; push a visible screen change; on the phone "Procurar atualização" says the new version
+  is downloaded, and after closing and reopening the app the change is there and the screen reads
+  "baixada do servidor"; "Voltar à versão do APK" goes back; opening in airplane mode still works.
+  Not tested anywhere yet: the 30 s fallback with a broken bundle (would need a deliberately
+  broken push — only if the owner wants it proven).
+- [ ] Option 2 of the self-update (CI builds a signed APK and the app offers it) — only if native
+  changes become frequent. Needs the signing key as a GitHub secret and the install-from-app
+  permission.
 - [ ] Owner look at Phase 4 on the PC. Its "done when" passed in a scripted desktop browser on a
   scratch database (2026-10-13, see `docs/done-tasks.md`); nobody has yet judged the screens by
   eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the

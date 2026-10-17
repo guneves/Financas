@@ -163,6 +163,11 @@ The copy uses the app's own image (uid 10001 is the user the app runs as). On th
 The APK has its API address baked in at build time. `mobile/build-apk.ps1` defaults to the server's
 address, so rebuild and install it once.
 
+The image also carries the APK's screens (`frontend/dist-android`, built with `APP_API_BASE`, the
+same address), and the phone downloads them from `/api/app-bundle`: after a deploy the APK picks up
+screen changes by itself on its next start. A new APK is needed only when `frontend/native-level.txt`
+goes up (`mobile-docs/steps-to-production.md`).
+
 ## Building and running on the PC
 
 ```powershell

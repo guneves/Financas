@@ -107,6 +107,7 @@
 | Docker deploy to the home server: `Dockerfile`, `compose.yaml` (GHCR image, localhost port, `financas_data` volume), GitHub Actions workflow (tests → GHCR → Tailscale SSH → compose pull/up), `deploy.ps1` (manual deploy, rollback by SHA, create-only), `DEPLOY.md`. Verified locally; not yet deployed (see next-steps) | 2026-10-16 |
 | Home server live: owner's setup checked (tags, serve, sudoers, GHCR login, `.env`), first workflow run green, PC data imported (WAL-folded snapshot; all 26 table counts match), APK rebuilt against `guilhermeserver.tail5084ff.ts.net` and installed, GHCR package confirmed private, actions bumped to Node 24 versions (run green, no Node 20 warnings). PC retired as backend: `start.ps1` needs `-Local`, PC `tailscale serve` reset, old DB copied to `Documents\Financas-backup-pc-20261016\` | 2026-10-16 |
 | Final setup check, all green; `origin` switched to HTTPS with `gh auth setup-git` (fetch and push work); reboot test passed (container healthy and `tailscale serve` back without help, app answering ~1 min after boot); APK signing key confirmed backed up off the PC by the owner | 2026-10-16 |
+| APK screens update themselves from the server: the image carries the APK build of the frontend with `bundle.json` (content-hash version, native level, API address); `GET /api/app-bundle` and `/api/app-bundle/<version>.zip` (public, deterministic zip); native `AppBundle` plugin downloads, checks SHA-256, stages and opens it on the next start on trial, falls back to the APK's screens without `ready()`; Ajustes › Versão do app (APK version, native level, screen version, check / apply / go back). Phone check open (next-steps) | 2026-10-17 |
 
 ---
 
@@ -591,3 +592,13 @@ another currency (2 accounts and 24 assets, all BRL; no movement with an exchang
   the alias to PMLL11. One StatusInvest row (ITSA4, paid before its own data com) is dropped as a
   typo.
 
+### Screen self-update — 2026-10-17
+- **Why hand-written.** Capacitor's `Bridge` already reads `CapWebViewSettings`/`serverBasePath` when
+  it loads the WebView and wipes it when the APK changes (`isNewBinary`). Plugins' `load()` runs
+  before that read, so `BundlePlugin.load()` decides which screens open on the same start. That
+  left only download, verify, trial and rollback to write — no third-party updater, no telemetry.
+- **Version = content hash, target = whatever the server serves.** No ordering between versions:
+  a revert pushed to `main` takes the phone back, to the APK's own screens when the hash matches.
+- **The native level is manual** (`frontend/native-level.txt`, also `BuildConfig.NATIVE_LEVEL`).
+  Nothing checks that a native change bumped it; CLAUDE.md says when to.
+- Details and the rollback rules are in `mobile-docs/steps-to-production.md`.

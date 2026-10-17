@@ -23,6 +23,11 @@ export function closeTopLayer() {
   return true
 }
 
+// Ha algo aberto por cima da tela? (lib/appBundle.js nao troca de tela no meio de um sheet.)
+export function hasOpenLayer() {
+  return layers.length > 0
+}
+
 export function useLayer(open, onClose, { locksScroll = false } = {}) {
   const onCloseRef = useRef(onClose)
   useEffect(() => {

@@ -54,6 +54,12 @@ FRONTEND_DIST_DIR = resolve_app_path(
     os.getenv("FRONTEND_DIST_DIR", os.path.join("frontend", "dist")),
     PROJECT_DIR,
 )
+# A tela do APK (build com a API do servidor e bundle.json), que o app baixa
+# para se atualizar sem um APK novo (services/app_bundle.py).
+APP_BUNDLE_DIR = resolve_app_path(
+    os.getenv("APP_BUNDLE_DIR", os.path.join("frontend", "dist-android")),
+    PROJECT_DIR,
+)
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 

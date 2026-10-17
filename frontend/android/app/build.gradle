@@ -21,6 +21,9 @@ android {
         // para que um APK velho no celular seja reconhecivel em Ajustes.
         versionCode((project.findProperty('financasVersionCode') ?: '1') as Integer)
         versionName((project.findProperty('financasVersionName') ?: 'dev') as String)
+        // A tela baixada do servidor so entra num APK do mesmo nivel (frontend/native-level.txt,
+        // bundle/BundleRules.java). Mudou o Java, um plugin ou o Capacitor: sobe o numero.
+        buildConfigField "int", "NATIVE_LEVEL", file('../../native-level.txt').text.trim()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -37,6 +40,9 @@ android {
                 keyPassword keystoreProperties['keyPassword']
             }
         }
+    }
+    buildFeatures {
+        buildConfig = true
     }
     buildTypes {
         release {

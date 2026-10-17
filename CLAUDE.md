@@ -29,7 +29,6 @@ instead of yours.
   finished task left undone (a "not built", an owner walk-through) stays in `next-steps.md` as an
   open item. Rewrite the affected section rather than appending a note to it. A stale plan is worse
   than no plan.
-- Running the **`finance-guard` subagent** over the change (see below) and acting on what it finds.
 - Replacing the session entry in `docs/handoff.md` with a new one — the file holds only the latest
   session, so delete the previous entry rather than stacking on top of it. Carry forward anything
   from it that is still open and still matters. Cover: what was done, **what was not done
@@ -42,10 +41,10 @@ is useful; "Phase 1 done" when it isn't costs the next session an hour of confus
 
 ## The subagent routine
 
-Two read-only subagents bracket a session: one opens it, one closes it. Both live in
-`.claude/agents/`. Neither edits, commits, or runs the app against `backend/finance.db`. Discovery by
-`subagent_type` failed repeatedly around 2026-09-15/16 but has worked since; if it fails again, use
-the fallback documented at the end of this section.
+One read-only subagent opens a session: `session-scout`, in `.claude/agents/`. It does not edit,
+commit, or run the app against `backend/finance.db`. Discovery by `subagent_type` failed repeatedly
+around 2026-09-15/16 but has worked since; if it fails again, use the fallback documented at the end
+of this section.
 
 ### Opening — `session-scout`
 
@@ -63,46 +62,22 @@ more text than the current task needs. The scout reads all of it and keeps the ~
 matter. Read the documents yourself instead whenever the session is a
 follow-up on work still fresh in context — the briefing is for a cold start.
 
-### Closing — `finance-guard`
-
-`.claude/agents/finance-guard.md` defines a read-only auditor. It reads the diff and checks the six
-things that are expensive to get wrong here: `user_id` scoping on every query, `rounded_money()`
-instead of Python's banker's `round()`, migrations staying append-only (and a rebuilt table getting
-all of its indexes back), destructive endpoints keeping their confirmation guard, tests covering any
-financial rule the diff touched, and the Portuguese/English split.
-
-```
-Agent(subagent_type="finance-guard", prompt="Audit the uncommitted changes. They implement <X>.")
-```
-
-**When to run it:** after finishing a chunk of backend work and before committing — that is the point
-where a missing `user_id` filter is cheap to fix and after which it is a data leak in production
-data. It is worth a second run if the first one found something and you changed code in response.
-
-Why subagents rather than an inline checklist: both jobs are mechanical, both need to read a lot of
-text to answer, and none of that reading is worth keeping in the main context afterwards. Each runs
-on its own budget and hands back a short report.
-
-They are *reviewers*, not authorities. `finance-guard` has been wrong about pre-existing `round()`
-calls on non-monetary values (share quantities at 6 decimal places, yield percentages) — those are
-correct as they stand. Check a finding before acting on it.
-
 ### If `subagent_type` is not found
 
 Custom agent definitions are discovered by Claude Code at startup, and on 2026-09-15 and twice on
-2026-09-16 `Agent(subagent_type="finance-guard")` returned *"Agent type not found"* even though the
+2026-09-16 `Agent(subagent_type=...)` returned *"Agent type not found"* even though the
 file had been committed sessions earlier. It has worked directly in every session since, so try it
 first and reach for the fallback after one failed attempt rather than investigating. Do not conclude
 the file is broken — it is a discovery problem, not a definition problem. The fallback gives the
-same audit:
+same briefing:
 
 ```
 Agent(subagent_type="general-purpose",
-      prompt="Read .claude/agents/finance-guard.md in full and follow it exactly as your "
-             "instructions. Audit the uncommitted working tree. You are read-only.")
+      prompt="Read .claude/agents/session-scout.md in full and follow it exactly as your "
+             "instructions. Brief me for this session. You are read-only.")
 ```
 
-Same shape for `session-scout`. If the fallback is what you used, say so in the handoff.
+If the fallback is what you used, say so in the handoff.
 
 ## What this is
 
@@ -146,13 +121,13 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-989 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1002 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -188,7 +163,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan` and `investmentStatement`, 29 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement` and `appBundleRules`, 33 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -213,10 +188,12 @@ backend/
                       # allocation (targets, contribution split, concentration), goals,
                       # proceeds (proventos read, by asset), proceeds_sync (automatic proventos), returns (TWR), contributions
                       # (aportes x resgates), benchmarks (IPCA/IBOV/IFIX/IDIV closes),
-                      # sectors (brapi sector per asset, breakdown), health (integrations)
+                      # sectors (brapi sector per asset, breakdown), health (integrations),
+                      # app_bundle (the APK's screens, zipped for the phone)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
-                      # proceeds, market, allocation, goals, frontend (serves frontend/dist at /)
+                      # proceeds, market, allocation, goals, app_bundle (GET /api/app-bundle),
+                      # frontend (serves frontend/dist at /)
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
   export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
@@ -242,7 +219,10 @@ docs/
   done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
 frontend/android/      # Capacitor's Android project (committed); native code in
-                      # app/src/main/java/br/financas/app/ (outbox/ = the native queue and sender)
+                      # app/src/main/java/br/financas/app/ (outbox/ = the native queue and sender,
+                      # bundle/ = the screen self-update)
+frontend/native-level.txt   # the APK's native level; screens go only to an APK of the same level
+frontend/scripts/      # bundle-manifest.mjs: writes bundle.json into the APK build
 mobile/
   build-apk.ps1       # web build for the APK + cap sync + signed release + adb install
   new-keystore.ps1    # creates the release key outside the repo; run once, back it up
@@ -250,7 +230,6 @@ mobile-docs/
   steps-to-production.md  # the Android app plan: decisions, phases and their status
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
-  finance-guard.md    # the pre-commit audit subagent
 ```
 
 ## Conventions
@@ -327,6 +306,17 @@ mobile-docs/
   items is labelled an estimate. In the APK the queue and the sender are Java
   (`frontend/android/.../outbox/`, swapped in by `lib/nativeApp.js`), and `OutboxRules.java` is a
   port of `outboxRules.js`: change one, change the other, with a test on each side.
+- **The APK's screens come from the server** (2026-10-17, `services/app_bundle.py`,
+  `android/.../bundle/`, `lib/appBundle.js`). The image builds the frontend for the APK into
+  `frontend/dist-android` with a `bundle.json` (content-hash version, native level, API address);
+  the phone downloads it, checks the SHA-256 and opens it on the next start on trial. A bundle
+  that does not call `ready()` within 30 s of opening (`AppStarted` in `main.jsx`, after the first
+  render) is dropped for good and the APK's own screens come back. **Bump
+  `frontend/native-level.txt`** in the same commit as any change the screens depend on that lives
+  in the APK — a Java plugin or method the JS calls, a Capacitor/plugin upgrade, a permission — and
+  then build and install the APK: an APK only takes screens of its own level, so without the bump
+  an old APK would load screens calling Java it does not have. `GET /api/app-bundle*` is public on
+  purpose (the same frontend `/` serves).
 - **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
   `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.

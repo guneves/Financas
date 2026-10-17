@@ -16,6 +16,7 @@ from config import CORS_ORIGINS
 from db import init_db, run_startup_backup
 from routes import (
     accounts as account_routes,
+    app_bundle as app_bundle_routes,
     allocation as allocation_routes,
     attachments as attachment_routes,
     auth as auth_routes,
@@ -61,6 +62,7 @@ for blueprint_module in (
     allocation_routes,
     goal_routes,
     monthly_plan_routes,
+    app_bundle_routes,
     frontend_routes,
 ):
     app.register_blueprint(blueprint_module.bp)

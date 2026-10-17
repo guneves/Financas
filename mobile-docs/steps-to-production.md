@@ -256,11 +256,59 @@ Two things the phone taught:
    `adb install -r` on the single connected device. It never uninstalls: on a signature mismatch
    it stops and says to empty "Pendentes" first.
 
-Not done: showing the version in Ajustes (Phase 9, step 4). The version is already stamped into
-every build.
+The version shows in Ajustes › Versão do app since 2026-10-17 (APK, native level, screen version).
 
 Done when: with the phone in airplane mode, three entries are recorded, the app is closed, and
 after reconnecting — without opening the app — all three appear once on the PC.
+
+## The screens update themselves (built 2026-10-17; the phone check is open)
+
+Before this, every change in `frontend/src` needed a new APK over USB. Now the server hands the
+phone its screens, and a new APK is needed only for a native change. The three options considered:
+the app downloads its own screen bundle (built), CI builds and offers the APK (later, only if
+native changes become frequent: it needs the signing key as a GitHub secret and a tap on Install
+each time), and loading the screens from the server (rejected: the app could not open offline).
+Hand-written rather than `@capgo/capacitor-updater`: Capacitor already serves the WebView from a
+folder (`CapWebViewSettings` → `serverBasePath`, read by `Bridge` on load), the custom plugins are
+Java already, and nothing reports to a third party.
+
+1. **The bundle.** The image builds the frontend a second time, for the APK
+   (`VITE_API_BASE_URL` = `APP_API_BASE`, the server's address), into `frontend/dist-android`, and
+   `frontend/scripts/bundle-manifest.mjs` writes its `bundle.json`: `version` (16 hex of a SHA-256 of
+   every file's path and bytes), `native_level` (`frontend/native-level.txt`) and `api_base`.
+   `build-apk.ps1` stamps its own build the same way, so the APK knows the version of the screens
+   it carries. Same code gives the same version on Windows and in the Linux image (checked: both
+   `51714bc…`), so a fresh APK does not download its own screens again.
+2. **The server.** `GET /api/app-bundle` returns the manifest plus the zip's `sha256`, `size` and
+   `url`; `GET /api/app-bundle/<version>.zip` returns the zip, only for the current version.
+   `services/app_bundle.py` builds the zip once per version with fixed dates, so the bytes (and
+   the hash) are the same after a restart. Both are public, like `/`: it is the same frontend the
+   server already gives anyone on the tailnet, and a logged-out app can still get a fix.
+3. **The phone** (`android/.../bundle/`, plugin `AppBundle`). `check()` asks for the manifest and
+   compares: the server's version is the target, whatever it is — no "newer than" (a revert on
+   the server takes the phone back, to the APK's own screens if that is what the server serves).
+   It refuses a bundle of another native level or another API address, and one that failed here
+   before. A download is checked against the size and SHA-256, unzipped with every entry kept
+   inside the folder, and its `bundle.json` must name the same version and level. It then waits
+   (`staged`) in `files/bundles/<version>/`.
+4. **Switching.** On the next cold start the plugin's `load()` — which runs before the WebView
+   loads — promotes the waiting bundle and points Capacitor at it. It also switches when the app
+   comes back after 30 min away with nothing open on top (no "+ Novo" half typed), and from
+   Ajustes › Versão do app.
+5. **Rollback.** A new bundle opens on trial and must call `ready()`, which the screen does in an
+   effect after its first render (`main.jsx`). No `ready()` in 30 s → back to the APK's screens at
+   once; killed twice before `ready()` → the same at the next start. A version that failed is
+   never downloaded again. Ajustes › Versão do app also has "Voltar à versão do APK". A new APK
+   wipes every downloaded bundle (its own screens are newer), as Capacitor itself does.
+6. **When to bump `native-level.txt`.** Whenever the screens start needing something the
+   installed APK does not have: a Java change the JS calls (a plugin, a method, an event), a
+   Capacitor or plugin upgrade, a permission. Bump it in the same commit, then build and install
+   the APK. Until the APK is installed the phone keeps its current screens and Ajustes says a new
+   APK is needed — an old APK never receives screens it cannot run.
+
+Checked on the PC: backend tests, JVM tests of `BundleRules`, node tests of `appBundleRules`, and
+a local image serving the manifest and a zip whose SHA-256 matches. Not yet checked on the
+phone — that needs this APK installed once over USB, then a push that changes a screen.
 
 ## Phase 6 — Reading bank notifications (not started)
 

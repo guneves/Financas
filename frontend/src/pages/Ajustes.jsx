@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
+import { isAppBundleAvailable } from '../lib/appBundle'
+import AppVersionSection from './ajustes/AppVersionSection'
 import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
@@ -15,6 +17,8 @@ const SECTION_LINKS = [
   { id: 'regras-de-importacao', label: 'Regras de importação' },
   { id: 'integracoes', label: 'Integrações' },
   { id: 'perfil', label: 'Perfil' },
+  // So no APK (AppVersionSection).
+  ...(isAppBundleAvailable() ? [{ id: 'versao', label: 'Versão' }] : []),
 ]
 
 // O router nao rola ate a ancora sozinho. Rola na chegada e de novo depois que
@@ -38,7 +42,8 @@ function useHashScroll() {
   }, [hash])
 }
 
-// Configuracao feita uma vez: contas, cartoes, categorias, regras, integracoes, perfil.
+// Configuracao feita uma vez: contas, cartoes, categorias, regras, integracoes, perfil
+// (e, no APK, a versao do app).
 export default function Ajustes() {
   useHashScroll()
   // Os chips do cabecalho rolam tambem no clique: repetir a mesma ancora nao muda a URL.
@@ -71,6 +76,7 @@ export default function Ajustes() {
       <RegrasSection />
       <IntegracoesSection />
       <PerfilSection />
+      <AppVersionSection />
     </div>
   )
 }

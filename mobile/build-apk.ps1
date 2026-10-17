@@ -4,7 +4,10 @@
 
 .DESCRIPTION
     1. Builds the frontend into frontend/dist-android, with the API pointed at
-       the server's Tailscale address (frontend/dist, which Flask serves, is left alone).
+       the server's Tailscale address (frontend/dist, which Flask serves, is left alone),
+       and stamps its bundle.json: the screen version and the native level. After
+       this, screen changes reach the phone from the server on their own; a new APK
+       is needed only when native-level.txt goes up.
     2. Copies it into the Android project (npx cap sync android).
     3. Runs the native unit tests and assembles the release APK, signed with the
        key from new-keystore.ps1. The version is the commit count and date+commit,
@@ -88,6 +91,8 @@ try {
     $env:VITE_API_BASE_URL = $ApiBase
     try {
         Invoke-Step 'Building the frontend for the APK' { npx vite build --outDir dist-android --emptyOutDir }
+        # The screen version the app compares with the server's (frontend/scripts/bundle-manifest.mjs).
+        Invoke-Step 'Stamping the screen version' { node scripts/bundle-manifest.mjs dist-android $ApiBase }
     } finally {
         Remove-Item Env:\VITE_API_BASE_URL -ErrorAction SilentlyContinue
     }

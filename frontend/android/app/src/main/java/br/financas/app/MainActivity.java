@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 
+import br.financas.app.bundle.BundlePlugin;
 import br.financas.app.outbox.OutboxPlugin;
 
 public class MainActivity extends BridgeActivity {
@@ -21,6 +22,8 @@ public class MainActivity extends BridgeActivity {
         // Plugins do proprio app: registrados antes do super, que monta a ponte.
         registerPlugin(OutboxPlugin.class);
         registerPlugin(ShellPlugin.class);
+        // Antes da WebView carregar: decide qual tela abrir (a do APK ou a baixada).
+        registerPlugin(BundlePlugin.class);
         super.onCreate(savedInstanceState);
 
         // Android 13+: sem esta permissao o aviso de "entre de novo" do envio em segundo
