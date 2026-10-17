@@ -27,6 +27,8 @@ from services.accounts import (
 )
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from services.invoices import apply_due_autopay
+from services.investments import PORTFOLIO_ACCOUNT_TYPE
+from services.proceeds_cash import apply_paid_proceeds, mark_portfolio_since
 from validators import (
     ValidationError,
     optional_client_id,
@@ -77,6 +79,7 @@ def accounts(current_user_id):
         with get_db() as conn:
             ensure_default_account(conn, current_user_id)
             apply_due_autopay(conn, current_user_id)
+            apply_paid_proceeds(conn, current_user_id)
             rows = account_balance_rows(conn, current_user_id)
             items = [with_balance_in_brl(conn, current_user_id, serialize_account(row)) for row in rows]
         if not include_archived:
@@ -191,6 +194,11 @@ def account_detail(current_user_id, account_id):
 
         if not updates:
             return validation_error("Informe ao menos um campo para atualizar.")
+
+        # Virou a conta da carteira hoje: os proventos pagos daqui em diante
+        # entram nela, os de antes ja estao no saldo (services/proceeds_cash.py).
+        if updates.get("type") == PORTFOLIO_ACCOUNT_TYPE and account["type"] != PORTFOLIO_ACCOUNT_TYPE:
+            updates["metadata"] = mark_portfolio_since(account["metadata"])
 
         updates["updated_at"] = utc_timestamp()
         assignments = ", ".join(f"{column} = ?" for column in updates)

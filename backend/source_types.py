@@ -15,6 +15,10 @@ STATEMENT_IMPORT_SOURCE_TYPE = "STATEMENT_IMPORT"
 # Caixa de uma compra/venda de investimento: source_id = id da movimentacao.
 INVESTMENT_CASH_SOURCE_TYPE = "INVESTMENT_TRANSACTION"
 
+# Provento pago na conta da carteira: source_id = id do provento
+# (services/proceeds_cash.py, materializado na leitura).
+INVESTMENT_PROCEED_SOURCE_TYPE = "INVESTMENT_PROCEED"
+
 # Pagamento de fatura: manual (pay-invoice) ou debito automatico (011,
 # source_id = '<cartao>:<AAAA-MM>').
 CC_INVOICE_PAYMENT_SOURCE_TYPE = "CC_INVOICE_PAYMENT"

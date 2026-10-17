@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1042 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1050 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -190,7 +190,8 @@ backend/
                       # (monthly IR of stocks/ETFs/BDRs/FIIs, pure),
                       # portfolio (positions, evolution), tax_report (IR, exemption meter),
                       # allocation (targets, contribution split, concentration), goals,
-                      # proceeds (proventos read, by asset), proceeds_sync (automatic proventos), returns (TWR), contributions
+                      # proceeds (proventos read, by asset), proceeds_sync (automatic proventos),
+                      # proceeds_cash (paid proventos into the portfolio account), returns (TWR), contributions
                       # (aportes x resgates), benchmarks (IPCA/IBOV/IFIX/IDIV closes),
                       # sectors (brapi sector per asset, breakdown), health (integrations),
                       # app_bundle (the APK's screens, zipped for the phone)
@@ -400,7 +401,15 @@ mobile-docs/
   that way). The screens always send the key, and refuse a new operation until a Corretora
   account exists (`lib/portfolioAccount.js`, tested); an edit of an old one is not blocked. The
   three forms share `CashLinkField`; Ajustes › Contas links an account by "Vincular à carteira"
-  (PATCH type).
+  (PATCH type). **Paid proventos go into it too** (`services/proceeds_cash.py`,
+  `apply_paid_proceeds()`, materialized on read next to `apply_due_autopay()` in the accounts and
+  transactions reads): each provento with payment date ≤ today and net > 0 is one INCOME row
+  (`source_type = 'INVESTMENT_PROCEED'`, `source_id` = the provento id, category "Investimento"),
+  locked in the Extrato (409), following its provento (edit, delete, back to scheduled). Only
+  proventos paid on or after the account's `metadata.portfolio_since` (set by the PATCH that makes
+  it Corretora; `created_at` for one created as Corretora) — earlier ones are already in its
+  initial balance, and the automatic proventos carry years of history. A written row stays in the
+  account it was born in.
 - **Início is the banking area only, and in reais.** Its headline is the consolidated account
   balance; the portfolio never appears there, so nobody reads invested money as money to spend. A
   foreign-currency account appears only by its converted value (`accountBalanceBrl()` in

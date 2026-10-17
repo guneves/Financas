@@ -118,8 +118,9 @@ Início shows the banking area only, and "+ Novo" is banking-only. Open:
   create one of type Corretora with its current balance); register one operation as is and one
   with "Não descontar de nenhuma conta"; check the brokerage balance, the Extrato and Operações
   ("no extrato"). Clicked through on a scratch database only.
-- [ ] Not built: proventos do not touch the portfolio account (a dividend paid into the brokerage
-  is not credited there). Owner's call whether they should.
+- [ ] Owner, on the server: after linking the account, a provento paid from that day on appears
+  in the Extrato as "Provento" in the brokerage account on its payment day (not before). Tested
+  in the backend only; no screen walk.
 - [ ] Owner's call — the "no mês" pill on Início is now the accounts' net movement (receitas −
   despesas − aportes + resgates, the chart's "Resultado"). It used to be receitas − despesas,
   which read as "how much net worth moved". Say so if the old meaning is the wanted one.

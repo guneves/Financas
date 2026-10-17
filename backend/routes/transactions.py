@@ -24,8 +24,10 @@ from services.accounts import (
 )
 from services.attachments import remove_attachment_files
 from services.invoices import apply_due_autopay
+from services.proceeds_cash import apply_paid_proceeds
 from source_types import (
     INVESTMENT_CASH_SOURCE_TYPE,
+    INVESTMENT_PROCEED_SOURCE_TYPE,
     INVOICE_PAYMENT_LOCKED_MESSAGE,
     INVOICE_PAYMENT_SOURCE_TYPES,
 )
@@ -43,6 +45,12 @@ from validators import (
 )
 
 bp = Blueprint("transactions", __name__)
+
+# O provento pago na conta da carteira acompanha o provento (services/proceeds_cash.py).
+PROCEED_LOCKED_MESSAGE = (
+    "Este lancamento e um provento pago na conta da carteira. Edite ou exclua o provento "
+    "em Proventos."
+)
 
 
 ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE", "TRANSFER"}
@@ -137,6 +145,7 @@ def transactions(current_user_id):
     if request.method == "GET":
         with get_db() as conn:
             apply_due_autopay(conn, current_user_id)
+            apply_paid_proceeds(conn, current_user_id)
             try:
                 where, params = transaction_filter_clause(conn, current_user_id, request.args)
             except ValidationError as exc:
@@ -237,6 +246,7 @@ def export_transactions(current_user_id):
         return validation_error(str(exc))
     with get_db() as conn:
         apply_due_autopay(conn, current_user_id)
+        apply_paid_proceeds(conn, current_user_id)
         try:
             where, params = transaction_filter_clause(conn, current_user_id, request.args)
         except ValidationError as exc:
@@ -280,6 +290,8 @@ def update_transaction(current_user_id, item_id):
             return jsonify({
                 "error": "Este lancamento de caixa esta vinculado a uma movimentacao de investimento. Edite a movimentacao de investimento para manter o patrimonio consistente."
             }), 409
+        if item["source_type"] == INVESTMENT_PROCEED_SOURCE_TYPE:
+            return jsonify({"error": PROCEED_LOCKED_MESSAGE}), 409
         if item["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES:
             return jsonify({"error": INVOICE_PAYMENT_LOCKED_MESSAGE}), 409
 
@@ -356,6 +368,8 @@ def delete_transaction(current_user_id, item_id):
             return jsonify({
                 "error": "Este lancamento de caixa esta vinculado a uma movimentacao de investimento. Exclua a movimentacao de investimento para manter o patrimonio consistente."
             }), 409
+        if item["source_type"] == INVESTMENT_PROCEED_SOURCE_TYPE:
+            return jsonify({"error": PROCEED_LOCKED_MESSAGE}), 409
         if item["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES:
             return jsonify({"error": INVOICE_PAYMENT_LOCKED_MESSAGE}), 409
         # As linhas de comprovante saem pelo ON DELETE CASCADE; os arquivos,

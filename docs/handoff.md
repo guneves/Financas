@@ -7,7 +7,7 @@
 
 ---
 
-## Session — 2026-10-17 (late) · BTG Investimentos on the notification list; the portfolio account
+## Session — 2026-10-17 (late) · BTG Investimentos on the notification list; the portfolio account; proventos into it
 
 The owner asked how to check the notification gatherer (answered: Ajustes › Notificações dos
 bancos; the phone now has the new APK and capture works), how to make captures change balances
@@ -35,6 +35,13 @@ the brokerage account.
   at 390 px on a scratch database: refused without the account, linked from Ajustes, a buy took
   R$ 200 from the account, a flagged buy wrote nothing, no console errors.
 
+- **Paid proventos into the portfolio account** (owner: "proventos paid should go to the account if
+  there is any"). `services/proceeds_cash.py`, materialized on read like débito automático; only
+  proventos paid from the day the account became Corretora (`metadata.portfolio_since`), because
+  the balance typed in Ajustes already holds the older ones and StatusInvest brings years of
+  history. Locked in the Extrato as "Provento". 8 tests; backend 1050 passed. No screen walk for
+  this part (one label and the edit lock in the Extrato).
+
 ### Not done, and why
 - **No native-level bump**: no screen calls anything new; the screen's list of apps comes from
   `Notify.status()`, so an older APK just lists one app fewer.
@@ -47,7 +54,12 @@ the brokerage account.
   one, then the name, is the default and the form lets the owner pick another; the API without a
   Corretora account still writes nothing (strict refusal would break 80 test POSTs and the
   seeds — the screens are where the "need at least one" rule is enforced); proventos still do
-  not touch the account; operations recorded before today keep their own setting.
+  not touch the account (since built, below the line: paid ones do); operations recorded before
+  today keep their own setting.
+- **Open trap for the owner**: a *historical* operation typed now (a 2023 buy, to rebuild the
+  portfolio) also comes out of the account unless "Não descontar de nenhuma conta" is ticked —
+  unlike proventos, operations have no "since" date. Asked the owner whether the form should tick
+  the box by itself for dates before the link.
 
 ### Learned
 - Gradle on this PC needs `JAVA_HOME` = Android Studio's `jbr` and `ANDROID_HOME` =

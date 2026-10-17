@@ -121,7 +121,7 @@ function dayLabel(date) {
 // descarta-se em "Pendentes", nao aqui.
 function isEditableHere(transaction) {
   if (transaction.pending) return false
-  return !['INVESTMENT_TRANSACTION', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
+  return !['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
 }
 
 // Clipe ao lado da descricao quando ha comprovante; so informa, nao e botao.
@@ -141,6 +141,7 @@ function AttachmentMark({ transaction }) {
 function originLabel(transaction) {
   if (transaction.pending) return transaction.pending_status === 'needs_attention' ? 'Recusado pelo servidor' : 'Pendente de envio'
   if (transaction.source_type === 'INVESTMENT_TRANSACTION') return 'Pela carteira'
+  if (transaction.source_type === 'INVESTMENT_PROCEED') return 'Provento'
   if (transaction.source_type === 'CC_AUTOPAY') return 'Débito automático'
   return 'Pela fatura'
 }

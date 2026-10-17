@@ -9,7 +9,7 @@
 export const INVESTMENT_CATEGORY = 'Investimento'
 
 const isInvestmentRow = (transaction) =>
-  transaction?.source_type === 'INVESTMENT_TRANSACTION' || transaction?.category === INVESTMENT_CATEGORY
+  ['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED'].includes(transaction?.source_type) || transaction?.category === INVESTMENT_CATEGORY
 
 export const isInvestmentOutflow = (transaction) =>
   transaction?.type === 'EXPENSE' && isInvestmentRow(transaction)
