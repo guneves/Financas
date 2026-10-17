@@ -80,7 +80,8 @@ public class ApkUpdatePlugin extends Plugin {
                     out.put("nativeLevel", latest.nativeLevel);
                     out.put("size", latest.size);
                     result.put("latest", out);
-                    result.put("newer", ApkUpdateRules.isNewer(latest, installedCode(context)));
+                    // O APK de teste (debug) e outro pacote: o publicado nunca instala por cima dele.
+                    result.put("newer", !BuildConfig.DEBUG && ApkUpdateRules.isNewer(latest, installedCode(context)));
                 } else {
                     result.put("newer", false);
                 }
@@ -119,7 +120,7 @@ public class ApkUpdatePlugin extends Plugin {
             try {
                 ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
                 JSObject result = new JSObject();
-                if (!ApkUpdateRules.isNewer(latest, installedCode(context))) {
+                if (BuildConfig.DEBUG || !ApkUpdateRules.isNewer(latest, installedCode(context))) {
                     result.put("status", "up-to-date");
                     call.resolve(result);
                     return;

@@ -110,6 +110,7 @@
 | APK screens update themselves from the server: the image carries the APK build of the frontend with `bundle.json` (content-hash version, native level, API address); `GET /api/app-bundle` and `/api/app-bundle/<version>.zip` (public, deterministic zip); native `AppBundle` plugin downloads, checks SHA-256, stages and opens it on the next start on trial, falls back to the APK's screens without `ready()`; Ajustes › Versão do app (APK version, native level, screen version, check / apply / go back). Phone check open (next-steps) | 2026-10-17 |
 | APK updates from CI (option 2): `apk` job in `deploy.yml` (native changes only, `android-release` environment, key decoded to the runner and deleted, certificate checked against `mobile/release-cert-sha256.txt`, `versionCode = 10000 + run number`), APK + `version.json` copied to `/srv/apps/financas/apk` and served at `/apk/` by `tailscale serve`; native `AppUpdate` plugin (download, SHA-256/package/versionCode check, Android installer, "install unknown apps" once); "Nova versão disponível" banner and in Ajustes; bundle native level is now a minimum; "Verificar atualizações" / "Reiniciar agora". Phone check open (next-steps) | 2026-10-17 |
 | Self-update checked on the phone: first CI APK (10009) installed over the USB build by `adb install -r` (same key, data kept); a screen-only push (`79d111c`, bundle `adaeed3`) reached the phone by "Verificar atualizações" → "Reiniciar agora"; APK 10011 offered as "Nova versão disponível" and installed from the app, data kept. CI APK job fixed: build-tools 37 prints `V2 Signer: …`, the certificate check now reads either format | 2026-10-17 |
+| Phase 6, first half: native bank-notification listener (`android/.../notify/`, Java): allow-list of Samsung Wallet, Itaú, Itaú Cartões, BB, Ourocard and BTG Banking (`NotifyRules`, JVM tests incl. manifest `<queries>` parity), capture mode off by default writing each notification word for word (title, text, bigText, every textual extra, posted time, key) to `financas_notify.db`, dedup key = SHA-256 of package+key+posted time; Ajustes › Notificações dos bancos (access, restricted-settings steps, capture switch, counts per app, last 20, export JSON/text via share sheet, delete); debug build = package `br.financas.app.debug` accepting `com.android.shell`, built and published by CI as `/apk/financas-debug.apk`; native level 2. Parsers and mapping screen deliberately not built; phone check open (next-steps) | 2026-10-17 |
 
 ---
 
@@ -604,3 +605,22 @@ another currency (2 accounts and 24 assets, all BRL; no movement with an exchang
 - **The native level is manual** (`frontend/native-level.txt`, also `BuildConfig.NATIVE_LEVEL`).
   Nothing checks that a native change bumped it; CLAUDE.md says when to.
 - Details and the rollback rules are in `mobile-docs/steps-to-production.md`.
+
+### Bank-notification listener — 2026-10-17
+- **No parser yet, so nothing is kept with capture off.** The listener drops anything off the
+  allow-list without reading it; with capture off it stores nothing, because no code would read
+  it. When parsers come (Phase 6 step 4) the listener feeds them whatever the capture switch says.
+- **Every textual extra is captured**, not only title/text/bigText: one week of capture is the
+  fixture set for the parsers, and a field left out would cost another week.
+- **Nothing is deduplicated across apps.** A Samsung Pay purchase is expected to notify from
+  Samsung Wallet and from the bank; both are kept with posted times to the millisecond. Picking
+  one source per purchase is Phase 6/7 work, written from the export.
+- **The test APK is a separate package** (`applicationIdSuffix ".debug"`): the release build never
+  accepts `com.android.shell`, and an adb test can never replace the real app or its queue. CI
+  signs it with the same key so each new one installs over the last; it is not in `version.json`
+  and `AppUpdate` never offers anything to it.
+- **Checked in the cloud session without an Android SDK** (dl.google.com is blocked there): the
+  JVM tests ran with plain `javac` + JUnit from Maven Central; the Android classes were compiled
+  against Robolectric's `android-all` (API 36) and Capacitor 8.5.3's `classes.jar`, with stubs
+  for three androidx methods. The Gradle build itself first runs in CI. The screen was opened in
+  Chromium at 360 px (light and dark, with and without access) with the plugin mocked.

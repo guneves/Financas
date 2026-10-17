@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 import br.financas.app.bundle.BundlePlugin;
+import br.financas.app.notify.NotifyPlugin;
 import br.financas.app.outbox.OutboxPlugin;
 import br.financas.app.update.ApkUpdatePlugin;
 
@@ -27,6 +28,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(BundlePlugin.class);
         // O APK novo publicado pelo CI (instalador do Android).
         registerPlugin(ApkUpdatePlugin.class);
+        // O leitor de notificacoes dos bancos: acesso, captura, exportacao (Ajustes).
+        registerPlugin(NotifyPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Android 13+: sem esta permissao o aviso de "entre de novo" do envio em segundo
