@@ -12,6 +12,7 @@ import { setValuesHidden, useValuesHidden } from '../lib/privacy'
 import { useLayer } from '../lib/layers'
 import { useScrollRestoration } from '../lib/scroll'
 import { toggleTheme, useIsDark } from '../lib/theme'
+import ApkUpdateBanner from './ApkUpdateBanner'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
 import PendingSheet from './PendingSheet'
@@ -334,6 +335,7 @@ export default function Layout() {
         </header>
 
         <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:py-8 xl:px-8">
+          <ApkUpdateBanner className="mb-5" />
           {section?.tabs.length ? (
             <Tabs items={section.tabs} className="mb-5" />
           ) : null}

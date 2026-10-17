@@ -321,7 +321,7 @@ public class BundlePlugin extends Plugin {
             unzip(zip, part);
             if (!new File(part, "index.html").isFile()) throw new IOException("A tela baixada não tem index.html.");
             JSONObject inner = new JSONObject(BundleStore.readUtf8(new File(part, "bundle.json")));
-            if (!target.equals(inner.optString("version")) || inner.optInt("native_level", -1) != BuildConfig.NATIVE_LEVEL) {
+            if (!target.equals(inner.optString("version")) || inner.optInt("native_level", Integer.MAX_VALUE) > BuildConfig.NATIVE_LEVEL) {
                 throw new IOException("A tela baixada não é a anunciada.");
             }
             File done = BundleStore.dir(context, target);

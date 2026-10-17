@@ -221,7 +221,7 @@ docs/
 frontend/android/      # Capacitor's Android project (committed); native code in
                       # app/src/main/java/br/financas/app/ (outbox/ = the native queue and sender,
                       # bundle/ = the screen self-update)
-frontend/native-level.txt   # the APK's native level; screens go only to an APK of the same level
+frontend/native-level.txt   # the APK's native level; a screen goes only to an APK at or above its level
 frontend/scripts/      # bundle-manifest.mjs: writes bundle.json into the APK build
 mobile/
   build-apk.ps1       # web build for the APK + cap sync + signed release + adb install
@@ -311,12 +311,20 @@ mobile-docs/
   `frontend/dist-android` with a `bundle.json` (content-hash version, native level, API address);
   the phone downloads it, checks the SHA-256 and opens it on the next start on trial. A bundle
   that does not call `ready()` within 30 s of opening (`AppStarted` in `main.jsx`, after the first
-  render) is dropped for good and the APK's own screens come back. **Bump
-  `frontend/native-level.txt`** in the same commit as any change the screens depend on that lives
-  in the APK — a Java plugin or method the JS calls, a Capacitor/plugin upgrade, a permission — and
-  then build and install the APK: an APK only takes screens of its own level, so without the bump
-  an old APK would load screens calling Java it does not have. `GET /api/app-bundle*` is public on
-  purpose (the same frontend `/` serves).
+  render) is dropped for good and the APK's own screens come back. A bundle's native level is the
+  **minimum** APK level it needs. **Bump `frontend/native-level.txt`** in the same commit as any
+  change the screens depend on that lives in the APK — a Java plugin or method the JS calls, a
+  Capacitor/plugin upgrade, a permission — so an old APK never loads screens calling Java it does
+  not have, and never remove a Java method that lower-level screens still call (a newer APK runs
+  them). `GET /api/app-bundle*` is public on purpose (the same frontend `/` serves).
+- **A new APK comes from CI, never from GitHub Releases** (2026-10-17). The `apk` job of
+  `deploy.yml` runs only when `frontend/android/`, `native-level.txt` or `capacitor.config.json`
+  changed. It signs with the `android-release` environment's key (checked against
+  `mobile/release-cert-sha256.txt`), uses `versionCode = 10000 + run number`, and copies the APK and
+  `version.json` to `/srv/apps/financas/apk/`, served at `/apk/` by `tailscale serve`. The app
+  (`android/.../update/ApkUpdatePlugin.java`, `ApkUpdateBanner.jsx`) offers "Nova versão
+  disponível" when that versionCode is higher than the installed one, then downloads the APK and
+  opens Android's installer. DEPLOY.md, "Updating the phone".
 - **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
   `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.

@@ -25,6 +25,10 @@
 .PARAMETER NoInstall
     Build only; do not look for a phone.
 
+.PARAMETER VersionCode
+    Override the versionCode (default: the commit count). CI-built APKs are 10000 + the
+    workflow run number, so a local build over one needs a higher value here.
+
 .PARAMETER SkipTests
     Skip the native unit tests (faster; the APK is the same).
 
@@ -37,7 +41,8 @@
 param(
     [string]$ApiBase = 'https://guilhermeserver.tail5084ff.ts.net',
     [switch]$NoInstall,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [int]$VersionCode = 0
 )
 
 . (Join-Path $PSScriptRoot 'android-tools.ps1')
@@ -80,7 +85,7 @@ $Adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 # Version: the commit count always grows (Android refuses to install a lower
 # versionCode over a higher one); the name says which commit, and -dirty when the
 # tree had uncommitted changes.
-$versionCode = [int](git -C $Root rev-list --count HEAD)
+$versionCode = if ($VersionCode -gt 0) { $VersionCode } else { [int](git -C $Root rev-list --count HEAD) }
 $sha = (git -C $Root rev-parse --short HEAD).Trim()
 $dirty = if (git -C $Root status --porcelain) { '-dirty' } else { '' }
 $versionName = '{0}-{1}{2}' -f (Get-Date -Format 'yyyy.MM.dd'), $sha, $dirty
@@ -151,6 +156,11 @@ if ($output -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
     # Never uninstall automatically: that would delete the offline queue.
     Write-Host 'The installed app was signed with a different key. Check the Pendentes screen is empty,' -ForegroundColor Yellow
     Write-Host 'then uninstall it from the phone and run this again.' -ForegroundColor Yellow
+    exit 1
+}
+if ($output -match 'INSTALL_FAILED_VERSION_DOWNGRADE') {
+    # CI-built APKs are 10000 + run number (DEPLOY.md, "New APK"): a local build is lower.
+    Write-Host 'The phone has a newer APK (from CI). Pass -VersionCode above it to install this build.' -ForegroundColor Yellow
     exit 1
 }
 if ($output -notmatch 'Success') { exit 1 }

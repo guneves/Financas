@@ -9,6 +9,15 @@ def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
+// No CI (job "apk" de .github/workflows/deploy.yml) a mesma chave vem do ambiente: o .jks
+// decodificado num arquivo temporario e as senhas dos secrets, sem arquivo de propriedades.
+if (System.getenv('FINANCAS_KEYSTORE_FILE')) {
+    keystoreProperties['storeFile'] = System.getenv('FINANCAS_KEYSTORE_FILE')
+    keystoreProperties['storePassword'] = System.getenv('FINANCAS_KEYSTORE_PASSWORD')
+    keystoreProperties['keyAlias'] = System.getenv('FINANCAS_KEY_ALIAS')
+    keystoreProperties['keyPassword'] = System.getenv('FINANCAS_KEY_PASSWORD')
+}
+def hasReleaseKey = keystoreProperties['storeFile'] != null
 
 android {
     namespace = "br.financas.app"
@@ -17,11 +26,12 @@ android {
         applicationId "br.financas.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // mobile/build-apk.ps1 passa os dois a cada build (contagem de commits e data+commit),
-        // para que um APK velho no celular seja reconhecivel em Ajustes.
+        // Quem builda passa os dois: o CI (10000 + numero da execucao, data+commit) e
+        // mobile/build-apk.ps1 (contagem de commits). O app oferece o APK publicado quando o
+        // versionCode dele e maior que o instalado (update/ApkUpdatePlugin.java).
         versionCode((project.findProperty('financasVersionCode') ?: '1') as Integer)
         versionName((project.findProperty('financasVersionName') ?: 'dev') as String)
-        // A tela baixada do servidor so entra num APK do mesmo nivel (frontend/native-level.txt,
+        // A tela baixada do servidor so entra num APK deste nivel ou acima (frontend/native-level.txt,
         // bundle/BundleRules.java). Mudou o Java, um plugin ou o Capacitor: sobe o numero.
         buildConfigField "int", "NATIVE_LEVEL", file('../../native-level.txt').text.trim()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -33,7 +43,7 @@ android {
     }
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseKey) {
                 storeFile file(keystoreProperties['storeFile'])
                 storePassword keystoreProperties['storePassword']
                 keyAlias keystoreProperties['keyAlias']
@@ -46,7 +56,7 @@ android {
     }
     buildTypes {
         release {
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseKey) {
                 signingConfig signingConfigs.release
             }
             minifyEnabled false

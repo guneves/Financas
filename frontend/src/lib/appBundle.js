@@ -8,6 +8,10 @@
 // mais baixa aquela versao. Por isso startAppBundle() roda num efeito depois do
 // primeiro desenho (main.jsx), nao no carregamento do modulo.
 //
+// O APK novo (android/.../update/ApkUpdatePlugin.java) e procurado junto: quando o
+// CI publicou um mais novo que o instalado, a tela mostra "Nova versão disponível"
+// (components/ApkUpdateBanner.jsx) e installApk() baixa e abre o instalador.
+//
 // No navegador nada daqui roda: o Flask ja serve a tela nova.
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { App } from '@capacitor/app'
@@ -16,16 +20,25 @@ import { hasOpenLayer } from './layers'
 import { shouldApplyOnResume, shouldCheck } from './appBundleRules'
 
 const AppBundle = registerPlugin('AppBundle')
+const AppUpdate = registerPlugin('AppUpdate')
 
 let started = false
 let lastCheckAt = 0
 let hiddenAt = null
 let lastResult = null
+let apkState = null
+let apkInstall = null
+// O dono foi a tela "Instalar apps desconhecidos": ao voltar, a instalacao segue.
+let installAfterPermission = false
 const subscribers = new Set()
+
+function notify() {
+  for (const subscriber of subscribers) subscriber(lastResult)
+}
 
 function publish(result) {
   lastResult = result
-  for (const subscriber of subscribers) subscriber(result)
+  notify()
 }
 
 export function isAppBundleAvailable() {
@@ -41,8 +54,30 @@ export function subscribeAppBundle(callback) {
   return () => subscribers.delete(callback)
 }
 
+// O APK publicado: {installedCode, nativeLevel, latest, newer, canInstall}, ou null.
+export function getApkState() {
+  return apkState
+}
+
+// O resultado da ultima instalacao pedida ({status}), para o texto na tela.
+export function getApkInstall() {
+  return apkInstall
+}
+
+async function checkApk() {
+  try {
+    apkState = await AppUpdate.latest({ baseUrl: API_BASE_URL })
+  } catch (error) {
+    // Sem o APK publicado (ou sem rede) a tela segue; Ajustes mostra so a tela.
+    console.warn('APK publicado:', error)
+  }
+  notify()
+  return apkState
+}
+
 export async function checkForUpdate() {
   lastCheckAt = Date.now()
+  const apk = checkApk()
   let result
   try {
     result = await AppBundle.check({ baseUrl: API_BASE_URL })
@@ -50,6 +85,23 @@ export async function checkForUpdate() {
     result = { status: 'error', message: error?.message }
   }
   publish(result)
+  await apk
+  return result
+}
+
+// "Nova versão disponível": baixa o APK e abre o instalador do Android. Na
+// primeira vez o Android pede a permissao de instalar; installAfterPermission
+// faz o download seguir quando o dono volta de la.
+export async function installApk() {
+  let result
+  try {
+    result = await AppUpdate.install({ baseUrl: API_BASE_URL })
+  } catch (error) {
+    result = { status: 'error', message: error?.message }
+  }
+  installAfterPermission = result.status === 'needs-permission'
+  apkInstall = result
+  notify()
   return result
 }
 
@@ -71,6 +123,12 @@ export function resetAppBundle() {
 async function onResume() {
   const awayMs = hiddenAt ? Date.now() - hiddenAt : 0
   hiddenAt = null
+  if (installAfterPermission) {
+    installAfterPermission = false
+    const apk = await checkApk()
+    if (apk?.canInstall) installApk()
+    return
+  }
   try {
     const { staged } = await AppBundle.info()
     if (shouldApplyOnResume({ awayMs, hasOpenLayer: hasOpenLayer(), staged }) && await applyAppBundle()) return

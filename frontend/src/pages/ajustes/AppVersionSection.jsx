@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, RotateCcw, Smartphone } from 'lucide-react'
+import { ApkUpdatePrompt } from '../../components/ApkUpdateBanner'
 import { AlertMessage, Badge, Button, Panel, PanelHeader } from '../../components/ui'
 import {
   appBundleInfo,
   applyAppBundle,
   checkForUpdate,
+  getApkState,
   getLastCheck,
   isAppBundleAvailable,
   resetAppBundle,
@@ -15,7 +17,8 @@ import { confirmAction } from '../../lib/confirm'
 
 // Versao do app, so no APK: o APK instalado e a tela em uso — a que veio nele ou
 // uma baixada do servidor (lib/appBundle.js). Daqui se procura atualizacao, se
-// troca na hora e se volta para a tela do APK se a baixada estiver ruim.
+// troca na hora e se volta para a tela do APK se a baixada estiver ruim. O APK
+// novo publicado pelo CI aparece aqui tambem ("Nova versão disponível").
 export default function AppVersionSection() {
   if (!isAppBundleAvailable()) return null
   return <AppVersionPanel />
@@ -24,6 +27,7 @@ export default function AppVersionSection() {
 function AppVersionPanel() {
   const [info, setInfo] = useState(null)
   const [lastCheck, setLastCheck] = useState(getLastCheck())
+  const [apk, setApk] = useState(getApkState())
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
@@ -33,6 +37,7 @@ function AppVersionPanel() {
     reloadInfo()
     return subscribeAppBundle((result) => {
       setLastCheck(result)
+      setApk(getApkState())
       reloadInfo()
     })
   }, [])
@@ -69,12 +74,13 @@ function AppVersionPanel() {
         description="A tela se atualiza sozinha pelo servidor; um APK novo só é preciso quando o servidor pede."
         actions={(
           <Button variant="secondary" size="sm" icon={RefreshCw} loading={busy === 'check'} onClick={() => run('check', checkForUpdate)}>
-            Procurar atualização
+            Verificar atualizações
           </Button>
         )}
       />
       <div className="space-y-4 p-5">
         <AlertMessage message={error} onDismiss={() => setError('')} />
+        <ApkUpdatePrompt />
         {status ? <AlertMessage tone={status.tone} message={status.text} /> : null}
         {info ? (
           <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
@@ -83,6 +89,7 @@ function AppVersionPanel() {
               <div className="min-w-[12rem] flex-1">
                 <p className="text-sm font-semibold text-zinc-900">APK</p>
                 <p className="text-xs text-zinc-500">{info.apkVersion || '—'} · nível nativo {info.nativeLevel}</p>
+                {apk?.latest && !apk.newer ? <p className="text-xs text-zinc-500">É o mais novo publicado.</p> : null}
               </div>
             </li>
             <li className="flex flex-wrap items-center gap-3 p-3">
@@ -100,7 +107,7 @@ function AppVersionPanel() {
         <div className="flex flex-wrap gap-2">
           {staged ? (
             <Button size="sm" icon={RefreshCw} loading={busy === 'apply'} onClick={() => run('apply', applyAppBundle)}>
-              {staged === 'builtin' ? 'Voltar à tela do APK agora' : 'Usar a versão nova agora'}
+              {staged === 'builtin' ? 'Voltar à tela do APK agora' : 'Reiniciar agora'}
             </Button>
           ) : null}
           {info && !info.onBuiltin ? (

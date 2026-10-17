@@ -75,8 +75,9 @@ public final class BundleRules {
         if (BUILTIN.equals(state.staged) && target.equals(builtin)) return ALREADY_STAGED;
         if (target.equals(running)) return state.staged.isEmpty() ? UP_TO_DATE : DROP_STAGED;
         if (target.equals(builtin)) return USE_BUILTIN;
-        // Uma tela feita para outro Java (plugin novo, metodo novo) quebraria neste APK.
-        if (targetLevel != nativeLevel) return INCOMPATIBLE;
+        // O nivel da tela e o minimo de Java que ela chama (plugin novo, metodo novo): num APK
+        // mais velho ela quebraria. Um APK mais novo a abre (o Java so ganha metodos).
+        if (targetLevel > nativeLevel) return INCOMPATIBLE;
         // A tela chama a API compilada nela: de outro servidor, falaria com outro lugar.
         if (!trimSlash(targetApiBase).equals(trimSlash(baseUrl))) return OTHER_SERVER;
         if (state.failed.contains(target)) return FAILED_BEFORE;

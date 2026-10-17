@@ -265,9 +265,8 @@ after reconnecting — without opening the app — all three appear once on the 
 
 Before this, every change in `frontend/src` needed a new APK over USB. Now the server hands the
 phone its screens, and a new APK is needed only for a native change. The three options considered:
-the app downloads its own screen bundle (built), CI builds and offers the APK (later, only if
-native changes become frequent: it needs the signing key as a GitHub secret and a tap on Install
-each time), and loading the screens from the server (rejected: the app could not open offline).
+the app downloads its own screen bundle (built), CI builds and offers the APK (built too, step 7),
+and loading the screens from the server (rejected: the app could not open offline).
 Hand-written rather than `@capgo/capacitor-updater`: Capacitor already serves the WebView from a
 folder (`CapWebViewSettings` → `serverBasePath`, read by `Bridge` on load), the custom plugins are
 Java already, and nothing reports to a third party.
@@ -287,9 +286,9 @@ Java already, and nothing reports to a third party.
 3. **The phone** (`android/.../bundle/`, plugin `AppBundle`). `check()` asks for the manifest and
    compares: the server's version is the target, whatever it is — no "newer than" (a revert on
    the server takes the phone back, to the APK's own screens if that is what the server serves).
-   It refuses a bundle of another native level or another API address, and one that failed here
+   It refuses a bundle that needs a higher native level, or another API address, and one that failed here
    before. A download is checked against the size and SHA-256, unzipped with every entry kept
-   inside the folder, and its `bundle.json` must name the same version and level. It then waits
+   inside the folder, and its `bundle.json` must name the same version and a level the APK has. It then waits
    (`staged`) in `files/bundles/<version>/`.
 4. **Switching.** On the next cold start the plugin's `load()` — which runs before the WebView
    loads — promotes the waiting bundle and points Capacitor at it. It also switches when the app
@@ -302,13 +301,21 @@ Java already, and nothing reports to a third party.
    wipes every downloaded bundle (its own screens are newer), as Capacitor itself does.
 6. **When to bump `native-level.txt`.** Whenever the screens start needing something the
    installed APK does not have: a Java change the JS calls (a plugin, a method, an event), a
-   Capacitor or plugin upgrade, a permission. Bump it in the same commit, then build and install
-   the APK. Until the APK is installed the phone keeps its current screens and Ajustes says a new
-   APK is needed — an old APK never receives screens it cannot run.
+   Capacitor or plugin upgrade, a permission. Bump it in the same commit. The level in
+   `bundle.json` is the *minimum*: an APK at or above it opens the bundle, an older one keeps its
+   screens and is offered the new APK (below).
+7. **The APK from CI (option 2, built 2026-10-17).** A push that changes the Android project, the
+   native level or Capacitor's config also runs the `apk` job (DEPLOY.md, "Updating the phone"):
+   signed with the phone's key from the `android-release` environment, `versionCode = 10000 + run
+   number`, published with `version.json` to `/apk/` on the server (tailnet only, `tailscale
+   serve`). Plugin `AppUpdate` (`android/.../update/`) reads it; when it is newer than the
+   installed APK the app shows "Nova versão disponível", downloads it (size, SHA-256, package,
+   versionCode checked) and opens Android's installer, asking once for "Instalar apps
+   desconhecidos". Installed over the old one, so the data stays.
 
-Checked on the PC: backend tests, JVM tests of `BundleRules`, node tests of `appBundleRules`, and
-a local image serving the manifest and a zip whose SHA-256 matches. Not yet checked on the
-phone — that needs this APK installed once over USB, then a push that changes a screen.
+Checked on the PC: backend tests, JVM tests of `BundleRules` and `ApkUpdateRules`, node tests of
+`appBundleRules`, a local image serving the manifest and a zip whose SHA-256 matches, and a local
+release build signed with the key whose fingerprint CI checks.
 
 ## Phase 6 — Reading bank notifications (not started)
 

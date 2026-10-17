@@ -58,8 +58,10 @@ public class BundleRulesTest {
     }
 
     @Test
-    public void anotherNativeLevelIsNeverDownloaded() {
+    public void aScreenNeedingANewerApkIsNeverDownloaded() {
         assertEquals(BundleRules.INCOMPATIBLE, BundleRules.decide(V1, 2, BASE, 1, BASE, BUILTIN, state("", true, "")));
+        // O nivel da tela e o minimo: um APK mais novo ainda a abre.
+        assertEquals(BundleRules.DOWNLOAD, BundleRules.decide(V1, 1, BASE, 2, BASE, BUILTIN, state("", true, "")));
         // A volta para a tela do APK nao depende do nivel: ela e do proprio APK.
         assertEquals(BundleRules.USE_BUILTIN, BundleRules.decide(BUILTIN, 2, BASE, 1, BASE, BUILTIN, state(V1, true, "")));
     }

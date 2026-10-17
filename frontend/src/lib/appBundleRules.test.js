@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import {
   APPLY_AFTER_AWAY_MS,
   CHECK_EVERY_MS,
+  apkPrompt,
   checkStatusMessage,
+  installStatusMessage,
   shortVersion,
   shouldApplyOnResume,
   shouldCheck,
@@ -37,4 +39,28 @@ test('cada resposta do lado nativo tem um texto', () => {
 test('versao curta', () => {
   assert.equal(shortVersion('0123456789abcdef'), '0123456')
   assert.equal(shortVersion(''), '—')
+})
+
+test('oferece o APK so quando o publicado e mais novo', () => {
+  const latest = { versionCode: 10012, versionName: '2026.10.17-abc', nativeLevel: 1 }
+  assert.equal(apkPrompt({ apk: null }), null)
+  assert.equal(apkPrompt({ apk: { newer: false, latest, nativeLevel: 1 } }), null)
+  assert.equal(apkPrompt({ apk: { newer: true, latest: null, nativeLevel: 1 } }), null)
+  assert.deepEqual(apkPrompt({ apk: { newer: true, latest, nativeLevel: 1 } }), { versionName: '2026.10.17-abc', required: false })
+})
+
+test('o APK e necessario quando a tela do servidor pede um nivel acima do instalado', () => {
+  const apk = { newer: true, latest: { versionCode: 10013, nativeLevel: 2 }, nativeLevel: 1 }
+  assert.equal(apkPrompt({ apk }).required, true)
+  const sameLevel = { ...apk, latest: { versionCode: 10013, nativeLevel: 1 } }
+  assert.equal(apkPrompt({ apk: sameLevel, bundle: { status: 'up-to-date' } }).required, false)
+  assert.equal(apkPrompt({ apk: sameLevel, bundle: { status: 'incompatible', nativeLevel: 2 } }).required, true)
+})
+
+test('cada resposta da instalacao tem um texto', () => {
+  for (const status of ['installing', 'needs-permission', 'up-to-date', 'busy']) {
+    const message = installStatusMessage({ status })
+    assert.ok(message.text && !message.text.startsWith('Resposta inesperada'), status)
+  }
+  assert.equal(installStatusMessage({ status: 'error', message: 'falhou' }).text, 'falhou')
 })

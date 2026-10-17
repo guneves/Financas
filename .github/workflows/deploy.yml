@@ -1,11 +1,18 @@
 # Push to main: test, build the image into GHCR, deploy it on guilhermeserver.
 # The server only pulls: /srv/apps/financas holds compose.yaml and .env (never touched here).
+# When the native app changed, the "apk" job also builds the signed APK and publishes it,
+# with apk/version.json, in /srv/apps/financas/apk (served on the tailnet by tailscale serve).
 name: deploy
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      apk:
+        description: Build and publish the APK even without native changes
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy
@@ -15,12 +22,33 @@ env:
   IMAGE: ghcr.io/guneves/financas-app
   SERVER: guilherme@guilhermeserver.tail5084ff.ts.net
   APP_DIR: /srv/apps/financas
+  API_BASE: https://guilhermeserver.tail5084ff.ts.net
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.native.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # A new APK only when what lives in it changed: the Android project, the native level
+      # (bumped with any Java/plugin/Capacitor change the screens depend on) or Capacitor's
+      # config. Screens alone reach the phone as a bundle, with no APK.
+      - name: Did the native app change?
+        id: native
+        env:
+          BEFORE: ${{ github.event.before }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.apk }}
+        run: |
+          paths="frontend/android frontend/native-level.txt frontend/capacitor.config.json"
+          if [ "$FORCE" = "true" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null \
+             || ! git diff --quiet "$BEFORE" HEAD -- $paths; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
@@ -85,3 +113,107 @@ jobs:
       - name: Pull and restart
         run: |
           ssh "$SERVER" "cd $APP_DIR && sudo docker compose pull && sudo docker compose up -d && sudo docker image prune -f > /dev/null && sudo docker compose ps"
+
+  # The signed APK, only on native changes. The key exists on the runner only between the
+  # decode and the delete steps; the secrets reach gradle as environment variables (masked).
+  # The certificate is checked against mobile/release-cert-sha256.txt, the key on the phone:
+  # an APK signed with another key would not install over it. Never published to GitHub.
+  apk:
+    needs: [test, deploy]
+    if: needs.test.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    environment: android-release
+    env:
+      APK_DIR: /srv/apps/financas/apk
+      APK: frontend/android/app/build/outputs/apk/release/app-release.apk
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+        working-directory: frontend
+      # The same screens the image serves as the bundle (same content hash), as the APK's own.
+      - name: Build the screens for the APK
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: ${{ env.API_BASE }}
+        run: |
+          npx vite build --outDir dist-android --emptyOutDir
+          node scripts/bundle-manifest.mjs dist-android "$API_BASE"
+          npx cap sync android
+      - name: Version
+        run: |
+          echo "VERSION_CODE=$((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "KEY_DIR=$RUNNER_TEMP/release-key" >> "$GITHUB_ENV"
+      - name: Decode the release key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          umask 077
+          mkdir -p "$KEY_DIR"
+          # Tolerates certutil's BEGIN/END lines and Windows line breaks.
+          printf '%s' "$KEYSTORE_BASE64" | grep -v -- '-----' | tr -d '\r\n ' | base64 -d > "$KEY_DIR/release.jks"
+          test -s "$KEY_DIR/release.jks"
+      - name: Build the signed APK
+        working-directory: frontend/android
+        env:
+          FINANCAS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FINANCAS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          FINANCAS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export FINANCAS_KEYSTORE_FILE="$KEY_DIR/release.jks"
+          bash ./gradlew --no-daemon testReleaseUnitTest assembleRelease \
+            "-PfinancasVersionCode=$VERSION_CODE" "-PfinancasVersionName=$VERSION_NAME"
+      - name: Delete the release key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/release-key"
+      - name: Check the signing certificate
+        run: |
+          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -1)"
+          digest="$("$apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          expected="$(tr -d ' \r\n' < mobile/release-cert-sha256.txt)"
+          echo "Certificate SHA-256: $digest"
+          if [ "$digest" != "$expected" ]; then
+            echo "::error::The APK is not signed with the phone's key (expected $expected)."
+            exit 1
+          fi
+      - name: Write version.json
+        run: |
+          file="financas-$VERSION_CODE.apk"
+          mkdir -p "$RUNNER_TEMP/publish"
+          cp "$APK" "$RUNNER_TEMP/publish/$file"
+          jq -n \
+            --argjson version_code "$VERSION_CODE" \
+            --arg version_name "$VERSION_NAME" \
+            --argjson native_level "$(tr -d ' \r\n' < frontend/native-level.txt)" \
+            --arg sha256 "$(sha256sum "$APK" | cut -d' ' -f1)" \
+            --argjson size "$(stat -c%s "$APK")" \
+            --arg file "$file" \
+            --arg commit "$GITHUB_SHA" \
+            '{version_code: $version_code, version_name: $version_name, native_level: $native_level,
+              sha256: $sha256, size: $size, file: $file, commit: $commit}' > "$RUNNER_TEMP/publish/version.json"
+          cat "$RUNNER_TEMP/publish/version.json"
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+      # The APK first, then version.json (each written whole, then renamed): a phone never
+      # reads a manifest whose APK is not there yet. The last three APKs stay.
+      - name: Publish on the server
+        run: |
+          cd "$RUNNER_TEMP/publish"
+          file="financas-$VERSION_CODE.apk"
+          ssh -o StrictHostKeyChecking=accept-new "$SERVER" \
+            "mkdir -p $APK_DIR && cat > $APK_DIR/$file.part && mv $APK_DIR/$file.part $APK_DIR/$file" < "$file"
+          ssh "$SERVER" "cat > $APK_DIR/version.json.new && mv $APK_DIR/version.json.new $APK_DIR/version.json" < version.json
+          ssh "$SERVER" "cd $APK_DIR && ls -1t financas-*.apk | tail -n +4 | xargs -r rm -f && ls -l"

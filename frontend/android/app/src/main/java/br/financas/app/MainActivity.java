@@ -12,6 +12,7 @@ import com.getcapacitor.BridgeActivity;
 
 import br.financas.app.bundle.BundlePlugin;
 import br.financas.app.outbox.OutboxPlugin;
+import br.financas.app.update.ApkUpdatePlugin;
 
 public class MainActivity extends BridgeActivity {
 
@@ -24,6 +25,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ShellPlugin.class);
         // Antes da WebView carregar: decide qual tela abrir (a do APK ou a baixada).
         registerPlugin(BundlePlugin.class);
+        // O APK novo publicado pelo CI (instalador do Android).
+        registerPlugin(ApkUpdatePlugin.class);
         super.onCreate(savedInstanceState);
 
         // Android 13+: sem esta permissao o aviso de "entre de novo" do envio em segundo

@@ -6,7 +6,8 @@ grava nele: a versao (hash do conteudo), o nivel nativo e o endereco da API.
 
 O app pergunta `GET /api/app-bundle`, compara com o que roda e, se mudou, baixa o
 zip, confere o SHA-256 e troca na proxima abertura (android/.../bundle/). Quem
-decide se serve e o app: so baixa uma tela do mesmo nivel nativo do APK.
+decide se serve e o app: so baixa uma tela cujo nivel nativo (o minimo de Java
+que ela chama) o APK tem.
 
 O zip e montado aqui, uma vez por versao, com datas fixas: o mesmo conteudo da
 sempre os mesmos bytes, e o SHA-256 do manifesto vale para qualquer pedido.

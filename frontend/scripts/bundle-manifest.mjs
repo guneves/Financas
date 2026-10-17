@@ -6,8 +6,9 @@
 // - version: os 16 primeiros hex do SHA-256 do conteudo (caminho + bytes de cada
 //   arquivo, em ordem). Mesmo codigo, mesma versao: o build do APK e o da imagem
 //   chegam ao mesmo valor, e o celular nao baixa o que ja tem.
-// - native_level: frontend/native-level.txt. A tela so vai para um APK do mesmo
-//   nivel; mudou o Java, o plugin ou o Capacitor, sobe o numero e gera o APK de novo.
+// - native_level: frontend/native-level.txt, o minimo de Java que a tela chama. Ela so vai
+//   para um APK desse nivel ou acima; mudou o Java, o plugin ou o Capacitor, sobe o numero
+//   (o CI gera o APK novo).
 // - api_base: o endereco da API compilado nesta tela (VITE_API_BASE_URL). O app
 //   recusa uma tela que fale com outro servidor.
 import { createHash } from 'node:crypto'

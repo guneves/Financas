@@ -28,6 +28,8 @@ Push to `main`. `.github/workflows/deploy.yml` then:
 2. builds the image for linux/amd64 and pushes it to GHCR as `latest` and `<sha>` (buildx cache);
 3. joins the tailnet as `tag:ci`, copies `compose.yaml` to the server (never `.env`) and runs
    `sudo docker compose pull && sudo docker compose up -d` in `/srv/apps/financas`.
+4. only when the native app changed: builds the signed APK and publishes it for the phone
+   ("Updating the phone", below).
 
 Migrations run when the new container boots. A failed test stops the deploy before anything is
 pushed. It can also be started by hand from the Actions tab (`workflow_dispatch`).
@@ -163,10 +165,85 @@ The copy uses the app's own image (uid 10001 is the user the app runs as). On th
 The APK has its API address baked in at build time. `mobile/build-apk.ps1` defaults to the server's
 address, so rebuild and install it once.
 
-The image also carries the APK's screens (`frontend/dist-android`, built with `APP_API_BASE`, the
-same address), and the phone downloads them from `/api/app-bundle`: after a deploy the APK picks up
-screen changes by itself on its next start. A new APK is needed only when `frontend/native-level.txt`
-goes up (`mobile-docs/steps-to-production.md`).
+Screen and APK updates after that: "Updating the phone", below.
+
+## Updating the phone
+
+The phone updates itself in two ways. Both come from pushing to `main`, and neither reinstalls by
+USB or loses data.
+
+### Screens (the everyday case): the bundle
+
+The image carries the APK's screens (`frontend/dist-android`, built with `APP_API_BASE`) and
+serves them at `GET /api/app-bundle`. Its `bundle.json` holds the version (a content hash) and
+`native_level`, the **minimum** native level those screens need (`frontend/native-level.txt`).
+After every deploy the app:
+
+1. asks `/api/app-bundle` when it starts, and again on resume at most every 30 min (Ajustes ›
+   Versão do app › **Verificar atualizações** asks right away);
+2. downloads the zip only if its level is at or below the APK's, and checks size and SHA-256;
+3. opens it on the next start, or right away with **Reiniciar agora**, on trial: if the screen
+   does not call `ready()` within 30 s, or the app is killed twice before that, the app goes back
+   to the APK's built-in screens and never downloads that version again.
+
+The offline queue is native (SQLite plus WorkManager), so changing screens never touches a pending
+lançamento.
+
+**Rolling back screens:** roll back the image (`.\deploy.ps1 -Rollback <sha>`, above). The phone
+sees a different version and goes back to it at its next check, or to the built-in screens if that
+is what the old image serves. On the phone itself, Ajustes › Versão do app › "Voltar à versão do
+APK" drops the downloaded screen at once.
+
+### Native code: a new APK from CI
+
+When a push changes `frontend/android/`, `frontend/native-level.txt` or
+`frontend/capacitor.config.json` (or the workflow is run by hand with **apk** ticked), the `apk`
+job runs after `deploy`, in the `android-release` environment (main only):
+
+1. builds the screens for the APK (the same content hash as the image's bundle) and `cap sync`;
+2. decodes `ANDROID_KEYSTORE_BASE64` into `$RUNNER_TEMP`, builds `assembleRelease` with
+   `versionCode = 10000 + run number`, and deletes the key in an `always()` step. The passwords
+   reach gradle only as masked environment variables (`FINANCAS_KEYSTORE_*`, read by
+   `app/build.gradle`);
+3. refuses the APK unless its certificate SHA-256 equals `mobile/release-cert-sha256.txt`, the
+   key the phone's app was signed with. Another key would not install over it;
+4. copies `financas-<code>.apk`, then `version.json`, to `/srv/apps/financas/apk/` on the server
+   (Tailscale SSH, like the deploy), keeping the last three APKs.
+
+`tailscale serve` publishes that folder at `https://guilhermeserver.tail5084ff.ts.net/apk/`, on
+the tailnet only. Nothing goes to GitHub Releases or workflow artifacts.
+
+The app reads `/apk/version.json` with the bundle check. When the published `version_code` is
+higher than the installed one, it shows **Nova versão disponível** at the top of every screen and
+in Ajustes. The banner says the update is needed when the server's screens need a higher native
+level than the APK has. Tapping **Instalar** downloads the APK, checks its size, SHA-256, package
+and versionCode, and opens Android's installer. The first time, Android asks for "Instalar apps
+desconhecidos" for Finanças: the app opens that screen, and the download starts by itself when the
+owner comes back. The installer replaces the app in place, so the queue, the login and the cache
+stay. The new APK drops downloaded screens and starts on its own.
+
+When to bump `native-level.txt`: in the same commit as any Java/plugin/Capacitor change the screens
+call (CLAUDE.md). A native change the screens do not depend on (a Java bug fix) still produces a new
+APK, with no bump.
+
+**Rolling back the APK:** Android never installs a lower versionCode over a higher one without
+uninstalling, which deletes the offline queue. So an APK rollback goes forward: `git revert` the
+native commit and push. CI builds the old code with a new, higher versionCode, and the phone offers
+it like any update. While it builds, the previous `financas-<code>.apk` files are still in the
+folder, but they cannot be installed over a newer one.
+
+**Local builds:** `.\mobile\build-apk.ps1` still builds and installs over USB with the same key. Its
+default versionCode (the commit count) is below CI's, so over a CI-installed app pass
+`-VersionCode` higher than the installed one. The next CI APK must then be higher again.
+
+### One-time server setup for `/apk`
+
+```bash
+ssh -t guilherme@guilhermeserver "mkdir -p /srv/apps/financas/apk && sudo tailscale serve --bg --set-path /apk /srv/apps/financas/apk && tailscale serve status"
+```
+
+`/` keeps proxying to the container on 8101. `/apk` is served by tailscaled straight from the
+folder, independent of the image.
 
 ## Building and running on the PC
 
