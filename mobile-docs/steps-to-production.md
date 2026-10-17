@@ -340,7 +340,7 @@ notification.
 | Banco do Brasil | `br.com.bb.android` | Yes. |
 | Ourocard | `br.com.bb.oewallet` | Yes, if installed. |
 | BTG Pactual Banking | `com.btg.pactual.banking` | Yes. Card and account notifications come from here. |
-| BTG Pactual Investimentos | `com.btg.pactual.digital.mobile` | No, deliberately. |
+| BTG Pactual Investimentos | `com.btg.pactual.digital.mobile` | Yes, since 2026-10-17 (owner: operations must be recorded from it too). Excluded at first; see "Brokerage notifications" below. |
 
 The list lives in `NotifyRules.APPS` and in the manifest's `<queries>` (so the screen can tell
 whether each app is installed); a JVM test fails when the two differ.
@@ -349,6 +349,19 @@ No reliable public source gives the wording of these apps' notifications; publis
 disagree with each other. Known variations the parsers must expect: the time as `14:30` or
 `16h30`, a purchase in a foreign currency (`US 3,00`), and the card's product name before
 "final 1234". Some Itaú cards send no push for purchases at all.
+
+**Brokerage notifications** (owner, 2026-10-17): "I want the app to gather from BTG Pactual
+Investimentos as well … when buying stocks and investments it should come out from the stock
+exchange account." So the BTG investments app is on the allow-list, and a detection from it is an
+*operation*, not a lançamento: a "Registrar operação" suggestion (ticker, buy/sell, quantity,
+price, date) with "Lançar no extrato" ticked on the owner's brokerage account — the existing cash
+link (`metadata.cash_account_id`), so the cost and the IR read the movement and the account
+balance reads the linked lançamento, as when the form is typed by hand. Needs a BRL account for
+the brokerage (Ajustes › Contas) chosen in the mapping screen. Unknown until the captures: whether
+the app notifies executions at all, and with which fields (fees, the nota de corretagem, are not
+expected in a notification and stay editable). Money moving from BTG Banking to the brokerage is a
+TRANSFER between two of the owner's accounts, never an expense or an aporte: a Pix/TED
+notification whose destination is the brokerage account must become a transfer suggestion.
 
 **One purchase, two notifications.** A Samsung Pay purchase is expected to notify from Samsung
 Wallet *and* from the issuing bank. Capture mode keeps both, with posted times to the
@@ -456,6 +469,10 @@ amount and merchant.
    notifies from two apps (Samsung Wallet and the bank) is a separate problem: see "One purchase,
    two notifications" in Phase 6.
 6. Discarded detections are remembered, so the same notification does not return.
+7. A detection from the brokerage app (BTG Investimentos) becomes a "Registrar operação"
+   suggestion, cash linked to the brokerage account; Confirmar writes it through
+   `POST /api/investments` with a `client_id` (the endpoint does not take one yet — add it the
+   same way as migration 024). See "Brokerage notifications" in Phase 6.
 
 Done when: a purchase is recorded on the PC from the notification button alone, with the app
 closed, in the category its rule gives.

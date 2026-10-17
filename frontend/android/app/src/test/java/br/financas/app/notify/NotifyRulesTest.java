@@ -43,7 +43,7 @@ public class NotifyRulesTest {
             "com.samsung.android.spay",
             "com.itau", "com.itaucard.activity",
             "br.com.bb.android", "br.com.bb.oewallet",
-            "com.btg.pactual.banking",
+            "com.btg.pactual.banking", "com.btg.pactual.digital.mobile",
         }) {
             assertTrue(pkg, NotifyRules.isAllowed(pkg, false));
         }
@@ -51,8 +51,6 @@ public class NotifyRulesTest {
 
     @Test
     public void everythingElseIsIgnored() {
-        // O app de investimentos do BTG fica de fora de proposito.
-        assertFalse(NotifyRules.isAllowed("com.btg.pactual.digital.mobile", false));
         assertFalse(NotifyRules.isAllowed("com.whatsapp", false));
         assertFalse(NotifyRules.isAllowed("br.financas.app", false));
         // So o pacote exato: nada de prefixo.

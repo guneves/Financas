@@ -65,5 +65,6 @@
         <package android:name="br.com.bb.android" />
         <package android:name="br.com.bb.oewallet" />
         <package android:name="com.btg.pactual.banking" />
+        <package android:name="com.btg.pactual.digital.mobile" />
     </queries>
 </manifest>

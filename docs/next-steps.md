@@ -85,7 +85,9 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   FinancasNotify` names the package it came from.
 - [ ] **A week of capture, then export** (owner). Capture on in the real app; about a week of
   real use covering Samsung Pay on each card (Itaú, BB, BTG), a debit purchase, Pix sent and
-  received, an estorno, and a declined purchase if one happens. Then "Exportar JSON" and bring
+  received, an estorno, and a declined purchase if one happens — and, since BTG Investimentos
+  joined the list (the next APK CI publishes), a buy and a sell on the brokerage plus a transfer from BTG Banking
+  into it. Then "Exportar JSON" and bring
   the file to the next session. Battery: if the counts stop between purchases, set the app's
   battery use to "Sem restrições" (the screen shows when Android last disconnected the listener).
 - [ ] Phase 6 steps 4–6, written against that export: one parser per app (Samsung Wallet
@@ -97,6 +99,15 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   `client_id` can keep posted time in it.
 - [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
   `.debug` package; left alone because another session owns that file.
+- [ ] Brokerage operations from notifications (owner, 2026-10-17; plan in
+  `mobile-docs/steps-to-production.md`, "Brokerage notifications" and Phase 7 step 7): a BTG
+  Investimentos detection becomes a "Registrar operação" suggestion cash linked to the brokerage
+  account; `POST /api/investments` needs a `client_id` first. The owner needs a BRL account for
+  the brokerage in Ajustes › Contas.
+- [ ] Owner's call — "every transaction automatically set up" (2026-10-17) against the standing
+  decision "Always confirm: nothing is recorded on its own" (steps-to-production, decisions
+  table). Kept as confirm until the owner says otherwise; one tap on Confirmar in the app's own
+  notification records it with the app closed.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
 
 ### Investments separate from banking — what is left

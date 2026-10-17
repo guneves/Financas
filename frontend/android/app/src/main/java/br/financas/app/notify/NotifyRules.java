@@ -51,14 +51,15 @@ public final class NotifyRules {
         }
     }
 
-    /** Na ordem da tela. O BTG de investimentos (com.btg.pactual.digital.mobile) fica de fora. */
+    /** Na ordem da tela. O BTG de investimentos entra para as operacoes da corretora (Fase 6). */
     public static final List<App> APPS = Collections.unmodifiableList(Arrays.asList(
         new App("com.samsung.android.spay", "Samsung Wallet"),
         new App("com.itau", "Itaú"),
         new App("com.itaucard.activity", "Itaú Cartões"),
         new App("br.com.bb.android", "Banco do Brasil"),
         new App("br.com.bb.oewallet", "Ourocard"),
-        new App("com.btg.pactual.banking", "BTG Pactual")
+        new App("com.btg.pactual.banking", "BTG Pactual"),
+        new App("com.btg.pactual.digital.mobile", "BTG Investimentos")
     ));
 
     /** Os extras que o texto da exportacao ja mostra pelo nome (titulo, texto, texto longo). */
