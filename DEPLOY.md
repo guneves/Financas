@@ -198,7 +198,7 @@ APK" drops the downloaded screen at once.
 
 When a push changes `frontend/android/`, `frontend/native-level.txt` or
 `frontend/capacitor.config.json` (or the workflow is run by hand with **apk** ticked), the `apk`
-job runs after `deploy`, in the `android-release` environment (main only):
+job runs alongside build and deploy, after the tests, in the `android-release` environment (main only):
 
 1. builds the screens for the APK (the same content hash as the image's bundle) and `cap sync`;
 2. decodes `ANDROID_KEYSTORE_BASE64` into `$RUNNER_TEMP`, builds `assembleRelease` with

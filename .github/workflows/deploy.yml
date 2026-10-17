@@ -118,8 +118,9 @@ jobs:
   # decode and the delete steps; the secrets reach gradle as environment variables (masked).
   # The certificate is checked against mobile/release-cert-sha256.txt, the key on the phone:
   # an APK signed with another key would not install over it. Never published to GitHub.
+  # It runs alongside build/deploy (gradle outlasts the deploy, so the APK lands after it).
   apk:
-    needs: [test, deploy]
+    needs: test
     if: needs.test.outputs.native == 'true'
     runs-on: ubuntu-latest
     environment: android-release
@@ -178,9 +179,14 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/release-key"
       - name: Check the signing certificate
         run: |
-          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -1)"
-          digest="$("$apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          set -o pipefail
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          apksigner="$(ls -1 "$sdk"/build-tools/*/apksigner | sort -V | tail -1)"
+          echo "Using $apksigner"
+          certs="$("$apksigner" verify --print-certs "$APK")"
+          digest="$(printf '%s\n' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
           expected="$(tr -d ' \r\n' < mobile/release-cert-sha256.txt)"
+          printf '%s\n' "$certs" | grep -i "^Signer" || true
           echo "Certificate SHA-256: $digest"
           if [ "$digest" != "$expected" ]; then
             echo "::error::The APK is not signed with the phone's key (expected $expected)."
