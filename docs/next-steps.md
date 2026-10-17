@@ -48,14 +48,11 @@ on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/d
   so an item corrected or discarded during that one request can be overwritten, removed or
   brought back. The native sender compares versions first (`OutboxStore.removeIfUnchanged`); do
   the same on the web side, with a rule test. A small window, found by `finance-guard` on 2026-10-16.
-- [ ] **Self-update, the phone check — bundle and CI APK** (built 2026-10-17; DEPLOY.md, "Updating
-  the phone"). One-time: the server's `tailscale serve --set-path /apk` (DEPLOY.md), then the first
-  CI APK installed over the old app (USB `adb install -r`, which also proves the CI key is the
-  phone's). Then: a screen-only push reaches the phone by "Verificar atualizações" → "Reiniciar
-  agora" with no reinstall; a lançamento queued offline before the switch is sent after it; a
-  native push (level bump) shows "Nova versão disponível", installs over the app, data kept.
-  Not tested anywhere yet: the 30 s fallback with a broken bundle (would need a deliberately
-  broken push — only if the owner wants it proven).
+- [ ] **Self-update, what the phone check left out** (the basic paths passed on 2026-10-17, see
+  `docs/done-tasks.md`): a lançamento queued offline before a screen switch is sent after it; a
+  push that bumps `native-level.txt` shows the banner as *required* and the old screens are kept
+  until the APK is installed; the 30 s fallback with a broken bundle (needs a deliberately broken
+  push — only if the owner wants it proven).
 - [ ] Owner look at Phase 4 on the PC. Its "done when" passed in a scripted desktop browser on a
   scratch database (2026-10-13, see `docs/done-tasks.md`); nobody has yet judged the screens by
   eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the

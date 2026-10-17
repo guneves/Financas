@@ -7,66 +7,46 @@
 
 ---
 
-## Session — 2026-10-17 · The APK's screens update themselves from the server
+## Session — 2026-10-17 · Health check; self-update proven on the phone
 
-The owner was given three ways for the phone to update itself and went ahead with the first: the
-app downloads its own screen bundle from the server, and keeps the APK's copy as the fallback.
-**Production is the home server**: `https://guilhermeserver.tail5084ff.ts.net`.
+A quick health check of server, pipeline, phone updates and PC, then the owner's phone test of
+both self-update paths. **Production is the home server**: `https://guilhermeserver.tail5084ff.ts.net`.
 
 ### What was done
-- **Server**: the image builds the frontend a second time for the APK (`frontend/dist-android`,
-  `ARG APP_API_BASE`) and stamps `bundle.json` with `frontend/scripts/bundle-manifest.mjs` (version
-  = content hash, `native_level` from `frontend/native-level.txt`, `api_base`).
-  `GET /api/app-bundle` (manifest + zip sha256/size/url) and `GET /api/app-bundle/<version>.zip`,
-  both public like `/` (`services/app_bundle.py`, `routes/app_bundle.py`, 13 tests).
-- **Phone**: native plugin `AppBundle` (`android/.../bundle/`: `BundleRules` pure + 15 JVM tests,
-  `BundleStore`, `BundlePlugin`). Downloads, checks size + SHA-256, unzips safely, stages; the next
-  cold start opens it on trial through Capacitor's own `serverBasePath`. No `ready()` in 30 s, or
-  two kills before it → back to the APK's screens, version never downloaded again. A new APK
-  wipes downloaded bundles. `BuildConfig.NATIVE_LEVEL` from `native-level.txt`.
-- **Screen**: `lib/appBundle.js` (ready after the first render via `AppStarted` in `main.jsx`;
-  checks at start and on resume at most every 30 min; switches on resume after 30 min away when
-  no sheet is open), rules in `lib/appBundleRules.js` (4 node tests). Ajustes › **Versão do app**,
-  APK only: APK version, native level, screen version, "Procurar atualização", "Usar a versão nova
-  agora", "Voltar à versão do APK". That also closes Phase 9 step 4 (version in Ajustes).
-- `build-apk.ps1` stamps the APK's own `bundle.json`. Docs: plan section "The screens update
-  themselves", CLAUDE.md convention (when to bump the native level), DEPLOY.md, next-steps,
-  done-tasks.
-- Checked: 1002 backend tests, 33 node tests, JVM tests, `vite build`; a local Docker image
-  served the manifest and a zip whose SHA-256 matched; a Windows build and the Linux image give the
-  same version (`51714bc…`).
+- Health check: container healthy, `/api/health` 200, DB has the data (3 users, 563 operações),
+  clean logs, running image = main, bundle manifest reachable, `android-release` has its 4 secrets.
+- **Fixed the CI `apk` job** (`eda8d75`): it failed on every run with an empty certificate digest.
+  The runner's build-tools 37 `apksigner` prints `V2 Signer: certificate SHA-256 digest: …`, not
+  `Signer #1 …`; the check now greps either format and prints the full output. The key was fine.
+- Installed the first CI APK (10009) over the phone's USB build (208) with `adb install -r`, after
+  checking both carry certificate `5e0770ac…`. Data kept.
+- Phone test, done by the owner, both passed: a screen-only push (`79d111c`, a text change in
+  Ajustes › Versão; bundle `adaeed3`) arrived by "Verificar atualizações" → "Reiniciar agora";
+  APK 10011 (dispatched with **apk** ticked) was offered as "Nova versão disponível" and installed
+  from the app.
+- `.claude/agents/app-bug-hunter.md` deleted at the owner's request (it was never committed).
+- 1002 backend tests, 36 node tests.
 
 ### What was not done and why
-- **Nothing has run on the phone yet.** The installed APK predates this, so it needs one last
-  USB install (`.\mobile\build-apk.ps1` from a clean tree). Until main is pushed and deployed the
-  server answers 404 to `/api/app-bundle` and the app says "O servidor não oferece atualização".
-- The 30 s fallback has not been exercised with a really broken bundle (would need a deliberately
-  broken deploy).
-- **No pre-commit audit.** `finance-guard` was started on this change and stopped before it
-  reported, at the owner's request, and the owner then had the agent removed from the project
-  (`.claude/agents/finance-guard.md` deleted, its routine taken out of CLAUDE.md). The change
-  touches no financial table or rule; the two new endpoints are public on purpose.
-- Option 2 (CI-built APK offered in the app) not built; in next-steps as "only if native changes
-  become frequent".
-- Nothing enforces the native-level bump: it is a rule in CLAUDE.md.
-- `.claude/agents/app-bug-hunter.md` is still untracked and not this session's; left alone. It still
-  mentions `finance-guard` in one line.
+- The rest of the self-update check (offline queue across a switch, a native-level bump, the 30 s
+  fallback) — not asked for today; in next-steps.
 
 ### Next session
-1. The phone check of the self-update (steps in next-steps, Mobile section).
-2. After 2026-10-19, check the first workflow run on Ubuntu 26 is green.
-3. Mobile Phase 5's last phone checks (app swiped away + offline), against the server.
+1. After 2026-10-19, check the first workflow run on Ubuntu 26 is green.
+2. Mobile Phase 5's last phone checks (app swiped away + offline), against the server.
+3. The remaining self-update cases, if the owner wants them.
 4. The rclone backup, if the owner wants help with it.
 
 ### Carried from earlier sessions (still open)
 - Walk-through of Extrato → Investimentos and Proventos → Atualizar, now on the server.
+- Nothing enforces the native-level bump: it is a rule in CLAUDE.md.
 
 ### Learned
-- Capacitor 8's `Bridge` reads `CapWebViewSettings`/`serverBasePath` in `loadWebView()`, *after*
-  `registerAllPlugins()` has run every plugin's `load()` — so a plugin can choose the folder for
-  the same start. It clears that path itself when versionCode/versionName change (`isNewBinary`).
-- `pytest`'s own `tmp_path` is not accessible on this PC (`pytest-of-User` access denied); make
-  temp dirs next to the test database, as `test_frontend_serving.py` does.
+- The APK published by a dispatch already contains the newest screens, so test a screen-only
+  update *before* installing a new APK, or the APK hides it.
+- A workflow-only push skips the `apk` job; use `gh workflow run deploy.yml -f apk=true`.
 - `pytest -q` here prints no summary line; `-o addopts=""` brings back "N passed".
-- `sudo` on the server covers only `/usr/bin/docker` passwordless, so a reboot (or anything else)
-  needs the owner's password in an interactive `ssh -t`.
+- `pytest`'s own `tmp_path` is not accessible on this PC; make temp dirs next to the test database.
+- `sudo` on the server covers only `/usr/bin/docker` passwordless.
+- Capacitor 8 reads `serverBasePath` in `loadWebView()`, after every plugin's `load()`, and clears
+  it itself when versionCode/versionName change.
