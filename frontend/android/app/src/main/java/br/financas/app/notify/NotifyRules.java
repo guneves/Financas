@@ -30,7 +30,7 @@ import java.util.TreeMap;
  * - a exportacao da captura, em JSON ou texto. E o unico caminho por onde um texto sai do aparelho.
  *
  * O Samsung Wallet voltou (dono, 2026-10-17): vale quando o banco nao notifica a compra no
- * cartao; quando os dois notificam, a do banco e a que fica (Fase 6, passo 4). Itaú Cartões e
+ * cartao; quando os dois notificam, a do banco e a que fica (NotifyPairing). Itaú Cartões e
  * Ourocard seguem de fora: repetiriam as compras que o app do banco ja notifica.
  */
 public final class NotifyRules {
