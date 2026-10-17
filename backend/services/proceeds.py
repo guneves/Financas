@@ -92,11 +92,12 @@ def accumulate_position(rows):
         movement_type = item.get("movement_type")
         movement_quantity = safe_float(item.get("quantity"))
         unit_price = safe_float(item.get("unit_price"))
-        fee_amount = max(safe_float(item.get("fee_amount")), 0)
 
         if movement_type in {"BUY", "ADJUSTMENT"} and movement_quantity > 0:
             quantity += movement_quantity
-            cost_basis += (movement_quantity * unit_price) + fee_amount
+            # O preco da compra ja traz os custos dela (a tela soma os custos no
+            # preco); somar `fee_amount` de novo contava a corretagem duas vezes.
+            cost_basis += movement_quantity * unit_price
             continue
 
         if movement_type in {"SELL", "REDEMPTION"} or movement_quantity < 0:

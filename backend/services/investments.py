@@ -14,8 +14,9 @@ ou resgate sem compra que a cubra.
 
 Moeda (018): um ativo em moeda estrangeira guarda quantidade, precos e
 cotacoes na moeda dele, e cada operacao o cambio da data em
-`metadata.fx_rate`. `fetch_investments()` — o fluxo que FIFO, carteira e
-evolucao leem — entrega tudo convertido para reais: custo pelo cambio de cada
+`metadata.fx_rate`. `fetch_investments()` — o fluxo que o resultado realizado,
+a carteira e a evolucao leem — entrega tudo convertido para reais (e com o
+custo medio de cada venda, `apply_average_cost()`): custo pelo cambio de cada
 compra, valor atual pelo cambio de hoje (a regra do IR para ativo no
 exterior). O caixa ligado tambem sai em reais. As telas de operacao leem
 `fetch_investment_rows()`, na moeda original.
@@ -451,6 +452,52 @@ def investments_in_brl(conn, current_user_id, investments):
     return converted
 
 
+def apply_average_cost(investments):
+    """Custo medio ponderado, a regra da Receita para acoes, FIIs, ETFs e BDRs
+    (Lei 8.981/1995, art. 72, par. 2o; IN RFB 1.585/2015, art. 58).
+
+    Anota cada operacao (a lista e alterada e devolvida, na mesma ordem):
+
+    - `cost_amount`: quanto o custo da posicao muda. Compra: + quantidade x
+      preco (o preco da compra ja traz os custos dela). Venda: - quantidade x o
+      custo medio daquele momento — vender nao muda o custo medio do que fica;
+    - `average_cost`: na venda, esse custo medio por cota.
+
+    O preco gravado na linha da venda (o que a tela ou a API mandou: o preco
+    medio da hora ou o proprio preco de venda) nao entra na conta. Assim a
+    Posicao, a evolucao, o resultado realizado e Bens e Direitos partem do mesmo
+    custo, e editar uma compra antiga corrige as vendas seguintes.
+
+    Renda fixa segue por titulo: `cost_amount` e quantidade x preco, como gravado.
+    """
+    state = {}
+    for investment in sorted(investments, key=movement_sort_key):
+        quantity = safe_float(investment.get("quantity"))
+        unit_price = safe_float(investment.get("average_price"))
+        if investment.get("asset_class") == "FIXED_INCOME" or not investment.get("asset_id"):
+            investment["cost_amount"] = quantity * unit_price
+            continue
+        position = state.setdefault(str(investment["asset_id"]), {"quantity": 0.0, "cost": 0.0})
+        if quantity > 0:
+            position["quantity"] += quantity
+            position["cost"] += quantity * unit_price
+            investment["cost_amount"] = quantity * unit_price
+            continue
+        sold = abs(quantity)
+        held = position["quantity"]
+        # Venda sem compra antes (nao deveria existir: a validacao recusa) fica
+        # com o preco gravado na propria linha.
+        average = position["cost"] / held if held > 0.000001 else unit_price
+        investment["average_cost"] = average
+        investment["cost_amount"] = -sold * average
+        position["quantity"] = held - sold
+        position["cost"] -= sold * average
+        if position["quantity"] <= 0.000001:
+            position["quantity"] = 0.0
+            position["cost"] = 0.0
+    return investments
+
+
 def fetch_investment_rows(conn, current_user_id, *, investment_id=None, order_by="it.created_at", direction="ASC"):
     query = """
         SELECT
@@ -600,16 +647,22 @@ def fetch_investment_rows(conn, current_user_id, *, investment_id=None, order_by
 
 
 def fetch_investments(current_user_id, investment_id=None):
-    """As operacoes em reais (ver o topo do modulo): o que os calculos leem."""
+    """As operacoes em reais (ver o topo do modulo), com o custo medio de cada
+    venda (`apply_average_cost`): o que os calculos leem. O custo depende de
+    todas as operacoes do ativo, entao uma so (`investment_id`) sai da lista inteira."""
     with get_db() as conn:
         rows = fetch_investment_rows(
             conn,
             current_user_id,
-            investment_id=investment_id,
             order_by="it.created_at",
             direction="ASC",
         )
-        return investments_in_brl(conn, current_user_id, [serialize_investment(row) for row in rows])
+        investments = apply_average_cost(
+            investments_in_brl(conn, current_user_id, [serialize_investment(row) for row in rows])
+        )
+    if investment_id:
+        return [item for item in investments if str(item.get("id")) == str(investment_id)]
+    return investments
 
 
 def fetch_position_quantity(conn, current_user_id, asset_class, ticker, exclude_id=None):

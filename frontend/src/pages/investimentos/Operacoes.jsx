@@ -293,8 +293,8 @@ export default function Operacoes() {
               hint: 'Antes do IR',
               tone: realizedSummary.realizedProfit >= 0 ? 'gain' : 'loss',
             },
-            { label: 'IR estimado', value: formatCurrency(realizedSummary.taxAmount), hint: 'Estimativa sobre as vendas' },
-            { label: 'Base de custo vendida', value: formatCurrency(realizedSummary.costBasis), hint: 'FIFO e lotes resgatados' },
+            { label: 'IR estimado', value: formatCurrency(realizedSummary.taxAmount), hint: 'Parte de cada venda no IR do mês, e o retido na renda fixa' },
+            { label: 'Base de custo vendida', value: formatCurrency(realizedSummary.costBasis), hint: 'Custo médio e títulos resgatados' },
           ]}
         />
       ) : null}
@@ -411,12 +411,16 @@ export default function Operacoes() {
               </Field>
             )}
 
-            <Field label={editModal.is_redemption ? 'Base de custo resgatada (R$)' : editModal.asset_class === 'FIXED_INCOME' ? 'Valor aplicado (R$)' : 'Preço médio/base de custo (R$)'}>
-              <input type="number" step="0.01" value={editModal.average_price} onChange={(e) => setEditField('average_price', e.target.value)} className="app-input" required />
-            </Field>
+            {/* Na venda o custo e o preco medio da posicao na data, calculado pelo
+                servidor (custo medio ponderado): nao ha o que editar. */}
+            {!editModal.is_sale && (
+              <Field label={editModal.is_redemption ? 'Base de custo resgatada (R$)' : editModal.asset_class === 'FIXED_INCOME' ? 'Valor aplicado (R$)' : 'Preço médio/base de custo (R$)'}>
+                <input type="number" step="0.01" value={editModal.average_price} onChange={(e) => setEditField('average_price', e.target.value)} className="app-input" required />
+              </Field>
+            )}
 
             {editModal.is_sale && (
-              <Field label="Preço de venda (R$)">
+              <Field label="Preço de venda (R$)" hint="O custo da venda é o preço médio da posição na data, calculado pelo app.">
                 <input type="number" step="0.01" value={editModal.sale_price} onChange={(e) => setEditField('sale_price', e.target.value)} className="app-input" required />
               </Field>
             )}
@@ -465,14 +469,17 @@ function profitClass(value) {
 }
 
 const COST_METHOD_LABELS = {
+  AVERAGE: 'custo médio',
   FIFO: 'FIFO',
-  LOT_REDEMPTION: 'resgate do lote',
+  LOT_REDEMPTION: 'resgate do título',
 }
 
-// "−11,90% · FIFO, 3 lotes"
+// "−11,90% · custo médio"
 function realizedDetail(mov, info) {
-  const method = COST_METHOD_LABELS[info.realizedMetadata.cost_method] || info.realizedMetadata.cost_method || 'FIFO'
-  const lots = info.allocationCount ? `, ${info.allocationCount} lote${info.allocationCount > 1 ? 's' : ''}` : ''
+  const costMethod = info.realizedMetadata.cost_method
+  const method = COST_METHOD_LABELS[costMethod] || costMethod || 'custo médio'
+  // Lotes so existiam no FIFO (resultado gravado antes do custo medio).
+  const lots = costMethod === 'FIFO' && info.allocationCount ? `, ${info.allocationCount} lote${info.allocationCount > 1 ? 's' : ''}` : ''
   return `${formatPercent(mov.realized_profitability_percent, 2, { signed: true })} · ${method}${lots}`
 }
 
