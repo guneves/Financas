@@ -11,11 +11,17 @@
 
 ### Home server — what is left
 The server is the only backend since 2026-10-16 (`DEPLOY.md`; see `docs/done-tasks.md`). Open:
-- [ ] Copy backups off the server on a schedule: today they share the volume's disk.
+- [ ] **Daily encrypted cloud backup of the database** (the owner will do it). Today the backups
+  share the volume's disk. Plan: `rclone` on the server with a `gdrive` remote and a `crypt`
+  remote over it; a systemd timer runs once a day, copies a fresh snapshot of `finance.db` (and
+  `attachments/`) out of the `financas_data` volume through a throwaway container, and uploads it
+  to the crypt remote; keep 30 days (`rclone delete --min-age 30d`). Done only after a **tested
+  restore**: download, decrypt, open with SQLite, `pragma integrity_check`, compare table counts.
 - [ ] Delete the PC's old `backend\finance.db*` once the owner is sure; the copy is in
   `Documents\Financas-backup-pc-20261016\`. The PC's `backend\backups\` (15 files) was left as is.
-- [ ] `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19: check the first run after it is green
-  (`setup-python` 3.14 and `setup-node` 24 on the new image).
+- [ ] `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19: check that the first workflow run on
+  Ubuntu 26 after that date is green (test, build, deploy; `setup-python` 3.14 and `setup-node` 24
+  on the new image).
 
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
@@ -107,8 +113,6 @@ banking-only. The database was reset the same day, so the app starts empty. Open
   Tudo/Operações/Proventos), and Investimentos → Proventos → "Atualizar". Register a buy with a
   date last year on a stock that paid since, and check its proventos appear within a few seconds;
   delete it and check they go. Tested in pytest and node only; not opened in a browser.
-- [ ] **Restart `:5000`** — the running process predates migration 026 and the sync route, so the
-  screens cannot call it until then (the 279 rows are already in `finance.db`).
 - [ ] The sync only runs while the app is open (screen open or an investment write). A provento
   announced while nobody opens Investimentos lands the next time someone does. A daily job would
   need a scheduler the app does not have.
@@ -124,15 +128,13 @@ banking-only. The database was reset the same day, so the app starts empty. Open
   expected for these.
 
 ### Plano do mês (2026-10-16) — owner checks
-- [ ] Restart `:5000` (it predates migration 025, so the Orçamento panel errors until then), then
-  rebuild the APK with `mobile/build-apk.ps1`. Set a plan on the phone, type a comma amount, and
-  confirm the flags make sense against a real month.
+- [ ] Set a plan on the phone, type a comma amount, and confirm the flags make sense against a
+  real month.
 - [ ] Decide whether Início should show a one-line plan strip (spent / invested vs plan).
 
 ### Owner walk-through on real data
 Everything below was built and clicked through on a seeded scratch database (Chrome + Playwright,
-2026-09-23); none of it has been used on the owner's real data yet. Restart the backend first: the
-running `:5000` process predates migrations 015–018 and the brapi fix. What each item does is in
+2026-09-23); none of it has been used on the owner's real data yet. What each item does is in
 `docs/done-tasks.md`.
 - [ ] Signup with a username (typed in the browser — Claude only checked it through the API), then
   Ajustes → Perfil.

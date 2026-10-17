@@ -249,7 +249,8 @@ Two things the phone taught:
 6. `mobile/new-keystore.ps1` creates `%USERPROFILE%\.financas-android\financas-release.jks`
    (PKCS12, RSA 4096, 100 years) and `keystore.properties` with a generated password. It refuses
    to run if a key already exists. Gradle reads the properties file (or
-   `FINANCAS_KEYSTORE_PROPERTIES`). The folder must be backed up.
+   `FINANCAS_KEYSTORE_PROPERTIES`). The folder must be backed up — it was, off the PC, by the owner
+   (confirmed 2026-10-16).
 7. `mobile/build-apk.ps1` runs the web build, `cap sync`, the JVM tests and `assembleRelease`
    with the version (commit count; date + commit, plus `-dirty`), then `apksigner verify` and
    `adb install -r` on the single connected device. It never uninstalls: on a signature mismatch

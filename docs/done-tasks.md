@@ -106,6 +106,7 @@
 | Automatic proventos (026): position on each data com × StatusInvest's value per share, idempotent sync (`POST /api/investment-proceeds/sync`), edits locked and deletions remembered; JCP tax 15% → 17.5% from 2026 data com; Extrato gets a Contas / Investimentos selector with a read-only operações + proventos statement. 279 proventos written for `wgrrodrigues6@gmail.com`, reconciled with Investidor10 | 2026-10-16 |
 | Docker deploy to the home server: `Dockerfile`, `compose.yaml` (GHCR image, localhost port, `financas_data` volume), GitHub Actions workflow (tests → GHCR → Tailscale SSH → compose pull/up), `deploy.ps1` (manual deploy, rollback by SHA, create-only), `DEPLOY.md`. Verified locally; not yet deployed (see next-steps) | 2026-10-16 |
 | Home server live: owner's setup checked (tags, serve, sudoers, GHCR login, `.env`), first workflow run green, PC data imported (WAL-folded snapshot; all 26 table counts match), APK rebuilt against `guilhermeserver.tail5084ff.ts.net` and installed, GHCR package confirmed private, actions bumped to Node 24 versions (run green, no Node 20 warnings). PC retired as backend: `start.ps1` needs `-Local`, PC `tailscale serve` reset, old DB copied to `Documents\Financas-backup-pc-20261016\` | 2026-10-16 |
+| Final setup check, all green; `origin` switched to HTTPS with `gh auth setup-git` (fetch and push work); reboot test passed (container healthy and `tailscale serve` back without help, app answering ~1 min after boot); APK signing key confirmed backed up off the PC by the owner | 2026-10-16 |
 
 ---
 

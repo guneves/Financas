@@ -7,53 +7,50 @@
 
 ---
 
-## Session — 2026-10-16 (ninth) · Home server live, PC retired as backend
+## Session — 2026-10-16 (tenth) · Final setup check, HTTPS remote, reboot test
 
-The owner did the setup steps from `DEPLOY.md` and asked to check it, finish the move and retire
-the PC. **The home server is now the only backend**: `https://guilhermeserver.tail5084ff.ts.net`.
+The owner asked for a read-only check of the whole setup, then for a few follow-ups.
+**Production is the home server**: `https://guilhermeserver.tail5084ff.ts.net`.
 
 ### What was done
-- **Setup checked, read-only**: server tagged `tag:server`, `tailscale serve` HTTPS → 8101, sudoers
-  rule, GHCR login (proved by a pull; `/root` is unreadable with the docker-only sudo), `.env` has
-  every name in `.env.example`, docker and tailscaled enabled at boot, secrets present.
-- **First workflow run** (11b1b63) green end to end: tests, GHCR push, Tailscale SSH deploy.
-- **Data imported.** The server had an empty DB (0 users). The PC had a 4 MB leftover `-wal`, so
-  a single-file snapshot was made with SQLite's backup API from a read-only connection
-  (integrity ok), copied, and imported as in DEPLOY.md. All 26 table counts match the PC (3 users,
-  563 operations, 279 proventos, 5 lançamentos). No receipts exist, so no attachment to check.
-- **APK** rebuilt against the server (`2026.10.16-11b1b63`, code 208) and installed; the owner
-  confirmed the server version works.
-- **GHCR package is private**: an anonymous token gets 404 on the manifest.
-- **Actions bumped** to Node 24 versions (checkout/setup-python/setup-node v7, setup-buildx v4,
-  login v4, build-push v7, tailscale v4; all inputs checked against each `action.yml`). Run
-  38995281549 green with no Node 20 warnings; counts unchanged after the redeploy.
-- **PC retired**: `tailscale serve reset` (it served `financas.tail5084ff.ts.net` → :5000);
-  `start.ps1` refuses to start without `-Local` (`-Tests` unaffected); CLAUDE.md, README and
-  DEPLOY.md say so. Old `finance.db` + `-wal`/`-shm` copied (hash-checked) to
-  `C:\Users\User\Documents\Financas-backup-pc-20261016\`, plus `finance-imported-to-server.db`.
-  Originals not deleted. Nothing autostarts the PC backend (no task, startup entry or Run key).
+- **Setup check, read-only, all green**: container healthy with `restart: unless-stopped`;
+  `/api/health` 200 over HTTPS; data counts match the import (3 users, 563 operations,
+  279 proventos, 5 lançamentos; integrity ok); docker, containerd and tailscaled enabled; serve
+  config 443 → `127.0.0.1:8101`; lid switch `ignore`, sleep/suspend/hibernate/hybrid-sleep
+  masked; disk 1% used; no errors in the logs; latest run (38995965415) green with no Node 20
+  warnings; running image's `org.opencontainers.image.revision` = main's SHA; GHCR private
+  (anonymous 404); nothing on the PC runs or autostarts the old backend; PC serve reset; PC DB
+  backup present.
+- **`origin` is HTTPS now** (`https://github.com/guneves/Financas.git`) with `gh auth setup-git`
+  as the credential helper, so a plain `git fetch` / `git push` works. No SSH, no ssh-agent.
+- **Reboot test passed**: the owner ran `sudo reboot`; about 40 s after boot the container was up
+  with restart count 0, `tailscale serve` was back, and `/api/health` answered 200 once the
+  healthcheck passed (a 502 for the first few seconds while gunicorn boots is normal).
+- **Docs**: stale "restart `:5000`" / "rebuild the APK" items removed from `next-steps.md` (the
+  server runs the latest code); the daily encrypted rclone backup and the Ubuntu 26 run check
+  written as open items; the APK signing key marked as backed up off the PC
+  (`mobile-docs/steps-to-production.md`, owner confirmed).
+
 ### What was not done and why
-- **Git over SSH: the owner chose not to use it.** `origin` is SSH, and `~/.ssh/id_ed25519` (with a
-  passphrase) is the key on github.com/guneves, but the Windows `ssh-agent` service is disabled,
-  so pushes over SSH fail. Push over HTTPS with gh's login: `git -c credential.helper= -c
-  'credential.helper=!gh auth git-credential' push https://github.com/guneves/Financas.git main`.
-- Old PC DB not deleted (owner asked to keep it); `backend\backups\` on the PC left as is.
-- Backups still live only on the server's volume disk.
-- `finance-guard` not run: no backend code changed (workflow, a PowerShell script, docs).
+- **Off-server backup**: the owner will set up rclone (gdrive + crypt, systemd timer, 30 days,
+  tested restore) themselves; the plan is in `next-steps.md`.
+- Old PC `finance.db*` not deleted (owner keeps it for now).
+- `finance-guard` not run: docs and git config only, no backend code.
+- `.claude/agents/app-bug-hunter.md` was untracked in the tree when this session started and is not
+  this session's; left uncommitted.
 
 ### Next session
-1. Off-server backup copy on a schedule (`next-steps.md`, Home server).
-2. Mobile Phase 5's last phone checks (app swiped away + offline), now against the server.
-3. After 2026-10-19, check the first run on Ubuntu 26.
+1. After 2026-10-19, check the first workflow run on Ubuntu 26 is green.
+2. Mobile Phase 5's last phone checks (app swiped away + offline), against the server.
+3. The rclone backup, if the owner wants help with it.
 
 ### Carried from earlier sessions (still open)
 - Walk-through of Extrato → Investimentos and Proventos → Atualizar, now on the server.
-- Back up `%USERPROFILE%\.financas-android` (the APK signing key) off this PC.
 
 ### Learned
-- `adb` showed "unauthorized" with no prompt on the phone; `adb kill-server` + start brought the
-  dialog back.
-- The `gh` token has `workflow` scope, so an HTTPS push via `gh auth git-credential` can change
-  workflow files; it lacks `read:packages`, so package visibility is checked anonymously instead.
-- With `sudo` limited to `/usr/bin/docker`, read root-only files or the volume through a throwaway
-  container (`docker run --rm -v financas_data:/data:ro ...`).
+- `sudo` on the server covers only `/usr/bin/docker` passwordless, so a reboot (or anything else)
+  needs the owner's password in an interactive `ssh -t`.
+- With `sudo` limited to docker, read root-only files or the volume through a throwaway container
+  (`docker run --rm -v financas_data:/data:ro ...`).
+- The `gh` token has `workflow` scope (pushes may touch workflow files) but no `read:packages`, so
+  GHCR visibility is checked anonymously.
