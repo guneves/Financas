@@ -21,6 +21,7 @@ from services.fixed_income import (
     fixed_income_title_closed,
     movement_affects_fixed_income_position,
 )
+from services import market_listing
 from services.investments import fetch_investments
 from services.prices import (
     get_market_prices_with_status,
@@ -34,6 +35,16 @@ from validators import safe_float
 from applog import get_logger
 
 logger = get_logger(__name__)
+
+def asset_market_kind(asset_class, ticker):
+    """ACAO, ETF, BDR ou FII de um ativo cotado; None nas demais classes.
+
+    A classe STOCKS junta acao, ETF e BDR; a tela de posicao separa um do outro.
+    E o tipo do IR (`market_listing.tax_kind`), com o ETF de renda fixa
+    mostrado junto dos ETFs.
+    """
+    kind = market_listing.tax_kind(ticker, asset_class)
+    return "ETF" if kind == "ETF_RF" else kind
 
 
 def investment_movement_date(investment):
@@ -566,6 +577,7 @@ def build_portfolio_snapshot(current_user_id):
             "ticker": data["original_ticker"],
             "name": data["original_ticker"],
             "class": data["class"],
+            "market_kind": asset_market_kind(data["class"], data["original_ticker"]),
             "quantity": round(data["total_quantity"], 4),
             "average_price": rounded_money(avg_price_calculated),
             "current_price": rounded_money(display_price),

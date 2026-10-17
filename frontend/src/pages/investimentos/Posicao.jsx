@@ -40,25 +40,39 @@ const POSITION_TABS = [
   { value: 'FIXA', label: 'Renda fixa', icon: Landmark },
 ]
 
-const VARIABLE_CLASS_ORDER = ['STOCKS', 'REIT', 'OTHER']
+// A classe STOCKS junta acao, ETF e BDR; a tela separa pelo tipo do papel
+// (`market_kind`, do catalogo da B3). FII e Outros seguem a classe.
+const VARIABLE_GROUP_ORDER = ['ACAO', 'ETF', 'BDR', 'FII', 'OTHER']
+const VARIABLE_GROUP_LABELS = {
+  ACAO: 'Ações',
+  ETF: 'ETFs',
+  BDR: 'BDRs',
+  FII: 'Fundos Imobiliários',
+}
+
+function variableGroupKey(asset) {
+  if (asset.class === 'STOCKS') return asset.market_kind || 'ACAO'
+  if (asset.class === 'REIT') return 'FII'
+  return asset.class
+}
 const FIXED_INCOME_TYPE_ORDER = FIXED_INCOME_TYPES.map((type) => type.value)
 const NO_FIXED_INCOME_TYPE = 'SEM_TIPO'
 
-// Subdivide a aba: renda variavel por classe (Acoes, FIIs...), renda fixa pelo
+// Subdivide a aba: renda variavel por tipo (Acoes, ETFs, BDRs, FIIs...), renda fixa pelo
 // tipo do titulo (CDB, LCI...). Aporte antigo sem tipo cai em "Sem tipo", no fim.
 function groupAssets(assets, activeTab) {
   const isFixedTab = activeTab === 'FIXA'
-  const order = isFixedTab ? FIXED_INCOME_TYPE_ORDER : VARIABLE_CLASS_ORDER
+  const order = isFixedTab ? FIXED_INCOME_TYPE_ORDER : VARIABLE_GROUP_ORDER
   const groups = new Map()
 
   assets.forEach((asset) => {
     const key = isFixedTab
       ? (asset.metadata?.fixed_income_type || NO_FIXED_INCOME_TYPE)
-      : asset.class
+      : variableGroupKey(asset)
     if (!groups.has(key)) {
       const label = isFixedTab
         ? (FIXED_INCOME_TYPES.find((type) => type.value === key)?.label || (key === NO_FIXED_INCOME_TYPE ? 'Sem tipo' : key))
-        : getClassLabel(key)
+        : (VARIABLE_GROUP_LABELS[key] || getClassLabel(key))
       groups.set(key, { key, label, assets: [], total: 0 })
     }
     const group = groups.get(key)

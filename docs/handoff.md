@@ -51,6 +51,12 @@ checked each tax rule against the law (WebSearch only — gov.br and planalto ar
 Tests: backend 1031 (was 1002; `test_fifo.py` became `test_average_cost.py`, new
 `test_variable_income_tax.py`), node 46 (was 45).
 
+### Later, separate request: Posição › Variável split by kind
+Posição's Variável tab groups by kind of paper (Ações, ETFs, BDRs, Fundos Imobiliários, Outros).
+The asset class is unchanged; each position carries `market_kind`, which is the IR's own
+`market_listing.tax_kind()` (fixed-income ETFs shown with the ETFs), so the screen and the tax
+rule can never disagree on what a ticker is. `test_portfolio_market_kind.py`.
+
 ### What was not done and why
 - **The prompt itself** — superseded by the owner's second message (do the check now).
 - **No live check against the owner's data**: it is on the home server, unreachable from here.
