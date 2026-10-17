@@ -414,3 +414,12 @@ def test_cache_with_the_market_closed_holds_until_the_next_open(monkeypatch):
     monday = datetime(2026, 9, 28, 10, 1, tzinfo=brapi_client.BRT)
     brapi_client.get_stock_quotes(["PETR4"], now=monday)
     assert len(calls) == 2
+
+
+def test_the_error_code_stays_in_the_message():
+    # O plano gratuito responde 400 com um codigo; sem ele a mensagem nao diz o que fazer.
+    message = brapi_client._error_message(
+        '{"error": true, "code": "QUOTES_PER_REQUEST_EXCEEDED", "message": "Limite de ativos por requisicao"}'
+    )
+    assert message.startswith("QUOTES_PER_REQUEST_EXCEEDED: ")
+    assert brapi_client._error_message('{"message": "fora do ar"}') == "fora do ar"

@@ -278,7 +278,7 @@ def load_benchmarks(current_user_id, first_month, now=None):
         result["IPCA"] = {"monthly": {}, "source": None, "error": "Tempo limite ao buscar o IPCA no BCB."}
     except Exception as exc:
         logger.warning(f"IPCA indisponivel para a rentabilidade: {exc}")
-        result["IPCA"] = {"monthly": {}, "source": None, "error": "O BCB nao respondeu o IPCA."}
+        result["IPCA"] = {"monthly": {}, "source": None, "error": "O BCB não respondeu o IPCA."}
 
     fresh_sources = refresh_benchmark_closes(current_user_id, since, today) or {}
     with get_db() as conn:
@@ -292,7 +292,7 @@ def load_benchmarks(current_user_id, first_month, now=None):
                 "stored_since": closes[0][0].isoformat() if closes else None,
             }
             if not closes:
-                entry["error"] = f"Sem cotacao do {BENCHMARK_LABELS[benchmark]} nos provedores (yfinance/brapi)."
+                entry["error"] = f"Sem cotação do {BENCHMARK_LABELS[benchmark]} nos provedores (yfinance/brapi)."
             result[benchmark] = entry
 
     for code, label in BENCHMARKS:
@@ -309,12 +309,12 @@ def benchmark_note(code, entry, window_keys, covered_keys):
     missing = [key for key in window_keys if key not in covered_keys]
     if code == "IPCA" and missing and missing == window_keys[-len(missing):]:
         first = datetime.strptime(missing[0], "%Y-%m")
-        return f"IPCA a partir de {month_label(first)} ainda nao divulgado pelo IBGE."
+        return f"IPCA a partir de {month_label(first)} ainda não divulgado pelo IBGE."
     if code in ("IFIX", "IDIV") and entry.get("stored_since"):
         since = date.fromisoformat(entry["stored_since"])
         return (
-            f"Os provedores gratuitos nao tem o historico do {BENCHMARK_LABELS[code]}; "
-            f"o app guarda o fechamento de cada mes desde {since.strftime('%d/%m/%Y')}, "
-            f"entao a comparacao cobre {len(covered_keys)} de {len(window_keys)} meses."
+            f"Os provedores gratuitos não têm o histórico do {BENCHMARK_LABELS[code]}; "
+            f"o app guarda o fechamento de cada mês desde {since.strftime('%d/%m/%Y')}, "
+            f"então a comparação cobre {len(covered_keys)} de {len(window_keys)} meses."
         )
-    return f"Cobre {len(covered_keys)} de {len(window_keys)} meses do periodo."
+    return f"Cobre {len(covered_keys)} de {len(window_keys)} meses do período."

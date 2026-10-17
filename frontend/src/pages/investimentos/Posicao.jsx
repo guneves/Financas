@@ -19,7 +19,7 @@ import {
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
-import { formatCurrency, formatPercent, formatSignedCurrency, getLocalDateString } from '../../lib/format'
+import { formatCurrency, formatPercent, formatQuantity, formatSignedCurrency, getLocalDateString } from '../../lib/format'
 import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import { toast } from '../../lib/toast'
 import PortfolioOverview from './PortfolioOverview'
@@ -634,7 +634,7 @@ function PositionRow({ asset, busy, onSell, isUpdatingThisAsset, ...menuProps })
         <p className="font-semibold text-zinc-950 [overflow-wrap:anywhere]">{asset.name}</p>
         {fixedDescription ? <p className="text-xs text-zinc-500">{fixedDescription}</p> : null}
       </td>
-      <td className="num text-zinc-700">{isFixed ? '—' : hidden ? MASKED_TEXT : asset.quantity}</td>
+      <td className="num text-zinc-700">{isFixed ? '—' : hidden ? MASKED_TEXT : formatQuantity(asset.quantity)}</td>
       <td className="num text-zinc-700">{hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}</td>
       <td className="num"><QuoteValue asset={asset} isUpdatingThisAsset={isUpdatingThisAsset} /></td>
       <td className="num">
@@ -671,7 +671,7 @@ function PositionCard({ asset, busy, onSell, isUpdatingThisAsset, ...menuProps }
         <div className="min-w-0">
           <p className="font-semibold text-zinc-950 [overflow-wrap:anywhere]">{asset.name}</p>
           <p className="truncate text-xs text-zinc-500">
-            {isFixed ? describeFixedIncome(asset.metadata) || getClassLabel(asset.class) : `${hidden ? MASKED_TEXT : asset.quantity} un.`}
+            {isFixed ? describeFixedIncome(asset.metadata) || getClassLabel(asset.class) : `${hidden ? MASKED_TEXT : formatQuantity(asset.quantity)} un.`}
             {` · PM ${hidden && isFixed ? MASKED_CURRENCY : formatCurrency(asset.average_price)}`}
           </p>
         </div>
