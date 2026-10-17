@@ -7,7 +7,7 @@
 
 ---
 
-## Session — 2026-10-17 (late) · BTG Investimentos on the notification list; the portfolio account; proventos into it
+## Session — 2026-10-17 (late) · BTG Investimentos on the notification list; the portfolio account; proventos into it; Corretora balance only in Investimentos
 
 The owner asked how to check the notification gatherer (answered: Ajustes › Notificações dos
 bancos; the phone now has the new APK and capture works), how to make captures change balances
@@ -41,6 +41,18 @@ the brokerage account.
   the balance typed in Ajustes already holds the older ones and StatusInvest brings years of
   history. Locked in the Extrato as "Provento". 8 tests; backend 1050 passed. No screen walk for
   this part (one label and the edit lock in the Extrato).
+
+- **Corretora balance only in Investimentos** (owner: "the reais amount in the corretora type
+  account should be shown only in investimentos area, make sure all past changes work on the phone
+  app as well"). Rules in `lib/transactions.js` (see CLAUDE.md, the portfolio-account convention).
+  Walked at 390 px on a scratch database: Início R$ 4.580 = 5.000 − 300 to the brokerage (shown as
+  Aporte) − 120; Extrato header the same; Posição "Saldo na corretora" R$ 1.100; Ajustes "Em
+  Investimentos"; no console errors. Phone: the APK's screen bundle builds at native level 2 (the
+  phone's APK runs level-2 screens: its Notificações screen works), `test_app_bundle.py` green;
+  nothing native changed except the BTG Investimentos allow-list, which reaches the phone only
+  with the next CI APK. Nothing pushed yet: the owner has not said to push.
+- Decision: rows inside a Corretora account still list in the Extrato's accounts view (only the
+  balance is hidden); the owner may want them moved to Extrato › Investimentos.
 
 ### Not done, and why
 - **No native-level bump**: no screen calls anything new; the screen's list of apps comes from

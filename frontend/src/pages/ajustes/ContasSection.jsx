@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Archive, Landmark, TrendingUp, Plus } from 'lucide-react'
 import { accountsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
@@ -135,10 +136,17 @@ export default function ContasSection() {
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  {/* Sempre em reais (accountBalanceBrl), como no Inicio. */}
-                  <span className={cx('whitespace-nowrap text-right font-bold', (accountBalanceBrl(account) ?? 0) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
-                    {accountBalanceBrl(account) === null ? 'sem câmbio hoje' : privateMoney(accountBalanceBrl(account))}
-                  </span>
+                  {/* Sempre em reais (accountBalanceBrl), como no Inicio. O saldo da
+                      Corretora so aparece em Investimentos (Posicao). */}
+                  {account.type === PORTFOLIO_ACCOUNT_TYPE ? (
+                    <Link to="/investimentos" className="whitespace-nowrap text-right text-sm font-semibold text-emerald-700 underline-offset-2 hover:underline">
+                      Em Investimentos
+                    </Link>
+                  ) : (
+                    <span className={cx('whitespace-nowrap text-right font-bold', (accountBalanceBrl(account) ?? 0) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
+                      {accountBalanceBrl(account) === null ? 'sem câmbio hoje' : privateMoney(accountBalanceBrl(account))}
+                    </span>
+                  )}
                   {account.type === PORTFOLIO_ACCOUNT_TYPE || !isBrlAccount(account) ? (
                     <IconButton label="Arquivar conta" icon={Archive} onClick={() => handleArchiveAccount(account)} />
                   ) : (

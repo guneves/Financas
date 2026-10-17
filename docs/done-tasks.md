@@ -116,6 +116,7 @@
 | BTG Investimentos (`com.btg.pactual.digital.mobile`) added to the notification allow-list and the manifest `<queries>` at the owner's request, so brokerage operations can later be suggested; JVM test updated. No native-level bump: no screen calls anything new | 2026-10-17 |
 | The portfolio account: a Corretora account is linked to the portfolio and every new operation comes out of it (sale/redemption into it) unless "Não descontar de nenhuma conta" is ticked (`cash_account_id: null`). API default for a POST without the key (`portfolio_cash_account_id()`), screens refuse a new operation until one exists (`lib/portfolioAccount.js`), "Vincular à carteira" and a "Carteira" badge in Ajustes › Contas. Tests: 9 backend (`TestThePortfolioAccount`), 7 node | 2026-10-17 |
 | Paid proventos into the portfolio account: one INCOME row per provento paid (≤ today) on or after the day the account became Corretora (`metadata.portfolio_since`), materialized on read (`services/proceeds_cash.py`), source_type `INVESTMENT_PROCEED`, locked in the Extrato ("Provento"), follows edits/deletes. `test_proceeds_cash.py`, 8 tests | 2026-10-17 |
+| Corretora balance only in Investimentos: out of "Saldo em conta" (Início), the Extrato's "Saldo em contas", Ajustes › Contas ("Em Investimentos"), the invoice-payment sheet and the autopay warning; Início turns a transfer into the Corretora into an aporte; Posição shows "Saldo na corretora". `lib/transactions.test.js` (6 tests); phone-width walk on a scratch database; APK screen bundle built at native level 2 | 2026-10-17 |
 
 ---
 

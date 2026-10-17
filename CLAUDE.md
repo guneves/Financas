@@ -165,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules` and `portfolioAccount`, 53 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount` and `transactions`, 59 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -409,7 +409,12 @@ mobile-docs/
   proventos paid on or after the account's `metadata.portfolio_since` (set by the PATCH that makes
   it Corretora; `created_at` for one created as Corretora) — earlier ones are already in its
   initial balance, and the automatic proventos carry years of history. A written row stays in the
-  account it was born in.
+  account it was born in. **Its balance is shown only in Investimentos** (owner, 2026-10-17):
+  `consolidatedBalance()` / `openingBalanceTotal()` skip Corretora accounts, Início reads
+  `bankingTransactions()` (rows inside a Corretora leave; a transfer bank → Corretora is an aporte,
+  back a resgate), Ajustes › Contas says "Em Investimentos" instead of the amount, the
+  invoice-payment sheet and the autopay warning never print it, and Posição's summary has "Saldo
+  na corretora" (`portfolioCashBalance()`). All in `lib/transactions.js`, tested.
 - **Início is the banking area only, and in reais.** Its headline is the consolidated account
   balance; the portfolio never appears there, so nobody reads invested money as money to spend. A
   foreign-currency account appears only by its converted value (`accountBalanceBrl()` in

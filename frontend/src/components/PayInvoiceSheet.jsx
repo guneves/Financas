@@ -3,7 +3,7 @@ import { CheckCircle } from 'lucide-react'
 import { AlertMessage, Button, Field, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
 import { useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl } from '../lib/transactions'
+import { accountBalanceBrl, isPortfolioAccount } from '../lib/transactions'
 
 // Confirmacao do pagamento de fatura, com a conta de onde sai o dinheiro.
 //
@@ -35,7 +35,8 @@ export default function PayInvoiceSheet({
 
   const selected = activeAccounts.find((account) => account.id === accountId)
   // Em reais, como a fatura (null = conta sem cambio hoje: nao da para comparar).
-  const selectedBalance = selected ? accountBalanceBrl(selected) : null
+  // A Corretora nao mostra saldo fora de Investimentos: sem comparar aqui.
+  const selectedBalance = selected && !isPortfolioAccount(selected) ? accountBalanceBrl(selected) : null
   const shortfall = selectedBalance !== null && selectedBalance < total
 
   return (
@@ -71,7 +72,7 @@ export default function PayInvoiceSheet({
             {allowPerCard ? <option value="">Conta de cada cartão</option> : null}
             {activeAccounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}{account.is_default ? ' (padrão)' : ''}{hidden || accountBalanceBrl(account) === null ? '' : ` · ${formatCurrency(accountBalanceBrl(account))}`}
+                {account.name}{account.is_default ? ' (padrão)' : ''}{hidden || isPortfolioAccount(account) || accountBalanceBrl(account) === null ? '' : ` · ${formatCurrency(accountBalanceBrl(account))}`}
               </option>
             ))}
           </select>

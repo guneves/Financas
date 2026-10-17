@@ -18,7 +18,9 @@ import {
   SummaryPanel,
   cx,
 } from '../../components/ui'
-import { investmentsApi } from '../../lib/dataApi'
+import { accountsApi, investmentsApi } from '../../lib/dataApi'
+import { useQuery } from '../../lib/queries'
+import { isPortfolioAccount, portfolioCashBalance } from '../../lib/transactions'
 import { formatCurrency, formatPercent, formatQuantity, formatSignedCurrency, getLocalDateString } from '../../lib/format'
 import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import { toast } from '../../lib/toast'
@@ -375,11 +377,23 @@ export default function Posicao() {
 // Carteira em um bloco: valor bruto em destaque, aplicado, resultado e o
 // liquido estimado (IR regressivo da renda fixa), como o backend soma. Os
 // valores somem no modo privado; o percentual fica, como a rentabilidade.
+//
+// O saldo das contas Corretora aparece so aqui (dono, 2026-10-17): e o dinheiro
+// da carteira que ainda nao virou ativo, e o Inicio nao o conta.
 function PortfolioSummary({ totals }) {
   const money = usePrivateFormatter(formatCurrency)
   const hidden = useValuesHidden()
   const result = totals.value - totals.invested
   const resultPercent = totals.invested > 0 ? (result / totals.invested) * 100 : 0
+  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
+  const brokerages = (accountsQuery.data || []).filter(isPortfolioAccount)
+  const cashFigure = brokerages.length
+    ? [{
+        label: 'Saldo na corretora',
+        value: money(portfolioCashBalance(brokerages)),
+        hint: brokerages.length === 1 ? brokerages[0].name : `${brokerages.length} contas Corretora`,
+      }]
+    : []
   return (
     <SummaryPanel
       lead={{ label: 'Carteira', value: money(totals.value), hint: 'Valor de mercado bruto' }}
@@ -392,6 +406,7 @@ function PortfolioSummary({ totals }) {
           tone: hidden ? 'neutral' : result >= 0 ? 'gain' : 'loss',
         },
         { label: 'Líquido estimado', value: money(totals.netValue), hint: 'Após o IR da renda fixa' },
+        ...cashFigure,
       ]}
     />
   )

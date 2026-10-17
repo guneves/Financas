@@ -66,7 +66,7 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, consolidatedBalance, isInvestmentInflow, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, isPortfolioAccount, bankingTransactions, consolidatedBalance, isInvestmentInflow, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
 
 const HISTORY_MONTHS = 12
@@ -194,11 +194,13 @@ export default function Dashboard() {
   const pending = useOutbox()
   const serverTransactions = movementsQuery.data?.transactions || NO_ITEMS
   const serverAccounts = movementsQuery.data?.allAccounts || NO_ITEMS
+  // Vistos da area bancaria (bankingTransactions): a conta Corretora fica de
+  // fora, e a transferencia para ela e um aporte.
   const transactions = useMemo(() => {
     const waiting = pending.filter((item) => item.status === PENDING)
-    if (!waiting.length) return serverTransactions
     const defaultAccountId = serverAccounts.find((account) => account.is_default)?.id || ''
-    return [...pendingAsTransactions(waiting, { defaultAccountId }), ...serverTransactions]
+    const all = waiting.length ? [...pendingAsTransactions(waiting, { defaultAccountId }), ...serverTransactions] : serverTransactions
+    return bankingTransactions(all, serverAccounts)
   }, [serverTransactions, serverAccounts, pending])
   const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
   // Todas as contas, arquivadas inclusive: o consolidado soma todas.
@@ -479,7 +481,8 @@ export default function Dashboard() {
     return Object.values(byAccount)
       .map((entry) => {
         const account = accounts.find((row) => row.id === entry.accountId)
-        if (!account || account.archived_at) return null
+        // A Corretora nao tem saldo no Inicio: o aviso nao o mostra.
+        if (!account || account.archived_at || isPortfolioAccount(account)) return null
         // Em reais, como a fatura. Sem cambio hoje nao da para dizer se cobre.
         const accountBalance = accountBalanceBrl(account)
         if (accountBalance === null) return null
@@ -661,7 +664,7 @@ export default function Dashboard() {
         <BalanceHero
           className="xl:col-span-8"
           total={bankBalance}
-          accounts={accounts}
+          accounts={bankingAccounts(accounts)}
           monthName={monthLabel(currentKey)}
           result={currentMonth.net}
           income={monthIncome}
