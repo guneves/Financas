@@ -4,6 +4,13 @@ The app runs on `guilhermeserver` (x86_64, reached over Tailscale) as one Docker
 gunicorn serving the API and the built frontend on one origin. The server holds no source code and
 no Git — `/srv/apps/financas/` contains only `compose.yaml` and `.env`. The image lives in GHCR.
 
+**The server is the only backend** (since 2026-10-16). The first-time setup below is done, the PC's
+data was imported, and the APK points at the server. The PC is a development machine now:
+`.\start.ps1` refuses to start without `-Local`, the PC's `tailscale serve` was reset, and the old
+`backend\finance.db` is a development copy, not the owner's data. The last PC copy of the real data
+is in `Documents\Financas-backup-pc-20261016\` (with `finance-imported-to-server.db`, the exact
+snapshot imported).
+
 | | |
 |---|---|
 | Image | `ghcr.io/guneves/financas-app`, tags `latest` and the full commit SHA |
@@ -138,7 +145,9 @@ first with `sudo docker compose stop`. The import below removes the old `-wal`/`
 the copied database is the only one left.
 
 Stop the backend on the PC (Ctrl+C on `start.ps1`) so SQLite folds the `-wal` file into
-`finance.db`, then:
+`finance.db`. If a `-wal` is still there (a backend killed without a clean stop leaves one), copy
+a single-file snapshot instead: `sqlite3.connect("file:finance.db?mode=ro", uri=True).backup(dst)`
+reads the WAL and leaves the originals alone; that is how the 2026-10-16 import was done. Then:
 
 ```powershell
 ssh guilherme@guilhermeserver "mkdir -p /tmp/financas-import"

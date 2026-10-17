@@ -7,6 +7,14 @@
     (port 5173) as background jobs, waits for both to answer, and keeps
     streaming their output until you press Ctrl+C — which stops both.
 
+    The real app runs on the home server now (DEPLOY.md,
+    https://guilhermeserver.tail5084ff.ts.net). This script only starts the PC
+    copy when asked with -Local, so the old backend\finance.db is not used by
+    accident; it is a development copy, not your data.
+
+.PARAMETER Local
+    Required to start the app on the PC (development only).
+
 .PARAMETER Tests
     Run the backend test suite instead of starting the app.
 
@@ -19,13 +27,14 @@
     Do not open the browser once the frontend is up.
 
 .EXAMPLE
-    .\start.ps1
     .\start.ps1 -Tests
-    .\start.ps1 -Built
+    .\start.ps1 -Local
+    .\start.ps1 -Local -Built
 #>
 
 [CmdletBinding()]
 param(
+    [switch]$Local,
     [switch]$Tests,
     [switch]$Built,
     [switch]$NoBrowser
@@ -54,6 +63,13 @@ if ($Tests) {
     } finally {
         Pop-Location
     }
+}
+
+if (-not $Local) {
+    Write-Host 'The app runs on the home server now: https://guilhermeserver.tail5084ff.ts.net' -ForegroundColor Yellow
+    Write-Host 'The PC backend is a development copy (backend\finance.db is no longer your data).' -ForegroundColor Yellow
+    Write-Host 'To start it anyway:  .\start.ps1 -Local   (tests: .\start.ps1 -Tests)' -ForegroundColor Yellow
+    exit 1
 }
 
 if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {

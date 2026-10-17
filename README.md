@@ -58,10 +58,13 @@ Financas/
 
 ### Quick start
 
+The real app runs on the home server (`DEPLOY.md`); running it on the PC is for development only.
+
 ```powershell
-.\start.ps1
+.\start.ps1 -Local
 ```
 
+Without `-Local` the script refuses to start, so the PC's old database is not used by accident.
 Starts backend (`:5000`) and frontend (`:5173`) together, waits for both, opens the browser, and
 stops both on Ctrl+C. It creates `backend/.env` from the example and runs `npm install` if either is
 missing. Use `-NoBrowser` to skip opening the browser.

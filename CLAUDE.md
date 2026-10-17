@@ -119,10 +119,13 @@ daily use better over the change that makes the architecture prettier.
 ## Running it
 
 ```powershell
-.\start.ps1              # backend (:5000) + frontend (:5173), Ctrl+C stops both
-.\start.ps1 -Tests       # run the backend test suite
-.\start.ps1 -NoBrowser   # start without opening a browser
+.\start.ps1 -Tests             # run the backend test suite
+.\start.ps1 -Local             # dev only: backend (:5000) + frontend (:5173), Ctrl+C stops both
+.\start.ps1 -Local -NoBrowser  # same, without opening a browser
 ```
+
+**The home server is the only real backend** (since 2026-10-16). The PC's `backend\finance.db` is
+a development copy, not the owner's data, so `start.ps1` refuses to start without `-Local`.
 
 **Production** runs on the home server (`guilhermeserver`) as the Docker image
 `ghcr.io/guneves/financas-app`, deployed by `.github/workflows/deploy.yml` on every push to `main`
@@ -324,7 +327,7 @@ mobile-docs/
   items is labelled an estimate. In the APK the queue and the sender are Java
   (`frontend/android/.../outbox/`, swapped in by `lib/nativeApp.js`), and `OutboxRules.java` is a
   port of `outboxRules.js`: change one, change the other, with a test on each side.
-- **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Built`): screen and API
+- **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
   `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.
 - **Rules touch the past only on confirmation.** `POST /api/import-rules/apply/preview` never writes;

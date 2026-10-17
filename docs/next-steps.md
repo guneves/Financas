@@ -9,19 +9,13 @@
 
 ## 1. Open work, in priority order
 
-### Home server deployment (2026-10-16) — first deploy
-The image, compose file, workflow and scripts are built and verified locally (`DEPLOY.md`). Open, in order:
-- [ ] Owner: tailnet policy and the order in `DEPLOY.md` (policy first, then `tag:server` on the
-  server), OAuth client (`tag:ci`, Auth Keys write), GitHub secrets `TS_OAUTH_CLIENT_ID` /
-  `TS_OAUTH_SECRET`.
-- [ ] Owner, on the server: the sudoers rule, `sudo docker login ghcr.io` (read:packages token),
-  `sudo tailscale serve --bg 8101`. The `.env` already exists.
-- [ ] Push to `main` and watch the first workflow run (never exercised).
-- [ ] First deploy with the PC's data: `.\deploy.ps1 -CreateOnly`, stop the PC backend, import
-  `finance.db` + `attachments`, start, check `/api/health` and a login.
-- [ ] Rebuild and install the APK (`mobile/build-apk.ps1`, now pointing at the server) and check the
-  phone end to end, offline queue included.
+### Home server — what is left
+The server is the only backend since 2026-10-16 (`DEPLOY.md`; see `docs/done-tasks.md`). Open:
 - [ ] Copy backups off the server on a schedule: today they share the volume's disk.
+- [ ] Delete the PC's old `backend\finance.db*` once the owner is sure; the copy is in
+  `Documents\Financas-backup-pc-20261016\`. The PC's `backend\backups\` (15 files) was left as is.
+- [ ] `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19: check the first run after it is green
+  (`setup-python` 3.14 and `setup-node` 24 on the new image).
 
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
@@ -30,22 +24,20 @@ on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/d
 - [ ] Phase 5, the last phone checks. The APK is built, signed and installed on the owner's Galaxy
   S25; login, real data, the bars in the theme and the offline queue work there. Left:
   - the "done when" with the app really **closed** (swiped from recent apps): airplane mode,
-    three entries, close, reconnect without opening it, all three on the PC once. On 2026-10-16
+    three entries, close, reconnect without opening it, all three on the server once. On 2026-10-16
     one offline entry was sent by the WorkManager job (logcat: `OutboxWorker` RETRY, then
     SUCCESS 30 s later) and arrived once, but the app was still on screen. If Samsung's battery
     management holds the job with the app closed, set the app's battery use to "Sem restrições";
   - the back button, the theme toggle, the keyboard over "+ Novo" (and whether the decimal
     keypad's comma is accepted by the amount field), the notification permission prompt.
 - [ ] Native sender backoff (`OutboxWorker`): `Result.retry()` with EXPONENTIAL from 30 s, which
-  WorkManager caps at 5 h. With the PC off or Tailscale down for an hour or two, the job is
+  WorkManager caps at 5 h. With the server off or Tailscale down for an hour or two, the job is
   already waiting about an hour between tries, so with the app closed an entry can sit that long
   after the server is back. Opening the app sends at once (the screen's flush). Consider LINEAR
   backoff or a cap (re-enqueue with a fixed delay after N tries) and test it on the phone.
 - [ ] Native `OutboxWorker.schedule()` uses `ExistingWorkPolicy.KEEP`: an item put just as a
   running job finishes its last pass is not picked up until the next trigger (app opened, the
   screen's 30 s flush). A small window; `APPEND_OR_REPLACE` would close it.
-- [ ] The phone runs `44542b8-dirty`: it lacks `592cdd5` (queue at once with no network) and the
-  2026-10-16 overlay fix. Rebuild with `mobile/build-apk.ps1` when the owner is at the PC.
 - [ ] Browser outbox (`lib/outbox.js` `flush()`): it writes the result back from the item it sent,
   so an item corrected or discarded during that one request can be overwritten, removed or
   brought back. The native sender compares versions first (`OutboxStore.removeIfUnchanged`); do
@@ -57,8 +49,8 @@ on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/d
   eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the
   backend stopped a browser cannot load a screen it has not visited (each screen's code comes from
   the server on first visit, and there is no service worker), so only the APK opens cold offline.
-- [ ] Phase 1, phone half: the APK reaches `https://financas.tail5084ff.ts.net` from the phone
-  (2026-10-16), so the tailnet path works. Left only the phone's *browser* on mobile data, which
+- [ ] Phase 1, phone half: the APK reaches the server (`https://guilhermeserver.tail5084ff.ts.net`)
+  from the phone, so the tailnet path works. Left only the phone's *browser* on mobile data, which
   matters little now that the APK exists.
 - [ ] Phase 4, step 7, partly built: with the server unreachable a pill in the header says so and
   an online-only action fails with "Sem conexão com o servidor. Esta ação só funciona conectado.",
