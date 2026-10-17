@@ -40,6 +40,7 @@ public class NotifyRulesTest {
     @Test
     public void theOwnersAppsAreHeard() {
         for (String pkg : new String[] {
+            "com.samsung.android.spay",
             "com.itau",
             "br.com.bb.android",
             "com.btg.pactual.banking", "com.btg.pactual.digital.mobile",
@@ -52,7 +53,6 @@ public class NotifyRulesTest {
     public void everythingElseIsIgnored() {
         assertFalse(NotifyRules.isAllowed("com.whatsapp", false));
         // Repetiriam as compras que o app do banco ja notifica (dono, 2026-10-17).
-        assertFalse(NotifyRules.isAllowed("com.samsung.android.spay", false));
         assertFalse(NotifyRules.isAllowed("com.itaucard.activity", false));
         assertFalse(NotifyRules.isAllowed("br.com.bb.oewallet", false));
         assertFalse(NotifyRules.isAllowed("br.financas.app", false));
@@ -79,6 +79,7 @@ public class NotifyRulesTest {
             assertFalse(app.label.isEmpty());
         }
         assertEquals("Itaú", NotifyRules.labelFor("com.itau"));
+        assertEquals("Samsung Wallet", NotifyRules.labelFor("com.samsung.android.spay"));
         assertEquals(NotifyRules.SHELL_LABEL, NotifyRules.labelFor(NotifyRules.SHELL_PACKAGE));
         assertEquals("com.outro", NotifyRules.labelFor("com.outro"));
     }

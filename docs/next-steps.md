@@ -84,15 +84,16 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   and text) opens the share sheet. If the adb notification does not appear, `adb logcat -s
   FinancasNotify` names the package it came from.
 - [ ] **A week of capture, then export** (owner). Capture on in the real app; about a week of
-  real use covering Samsung Pay on each card (Itaú, BB, BTG — read from the bank's app only), a debit purchase, Pix sent and
+  real use covering Samsung Pay on each card (Itaú, BB, BTG — both Samsung Wallet's and the bank's notification), a debit purchase, Pix sent and
   received, an estorno, and a declined purchase if one happens — and, since BTG Investimentos
   joined the list (the next APK CI publishes), a buy and a sell on the brokerage plus a transfer from BTG Banking
   into it. Then "Exportar JSON" and bring
   the file to the next session. Battery: if the counts stop between purchases, set the app's
   battery use to "Sem restrições" (the screen shows when Android last disconnected the listener).
 - [ ] Phase 6 steps 4–6, written against that export: one parser per app (Itaú, BB, the
-  two BTG), the mapping screen, unrecognised text into the inbox. Samsung Wallet, Itaú Cartões and
-  Ourocard are no longer heard (2026-10-17), so cross-app pairing is not needed. Also read from the export whether
+  two BTG), the mapping screen, unrecognised text into the inbox. Samsung Wallet is heard again as a
+  fallback (2026-10-17), so cross-app pairing **is** needed: bank wins, Samsung only when no bank
+  notification arrives — `docs/prompts/notifications-pluggy-integration.md` (Part A). Also read from the export whether
   a bank *updates* a notification (new posted time, same key), which decides whether Phase 7's
   `client_id` can keep posted time in it.
 - [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
@@ -107,6 +108,10 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   table). Kept as confirm until the owner says otherwise; one tap on Confirmar in the app's own
   notification records it with the app closed.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
+- [ ] **Pluggy** (owner, 2026-10-17): Open Finance sync on the server, reconciled with the
+  notification-born entries so one purchase stays one lançamento. Plan and prompt:
+  `docs/prompts/notifications-pluggy-integration.md` (Parts B and C). Needs the owner's Pluggy
+  credentials and plan first.
 
 ### Investments separate from banking — what is left
 Built on 2026-10-12 and 2026-10-17 (see `docs/done-tasks.md`): every operation comes out of the

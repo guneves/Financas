@@ -29,8 +29,9 @@ import java.util.TreeMap;
  * - o texto que vale: o bigText quando veio (costuma trazer o nome inteiro do lugar), senao o text;
  * - a exportacao da captura, em JSON ou texto. E o unico caminho por onde um texto sai do aparelho.
  *
- * Samsung Wallet, Itaú Cartões e Ourocard ficam de fora: repetiriam as compras que o app do
- * banco ja notifica (dono, 2026-10-17).
+ * O Samsung Wallet voltou (dono, 2026-10-17): vale quando o banco nao notifica a compra no
+ * cartao; quando os dois notificam, a do banco e a que fica (Fase 6, passo 4). Itaú Cartões e
+ * Ourocard seguem de fora: repetiriam as compras que o app do banco ja notifica.
  */
 public final class NotifyRules {
 
@@ -54,6 +55,7 @@ public final class NotifyRules {
 
     /** Na ordem da tela. O BTG de investimentos entra para as operacoes da corretora (Fase 6). */
     public static final List<App> APPS = Collections.unmodifiableList(Arrays.asList(
+        new App("com.samsung.android.spay", "Samsung Wallet"),
         new App("com.itau", "Itaú"),
         new App("br.com.bb.android", "Banco do Brasil"),
         new App("com.btg.pactual.banking", "BTG Pactual"),

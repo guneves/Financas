@@ -334,7 +334,7 @@ notification.
 
 | App | Package | Allow-list |
 |---|---|---|
-| Samsung Wallet (Samsung Pay) | `com.samsung.android.spay` | No, since 2026-10-17 (owner: it would replicate expenses the bank apps already notify). |
+| Samsung Wallet (Samsung Pay) | `com.samsung.android.spay` | Yes again, later on 2026-10-17 (owner: used when the bank app does not notify a card purchase; the bank's notification wins when both arrive). |
 | Itaú | `com.itau` | Yes. |
 | Itaú Cartões | `com.itaucard.activity` | No, since 2026-10-17 (owner: duplicates `com.itau`). |
 | Banco do Brasil | `br.com.bb.android` | Yes. |
@@ -362,9 +362,12 @@ expected in a notification and stay editable). Money moving from BTG Banking to 
 TRANSFER between two of the owner's accounts, never an expense or an aporte: a Pix/TED
 notification whose destination is the brokerage account must become a transfer suggestion.
 
-**One purchase, one app.** Samsung Wallet, Itaú Cartões and Ourocard were taken off the
-allow-list on 2026-10-17 (owner: "this apps will replicate expenses that exist in other apps"),
-so a Samsung Pay purchase is read only from the issuing bank's app. If the captures show a bank
+**One purchase, one entry.** Itaú Cartões and Ourocard were taken off the allow-list on
+2026-10-17 (owner: "this apps will replicate expenses that exist in other apps"). Samsung Wallet
+came back the same day as a fallback (owner: "samsung notification should be used when bank
+notifications doesnt reach about card use"): a Samsung detection is held for a short window and
+dropped if the bank's notification for the same purchase arrives, promoted otherwise. Pluggy will
+reconcile on the server. Full plan: `docs/prompts/notifications-pluggy-integration.md`. If the captures show a bank
 app itself notifying one purchase twice, that is still the parsers' problem.
 
 How it was built (the steps below say what each one asked for):

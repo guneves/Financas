@@ -342,9 +342,11 @@ mobile-docs/
   test notifications) — never widen that to release. Capture mode is off by default, keeps each
   notification word for word in `financas_notify.db`, and its texts leave the phone only through
   the export (share sheet); never send them to the server or a third party. The listener
-  deduplicates only the same posting (`dedupKey`: package + key + posted time); Samsung Wallet, Itaú Cartões
-  and Ourocard are deliberately not heard (owner, 2026-10-17): they repeat purchases the bank apps
-  already notify, so don't add them back. Parsers are written against
+  deduplicates only the same posting (`dedupKey`: package + key + posted time). Samsung Wallet is
+  heard again (owner, 2026-10-17, later the same day) as a **fallback**: the bank app's notification
+  wins, Samsung's counts only when no bank notification for that purchase arrives — pairing not built
+  yet, plan in `docs/prompts/notifications-pluggy-integration.md`. Itaú Cartões and Ourocard stay
+  off (they repeat the bank apps), so don't add them back. Parsers are written against
   exported captures, never against examples from the web.
 - **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
