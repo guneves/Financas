@@ -97,8 +97,8 @@ commit (docs without the owner's data) stays.
    `adb uninstall br.financas.app.debug`.
 3. Capture on in the real app for about a week (Samsung Pay on each card, debit, Pix both ways,
    estorno, a declined purchase), then "Exportar JSON". Decide first whether fixtures may go into
-   the repo verbatim. Next coding session: Phase 6 step 4 against that export, with the
-   one-source-per-purchase rule (Samsung Wallet + bank).
+   the repo verbatim. Next coding session: Phase 6 step 4 against that export, . Samsung Wallet,
+   Itaú Cartões and Ourocard are off the allow-list (2026-10-17), so no cross-app pairing.
 
 ### Carried from the investments check (2026-10-17 night) and earlier, still open
 - After the deploy, open IR 2025 again on the server (next-steps, "Investments check"); the

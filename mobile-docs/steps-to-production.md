@@ -19,7 +19,7 @@ the end). The status of each phase is in its heading.
 | Notifications | A native `NotificationListenerService` reads notifications from the listed bank apps only. Parsing happens on the phone. |
 | Publishing | Always confirm. A detected purchase waits in an inbox until the owner taps Confirmar (from the notification or the list). Nothing is recorded on its own. |
 | Statement import | The import preview flags rows that match an existing lançamento on account, date and amount as probable duplicates and leaves them unchecked. |
-| Banks | Itaú, BTG Pactual, Banco do Brasil, plus Samsung Wallet: most card purchases are paid through Samsung Pay (owner, 2026-10-17). |
+| Banks | Itaú, BTG Pactual, Banco do Brasil. Most card purchases are paid through Samsung Pay, but Samsung Wallet, Itaú Cartões and Ourocard are not read: they would repeat purchases the bank apps already notify (owner, 2026-10-17). |
 | Login lifetime | 180 days, one setting for PC and phone: `JWT_EXP_DAYS=180` in `backend/.env` (owner, 2026-10-12). The backend is reachable only through Tailscale, and an expired token stalls background sync and the notification's Confirmar button. |
 | Distribution | Sideloaded APK signed with the owner's own keystore. No Play Store. |
 
@@ -334,11 +334,11 @@ notification.
 
 | App | Package | Allow-list |
 |---|---|---|
-| Samsung Wallet (Samsung Pay) | `com.samsung.android.spay` | Yes. A purchase paid through Samsung Pay probably notifies twice: once from here, once from the bank that issued the card. The watch app (`com.samsung.android.samsungpay.gear`) is not on the list. |
+| Samsung Wallet (Samsung Pay) | `com.samsung.android.spay` | No, since 2026-10-17 (owner: it would replicate expenses the bank apps already notify). |
 | Itaú | `com.itau` | Yes. |
-| Itaú Cartões | `com.itaucard.activity` | Yes, if installed. Itaú is moving cardholders into `com.itau`, so card notifications may come from either. |
+| Itaú Cartões | `com.itaucard.activity` | No, since 2026-10-17 (owner: duplicates `com.itau`). |
 | Banco do Brasil | `br.com.bb.android` | Yes. |
-| Ourocard | `br.com.bb.oewallet` | Yes, if installed. |
+| Ourocard | `br.com.bb.oewallet` | No, since 2026-10-17 (owner: duplicates `br.com.bb.android`). |
 | BTG Pactual Banking | `com.btg.pactual.banking` | Yes. Card and account notifications come from here. |
 | BTG Pactual Investimentos | `com.btg.pactual.digital.mobile` | Yes, since 2026-10-17 (owner: operations must be recorded from it too). Excluded at first; see "Brokerage notifications" below. |
 
@@ -362,14 +362,10 @@ expected in a notification and stay editable). Money moving from BTG Banking to 
 TRANSFER between two of the owner's accounts, never an expense or an aporte: a Pix/TED
 notification whose destination is the brokerage account must become a transfer suggestion.
 
-**One purchase, two notifications.** A Samsung Pay purchase is expected to notify from Samsung
-Wallet *and* from the issuing bank. Capture mode keeps both, with posted times to the
-millisecond, and nothing in Phase 6 deduplicates them. Phase 6/7 has to pick **one source per
-purchase** — for example, pair a Samsung Wallet detection with a bank detection of the same amount
-inside a short time window and keep one (likely the bank's, which carries the card digits) — so
-a purchase never becomes two lançamentos. The rule is written from the exported captures: which
-notification comes first, how far apart, and whether the Wallet text carries the merchant and
-the card.
+**One purchase, one app.** Samsung Wallet, Itaú Cartões and Ourocard were taken off the
+allow-list on 2026-10-17 (owner: "this apps will replicate expenses that exist in other apps"),
+so a Samsung Pay purchase is read only from the issuing bank's app. If the captures show a bank
+app itself notifying one purchase twice, that is still the parsers' problem.
 
 How it was built (the steps below say what each one asked for):
 - Java, in its own package `android/.../notify/` with its own plugin (`Notify`), not Kotlin in
@@ -417,7 +413,7 @@ How it was built (the steps below say what each one asked for):
    option appears only after one refused attempt). An install over USB with `adb install` is not
    expected to trigger this, which is why Phase 5 installs that way; the screen explains the menu
    for the case where it does.
-4. *(Next, after a week of capture.)* One parser per bank app (Samsung Wallet included), as pure
+4. *(Next, after a week of capture.)* One parser per bank app, as pure
    functions with JVM unit tests built from the collected texts (they run on the PC, without a
    phone): amount, merchant, kind (credit, debit, Pix sent, Pix received, refund, declined), and
    card final digits when present. Declined purchases are ignored; refunds become an INCOME
@@ -464,9 +460,8 @@ amount and merchant.
    never become two lançamentos, whether it is confirmed from the notification or from the list.
    Open question for the captures: Android gives an *updated* notification a new posted time, so
    a bank that updates its notification would yield a second key. If the export shows that, the
-   id has to come from the key and `Notification.when` (also captured) instead. A purchase that
-   notifies from two apps (Samsung Wallet and the bank) is a separate problem: see "One purchase,
-   two notifications" in Phase 6.
+   id has to come from the key and `Notification.when` (also captured) instead. Cross-app duplicates were removed at the source: see "One
+   purchase, one app" in Phase 6.
 6. Discarded detections are remembered, so the same notification does not return.
 7. A detection from the brokerage app (BTG Investimentos) becomes a "Registrar operação"
    suggestion, cash linked to the brokerage account; Confirmar writes it through
@@ -529,7 +524,7 @@ What the first draft claimed, and what checking found.
 | The uncommitted work touches `NewEntrySheet.jsx`, `newEntry.js`, `Extrato.jsx` | No longer true. |
 | Token lifetime blocks Phase 3 | It did not: it is a `.env` value. Now decided. |
 | Package names of Itaú, BB and the two BTG apps | Confirmed on Google Play. |
-| Itaú Cartões and Ourocard, unchecked | Both exist as separate apps: `com.itaucard.activity`, `br.com.bb.oewallet`. Added. |
+| Itaú Cartões and Ourocard, unchecked | Both exist as separate apps: `com.itaucard.activity`, `br.com.bb.oewallet`. Added, then removed on 2026-10-17 (duplicates of the bank apps). |
 | A sideloaded app on Android 13+ needs "Permitir configurações restritas" | True for an APK opened on the phone. Reported not to apply to `adb install`; not confirmed from a primary source, so the settings screen still covers it. |
 | `adb shell cmd notification post` reaches a listener, from `com.android.shell` | The command and its flags are in AOSP and go through the normal enqueue call. The package is whatever Android maps the shell's uid to; `com.android.shell` is expected, to be read on the device. |
 | The APK's origin, and calling `tailscale serve` | `https://localhost` (Capacitor docs). HTTPS to a public-CA certificate needs no extra configuration; MagicDNS and HTTPS must be enabled in the tailnet. |

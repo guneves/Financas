@@ -40,9 +40,8 @@ public class NotifyRulesTest {
     @Test
     public void theOwnersAppsAreHeard() {
         for (String pkg : new String[] {
-            "com.samsung.android.spay",
-            "com.itau", "com.itaucard.activity",
-            "br.com.bb.android", "br.com.bb.oewallet",
+            "com.itau",
+            "br.com.bb.android",
             "com.btg.pactual.banking", "com.btg.pactual.digital.mobile",
         }) {
             assertTrue(pkg, NotifyRules.isAllowed(pkg, false));
@@ -52,6 +51,10 @@ public class NotifyRulesTest {
     @Test
     public void everythingElseIsIgnored() {
         assertFalse(NotifyRules.isAllowed("com.whatsapp", false));
+        // Repetiriam as compras que o app do banco ja notifica (dono, 2026-10-17).
+        assertFalse(NotifyRules.isAllowed("com.samsung.android.spay", false));
+        assertFalse(NotifyRules.isAllowed("com.itaucard.activity", false));
+        assertFalse(NotifyRules.isAllowed("br.com.bb.oewallet", false));
         assertFalse(NotifyRules.isAllowed("br.financas.app", false));
         // So o pacote exato: nada de prefixo.
         assertFalse(NotifyRules.isAllowed("com.itau.fake", false));
@@ -75,7 +78,7 @@ public class NotifyRulesTest {
             assertTrue("duplicado: " + app.packageName, packages.add(app.packageName));
             assertFalse(app.label.isEmpty());
         }
-        assertEquals("Samsung Wallet", NotifyRules.labelFor("com.samsung.android.spay"));
+        assertEquals("Itaú", NotifyRules.labelFor("com.itau"));
         assertEquals(NotifyRules.SHELL_LABEL, NotifyRules.labelFor(NotifyRules.SHELL_PACKAGE));
         assertEquals("com.outro", NotifyRules.labelFor("com.outro"));
     }
@@ -106,7 +109,7 @@ public class NotifyRulesTest {
     @Test
     public void anyPartChangesTheKey() {
         String base = NotifyRules.dedupKey("com.itau", "k", 1000L);
-        assertNotEquals(base, NotifyRules.dedupKey("com.itaucard.activity", "k", 1000L));
+        assertNotEquals(base, NotifyRules.dedupKey("br.com.bb.android", "k", 1000L));
         assertNotEquals(base, NotifyRules.dedupKey("com.itau", "k2", 1000L));
         // Atualizada pelo banco = postada de novo, outra hora: outra linha.
         assertNotEquals(base, NotifyRules.dedupKey("com.itau", "k", 1001L));
@@ -116,7 +119,7 @@ public class NotifyRulesTest {
 
     @Test
     public void theKeyFitsTheServersClientId() {
-        String key = NotifyRules.dedupKey("com.samsung.android.spay", "0|com.samsung.android.spay|7|null|10200", 1L);
+        String key = NotifyRules.dedupKey("com.btg.pactual.banking", "0|com.btg.pactual.banking|7|null|10200", 1L);
         assertEquals(64, key.length());
         assertTrue(CLIENT_ID.matcher(key).matches());
         assertTrue(CLIENT_ID.matcher(NotifyRules.dedupKey(null, null, 0L)).matches());
@@ -133,8 +136,8 @@ public class NotifyRulesTest {
 
     @Test
     public void theJsonExportKeepsEveryFieldWordForWord() throws Exception {
-        NotifyRules.Captured wallet = row("com.samsung.android.spay", "w", 1792236000500L);
-        wallet.title = "Samsung Wallet";
+        NotifyRules.Captured wallet = row("com.btg.pactual.banking", "w", 1792236000500L);
+        wallet.title = "BTG Pactual";
         wallet.text = "  R$ 12,34 \n";
         NotifyRules.Captured bank = row("com.itau", "i", 1792236000100L);
         bank.title = "Compra aprovada";
@@ -148,10 +151,10 @@ public class NotifyRulesTest {
         assertEquals(2, out.getInt("count"));
         assertEquals("America/Sao_Paulo", out.getString("time_zone"));
         JSONArray list = out.getJSONArray("notifications");
-        // Em ordem de postagem: o banco veio 400 ms antes do Wallet.
+        // Em ordem de postagem: o Itaú veio 400 ms antes do BTG.
         assertEquals("com.itau", list.getJSONObject(0).getString("package"));
         JSONObject first = list.getJSONObject(1);
-        assertEquals("Samsung Wallet", first.getString("app"));
+        assertEquals("BTG Pactual", first.getString("app"));
         assertEquals("  R$ 12,34 \n", first.getString("text"));
         assertTrue(first.isNull("big_text"));
         assertEquals(1792236000500L, first.getLong("posted_at"));

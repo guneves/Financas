@@ -29,7 +29,8 @@ import java.util.TreeMap;
  * - o texto que vale: o bigText quando veio (costuma trazer o nome inteiro do lugar), senao o text;
  * - a exportacao da captura, em JSON ou texto. E o unico caminho por onde um texto sai do aparelho.
  *
- * Nada aqui junta a notificacao do Samsung Wallet com a do banco: a captura guarda as duas.
+ * Samsung Wallet, Itaú Cartões e Ourocard ficam de fora: repetiriam as compras que o app do
+ * banco ja notifica (dono, 2026-10-17).
  */
 public final class NotifyRules {
 
@@ -53,11 +54,8 @@ public final class NotifyRules {
 
     /** Na ordem da tela. O BTG de investimentos entra para as operacoes da corretora (Fase 6). */
     public static final List<App> APPS = Collections.unmodifiableList(Arrays.asList(
-        new App("com.samsung.android.spay", "Samsung Wallet"),
         new App("com.itau", "Itaú"),
-        new App("com.itaucard.activity", "Itaú Cartões"),
         new App("br.com.bb.android", "Banco do Brasil"),
-        new App("br.com.bb.oewallet", "Ourocard"),
         new App("com.btg.pactual.banking", "BTG Pactual"),
         new App("com.btg.pactual.digital.mobile", "BTG Investimentos")
     ));
@@ -203,7 +201,7 @@ public final class NotifyRules {
         return out.toString();
     }
 
-    /** Hora local com milissegundos e fuso, para comparar o Samsung Wallet com o banco. */
+    /** Hora local com milissegundos e fuso, para comparar notificacoes proximas. */
     public static String isoTime(long millis, TimeZone zone) {
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.ROOT);
         format.setTimeZone(zone);
