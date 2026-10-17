@@ -322,9 +322,10 @@ release build signed with the key whose fingerprint CI checks.
 Built: the listener, capture mode, the Ajustes screen, and the debug build that accepts
 adb-posted notifications. **Not built, on purpose: the parsers (step 4) and the mapping screen
 (step 5).** There are no real notification texts yet; the parsers are written next against what
-capture mode collects on the owner's phone, never against examples from the web. Open: the phone
-check (CI APK installed, access granted, an adb-posted notification in the test APK's capture),
-then about a week of capture with real purchases (see `docs/next-steps.md`).
+capture mode collects on the owner's phone, never against examples from the web. CI built it
+green (APK 10013 and the test APK, 2026-10-17). Open: the phone check (APK 10013 installed,
+access granted, an adb-posted notification in the test APK's capture), then about a week of
+capture with real purchases (see `docs/next-steps.md`).
 
 Package names, each checked against its Google Play listing on 2026-10-12 (Samsung Wallet on
 2026-10-17, through a web search of play.google.com: the store itself is unreachable from the

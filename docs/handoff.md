@@ -7,102 +7,88 @@
 
 ---
 
-## Session — 2026-10-17 (later) · Phase 6, first half: bank-notification listener and capture mode
+## Session — 2026-10-17 (night) · Investments check: average cost, ETF/BDR tax, per-sale IR
 
-A cloud session (no phone, no Android SDK). Built Phase 6 steps 1–3 and the debug half of step 7
-of `mobile-docs/steps-to-production.md`. Session-scout was not used; the docs were read directly.
-Branch `claude/sweet-rubin-un057n`, **not merged**: nothing reaches CI or the phone until it is
-merged to `main`.
+The owner asked first for a prompt to check the investments area, then, mid-task, to do the check
+now, fix every error found and open a PR. Cloud session, no providers reachable (brapi, yfinance,
+BCB and StatusInvest are all blocked from the container). Branch `claude/sweet-rubin-un057n`,
+restarted from `main` after PR guneves/financas#1 (Phase 6) was merged; it also carries the
+docs-only commit that marked Phase 6 as merged.
 
-### What was done
-- **Listener** (`frontend/android/app/src/main/java/br/financas/app/notify/`, Java):
-  `BankNotificationListener` keeps only the allow-list — Samsung Wallet (`com.samsung.android.spay`,
-  new; Play listing "Samsung Wallet (Samsung Pay)" found by a web search, since play.google.com is
-  blocked from the cloud container), `com.itau`, `com.itaucard.activity`, `br.com.bb.android`,
-  `br.com.bb.oewallet`, `com.btg.pactual.banking`. With capture on, each notification goes word for
-  word into `financas_notify.db` (`NotifyStore`): package, title, text, bigText, every textual
-  extra, posted time, `when`, key, channel, category, flags. Same posting = one row (`dedup_key`).
-  On reconnect it reads what is still in the tray; on disconnect it asks for a rebind.
-- **Pure rules** in `NotifyRules.java` with 12 JVM tests (`NotifyRulesTest`): allow-list, shell
-  only when debug, dedup key (SHA-256, fits the server's `client_id` format), bigText preference,
-  JSON/text export, and parity between `NotifyRules.APPS` and the manifest's `<queries>`.
-- **Plugin `Notify`** + **Ajustes › Notificações dos bancos** (`NotificacoesSection.jsx`,
-  `lib/notifyCapture.js`, `lib/notifyRules.js` with 9 node tests): access granted or not, when
-  Android last connected the listener, "Abrir acesso às notificações", the "Permitir
-  configurações restritas" steps (open by default when access is missing on Android 13+) with
-  "Abrir informações do app" and who installed the APK, capture switch (off by default), count per
-  app and "não instalado", the last 20 captured, "Exportar JSON" / "Exportar texto" (share sheet),
-  "Apagar capturas" (confirmAction). Opened in Chromium at 360 px, light and dark, with the plugin
-  mocked.
-- **Test APK**: the debug build is package `br.financas.app.debug` ("Finanças debug"); only it
-  accepts `com.android.shell`. The CI `apk` job now also runs `assembleDebug`, checks its
-  certificate and publishes it as `/apk/financas-debug.apk` (not in `version.json`); the debug app
-  never offers the published APK (`ApkUpdatePlugin`).
-- `frontend/native-level.txt` 1 → 2 (new plugin the screens call).
-- Plan (Samsung Wallet row, "One purchase, two notifications", steps 1–3 and 7 marked, Phase 7's
-  `client_id` question), `next-steps.md`, `done-tasks.md`, `CLAUDE.md` (convention + counts).
-- Tests: 42 JVM (12 new), 45 node (9 new), 1002 backend (untouched, run for safety).
+### How the check was done
+Read every investment service and route; seeded a scratch database (`seed_three_years_mock.py`,
+scale 1) through the real API; ran the backend with a built frontend and walked Posição,
+Rentabilidade, Operações, Alocação, Proventos, IR, Metas and Extrato › Investimentos in Chromium at
+360 and 1280 px (no overflow, no console or API errors); compared the numbers between screens;
+checked each tax rule against the law (WebSearch only — gov.br and planalto are blocked here).
+
+### Errors found and fixed (each with tests)
+1. **Cost basis.** Realized results and Bens e Direitos used FIFO lots; Posição and the evolution
+   subtracted whatever price the SELL row stored. The Receita's rule is the weighted average
+   (Lei 8.981/1995 art. 72 §2º; IN RFB 1.585/2015 art. 58). Seed example: WEGE3 showed a R$ 77,11
+   FIFO loss (carried into the loss pool) that is a R$ 12,89 exempt gain, and three different
+   remaining costs; PETR4's preço médio read 44,79 instead of 46,10. Now
+   `apply_average_cost()` (in `fetch_investments()`) gives one cost to everything; the stored
+   price of a sale is never read. This also fixes the old next-steps item "a position with
+   applied value ≤ 0 drops out of the monthly valuation".
+2. **ETFs and BDRs** were taxed as ações: counted in the R$ 20 mil and exempt below it. Now 15%
+   with no exemption, outside the limit, in the stocks' loss pool; fixed-income ETFs out of the
+   DARF (IR withheld at source); Bens codes 07.09 (ETF) and 04.04 (BDR); the sale form and the
+   meter say so.
+3. **Per-sale IR in Operações** ignored the exemption and the loss pool (PETR4's exempt sale
+   showed IR R$ 20,58; a loss-making sale showed IR). One rule now, `variable_income_tax.py`:
+   each sale stores its share of the month's tax.
+4. **Tributação exclusiva** (códigos 06 e 10) is declared net; the IR tab said "informe o bruto"
+   and showed gross. Tab and export now show net (with bruto and IR retido beside it).
+5. Proventos' yield-on-cost cost counted the buy fees twice (`accumulate_position`).
+6. Posição printed quantities raw ("1022"; a fraction would read "62.7"); now `formatQuantity`.
+7. Rentabilidade's notes and benchmark messages had no accents on screen.
+8. brapi batch size is `BRAPI_MAX_SYMBOLS_PER_REQUEST` (default 20 as before); a plan error
+   now tells the owner what to set.
+9. Operações: "FIFO, N lotes" → "custo médio"; the sale's edit form no longer offers a cost
+   field that did nothing.
+
+Tests: backend 1031 (was 1002; `test_fifo.py` became `test_average_cost.py`, new
+`test_variable_income_tax.py`), node 46 (was 45).
 
 ### What was not done and why
-- **Parsers (step 4), mapping screen (step 5), unrecognised → inbox (step 6)**: by the owner's
-  instruction — there are no real texts yet, and parsers are written only against captures.
-- **No deduplication between Samsung Wallet and the bank**, on purpose: capture must show the real
-  pattern first. The plan and next-steps say Phase 6/7 has to pick one source per purchase.
-- **The Gradle build was never run**: dl.google.com (Android SDK, Google's Maven artifacts) is
-  blocked here. The Android classes were compiled with `javac` against Robolectric's `android-all`
-  (API 36) and Capacitor 8.5.3's `classes.jar`, with stubs for three androidx methods
-  (`NotificationManagerCompat.getEnabledListenerPackages`, `FileProvider.getUriForFile`,
-  `PackageInfoCompat.getLongVersionCode`). Manifest, debug resource override and the
-  `buildTypes.debug` block are first exercised by CI. If the `apk` job fails, look there first.
-- **Phone check**: needs the merge and the phone (below).
-- **`DEPLOY.md`** does not mention `financas-debug.apk`: another session owns it.
-- With capture off, the listener stores nothing (no parser would read it). Once parsers exist it
-  must feed them regardless of the switch — written into step 4 of the plan.
+- **The prompt itself** — superseded by the owner's second message (do the check now).
+- **No live check against the owner's data**: it is on the home server, unreachable from here.
+  After the deploy the owner should open IR 2025 again (next-steps, "Investments check").
+- Decisions left to the owner, in next-steps: brapi at 1 ticker per request (credits), the ETF
+  Bens code 07.09 (2022 source), units as ações, the isentos line 18 for bonificações.
+- Foreign assets and "outros" keep the per-sale 15% estimate; fixed-income ETFs show 15% though
+  the withheld rate depends on the fund's term.
+- No native change: no APK, no native-level bump. The screens reach the phone as a bundle — but
+  the phone still has APK 10011 (level 1) and the server's screens need level 2 since Phase 6, so
+  the new screens arrive only after APK 10013 is installed.
 
-### Next — the owner, before the next coding session
-1. Merge the branch to `main`. CI runs tests, the image, and the `apk` job (release + test APK).
-2. Real app: "Nova versão disponível" → install. Ajustes › Notificações dos bancos → "Abrir acesso
-   às notificações" → turn Finanças on. If Android says "Configuração restrita", follow the steps
-   on that screen (this APK was installed by the app itself, which may count as sideloaded).
-3. Test APK, from the PC on the tailnet:
-   `curl -fLO https://guilhermeserver.tail5084ff.ts.net/apk/financas-debug.apk` then
-   `adb install -r financas-debug.apk`. Open "Finanças debug", log in, grant it access, capture
-   on, run the adb command shown on its screen. Done when the notification shows under "Teste
-   (adb)" in the test app — and **not** in the real app. Export once to see the share sheet. If it
-   never shows: `adb logcat -s FinancasNotify` prints the package it arrived from. Then
-   `adb uninstall br.financas.app.debug` (it would otherwise capture bank texts too).
-4. Real app, capture **on** for about a week of real purchases: Samsung Pay on each card (Itaú,
-   BB, BTG), a debit purchase, Pix sent and received, an estorno, a declined purchase if one
-   happens. Set the app's battery use to "Sem restrições" if the counts stall.
-5. "Exportar JSON" and bring the file to the next session. **Decide first** whether parser test
-   fixtures may go into the repo verbatim (merchant names, amounts, card final digits) or masked.
-
-### Next — the coding session after that
-- Phase 6 step 4 against the export: one parser per app, Samsung Wallet included; read which app
-  notifies first in a Samsung Pay purchase and how far apart, and write the pairing rule (one
-  source per purchase). Check whether any bank updates a notification (same key, new posted time).
-- Then steps 5–6 and Phase 7.
+### Carried from the previous session (Phase 6, still open)
+1. Phone: "Nova versão disponível" → install APK 10013; Ajustes › Notificações dos bancos → grant
+   access ("Configuração restrita" steps are on the screen).
+2. Test APK from the PC: `curl -fLO https://guilhermeserver.tail5084ff.ts.net/apk/financas-debug.apk`,
+   `adb install -r financas-debug.apk`, grant access, capture on, run the adb command on its
+   screen; the notification must show under "Teste (adb)" there and not in the real app. Then
+   `adb uninstall br.financas.app.debug`.
+3. Capture on in the real app for about a week (Samsung Pay on each card, debit, Pix both ways,
+   estorno, a declined purchase), then "Exportar JSON". Decide first whether fixtures may go into
+   the repo verbatim. Next coding session: Phase 6 step 4 against that export, with the
+   one-source-per-purchase rule (Samsung Wallet + bank).
 
 ### Carried from earlier sessions (still open)
 - After 2026-10-19, check the first workflow run on Ubuntu 26 is green.
 - Mobile Phase 5's last phone checks (app swiped away + offline), against the server.
-- The remaining self-update cases (offline queue across a switch, a native-level bump — this
-  merge is one: an APK below level 2 keeps its screens and is offered the new APK — and the 30 s
-  fallback).
-- The rclone backup, if the owner wants help with it.
+- The remaining self-update cases (offline queue across a switch, the native-level bump of
+  `e340d1c`, the 30 s fallback). The rclone backup, if the owner wants help.
 - Walk-through of Extrato → Investimentos and Proventos → Atualizar, on the server.
 - Nothing enforces the native-level bump: it is a rule in CLAUDE.md.
 
 ### Learned
-- From the cloud container: dl.google.com and play.google.com are blocked, and maven.google.com
-  redirects to dl.google.com, so no Android SDK and no androidx AARs. Maven Central works:
-  `org.robolectric:android-all:16-robolectric-13921718` (the framework, ~190 MB) and
-  `com.capacitorjs:core:8.5.3` are enough for a `javac` compile check.
-- Android stamps a new posted time on every enqueue, so a notification the bank *updates* gets a
-  new `dedup_key`. Capture keeps `Notification.when` too, in case Phase 7's id needs it instead.
-- `cmd notification post` takes the package from the caller's uid: `com.android.shell` from
-  `adb shell` on a stock build. The debug build logs refused package names in case One UI differs.
-- The APK published by a dispatch already contains the newest screens, so test a screen-only
-  update *before* installing a new APK, or the APK hides it.
-- A workflow-only push skips the `apk` job; use `gh workflow run deploy.yml -f apk=true`.
+- The seed (`seed_three_years_mock.py`) and the API store a sale with the **sale price** in the
+  price column; the screen stores the position's average there. Any cost read from that column
+  was wrong for one of them — hence the server-side average cost.
+- A full-page screenshot scaled down can turn "0,00" into "0.00": read the cell text before
+  calling it a formatting bug.
+- From the cloud container: gov.br, planalto, Receita's normas site, Play Store and dl.google.com
+  are blocked (WebFetch fails to resolve them too); WebSearch works for citations.
 - `pytest -q` here prints no summary line; `-o addopts=""` brings back "N passed".

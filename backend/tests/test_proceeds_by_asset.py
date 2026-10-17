@@ -222,8 +222,9 @@ def test_portfolio_carries_proceeds_per_asset(user, portfolio_module, two_assets
 
 
 def test_total_return_with_partial_sale_and_proceeds(client, auth, user, portfolio_module):
-    # Compra 100 a R$ 10 (R$ 1.000), vende 40 a R$ 15 (custo FIFO 400, lucro 200,
-    # IR estimado 30 -> 170 liquido), recebe R$ 1 por cota nas 60 restantes.
+    # Compra 100 a R$ 10 (R$ 1.000), vende 40 a R$ 15 (custo medio 400, lucro
+    # 200; vendas de R$ 600 no mes: isento, IR 0), recebe R$ 1 por cota nas 60
+    # restantes.
     petr = trade(client, auth, "PETR4", 100, 10.0, days(-200))
     trade(client, auth, "PETR4", -40, 15.0, days(-100))
     provento(client, auth, petr, days(-20), per_unit=1.0)
@@ -232,10 +233,12 @@ def test_total_return_with_partial_sale_and_proceeds(client, auth, user, portfol
     assert asset["quantity"] == 60
     assert asset["net_value"] == 900.0
     assert asset["proceeds_net"] == 60.0
-    # Preco so, sobre o total_invested de sempre (1.000 - 600 vendidos): intacto.
-    assert asset["profitability_percent"] == 125.0
-    # (900 - 600 de custo atual + 60 + 170) / (600 + 400 vendidos) = 53%.
-    assert asset["total_return_percent"] == 53.0
+    # Preco so, sobre o custo das 60 que ficaram (60 x 10 = 600). Antes a venda
+    # descontava o valor vendido (1.000 - 600 = 400) e dava 125%.
+    assert asset["total_invested"] == 600.0
+    assert asset["profitability_percent"] == 50.0
+    # (900 - 600 de custo atual + 60 + 200) / (600 + 400 vendidos) = 56%.
+    assert asset["total_return_percent"] == 56.0
     assert asset["dividend_yield_12m"] == 6.67  # 60 / 900
 
 

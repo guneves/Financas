@@ -436,7 +436,11 @@ export default function InvestmentLaunchModal({
         ) : null}
 
         {mode === 'SELL' && selectedSaleAsset?.class === 'STOCKS' ? (
-          <SaleExemptionNotice date={form.transaction_date} amount={quantity * unitPrice} />
+          <SaleExemptionNotice
+            date={form.transaction_date}
+            amount={quantity * unitPrice}
+            ticker={selectedSaleAsset.ticker || selectedSaleAsset.name}
+          />
         ) : null}
 
         <CashLinkField

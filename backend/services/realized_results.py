@@ -1,8 +1,9 @@
-"""Resultado realizado: custo FIFO, aliquotas e o imposto estimado.
+"""Resultado realizado: custo medio, aliquotas e o imposto estimado.
 
 `build_realized_results()` reconstroi, a partir das movimentacoes, o resultado
-de cada venda (lotes FIFO, `build_variable_realized_result()`) e de cada
-resgate de renda fixa (tabela regressiva pelos dias aplicados,
+de cada venda (custo medio ponderado da hora, `build_variable_realized_result()`
+— a regra da Receita, ver `apply_average_cost()` em services/investments.py) e
+de cada resgate de renda fixa (tabela regressiva pelos dias aplicados,
 `build_fixed_income_realized_result()`). `refresh_realized_results()` regrava
 a tabela `investment_realized_results` inteira do usuario — ela e derivada,
 nunca editada a mao.
@@ -13,7 +14,9 @@ import math
 from dates import parse_iso_date
 from db import encode_metadata, get_db, row_to_dict
 from money import rounded_money
+from services import market_listing
 from services.fixed_income import fixed_income_is_tax_free
+from services.fx import BASE_CURRENCY, normalize_currency
 from services.investments import (
     fetch_investments,
     investment_fee_amount,
@@ -22,6 +25,7 @@ from services.investments import (
     investment_operation_date,
     movement_sort_key,
 )
+from services.variable_income_tax import BUCKET_BY_TAX_KIND, monthly_apuration
 from validators import safe_float
 
 
@@ -116,94 +120,36 @@ def realized_result_record(investment, *, quantity, gross_proceeds, fees, cost_b
     }
 
 
-def allocation_tax_amount(asset_class, movement_metadata, allocation, profit):
-    rate = realized_tax_rate(
-        asset_class,
-        movement_metadata,
-        allocation.get("holding_days"),
-    )
-    return max(profit, 0) * rate, rate
+def build_variable_realized_result(investment):
+    """Resultado de uma venda pelo custo medio ponderado da hora.
 
-
-def build_variable_realized_result(investment, lots):
+    `investment` vem de `fetch_investments()`, que ja traz `average_cost` (o
+    custo medio por cota no momento da venda). O imposto aqui e o da venda
+    sozinha; `refresh_realized_results()` troca o de acoes, ETFs, BDRs e FIIs
+    pela parte da venda no imposto do mes (isencao e prejuizo acumulado).
+    """
     metadata = investment.get("metadata") or {}
     asset_class = investment.get("asset_class")
-    operation_date = investment_operation_date(investment)
     sold_quantity = abs(safe_float(investment.get("quantity")))
     fees = max(safe_float(investment.get("fee_amount"), investment_fee_amount(metadata)), 0)
     gross_proceeds = investment_gross_proceeds(investment, metadata)
     gross_unit_price = gross_proceeds / sold_quantity if sold_quantity > 0 else 0
-
-    remaining = sold_quantity
-    allocations = []
-    cost_basis = 0
-    index = 0
-
-    while remaining > 0.000001 and index < len(lots):
-        lot = lots[index]
-        lot_quantity = safe_float(lot.get("remaining_quantity"))
-        if lot_quantity <= 0.000001:
-            lots.pop(index)
-            continue
-
-        consumed_quantity = min(remaining, lot_quantity)
-        allocation_cost = consumed_quantity * safe_float(lot.get("unit_cost"))
-        holding_days = days_between_dates(lot.get("purchase_date"), operation_date)
-        allocations.append({
-            "buy_transaction_id": lot.get("transaction_id"),
-            "purchase_date": lot.get("purchase_date"),
-            "quantity": round(consumed_quantity, 6),
-            "unit_cost": rounded_money(lot.get("unit_cost")),
-            "cost_basis": rounded_money(allocation_cost),
-            "holding_days": holding_days,
-        })
-        cost_basis += allocation_cost
-        lot["remaining_quantity"] = lot_quantity - consumed_quantity
-        remaining -= consumed_quantity
-
-        if lot["remaining_quantity"] <= 0.000001:
-            lots.pop(index)
-        else:
-            index += 1
-
-    if remaining > 0.000001:
-        fallback_unit_cost = safe_float(investment.get("average_price"))
-        fallback_cost = remaining * fallback_unit_cost
-        allocations.append({
-            "buy_transaction_id": None,
-            "purchase_date": None,
-            "quantity": round(remaining, 6),
-            "unit_cost": rounded_money(fallback_unit_cost),
-            "cost_basis": rounded_money(fallback_cost),
-            "holding_days": None,
-            "unmatched": True,
-        })
-        cost_basis += fallback_cost
-
-    tax_amount = 0
-    taxable_profit = 0
-    for allocation in allocations:
-        allocation_quantity = safe_float(allocation.get("quantity"))
-        fee_share = fees * (allocation_quantity / sold_quantity) if sold_quantity > 0 else 0
-        allocation_gross = allocation_quantity * gross_unit_price
-        allocation_net = max(allocation_gross - fee_share, 0)
-        allocation_profit = allocation_net - safe_float(allocation.get("cost_basis"))
-        allocation_tax, allocation_rate = allocation_tax_amount(
-            asset_class,
-            metadata,
-            allocation,
-            allocation_profit,
-        )
-        tax_amount += allocation_tax
-        taxable_profit += max(allocation_profit, 0)
-        allocation["gross_proceeds"] = rounded_money(allocation_gross)
-        allocation["fee_amount"] = rounded_money(fee_share)
-        allocation["net_proceeds"] = rounded_money(allocation_net)
-        allocation["realized_profit"] = rounded_money(allocation_profit)
-        allocation["tax_rate"] = round(allocation_rate, 6)
-        allocation["tax_amount"] = rounded_money(allocation_tax)
-
-    effective_tax_rate = tax_amount / taxable_profit if taxable_profit > 0 else realized_tax_rate(asset_class, metadata)
+    average_cost = safe_float(investment.get("average_cost"), safe_float(investment.get("average_price")))
+    cost_basis = sold_quantity * average_cost
+    profit = max(gross_proceeds - fees, 0) - cost_basis
+    tax_rate = realized_tax_rate(asset_class, metadata)
+    tax_amount = max(profit, 0) * tax_rate
+    allocation = {
+        "quantity": round(sold_quantity, 6),
+        "unit_cost": rounded_money(average_cost),
+        "cost_basis": rounded_money(cost_basis),
+        "gross_proceeds": rounded_money(gross_proceeds),
+        "fee_amount": rounded_money(fees),
+        "net_proceeds": rounded_money(max(gross_proceeds - fees, 0)),
+        "realized_profit": rounded_money(profit),
+        "tax_rate": round(tax_rate, 6),
+        "tax_amount": rounded_money(tax_amount),
+    }
     return realized_result_record(
         investment,
         quantity=sold_quantity,
@@ -211,14 +157,13 @@ def build_variable_realized_result(investment, lots):
         fees=fees,
         cost_basis=cost_basis,
         tax_amount=tax_amount,
-        tax_rate=effective_tax_rate,
+        tax_rate=tax_rate,
         metadata={
-            "cost_method": "FIFO",
+            "cost_method": "AVERAGE",
             "tax_method": "estimativa_simples",
             "tax_note": "Estimativa operacional. Valide regras fiscais e isencoes antes da declaracao oficial.",
             "gross_unit_price": rounded_money(gross_unit_price),
-            "unmatched_quantity": round(max(remaining, 0), 6),
-            "allocations": allocations,
+            "allocations": [allocation],
         },
     )
 
@@ -273,15 +218,68 @@ def build_fixed_income_realized_result(investment, investments_by_id):
     )
 
 
+MONTHLY_TAX_NOTE = (
+    "Parte desta venda no IR do mes: a mesma apuracao da aba IR (isencao de vendas de acoes "
+    "ate R$ 20 mil, prejuizo acumulado, ETF e BDR sem isencao, FII a 20%)."
+)
+
+
+def apply_monthly_tax(results, investments_by_id):
+    """Troca o imposto de cada venda de acao, ETF, BDR e FII em reais pela parte
+    dela no imposto do mes (services/variable_income_tax.py).
+
+    Sem isso a lista de Operacoes cobrava 15% de uma venda isenta e taxava um
+    lote com lucro dentro de uma venda com prejuizo. ETF de renda fixa, ativo
+    no exterior e "outros" ficam com a estimativa da propria venda.
+    """
+    sales = []
+    for result in results:
+        if result["movement_type"] != "SELL":
+            continue
+        investment = investments_by_id.get(str(result["source_transaction_id"])) or {}
+        if normalize_currency(investment.get("asset_currency")) != BASE_CURRENCY:
+            continue
+        kind = market_listing.tax_kind(investment.get("ticker_or_name"), investment.get("asset_class"))
+        bucket = BUCKET_BY_TAX_KIND.get(kind)
+        if not bucket:
+            continue
+        sales.append({
+            "id": result["source_transaction_id"],
+            "month": str(result["operation_date"])[:7],
+            "bucket": bucket,
+            "gross": result["gross_proceeds"],
+            "result": result["realized_profit"],
+        })
+    tax_by_sale = monthly_apuration(sales)["tax_by_sale"]
+    for result in results:
+        tax = tax_by_sale.get(result["source_transaction_id"])
+        if tax is None:
+            continue
+        profit = result["realized_profit"]
+        rate = round(tax / profit, 6) if profit > 0 else 0.0
+        result["tax_amount"] = rounded_money(tax)
+        result["tax_rate"] = rate
+        result["net_profit_after_tax"] = rounded_money(profit - tax)
+        allocations = [
+            {**allocation, "tax_amount": rounded_money(tax), "tax_rate": rate}
+            for allocation in result["metadata"].get("allocations") or []
+        ]
+        result["metadata"] = {
+            **result["metadata"],
+            "tax_method": "apuracao_mensal",
+            "tax_note": MONTHLY_TAX_NOTE,
+            "allocations": allocations,
+        }
+    return results
+
+
 def build_realized_results(current_user_id):
     investments = sorted(fetch_investments(current_user_id), key=movement_sort_key)
     investments_by_id = {str(item.get("id")): item for item in investments}
-    lots_by_asset = {}
     results = []
 
     for investment in investments:
-        asset_id = investment.get("asset_id")
-        if not asset_id:
+        if not investment.get("asset_id"):
             continue
 
         metadata = investment.get("metadata") or {}
@@ -290,26 +288,15 @@ def build_realized_results(current_user_id):
             metadata,
         )
         quantity = safe_float(investment.get("quantity"))
-        asset_lots = lots_by_asset.setdefault(asset_id, [])
-
-        if movement_type == "BUY" and quantity > 0:
-            asset_lots.append({
-                "transaction_id": investment.get("id"),
-                "purchase_date": investment_operation_date(investment),
-                "remaining_quantity": quantity,
-                "unit_cost": safe_float(investment.get("average_price")),
-                "metadata": metadata,
-            })
-            continue
 
         if movement_type == "SELL" and quantity < 0:
-            results.append(build_variable_realized_result(investment, asset_lots))
+            results.append(build_variable_realized_result(investment))
             continue
 
         if movement_type == "REDEMPTION":
             results.append(build_fixed_income_realized_result(investment, investments_by_id))
 
-    return results
+    return apply_monthly_tax(results, investments_by_id)
 
 
 def replace_realized_results(current_user_id, results):

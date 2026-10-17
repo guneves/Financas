@@ -99,7 +99,7 @@ class TestPure:
         assert partial["available"] is True
         assert partial["months_covered"] == 1
         assert partial["difference_pp"] is None
-        assert "ainda nao divulgado" in partial["note"]
+        assert "ainda não divulgado" in partial["note"]
 
 
 # --- rota -------------------------------------------------------------------------
@@ -218,7 +218,7 @@ class TestEndpoint:
         assert ipca["months_covered"] == 2
         assert ipca["complete"] is False
         assert ipca["period_percent"] == pytest.approx(round((1.005 ** 2 - 1) * 100, 2))
-        assert "ainda nao divulgado" in ipca["note"]
+        assert "ainda não divulgado" in ipca["note"]
 
     def test_an_index_without_history_is_unavailable_with_a_note(self, client, auth, network):
         buy_petr4(client, auth)
@@ -227,7 +227,7 @@ class TestEndpoint:
         # IDIV: nenhum provedor devolveu nada.
         assert items["IDIV"]["available"] is False
         assert items["IDIV"]["period_percent"] is None
-        assert "Sem cotacao do IDIV" in items["IDIV"]["note"]
+        assert "Sem cotação do IDIV" in items["IDIV"]["note"]
         assert all(item["benchmarks"]["IDIV"]["accumulated_percent"] is None for item in body["series"])
         # IFIX: so o fechamento de hoje, guardado; sem o mes anterior nao ha retorno.
         assert items["IFIX"]["available"] is False
@@ -241,7 +241,7 @@ class TestEndpoint:
         # A carteira (10 -> 11 -> 12 -> 12) continua calculada.
         assert body["twr_percent"] == pytest.approx(20.0, abs=0.01)
         assert all(item["available"] is False for item in body["benchmarks"])
-        assert by_code(body)["IPCA"]["note"] == "O BCB nao respondeu o IPCA."
+        assert by_code(body)["IPCA"]["note"] == "O BCB não respondeu o IPCA."
         status = importlib.import_module("integrations").provider_snapshot("yfinance")
         assert status.get("consecutive_failures", 0) >= 1
 

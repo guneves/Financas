@@ -6,7 +6,7 @@ O que estes testes fixam:
   prejuizo); acima disso, 15% sobre o ganho menos o prejuizo acumulado;
 - FII: 20%, sem isencao, com prejuizo proprio;
 - DARF abaixo de R$ 10 acumula para o mes seguinte;
-- Bens e Direitos: custo FIFO em 31/12 do ano e do ano anterior, com codigo;
+- Bens e Direitos: custo medio em 31/12 do ano e do ano anterior, com codigo;
 - dividendos isentos, JCP em tributacao exclusiva com o IR retido;
 - exterior: 15% sobre o resultado do ano;
 - a exportacao sai com uma aba por secao, e nada de outro usuario entra.
@@ -121,18 +121,19 @@ def test_small_darf_rolls_to_the_next_month(client, auth):
     assert month(body, "2025-03")["darf"] == 10
 
 
-def test_bens_e_direitos_uses_fifo_cost_at_year_end(client, auth):
+def test_bens_e_direitos_uses_the_average_cost_at_year_end(client, auth):
     trade(client, auth, "PETR4", 100, 10.0, "2024-06-10")
     trade(client, auth, "PETR4", 100, 20.0, "2025-03-10")
-    trade(client, auth, "PETR4", -150, 30.0, "2025-08-10")   # FIFO: sai os 100 a 10 e 50 a 20
+    trade(client, auth, "PETR4", -150, 30.0, "2025-08-10")   # custo medio 15: ficam 50 a 15
     trade(client, auth, "HGLG11", 10, 100.0, "2025-01-10", asset_class="REIT")
     body = report(client, auth)
 
     petr = next(item for item in body["bens_e_direitos"] if item["ticker"] == "PETR4")
     assert (petr["group"], petr["code"]) == ("03", "01")
     assert petr["quantity_previous"] == 100 and petr["cost_previous"] == 1000
-    assert petr["quantity"] == 50 and petr["cost"] == 1000
-    assert "Custo de aquisição em 31/12/2025: R$ 1.000,00" in petr["description"]
+    # FIFO dava 1.000 (as 50 da compra a 20); a Receita quer o custo medio.
+    assert petr["quantity"] == 50 and petr["cost"] == 750
+    assert "Custo de aquisição em 31/12/2025: R$ 750,00" in petr["description"]
     fii = next(item for item in body["bens_e_direitos"] if item["ticker"] == "HGLG11")
     assert (fii["group"], fii["code"]) == ("07", "03")
 

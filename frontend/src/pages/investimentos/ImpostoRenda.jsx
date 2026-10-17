@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Copy, Download, FileText } from 'lucide-react'
 import { taxReportApi } from '../../lib/dataApi'
-import { formatCurrency, monthKey } from '../../lib/format'
+import { formatCurrency, formatDateBR, monthKey } from '../../lib/format'
 import { usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
@@ -41,7 +41,10 @@ export default function ImpostoRenda() {
   const years = report?.available_years?.length ? report.available_years : [year]
   const yearOptions = [...new Set([year, ...years, new Date().getFullYear()])].sort((a, b) => b - a)
   const months = report?.renda_variavel?.months || []
-  const activeMonths = months.filter((item) => item.stocks.sales || item.reits.sales || item.darf || item.darf_carried)
+  const activeMonths = months.filter((item) => item.stocks.sales || item.etfs?.sales || item.reits.sales || item.darf || item.darf_carried)
+  // ETF e BDR sao operacoes comuns sem isencao: a coluna so aparece quando houve venda.
+  const hasEtfs = months.some((item) => item.etfs?.sales)
+  const fixedIncomeEtfs = report?.renda_variavel?.fixed_income_etfs || []
 
   const handleExport = async () => {
     setExporting(true)
@@ -124,7 +127,7 @@ export default function ImpostoRenda() {
           <Panel className="overflow-clip">
             <PanelHeader
               title="Renda variável"
-              description="Ações: vendas de até R$ 20 mil no mês são isentas; acima, 15% sobre o ganho menos o prejuízo acumulado. FII: 20%, sem isenção. DARF abaixo de R$ 10 acumula."
+              description="Ações: vendas de até R$ 20 mil no mês são isentas; acima, 15% sobre o ganho menos o prejuízo acumulado. ETFs e BDRs: 15% sobre todo ganho, sem isenção, no mesmo saldo de prejuízo. FII: 20%, sem isenção. DARF abaixo de R$ 10 acumula."
               actions={<Badge tone={report.renda_variavel.totals.tax_due ? 'warning' : 'neutral'}>DARF no ano {formatCurrency(report.renda_variavel.totals.tax_due)}</Badge>}
             />
             {activeMonths.length ? (
@@ -134,6 +137,7 @@ export default function ImpostoRenda() {
                     <th className="px-5 py-2 font-medium">Mês</th>
                     <th className="num px-3 py-2 font-medium">Vendas ações</th>
                     <th className="num px-3 py-2 font-medium">Resultado ações</th>
+                    {hasEtfs ? <th className="num px-3 py-2 font-medium">ETFs e BDRs</th> : null}
                     <th className="num px-3 py-2 font-medium">Resultado FII</th>
                     <th className="num px-3 py-2 font-medium">Prejuízo usado</th>
                     <th className="num px-5 py-2 font-medium">DARF</th>
@@ -148,6 +152,7 @@ export default function ImpostoRenda() {
                       </td>
                       <td className="num px-3 py-2">{formatCurrency(item.stocks.sales)}</td>
                       <td className="num px-3 py-2">{formatCurrency(item.stocks.result)}</td>
+                      {hasEtfs ? <td className="num px-3 py-2">{formatCurrency(item.etfs?.result)}</td> : null}
                       <td className="num px-3 py-2">{formatCurrency(item.reits.result)}</td>
                       <td className="num px-3 py-2">{formatCurrency(item.stocks.loss_used + item.reits.loss_used)}</td>
                       <td className="num px-5 py-2 font-semibold">
@@ -161,8 +166,14 @@ export default function ImpostoRenda() {
               <div className="p-5"><EmptyState icon={FileText} title="Nenhuma venda no ano" message="Sem venda de ações ou FII, não há apuração mensal." className="min-h-32" /></div>
             )}
             <p className="border-t border-zinc-100 px-5 py-3 text-xs text-zinc-500">
-              Prejuízo a compensar ao fim de {year}: ações {formatCurrency(report.renda_variavel.totals.stock_loss_balance)} · FII {formatCurrency(report.renda_variavel.totals.reit_loss_balance)}.
+              Prejuízo a compensar ao fim de {year}: ações{hasEtfs ? ', ETFs e BDRs' : ''} {formatCurrency(report.renda_variavel.totals.stock_loss_balance)} · FII {formatCurrency(report.renda_variavel.totals.reit_loss_balance)}.
             </p>
+            {fixedIncomeEtfs.length ? (
+              <p className="border-t border-zinc-100 px-5 py-3 text-xs text-zinc-500">
+                ETF de renda fixa, fora do DARF (o IR é retido na fonte pelo administrador):{' '}
+                {fixedIncomeEtfs.map((item) => `${item.ticker} em ${formatDateBR(item.date)}, resultado ${formatCurrency(item.result)}`).join(' · ')}.
+              </p>
+            ) : null}
           </Panel>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -171,8 +182,8 @@ export default function ImpostoRenda() {
               <IncomeList items={report.rendimentos_isentos.map((item) => ({ line: item.line, value: item.amount }))} />
             </Panel>
             <Panel>
-              <PanelHeader title="Tributação exclusiva" description="Já tributados na fonte: informe o bruto e o IR retido." />
-              <IncomeList items={report.tributacao_exclusiva.map((item) => ({ line: item.line, value: item.gross, withheld: item.withheld }))} />
+              <PanelHeader title="Tributação exclusiva" description="Já tributados na fonte: declare o valor líquido (bruto menos o IR retido), como no informe de rendimentos." />
+              <IncomeList items={report.tributacao_exclusiva.map((item) => ({ line: item.line, value: item.gross - item.withheld, gross: item.gross, withheld: item.withheld }))} />
             </Panel>
           </div>
 
@@ -276,7 +287,7 @@ function IncomeList({ items }) {
           <span className="text-zinc-700">{item.line}</span>
           <span className="num text-right">
             <span className="font-semibold text-zinc-950">{formatCurrency(item.value)}</span>
-            {item.withheld !== undefined ? <span className="block text-xs text-zinc-500">IR retido {formatCurrency(item.withheld)}</span> : null}
+            {item.withheld !== undefined ? <span className="block text-xs text-zinc-500">bruto {formatCurrency(item.gross)} · IR retido {formatCurrency(item.withheld)}</span> : null}
           </span>
         </li>
       ))}

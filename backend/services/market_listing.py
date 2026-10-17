@@ -79,6 +79,14 @@ def lookup(ticker):
     return market_catalog.lookup(ticker, extra=live_listing())
 
 
+def tax_kind(ticker, asset_class):
+    """O tipo do papel para o IR (`market_catalog.tax_kind`). So vai a rede para
+    um papel da classe Acoes que o catalogo fixo nao conhece (um ETF fora dele)."""
+    if asset_class == "STOCKS" and market_catalog.lookup(ticker) is None:
+        return market_catalog.tax_kind(ticker, asset_class, extra=live_listing())
+    return market_catalog.tax_kind(ticker, asset_class)
+
+
 def search(query="", asset_class=None, kind=None, limit=20):
     return market_catalog.search(
         query=query, asset_class=asset_class, kind=kind, limit=limit, extra=live_listing()

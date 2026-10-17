@@ -335,6 +335,55 @@ def is_known(ticker, extra=None):
     return lookup(ticker, extra) is not None
 
 
+# --- Tipo para o IR ---------------------------------------------------------
+#
+# ETFs e BDRs ficam na classe "Acoes" da carteira, mas o IR deles nao e o das
+# acoes: a isencao de vendas ate R$ 20 mil no mes vale so para acoes no mercado
+# a vista (Lei 11.033/2004, art. 3o, I). ETF de renda variavel e BDR pagam 15%
+# sobre todo ganho e compensam prejuizo com acoes. ETF de renda fixa tem o IR
+# retido na fonte pelo administrador (Lei 13.043/2014) e o prejuizo dele nao
+# compensa ganho de renda variavel: fica fora do DARF mensal.
+
+TAX_ACAO = "ACAO"
+TAX_ETF = "ETF"
+TAX_BDR = "BDR"
+TAX_ETF_RF = "ETF_RF"
+TAX_FII = "FII"
+
+# A listagem da brapi nao separa ETF de renda fixa do de acoes: os conhecidos
+# ficam aqui. Um ETF de renda fixa fora da lista sai como ETF de acoes (15%,
+# sem isencao) — acrescente o ticker.
+FIXED_INCOME_ETFS = frozenset({
+    "IMAB11", "IB5M11", "B5P211", "IRFM11", "FIXA11", "DEBB11",
+    "LFTB11", "LFTS11", "B5MB11", "IMBB11",
+})
+
+# Final do ticker de BDR na B3 (32/33 niveis II e III, 34/35 nivel I, 39 BDR de ETF).
+BDR_SUFFIXES = ("32", "33", "34", "35", "39")
+
+
+def tax_kind(ticker, asset_class, extra=None):
+    """O tipo do papel para o IR: ACAO, ETF, BDR, ETF_RF, FII, ou None (outras classes).
+
+    Classe "Acoes" sem entrada no catalogo conta como acao (as posicoes antigas
+    sao acoes), salvo o final de BDR.
+    """
+    if asset_class == "REIT":
+        return TAX_FII
+    if asset_class != "STOCKS":
+        return None
+    symbol = normalize_ticker(ticker)
+    if symbol in FIXED_INCOME_ETFS:
+        return TAX_ETF_RF
+    entry = lookup(symbol, extra)
+    kind = entry["kind"] if entry else None
+    if kind in (TAX_ETF, TAX_BDR):
+        return kind
+    if kind is None and len(symbol) >= 5 and symbol[-2:] in BDR_SUFFIXES:
+        return TAX_BDR
+    return TAX_ACAO
+
+
 def _name_key(name):
     return str(name or "").strip().upper()
 

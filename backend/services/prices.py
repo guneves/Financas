@@ -312,6 +312,14 @@ def download_brapi_prices(tickers):
     try:
         prices = brapi_client.get_market_prices(tickers)
     except brapi_client.BrapiError as exc:
+        if brapi_client.QUOTES_PER_REQUEST_EXCEEDED in str(exc):
+            # Nao e a brapi fora do ar: o plano aceita menos tickers por consulta.
+            exc = brapi_client.BrapiError(
+                f"O plano da brapi aceita menos tickers por consulta que os "
+                f"{brapi_client.MAX_SYMBOLS_PER_REQUEST} enviados: defina "
+                "BRAPI_MAX_SYMBOLS_PER_REQUEST=1 no .env (um crédito por ticker). "
+                "Até lá, as cotações vêm do yfinance."
+            )
         logger.exception(f"Erro ao consultar cotacoes na brapi: {exc}")
         record_provider_result("brapi", False, exc)
         return {}

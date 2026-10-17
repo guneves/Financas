@@ -172,7 +172,7 @@ def export_portfolio(current_user_id):
 
 def movement_export_item(investment):
     """Uma operacao como a tela Operacoes mostra: preco de venda/resgate na
-    venda, bruto = quantidade x preco, custos, e o resultado realizado (FIFO)."""
+    venda, bruto = quantidade x preco, custos, e o resultado realizado (custo medio)."""
     metadata = investment.get("metadata") or {}
     movement_type = investment_movement_type(investment.get("quantity"), metadata)
     quantity = abs(float(investment.get("quantity") or 0))
@@ -1080,7 +1080,8 @@ def tax_exemption(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     planned_sale = safe_float(request.args.get("planned_sale"), 0.0)
-    return jsonify(exemption_meter(current_user_id, month, planned_sale)), 200
+    ticker = (request.args.get("ticker") or "").strip() or None
+    return jsonify(exemption_meter(current_user_id, month, planned_sale, ticker)), 200
 
 
 @bp.route("/api/tax-report/export", methods=["GET"])
@@ -1095,7 +1096,14 @@ def tax_report_export(current_user_id):
     income = (
         [{"section": "Rendimentos isentos", **item} for item in report["rendimentos_isentos"]]
         + [
-            {"section": "Tributação exclusiva", "line": item["line"], "amount": item["gross"], "withheld": item["withheld"]}
+            # Declara-se o liquido (codigos 06 e 10); bruto e IR retido ficam para conferir.
+            {
+                "section": "Tributação exclusiva",
+                "line": item["line"],
+                "amount": rounded_money(item["gross"] - item["withheld"]),
+                "gross": item["gross"],
+                "withheld": item["withheld"],
+            }
             for item in report["tributacao_exclusiva"]
         ]
     )

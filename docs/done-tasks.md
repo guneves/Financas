@@ -111,6 +111,7 @@
 | APK updates from CI (option 2): `apk` job in `deploy.yml` (native changes only, `android-release` environment, key decoded to the runner and deleted, certificate checked against `mobile/release-cert-sha256.txt`, `versionCode = 10000 + run number`), APK + `version.json` copied to `/srv/apps/financas/apk` and served at `/apk/` by `tailscale serve`; native `AppUpdate` plugin (download, SHA-256/package/versionCode check, Android installer, "install unknown apps" once); "Nova versão disponível" banner and in Ajustes; bundle native level is now a minimum; "Verificar atualizações" / "Reiniciar agora". Phone check open (next-steps) | 2026-10-17 |
 | Self-update checked on the phone: first CI APK (10009) installed over the USB build by `adb install -r` (same key, data kept); a screen-only push (`79d111c`, bundle `adaeed3`) reached the phone by "Verificar atualizações" → "Reiniciar agora"; APK 10011 offered as "Nova versão disponível" and installed from the app, data kept. CI APK job fixed: build-tools 37 prints `V2 Signer: …`, the certificate check now reads either format | 2026-10-17 |
 | Phase 6, first half: native bank-notification listener (`android/.../notify/`, Java): allow-list of Samsung Wallet, Itaú, Itaú Cartões, BB, Ourocard and BTG Banking (`NotifyRules`, JVM tests incl. manifest `<queries>` parity), capture mode off by default writing each notification word for word (title, text, bigText, every textual extra, posted time, key) to `financas_notify.db`, dedup key = SHA-256 of package+key+posted time; Ajustes › Notificações dos bancos (access, restricted-settings steps, capture switch, counts per app, last 20, export JSON/text via share sheet, delete); debug build = package `br.financas.app.debug` accepting `com.android.shell`, built and published by CI as `/apk/financas-debug.apk`; native level 2. Parsers and mapping screen deliberately not built; phone check open (next-steps) | 2026-10-17 |
+| Investments check, errors fixed: weighted average cost instead of FIFO (realized result, Bens e Direitos) and one cost for Posição and the evolution whatever price a SELL row stores; ETFs/BDRs without the R$ 20 mil exemption (15%, same loss pool), fixed-income ETFs out of the DARF, ETF/BDR Bens codes; per-sale IR = the sale's share of the month's tax (an exempt sale showed IR in Operações); tributação exclusiva at the net value on the IR tab and in the export; proventos cost no longer counts buy fees twice; Posição quantities in pt-BR; Rentabilidade notes with accents; brapi batch size configurable (`BRAPI_MAX_SYMBOLS_PER_REQUEST`) | 2026-10-17 |
 
 ---
 
@@ -622,5 +623,30 @@ another currency (2 accounts and 24 assets, all BRL; no movement with an exchang
 - **Checked in the cloud session without an Android SDK** (dl.google.com is blocked there): the
   JVM tests ran with plain `javac` + JUnit from Maven Central; the Android classes were compiled
   against Robolectric's `android-all` (API 36) and Capacitor 8.5.3's `classes.jar`, with stubs
-  for three androidx methods. The Gradle build itself first runs in CI. The screen was opened in
-  Chromium at 360 px (light and dark, with and without access) with the plugin mocked.
+  for three androidx methods. The Gradle build first ran in CI after the merge (PR
+  guneves/financas#1, deploy run 13): green, APK 10013 and the test APK, both with the phone's
+  certificate. The screen was opened in Chromium at 360 px (light and dark, with and without
+  access) with the plugin mocked.
+
+### Investments check — 2026-10-17
+Asked by the owner as "check the investments area, fix every error, open a PR". Done on a
+scratch database seeded with `seed_three_years_mock.py`, the backend and a built frontend, in
+Chromium at 360 and 1280 px; no provider is reachable from the cloud container, so prices were
+the stored ones.
+- **Three costs for one position.** The realized result and Bens e Direitos used FIFO lots;
+  Posição and the evolution subtracted whatever price the SELL row stored (the screen sends the
+  position's average, the seed and the API sent the sale price). The seed's WEGE3 showed a
+  R$ 77,11 FIFO *loss* that the average cost (the Receita's rule, Lei 8.981/1995 art. 72 §2º; IN
+  RFB 1.585/2015 art. 58) makes a R$ 12,89 exempt *gain*, and three different remaining costs.
+  Now `apply_average_cost()` computes the cost server-side for everything. The old next-steps
+  item "a position with applied value ≤ 0 drops out of the monthly valuation" was this bug.
+- **ETFs and BDRs were "ações" for the IR**: their sales counted toward the R$ 20 mil and their
+  gains could be exempt. The exemption is for ações only (Lei 11.033/2004 art. 3º I). The kind
+  comes from the catalog (`market_catalog.tax_kind`), so the asset class on screen stays "Ações".
+- **The per-sale IR was a second copy of the rule**: 15% of each FIFO lot, ignoring the
+  exemption and the loss pool (PETR4's exempt sale showed IR R$ 20,58; a loss-making sale showed
+  IR). The monthly rule now lives in `services/variable_income_tax.py` and each sale stores its
+  share, so Operações and the IR tab agree.
+- JCP's 17,5% from 2026 (LC 224/2025) and the MP 1.303/2025 lapse were checked; the rate stays.
+- False alarm worth knowing: in a downscaled full-page screenshot "R$ 0,00" read as "R$ 0.00";
+  reading the cell text showed the formatting was right.

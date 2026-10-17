@@ -43,11 +43,6 @@ BRT = timezone(timedelta(hours=-3))
 MARKET_OPEN_HOUR = 10
 MARKET_CLOSE_HOUR = 18
 
-# Quantos tickers cabem em uma consulta. A brapi aceita listas longas, mas uma
-# URL gigante e fragil e um erro derruba o lote inteiro.
-MAX_SYMBOLS_PER_REQUEST = 20
-
-
 def _read_int_env(name, default, minimum=None):
     try:
         value = int(str(os.getenv(name, default)).strip())
@@ -56,6 +51,15 @@ def _read_int_env(name, default, minimum=None):
     if minimum is not None and value < minimum:
         return minimum
     return value
+
+
+# Quantos tickers cabem em uma consulta. A brapi aceita listas longas, mas uma
+# URL gigante e fragil e um erro derruba o lote inteiro. O plano gratuito aceita
+# 1 por consulta (400 QUOTES_PER_REQUEST_EXCEEDED, visto em 2026-09-26): com mais,
+# todo lote de 2+ tickers falha e a cotacao cai no yfinance. BRAPI_MAX_SYMBOLS_PER_REQUEST=1
+# poe a brapi para responder, a um credito por ticker.
+MAX_SYMBOLS_PER_REQUEST = _read_int_env("BRAPI_MAX_SYMBOLS_PER_REQUEST", 20, minimum=1)
+QUOTES_PER_REQUEST_EXCEEDED = "QUOTES_PER_REQUEST_EXCEEDED"
 
 
 def _read_float_env(name, default, minimum=None, maximum=None):
@@ -454,10 +458,14 @@ def _error_message(payload):
         except ValueError:
             return text[:200]
     if isinstance(payload, dict):
+        # O codigo (ex.: QUOTES_PER_REQUEST_EXCEEDED) diz mais que a frase: vai junto.
+        code = payload.get("code")
+        prefix = f"{code.strip()}: " if isinstance(code, str) and code.strip() else ""
         for key in ("message", "error", "erro", "detail"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()[:200]
+                return f"{prefix}{value.strip()}"[:200]
+        return prefix.rstrip(": ")
     return ""
 
 

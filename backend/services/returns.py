@@ -51,13 +51,13 @@ VALUE_BASIS = "gross"
 VALUE_BASIS_LABEL = "Valor bruto (antes do IR estimado da renda fixa)"
 
 RETURN_NOTES = [
-    "Rentabilidade ponderada no tempo (TWR): Dietz modificado mes a mes, encadeado.",
+    "Rentabilidade ponderada no tempo (TWR): Dietz modificado mês a mês, encadeado.",
     "Valores brutos, antes do IR estimado da renda fixa.",
-    "Proventos pagos no mes entram como rendimento (o historico de precos nao e ajustado por proventos).",
-    "Meses passados de ativos sem cotacao (outros, preco manual) ficam no custo; o ganho aparece no mes atual.",
-    "Mes sem fechamento no historico usa o ultimo disponivel ou o preco de hoje.",
-    "O mes atual vai ate hoje, pela cotacao atual: o mesmo valor da Posicao.",
-    "Indices de comparacao: IPCA pela variacao mensal do IBGE (BCB); Ibovespa, IFIX e IDIV pelo fechamento do fim de cada mes (indices de retorno total).",
+    "Proventos pagos no mês entram como rendimento (o histórico de preços não é ajustado por proventos).",
+    "Meses passados de ativos sem cotação (outros, preço manual) ficam no custo; o ganho aparece no mês atual.",
+    "Mês sem fechamento no histórico usa o último disponível ou o preço de hoje.",
+    "O mês atual vai até hoje, pela cotação atual: o mesmo valor da Posição.",
+    "Índices de comparação: IPCA pela variação mensal do IBGE (BCB); Ibovespa, IFIX e IDIV pelo fechamento do fim de cada mês (índices de retorno total).",
 ]
 
 # Abaixo disto (em reais) um valor ou a base do mes e zero: o mes e pulado.
@@ -418,7 +418,7 @@ def build_investment_returns(
         ),
         "assets": assets,
         "assets_note": (
-            "TWR de cada ativo desde a primeira compra, limitado a janela pedida "
+            "TWR de cada ativo desde a primeira compra, limitado à janela pedida "
             f"(a partir de {month_label(window_start)}) — 'capped' indica a compra anterior a ela."
         ),
         "notes": RETURN_NOTES,

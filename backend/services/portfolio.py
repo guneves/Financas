@@ -147,7 +147,9 @@ def portfolio_month_positions(investments_data, historical_prices, month_start, 
             }
 
         position = positions[group_key]
-        position["applied"] += quantity * average_price
+        # Custo medio (apply_average_cost): a venda tira o custo das cotas
+        # vendidas, nao o valor da venda — uma venda com lucro nao zera o aplicado.
+        position["applied"] += safe_float(investment.get("cost_amount"), quantity * average_price)
         if not movement_affects_fixed_income_position(investment):
             position["quantity"] += quantity
             if asset_class == "FIXED_INCOME" and quantity > 0:
@@ -402,14 +404,13 @@ def asset_total_return(data, net_value, proceeds_net):
     compras). So o custo atual superestimaria o retorno de um ativo que ja
     devolveu a maior parte do capital numa venda.
 
-        custo atual = compras - custo (FIFO) das cotas vendidas
+        custo atual = compras - custo (medio) das cotas vendidas
         numerador   = liquido atual - custo atual + proventos recebidos
-                      + lucro liquido realizado (depois do IR estimado)
+                      + lucro liquido realizado (depois do IR do mes)
         base        = custo atual + custo das cotas vendidas
 
-    O `total_invested` da posicao nao serve de custo atual: numa venda de
-    acao ele desconta o valor vendido, nao o custo. `profitability_percent`
-    (so preco, sobre `total_invested`) continua como esta.
+    Com o custo medio, o custo atual e o `total_invested` da posicao.
+    `profitability_percent` (so preco, sobre `total_invested`) continua como esta.
     """
     contributed = data.get("contributed", 0)
     sold_cost_basis = data.get("sold_cost_basis", 0)
@@ -451,7 +452,8 @@ def build_portfolio_snapshot(current_user_id):
         avg_price_buy = safe_float(asset.get("average_price"))
         curr_price = safe_float(asset.get("current_price"), avg_price_buy)
         quote_info = quote_info_from_investment(asset)
-        invested_value = qty * avg_price_buy
+        # Custo medio (apply_average_cost): numa venda, - quantidade x custo medio.
+        invested_value = safe_float(asset.get("cost_amount"), qty * avg_price_buy)
 
         if movement_affects_fixed_income_position(asset):
             group_key = str(metadata.get("related_id"))
@@ -489,7 +491,7 @@ def build_portfolio_snapshot(current_user_id):
         grouped_assets[group_key]["total_invested"] += invested_value
         if qty > 0:
             grouped_assets[group_key]["contributed"] += invested_value
-        # Venda/resgate: o resultado realizado (FIFO, em reais) vem na linha.
+        # Venda/resgate: o resultado realizado (custo medio, em reais) vem na linha.
         grouped_assets[group_key]["sold_cost_basis"] += safe_float(asset.get("realized_cost_basis"))
         grouped_assets[group_key]["realized_net_profit"] += safe_float(asset.get("realized_net_profit_after_tax"))
 
@@ -542,7 +544,6 @@ def build_portfolio_snapshot(current_user_id):
             current_value,
             datetime.now(),
         )
-        taxes = max(current_value - net_value, 0)
         is_tax_free = fixed_income_is_tax_free(data.get("metadata"))
         profitability = (
             ((net_value - data["total_invested"]) / data["total_invested"]) * 100

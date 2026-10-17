@@ -75,9 +75,9 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   field accepts (`type="number"` with `inputMode="decimal"`; keyboards differ). The layout itself
   was fixed on the PC on 2026-10-16 (see `docs/done-tasks.md` and Phase 2 in the plan).
 - [ ] **Phase 6 on the phone** (listener, capture mode and Ajustes › Notificações dos bancos built
-  2026-10-17, see `docs/done-tasks.md`; native level 2). After the merge to `main`, CI publishes
-  the APK and the test APK `/apk/financas-debug.apk`. Check: the real app updates by "Nova versão
-  disponível"; notification access granted to it (if Android says "Configuração restrita", the
+  2026-10-17, see `docs/done-tasks.md`; native level 2). CI published APK 10013 and the test APK
+  `/apk/financas-debug.apk` the same day (deploy run 13, green). Check: the real app updates to
+  10013 by "Nova versão disponível"; notification access granted to it (if Android says "Configuração restrita", the
   steps are on the screen); the test APK installed with `adb install -r financas-debug.apk`, logged
   in, access granted to "Finanças debug", capture on; the screen's adb command makes the
   notification appear in the test APK's capture — and **not** in the real app's; one export (JSON
@@ -132,6 +132,26 @@ banking-only. The database was reset the same day, so the app starts empty. Open
 - [ ] Tests, low: pin that a refused edit also undoes the price quote and the quantity, the
   redemption branch of the "nothing to write" refusal, and a batch `POST` whose second item is
   refused. All three behave correctly in `finance-guard`'s scratch tests.
+
+### Investments check (2026-10-17) — what is left
+The check fixed the cost rule (weighted average instead of FIFO, one cost for Posição, evolution,
+realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption, the per-sale IR
+(the sale's share of the month's tax) and smaller screen errors — see `docs/done-tasks.md`. Open:
+- [ ] **Owner, after the deploy:** open IR 2025 again. Cost and realized results changed from FIFO
+  to the average cost, so a sale after buys at different prices has a different result, and the
+  loss balance can change. Compare Posição's preço médio with the broker's or Investidor10's.
+- [ ] ETF de renda fixa: only the tickers in `market_catalog.FIXED_INCOME_ETFS` are known (LFTB11
+  included). Another one would be taxed as an ETF de ações (15% via DARF) — add it to the list.
+  Its per-sale IR still shows the 15% estimate; the real rate (15/20/25% by the fund's term) is
+  withheld by the administrator.
+- [ ] Bens e Direitos: ETFs now get **07.09** (from a 2022 source) and BDRs **04.04**; confirm
+  both codes in the 2026 program.
+- [ ] A bonificação with an attributed cost (`bonus_unit_cost`) does not produce the isentos line
+  **18** (incorporação de reservas/bonificações).
+- [ ] Units (TAEE11…) count as ações for the exemption, the common reading; say so if the owner's
+  accountant disagrees.
+- [ ] Sales of foreign assets and of "outros" keep a per-sale 15% estimate in Operações; the IR
+  tab has the annual (exterior) and GCAP views.
 
 ### Automatic proventos and the investments Extrato (2026-10-16) — what is left
 - [ ] Owner walk-through: Lançamentos → Extrato → "Investimentos" (operações + proventos, search,
@@ -204,25 +224,22 @@ Built by three subagents, tested with mocks and one live provider run, **not ope
 - [ ] Alocação → "Por setor": press "Buscar setores" once (needs `BRAPI_TOKEN`), check the stock
   sectors and FII segments, fix the wrong ones with the pencil (brapi files MXRF11 as Logística).
 - [ ] IR tab → "Para colar no programa do IRPF": paste each section into the 2026 program and check
-  two codes: FII payouts under isentos **99** "Outros", and whether tributação exclusiva (JCP 10,
-  aplicações 06) wants the **net** value (what the text gives) or gross + IR retido (what the tab's
-  older caption says). Fill the "(preencher)" CNPJs.
+  the FII payouts under isentos **99** "Outros". Fill the "(preencher)" CNPJs. (Tributação
+  exclusiva — JCP 10, aplicações 06 — is declared at the net value; the tab, the text and the
+  export agree since 2026-10-17.)
 
 ### brapi plan allows 1 ticker per request
-Found 2026-09-26: a 2-ticker quote call returns 400 `QUOTES_PER_REQUEST_EXCEEDED`, while
-`MAX_SYMBOLS_PER_REQUEST = 20` in `backend/brapi_client.py`, so any multi-ticker quote refresh fails
-and silently falls back to yfinance. Owner's call: set it to 1 (one credit per ticker) or leave
-yfinance as the de facto source and keep brapi for single quotes/sectors.
+Found 2026-09-26: a 2-ticker quote call returns 400 `QUOTES_PER_REQUEST_EXCEEDED`, so every
+multi-ticker refresh failed on brapi and fell back to yfinance. Since 2026-10-17 the batch size is
+`BRAPI_MAX_SYMBOLS_PER_REQUEST` (default 20, as before) and the Integrações card says what to do.
+- [ ] Owner's call: set `BRAPI_MAX_SYMBOLS_PER_REQUEST=1` in the server's `.env` (one credit per
+  ticker per refresh) to make brapi answer, or leave it and keep yfinance as the de facto source.
 
 ### Found while fixing the walk-through inconsistencies (2026-09-27)
 - **Budgets on income categories.** Orçamento offers income categories when adding a budget and the
   backend accepts them; their "spent" is the category's income, and `build_budget_month()` adds it
   to `totals.spent`, so the "Realizado" tile and the Início budget strip mix income into "gasto".
   Owner's call: refuse income categories in budgets, or keep them out of the totals.
-- **A position with applied value ≤ 0 drops out of the monthly valuation.** `portfolio_month_positions()`
-  skips it; that happens to a stock after a large profitable partial sale (sales subtract the sale
-  value, not the cost). Posição keeps it, so Rentabilidade/Evolução and Posição can still disagree
-  for such an asset. Not in the seed; fixing it puts a jump into that asset's TWR — decide first.
 
 ### Fixed-income form (2026-09-27 night) — leftovers
 Exemption by title type, IPCA+ in Rentabilidade and the removal of Gado are built (see
@@ -257,9 +274,10 @@ Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner'
   not a projection).
 - No `create_app()` factory: only worth it together with moving config into the app object.
 - Import is capped at 2,000 rows per file, and the rules apply-preview at 2,000 rows.
-- IR report: day trade is not separated (no time of day stored); the R$ 20 mil exemption and loss
-  pools follow the simplified rules in `services/tax_report.py`; proventos of foreign assets are
-  taken as BRL.
+- IR report: day trade is not separated (no time of day stored); the R$ 20 mil exemption (ações
+  only), ETFs/BDRs and the loss pools follow the simplified rules in
+  `services/variable_income_tax.py`; the IRRF "dedo-duro" (0,005%) is not deducted from the DARF;
+  proventos of foreign assets are taken as BRL.
 - Multi-currency lives only in the backend now (the screens are reais-only, see section 1): USD,
   EUR and GBP by BCB PTAX; a transfer between accounts in different currencies is refused; fixed
   income and FII are BRL.

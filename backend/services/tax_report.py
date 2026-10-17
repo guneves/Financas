@@ -6,12 +6,15 @@ conferido com as notas de corretagem e os informes de rendimentos.
 
 Secoes:
 
-- bens_e_direitos: posicao a custo em 31/12 do ano e do ano anterior (FIFO
-  sobre o fluxo em reais de fetch_investments), com grupo/codigo sugeridos;
+- bens_e_direitos: posicao a custo em 31/12 do ano e do ano anterior (custo
+  medio ponderado sobre o fluxo em reais de fetch_investments), com
+  grupo/codigo sugeridos;
 - renda_variavel: mes a mes, acoes (isencao de vendas ate R$ 20 mil no mes,
-  15%) e FII (20%, sem isencao), cada um com o proprio saldo de prejuizo,
-  carregado dos anos anteriores; DARF abaixo de R$ 10 acumula para o mes
-  seguinte. Day trade nao e separado (o app nao guarda hora da operacao);
+  15%), ETFs e BDRs (15%, sem isencao, no mesmo saldo de prejuizo das acoes)
+  e FII (20%, sem isencao, saldo proprio), carregado dos anos anteriores;
+  DARF abaixo de R$ 10 acumula para o mes seguinte. A regra mora em
+  services/variable_income_tax.py. Day trade nao e separado (o app nao guarda
+  hora da operacao); ETF de renda fixa fica fora (IR retido na fonte);
 - exterior: ativos em moeda estrangeira, apuracao anual a 15% (Lei
   14.754/2023), prejuizo carregado para o ano seguinte;
 - rendimentos_isentos e tributacao_exclusiva: proventos e resgates de renda
@@ -26,6 +29,8 @@ from db import get_db
 from irpf_text import br_money, build_irpf_text
 from money import rounded_money
 from services.fixed_income import fixed_income_is_tax_free
+import market_catalog
+from services import market_listing
 from services.fx import BASE_CURRENCY, normalize_currency
 from services.proceeds import paid_proceeds_in_year
 from services.realized_results import refresh_realized_results
@@ -35,13 +40,16 @@ from services.investments import (
     investment_operation_date,
     movement_sort_key,
 )
+from services.variable_income_tax import (
+    BUCKET_BY_TAX_KIND,
+    STOCK_EXEMPTION_LIMIT,
+    STOCK_RATE,
+    apply_losses,
+    monthly_apuration,
+)
 from validators import safe_float
 
-STOCK_EXEMPTION_LIMIT = 20000.0
-STOCK_RATE = 0.15
-REIT_RATE = 0.20
 FOREIGN_RATE = 0.15
-DARF_MINIMUM = 10.0
 
 DISCLAIMER = (
     "Apoio para a declaração, calculado só com o que foi lançado no app. Confira com as notas de "
@@ -49,8 +57,13 @@ DISCLAIMER = (
 )
 
 
-def bens_code(asset_class, currency, metadata):
+def bens_code(asset_class, currency, metadata, tax_kind=None):
     """(grupo, codigo, rotulo) sugeridos para Bens e Direitos."""
+    if asset_class == "STOCKS" and currency == BASE_CURRENCY:
+        if tax_kind == market_catalog.TAX_BDR:
+            return "04", "04", "Ativos negociados em bolsa no Brasil (BDR)"
+        if tax_kind in (market_catalog.TAX_ETF, market_catalog.TAX_ETF_RF):
+            return "07", "09", "Fundos de índice (ETF)"
     if asset_class == "STOCKS":
         suffix = " (exterior)" if currency != BASE_CURRENCY else ""
         return "03", "01", f"Ações{suffix}"
@@ -64,8 +77,12 @@ def bens_code(asset_class, currency, metadata):
 
 
 def holdings_at(investments, cutoff):
-    """Posicao a custo em `cutoff` (AAAA-MM-DD), por ativo (renda fixa: por titulo)."""
-    lots = defaultdict(list)
+    """Posicao a custo em `cutoff` (AAAA-MM-DD), por ativo (renda fixa: por titulo).
+
+    Custo medio: soma o `cost_amount` de cada operacao (apply_average_cost), o
+    mesmo custo da Posicao e do resultado realizado.
+    """
+    held = defaultdict(lambda: {"quantity": 0.0, "cost": 0.0})
     fixed = {}
     info = {}
     for inv in sorted(investments, key=movement_sort_key):
@@ -90,23 +107,17 @@ def holdings_at(investments, cutoff):
 
         key = str(inv.get("asset_id"))
         info.setdefault(key, inv)
-        if quantity > 0:
-            lots[key].append([quantity, unit_cost])
-            continue
-        remaining = abs(quantity)
-        queue = lots[key]
-        while remaining > 0.000001 and queue:
-            take = min(remaining, queue[0][0])
-            queue[0][0] -= take
-            remaining -= take
-            if queue[0][0] <= 0.000001:
-                queue.pop(0)
+        position = held[key]
+        position["quantity"] += quantity
+        position["cost"] += safe_float(inv.get("cost_amount"), quantity * unit_cost)
+        if position["quantity"] <= 0.000001:
+            position["quantity"] = 0.0
+            position["cost"] = 0.0
 
     result = {}
-    for key, queue in lots.items():
-        quantity = sum(lot[0] for lot in queue)
-        if quantity > 0.000001:
-            result[key] = {"quantity": quantity, "cost": sum(lot[0] * lot[1] for lot in queue), "inv": info[key]}
+    for key, position in held.items():
+        if position["quantity"] > 0.000001:
+            result[key] = {"quantity": position["quantity"], "cost": position["cost"], "inv": info[key]}
     for key, position in fixed.items():
         if position["cost"] > 0.005:
             result[key] = {"quantity": position["quantity"], "cost": position["cost"], "inv": info[key]}
@@ -122,7 +133,8 @@ def bens_e_direitos(investments, year, asset_names=None):
         inv = (current.get(key) or previous.get(key))["inv"]
         metadata = inv.get("metadata") or {}
         currency = normalize_currency(inv.get("native_currency") or inv.get("asset_currency"))
-        group, code, label = bens_code(inv.get("asset_class"), currency, metadata)
+        kind = market_listing.tax_kind(inv.get("ticker_or_name"), inv.get("asset_class"))
+        group, code, label = bens_code(inv.get("asset_class"), currency, metadata, kind)
         now = current.get(key)
         before = previous.get(key)
         ticker = inv.get("ticker_or_name")
@@ -163,95 +175,84 @@ def realized_rows(conn, current_user_id):
     ).fetchall()
 
 
-def apply_losses(result, pool):
-    """(tributavel, prejuizo compensado, pool novo) de um resultado do mes."""
-    if result < 0:
-        return 0.0, 0.0, pool + abs(result)
-    used = min(result, pool)
-    return result - used, used, pool - used
+def sale_tax_kind(row):
+    """O tipo do papel para o IR de uma linha de resultado realizado."""
+    return market_listing.tax_kind(row["ticker"], row["asset_class"])
+
+
+def variable_income_sales(rows):
+    """As vendas em reais de acoes, ETFs, BDRs e FIIs, no formato da apuracao mensal.
+
+    ETF de renda fixa sai daqui (IR retido na fonte); ativo no exterior tem a
+    apuracao anual propria (`exterior`)."""
+    sales = []
+    for row in rows:
+        if row["movement_type"] != "SELL" or normalize_currency(row["currency"]) != BASE_CURRENCY:
+            continue
+        bucket = BUCKET_BY_TAX_KIND.get(sale_tax_kind(row))
+        if not bucket:
+            continue
+        sales.append({
+            "id": row["source_transaction_id"],
+            "month": str(row["operation_date"])[:7],
+            "bucket": bucket,
+            "gross": safe_float(row["gross_proceeds"]),
+            "result": safe_float(row["realized_profit"]),
+        })
+    return sales
+
+
+def fixed_income_etf_sales(rows, year):
+    """Vendas de ETF de renda fixa no ano: o IR ja vem retido pelo administrador."""
+    items = []
+    for row in rows:
+        if row["movement_type"] != "SELL" or str(row["operation_date"])[:4] != str(year):
+            continue
+        if normalize_currency(row["currency"]) != BASE_CURRENCY:
+            continue
+        if sale_tax_kind(row) != market_catalog.TAX_ETF_RF:
+            continue
+        items.append({
+            "date": row["operation_date"],
+            "ticker": row["ticker"],
+            "proceeds": rounded_money(row["net_proceeds"]),
+            "result": rounded_money(row["realized_profit"]),
+        })
+    return items
 
 
 def renda_variavel(rows, year):
     """Meses do ano, com os saldos de prejuizo vindos de antes."""
-    by_month = defaultdict(lambda: {"STOCKS": {"sales": 0.0, "result": 0.0}, "REIT": {"sales": 0.0, "result": 0.0}})
-    for row in rows:
-        if row["movement_type"] != "SELL" or normalize_currency(row["currency"]) != BASE_CURRENCY:
-            continue
-        if row["asset_class"] not in ("STOCKS", "REIT"):
-            continue
-        month = str(row["operation_date"])[:7]
-        bucket = by_month[month][row["asset_class"]]
-        bucket["sales"] += safe_float(row["gross_proceeds"])
-        bucket["result"] += safe_float(row["realized_profit"])
-
-    pools = {"STOCKS": 0.0, "REIT": 0.0}
-    pending_darf = 0.0
+    apuration = monthly_apuration(variable_income_sales(rows))
     months = []
     opening = None
-    for month in sorted(by_month):
-        if month > f"{year}-12":
+    closing = {"common": 0.0, "reit": 0.0}
+    for entry in apuration["months"]:
+        if entry["month"] > f"{year}-12":
             break
-        if opening is None and month >= f"{year}-01":
-            opening = dict(pools)
-        entry = {"month": month}
-        tax_total = 0.0
-        stocks = by_month[month]["STOCKS"]
-        exempt = stocks["sales"] <= STOCK_EXEMPTION_LIMIT
-        if exempt and stocks["result"] >= 0:
-            # Ganho isento nao consome prejuizo.
-            taxable, used = 0.0, 0.0
-        else:
-            taxable, used, pools["STOCKS"] = apply_losses(stocks["result"], pools["STOCKS"])
-        stock_tax = taxable * STOCK_RATE
-        entry["stocks"] = {
-            "sales": rounded_money(stocks["sales"]),
-            "result": rounded_money(stocks["result"]),
-            "exempt": exempt and stocks["result"] >= 0,
-            "exempt_gain": rounded_money(stocks["result"]) if exempt and stocks["result"] > 0 else 0.0,
-            "loss_used": rounded_money(used),
-            "taxable": rounded_money(taxable),
-            "tax": rounded_money(stock_tax),
-            "loss_balance": rounded_money(pools["STOCKS"]),
-        }
-        reits = by_month[month]["REIT"]
-        taxable, used, pools["REIT"] = apply_losses(reits["result"], pools["REIT"])
-        reit_tax = taxable * REIT_RATE
-        entry["reits"] = {
-            "sales": rounded_money(reits["sales"]),
-            "result": rounded_money(reits["result"]),
-            "loss_used": rounded_money(used),
-            "taxable": rounded_money(taxable),
-            "tax": rounded_money(reit_tax),
-            "loss_balance": rounded_money(pools["REIT"]),
-        }
-        tax_total = stock_tax + reit_tax + pending_darf
-        if tax_total >= DARF_MINIMUM:
-            entry["darf"] = rounded_money(tax_total)
-            entry["darf_carried"] = 0.0
-            pending_darf = 0.0
-        else:
-            entry["darf"] = 0.0
-            entry["darf_carried"] = rounded_money(tax_total)
-            pending_darf = tax_total
-        if month.startswith(f"{year}-"):
+        if opening is None and entry["month"] >= f"{year}-01":
+            opening = dict(closing)
+        closing = {"common": entry["stocks"]["loss_balance"], "reit": entry["reits"]["loss_balance"]}
+        if entry["month"].startswith(f"{year}-"):
             months.append(entry)
 
     if opening is None:
-        opening = dict(pools)
+        opening = dict(closing)
     return {
         "months": months,
         # Prejuizo a compensar vindo de dezembro do ano anterior (o que o
         # programa pede em janeiro quando nao importa a declaracao anterior).
         "opening_loss_balance": {
-            "stocks": rounded_money(opening["STOCKS"]),
-            "reits": rounded_money(opening["REIT"]),
+            "stocks": rounded_money(opening["common"]),
+            "reits": rounded_money(opening["reit"]),
         },
         "totals": {
             "stock_exempt_gain": rounded_money(sum(m["stocks"]["exempt_gain"] for m in months)),
             "tax_due": rounded_money(sum(m["darf"] for m in months)),
-            "stock_loss_balance": rounded_money(pools["STOCKS"]),
-            "reit_loss_balance": rounded_money(pools["REIT"]),
+            "stock_loss_balance": rounded_money(closing["common"]),
+            "reit_loss_balance": rounded_money(closing["reit"]),
         },
+        "fixed_income_etfs": fixed_income_etf_sales(rows, year),
     }
 
 
@@ -417,15 +418,18 @@ def build_tax_report(current_user_id, year):
     return report
 
 
-def exemption_meter(current_user_id, month, planned_sale=0.0):
+def exemption_meter(current_user_id, month, planned_sale=0.0, ticker=None):
     """Isentometro: vendas de acoes no mes contra o limite de R$ 20 mil.
 
     Le a mesma apuracao do relatorio (renda_variavel), entao o numero do mes
     corrente e o que o relatorio anual vai mostrar. `planned_sale` simula uma
     venda ainda nao lancada: diz se ela faria o mes passar do limite — o
-    aviso que importa e o de antes de vender. So acoes em reais: FII nao tem
-    isencao e ativo no exterior e apurado no ano.
+    aviso que importa e o de antes de vender. So acoes em reais: FII, ETF e
+    BDR nao tem isencao, e ativo no exterior e apurado no ano. Com `ticker`, a
+    venda simulada de um ETF ou BDR nao conta no limite (`eligible` False).
     """
+    kind = market_listing.tax_kind(ticker, "STOCKS") if ticker else market_catalog.TAX_ACAO
+    eligible = kind == market_catalog.TAX_ACAO
     refresh_realized_results(current_user_id)
     with get_db() as conn:
         rows = realized_rows(conn, current_user_id)
@@ -436,7 +440,7 @@ def exemption_meter(current_user_id, month, planned_sale=0.0):
     stocks = (entry or {}).get("stocks") or {}
     reits = (entry or {}).get("reits") or {}
     sales = safe_float(stocks.get("sales"))
-    planned = rounded_money(max(safe_float(planned_sale), 0.0))
+    planned = rounded_money(max(safe_float(planned_sale), 0.0)) if eligible else 0.0
     sales_after = rounded_money(sales + planned)
     return {
         "month": month,
@@ -454,4 +458,6 @@ def exemption_meter(current_user_id, month, planned_sale=0.0):
         "planned_sale": planned,
         "sales_after": sales_after,
         "would_exceed": planned > 0 and sales <= STOCK_EXEMPTION_LIMIT < sales_after,
+        "eligible": eligible,
+        "kind": kind,
     }

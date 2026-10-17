@@ -326,8 +326,11 @@ TAX_MONTH_COLUMNS = [
     Column("vendas_acoes", "Vendas de ações", "money", lambda m, c: m["stocks"]["sales"]),
     Column("resultado_acoes", "Resultado ações", "money", lambda m, c: m["stocks"]["result"]),
     Column("isento", "Isento (até R$ 20 mil)", "text", lambda m, c: "Sim" if m["stocks"]["exempt"] else "Não"),
-    Column("prejuizo_acoes", "Prejuízo compensado (ações)", "money", lambda m, c: m["stocks"]["loss_used"]),
-    Column("ir_acoes", "IR ações (15%)", "money", lambda m, c: m["stocks"]["tax"]),
+    # ETF e BDR: 15% sem isencao, no mesmo saldo de prejuizo das acoes.
+    Column("vendas_etfs", "Vendas de ETFs e BDRs", "money", lambda m, c: (m.get("etfs") or {}).get("sales")),
+    Column("resultado_etfs", "Resultado ETFs e BDRs", "money", lambda m, c: (m.get("etfs") or {}).get("result")),
+    Column("prejuizo_acoes", "Prejuízo compensado (ações, ETFs e BDRs)", "money", lambda m, c: m["stocks"]["loss_used"]),
+    Column("ir_acoes", "IR ações, ETFs e BDRs (15%)", "money", lambda m, c: m["stocks"]["tax"]),
     Column("vendas_fii", "Vendas de FII", "money", lambda m, c: m["reits"]["sales"]),
     Column("resultado_fii", "Resultado FII", "money", lambda m, c: m["reits"]["result"]),
     Column("prejuizo_fii", "Prejuízo compensado (FII)", "money", lambda m, c: m["reits"]["loss_used"]),
@@ -340,5 +343,7 @@ TAX_INCOME_COLUMNS = [
     Column("ficha", "Ficha", "text", lambda i, c: i.get("section")),
     Column("linha", "Linha", "text", lambda i, c: i.get("line")),
     Column("valor", "Valor (R$)", "money", lambda i, c: i.get("amount")),
+    # Tributacao exclusiva: o valor e o liquido (o que se declara); bruto e IR so conferem.
+    Column("bruto", "Bruto (R$)", "money", lambda i, c: i.get("gross")),
     Column("ir_retido", "IR retido (R$)", "money", lambda i, c: i.get("withheld")),
 ]

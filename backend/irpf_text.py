@@ -222,16 +222,27 @@ def exclusiva_section(report):
 
 def month_block(month):
     stocks, reits = month["stocks"], month["reits"]
+    etfs = month.get("etfs") or {}
     lines = [month_label(month["month"]).capitalize()]
-    if stocks["sales"]:
-        if stocks["exempt"]:
+    exempt_note = (
+        f"(Vendas de R$ {br_money(stocks['sales'])} no mês, até R$ 20 mil: o ganho de "
+        f"R$ {br_money(stocks['exempt_gain'])} é isento e vai em Rendimentos isentos, código 20.)"
+    )
+    if stocks["sales"] or etfs.get("sales"):
+        if stocks["exempt"] and not etfs.get("sales"):
             lines.append("Operações comuns · Mercado à vista - ações (R$): 0,00")
-            lines.append(
-                f"(Vendas de R$ {br_money(stocks['sales'])} no mês, até R$ 20 mil: o ganho de "
-                f"R$ {br_money(stocks['exempt_gain'])} é isento e vai em Rendimentos isentos, código 20.)"
-            )
+            lines.append(exempt_note)
         else:
-            lines.append(f"Operações comuns · Mercado à vista - ações (R$): {br_money(stocks['result'])}")
+            # Acoes (sem o ganho isento) mais ETFs e BDRs: a mesma linha do programa.
+            common = stocks.get("common_result", stocks["result"])
+            lines.append(f"Operações comuns · Mercado à vista - ações (R$): {br_money(common)}")
+            if stocks["exempt_gain"]:
+                lines.append(exempt_note)
+            if etfs.get("sales"):
+                lines.append(
+                    f"(ETFs e BDRs: vendas {br_money(etfs['sales'])} · resultado {br_money(etfs['result'])}, "
+                    "sem a isenção das ações.)"
+                )
             lines.append(
                 f"(Conferência ações: vendas {br_money(stocks['sales'])} · prejuízo compensado "
                 f"{br_money(stocks['loss_used'])} · base de cálculo {br_money(stocks['taxable'])} · imposto devido "
