@@ -59,7 +59,7 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the
   backend stopped a browser cannot load a screen it has not visited (each screen's code comes from
   the server on first visit, and there is no service worker), so only the APK opens cold offline.
-- [ ] Phase 1, phone half: the APK reaches the server (`https://guilhermeserver.tail5084ff.ts.net`)
+- [ ] Phase 1, phone half: the APK reaches the server (`https://<server>.<tailnet>.ts.net`)
   from the phone, so the tailnet path works. Left only the phone's *browser* on mobile data, which
   matters little now that the APK exists.
 - [ ] Phase 4, step 7, partly built: with the server unreachable a pill in the header says so and
@@ -161,16 +161,15 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
 - [ ] The sync only runs while the app is open (screen open or an investment write). A provento
   announced while nobody opens Investimentos lands the next time someone does. A daily job would
   need a scheduler the app does not have.
-- [ ] Left after the reconciliation with Investidor10 (R$ 3.930,20 here vs R$ 3.939,91 there):
-  GALG11 (one R$ 1,01 dividend, Jan 2024) — StatusInvest has no GALG11; three CMIG4 JCP
-  installments with later payment dates that StatusInvest does not list; a few ITSA4 monthly JCP
-  values that differ by centavos between the two sources. Type them by hand if they matter.
+- [ ] Left after the reconciliation with Investidor10: a few proventos StatusInvest does not list
+  (an FII it does not cover, JCP installments with later payment dates) and monthly JCP values
+  that differ by centavos between the two sources. Type them by hand if they matter.
 - [ ] A ticker that changes code needs a line in `TICKER_ALIASES` (`statusinvest_client.py`);
   until then its proventos stop at the old code. No screen says so.
 - [ ] StatusInvest is not in the integrations healthcheck (`services/health.py`): its result is
   recorded (`record_provider_result("statusinvest", ...)`) but no card shows it.
-- [ ] Proventos of ETFs (IVVB11, LFTB11) and AUPO11 are not on StatusInvest's endpoints; none were
-  expected for these.
+- [ ] Proventos of ETFs and some units are not on StatusInvest's endpoints; none were expected
+  for these.
 
 ### Plano do mês (2026-10-16) — owner checks
 - [ ] Set a plan on the phone, type a comma amount, and confirm the flags make sense against a
@@ -204,7 +203,7 @@ Everything below was built and clicked through on a seeded scratch database (Chr
 - [ ] Allocation, goals and the exemption meter (2026-09-26, migrations 020–021): in Investimentos →
   Alocação, set the class targets (and per-asset ones where you have them) and try "Quanto vai
   aportar?" with the next contribution — does the split match what you would do? In Planejamento →
-  Metas, recreate the Investidor10 goals (patrimônio 100 mil…5 mi, renda R$ 500) and compare the
+  Metas, recreate the goals kept in Investidor10 and compare the
   estimated dates (theirs seem to assume a return; set "Rentabilidade esperada"). On the IR tab,
   the current month's meter should match Investidor10's "isentômetro" once the same sales are
   recorded here. Open "Registrar operação" → Venda on a stock to see the warning.
@@ -222,7 +221,7 @@ Built by three subagents, tested with mocks and one live provider run, **not ope
 - [ ] Rentabilidade: the benchmark cards and lines (CDI, IPCA, Ibovespa on by default); compare
   Ibovespa's period total with Investidor10.
 - [ ] Alocação → "Por setor": press "Buscar setores" once (needs `BRAPI_TOKEN`), check the stock
-  sectors and FII segments, fix the wrong ones with the pencil (brapi files MXRF11 as Logística).
+  sectors and FII segments, fix the wrong ones with the pencil (brapi files some FIIs under the wrong segment).
 - [ ] IR tab → "Para colar no programa do IRPF": paste each section into the 2026 program and check
   the FII payouts under isentos **99** "Outros". Fill the "(preencher)" CNPJs. (Tributação
   exclusiva — JCP 10, aplicações 06 — is declared at the net value; the tab, the text and the
@@ -257,7 +256,7 @@ day (see `docs/done-tasks.md`); what it left open:
   it down; only a month with no spending at all is left out.
 
 ### Ideas from the Investidor10 survey (2026-09-26, not prioritized)
-Seen in the owner's Investidor10 PRO wallet and not built; each needs the owner's call first.
+Seen in Investidor10 PRO and not built; each needs the owner's call first.
 - Fundamentals columns (Bazin ceiling price, P/L, P/VP, 5-year DY) — external data.
 - B3 import of trades (the investor-area spreadsheet, via the existing import). Proventos are
   automatic since 2026-10-16.

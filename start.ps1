@@ -7,8 +7,7 @@
     (port 5173) as background jobs, waits for both to answer, and keeps
     streaming their output until you press Ctrl+C — which stops both.
 
-    The real app runs on the home server now (DEPLOY.md,
-    https://guilhermeserver.tail5084ff.ts.net). This script only starts the PC
+    The real app runs on the home server now (DEPLOY.md). This script only starts the PC
     copy when asked with -Local, so the old backend\finance.db is not used by
     accident; it is a development copy, not your data.
 
@@ -66,7 +65,7 @@ if ($Tests) {
 }
 
 if (-not $Local) {
-    Write-Host 'The app runs on the home server now: https://guilhermeserver.tail5084ff.ts.net' -ForegroundColor Yellow
+    Write-Host 'The app runs on the home server now (DEPLOY.md).' -ForegroundColor Yellow
     Write-Host 'The PC backend is a development copy (backend\finance.db is no longer your data).' -ForegroundColor Yellow
     Write-Host 'To start it anyway:  .\start.ps1 -Local   (tests: .\start.ps1 -Tests)' -ForegroundColor Yellow
     exit 1

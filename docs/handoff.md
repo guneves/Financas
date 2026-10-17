@@ -72,7 +72,7 @@ rule can never disagree on what a ticker is. `test_portfolio_market_kind.py`.
 ### Carried from the previous session (Phase 6, still open)
 1. Phone: "Nova versão disponível" → install APK 10013; Ajustes › Notificações dos bancos → grant
    access ("Configuração restrita" steps are on the screen).
-2. Test APK from the PC: `curl -fLO https://guilhermeserver.tail5084ff.ts.net/apk/financas-debug.apk`,
+2. Test APK from the PC: `curl -fLO https://<server>.<tailnet>.ts.net/apk/financas-debug.apk`,
    `adb install -r financas-debug.apk`, grant access, capture on, run the adb command on its
    screen; the notification must show under "Teste (adb)" there and not in the real app. Then
    `adb uninstall br.financas.app.debug`.

@@ -23,7 +23,7 @@
     importing the PC's data into the volume (see DEPLOY.md).
 
 .PARAMETER Server
-    The ssh destination. Default: guilherme@guilhermeserver.
+    The ssh destination (user@host). Default: $env:FINANCAS_SERVER.
 
 .EXAMPLE
     .\deploy.ps1
@@ -35,10 +35,14 @@
 param(
     [string]$Rollback,
     [switch]$CreateOnly,
-    [string]$Server = 'guilherme@guilhermeserver'
+    [string]$Server = $env:FINANCAS_SERVER
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Server) {
+    throw 'No server: pass -Server user@host or set FINANCAS_SERVER (DEPLOY.md).'
+}
 
 $RemoteDir = '/srv/apps/financas'
 $Image = 'ghcr.io/guneves/financas-app'

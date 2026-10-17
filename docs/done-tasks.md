@@ -86,7 +86,7 @@
 | Rentabilidade and Evolução value the current month like Posição (`position_value_today()`) | 2026-09-27 |
 | Orçamento copy: "Realizado" counts card purchases, not only account outflows | 2026-09-27 |
 | "Operação anterior ao app": an investment movement that enters the portfolio without touching the balance (`metadata.skip_cash`) — replaced by the opt-in link on 2026-10-12 | 2026-09-27 |
-| Ticker search and the buy guard cover the whole B3 (brapi `/quote/list`, `services/market_listing.py`); LEVE3, FESA4 and other small caps were refused | 2026-09-27 |
+| Ticker search and the buy guard cover the whole B3 (brapi `/quote/list`, `services/market_listing.py`); small caps used to be refused | 2026-09-27 |
 | Fixed-income IR exemption follows the title type (`fixed_income_is_tax_free()`; LIG and Debênture incentivada added); IPCA+ directly in Rentabilidade; Gado no longer offered on a buy | 2026-09-27 |
 | `CATTLE` (Gado) asset class removed everywhere: API refuses it, no screen lists it (the real DB had no rows) | 2026-09-27 |
 | Início → "Ritmo de gastos" compares the month so far with the average of the 3 previous months at the same day | 2026-10-12 |
@@ -102,10 +102,10 @@
 | "Dados de exemplo" removed from Ajustes at the owner's request (`DemoDataSection.jsx` deleted; it was frontend-only). The seed scripts in `backend/scripts/` are untouched | 2026-10-16 |
 | Phone load time: CORS preflights cached 2 h (`max_age=7200`; Chrome's default was 5 s, so almost every APK request was two round trips); navigation in a React transition (`v7_startTransition`) keeps the current screen until the next is ready; page chunks preloaded 1.5 s after start; query `gcTime` = the persisted cache's 14 days, so a screen not opened this session still has data on the next launch | 2026-10-16 |
 | A fully redeemed renda fixa title is closed: not corrected by the BCB, not listed in Posição, out of the evolution (`closed_fixed_income_title_ids()` in `services/fixed_income.py`, half-a-centavo tolerance). Before, a full resgate left a R$ 0 row that failed/stale on every refresh | 2026-10-16 |
-| Owner's Investidor10 wallet (567 lançamentos: renda variável with splits and bonificações, renda fixa, Tesouro) imported through the API into `wgrrodrigues6@gmail.com`; Tesouro rates from Tesouro Transparente. Data only, see the 2026-10-16 handoff | 2026-10-16 |
-| Automatic proventos (026): position on each data com × StatusInvest's value per share, idempotent sync (`POST /api/investment-proceeds/sync`), edits locked and deletions remembered; JCP tax 15% → 17.5% from 2026 data com; Extrato gets a Contas / Investimentos selector with a read-only operações + proventos statement. 279 proventos written for `wgrrodrigues6@gmail.com`, reconciled with Investidor10 | 2026-10-16 |
+| A real investment history (renda variável with splits and bonificações, renda fixa, Tesouro) imported through the API; Tesouro rates from Tesouro Transparente. Data only, see the 2026-10-16 handoff | 2026-10-16 |
+| Automatic proventos (026): position on each data com × StatusInvest's value per share, idempotent sync (`POST /api/investment-proceeds/sync`), edits locked and deletions remembered; JCP tax 15% → 17.5% from 2026 data com; Extrato gets a Contas / Investimentos selector with a read-only operações + proventos statement. reconciled with Investidor10 on a real history | 2026-10-16 |
 | Docker deploy to the home server: `Dockerfile`, `compose.yaml` (GHCR image, localhost port, `financas_data` volume), GitHub Actions workflow (tests → GHCR → Tailscale SSH → compose pull/up), `deploy.ps1` (manual deploy, rollback by SHA, create-only), `DEPLOY.md`. Verified locally; not yet deployed (see next-steps) | 2026-10-16 |
-| Home server live: owner's setup checked (tags, serve, sudoers, GHCR login, `.env`), first workflow run green, PC data imported (WAL-folded snapshot; all 26 table counts match), APK rebuilt against `guilhermeserver.tail5084ff.ts.net` and installed, GHCR package confirmed private, actions bumped to Node 24 versions (run green, no Node 20 warnings). PC retired as backend: `start.ps1` needs `-Local`, PC `tailscale serve` reset, old DB copied to `Documents\Financas-backup-pc-20261016\` | 2026-10-16 |
+| Home server live: owner's setup checked (tags, serve, sudoers, GHCR login, `.env`), first workflow run green, PC data imported (WAL-folded snapshot; all 26 table counts match), APK rebuilt against the server's Tailscale name and installed, GHCR package confirmed private, actions bumped to Node 24 versions (run green, no Node 20 warnings). PC retired as backend: `start.ps1` needs `-Local`, PC `tailscale serve` reset, old DB copied to `Documents\Financas-backup-pc-20261016\` | 2026-10-16 |
 | Final setup check, all green; `origin` switched to HTTPS with `gh auth setup-git` (fetch and push work); reboot test passed (container healthy and `tailscale serve` back without help, app answering ~1 min after boot); APK signing key confirmed backed up off the PC by the owner | 2026-10-16 |
 | APK screens update themselves from the server: the image carries the APK build of the frontend with `bundle.json` (content-hash version, native level, API address); `GET /api/app-bundle` and `/api/app-bundle/<version>.zip` (public, deterministic zip); native `AppBundle` plugin downloads, checks SHA-256, stages and opens it on the next start on trial, falls back to the APK's screens without `ready()`; Ajustes › Versão do app (APK version, native level, screen version, check / apply / go back). Phone check open (next-steps) | 2026-10-17 |
 | APK updates from CI (option 2): `apk` job in `deploy.yml` (native changes only, `android-release` environment, key decoded to the runner and deleted, certificate checked against `mobile/release-cert-sha256.txt`, `versionCode = 10000 + run number`), APK + `version.json` copied to `/srv/apps/financas/apk` and served at `/apk/` by `tailscale serve`; native `AppUpdate` plugin (download, SHA-256/package/versionCode check, Android installer, "install unknown apps" once); "Nova versão disponível" banner and in Ajustes; bundle native level is now a minimum; "Verificar atualizações" / "Reiniciar agora". Phone check open (next-steps) | 2026-10-17 |
@@ -344,7 +344,7 @@ From the owner's first real carteira `.xlsx`. Notes worth keeping:
   showed as `3.024,`. `export_xlsx.value_cell()` gives a whole quantity (after `round(n, 6)`) the
   built-in `#,##0` (style `STYLE_QUANTITY_WHOLE`); fractional ones keep 165.
 - **IR per asset** is now `rounded(gross) − rounded(net)`, not the rounded raw tax, so the three
-  columns always add up (CDB BANCO INTER 2026 was off by R$ 0,01). Screen and export read the same.
+  columns always add up (one CDB was off by R$ 0,01). Screen and export read the same.
 - **Portfolio totals** (`total_invested`, `current_balance`, `current_net_balance`) round through
   `rounded_money()`; they used `round()`.
 - **Valor investido.** The snapshot exposes `total_invested` per asset, and the export reads it
@@ -353,7 +353,7 @@ From the owner's first real carteira `.xlsx`. Notes worth keeping:
 
 ### Allocation, goals and exemption meter — 2026-09-26
 
-Picked from a walk through the owner's Investidor10 PRO wallet (Resumo, Posições, Proventos,
+Picked from a walk through Investidor10 PRO's screens (Resumo, Posições, Proventos,
 Patrimônio, Rentabilidade, Análise, Lançamentos, DARFs, IRPF, Metas), as the three features that
 reuse what the app already computes and need no new external data.
 
@@ -585,17 +585,16 @@ another currency (2 accounts and 24 assets, all BRL; no movement with an exchang
 ### Automatic proventos — 2026-10-16
 - **Source.** brapi's dividends module answers 403 on the free plan ("requer o plano Startup").
   StatusInvest's `companytickerprovents` is public JSON with data com, payment date, type and
-  value. Investidor10's own earnings API needs the owner's session, so it was used only to check.
+  value. Investidor10's own earnings API needs a logged-in session, so it was used only to check.
 - **Basis.** StatusInvest marks pre-split values `adj: true` (already in today's basis, like our
   rescaled quantities) and leaves pre-bonificação values unadjusted (our bonificação is a buy on the
-  ex date). Quantity on the data com × value matched Investidor10 on BBAS3 (split 2024), ITSA4,
-  KLBN4, GOAU4, CMIG4 (bonificações).
+  ex date). Quantity on the data com × value matched Investidor10 on assets with splits and
+  with bonificações.
 - **Tax.** Investidor10's net/gross ratios: JCP 0.85 for data com up to 2025, 0.825 from 2026;
   "Rend. Trib." 0.775. That is the rule now.
-- **Reconciliation** for `wgrrodrigues6@gmail.com`: 279 rows, R$ 3.930,20 net against
-  Investidor10's 283 rows, R$ 3.939,91. Every matched event had the same quantity. MALL11 needed
-  the alias to PMLL11. One StatusInvest row (ITSA4, paid before its own data com) is dropped as a
-  typo.
+- **Reconciliation** against Investidor10 on a real history: all but a handful of rows matched
+  (see next-steps.md), each with the same quantity. A renamed FII needed an entry in
+  `TICKER_ALIASES`. One StatusInvest row (paid before its own data com) is dropped as a typo.
 
 ### Screen self-update — 2026-10-17
 - **Why hand-written.** Capacitor's `Bridge` already reads `CapWebViewSettings`/`serverBasePath` when

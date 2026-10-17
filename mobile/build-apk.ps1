@@ -19,8 +19,8 @@
     Needs Android Studio (its JDK and SDK) and a key from new-keystore.ps1.
 
 .PARAMETER ApiBase
-    The backend address the app talks to. Default: the home server's Tailscale HTTPS name
-    (`tailscale serve` in front of the Docker container, DEPLOY.md).
+    The backend address the app talks to. Default: $env:FINANCAS_API_BASE, the home server's
+    Tailscale HTTPS name (`tailscale serve` in front of the Docker container, DEPLOY.md).
 
 .PARAMETER NoInstall
     Build only; do not look for a phone.
@@ -39,7 +39,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$ApiBase = 'https://guilhermeserver.tail5084ff.ts.net',
+    [string]$ApiBase = $env:FINANCAS_API_BASE,
     [switch]$NoInstall,
     [switch]$SkipTests,
     [int]$VersionCode = 0
@@ -66,7 +66,7 @@ function Invoke-Step([string]$Title, [scriptblock]$Action) {
 }
 
 if (-not ($ApiBase -match '^https://')) {
-    Write-Host "ApiBase must be an https:// address (got '$ApiBase')." -ForegroundColor Red
+    Write-Host "ApiBase must be an https:// address (got '$ApiBase'). Pass -ApiBase or set FINANCAS_API_BASE." -ForegroundColor Red
     exit 1
 }
 $ApiBase = $ApiBase.TrimEnd('/')

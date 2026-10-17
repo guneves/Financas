@@ -63,7 +63,7 @@ server's `client_id` makes a double delivery harmless either way.
 
 Built: steps 1, 2 and 4, and `backend/.env.example` for step 3. On 2026-10-16 `backend/.env` had a
 real `JWT_SECRET`, and Claude set `JWT_EXP_DAYS=180` and added `https://localhost` to `CORS_ORIGINS`.
-`tailscale serve` already proxies `https://financas.tail5084ff.ts.net` to `127.0.0.1:5000` (step 5).
+`tailscale serve` already proxies `https://financas.<tailnet>.ts.net` to `127.0.0.1:5000` (step 5).
 Open: the phone's browser on mobile data. The APK reaches the address from the phone (2026-10-16).
 
 1. Flask serves the built frontend (`frontend/dist`) at `/`, with a fallback to `index.html` for
@@ -207,8 +207,8 @@ Two things the phone taught:
 2. The API base is set at build time: `build-apk.ps1` builds with `VITE_API_BASE_URL` into
    `frontend/dist-android/` (gitignored), so `frontend/dist`, which Flask serves on the PC and to
    the phone's browser, keeps calling its own origin. The default address is
-   `https://financas.tail5084ff.ts.net`: the PC's MagicDNS name is `financas`, not its Windows
-   hostname (`desktop-behm4lb` does not resolve in the tailnet). `-ApiBase` overrides it.
+   `https://financas.<tailnet>.ts.net`: the PC's MagicDNS name is `financas`, not its Windows
+   hostname (which does not resolve in the tailnet). `-ApiBase` overrides it.
    `https://localhost` is in `CORS_ORIGINS` in `backend/.env`.
 3. The native outbox, Java, in `android/app/src/main/java/br/financas/app/outbox/`:
    - `OutboxStore`: a SQLite table holding each item whole, in the Phase 4 shape;
@@ -334,7 +334,7 @@ notification.
 
 | App | Package | Allow-list |
 |---|---|---|
-| Samsung Wallet (Samsung Pay) | `com.samsung.android.spay` | Yes (owner, 2026-10-17). Most card purchases are paid through Samsung Pay, so a purchase probably notifies twice: once from here, once from the bank that issued the card. The watch app (`com.samsung.android.samsungpay.gear`) is not on the list. |
+| Samsung Wallet (Samsung Pay) | `com.samsung.android.spay` | Yes. A purchase paid through Samsung Pay probably notifies twice: once from here, once from the bank that issued the card. The watch app (`com.samsung.android.samsungpay.gear`) is not on the list. |
 | Itaú | `com.itau` | Yes. |
 | Itaú Cartões | `com.itaucard.activity` | Yes, if installed. Itaú is moving cardholders into `com.itau`, so card notifications may come from either. |
 | Banco do Brasil | `br.com.bb.android` | Yes. |

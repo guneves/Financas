@@ -1,6 +1,6 @@
 # Deploy
 
-The app runs on `guilhermeserver` (x86_64, reached over Tailscale) as one Docker container:
+The app runs on a home server (x86_64, reached over Tailscale) as one Docker container:
 gunicorn serving the API and the built frontend on one origin. The server holds no source code and
 no Git — `/srv/apps/financas/` contains only `compose.yaml` and `.env`. The image lives in GHCR.
 
@@ -15,7 +15,7 @@ snapshot imported).
 |---|---|
 | Image | `ghcr.io/guneves/financas-app`, tags `latest` and the full commit SHA |
 | Host port | **8101**, localhost only (`APP_PORT` in the server's `.env`). Ports on this server: 81xx, one per app. |
-| Address | `https://guilhermeserver.tail5084ff.ts.net` (`tailscale serve`, HTTPS 443 → `127.0.0.1:8101`) |
+| Address | `https://<server>.<tailnet>.ts.net` (`tailscale serve`, HTTPS 443 → `127.0.0.1:8101`) |
 | Volume | `financas_data`, mounted at `/data`: `finance.db`, `backups/`, `attachments/`, `logs/` |
 
 Pulling a new image or recreating the container never touches the volume.
@@ -85,10 +85,10 @@ your own devices first. Merge into the policy:
   "ssh": [
     // the default rule, kept
     { "action": "check",  "src": ["autogroup:member"], "dst": ["autogroup:self"], "users": ["autogroup:nonroot", "root"] },
-    // you, from any of your devices, into the server as guilherme (no browser re-check)
-    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:server"],     "users": ["guilherme"] },
+    // you, from any of your devices, into the server as <user> (no browser re-check)
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:server"],     "users": ["<user>"] },
     // the workflow; "check" would wait for a browser login it cannot do
-    { "action": "accept", "src": ["tag:ci"],           "dst": ["tag:server"],     "users": ["guilherme"] }
+    { "action": "accept", "src": ["tag:ci"],           "dst": ["tag:server"],     "users": ["<user>"] }
   ]
 }
 ```
@@ -100,13 +100,20 @@ tailnet.
 **Order, so access is never lost:**
 
 1. Save the policy above. Nothing is tagged yet, so nothing changes. Check that `ssh
-   guilherme@guilhermeserver` still works from the PC.
-2. Tag the server: Machines → guilhermeserver → Edit ACL tags → `tag:server`. Check ssh again from
+   <user>@<server>` still works from the PC.
+2. Tag the server: Machines → <server> → Edit ACL tags → `tag:server`. Check ssh again from
    the PC right away. If it fails, remove the tag. Safety net: OpenSSH also listens on the LAN
-   (`0.0.0.0:22`), so `ssh guilherme@<LAN IP>` from home does not depend on Tailscale at all.
+   (`0.0.0.0:22`), so `ssh <user>@<LAN IP>` from home does not depend on Tailscale at all.
 3. Settings → OAuth clients → new client, scope **Auth Keys: write**, tag `tag:ci`.
 4. GitHub → repo → Settings → Secrets and variables → Actions: `TS_OAUTH_CLIENT_ID`,
-   `TS_OAUTH_SECRET`.
+   `TS_OAUTH_SECRET`, and the deploy secrets below.
+
+**Deploy secrets.** The repo is public, so the server's name is not in it. `deploy.yml` reads two
+Actions secrets (secrets, not variables, so the public logs mask them): `DEPLOY_SERVER`
+(`<user>@<server>.<tailnet>.ts.net`, the ssh destination) and `APP_API_BASE`
+(`https://<server>.<tailnet>.ts.net`, compiled into the APK's screens; the image gets it as a
+build arg). On the PC, `deploy.ps1` and `mobile\build-apk.ps1` read the same two values from the
+user environment variables `FINANCAS_SERVER` and `FINANCAS_API_BASE` (or `-Server` / `-ApiBase`).
 
 A tagged device's key no longer expires, and the tag does not affect `tailscale serve` or the HTTPS
 name.
@@ -115,7 +122,7 @@ name.
 
 ```bash
 # Passwordless sudo for docker: the workflow cannot type a password.
-echo 'guilherme ALL=(root) NOPASSWD: /usr/bin/docker' | sudo tee /etc/sudoers.d/90-docker-deploy
+echo '<user> ALL=(root) NOPASSWD: /usr/bin/docker' | sudo tee /etc/sudoers.d/90-docker-deploy
 sudo chmod 440 /etc/sudoers.d/90-docker-deploy
 sudo visudo -c                         # must end with "parsed OK"
 
@@ -126,7 +133,7 @@ sudo docker login ghcr.io -u guneves
 sudo tailscale serve --bg 8101
 ```
 
-Anyone who logs in as `guilherme` can then run docker as root, which is effectively root on the
+Anyone who logs in as `<user>` can then run docker as root, which is effectively root on the
 server. That is the trade accepted here. The rule deliberately has no `SETENV`.
 
 `/srv/apps/financas/.env` (from `.env.example`, `chmod 600`): `APP_PORT=8101`, `JWT_SECRET`
@@ -152,11 +159,11 @@ a single-file snapshot instead: `sqlite3.connect("file:finance.db?mode=ro", uri=
 reads the WAL and leaves the originals alone; that is how the 2026-10-16 import was done. Then:
 
 ```powershell
-ssh guilherme@guilhermeserver "mkdir -p /tmp/financas-import"
-scp backend\finance.db guilherme@guilhermeserver:/tmp/financas-import/
-scp -r backend\attachments guilherme@guilhermeserver:/tmp/financas-import/
-ssh guilherme@guilhermeserver "sudo docker run --rm --user 0 --entrypoint sh -v financas_data:/data -v /tmp/financas-import:/import ghcr.io/guneves/financas-app:latest -c 'rm -f /data/finance.db-wal /data/finance.db-shm && cp -a /import/. /data/ && chown -R 10001:10001 /data' && rm -rf /tmp/financas-import"
-ssh guilherme@guilhermeserver "cd /srv/apps/financas && sudo docker compose up -d && sudo docker compose logs --tail 30"
+ssh <user>@<server> "mkdir -p /tmp/financas-import"
+scp backend\finance.db <user>@<server>:/tmp/financas-import/
+scp -r backend\attachments <user>@<server>:/tmp/financas-import/
+ssh <user>@<server> "sudo docker run --rm --user 0 --entrypoint sh -v financas_data:/data -v /tmp/financas-import:/import ghcr.io/guneves/financas-app:latest -c 'rm -f /data/finance.db-wal /data/finance.db-shm && cp -a /import/. /data/ && chown -R 10001:10001 /data' && rm -rf /tmp/financas-import"
+ssh <user>@<server> "cd /srv/apps/financas && sudo docker compose up -d && sudo docker compose logs --tail 30"
 ```
 
 The copy uses the app's own image (uid 10001 is the user the app runs as). On the server,
@@ -210,7 +217,7 @@ job runs alongside build and deploy, after the tests, in the `android-release` e
 4. copies `financas-<code>.apk`, then `version.json`, to `/srv/apps/financas/apk/` on the server
    (Tailscale SSH, like the deploy), keeping the last three APKs.
 
-`tailscale serve` publishes that folder at `https://guilhermeserver.tail5084ff.ts.net/apk/`, on
+`tailscale serve` publishes that folder at `https://<server>.<tailnet>.ts.net/apk/`, on
 the tailnet only. Nothing goes to GitHub Releases or workflow artifacts.
 
 The app reads `/apk/version.json` with the bundle check. When the published `version_code` is
@@ -239,7 +246,7 @@ default versionCode (the commit count) is below CI's, so over a CI-installed app
 ### One-time server setup for `/apk`
 
 ```bash
-ssh -t guilherme@guilhermeserver "mkdir -p /srv/apps/financas/apk && sudo tailscale serve --bg --set-path /apk /srv/apps/financas/apk && tailscale serve status"
+ssh -t <user>@<server> "mkdir -p /srv/apps/financas/apk && sudo tailscale serve --bg --set-path /apk /srv/apps/financas/apk && tailscale serve status"
 ```
 
 `/` keeps proxying to the container on 8101. `/apk` is served by tailscaled straight from the

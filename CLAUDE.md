@@ -102,7 +102,7 @@ daily use better over the change that makes the architecture prettier.
 **The home server is the only real backend** (since 2026-10-16). The PC's `backend\finance.db` is
 a development copy, not the owner's data, so `start.ps1` refuses to start without `-Local`.
 
-**Production** runs on the home server (`guilhermeserver`) as the Docker image
+**Production** runs on the home server as the Docker image
 `ghcr.io/guneves/financas-app`, deployed by `.github/workflows/deploy.yml` on every push to `main`
 (tests → GHCR → Tailscale SSH → `docker compose pull/up`). The server holds only `compose.yaml` and
 `.env`; data is in the `financas_data` volume. `DEPLOY.md` has setup, the manual `deploy.ps1`, the

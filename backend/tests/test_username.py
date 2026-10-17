@@ -8,15 +8,15 @@ def _email():
 
 
 def _signup(client, **overrides):
-    body = {"email": _email(), "password": "senha-de-teste-123", "username": "Guilherme"}
+    body = {"email": _email(), "password": "senha-de-teste-123", "username": "Maria"}
     body.update(overrides)
     return client.post("/api/auth/signup", json=body)
 
 
 def test_signup_stores_username(client):
-    response = _signup(client, username="  Guilherme   Neves ")
+    response = _signup(client, username="  Maria   Silva ")
     assert response.status_code == 201
-    assert response.get_json()["user"]["username"] == "Guilherme Neves"
+    assert response.get_json()["user"]["username"] == "Maria Silva"
 
 
 def test_signup_requires_username(client):

@@ -1,7 +1,7 @@
 """Semeia 3 anos de dados ficticios para UM usuario, pelo proprio app.
 
 Uso (de dentro de backend/):
-    ..\\.venv\\Scripts\\python.exe scripts/seed_three_years_mock.py wgrrodrigues6@gmail.com [--scale N]
+    ..\\.venv\\Scripts\\python.exe scripts/seed_three_years_mock.py <email> [--scale N]
 
 --scale multiplica todo valor monetario (salario, despesas, saldos, aportes,
 orcamentos). O padrao, 10, leva receita acumulada e patrimonio para a casa dos
