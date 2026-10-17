@@ -18,6 +18,11 @@ from auth import token_required
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from services.accounts import require_account, resolve_account_id, resolve_category
+from services.import_rules import (
+    count_rule_hits,
+    import_default_category,
+    import_rules_for_matching,
+)
 from source_types import (
     INVESTMENT_CASH_SOURCE_TYPE,
     INVOICE_PAYMENT_SOURCE_TYPES,
@@ -44,11 +49,6 @@ ALLOWED_IMPORT_APPLIES_TO = {"INCOME", "EXPENSE", "BOTH"}
 # Um extrato de um ano cabe folgado; acima disso o arquivo provavelmente nao e
 # um extrato, e o payload passa a pesar na memoria do processo.
 MAX_IMPORT_CONTENT_CHARS = 4_000_000
-
-
-# Categoria sugerida quando nenhuma regra casa. E so um palpite: a previa
-# sempre deixa o dono trocar antes de gravar.
-DEFAULT_IMPORT_CATEGORIES = {"EXPENSE": "Outros", "INCOME": "Receita"}
 
 
 def serialize_import_rule(row):
@@ -100,23 +100,6 @@ def ensure_unique_import_rule(conn, current_user_id, fields, existing=None):
             continue
         if statement_import.normalize_text(row["pattern"]) == normalized:
             raise ValidationError(f"Ja existe uma regra para \"{row['pattern']}\".")
-
-
-def import_rules_for_matching(conn, current_user_id):
-    """Regras ativas na ordem de avaliacao: prioridade desc, depois idade.
-
-    Empate resolvido pela mais antiga de proposito — a regra que o dono criou
-    primeiro continua ganhando quando ele acrescenta outra parecida.
-    """
-    rows = conn.execute(
-        """
-        SELECT * FROM import_rules
-        WHERE user_id = ? AND active = 1
-        ORDER BY priority DESC, created_at ASC
-        """,
-        (current_user_id,),
-    ).fetchall()
-    return [row_to_dict(row) for row in rows]
 
 
 def read_import_rule_payload(conn, current_user_id, payload, existing=None):
@@ -396,23 +379,6 @@ def import_rules_apply(current_user_id):
     return jsonify({"updated": updated, "skipped": len(transaction_ids) - updated}), 200
 
 
-def import_default_category(conn, current_user_id, transaction_type):
-    name = DEFAULT_IMPORT_CATEGORIES.get(transaction_type)
-    if not name:
-        return None, None
-    row = conn.execute(
-        """
-        SELECT id, name FROM categories
-        WHERE user_id = ? AND name = ? AND archived_at IS NULL
-        LIMIT 1
-        """,
-        (current_user_id, name),
-    ).fetchone()
-    if not row:
-        return None, None
-    return row["name"], row["id"]
-
-
 def import_content_from_payload(payload):
     content = payload.get("content")
     if not isinstance(content, str) or not content.strip():
@@ -607,10 +573,6 @@ def import_commit(current_user_id):
 
         # hits so conta o que virou lancamento de verdade; e o numero que diz
         # se a regra esta puxando o peso dela.
-        for rule_id, count in rule_hits.items():
-            conn.execute(
-                "UPDATE import_rules SET hits = hits + ? WHERE id = ? AND user_id = ?",
-                (count, rule_id, current_user_id),
-            )
+        count_rule_hits(conn, current_user_id, rule_hits)
 
     return jsonify({"created": created, "skipped": skipped}), 201

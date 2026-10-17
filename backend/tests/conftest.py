@@ -40,6 +40,10 @@ def app_module():
     # O token real do backend/.env nao vale nos testes: nenhum teste vai a brapi
     # sem pedir (monkeypatch.setenv + urlopen substituido).
     os.environ["BRAPI_TOKEN"] = ""
+    # Idem a Pluggy: sem credenciais, nenhum teste fala com ela sem pedir
+    # (monkeypatch.setenv + pluggy_client substituido onde e lido).
+    os.environ["PLUGGY_CLIENT_ID"] = ""
+    os.environ["PLUGGY_CLIENT_SECRET"] = ""
 
     # config.py le o ambiente no import, e os modulos do app (db, auth...) copiam
     # os valores dele. Por isso nenhum teste importa esses modulos no topo do

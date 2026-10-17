@@ -36,6 +36,7 @@ SOURCE_LABELS = {
     "CC_AUTOPAY": "Débito automático",
     "RECURRING_TRANSACTION": "Recorrência",
     "STATEMENT_IMPORT": "Importação de extrato",
+    "PLUGGY": "Banco (Pluggy)",
 }
 
 ASSET_CLASS_LABELS = {

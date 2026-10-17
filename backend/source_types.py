@@ -19,6 +19,11 @@ INVESTMENT_CASH_SOURCE_TYPE = "INVESTMENT_TRANSACTION"
 # (services/proceeds_cash.py, materializado na leitura).
 INVESTMENT_PROCEED_SOURCE_TYPE = "INVESTMENT_PROCEED"
 
+# Transacao trazida pela Pluggy (027): source_id = 'pluggy:<id da transacao>',
+# o mesmo valor de external_id. Em cc_expenses o source_id e o da compra, igual
+# em todas as parcelas (services/pluggy_sync.py).
+PLUGGY_SOURCE_TYPE = "PLUGGY"
+
 # Pagamento de fatura: manual (pay-invoice) ou debito automatico (011,
 # source_id = '<cartao>:<AAAA-MM>').
 CC_INVOICE_PAYMENT_SOURCE_TYPE = "CC_INVOICE_PAYMENT"

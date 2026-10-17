@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     -- 024: id gerado pelo cliente; repetir o envio nao duplica o lancamento.
     client_id TEXT,
+    -- 027: 'pluggy:<id>' da transacao do banco que confirma este lancamento.
+    external_id TEXT,
     CHECK (type <> 'TRANSFER' OR (account_id IS NOT NULL
                                   AND transfer_account_id IS NOT NULL
                                   AND account_id <> transfer_account_id)),
@@ -440,7 +442,12 @@ CREATE TABLE IF NOT EXISTS cc_expenses (
     status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'PAID')),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     -- 024: id do envio da compra, o mesmo em todas as parcelas.
-    client_id TEXT
+    client_id TEXT,
+    -- 027: a parcela que uma transacao da Pluggy confirma; quem gravou a compra
+    -- ('PLUGGY', com o mesmo source_id em todas as parcelas).
+    external_id TEXT,
+    source_type TEXT,
+    source_id TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_client
@@ -560,3 +567,78 @@ CREATE TABLE IF NOT EXISTS proceeds_sync_dismissed (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (user_id, sync_key)
 );
+
+-- Pluggy (027): conexoes, contas ligadas e o livro da sincronizacao
+-- (services/pluggy_sync.py). external_id ('pluggy:<id>') marca o lancamento ou
+-- a parcela que uma transacao do banco confirma; cc_expenses ganha
+-- source_type/source_id como transactions.
+CREATE TABLE IF NOT EXISTS pluggy_items (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL,
+    connector_name TEXT,
+    status TEXT,
+    execution_status TEXT,
+    last_updated_at TEXT,
+    last_sync_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (user_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS pluggy_account_links (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL,
+    pluggy_account_id TEXT NOT NULL,
+    pluggy_account_type TEXT NOT NULL CHECK (pluggy_account_type IN ('BANK', 'CREDIT')),
+    name TEXT,
+    account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+    card_id TEXT REFERENCES credit_cards(id) ON DELETE CASCADE,
+    since TEXT NOT NULL,
+    full_sync_done INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK (pluggy_account_type <> 'BANK' OR (account_id IS NOT NULL AND card_id IS NULL)),
+    CHECK (pluggy_account_type <> 'CREDIT' OR (card_id IS NOT NULL AND account_id IS NULL)),
+    UNIQUE (user_id, pluggy_account_id)
+);
+
+CREATE TABLE IF NOT EXISTS pluggy_transactions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    pluggy_id TEXT NOT NULL,
+    pluggy_account_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    direction TEXT NOT NULL CHECK (direction IN ('DEBIT', 'CREDIT')),
+    description TEXT,
+    status TEXT NOT NULL,
+    installment_number INTEGER,
+    total_installments INTEGER,
+    purchase_date TEXT,
+    pluggy_updated_at TEXT,
+    state TEXT NOT NULL CHECK (state IN (
+        'IMPORTED', 'ATTACHED', 'REVIEW', 'WAITING', 'SKIPPED', 'DISMISSED', 'REMOVED'
+    )),
+    reason TEXT,
+    target_table TEXT CHECK (target_table IS NULL OR target_table IN ('transactions', 'cc_expenses')),
+    target_id TEXT,
+    candidates TEXT,
+    difference TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (user_id, pluggy_id)
+);
+
+-- transactions.external_id, cc_expenses.external_id/source_type/source_id (027):
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_user_external
+ON transactions(user_id, external_id)
+WHERE external_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_external
+ON cc_expenses(user_id, external_id)
+WHERE external_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_source
+ON cc_expenses(user_id, source_type, source_id, installment_info)
+WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
