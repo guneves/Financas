@@ -19,7 +19,7 @@ the end). The status of each phase is in its heading.
 | Notifications | A native `NotificationListenerService` reads notifications from the listed bank apps only. Parsing happens on the phone. |
 | Publishing | Always confirm. A detected purchase waits in an inbox until the owner taps Confirmar (from the notification or the list). Nothing is recorded on its own. |
 | Statement import | The import preview flags rows that match an existing lançamento on account, date and amount as probable duplicates and leaves them unchecked. |
-| Banks | Itaú, BTG Pactual, Banco do Brasil. |
+| Banks | Itaú, BTG Pactual, Banco do Brasil, plus Samsung Wallet: most card purchases are paid through Samsung Pay (owner, 2026-10-17). |
 | Login lifetime | 180 days, one setting for PC and phone: `JWT_EXP_DAYS=180` in `backend/.env` (owner, 2026-10-12). The backend is reachable only through Tailscale, and an expired token stalls background sync and the notification's Confirmar button. |
 | Distribution | Sideloaded APK signed with the owner's own keystore. No Play Store. |
 
@@ -52,9 +52,9 @@ server's `client_id` makes a double delivery harmless either way.
   another session and is in other files; commit mobile work by explicit path.
 - Collect real notification texts: at least five per bank app, copied exactly, covering credit,
   debit, Pix sent, Pix received, a refund (estorno) and a declined purchase. The parsers are written
-  against these. Copying by hand is enough to start; the listener's capture mode (Phase 6, step 2)
-  replaces it and also records each app's real package name. Example texts from any other source
-  are a starting sketch only, never a test fixture.
+  against these. Since 2026-10-17 the listener's capture mode (Phase 6, step 2) collects them on
+  the phone, with each app's real package name and posted time; copying by hand is no longer
+  needed. Example texts from any other source are never a test fixture.
 - Install Android Studio (SDK and platform tools) and Tailscale on the PC and the phone. In the
   Tailscale admin console, enable MagicDNS and HTTPS certificates: `tailscale serve` needs both.
   Enabling HTTPS publishes the PC's machine name in the public certificate log.
@@ -317,13 +317,23 @@ Checked on the PC: backend tests, JVM tests of `BundleRules` and `ApkUpdateRules
 `appBundleRules`, a local image serving the manifest and a zip whose SHA-256 matches, and a local
 release build signed with the key whose fingerprint CI checks.
 
-## Phase 6 — Reading bank notifications (not started)
+## Phase 6 — Reading bank notifications (steps 1–3 and the debug half of step 7 built 2026-10-17)
 
-Package names, each checked against its Google Play listing on 2026-10-12. Capture mode (step 2)
-still has the last word on which app actually sends a card notification.
+Built: the listener, capture mode, the Ajustes screen, and the debug build that accepts
+adb-posted notifications. **Not built, on purpose: the parsers (step 4) and the mapping screen
+(step 5).** There are no real notification texts yet; the parsers are written next against what
+capture mode collects on the owner's phone, never against examples from the web. Open: the phone
+check (CI APK installed, access granted, an adb-posted notification in the test APK's capture),
+then about a week of capture with real purchases (see `docs/next-steps.md`).
+
+Package names, each checked against its Google Play listing on 2026-10-12 (Samsung Wallet on
+2026-10-17, through a web search of play.google.com: the store itself is unreachable from the
+cloud session). Capture mode still has the last word on which app actually sends a card
+notification.
 
 | App | Package | Allow-list |
 |---|---|---|
+| Samsung Wallet (Samsung Pay) | `com.samsung.android.spay` | Yes (owner, 2026-10-17). Most card purchases are paid through Samsung Pay, so a purchase probably notifies twice: once from here, once from the bank that issued the card. The watch app (`com.samsung.android.samsungpay.gear`) is not on the list. |
 | Itaú | `com.itau` | Yes. |
 | Itaú Cartões | `com.itaucard.activity` | Yes, if installed. Itaú is moving cardholders into `com.itau`, so card notifications may come from either. |
 | Banco do Brasil | `br.com.bb.android` | Yes. |
@@ -331,31 +341,76 @@ still has the last word on which app actually sends a card notification.
 | BTG Pactual Banking | `com.btg.pactual.banking` | Yes. Card and account notifications come from here. |
 | BTG Pactual Investimentos | `com.btg.pactual.digital.mobile` | No, deliberately. |
 
+The list lives in `NotifyRules.APPS` and in the manifest's `<queries>` (so the screen can tell
+whether each app is installed); a JVM test fails when the two differ.
+
 No reliable public source gives the wording of these apps' notifications; published examples
 disagree with each other. Known variations the parsers must expect: the time as `14:30` or
 `16h30`, a purchase in a foreign currency (`US 3,00`), and the card's product name before
 "final 1234". Some Itaú cards send no push for purchases at all.
 
-1. A Kotlin `NotificationListenerService` in the same plugin as the outbox. It keeps only
+**One purchase, two notifications.** A Samsung Pay purchase is expected to notify from Samsung
+Wallet *and* from the issuing bank. Capture mode keeps both, with posted times to the
+millisecond, and nothing in Phase 6 deduplicates them. Phase 6/7 has to pick **one source per
+purchase** — for example, pair a Samsung Wallet detection with a bank detection of the same amount
+inside a short time window and keep one (likely the bank's, which carries the card digits) — so
+a purchase never becomes two lançamentos. The rule is written from the exported captures: which
+notification comes first, how far apart, and whether the Wallet text carries the merchant and
+the card.
+
+How it was built (the steps below say what each one asked for):
+- Java, in its own package `android/.../notify/` with its own plugin (`Notify`), not Kotlin in
+  the outbox plugin: the project has no Kotlin set up, and the listener shares nothing with the
+  outbox.
+- `BankNotificationListener` drops any package off the list before reading anything. Today there
+  is no parser, so **with capture off it stores nothing**; with capture on it writes each
+  notification to `financas_notify.db` (`NotifyStore`): package, `android.title`, `android.text`,
+  `android.bigText`, posted time, `Notification.when`, the key, channel, category, group-summary
+  and ongoing flags, and **every textual extra** by its Android name (`android.subText`,
+  `android.textLines`…), so a parser never needs a field the capture left out. The unique
+  `dedup_key` (`NotifyRules.dedupKey`: SHA-256 of package, key and posted time, 64 hex characters,
+  which fits the server's `client_id` format) makes the same posting read twice one row. That
+  happens on purpose: when Android reconnects the listener (a new APK, the process killed) it
+  reads the notifications still in the tray (`via = active`). On disconnect it asks for a rebind.
+  The table keeps the newest 5,000 rows.
+- Capture is off by default and switched in Ajustes › Notificações dos bancos. Texts leave the
+  phone only through the export (JSON or text, Android's share sheet, from the app's cache); no
+  upload, no third party, and `allowBackup="false"` keeps the table out of Google's backup.
+- The screen shows whether access is granted, whether Android has the listener connected (the
+  last connect/disconnect time), a button to Android's notification-access page (straight to the
+  app's toggle on Android 11+), the "Permitir configurações restritas" steps (open by default
+  when access is missing on Android 13+) with a button to the app's info page and who installed
+  the APK, the count per app (and "não instalado"), the last 20 captured, export and delete.
+- Debug half of step 7: the debug build is **another package**, `br.financas.app.debug` ("Finanças
+  debug"), so it installs beside the real app and never over it. Only it accepts
+  `com.android.shell` (`BuildConfig.DEBUG`; a JVM test pins that the release rule refuses it), and
+  in a debug build the package name of every refused notification goes to logcat (tag
+  `FinancasNotify`), to find the shell's real package if it is not `com.android.shell`. CI builds
+  it next to the release APK, signed with the same key, and publishes it as
+  `/apk/financas-debug.apk`, outside `version.json`; the debug app never offers the published APK.
+
+1. *(Built, in Java — see above.)* A `NotificationListenerService`. It keeps only
    notifications whose package is on the allow-list and writes them to a native table, so nothing
    is lost while the app is closed. Stored per notification: package, `android.title`,
    `android.text`, `android.bigText` (preferred over `text` when present; it usually carries the
    full merchant name), posted time and the notification key.
-2. A capture mode, off by default: while on, every notification from an allowed app is kept
+2. *(Built.)* A capture mode, off by default: while on, every notification from an allowed app is kept
    verbatim in a list that can be exported from the phone. This is how the parser fixtures and the
    real package names are collected, and how a wording change is diagnosed later. The texts stay on
    the phone and the PC; they are never sent to a third-party service.
-3. A settings screen that sends the owner to Android's notification-access page and shows whether
+3. *(Built: Ajustes › Notificações dos bancos.)* A settings screen that sends the owner to Android's notification-access page and shows whether
    access is granted. Android 13+ blocks notification access for an app installed by opening the
    APK file on the phone, until "Permitir configurações restritas" is chosen in its app info (the
    option appears only after one refused attempt). An install over USB with `adb install` is not
    expected to trigger this, which is why Phase 5 installs that way; the screen explains the menu
    for the case where it does.
-4. One parser per bank app, in Kotlin, as pure functions with JVM unit tests built from the
-   collected texts (they run on the PC, without a phone): amount, merchant, kind (credit, debit,
-   Pix sent, Pix received, refund, declined), and card final digits when present. Declined
-   purchases are ignored; refunds become an INCOME suggestion. Kotlin, not JavaScript, because the
-   parser runs when the notification arrives, with the app closed. Rules for every parser:
+4. *(Next, after a week of capture.)* One parser per bank app (Samsung Wallet included), as pure
+   functions with JVM unit tests built from the collected texts (they run on the PC, without a
+   phone): amount, merchant, kind (credit, debit, Pix sent, Pix received, refund, declined), and
+   card final digits when present. Declined purchases are ignored; refunds become an INCOME
+   suggestion. Native, not JavaScript, because the parser runs when the notification arrives,
+   with the app closed — Java like the listener unless Kotlin is set up first. Once parsers exist
+   the listener hands them every allowed notification, capture on or off. Rules for every parser:
    - match fragments (`R$ <valor>`, `em <local> às`, `Local: <local>`), never a whole sentence,
      so a changed preposition does not break it;
    - classify the negative kinds first (declined, refund, cancelled), before any keyword such as
@@ -371,8 +426,9 @@ disagree with each other. Known variations the parsers must expect: the time as 
 7. End-to-end tests without a real purchase: `adb shell cmd notification post -S bigtext -t
    "<title>" <tag> "<text>"` posts a notification through the normal path, so the listener
    receives it. It arrives under the shell's own package (`com.android.shell` on a stock build;
-   capture mode shows the real value), so debug builds accept that package and let the test choose
-   which bank parser to run; release builds do not.
+   a debug build logs the real value), so debug builds accept that package; release builds do
+   not. *(Built: the debug half.)* Letting the test choose which bank parser to run (by the tag,
+   say) comes with step 4.
 
 Done when: a real purchase on each of the three banks appears in the native table with the right
 amount and merchant.
@@ -390,9 +446,14 @@ amount and merchant.
 4. The app posts its own notification for each detection with Confirmar and Editar buttons.
    Confirmar is handled by a native `BroadcastReceiver`: it writes the entry to the native outbox
    with `auto_category` and schedules the sender. The app is not opened. Editar opens the form.
-5. The `client_id` is derived from the notification (package, key and posted time), so one
-   notification can never become two lançamentos, even if the bank updates or re-posts it, and
-   whether it is confirmed from the notification or from the list.
+5. The `client_id` is derived from the notification (package, key and posted time —
+   `NotifyRules.dedupKey`, already in the server's `client_id` format), so one notification can
+   never become two lançamentos, whether it is confirmed from the notification or from the list.
+   Open question for the captures: Android gives an *updated* notification a new posted time, so
+   a bank that updates its notification would yield a second key. If the export shows that, the
+   id has to come from the key and `Notification.when` (also captured) instead. A purchase that
+   notifies from two apps (Samsung Wallet and the bank) is a separate problem: see "One purchase,
+   two notifications" in Phase 6.
 6. Discarded detections are remembered, so the same notification does not return.
 
 Done when: a purchase is recorded on the PC from the notification button alone, with the app
@@ -415,7 +476,7 @@ was missing.
 ## Phase 9 — Hardening and daily use (not started)
 
 1. Exempt the app from battery optimisation and confirm the listener survives a reboot and a
-   night idle.
+   night idle (Ajustes › Notificações shows when Android last connected and disconnected it).
 2. Confirm the sender's backoff when the server is unreachable, so the radio is not kept awake
    while the PC is off.
 3. Confirm the PC side: the backend and `tailscale serve` start with Windows, and backups still run.

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- O APK de teste (build debug) aparece com outro nome na tela inicial e no acesso as
+     notificacoes, para nunca ser confundido com o app de verdade. -->
+<resources>
+    <string name="app_name">Finanças debug</string>
+    <string name="title_activity_main">Finanças debug</string>
+</resources>

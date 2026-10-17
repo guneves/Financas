@@ -55,6 +55,17 @@ android {
         buildConfig = true
     }
     buildTypes {
+        // O APK de teste: outro pacote (br.financas.app.debug), instalado ao lado do de verdade e
+        // nunca por cima dele. So ele aceita as notificacoes do shell do adb (notify/NotifyRules,
+        // BuildConfig.DEBUG). Assinado com a mesma chave quando ela existe, para que um debug
+        // novo instale por cima do anterior.
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+        }
         release {
             if (hasReleaseKey) {
                 signingConfig signingConfigs.release

@@ -163,7 +163,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement` and `appBundleRules`, 33 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules` and `notifyRules`, 45 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -220,7 +220,8 @@ docs/
   handoff.md          # latest session only
 frontend/android/      # Capacitor's Android project (committed); native code in
                       # app/src/main/java/br/financas/app/ (outbox/ = the native queue and sender,
-                      # bundle/ = the screen self-update)
+                      # bundle/ = the screen self-update, notify/ = the bank-notification
+                      # listener); app/src/debug/ = the test APK's name
 frontend/native-level.txt   # the APK's native level; a screen goes only to an APK at or above its level
 frontend/scripts/      # bundle-manifest.mjs: writes bundle.json into the APK build
 mobile/
@@ -324,7 +325,21 @@ mobile-docs/
   `version.json` to `/srv/apps/financas/apk/`, served at `/apk/` by `tailscale serve`. The app
   (`android/.../update/ApkUpdatePlugin.java`, `ApkUpdateBanner.jsx`) offers "Nova versão
   disponível" when that versionCode is higher than the installed one, then downloads the APK and
-  opens Android's installer. DEPLOY.md, "Updating the phone".
+  opens Android's installer. DEPLOY.md, "Updating the phone". The same job builds the **test APK**
+  (debug build, package `br.financas.app.debug`, "Finanças debug") and copies it as
+  `financas-debug.apk`, outside `version.json`: it installs beside the real app by `adb install`,
+  never over it, and is never offered as an update.
+- **Bank notifications are read on the phone and stay there** (Phase 6, 2026-10-17,
+  `android/.../notify/`, `lib/notifyCapture.js`, Ajustes › Notificações dos bancos). The
+  allow-list is `NotifyRules.APPS` plus the manifest's `<queries>` (a JVM test keeps them equal);
+  anything else is dropped unread. Only a debug build accepts `com.android.shell` (adb-posted
+  test notifications) — never widen that to release. Capture mode is off by default, keeps each
+  notification word for word in `financas_notify.db`, and its texts leave the phone only through
+  the export (share sheet); never send them to the server or a third party. The listener
+  deduplicates only the same posting (`dedupKey`: package + key + posted time); a Samsung Pay
+  purchase that notifies from Samsung Wallet and from the bank is two rows on purpose, and choosing
+  one source per purchase belongs to the parsers/inbox (Phase 6/7). Parsers are written against
+  exported captures, never against examples from the web.
 - **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
   `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.

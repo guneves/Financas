@@ -26,7 +26,8 @@ The server is the only backend since 2026-10-16 (`DEPLOY.md`; see `docs/done-tas
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
 Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2
-on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/done-tasks.md`). Open, in order:
+on the PC and Phase 5 (built, installed on the phone) on 2026-10-16, and Phase 6's listener and
+capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
 - [ ] Phase 5, the last phone checks. The APK is built, signed and installed on the owner's Galaxy
   S25; login, real data, the bars in the theme and the offline queue work there. Left:
   - the "done when" with the app really **closed** (swiped from recent apps): airplane mode,
@@ -73,9 +74,30 @@ on the PC and Phase 5 (built, installed on the phone) on 2026-10-16 (see `docs/d
   one-handed in under ten seconds, and check that the amount field's keyboard types a comma the
   field accepts (`type="number"` with `inputMode="decimal"`; keyboards differ). The layout itself
   was fixed on the PC on 2026-10-16 (see `docs/done-tasks.md` and Phase 2 in the plan).
-- [ ] Phases 6 to 9 (notification listener, inbox, statement dedup, hardening). Each needs the
-  phone, a working APK build or real notification texts; what is needed from the owner is listed
-  at the top of each phase in the plan.
+- [ ] **Phase 6 on the phone** (listener, capture mode and Ajustes › Notificações dos bancos built
+  2026-10-17, see `docs/done-tasks.md`; native level 2). After the merge to `main`, CI publishes
+  the APK and the test APK `/apk/financas-debug.apk`. Check: the real app updates by "Nova versão
+  disponível"; notification access granted to it (if Android says "Configuração restrita", the
+  steps are on the screen); the test APK installed with `adb install -r financas-debug.apk`, logged
+  in, access granted to "Finanças debug", capture on; the screen's adb command makes the
+  notification appear in the test APK's capture — and **not** in the real app's; one export (JSON
+  and text) opens the share sheet. If the adb notification does not appear, `adb logcat -s
+  FinancasNotify` names the package it came from.
+- [ ] **A week of capture, then export** (owner). Capture on in the real app; about a week of
+  real use covering Samsung Pay on each card (Itaú, BB, BTG), a debit purchase, Pix sent and
+  received, an estorno, and a declined purchase if one happens. Then "Exportar JSON" and bring
+  the file to the next session. Battery: if the counts stop between purchases, set the app's
+  battery use to "Sem restrições" (the screen shows when Android last disconnected the listener).
+- [ ] Phase 6 steps 4–6, written against that export: one parser per app (Samsung Wallet
+  included), the mapping screen, unrecognised text into the inbox. Before Phase 7 publishes
+  anything: **pick one source per purchase** — a Samsung Pay purchase is expected to notify from
+  Samsung Wallet and from the issuing bank, and capture keeps both on purpose; pair them by amount
+  and time window so a purchase never becomes two lançamentos. Also read from the export whether
+  a bank *updates* a notification (new posted time, same key), which decides whether Phase 7's
+  `client_id` can keep posted time in it.
+- [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
+  `.debug` package; left alone because another session owns that file.
+- [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
 
 ### Investments separate from banking — what is left
 Built on 2026-10-12 (see `docs/done-tasks.md`): an operation reaches the Extrato only when
