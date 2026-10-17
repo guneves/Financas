@@ -622,5 +622,7 @@ another currency (2 accounts and 24 assets, all BRL; no movement with an exchang
 - **Checked in the cloud session without an Android SDK** (dl.google.com is blocked there): the
   JVM tests ran with plain `javac` + JUnit from Maven Central; the Android classes were compiled
   against Robolectric's `android-all` (API 36) and Capacitor 8.5.3's `classes.jar`, with stubs
-  for three androidx methods. The Gradle build itself first runs in CI. The screen was opened in
-  Chromium at 360 px (light and dark, with and without access) with the plugin mocked.
+  for three androidx methods. The Gradle build first ran in CI after the merge (PR
+  guneves/financas#1, deploy run 13): green, APK 10013 and the test APK, both with the phone's
+  certificate. The screen was opened in Chromium at 360 px (light and dark, with and without
+  access) with the plugin mocked.

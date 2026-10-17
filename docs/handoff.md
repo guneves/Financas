@@ -11,8 +11,10 @@
 
 A cloud session (no phone, no Android SDK). Built Phase 6 steps 1–3 and the debug half of step 7
 of `mobile-docs/steps-to-production.md`. Session-scout was not used; the docs were read directly.
-Branch `claude/sweet-rubin-un057n`, **not merged**: nothing reaches CI or the phone until it is
-merged to `main`.
+**Merged to `main`** by the owner as PR guneves/financas#1 (`e340d1c`). Deploy run 13 was green:
+tests, image, deploy, and the `apk` job — the first Gradle build of this code — published APK
+**10013** (native level 2) and `/apk/financas-debug.apk`, both signed with the phone's key
+(`5e0770ac…`).
 
 ### What was done
 - **Listener** (`frontend/android/app/src/main/java/br/financas/app/notify/`, Java):
@@ -48,20 +50,22 @@ merged to `main`.
   instruction — there are no real texts yet, and parsers are written only against captures.
 - **No deduplication between Samsung Wallet and the bank**, on purpose: capture must show the real
   pattern first. The plan and next-steps say Phase 6/7 has to pick one source per purchase.
-- **The Gradle build was never run**: dl.google.com (Android SDK, Google's Maven artifacts) is
+- **No Gradle build in the session**: dl.google.com (Android SDK, Google's Maven artifacts) is
   blocked here. The Android classes were compiled with `javac` against Robolectric's `android-all`
   (API 36) and Capacitor 8.5.3's `classes.jar`, with stubs for three androidx methods
   (`NotificationManagerCompat.getEnabledListenerPackages`, `FileProvider.getUriForFile`,
-  `PackageInfoCompat.getLongVersionCode`). Manifest, debug resource override and the
-  `buildTypes.debug` block are first exercised by CI. If the `apk` job fails, look there first.
-- **Phone check**: needs the merge and the phone (below).
+  `PackageInfoCompat.getLongVersionCode`). The real build (manifest, debug resource override,
+  `buildTypes.debug`, `testReleaseUnitTest`) first ran in CI after the merge, and passed.
+- **Phone check**: needs the phone (below).
 - **`DEPLOY.md`** does not mention `financas-debug.apk`: another session owns it.
 - With capture off, the listener stores nothing (no parser would read it). Once parsers exist it
   must feed them regardless of the switch — written into step 4 of the plan.
 
 ### Next — the owner, before the next coding session
-1. Merge the branch to `main`. CI runs tests, the image, and the `apk` job (release + test APK).
-2. Real app: "Nova versão disponível" → install. Ajustes › Notificações dos bancos → "Abrir acesso
+1. Done: merged, and CI published APK 10013 and the test APK. The server's screens now need
+   native level 2, so the phone (APK 10011, level 1) keeps its current screens until 10013 is
+   installed — this is also the self-update check of a native-level bump.
+2. Real app: "Nova versão disponível" → install 10013. Ajustes › Notificações dos bancos → "Abrir acesso
    às notificações" → turn Finanças on. If Android says "Configuração restrita", follow the steps
    on that screen (this APK was installed by the app itself, which may count as sideloaded).
 3. Test APK, from the PC on the tailnet:
@@ -86,9 +90,9 @@ merged to `main`.
 ### Carried from earlier sessions (still open)
 - After 2026-10-19, check the first workflow run on Ubuntu 26 is green.
 - Mobile Phase 5's last phone checks (app swiped away + offline), against the server.
-- The remaining self-update cases (offline queue across a switch, a native-level bump — this
-  merge is one: an APK below level 2 keeps its screens and is offered the new APK — and the 30 s
-  fallback).
+- The remaining self-update cases (offline queue across a switch, a native-level bump — the
+  merge of `e340d1c` is one: APK 10011 should keep its screens and be offered 10013 — and the
+  30 s fallback).
 - The rclone backup, if the owner wants help with it.
 - Walk-through of Extrato → Investimentos and Proventos → Atualizar, on the server.
 - Nothing enforces the native-level bump: it is a rule in CLAUDE.md.

@@ -75,9 +75,9 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   field accepts (`type="number"` with `inputMode="decimal"`; keyboards differ). The layout itself
   was fixed on the PC on 2026-10-16 (see `docs/done-tasks.md` and Phase 2 in the plan).
 - [ ] **Phase 6 on the phone** (listener, capture mode and Ajustes › Notificações dos bancos built
-  2026-10-17, see `docs/done-tasks.md`; native level 2). After the merge to `main`, CI publishes
-  the APK and the test APK `/apk/financas-debug.apk`. Check: the real app updates by "Nova versão
-  disponível"; notification access granted to it (if Android says "Configuração restrita", the
+  2026-10-17, see `docs/done-tasks.md`; native level 2). CI published APK 10013 and the test APK
+  `/apk/financas-debug.apk` the same day (deploy run 13, green). Check: the real app updates to
+  10013 by "Nova versão disponível"; notification access granted to it (if Android says "Configuração restrita", the
   steps are on the screen); the test APK installed with `adb install -r financas-debug.apk`, logged
   in, access granted to "Finanças debug", capture on; the screen's adb command makes the
   notification appear in the test APK's capture — and **not** in the real app's; one export (JSON
