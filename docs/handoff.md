@@ -15,6 +15,15 @@ bancos; the phone now has the new APK and capture works), how to make captures c
 investments app to be read too, with every operation later recorded automatically and paid from
 the brokerage account.
 
+### CI/CD broken by `38b9877`, rolled back
+`38b9877` ("Repo publico") moved the server address into Actions secrets `DEPLOY_SERVER` /
+`APP_API_BASE` that were never created: GitHub hands an empty string for a missing secret, the
+Dockerfile's guard (`APP_API_BASE nao informado`) failed the image and the apk job, and nothing
+reached the server or the phone from `38b9877` through `fc495a0`. The owner asked for a rollback:
+`deploy.yml`, `Dockerfile`, `deploy.ps1` and `mobile/build-apk.ps1` are back to `38b9877^` (address
+in the code again; it was in the public history anyway) and DEPLOY.md says so. The rest of that
+commit (docs without the owner's data) stays.
+
 ### Done
 - `com.btg.pactual.digital.mobile` ("BTG Investimentos") added to `NotifyRules.APPS` and the
   manifest `<queries>`; `NotifyRulesTest` no longer asserts it is refused. JVM tests green

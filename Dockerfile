@@ -11,10 +11,9 @@ COPY frontend/ ./
 RUN npx vite build
 # A tela do APK, que o celular baixa para se atualizar (services/app_bundle.py):
 # o mesmo codigo, com a API do servidor compilada, e o bundle.json com a versao.
-# Endereco do servidor: --build-arg APP_API_BASE=https://... (o deploy.yml passa o secret).
-ARG APP_API_BASE
-RUN test -n "$APP_API_BASE" || { echo "APP_API_BASE nao informado (--build-arg)"; exit 1; } \
-    && VITE_API_BASE_URL="$APP_API_BASE" npx vite build --outDir dist-android --emptyOutDir \
+# Mesmo endereco que mobile/build-apk.ps1 usa por padrao.
+ARG APP_API_BASE=https://guilhermeserver.tail5084ff.ts.net
+RUN VITE_API_BASE_URL="$APP_API_BASE" npx vite build --outDir dist-android --emptyOutDir \
     && node scripts/bundle-manifest.mjs dist-android "$APP_API_BASE"
 
 # --- 2. Backend -------------------------------------------------------------

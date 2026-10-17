@@ -106,14 +106,12 @@ tailnet.
    (`0.0.0.0:22`), so `ssh <user>@<LAN IP>` from home does not depend on Tailscale at all.
 3. Settings → OAuth clients → new client, scope **Auth Keys: write**, tag `tag:ci`.
 4. GitHub → repo → Settings → Secrets and variables → Actions: `TS_OAUTH_CLIENT_ID`,
-   `TS_OAUTH_SECRET`, and the deploy secrets below.
+   `TS_OAUTH_SECRET`.
 
-**Deploy secrets.** The repo is public, so the server's name is not in it. `deploy.yml` reads two
-Actions secrets (secrets, not variables, so the public logs mask them): `DEPLOY_SERVER`
-(`<user>@<server>.<tailnet>.ts.net`, the ssh destination) and `APP_API_BASE`
-(`https://<server>.<tailnet>.ts.net`, compiled into the APK's screens; the image gets it as a
-build arg). On the PC, `deploy.ps1` and `mobile\build-apk.ps1` read the same two values from the
-user environment variables `FINANCAS_SERVER` and `FINANCAS_API_BASE` (or `-Server` / `-ApiBase`).
+**Server address.** `deploy.yml` (`SERVER`, `API_BASE`), the Dockerfile's `APP_API_BASE` default,
+`deploy.ps1 -Server` and `mobile\build-apk.ps1 -ApiBase` carry the server's Tailscale name in the
+code. Moving it into Actions secrets (2026-10-17) broke every deploy while the secrets did not
+exist, so it was rolled back; the name is in the git history anyway.
 
 A tagged device's key no longer expires, and the tag does not affect `tailscale serve` or the HTTPS
 name.

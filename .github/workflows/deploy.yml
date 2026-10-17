@@ -1,4 +1,4 @@
-# Push to main: test, build the image into GHCR, deploy it on the home server.
+# Push to main: test, build the image into GHCR, deploy it on guilhermeserver.
 # The server only pulls: /srv/apps/financas holds compose.yaml and .env (never touched here).
 # When the native app changed, the "apk" job also builds the signed APK and publishes it,
 # with apk/version.json, in /srv/apps/financas/apk (served on the tailnet by tailscale serve),
@@ -21,10 +21,9 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/guneves/financas-app
-  # Secrets, not variables: a public repo's logs mask them (DEPLOY.md, "Deploy secrets").
-  SERVER: ${{ secrets.DEPLOY_SERVER }}
+  SERVER: guilherme@guilhermeserver.tail5084ff.ts.net
   APP_DIR: /srv/apps/financas
-  API_BASE: ${{ secrets.APP_API_BASE }}
+  API_BASE: https://guilhermeserver.tail5084ff.ts.net
 
 jobs:
   test:
@@ -87,8 +86,6 @@ jobs:
           platforms: linux/amd64
           push: true
           provenance: false
-          build-args: |
-            APP_API_BASE=${{ env.API_BASE }}
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
@@ -108,7 +105,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-      # Tailscale SSH authorizes by the policy's ssh rule (tag:ci -> tag:server as the deploy user):
+      # Tailscale SSH authorizes by the policy's ssh rule (tag:ci -> tag:server as guilherme):
       # no private key here. Its host key is new on every runner.
       - name: Copy compose.yaml (never .env)
         run: |
