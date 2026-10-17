@@ -124,6 +124,12 @@ daily use better over the change that makes the architecture prettier.
 .\start.ps1 -NoBrowser   # start without opening a browser
 ```
 
+**Production** runs on the home server (`guilhermeserver`) as the Docker image
+`ghcr.io/guneves/financas-app`, deployed by `.github/workflows/deploy.yml` on every push to `main`
+(tests → GHCR → Tailscale SSH → `docker compose pull/up`). The server holds only `compose.yaml` and
+`.env`; data is in the `financas_data` volume. `DEPLOY.md` has setup, the manual `deploy.ps1`, the
+data import and rollback.
+
 Manually, if you need the two halves separate:
 
 ```powershell

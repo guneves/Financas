@@ -1,0 +1,25 @@
+# Runs on the server, next to .env and nothing else. The image is built by the
+# GitHub Actions workflow into GHCR; to build it locally, see compose.build.yaml.
+name: financas
+
+services:
+  app:
+    image: ghcr.io/guneves/financas-app:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # APP_PORT is read from .env (compose interpolation). Localhost only: the way
+      # in is `tailscale serve` (HTTPS), never the LAN.
+      - "127.0.0.1:${APP_PORT:?set APP_PORT in .env}:5000"
+    volumes:
+      - data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  # finance.db, backups/, attachments/ (receipts) and logs/
+  data:

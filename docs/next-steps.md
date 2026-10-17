@@ -9,6 +9,20 @@
 
 ## 1. Open work, in priority order
 
+### Home server deployment (2026-10-16) — first deploy
+The image, compose file, workflow and scripts are built and verified locally (`DEPLOY.md`). Open, in order:
+- [ ] Owner: tailnet policy and the order in `DEPLOY.md` (policy first, then `tag:server` on the
+  server), OAuth client (`tag:ci`, Auth Keys write), GitHub secrets `TS_OAUTH_CLIENT_ID` /
+  `TS_OAUTH_SECRET`.
+- [ ] Owner, on the server: the sudoers rule, `sudo docker login ghcr.io` (read:packages token),
+  `sudo tailscale serve --bg 8101`. The `.env` already exists.
+- [ ] Push to `main` and watch the first workflow run (never exercised).
+- [ ] First deploy with the PC's data: `.\deploy.ps1 -CreateOnly`, stop the PC backend, import
+  `finance.db` + `attachments`, start, check `/api/health` and a login.
+- [ ] Rebuild and install the APK (`mobile/build-apk.ps1`, now pointing at the server) and check the
+  phone end to end, offline queue included.
+- [ ] Copy backups off the server on a schedule: today they share the volume's disk.
+
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
 Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2

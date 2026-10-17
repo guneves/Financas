@@ -1,0 +1,11 @@
+# Local build and test run on the PC, layered over compose.yaml:
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build
+# Needs a .env next to it (APP_PORT, JWT_SECRET). Its volume is the PC's own,
+# not the server's. deploy.ps1 builds with `docker build` and does not use this file.
+services:
+  app:
+    build:
+      context: .
+      platforms:
+        - linux/amd64
+    platform: linux/amd64

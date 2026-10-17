@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     1. Builds the frontend into frontend/dist-android, with the API pointed at
-       the PC's Tailscale address (frontend/dist, which Flask serves, is left alone).
+       the server's Tailscale address (frontend/dist, which Flask serves, is left alone).
     2. Copies it into the Android project (npx cap sync android).
     3. Runs the native unit tests and assembles the release APK, signed with the
        key from new-keystore.ps1. The version is the commit count and date+commit,
@@ -16,7 +16,8 @@
     Needs Android Studio (its JDK and SDK) and a key from new-keystore.ps1.
 
 .PARAMETER ApiBase
-    The backend address the app talks to. Default: the PC's Tailscale HTTPS name.
+    The backend address the app talks to. Default: the home server's Tailscale HTTPS name
+    (`tailscale serve` in front of the Docker container, DEPLOY.md).
 
 .PARAMETER NoInstall
     Build only; do not look for a phone.
@@ -31,7 +32,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$ApiBase = 'https://financas.tail5084ff.ts.net',
+    [string]$ApiBase = 'https://guilhermeserver.tail5084ff.ts.net',
     [switch]$NoInstall,
     [switch]$SkipTests
 )

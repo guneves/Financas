@@ -1,0 +1,33 @@
+# Only what the image needs: backend/, database/ and the frontend sources.
+.git
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/node_modules
+
+# Local data and secrets — never baked into the image
+.env
+**/.env
+**/*.db
+**/*.db-shm
+**/*.db-wal
+backend/backups
+backend/attachments
+backend/logs
+backend/tests
+
+# Builds and things the server does not run
+frontend/dist
+frontend/dist-android
+frontend/android
+mobile
+mobile-docs
+docs
+.claude
+*.md
+start.ps1
+deploy.ps1
+compose.build.yaml
+compose.yaml
