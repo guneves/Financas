@@ -32,14 +32,10 @@ the PC. **The home server is now the only backend**: `https://guilhermeserver.ta
   DEPLOY.md say so. Old `finance.db` + `-wal`/`-shm` copied (hash-checked) to
   `C:\Users\User\Documents\Financas-backup-pc-20261016\`, plus `finance-imported-to-server.db`.
   Originals not deleted. Nothing autostarts the PC backend (no task, startup entry or Run key).
-- **Git over SSH**: `~/.ssh/id_ed25519` (passphrase-protected) is already the key on
-  github.com/guneves; the Windows `ssh-agent` service was *Disabled*, so no shell could use it.
-  Set `git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe` so every shell's
-  git uses the Windows agent. Enabling the service and `ssh-add` need the owner (admin + passphrase).
-
 ### What was not done and why
-- See the SSH status in the session's final report; if the agent was not set up, pushes still
-  fail over SSH. Workaround used this session: `git -c credential.helper= -c
+- **Git over SSH: the owner chose not to use it.** `origin` is SSH, and `~/.ssh/id_ed25519` (with a
+  passphrase) is the key on github.com/guneves, but the Windows `ssh-agent` service is disabled,
+  so pushes over SSH fail. Push over HTTPS with gh's login: `git -c credential.helper= -c
   'credential.helper=!gh auth git-credential' push https://github.com/guneves/Financas.git main`.
 - Old PC DB not deleted (owner asked to keep it); `backend\backups\` on the PC left as is.
 - Backups still live only on the server's volume disk.
@@ -57,9 +53,6 @@ the PC. **The home server is now the only backend**: `https://guilhermeserver.ta
 ### Learned
 - `adb` showed "unauthorized" with no prompt on the phone; `adb kill-server` + start brought the
   dialog back.
-- Git Bash's `/usr/bin/ssh` does not talk to the Windows ssh-agent; `core.sshCommand` pointing at
-  `C:/Windows/System32/OpenSSH/ssh.exe` makes git in every shell use it. Plain `ssh` typed in Git
-  Bash still uses its own.
 - The `gh` token has `workflow` scope, so an HTTPS push via `gh auth git-credential` can change
   workflow files; it lacks `read:packages`, so package visibility is checked anonymously instead.
 - With `sudo` limited to `/usr/bin/docker`, read root-only files or the volume through a throwaway
