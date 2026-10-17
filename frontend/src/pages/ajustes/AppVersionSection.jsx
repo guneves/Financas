@@ -71,7 +71,7 @@ function AppVersionPanel() {
     <Panel id="versao" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Versão do app"
-        description="A tela se atualiza sozinha pelo servidor; um APK novo só é preciso quando o servidor pede."
+        description="A tela se atualiza sozinha pelo servidor; um APK novo aparece aqui quando o CI publica um."
         actions={(
           <Button variant="secondary" size="sm" icon={RefreshCw} loading={busy === 'check'} onClick={() => run('check', checkForUpdate)}>
             Verificar atualizações
