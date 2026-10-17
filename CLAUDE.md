@@ -82,8 +82,8 @@ If the fallback is what you used, say so in the handoff.
 ## What this is
 
 A personal finance manager, single-user, running locally. Income and expenses, credit cards with
-installments and invoice settlement, and a fairly deep investments module (FIFO cost basis, realized
-results, estimated tax, proceeds, quotes).
+installments and invoice settlement, and a fairly deep investments module (weighted average cost,
+realized results, monthly tax apuração, proceeds, quotes).
 
 **Stack:** React 18 + Vite + Tailwind · Flask 3 · local SQLite with versioned migrations · hand-rolled
 HS256 JWT auth · yfinance for quotes.
@@ -121,8 +121,10 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1002 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
-and its `@token_required`), FIFO, tax rules, credit card invoices (settlement, the closed-only payment rule, débito automático and the
+1031 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
+monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
+per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
@@ -163,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules` and `notifyRules`, 45 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules` and `notifyRules`, 46 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -183,7 +185,9 @@ backend/
   responses.py        # download/export responses (CSV or .xlsx, ?format=&columns=) shared by blueprints
   services/           # domain rules: accounts, invoices, attachments, prices (quotes, caches),
                       # fixed_income (BCB, accrual), fx (PTAX), investments (movements, cash link,
-                      # BRL conversion), corporate_actions, realized_results (FIFO, tax),
+                      # BRL conversion, the average cost), corporate_actions,
+                      # realized_results (cost and IR of each sale), variable_income_tax
+                      # (monthly IR of stocks/ETFs/BDRs/FIIs, pure),
                       # portfolio (positions, evolution), tax_report (IR, exemption meter),
                       # allocation (targets, contribution split, concentration), goals,
                       # proceeds (proventos read, by asset), proceeds_sync (automatic proventos), returns (TWR), contributions
@@ -363,7 +367,7 @@ mobile-docs/
   latest event with nothing after its ex date can be undone. Keep those guards.
 - **Foreign currency is stored native, calculated in BRL** (018): quantities, prices and quotes in
   the asset's currency, the movement's rate in `metadata.fx_rate`. `fetch_investments()` — the
-  stream FIFO, portfolio, evolution and the IR report read — returns BRL (cost at the movement's
+  stream the realized result, portfolio, evolution and the IR report read — returns BRL (cost at the movement's
   rate, value at today's PTAX); `fetch_investment_rows()` is native (screens, edits). The cash link
   is BRL. Anything new that computes money from movements must read `fetch_investments()`.
 - **The app is reais-only on screen** (owner, 2026-10-12: "Everything on the app should be reais").
@@ -383,7 +387,7 @@ mobile-docs/
   (the user's, active, BRL) before any write. On `PATCH` an omitted key keeps the link and `null`
   removes it — refused (409) while the lançamento has a receipt. A movement that asks for the
   Extrato but has no cash amount to write is refused (400), so the key never says "no extrato"
-  without a row. Each movement decides for itself, and nothing financial reads the link (FIFO, IR
+  without a row. Each movement decides for itself, and nothing financial reads the link (cost, IR
   and the portfolio read movements, not cash). The three forms share `CashLinkField` ("Lançar no
   extrato", off by default).
 - **Início is the banking area only, and in reais.** Its headline is the consolidated account
@@ -434,6 +438,24 @@ mobile-docs/
 - **The exemption meter reads the IR report's own apuração** (`exemption_meter()` calls
   `renda_variavel()` up to the month), so the R$ 20 mil figure on the IR tab and in the sale form
   always matches the annual report. Don't give it a second copy of the rule.
+- **Cost is the weighted average (custo médio ponderado), never FIFO** (2026-10-17): the Receita's
+  rule for stocks, FIIs, ETFs and BDRs (Lei 8.981/1995, art. 72, §2º; IN RFB 1.585/2015, art. 58).
+  `apply_average_cost()` in `services/investments.py`, run inside `fetch_investments()`, gives each
+  movement `cost_amount` (how much the position's cost changes; a sale removes quantity × the
+  average of that moment) and each sale `average_cost`. Posição, the evolution, the realized
+  result and Bens e Direitos all sum those, so they agree. **The price stored on a SELL row is
+  never a cost**: the screen sends the position's average there and the API used to accept the
+  sale price — neither is read. Fixed income stays per title (quantity × price, as stored).
+- **One monthly tax rule for variable income** (`services/variable_income_tax.py`, pure):
+  `monthly_apuration()` is the IR tab's month-by-month *and* the IR of each sale — the realized
+  result stores the sale's share of its month's tax (`apply_monthly_tax()`), so an exempt sale
+  shows IR 0 in Operações exactly as on the IR tab. The R$ 20 mil exemption is for **ações only**
+  (units count as ações); ETFs and BDRs pay 15% with no exemption, don't count toward the limit
+  and share the stocks' loss pool; FIIs 20% with their own pool; fixed-income ETFs (IR withheld at
+  source, Lei 13.043/2014) stay out of the DARF. The kind comes from `market_catalog.tax_kind()`
+  (catalog kind, `FIXED_INCOME_ETFS`, BDR ticker suffix), through `market_listing.tax_kind()`.
+  Foreign assets and "outros" keep a per-sale estimate. Tributação exclusiva (códigos 06 e 10) is
+  declared at the **net** value: the IR tab, the paste text and the export show that.
 - **`CATTLE` (Gado) was removed on 2026-09-27** at the owner's request: the API refuses it and no screen
   lists it. The migrations' `CHECK` constraints still allow the value (append-only; no table rebuild
   for it) — don't read that as the class being alive.
@@ -442,7 +464,8 @@ mobile-docs/
 
 - **The layering is strict** (Phase 5, done 2026-09-23): `config` ← `db` ←
   `validators`/`money`/`dates`/`auth`/`asset_classes`/`responses` ← `services/*` ← `routes/*` ←
-  `app`. Among the investment services: `proceeds` (only `db`/`money`/`dates`/`validators`) and
+  `app`. Among the investment services: `variable_income_tax` (pure: `money`/`validators`, read by
+`realized_results` and `tax_report`), `proceeds` (only `db`/`money`/`dates`/`validators`) and
   `prices` ← `fixed_income` ← `fx` ← `investments` ← `corporate_actions` / `realized_results` /
   `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`, `allocation` ←
   `sectors`, `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
