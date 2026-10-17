@@ -2,13 +2,17 @@
 
 Uma movimentacao (compra, venda, resgate) e uma linha de
 `investment_transactions`: quantidade negativa e venda, e o resgate de renda
-fixa vem marcado no metadata (`is_redemption`). Ela so chega ao extrato quando
-o dono pede, operacao por operacao: `metadata.cash_account_id` e a conta, e
-entao existe exatamente um lancamento em `transactions` com
-`source_type = INVESTMENT_CASH_SOURCE_TYPE` nessa conta
-(`sync_investment_cash_transaction()`). Sem a chave nada e gravado: a carteira
-nao mexe no saldo. `investment_cash_account_id()` e a regra e
-`resolve_investment_cash_account()` valida a conta antes de gravar.
+fixa vem marcado no metadata (`is_redemption`). Ela chega ao extrato quando
+`metadata.cash_account_id` tem a conta: entao existe exatamente um lancamento
+em `transactions` com `source_type = INVESTMENT_CASH_SOURCE_TYPE` nessa conta
+(`sync_investment_cash_transaction()`). Sem a conta nada e gravado.
+`investment_cash_account_id()` e a regra e `resolve_investment_cash_account()`
+valida a conta antes de gravar.
+
+A conta da carteira (dono, 2026-10-17): uma conta do tipo Corretora
+(`BROKERAGE`) e a conta da carteira, e a operacao criada sem a chave sai dela
+(`portfolio_cash_account_id()`). `cash_account_id: null` e a marca "nao
+descontar de nenhuma conta".
 `validate_asset_transaction_backing()` recusa a mudanca que deixaria uma venda
 ou resgate sem compra que a cubra.
 
@@ -179,6 +183,28 @@ def investment_cash_account_id(metadata):
     if not isinstance(value, str):
         return None
     return value.strip() or None
+
+
+PORTFOLIO_ACCOUNT_TYPE = "BROKERAGE"
+
+
+def portfolio_cash_account_id(conn, current_user_id):
+    """A conta da carteira: a primeira conta Corretora ativa em reais, ou None.
+
+    Mesma ordem da lista de contas (`account_balance_rows()`: padrao primeiro,
+    depois o nome), que e a ordem em que a tela escolhe a mesma conta.
+    """
+    for row in conn.execute(
+        """
+        SELECT id, currency FROM accounts
+        WHERE user_id = ? AND type = ? AND archived_at IS NULL
+        ORDER BY is_default DESC, name COLLATE NOCASE
+        """,
+        (current_user_id, PORTFOLIO_ACCOUNT_TYPE),
+    ).fetchall():
+        if normalize_currency(row["currency"]) == BASE_CURRENCY:
+            return row["id"]
+    return None
 
 
 def resolve_investment_cash_account(conn, current_user_id, metadata, previous_account_id=None):

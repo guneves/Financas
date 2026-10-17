@@ -7,7 +7,7 @@
 
 ---
 
-## Session — 2026-10-17 (late) · BTG Investimentos on the notification list
+## Session — 2026-10-17 (late) · BTG Investimentos on the notification list; the portfolio account
 
 The owner asked how to check the notification gatherer (answered: Ajustes › Notificações dos
 bancos; the phone now has the new APK and capture works), how to make captures change balances
@@ -23,6 +23,18 @@ the brokerage account.
 - The plan for brokerage operations written down: `mobile-docs/steps-to-production.md`
   ("Brokerage notifications" in Phase 6, step 7 in Phase 7) and two items in `docs/next-steps.md`.
 
+- **The portfolio account** (owner: "I need to link at least one account to my investment
+  portfolio and every transaction I make there will come out of this account, except the ones I
+  click the flag to not discount from anywhere"). A Corretora (`BROKERAGE`) account is the
+  portfolio's; every new operation comes out of it (sale/redemption into it) unless "Não
+  descontar de nenhuma conta" is ticked (`cash_account_id: null`). Backend default for a POST
+  without the key (`portfolio_cash_account_id()` in `services/investments.py`); the screens
+  always send the key and refuse a new operation until one exists (`lib/portfolioAccount.js`);
+  Ajustes › Contas has "Vincular à carteira" (PATCH type) and a "Carteira" badge. CLAUDE.md's
+  cash-link convention rewritten. Backend 1042 passed, node 53. Clicked through with Playwright
+  at 390 px on a scratch database: refused without the account, linked from Ajustes, a buy took
+  R$ 200 from the account, a flagged buy wrote nothing, no console errors.
+
 ### Not done, and why
 - **No native-level bump**: no screen calls anything new; the screen's list of apps comes from
   `Notify.status()`, so an older APK just lists one app fewer.
@@ -30,6 +42,12 @@ the brokerage account.
   whether, and how, the BTG investments app notifies an execution.
 - **"Automatically"**: the standing decision is "Always confirm". Kept; flagged as the owner's call
   in next-steps.
+- **Portfolio account, decisions taken without asking** (say so if wrong): the link is the account
+  *type* Corretora, not a new column — no migration; with several Corretora accounts the default
+  one, then the name, is the default and the form lets the owner pick another; the API without a
+  Corretora account still writes nothing (strict refusal would break 80 test POSTs and the
+  seeds — the screens are where the "need at least one" rule is enforced); proventos still do
+  not touch the account; operations recorded before today keep their own setting.
 
 ### Learned
 - Gradle on this PC needs `JAVA_HOME` = Android Studio's `jbr` and `ANDROID_HOME` =

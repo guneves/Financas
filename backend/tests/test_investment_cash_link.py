@@ -1,4 +1,4 @@
-"""Axis 4: an investment movement reaches the cash statement only when asked.
+"""Axis 4: an investment movement reaches the cash statement through its account.
 
 A movement that carries `metadata.cash_account_id` has exactly one lançamento
 in that account — a buy is an EXPENSE, a sale or redemption an INCOME — linked
@@ -616,3 +616,78 @@ class TestDestructiveGuards:
         # The movement and its cash entry survive the refused delete.
         assert any(item["id"] == investment["id"] for item in movements(client, auth))
         assert the_linked_row(client, auth, investment)["amount"] == pytest.approx(100.0)
+
+
+def create_brokerage(client, auth, name="BTG Corretora", **fields):
+    return create_account(client, auth, name=name, type="BROKERAGE", **fields)
+
+
+class TestThePortfolioAccount:
+    """Owner, 2026-10-17: an account of type Corretora is the portfolio's account.
+    A movement created without the key comes out of it (a sale goes into it);
+    `cash_account_id: null` is "não descontar de nenhuma conta"."""
+
+    def test_a_buy_without_the_key_comes_out_of_the_brokerage(self, client, auth):
+        brokerage = create_brokerage(client, auth)
+        investment = post_buy(client, auth, quantity=10, price=20.0)
+
+        row = the_linked_row(client, auth, investment)
+        assert row["account_id"] == brokerage["id"]
+        assert row["type"] == "EXPENSE"
+        assert row["amount"] == pytest.approx(200.0)
+        assert investment["metadata"]["cash_account_id"] == brokerage["id"]
+        assert balance_of(client, auth, brokerage["id"]) == pytest.approx(-200.0)
+
+    def test_a_sale_without_the_key_goes_into_the_brokerage(self, client, auth):
+        brokerage = create_brokerage(client, auth)
+        post_buy(client, auth, quantity=100, price=10.0, date="2026-01-10")
+        sale = post_movement(client, auth, sale_payload(quantity=40, price=15.0))
+
+        row = the_linked_row(client, auth, sale)
+        assert row["account_id"] == brokerage["id"]
+        assert row["type"] == "INCOME"
+        assert row["amount"] == pytest.approx(600.0)
+
+    def test_null_is_the_flag_that_discounts_from_nowhere(self, client, auth):
+        brokerage = create_brokerage(client, auth)
+        linked = post_buy(client, auth, ticker="VALE3", quantity=1, price=50.0)
+        assert the_linked_row(client, auth, linked)["account_id"] == brokerage["id"]
+
+        investment = post_movement(client, auth, buy_payload(ticker="ITUB4", cash_account_id=None))
+        assert linked_to(client, auth, investment) == []
+        assert "cash_account_id" not in investment["metadata"]
+
+    def test_an_explicit_account_still_wins(self, client, auth):
+        create_brokerage(client, auth)
+        account_id = default_account_id(client, auth)
+        investment = post_buy(client, auth, account_id=account_id)
+        assert the_linked_row(client, auth, investment)["account_id"] == account_id
+
+    def test_without_a_brokerage_nothing_is_written(self, client, auth):
+        create_account(client, auth, name="Banco")
+        investment = post_buy(client, auth)
+        assert linked_to(client, auth, investment) == []
+
+    def test_an_archived_brokerage_is_not_the_portfolio_account(self, client, auth):
+        archived = create_brokerage(client, auth, name="Antiga")
+        archive_account(client, auth, archived["id"])
+        investment = post_buy(client, auth)
+        assert linked_to(client, auth, investment) == []
+
+    def test_the_default_account_comes_first_then_the_name(self, client, auth):
+        create_brokerage(client, auth, name="XP")
+        btg = create_brokerage(client, auth, name="BTG")
+        investment = post_buy(client, auth)
+        assert the_linked_row(client, auth, investment)["account_id"] == btg["id"]
+
+    def test_a_buy_with_nothing_to_write_is_kept_out_instead_of_refused(self, client, auth):
+        create_brokerage(client, auth)
+        investment = post_buy(client, auth, ticker="ITUB4", price=0)
+        assert linked_to(client, auth, investment) == []
+        assert "cash_account_id" not in movements(client, auth)[0]["metadata"]
+
+    def test_another_users_brokerage_is_never_used(self, client, auth, other_user):
+        other_auth = other_user["headers"]
+        create_brokerage(client, other_auth)
+        investment = post_buy(client, auth)
+        assert linked_to(client, auth, investment) == []

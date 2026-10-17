@@ -354,10 +354,9 @@ disagree with each other. Known variations the parsers must expect: the time as 
 Investimentos as well … when buying stocks and investments it should come out from the stock
 exchange account." So the BTG investments app is on the allow-list, and a detection from it is an
 *operation*, not a lançamento: a "Registrar operação" suggestion (ticker, buy/sell, quantity,
-price, date) with "Lançar no extrato" ticked on the owner's brokerage account — the existing cash
-link (`metadata.cash_account_id`), so the cost and the IR read the movement and the account
-balance reads the linked lançamento, as when the form is typed by hand. Needs a BRL account for
-the brokerage (Ajustes › Contas) chosen in the mapping screen. Unknown until the captures: whether
+price, date) that comes out of the portfolio account (the Corretora account, built 2026-10-17)
+— the existing cash link (`metadata.cash_account_id`), so the cost and the IR read the movement and the account
+balance reads the linked lançamento, as when the form is typed by hand. Unknown until the captures: whether
 the app notifies executions at all, and with which fields (fees, the nota de corretagem, are not
 expected in a notification and stay editable). Money moving from BTG Banking to the brokerage is a
 TRANSFER between two of the owner's accounts, never an expense or an aporte: a Pix/TED

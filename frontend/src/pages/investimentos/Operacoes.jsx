@@ -80,7 +80,7 @@ function describeMovement(mov) {
   const kindDetail = isRedemption
     ? formatCurrency(totalValue)
     : isFixed ? '' : `${quantityText} un.${adjusted ? ' · ajustada por evento' : ''}`
-  // A operacao so tem lancamento no Extrato quando o dono pediu (CashLinkField).
+  // A operacao tem lancamento no Extrato quando saiu de uma conta (CashLinkField).
   const inStatement = cashLinkFromMetadata(mov.metadata).enabled
   const kindDetailWithCash = inStatement
     ? [kindDetail, 'no extrato'].filter(Boolean).join(' · ')
@@ -190,8 +190,8 @@ export default function Operacoes() {
       delete metadata.sale_date
       delete metadata.redemption_date
       metadata.other_costs = otherCosts
-      // Sempre explicito: a conta quando marcado, `null` para tirar do extrato.
-      Object.assign(metadata, cashLinkMetadata(editModal.cash_link, { explicit: true }))
+      // A conta da carteira, ou `null` quando marcado "Não descontar de nenhuma conta".
+      Object.assign(metadata, cashLinkMetadata(editModal.cash_link, { editing: true }))
 
       if (editModal.is_redemption) {
         metadata.redemption_date = editModal.movement_date

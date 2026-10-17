@@ -57,6 +57,7 @@ from services.investments import (
     get_or_create_asset,
     investment_cash_account_id,
     investment_cash_receipt_count,
+    portfolio_cash_account_id,
     investment_fee_amount,
     investment_gross_amount,
     investment_metadata_dict,
@@ -328,6 +329,9 @@ def investments(current_user_id):
 
     inserted = []
     affected_asset_ids = set()
+    # Posicoes (em `inserted`) das operacoes que ganharam a conta da carteira
+    # sem pedir: sem valor a lancar, ficam fora do extrato em vez de recusadas.
+    defaulted_cash = set()
     try:
         with get_db() as conn:
             for item in items:
@@ -360,9 +364,16 @@ def investments(current_user_id):
                     ticker_or_name = ticker_key(ticker_or_name)
                     metadata_dict = with_fx_rate(conn, current_user_id, currency, metadata_dict)
                     metadata = metadata_dict
-                # So vai ao extrato a operacao que pede (metadata.cash_account_id):
-                # a conta e validada aqui, antes de qualquer escrita.
-                if CASH_ACCOUNT_KEY in metadata_dict:
+                # Sem a chave, a operacao sai da conta da carteira (a Corretora);
+                # `null` e "nao descontar de nenhuma conta". A conta e validada
+                # aqui, antes de qualquer escrita.
+                if CASH_ACCOUNT_KEY not in metadata_dict:
+                    portfolio_account_id = portfolio_cash_account_id(conn, current_user_id)
+                    if portfolio_account_id:
+                        metadata_dict = {**metadata_dict, CASH_ACCOUNT_KEY: portfolio_account_id}
+                        metadata = metadata_dict
+                        defaulted_cash.add(len(inserted))
+                else:
                     metadata_dict = with_investment_cash_account(
                         metadata_dict,
                         resolve_investment_cash_account(conn, current_user_id, metadata_dict),
@@ -419,12 +430,22 @@ def investments(current_user_id):
                 validate_asset_transaction_backing(conn, current_user_id, asset_id)
 
             rows = []
-            for item_id in inserted:
+            for index, item_id in enumerate(inserted):
                 row = fetch_investment_rows(conn, current_user_id, investment_id=item_id)[0]
                 movement = serialize_investment(row)
                 in_statement = sync_investment_cash_transaction(conn, current_user_id, movement)
                 if investment_cash_account_id(movement.get("metadata")) and not in_statement:
-                    raise ValidationError(CASH_WITHOUT_AMOUNT_MESSAGE)
+                    if index not in defaulted_cash:
+                        raise ValidationError(CASH_WITHOUT_AMOUNT_MESSAGE)
+                    conn.execute(
+                        "UPDATE investment_transactions SET metadata = ? WHERE id = ? AND user_id = ?",
+                        (
+                            encode_metadata(with_investment_cash_account(movement.get("metadata"), None)),
+                            item_id,
+                            current_user_id,
+                        ),
+                    )
+                    row = fetch_investment_rows(conn, current_user_id, investment_id=item_id)[0]
                 rows.append(row)
     except ValidationError as exc:
         return validation_error(str(exc))

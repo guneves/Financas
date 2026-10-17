@@ -138,8 +138,8 @@ export default function Posicao() {
   }
 
   // Resgate parcial de renda fixa: a base de custo resgatada e proporcional
-  // ao valor bruto resgatado. So entra no extrato se a caixa do sheet estiver
-  // marcada (`cashLink`); um erro volta para o sheet, que o mostra.
+  // ao valor bruto resgatado. Entra na conta da carteira, a nao ser que o
+  // sheet marque "Não descontar" (`cashLink`); um erro volta para o sheet.
   const handlePartialSale = async ({ asset, amount, date, cashLink }) => {
     setLoading(true)
     try {

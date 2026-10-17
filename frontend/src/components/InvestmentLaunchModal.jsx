@@ -40,7 +40,7 @@ const initialForm = () => ({
   price: '',
   other_costs: '',
   fixed_income: emptyFixedIncomeForm(),
-  // So vai para o extrato quando o dono marca a caixa (CashLinkField).
+  // Sai da conta da carteira, a nao ser que o dono marque a caixa (CashLinkField).
   cash_link: emptyCashLink(),
 })
 

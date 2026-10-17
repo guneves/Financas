@@ -111,13 +111,15 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
 
 ### Investments separate from banking — what is left
-Built on 2026-10-12 (see `docs/done-tasks.md`): an operation reaches the Extrato only when
-"Lançar no extrato" is ticked on it, Início shows the banking area only, and "+ Novo" is
-banking-only. The database was reset the same day, so the app starts empty. Open:
-- [ ] Owner walk-through on the fresh database: sign up again; register one operation with
-  "Lançar no extrato" ticked and one without; check the Extrato ("Pela carteira"), Operações
-  ("no extrato"), Início, and "+ Novo" inside and outside Investimentos. Built and clicked through
-  on a scratch database only.
+Built on 2026-10-12 and 2026-10-17 (see `docs/done-tasks.md`): every operation comes out of the
+portfolio account (a Corretora account) unless "Não descontar de nenhuma conta" is ticked,
+Início shows the banking area only, and "+ Novo" is banking-only. Open:
+- [ ] Owner, on the server: Ajustes › Contas → "Vincular à carteira" on the brokerage account (or
+  create one of type Corretora with its current balance); register one operation as is and one
+  with "Não descontar de nenhuma conta"; check the brokerage balance, the Extrato and Operações
+  ("no extrato"). Clicked through on a scratch database only.
+- [ ] Not built: proventos do not touch the portfolio account (a dividend paid into the brokerage
+  is not credited there). Owner's call whether they should.
 - [ ] Owner's call — the "no mês" pill on Início is now the accounts' net movement (receitas −
   despesas − aportes + resgates, the chart's "Resultado"). It used to be receitas − despesas,
   which read as "how much net worth moved". Say so if the old meaning is the wanted one.

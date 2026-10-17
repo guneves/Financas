@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1031 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1042 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -165,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules` and `notifyRules`, 46 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules` and `portfolioAccount`, 53 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -213,7 +213,8 @@ frontend/src/
   pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, Metas, investimentos/,
                       # Proventos, Ajustes + ajustes/, Importar — screen map in lib/navigation.js
   components/         # Layout (nav, "+ Novo" host), NewEntrySheet (banking only), CashLinkField
-                      # ("Lançar no extrato"), ui.jsx (the UI kit)
+                      # (the portfolio account + "Não descontar de nenhuma conta"),
+                      # ui.jsx (the UI kit)
   lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js,
                       # queries.js (TanStack Query), confirm.js, toast.js, scroll.js,
                       # outbox.js + outboxRules.js (offline queue), offlineStore.js (IndexedDB),
@@ -378,8 +379,9 @@ mobile-docs/
   the owner asks. One deliberate exception: the IR tab's "Aplicações no exterior" panel and the
   matching row of the IR export appear when, and only when, the year has a foreign result (in
   reais), so an estimated tax can never be hidden.
-- **Investments and banking are separate areas; a movement reaches the Extrato only when asked**
-  (2026-10-12). `metadata.cash_account_id` on the movement is both the switch and the account:
+- **Investments and banking are separate areas; a movement's cash goes through the portfolio
+  account** (2026-10-12; portfolio account 2026-10-17). `metadata.cash_account_id` on the movement
+  is both the switch and the account:
   present, exactly one linked lançamento exists in that account (`source_type =
   'INVESTMENT_TRANSACTION'`, `source_id` = the movement id, BRL, category "Investimento"); absent,
   nothing is written. The rule is `investment_cash_account_id()`, checked first in
@@ -388,8 +390,17 @@ mobile-docs/
   removes it — refused (409) while the lançamento has a receipt. A movement that asks for the
   Extrato but has no cash amount to write is refused (400), so the key never says "no extrato"
   without a row. Each movement decides for itself, and nothing financial reads the link (cost, IR
-  and the portfolio read movements, not cash). The three forms share `CashLinkField` ("Lançar no
-  extrato", off by default).
+  and the portfolio read movements, not cash). **The portfolio account** (owner, 2026-10-17): an
+  active BRL account of type Corretora (`BROKERAGE`) is linked to the portfolio, and every new
+  operation comes out of it (a sale or redemption goes into it) unless the owner ticks "Não
+  descontar de nenhuma conta", which sends `cash_account_id: null`. The API applies it to a POST
+  without the key (`portfolio_cash_account_id()`: default account first, then the name — the
+  order of the account list), and keeps such a movement out instead of refusing it when it has
+  nothing to write; with no Corretora account the API writes nothing (the tests and seeds post
+  that way). The screens always send the key, and refuse a new operation until a Corretora
+  account exists (`lib/portfolioAccount.js`, tested); an edit of an old one is not blocked. The
+  three forms share `CashLinkField`; Ajustes › Contas links an account by "Vincular à carteira"
+  (PATCH type).
 - **Início is the banking area only, and in reais.** Its headline is the consolidated account
   balance; the portfolio never appears there, so nobody reads invested money as money to spend. A
   foreign-currency account appears only by its converted value (`accountBalanceBrl()` in

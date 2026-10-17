@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Archive, Landmark, Plus } from 'lucide-react'
+import { Archive, Landmark, TrendingUp, Plus } from 'lucide-react'
 import { accountsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
 import { usePrivateFormatter } from '../../lib/privacy'
+import { PORTFOLIO_ACCOUNT_TYPE, isBrlAccount, pickPortfolioAccountId } from '../../lib/portfolioAccount'
 import { accountBalanceBrl } from '../../lib/transactions'
 import {
   AlertMessage,
@@ -12,6 +13,7 @@ import {
   EmptyState,
   Field,
   IconButton,
+  Menu,
   Panel,
   PanelHeader,
   cx,
@@ -45,6 +47,7 @@ export default function ContasSection() {
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
   useReportQueryError(accountsQuery, setError, 'Não foi possível carregar as contas.')
   const accounts = accountsQuery.data || NO_ITEMS
+  const portfolioAccountId = pickPortfolioAccountId(accounts)
   const loading = accountsQuery.isPending
   const fetchAccounts = () => invalidateServerData()
 
@@ -70,6 +73,26 @@ export default function ContasSection() {
     }
   }
 
+  // A conta da carteira e uma conta Corretora (lib/portfolioAccount.js): mudar o
+  // tipo e o vinculo. Nao mexe em nenhum lancamento ja gravado.
+  const handleLinkToPortfolio = async (account) => {
+    if (!(await confirmAction({
+      title: `Vincular "${account.name}" à carteira?`,
+      message: 'A conta passa a ser do tipo Corretora, e as próximas operações de investimento saem dela. As operações já registradas não mudam.',
+      confirmLabel: 'Vincular',
+      tone: 'neutral',
+    }))) return
+
+    setError('')
+    try {
+      await accountsApi.update(account.id, { type: PORTFOLIO_ACCOUNT_TYPE })
+      await fetchAccounts()
+      toast(`"${account.name}" vinculada à carteira.`)
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível vincular a conta.')
+    }
+  }
+
   const handleArchiveAccount = async (account) => {
     if (!(await confirmAction({ title: `Arquivar a conta "${account.name}"?`, message: 'Os lançamentos dela continuam no extrato.', confirmLabel: 'Arquivar', tone: 'neutral' }))) return
 
@@ -87,7 +110,7 @@ export default function ContasSection() {
     <Panel id="contas" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Contas"
-        description="Saldo de cada conta. Transferências entre elas não contam como receita nem despesa."
+        description="Saldo de cada conta. Transferências entre elas não contam como receita nem despesa. As operações de investimento saem da conta da carteira (tipo Corretora)."
         actions={<Badge>{accounts.length} conta(s)</Badge>}
       />
 
@@ -104,6 +127,7 @@ export default function ContasSection() {
                   <p className="flex flex-wrap items-center gap-2 font-medium text-zinc-900">
                     <span className="truncate">{account.name}</span>
                     {account.is_default ? <Badge>Padrão</Badge> : null}
+                    {account.id === portfolioAccountId ? <Badge>Carteira</Badge> : null}
                   </p>
                   <p className="text-sm text-zinc-600">
                     {ACCOUNT_TYPE_LABELS[account.type] || account.type}
@@ -115,7 +139,18 @@ export default function ContasSection() {
                   <span className={cx('whitespace-nowrap text-right font-bold', (accountBalanceBrl(account) ?? 0) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
                     {accountBalanceBrl(account) === null ? 'sem câmbio hoje' : privateMoney(accountBalanceBrl(account))}
                   </span>
-                  <IconButton label="Arquivar conta" icon={Archive} onClick={() => handleArchiveAccount(account)} />
+                  {account.type === PORTFOLIO_ACCOUNT_TYPE || !isBrlAccount(account) ? (
+                    <IconButton label="Arquivar conta" icon={Archive} onClick={() => handleArchiveAccount(account)} />
+                  ) : (
+                    <Menu
+                      label={`Ações da conta ${account.name}`}
+                      size="md"
+                      items={[
+                        { label: 'Vincular à carteira', icon: TrendingUp, onSelect: () => handleLinkToPortfolio(account) },
+                        { label: 'Arquivar conta', icon: Archive, onSelect: () => handleArchiveAccount(account) },
+                      ]}
+                    />
+                  )}
                 </div>
               </div>
             ))}
@@ -129,7 +164,7 @@ export default function ContasSection() {
             <Field label="Nome">
               <input type="text" placeholder="Ex: Nubank" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} className="app-input" required />
             </Field>
-            <Field label="Tipo">
+            <Field label="Tipo" hint={accountForm.type === PORTFOLIO_ACCOUNT_TYPE ? 'Conta da carteira: as operações de investimento saem dela.' : undefined}>
               <select value={accountForm.type} onChange={(event) => setAccountForm({ ...accountForm, type: event.target.value })} className="app-select">
                 {Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
