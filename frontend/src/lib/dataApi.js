@@ -182,6 +182,7 @@ export const creditCardsApi = {
     method: 'PATCH',
     body: JSON.stringify({ autopay_account_id: accountId || null })
   }),
+  // Com historico, o servidor arquiva (037); com item em aberto, recusa (409).
   remove: (id) => apiFetch(`/api/credit-cards/${id}`, { method: 'DELETE' })
 }
 
@@ -223,7 +224,10 @@ export const ccExpensesApi = {
   payInvoice: (payload) => apiFetch('/api/cc-expenses/pay-invoice', {
     method: 'POST',
     body: JSON.stringify(payload)
-  })
+  }),
+  // Desfaz um pagamento de fatura (037): o lancamento sai e os itens reabrem.
+  // O debito automatico nao paga essa fatura de novo; ela volta ao Pagar.
+  undoPayment: (transactionId) => apiFetch(`/api/cc-expenses/payments/${transactionId}`, { method: 'DELETE' })
 }
 
 export const investmentsApi = {

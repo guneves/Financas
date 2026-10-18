@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, X } from 'lucide-react'
-import { transactionsApi } from '../../lib/dataApi'
+import { Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, Undo2, X } from 'lucide-react'
+import { ccExpensesApi, transactionsApi } from '../../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
   AlertMessage,
@@ -29,6 +29,7 @@ import AttachmentsSheet from '../../components/AttachmentsSheet'
 import ProjectionHeader from './ProjectionHeader'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
+import { toast } from '../../lib/toast'
 import ExportSheet from '../../components/ExportSheet'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 import useDebouncedValue from '../../lib/useDebouncedValue'
@@ -129,6 +130,10 @@ function isEditableHere(transaction) {
   if (transaction.pending) return false
   return !['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
 }
+
+// O pagamento de uma fatura nao se edita aqui, mas se desfaz (037).
+const isInvoicePayment = (transaction) => !transaction.pending
+  && ['CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
 
 // "De quem é?" (lib/sharing.js) so vale para despesa e receita comuns:
 // transferencia e investimento nao se dividem com outra pessoa.
@@ -382,6 +387,34 @@ function ExtratoContas({ viewSwitch }) {
     }
   }
 
+  // O lancamento sai, o valor volta ao saldo e os itens da fatura reabrem em
+  // Lancamentos > Cartoes; o debito automatico nao a paga de novo sozinho.
+  const handleUndoInvoicePayment = async (transaction) => {
+    if (!(await confirmAction({
+      title: `Desfazer "${transaction.description || transaction.category}"?`,
+      message: 'O pagamento sai do extrato, o valor volta para o saldo da conta e a fatura fica em aberto de novo em Cartões. O débito automático não a paga outra vez: pague-a pelo botão Pagar.',
+      confirmLabel: 'Desfazer pagamento',
+    }))) return
+    try {
+      await ccExpensesApi.undoPayment(transaction.id)
+      await fetchData()
+      toast('Pagamento desfeito. A fatura está em aberto em Cartões.')
+    } catch (error) {
+      setDataError(error.message || 'Não foi possível desfazer o pagamento.')
+    }
+  }
+
+  const invoicePaymentMenu = (transaction) => (
+    isInvoicePayment(transaction) ? (
+      <Menu
+        label={`Ações de ${transaction.description || transaction.category}`}
+        items={[
+          { label: 'Desfazer pagamento', icon: Undo2, tone: 'danger', onSelect: () => handleUndoInvoicePayment(transaction) },
+        ]}
+      />
+    ) : null
+  )
+
   const setEditField = (key) => (event) => setEditForm({ ...editForm, [key]: event.target.value })
 
   const accountLabel = (transaction) => (
@@ -450,6 +483,7 @@ function ExtratoContas({ viewSwitch }) {
       <>
         <span className="min-w-0 truncate self-center text-xs text-zinc-500" title={originLabel(transaction)}>{originLabel(transaction)}</span>
         {attachmentsButton(transaction)}
+        {invoicePaymentMenu(transaction)}
       </>
     ) : (
       <div className="flex min-w-0 justify-end gap-1.5 transition-opacity duration-150 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
@@ -763,15 +797,19 @@ function ExtratoContas({ viewSwitch }) {
                         {content}
                       </button>
                     ) : (
-                      // Gerado por outra tela: nao edita aqui, mas o toque abre os comprovantes.
-                      <button
-                        type="button"
-                        onClick={() => setAttachmentsFor(transaction)}
-                        aria-label={`Comprovantes de ${transaction.description || transaction.category}`}
-                        className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-zinc-50"
-                      >
-                        {content}
-                      </button>
+                      // Gerado por outra tela: nao edita aqui, mas o toque abre
+                      // os comprovantes; o de fatura tem o "⋯" do desfazer.
+                      <div className="flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => setAttachmentsFor(transaction)}
+                          aria-label={`Comprovantes de ${transaction.description || transaction.category}`}
+                          className="flex min-h-[56px] min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-zinc-50"
+                        >
+                          {content}
+                        </button>
+                        {isInvoicePayment(transaction) ? <div className="shrink-0 pr-2">{invoicePaymentMenu(transaction)}</div> : null}
+                      </div>
                     )}
                   </li>
                 )

@@ -550,7 +550,7 @@ def _active_accounts(conn, current_user_id):
 
 def _cards(conn, current_user_id):
     return conn.execute(
-        "SELECT id, name FROM credit_cards WHERE user_id = ? ORDER BY name",
+        "SELECT id, name FROM credit_cards WHERE user_id = ? AND archived_at IS NULL ORDER BY name",
         (current_user_id,),
     ).fetchall()
 
@@ -570,7 +570,7 @@ def _hint_usable(conn, current_user_id, hint):
         return False
     if hint["entry_type"] == "CARD":
         return bool(hint["card_id"]) and conn.execute(
-            "SELECT 1 FROM credit_cards WHERE id = ? AND user_id = ?",
+            "SELECT 1 FROM credit_cards WHERE id = ? AND user_id = ? AND archived_at IS NULL",
             (hint["card_id"], current_user_id),
         ).fetchone() is not None
     for account_id in (hint["account_id"], hint["transfer_account_id"]):
@@ -607,7 +607,9 @@ def ambiguous_target(conn, current_user_id, key, entry_type):
     if not issuer or entry_type is None or entry_type == "TRANSFER":
         return False
     if entry_type == "CARD":
-        rows = conn.execute("SELECT * FROM credit_cards WHERE user_id = ?", (current_user_id,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM credit_cards WHERE user_id = ? AND archived_at IS NULL", (current_user_id,)
+        ).fetchall()
     else:
         ids = [row["id"] for row in _usable_accounts(conn, current_user_id, parts[1])]
         rows = [

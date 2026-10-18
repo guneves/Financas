@@ -7,34 +7,62 @@
 
 ---
 
-## Session — 2026-10-18 (night) · Compound interest calculator
+## Session — 2026-10-18 (late night) · Card history: three money bugs
 
-Owner: "Em investimentos crie uma sessão calculadora, quero uma calculadora de juros compostos".
-Cloud session; read the docs directly (single, concrete ask).
+Owner's review, three "Alta" items, each reproduced before fixing: (1) deleting an installment
+purchase deleted the paid installments; (2) a purchase dated into an invoice autopay had already
+paid stayed open forever and later showed overdue (Aprovar too); (3) deleting a card cascaded its
+purchases and stranded its payments, and a payment could not be undone. Cloud session; read the
+docs directly (concrete ask).
 
 ### Done
-- New tab **Investimentos › Calculadora** (`/investimentos/calculadora`,
-  `pages/investimentos/Calculadora.jsx`, route in `App.jsx`, tab in `lib/navigation.js`).
-  Frontend only: no endpoint, nothing written; the last inputs stay on the device in
-  `localStorage` (`@financeMVP:calculadoraJuros`).
-- Rule in `lib/compoundInterest.js` (pure) with `compoundInterest.test.js` (12 tests): monthly
-  schedule checked against the closed-form future value (end- and start-of-month contributions),
-  annual ↔ monthly by **equivalent** rate (same as `services/goals.py`), Fisher real rate,
-  inflation-deflated value, yearly rows with a partial last year, form parsing and limits.
-- Checked in Chromium at 390 px and 1280 px against a throwaway DB (scratch venv, port 5000): no
-  horizontal scroll, no page errors; R$ 1.000 + R$ 500/mês a 10% a.a. por 18 meses = R$ 10.790,45,
-  matching the formula by hand. `npm test` 106 passed, `npm run build` clean. Backend untouched,
-  so pytest was not re-run (no Python deps in the container's system Python).
+- Migration **037** (`037_card_archive_and_payment_undo.sql`): `credit_cards.archived_at`,
+  `cc_expenses.paid_by`, table `cc_invoice_manual`. Only new columns/table.
+- (1) `DELETE /api/cc-expenses` refuses (409) any `PAID` id; Cartões fetches the candidates first,
+  deletes only the `OPEN` ones and says how many paid ones stay.
+- (2) `first_unpaid_invoice()` / `purchase_invoice_start()` in `services/invoices.py` (the refund's
+  old loop, now shared): purchases (`/purchases`, Aprovar's `create_entry()`) and refunds start at
+  the first invoice from their date that is not paid.
+- (3) Card `DELETE`: 409 with open items, archive with history, real delete when empty. Archived
+  cards are filtered from the GET, Aprovar's card list/hints/ambiguity, and refused by
+  `require_active_card()`. Undo: `DELETE /api/cc-expenses/payments/<id>` +
+  Extrato's "⋯" › Desfazer pagamento (desktop row and phone list).
+- `test_card_history.py` (19 tests); `test_attachments.py`'s card-delete test now asserts the
+  refusal; `test_route_map.py` has the new route. pytest **1253 passed**; `npm test` 106 passed;
+  `vite build` clean. Clicked through in Chromium at 390 px on a throwaway DB: the late purchase
+  went to 11/2026, the delete confirmation counted the paid installment, Desfazer reopened 10/2026
+  and returned R$ 100 to the balance, Ajustes showed the 409 for a card with open items. No page
+  errors.
 
 ### Not done, and why
-- IR on the simulated gain, prefill from the portfolio, and a reverse "quanto aportar por mês"
-  mode: each is a product decision, listed in `next-steps.md`.
-- `native-level.txt` not bumped: the screen calls no Java.
+- **Existing stuck data is not repaired**: an item already open in an autopay-paid invoice stays
+  until the owner pays it or undoes the autopay (listed in `next-steps.md`). A migration cannot tell
+  a late purchase from an item reopened by hand on purpose.
+- No archived-cards list or unarchive; Cartões has no paid-invoice view, so the undo is only in the
+  Extrato. Both are product calls, in `next-steps.md`.
+- The old list `POST /api/cc-expenses` still takes the invoice month as sent.
+- `native-level.txt` not bumped: no Java touched.
 
-### Learned
-- A command ending in `&` inside a compound `&&` chain runs in a subshell here; start a server
-  with the tool's background mode instead, and check `/proc/<pid>/environ` of the **python**
-  process (not the bash wrapper) before trusting which DB it uses.
+### Learned / decisions
+- Undo sends the invoice to manual payment (`cc_invoice_manual`) instead of letting autopay re-debit
+  it at the next read: otherwise "Desfazer" on an overdue autopay invoice would be undone by the
+  very next GET. The confirmation says so.
+- A payment from before 037 has no `paid_by` on its items; its undo falls back to "the `PAID` items
+  of its invoice with no `paid_by`", and only when no item points at it — so undoing an old autopay
+  never reopens what a newer manual payment paid.
+- A card is refused deletion while it has open items rather than archived with them: an archived
+  card leaves the pickers and Ajustes, so open invoices on it would be unreachable (autopay
+  included).
+- Migration **037** is claimed (036 is the Aprovar settings one).
+- Backend error texts stay ASCII ("cartao", "Lancamentos > Cartoes"), like the rest of the API.
+
+### Carried from the calculator session (2026-10-18 night), still open
+- IR on the simulated gain, prefill from the portfolio, a reverse "quanto aportar por mês" mode:
+  product decisions, in `next-steps.md`.
+- A command ending in `&` inside a `&&` chain runs in a subshell here; start a server with the
+  tool's background mode, and check `/proc/<pid>/environ` of the **python** process before
+  trusting which DB it uses. Playwright: a button near the bottom nav on a 390 px viewport needs
+  `scrollIntoView({ block: 'center' })` before the click, or the menu opens off-target.
 
 ### Carried from the Aprovar session (2026-10-18 night), still open
 - "Prompt 1's bank field" does not exist; the ambiguity rule reads `accounts.institution`

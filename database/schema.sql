@@ -425,6 +425,7 @@ CREATE TABLE IF NOT EXISTS credit_cards (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     autopay_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,  -- 011
     autopay_start_date TEXT,                                              -- 011
+    archived_at TEXT,                                                     -- 037: excluido com historico
     UNIQUE(user_id, name)
 );
 
@@ -457,7 +458,23 @@ CREATE TABLE IF NOT EXISTS cc_expenses (
     kind TEXT NOT NULL DEFAULT 'PURCHASE' CHECK (kind IN ('PURCHASE', 'REFUND')),
     refund_of TEXT,
     -- 035: a categoria pelo id, como em transactions (o nome continua em category).
-    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL
+    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+    -- 037: o lancamento do pagamento que baixou o item (settle_invoice).
+    paid_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cc_expenses_user_paid_by
+ON cc_expenses(user_id, paid_by)
+WHERE paid_by IS NOT NULL;
+
+-- 037: fatura cujo pagamento foi desfeito; o debito automatico nao a paga de novo.
+CREATE TABLE IF NOT EXISTS cc_invoice_manual (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    card_id TEXT NOT NULL REFERENCES credit_cards(id) ON DELETE CASCADE,
+    invoice_year INTEGER NOT NULL,
+    invoice_month INTEGER NOT NULL CHECK (invoice_month BETWEEN 1 AND 12),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (user_id, card_id, invoice_year, invoice_month)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_client

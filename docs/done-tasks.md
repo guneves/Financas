@@ -142,6 +142,7 @@
 | Ajustes › Aprovar: "Sempre perguntar a conta/cartão" (off by default, server-side in `user_settings`, migration 036): every item asks to confirm its target and "Aprovar prontos" takes none. `test_inbox_ambiguous.py` | 2026-10-18 |
 | Charts faster: Rentabilidade fetches prices, CDI, IPCA and index closes at once instead of in sequence, and the price/BCB caches cover every period and class (one download per TTL) — cold 6 s → 1 s, period/class switch ~4 s → < 0.1 s on the 1 s-latency harness. `test_history_fetch.py` | 2026-10-18 |
 | Investimentos › Calculadora: compound interest simulator (initial amount, monthly contribution at the end or start of the month, rate per year or month by equivalent rate, period in years or months, optional inflation → value in today's reais). Pure rule in `lib/compoundInterest.js`, 12 node tests | 2026-10-18 |
+| Card history no longer disappears (migration 037): deleting a purchase removes only its open installments (the API refuses a paid one, 409); a purchase or refund dated into an already-paid invoice — typed or approved in Aprovar — starts at the first unpaid one; a card with open items is not deleted, one with history is archived (`credit_cards.archived_at`), an empty one is deleted; an invoice payment can be undone (`DELETE /api/cc-expenses/payments/<id>`, Extrato › "⋯" › Desfazer pagamento). `test_card_history.py` (19) | 2026-10-18 |
 
 ---
 
@@ -834,4 +835,33 @@ writes nothing on the server; the last inputs are kept on the device (`localStor
   interest (monthly up to 5 years, yearly after; the real value as a dashed line) and a year-by-year
   table (the last year may be partial: "Ano 3 (6 meses)"). Values are hypothetical, so privacy mode
   does not mask them. No IR on the result (it depends on the product).
+
+### Card history (037) — 2026-10-18
+Three bugs from the owner's review, all reproduced first:
+1. **Deleting an installment purchase deleted the paid installments.** Cartões asked for every
+   installment; the paid invoice's payment kept the old amount, locked (409), and the purchase left
+   past budgets and cash flow. Now Cartões sends only the `OPEN` ones (`candidates` carries the
+   status) and the confirmation says how many paid ones stay; `DELETE /api/cc-expenses` refuses
+   (409) any `PAID` id.
+2. **A purchase landing in an invoice autopay had already paid stayed open forever** (the autopay
+   `source_id` was taken, so it never re-ran) and later showed as overdue. `first_unpaid_invoice()`
+   (`services/invoices.py`, the refund's old loop) now places the first installment of every new
+   purchase — `POST /api/cc-expenses/purchases` and Aprovar's `create_entry()` — and every refund in
+   the first invoice from its date that is not paid (paid = has a `PAID` item and no `OPEN` one).
+   A closed but unpaid invoice still takes it. The old list `POST /api/cc-expenses` (explicit
+   month, no screen) is unchanged.
+3. **Deleting a card cascaded all its purchases** and stranded its invoice payments in the Extrato.
+   `DELETE /api/credit-cards/<id>` now refuses while the card has any `OPEN` item (those
+   installments will still be charged), archives a card with history (paid items or payments in
+   the Extrato; autopay is switched off), and really deletes only an empty card. An archived card
+   is out of `GET /api/credit-cards` (`?include_archived=1` brings it), refuses purchases, refunds,
+   autopay changes and Aprovar approvals, and is never offered or guessed by Aprovar. Its name stays
+   taken (its old purchases show it); creating a card with that name gets a 409 that says so.
+   **Undoing a payment**: `settle_invoice()` writes `cc_expenses.paid_by` (the payment's
+   transaction id); `undo_invoice_payment()` deletes the lançamento, reopens the items with that
+   `paid_by` (including the earlier credit invoices the payment took along) — or, for a payment from
+   before 037 (no item points at it), the `PAID` items of its invoice without `paid_by` — and writes
+   `cc_invoice_manual`, so `apply_due_autopay()` never debits that invoice again: it goes back to the
+   Pagar button. Refused (409) while the payment has a receipt. A payment whose card was deleted
+   before 037 can be undone too (it is only removed). The status PATCHes clear `paid_by`.
 
