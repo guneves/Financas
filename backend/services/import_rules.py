@@ -1,9 +1,9 @@
 """Regras de categorizacao do extrato: a leitura que mais de um fluxo usa.
 
-A importacao de arquivo (routes/imports.py) e a sincronizacao da Pluggy
-(services/pluggy_sync.py) categorizam do mesmo jeito: a primeira regra ativa
-que casa (statement_import.first_matching_rule), senao a categoria padrao do
-tipo. Uma regra so, num lugar so.
+A importacao de arquivo (routes/imports.py) e Aprovar (services/inbox.py)
+categorizam do mesmo jeito: a primeira regra ativa que casa
+(statement_import.first_matching_rule), senao a categoria padrao do tipo. Uma
+regra so, num lugar so.
 """
 
 from db import row_to_dict

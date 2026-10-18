@@ -120,46 +120,6 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   table). Kept as confirm until the owner says otherwise; one tap on Confirmar in the app's own
   notification records it with the app closed.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
-- [ ] **Pluggy, on the owner's side** (built 2026-10-18, see `docs/done-tasks.md`). The local
-  credentials work against the real Pluggy (`/auth`, `/connect_token`; the widget lists Itaú,
-  Inter, Caixa…), but the Pluggy application is a **demo** ("Aplicação demo. Proibido o uso
-  comercial." in the widget) — check what the plan allows for real bank connections. The owner:
-  - puts `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` in the server's `.env` and recreates the
-    container (not checked from the PC: reading the server's environment needs the owner's
-    permission); Ajustes › Integrações shows "Pluggy" green when the credentials work;
-  - connects a bank with Ajustes › Banco (Pluggy) › **Conectar banco** (Pluggy Connect). First
-    from the computer's browser: Open Finance consent redirects to the bank, and that round trip
-    inside the APK's WebView is untested (the SDK's `forceOauthInBrowser` is the knob if it
-    breaks). Pasting an item id stays as the fallback;
-  - links each account and card with "Desde" = the day its balance was last typed (default
-    today), presses Sincronizar, and checks the result: what was confirmed, what came in new, the
-    "Possível duplicata" list. The first real sync is the test of the field mapping: date (the app
-    takes the date part Pluggy sends), sign/direction, installment metadata, and whether a card
-    installment carries the purchase date or the bill date (see the open item below).
-- [ ] Pluggy, owner's calls: `PLUGGY_IMPORT_PENDING` (off: card purchases arrive only when the bill
-  closes, because Pluggy marks the open bill PENDING; on: right away, followed if they settle
-  under a new id); whether a confirmed entry should take the bank's date/amount when they differ
-  (today: kept, listed under "Conferidos com diferença"); webhooks through Tailscale Funnel
-  instead of polling (not built: the server is tailnet-only).
-- [ ] Pluggy, known gaps:
-  - **Invoice payment typed after Pluggy brought it**: a bank row "pagamento de fatura" synced
-    *before* the owner presses Pagar (or before autopay materializes) enters as a plain expense,
-    and the in-app payment then debits the account again. Autopay that already ran, or a payment
-    already recorded, sends the bank row to review instead. Fix: `pay-invoice` / autopay look for
-    an unconfirmed Pluggy row first (like `claim_bank_transaction`).
-  - **A transfer between two linked accounts** that the owner never typed comes in as an expense
-    on one and an income on the other (balances right, totals inflated). Typing the transfer first
-    sends both sides to review.
-  - A statement import (CSV/OFX) does not see Pluggy rows: importing the same month duplicates
-    them (Phase 8's probable-duplicate would cover it).
-  - Card refunds/cashback/bill credits are skipped (no negative invoice item in the app).
-  - If Pluggy dates installment *n* by the purchase date, installments older than
-    `PLUGGY_LOOKBACK_DAYS` (45) are never read after the first sync; widen the window for cards
-    if the real data shows that.
-  - A connection whose consent expires shows only Pluggy's status
-    ("Erro de login no banco"/"Desatualizada"); no notice elsewhere.
-  - `outbox` edge: an *edited* pending item whose delivery is answered with `matched_bank` and a
-    different date reads as "already delivered with the old values" (`deliveredDiffers`).
 
 ### Investments separate from banking — what is left
 Built on 2026-10-12 and 2026-10-17 (see `docs/done-tasks.md`): every operation comes out of the

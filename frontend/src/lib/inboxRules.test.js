@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   amountSign,
   approveReadySummary,
+  candidateKindLabel,
   changesFromDraft,
   composeOccurredAt,
   decisionText,
@@ -72,10 +73,6 @@ test('sources say where each report came from', () => {
     sourceLabel({ source: 'notification', app_label: 'Itaú', kind: 'CREDIT_PURCHASE', card_last4: '1234' }),
     'Notificação Itaú · compra no crédito · final 1234',
   )
-  assert.equal(
-    sourceLabel({ source: 'pluggy', account_name: 'Conta', total_installments: 3, installment_number: 1 }),
-    'Banco (Pluggy) · Conta · parcela 1/3',
-  )
   assert.equal(onlySamsung({ sources: [{ source: 'notification', app: 'com.samsung.android.spay' }] }), true)
   assert.equal(onlySamsung({ sources: [
     { source: 'notification', app: 'com.samsung.android.spay' }, { source: 'notification', app: 'com.itau' },
@@ -95,7 +92,7 @@ test('only items with two or more live sources can be split', () => {
   const sources = [
     { source: 'notification', role: 'SOURCE' },
     { source: 'notification', role: 'PAIRED' },
-    { source: 'pluggy', state: 'IMPORTED' },
+    { source: 'notification', role: 'CANCELLED' },
   ]
   assert.equal(splittableSources({ sources }).length, 2)
 })
@@ -109,6 +106,8 @@ test('ready items, remember and the texts', () => {
   assert.equal(pendingNoticeText(0), '')
   assert.match(pendingNoticeText(2), /^2 movimentos/)
   assert.equal(decisionText({ state: 'REMOVED', reason: 'declined' }), 'Compra negada pelo banco')
+  assert.equal(candidateKindLabel('invoice_payment'), 'Pagamento de fatura')
+  assert.equal(candidateKindLabel('?'), 'Lançamento')
   assert.equal(decisionText({ state: 'MATCHED', reason: 'created_elsewhere' }), 'Lançado pelo "+ Novo"')
   assert.equal(approveReadySummary({ approved: ['a', 'b'], skipped: [{ id: 'c' }] }), '2 aprovados, 1 ficou para você decidir.')
   assert.equal(matchedInboxNotice({ matched_inbox: true }, 'Despesa').startsWith('Despesa: já esperava'), true)

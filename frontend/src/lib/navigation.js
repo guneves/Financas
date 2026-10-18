@@ -28,7 +28,7 @@ export const sections = [
     icon: Receipt,
     tabs: [
       { to: '/lancamentos/extrato', label: 'Extrato', icon: Wallet },
-      // O que o celular e o banco (Pluggy) trouxeram, esperando o dono (028).
+      // O que o celular trouxe, esperando o dono (028).
       { to: APROVAR_PATH, label: 'Aprovar', icon: BellRing, badge: 'inbox' },
       { to: '/lancamentos/cartoes', label: 'Cartões', icon: CreditCard },
       { to: '/lancamentos/importar', label: 'Importar', icon: Upload },

@@ -77,13 +77,10 @@ export function setMutationListener(listener) {
   mutationListener = listener
 }
 
-// Metodo que grava, menos as previas (POST que so calcula e nao muda nada) e a
-// sincronizacao da Pluggy, que quase sempre nao muda nada: lib/pluggySync.js
-// invalida o cache so quando o servidor diz que mudou.
+// Metodo que grava, menos as previas (POST que so calcula e nao muda nada).
 function isWrite(method, path) {
   const verb = String(method || 'GET').toUpperCase()
   if (verb === 'GET' || verb === 'HEAD') return false
-  if (path.startsWith('/api/pluggy/sync')) return false
   return !/\/preview(\?|$)/.test(path) && !path.startsWith('/api/auth/login') && !path.startsWith('/api/auth/signup')
 }
 

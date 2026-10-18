@@ -1,12 +1,8 @@
-"""Aprovar: o que o celular e a Pluggy trazem espera o dono aqui (028).
+"""Aprovar: o que o celular traz espera o dono aqui (028).
 
-Duas fontes propoem lancamentos, e nenhuma grava sozinha:
-
-- o celular manda cada notificacao de banco que um parser leu
-  (`ingest_detections`, POST /api/inbox/detections) — so os campos lidos
-  (valor, hora, cartao, estabelecimento), nunca o texto;
-- a Pluggy, na sincronizacao (services/pluggy_sync.py), poe aqui o que antes
-  entrava direto no extrato (`queue_pluggy`).
+O celular manda cada notificacao de banco que um parser leu
+(`ingest_detections`, POST /api/inbox/detections) — so os campos lidos (valor,
+hora, cartao, estabelecimento), nunca o texto. Nada grava sozinho.
 
 Cada movimento do mundo real vira UM item (`inbox_items`), por mais fontes que
 o contem:
@@ -15,22 +11,19 @@ o contem:
   NotifyPairing.java: mesmo valor ao centavo, um cartao que nenhuma das duas
   contradiz, ate NOTIFY_WINDOW_MS de distancia, uma com uma, a mais proxima; o
   banco ganha, e so a negativa do banco cancela a do Samsung);
-- a notificacao e a transacao da Pluggy do mesmo movimento (mesmo valor, data a
-  PLUGGY_MATCH_DAYS dias, conta ou cartao compativel);
 - as duas pontas de uma transferencia entre contas do dono (saida numa conta,
   entrada de mesmo valor noutra, ate TRANSFER_MATCH_DAYS dias): um item
   TRANSFER, que vira uma linha so e nunca conta como receita ou despesa.
 
 Um item guarda o rascunho do lancamento, que o dono corrige antes de aprovar,
-e a hora que a fonte disse (`source_occurred_at`, que nunca muda; a da
-notificacao vale mais que a data da Pluggy). Quando a fonte nao diz credito ou
+e a hora que a fonte disse (`source_occurred_at`, que nunca muda). Quando a fonte nao diz credito ou
 debito, ou nao da para saber de qual cartao ou conta e, o item diz o que falta
 (`needs`); a escolha do dono fica lembrada (`inbox_hints`) e decide sozinha da
 proxima vez. Um palpite (o unico cartao do Itau, por exemplo) vem preenchido
 mas marcado (`guessed`) ate o dono confirmar uma vez.
 
-Decidir (aprovar, recusar, "e este") mora em services/inbox_decisions.py, que
-conhece a Pluggy; este modulo so guarda e junta.
+Decidir (aprovar, recusar, "e este") mora em services/inbox_decisions.py; este
+modulo so guarda e junta.
 """
 
 import json
@@ -38,7 +31,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import statement_import
-from config import PLUGGY_MATCH_DAYS
+from config import INBOX_MATCH_DAYS
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
@@ -440,15 +433,6 @@ def item_detections(conn, current_user_id, item_id):
     ).fetchall()
 
 
-def item_ledger_rows(conn, current_user_id, item_id, states=None):
-    sql = "SELECT * FROM pluggy_transactions WHERE user_id = ? AND inbox_item_id = ?"
-    params = [current_user_id, item_id]
-    if states:
-        sql += f" AND state IN ({', '.join('?' for _ in states)})"
-        params.extend(states)
-    return conn.execute(sql + " ORDER BY installment_number, date, id", params).fetchall()
-
-
 def pending_count(conn, current_user_id):
     return conn.execute(
         "SELECT COUNT(*) FROM inbox_items WHERE user_id = ? AND state = 'PENDING'",
@@ -708,16 +692,6 @@ def save_item(conn, current_user_id, item, changes, *, bump=True):
     return item
 
 
-def _merge_candidates(existing, extra):
-    seen = {(entry.get("table"), entry.get("id")) for entry in existing}
-    merged = list(existing)
-    for entry in extra or []:
-        if (entry.get("table"), entry.get("id")) not in seen:
-            merged.append(entry)
-            seen.add((entry.get("table"), entry.get("id")))
-    return merged
-
-
 def _date_gap(a, b):
     first, second = parse_iso_date(date_of(a)), parse_iso_date(date_of(b))
     if not first or not second:
@@ -753,7 +727,7 @@ def _amount_matches(item_row, cents):
     if total == cents:
         return True
     installments = int(item_row["installments"] or 1)
-    # No cartao a Pluggy manda a parcela e a notificacao, talvez, o total.
+    # No cartao a notificacao pode dizer a parcela ou o total.
     return installments > 1 and abs(total - cents * installments) <= installments
 
 
@@ -768,16 +742,6 @@ def _has_detection_source(conn, current_user_id, item_id):
     ).fetchone() is not None
 
 
-def _has_pluggy_source(conn, current_user_id, item_id):
-    return conn.execute(
-        """
-        SELECT 1 FROM pluggy_transactions
-        WHERE user_id = ? AND inbox_item_id = ? AND state <> 'REMOVED' LIMIT 1
-        """,
-        (current_user_id, item_id),
-    ).fetchone() is not None
-
-
 def _source_directions(conn, current_user_id, item_id):
     directions = set()
     for row in conn.execute(
@@ -786,14 +750,6 @@ def _source_directions(conn, current_user_id, item_id):
     ).fetchall():
         if row["kind"] in KIND_SHAPES:
             directions.add(KIND_SHAPES[row["kind"]][0])
-    for row in conn.execute(
-        """
-        SELECT direction FROM pluggy_transactions
-        WHERE user_id = ? AND inbox_item_id = ? AND state <> 'REMOVED'
-        """,
-        (current_user_id, item_id),
-    ).fetchall():
-        directions.add("OUT" if row["direction"] == "DEBIT" else "IN")
     return directions
 
 
@@ -890,8 +846,8 @@ def remembered_transfer(conn, current_user_id, *, account_id, direction, descrip
 
 def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, cents, date_text):
     """Uma transferencia que o dono ja decidiu aqui (aprovou, ou disse "e esta")
-    com uma ponta so, e este movimento e a outra (a outra conta tambem esta na
-    Pluggy, ou notificou depois): confirma a transferencia, nao e um movimento
+    com uma ponta so, e este movimento e a outra (a outra conta notificou
+    depois): confirma a transferencia, nao e um movimento
     novo."""
     rows = conn.execute(
         """
@@ -936,7 +892,7 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
     notificacao, fica de fora o que outra notificacao ja explica (duas compras
     de mesmo valor no mesmo dia continuam duas).
     """
-    days = PLUGGY_MATCH_DAYS if days is None else days
+    days = INBOX_MATCH_DAYS if days is None else days
     start, end = _shift(date_text, -days), _shift(date_text, days)
     found = []
     if entry_type in (None, "CARD"):
@@ -1003,7 +959,7 @@ def candidate_details(conn, current_user_id, candidates):
             row = conn.execute(
                 """
                 SELECT t.id, t.date, t.occurred_at, t.amount, t.description, t.category, t.type,
-                       t.source_type, t.external_id, a.name AS account_name,
+                       t.source_type, a.name AS account_name,
                        d.name AS transfer_account_name
                 FROM transactions t
                 LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
@@ -1016,7 +972,7 @@ def candidate_details(conn, current_user_id, candidates):
             row = conn.execute(
                 """
                 SELECT e.id, e.purchase_date AS date, e.occurred_at, e.amount, e.description,
-                       e.category, e.installment_info, e.external_id, c.name AS card_name
+                       e.category, e.installment_info, c.name AS card_name
                 FROM cc_expenses e
                 LEFT JOIN credit_cards c ON c.id = e.card_id AND c.user_id = e.user_id
                 WHERE e.id = ? AND e.user_id = ?
@@ -1104,7 +1060,7 @@ def ingest_detections(conn, current_user_id, raw_detections):
     mesma ordem: {key, status, item_id?, error?}.
 
     status: known (ja recebida), new (item novo), merged (juntou-se a um item
-    pendente: o par do Samsung, a Pluggy, a outra ponta da transferencia),
+    pendente: o par do Samsung, a outra ponta da transferencia),
     matched (era um lancamento que ja existe), denied (o par ja foi recusado),
     declined (compra negada), cancelled (Samsung de uma compra negada),
     invalid (nao serviu; o celular nao manda de novo).
@@ -1188,7 +1144,7 @@ def _ingest_declined(conn, current_user_id, detection, samsung):
         return {"key": detection["key"], "status": "declined", "item_id": None}
     _update_detection(conn, current_user_id, held["id"], role=CANCELLED, paired_with=detection_id)
     item = item_dict(item_row)
-    if not _has_detection_source(conn, current_user_id, item["id"]) and not _has_pluggy_source(conn, current_user_id, item["id"]):
+    if not _has_detection_source(conn, current_user_id, item["id"]):
         save_item(conn, current_user_id, item, {"state": REMOVED, "reason": "declined", "decided_at": utc_timestamp()})
     return {"key": detection["key"], "status": "declined", "item_id": item["id"]}
 
@@ -1221,17 +1177,16 @@ def _join_partner(conn, current_user_id, detection, partner, *, newcomer_wins, r
     changes = {}
     if detection["merchant"] and "description" not in edited:
         changes["description"] = detection["merchant"]
-    if not _has_pluggy_source(conn, current_user_id, item["id"]):
-        target = resolve_detection(conn, current_user_id, detection)
-        if not ({"entry_type", "card_id", "account_id"} & edited):
-            changes.update({
-                "entry_type": target["entry_type"],
-                "card_id": target["card_id"],
-                "account_id": target["account_id"],
-                "guessed": target["guessed"],
-            })
-        changes["hint_key"] = target["hint_key"]
-        changes["hint_label"] = target["hint_label"]
+    target = resolve_detection(conn, current_user_id, detection)
+    if not ({"entry_type", "card_id", "account_id"} & edited):
+        changes.update({
+            "entry_type": target["entry_type"],
+            "card_id": target["card_id"],
+            "account_id": target["account_id"],
+            "guessed": target["guessed"],
+        })
+    changes["hint_key"] = target["hint_key"]
+    changes["hint_label"] = target["hint_label"]
     if "description" in changes and "category" not in edited:
         merged = {**item, **changes}
         changes["category"], changes["category_id"] = suggest_category(
@@ -1244,63 +1199,15 @@ def _join_partner(conn, current_user_id, detection, partner, *, newcomer_wins, r
     return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
 
 
-def _pluggy_item_for_detection(conn, current_user_id, detection, target):
-    """O item pendente que so a Pluggy trouxe e e esta mesma compra.
-
-    Com um cartao/conta conhecido (lembrado ou palpite), so o item desse
-    cartao/conta; sem nenhum, so quando ha um candidato unico — e entao a
-    Pluggy diz qual e.
-    """
-    rows = _pending_items(
-        conn, current_user_id, cents=detection["amount_cents"], date_text=date_of(detection["occurred_at"]),
-        days=PLUGGY_MATCH_DAYS, direction=target["direction"],
-    )
-    exact, loose = [], []
-    for row in rows:
-        if row["entry_type"] == "TRANSFER":
-            continue
-        if not _has_pluggy_source(conn, current_user_id, row["id"]) or _has_detection_source(conn, current_user_id, row["id"]):
-            continue
-        if target["entry_type"] is None:
-            if row["entry_type"] not in ("CARD", "EXPENSE"):
-                continue
-        elif row["entry_type"] != target["entry_type"]:
-            continue
-        field = "card_id" if row["entry_type"] == "CARD" else "account_id"
-        mine = target[field]
-        if mine:
-            if mine == row[field]:
-                exact.append(row)
-        else:
-            loose.append(row)
-    if exact:
-        return _pick_closest(exact, detection["occurred_at"])
-    return loose[0] if len(loose) == 1 else None
-
-
 def _ingest_alone(conn, current_user_id, detection, rules):
     target = resolve_detection(conn, current_user_id, detection)
     when = detection["occurred_at"]
     cents = detection["amount_cents"]
 
-    # 1. A Pluggy ja trouxe este movimento e ele espera o dono: um item so.
-    pluggy_item = _pluggy_item_for_detection(conn, current_user_id, detection, target)
-    if pluggy_item:
-        _insert_detection(conn, current_user_id, detection, SOURCE, item_id=pluggy_item["id"])
-        item = item_dict(pluggy_item)
-        changes = {"hint_key": target["hint_key"], "hint_label": target["hint_label"]}
-        edited = set(item["edited"])
-        if "occurred_at" not in edited:
-            # A hora da notificacao vale mais que a data do banco.
-            changes["occurred_at"] = when
-        changes["source_occurred_at"] = when
-        save_item(conn, current_user_id, item, changes)
-        return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
-
     known_account = target["account_id"] if target["remembered"] else None
     direction = target["direction"]
 
-    # 2. A outra ponta de uma transferencia entre contas do dono.
+    # 1. A outra ponta de uma transferencia entre contas do dono.
     if detection["kind"] in MOVEMENT_KINDS and target["account_id"] and "account" not in target["needs"]:
         approved = approved_transfer_awaiting(
             conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,
@@ -1324,7 +1231,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
             )
             return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
 
-    # 3. Um lancamento ja gravado (o dono digitou antes do aviso chegar).
+    # 2. Um lancamento ja gravado (o dono digitou antes do aviso chegar).
     candidates = existing_rows(
         conn, current_user_id, entry_type=target["entry_type"], direction=direction, cents=cents,
         date_text=date_of(when),
@@ -1339,7 +1246,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
         )
         return {"key": detection["key"], "status": "matched", "item_id": None}
 
-    # 4. Um item novo.
+    # 3. Um item novo.
     item_id = new_item_for_detection(conn, current_user_id, detection, target, candidates, rules)
     _insert_detection(conn, current_user_id, detection, SOURCE, item_id=item_id)
     return {"key": detection["key"], "status": "new", "item_id": item_id}
@@ -1402,225 +1309,6 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
 
 
 # ---------------------------------------------------------------------------
-# Pluggy
-# ---------------------------------------------------------------------------
-
-def pluggy_movement(ledger_row, link):
-    """O que a transacao da Pluggy diz, no formato do item."""
-    direction = "OUT" if ledger_row["direction"] == "DEBIT" else "IN"
-    cents = _cents(ledger_row["amount"])
-    if link["pluggy_account_type"] == "CREDIT":
-        total = int(ledger_row["total_installments"] or 0) or 1
-        return {
-            "direction": direction,
-            "entry_type": "CARD",
-            "card_id": link["card_id"],
-            "account_id": None,
-            "installments": total,
-            "installment_cents": cents,
-            "total_cents": cents * total,
-            "date": ledger_row["purchase_date"] or ledger_row["date"],
-        }
-    return {
-        "direction": direction,
-        "entry_type": "EXPENSE" if direction == "OUT" else "INCOME",
-        "card_id": None,
-        "account_id": link["account_id"],
-        "installments": 1,
-        "installment_cents": cents,
-        "total_cents": cents,
-        "date": ledger_row["date"],
-    }
-
-
-def _other_installment_item(conn, current_user_id, ledger_row, movement):
-    """Outra parcela da mesma compra ja esta esperando o dono (a primeira
-    leitura traz as parcelas juntas): a compra e uma so."""
-    if movement["entry_type"] != "CARD" or movement["installments"] <= 1:
-        return None
-    rows = conn.execute(
-        """
-        SELECT i.* FROM inbox_items i
-        JOIN pluggy_transactions p ON p.user_id = i.user_id AND p.inbox_item_id = i.id
-        WHERE i.user_id = ? AND i.state = 'PENDING' AND i.card_id = ?
-          AND p.pluggy_account_id = ? AND p.total_installments = ?
-          AND COALESCE(p.purchase_date, p.date) = ?
-          AND ABS(CAST(ROUND(p.amount * 100) AS INTEGER) - ?) <= 1
-          AND p.installment_number <> ? AND p.id <> ?
-        """,
-        (
-            current_user_id, movement["card_id"], ledger_row["pluggy_account_id"], movement["installments"],
-            movement["date"], movement["installment_cents"], int(ledger_row["installment_number"] or 0),
-            ledger_row["id"],
-        ),
-    ).fetchall()
-    return rows[0] if rows else None
-
-
-def _notification_item_for_pluggy(conn, current_user_id, movement):
-    """O item pendente que so o celular trouxe e e este movimento do banco.
-
-    O cartao/conta do item (lembrado ou palpite) tem de ser o da Pluggy; um
-    item que nao sabe qual e se junta so quando e o unico candidato.
-    """
-    seen, rows = set(), []
-    for cents in dict.fromkeys((movement["total_cents"], movement["installment_cents"])):
-        for row in _pending_items(
-            conn, current_user_id, cents=cents, date_text=movement["date"],
-            days=PLUGGY_MATCH_DAYS, direction=movement["direction"],
-        ):
-            if row["id"] not in seen:
-                seen.add(row["id"])
-                rows.append(row)
-    field = "card_id" if movement["entry_type"] == "CARD" else "account_id"
-    exact, loose = [], []
-    for row in rows:
-        if row["entry_type"] not in (None, movement["entry_type"]):
-            continue
-        if not _has_detection_source(conn, current_user_id, row["id"]) or _has_pluggy_source(conn, current_user_id, row["id"]):
-            continue
-        if row[field]:
-            if row[field] == movement[field]:
-                exact.append(row)
-        else:
-            loose.append(row)
-    if exact:
-        return _pick_closest(exact, movement["date"])
-    return loose[0] if len(loose) == 1 else None
-
-
-def queue_pluggy(conn, current_user_id, ledger_row, link, *, reason, candidates=None, categorize=None,
-                 merge=True):
-    """Uma transacao da Pluggy espera o dono: junta-se ao item do mesmo
-    movimento (a notificacao, outra parcela, a outra ponta da transferencia)
-    ou abre um item. Devolve (item_id, como: new|merged). `merge=False`: um
-    item so dela (o dono separou)."""
-    movement = pluggy_movement(ledger_row, link)
-
-    joined = _other_installment_item(conn, current_user_id, ledger_row, movement) if merge else None
-    if joined:
-        return joined["id"], "merged"
-
-    joined = _notification_item_for_pluggy(conn, current_user_id, movement) if merge else None
-    if joined:
-        item = item_dict(joined)
-        edited = set(item["edited"])
-        changes = {
-            "entry_type": movement["entry_type"],
-            "card_id": movement["card_id"],
-            "account_id": movement["account_id"],
-            "guessed": [],
-            "candidates": _merge_candidates(item["candidates"], candidates),
-        }
-        for field in ("entry_type", "card_id", "account_id"):
-            if field in edited:
-                changes.pop(field)
-        if movement["entry_type"] == "CARD" and "installments" not in edited:
-            changes["installments"] = movement["installments"]
-            if "amount" not in edited:
-                changes["amount"] = _reais(movement["total_cents"])
-        merged = {**item, **changes}
-        changes["needs"] = recompute_needs(merged)
-        save_item(conn, current_user_id, item, changes)
-        return item["id"], "merged"
-
-    if merge and movement["entry_type"] != "CARD" and not candidates:
-        partner = transfer_partner(
-            conn, current_user_id, account_id=movement["account_id"], direction=movement["direction"],
-            cents=movement["total_cents"], date_text=movement["date"],
-        )
-        if partner:
-            make_transfer(conn, current_user_id, item_dict(partner), account_id=movement["account_id"],
-                          direction=movement["direction"])
-            return partner["id"], "merged"
-
-    description = ledger_row["description"]
-    values = {
-        "reason": reason,
-        "entry_type": movement["entry_type"],
-        "direction": movement["direction"],
-        "amount": _reais(movement["total_cents"]),
-        "installments": movement["installments"],
-        "occurred_at": movement["date"],
-        "description": description,
-        "account_id": movement["account_id"],
-        "card_id": movement["card_id"],
-        "candidates": candidates or [],
-    }
-    if merge and movement["entry_type"] != "CARD":
-        hint = remembered_transfer(
-            conn, current_user_id, account_id=movement["account_id"], direction=movement["direction"],
-            description=description,
-        )
-        if hint:
-            other = hint["transfer_account_id"]
-            values.update({
-                "entry_type": "TRANSFER",
-                "direction": "OUT",
-                "account_id": movement["account_id"] if movement["direction"] == "OUT" else other,
-                "transfer_account_id": other if movement["direction"] == "OUT" else movement["account_id"],
-                "reason": "own_transfer" if reason == "new" else reason,
-            })
-    if values["entry_type"] == "TRANSFER":
-        values["category"], values["category_id"] = TRANSFER_CATEGORY, None
-    elif categorize:
-        values["category"], values["category_id"] = categorize(
-            description, "INCOME" if values["entry_type"] == "INCOME" else "EXPENSE",
-            values["amount"], movement["account_id"],
-        )
-    else:
-        values["category"], values["category_id"] = suggest_category(
-            conn, current_user_id, description, values["entry_type"], values["amount"], movement["account_id"],
-        )
-    values["needs"] = recompute_needs(values)
-    return insert_item(conn, current_user_id, values), "new"
-
-
-def follow_pluggy(conn, current_user_id, ledger_row, link):
-    """A Pluggy mudou o valor ou a data de algo que ainda espera o dono: o
-    rascunho acompanha, onde o dono nao mexeu."""
-    item_row = fetch_item(conn, current_user_id, ledger_row["inbox_item_id"])
-    if not item_row or item_row["state"] != PENDING:
-        return False
-    item = item_dict(item_row)
-    if len(item_ledger_rows(conn, current_user_id, item["id"], states=("REVIEW",))) != 1:
-        return False
-    movement = pluggy_movement(ledger_row, link)
-    edited = set(item["edited"])
-    changes = {}
-    if "amount" not in edited and _cents(item["amount"]) != movement["total_cents"] and item["entry_type"] != "TRANSFER":
-        changes["amount"] = _reais(movement["total_cents"])
-    if "occurred_at" not in edited and not _has_detection_source(conn, current_user_id, item["id"]):
-        if item["occurred_at"] != movement["date"]:
-            changes["occurred_at"] = movement["date"]
-            changes["source_occurred_at"] = movement["date"]
-    if not changes:
-        return False
-    save_item(conn, current_user_id, item, changes)
-    return True
-
-
-def drop_pluggy_source(conn, current_user_id, ledger_row):
-    """A transacao sumiu da Pluggy: sai do item; sem outra fonte, o item sai."""
-    item_row = fetch_item(conn, current_user_id, ledger_row["inbox_item_id"])
-    if not item_row or item_row["state"] != PENDING:
-        return
-    item = item_dict(item_row)
-    others = [
-        row for row in item_ledger_rows(conn, current_user_id, item["id"])
-        if row["id"] != ledger_row["id"] and row["state"] != "REMOVED"
-    ]
-    if others or _has_detection_source(conn, current_user_id, item["id"]):
-        # O item fica, com uma fonte a menos: a versao sobe para a tela reler.
-        conn.execute(
-            "UPDATE inbox_items SET version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?",
-            (utc_timestamp(), item["id"], current_user_id),
-        )
-        return
-    save_item(conn, current_user_id, item, {"state": REMOVED, "reason": "bank_removed", "decided_at": utc_timestamp()})
-
-
-# ---------------------------------------------------------------------------
 # Lembrar
 # ---------------------------------------------------------------------------
 
@@ -1670,8 +1358,6 @@ def apply_hint_to_pending(conn, current_user_id, key, *, exclude_id=None):
         if row["id"] == exclude_id:
             continue
         item = item_dict(row)
-        if _has_pluggy_source(conn, current_user_id, item["id"]):
-            continue
         edited = set(item["edited"])
         if {"entry_type", "card_id", "account_id"} & edited:
             continue
@@ -1726,7 +1412,7 @@ def _names(conn, current_user_id):
     return accounts, cards
 
 
-def serialize_item(conn, current_user_id, row, names=None, link_names=None):
+def serialize_item(conn, current_user_id, row, names=None):
     item = item_dict(row) if not isinstance(row, dict) else dict(row)
     accounts, cards = names or _names(conn, current_user_id)
     item["account_name"] = accounts.get(item.get("account_id"))
@@ -1751,41 +1437,11 @@ def serialize_item(conn, current_user_id, row, names=None, link_names=None):
             "card_name": detection["card_name"],
             "received_at": detection["created_at"],
         })
-    for ledger in item_ledger_rows(conn, current_user_id, item["id"]):
-        sources.append({
-            "source": "pluggy",
-            "id": ledger["id"],
-            "state": ledger["state"],
-            "account_name": (link_names or {}).get(ledger["pluggy_account_id"]),
-            "direction": ledger["direction"],
-            "amount": ledger["amount"],
-            "date": ledger["date"],
-            "date_raw": ledger["date_raw"],
-            "description": ledger["description"],
-            "status": ledger["status"],
-            "installment_number": ledger["installment_number"],
-            "total_installments": ledger["total_installments"],
-            "received_at": ledger["created_at"],
-        })
     item["sources"] = sources
     item["confirm"] = relevant_guesses(item)
     # Pronto para "Aprovar todos": nada a escolher e nenhum palpite a confirmar.
     item["ready"] = item.get("state") == PENDING and not item.get("needs") and not item["confirm"]
     return item
-
-
-def pluggy_link_names(conn, current_user_id):
-    rows = conn.execute(
-        """
-        SELECT l.pluggy_account_id, COALESCE(a.name, c.name, l.name) AS name
-        FROM pluggy_account_links l
-        LEFT JOIN accounts a ON a.id = l.account_id AND a.user_id = l.user_id
-        LEFT JOIN credit_cards c ON c.id = l.card_id AND c.user_id = l.user_id
-        WHERE l.user_id = ?
-        """,
-        (current_user_id,),
-    ).fetchall()
-    return {row["pluggy_account_id"]: row["name"] for row in rows}
 
 
 def list_items(conn, current_user_id, view="pending", limit=200):
@@ -1810,5 +1466,4 @@ def list_items(conn, current_user_id, view="pending", limit=200):
             (current_user_id, limit),
         ).fetchall()
     names = _names(conn, current_user_id)
-    links = pluggy_link_names(conn, current_user_id)
-    return [serialize_item(conn, current_user_id, row, names, links) for row in rows]
+    return [serialize_item(conn, current_user_id, row, names) for row in rows]

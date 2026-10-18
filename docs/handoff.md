@@ -7,46 +7,48 @@
 
 ---
 
-## Session — 2026-10-18 (night) · Deploy check, Pluggy Connect, Operação and Posição tweaks
+## Session — 2026-10-17 · Pluggy removed
 
-Short owner-driven session on `main` (pulled PR #3, "Aprovar" 028, first). No session-scout: the
-requests were concrete.
+Owner's request: "remove pluggy from all the app … since in the free plan i dont have access to
+anything". No session-scout: one concrete task.
 
 ### Done
-- **Phone up to date**: PR #3 and every commit below deployed green; no native change since the
-  last APK, so the phone takes the screens by self-update on its next start.
-- **Operação form**: the plain "Ativo" list (renda fixa, ETFs, cripto…) now lists only wallet
-  assets of the chosen type; the catalog search (ações, FIIs) already filtered.
-- **Pluggy Connect** (`0a3b5bf`): `POST /api/pluggy/connect-token` (`create_connect_token()`,
-  body `{itemId}` for update mode), `lib/pluggyConnect.js`, "Conectar banco" and "Reconectar" in
-  Ajustes › Banco. The SDK (`pluggy-connect-sdk` 2.14.2) is a lazy chunk; offline it just fails
-  with a message. A 409 on registering means Pluggy returned an item already here — toast, no error.
-  The token call was checked against the **real** Pluggy with the PC's `backend/.env`
-  credentials, and the widget opened in Chromium (390 px) listing real banks. No bank login was
-  tried.
-- **Posição**: category groups collapse, all closed on opening (state per visit, not stored).
-- Tests: 1169 pytest, 77 node.
+- **Backend**: deleted `pluggy_client.py`, `routes/pluggy.py`, `services/pluggy_sync.py` and their
+  tests; the "+ Novo" bank claim (`matched_bank`) is gone from `routes/transactions.py` and
+  `routes/cards.py`; the healthcheck, `source_types`, `export_csv`, `config` and `.env.example`
+  no longer know Pluggy. `PLUGGY_MATCH_DAYS` became `INBOX_MATCH_DAYS` (same default, 3): Aprovar
+  still uses that window for notifications.
+- **Aprovar (028) kept, notifications only**: `services/inbox.py`, `inbox_decisions.py`,
+  `routes/inbox.py` lost the bank source (ledger rows, the lock on bank-given fields, split of a
+  bank source). `test_inbox.py` lost its Pluggy cases; the one-sided-transfer memory test was
+  rewritten with TRANSFER_OUT notifications.
+- **Migration 029** (`029_drop_pluggy.sql`): a pending Aprovar item that only the bank brought
+  becomes REMOVED; a Pluggy-born lançamento becomes manual; drops `pluggy_items`,
+  `pluggy_account_links`, `pluggy_transactions`, `transactions.external_id`,
+  `cc_expenses.external_id/source_type/source_id` and their indexes. Checked on a copy of the
+  dev DB with 026–028 applied and fake Pluggy rows (integrity and FK checks clean).
+  `schema.sql` updated. 027/028 still mention Pluggy: migrations are append-only.
+- **Frontend**: deleted `PluggySection`, `pluggySync.js`, `pluggyRules.js(+test)`,
+  `pluggyConnect.js` and the `pluggy-connect-sdk` dependency; Ajustes has no "Banco (Pluggy)";
+  the Extrato has no bank mark; Aprovar has no "Ler o banco" button. `candidateKindLabel` moved
+  to `lib/inboxRules.js`, tested there.
+- Docs: CLAUDE.md, DEPLOY.md, mobile-docs, next-steps (the three Pluggy items), done-tasks;
+  `docs/prompts/notifications-pluggy-integration.md` deleted (the pairing plan lives in
+  `mobile-docs/steps-to-production.md`, "One purchase, one entry").
+- Tests: 1082 pytest, 66 node; `npm run build` clean.
 
 ### Not done, and why
-- **The server's Pluggy credentials were not checked**: reading the container's environment over
-  ssh was refused by the permission classifier. Ajustes › Banco says so on the server if missing.
-- **The Pluggy app is a demo** (red "Aplicação demo. Proibido o uso comercial." bar in the
-  widget). Whether a demo app can hold real bank connections for long is the owner's question
-  with Pluggy.
-- **Open Finance inside the APK is untested**: consent redirects to the bank; in Capacitor's
-  WebView the popup may leave for the system browser and not come back. Connect from the computer
-  first; connections live on the server, so the phone sees them.
+- **The server's `.env`** may still hold `PLUGGY_*` lines: harmless (nothing reads them), but
+  the owner can delete them. Revoking the Pluggy credentials on Pluggy's dashboard is the
+  owner's call too.
+- `schema.sql` still lacks the 028 tables (`inbox_items`, `notify_detections`, `inbox_hints`) —
+  drift that predates this session.
 
 ### Next
-1. Owner: one real connection via "Conectar banco" (computer), link accounts, Sincronizar — the
-   first real check of the field mapping (next-steps, "Pluggy, on the owner's side").
-2. If the APK flow is wanted, try it on the phone; if the consent never returns, pass
-   `forceOauthInBrowser` and see if the item still lands (the widget polls the item).
-3. The Pluggy known gaps in `docs/next-steps.md`, the invoice-payment one first.
-
-### Learned
-- Pluggy Connect's SDK runs `connect.pluggy.ai` in an iframe (zoid); in Playwright reach it with
-  `page.frames().find(f => f.url().includes('connect.pluggy.ai'))`, button by role ("Continuar").
+- **A new APK will be built by CI**: `NotifyPairing.java` changed (comment only), and any change
+  under `frontend/android/` triggers the `apk` job. Installing it is optional; nothing
+  native changed, so no native-level bump.
+- After the deploy, open Lançamentos › Aprovar and Ajustes on the server once to confirm 029 ran.
 
 ### Carried (Phase 6 on the phone, still open)
 1. Done by the owner: the real app updated, access granted, capture working ("it is working").

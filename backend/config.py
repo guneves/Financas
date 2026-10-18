@@ -126,16 +126,6 @@ LOG_LEVEL = str(os.getenv("LOG_LEVEL", "INFO") or "INFO").strip().upper()
 LOG_DIR = resolve_app_path(os.getenv("LOG_DIR", "logs"), BASE_DIR)
 LOG_TO_FILE = str(os.getenv("LOG_TO_FILE", "1")).strip().lower() not in {"0", "false", "no"}
 
-# Pluggy (Open Finance, services/pluggy_sync.py). As credenciais
-# (PLUGGY_CLIENT_ID, PLUGGY_CLIENT_SECRET) sao lidas a cada chamada por
-# pluggy_client, como o token da brapi; aqui ficam as regras da sincronizacao.
-# PENDING na Pluggy (no cartao: a compra da fatura ainda aberta) so entra quando
-# vira POSTED, a menos que PLUGGY_IMPORT_PENDING=1.
-PLUGGY_IMPORT_PENDING = str(os.getenv("PLUGGY_IMPORT_PENDING", "0")).strip().lower() in {"1", "true", "yes"}
-# Intervalo minimo entre duas sincronizacoes automaticas (o botao ignora).
-PLUGGY_SYNC_MIN_INTERVAL_SECONDS = read_int_env("PLUGGY_SYNC_MIN_INTERVAL_SECONDS", 600, minimum=60)
-# Quantos dias para tras cada sincronizacao rele, para ver o que a Pluggy
-# corrigiu, apagou ou passou de PENDING para POSTED.
-PLUGGY_LOOKBACK_DAYS = read_int_env("PLUGGY_LOOKBACK_DAYS", 45, minimum=7, maximum=365)
-# Folga de datas ao procurar o lancamento que uma transacao da Pluggy confirma.
-PLUGGY_MATCH_DAYS = read_int_env("PLUGGY_MATCH_DAYS", 3, minimum=0, maximum=10)
+# Aprovar (services/inbox.py): folga de datas ao procurar o lancamento que ja
+# existe para um movimento que o celular notificou.
+INBOX_MATCH_DAYS = read_int_env("INBOX_MATCH_DAYS", 3, minimum=0, maximum=10)

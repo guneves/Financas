@@ -20,7 +20,6 @@ the end). The status of each phase is in its heading.
 | Publishing | Always confirm. A detected purchase waits in an inbox until the owner taps Confirmar (from the notification or the list). Nothing is recorded on its own. |
 | Statement import | The import preview flags rows that match an existing lançamento on account, date and amount as probable duplicates and leaves them unchecked. |
 | Banks | Itaú, BTG Pactual, Banco do Brasil, plus Samsung Wallet as a fallback: most card purchases are paid through Samsung Pay and some cards send no push, so Samsung's notification counts only when the bank's does not arrive (owner, 2026-10-17). Itaú Cartões and Ourocard are not read: they repeat the bank apps. |
-| Bank statement | Pluggy (Open Finance) on the server confirms what the phone and the owner entered and adds what they missed (owner, 2026-10-17; built 2026-10-18, `services/pluggy_sync.py`). |
 | Login lifetime | 180 days, one setting for PC and phone: `JWT_EXP_DAYS=180` in `backend/.env` (owner, 2026-10-12). The backend is reachable only through Tailscale, and an expired token stalls background sync and the notification's Confirmar button. |
 | Distribution | Sideloaded APK signed with the owner's own keystore. No Play Store. |
 
@@ -375,9 +374,7 @@ tuned from the captures); one-to-one, the closest in time. The bank wins: a held
 detection is SUPERSEDED, a promoted one not yet confirmed gives its place to the bank's (same
 `client_id`), a confirmed one makes the bank's MATCHED; only the bank's decline cancels a Samsung
 detection. Every detection of a purchase carries the `groupClientId` of the first one, and that is
-the entry's `client_id`. Pluggy reconciles on the server (built 2026-10-18; see "Bank statement"
-in the decisions). Full plan: `docs/prompts/notifications-pluggy-integration.md`. If the captures
-show a bank app itself notifying one purchase twice, that is still the parsers' problem.
+the entry's `client_id`. If the captures show a bank app itself notifying one purchase twice, that is still the parsers' problem.
 
 How it was built (the steps below say what each one asked for):
 - Java, in its own package `android/.../notify/` with its own plugin (`Notify`), not Kotlin in
@@ -475,8 +472,7 @@ amount and merchant.
    id has to come from the key and `Notification.when` (also captured) instead. With Samsung
    Wallet paired to the bank (Phase 6, "One purchase, one entry"), the id is the detection's
    `groupClientId` — the `dedupKey` of the first detection of the purchase — so confirming either
-   notification writes once. If Pluggy brought the purchase first, the server confirms that row
-   (`matched_bank`) instead of creating a second one.
+   notification writes once.
 6. Discarded detections are remembered, so the same notification does not return.
 7. A detection from the brokerage app (BTG Investimentos) becomes a "Registrar operação"
    suggestion, cash linked to the brokerage account; Confirmar writes it through

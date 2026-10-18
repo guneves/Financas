@@ -9,8 +9,8 @@ import java.util.Set;
 
 /**
  * Uma compra, um lancamento: o pareamento entre a notificacao do app do banco e a do Samsung
- * Wallet (docs/prompts/notifications-pluggy-integration.md, Parte A). Sem Android; testado na
- * JVM (NotifyPairingTest).
+ * Wallet (mobile-docs/steps-to-production.md, Fase 6, "One purchase, one entry"). Sem Android;
+ * testado na JVM (NotifyPairingTest).
  *
  * Regra do dono (2026-10-17): o Samsung Wallet vale quando o banco nao notifica a compra no
  * cartao. Entao:
@@ -23,7 +23,7 @@ import java.util.Set;
  *   MATCHED e nao vira um segundo lancamento; se ja descartou, fica descartada tambem;
  * - uma compra NEGADA pelo banco cancela a do Samsung ainda nao confirmada. A negada do Samsung
  *   nao cancela a do banco: o banco ganha, e uma sugestao a mais custa um toque em Descartar,
- *   enquanto uma compra real sumida so voltaria pela Pluggy.
+ *   enquanto uma compra real sumida nao voltaria.
  *
  * Pareia so banco com Samsung, um com um: duas deteccoes do mesmo lado nunca sao a mesma
  * compra, e duas compras de mesmo valor dentro da janela ficam duas (o par e a mais proxima no

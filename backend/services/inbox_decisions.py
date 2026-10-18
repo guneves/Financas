@@ -5,12 +5,10 @@
   celular veem a mesma correcao.
 - `approve_item`: grava o lancamento com o rascunho, na data local da hora que
   a fonte disse (ou da que o dono corrigiu), e guarda essa hora em
-  `occurred_at`. Um item que veio da Pluggy nasce da Pluggy (source_type
-  'PLUGGY', a conciliacao segue o banco); o resto nasce como digitado pelo dono,
-  com o client_id da primeira notificacao — confirmar pelo celular depois cai
+  `occurred_at`. O lancamento nasce como digitado pelo dono, com o client_id da primeira notificacao — confirmar pelo celular depois cai
   no mesmo lancamento. Uma transferencia entre contas do dono e uma linha
   TRANSFER so. Com um lancamento parecido escolhido ("e este"), nada e gravado:
-  as fontes passam a confirmar ele.
+  as notificacoes passam a confirmar ele.
 - `deny_item` / `restore_item`: recusar e desfazer a recusa.
 - `split_item`: "nao e a mesma compra" — uma fonte sai para um item proprio.
 - `absorb_created`: o dono lancou pelo "+ Novo" algo que ja esperava aqui; o
@@ -22,10 +20,10 @@ desfaz sem ver (409, com o item como esta).
 
 import sqlite3
 
-from config import PLUGGY_MATCH_DAYS
+from config import INBOX_MATCH_DAYS
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services import inbox, pluggy_sync
+from services import inbox
 from services.accounts import fetch_category, fetch_transaction_by_client_id
 from services.invoices import build_installment_rows
 from validators import ValidationError, parse_number
@@ -196,45 +194,11 @@ def _with_changes(conn, current_user_id, item, changes):
     return full
 
 
-def check_pluggy_consistency(conn, current_user_id, item, ledger_rows):
-    """O que o banco disse nao se corrige: a conta (ou cartao) e a direcao de
-    cada transacao da Pluggy tem de estar no rascunho."""
-    for row in ledger_rows:
-        link = pluggy_sync.ledger_link(conn, current_user_id, row)
-        if not link:
-            continue
-        direction = "OUT" if row["direction"] == "DEBIT" else "IN"
-        entry_type = item.get("entry_type")
-        if link["pluggy_account_type"] == "CREDIT":
-            if entry_type != "CARD" or item.get("card_id") != link["card_id"]:
-                raise ValidationError("Esta compra veio do cartao pela Pluggy: o cartao e o tipo nao mudam.")
-            if int(item.get("installments") or 1) != (int(row["total_installments"] or 0) or 1):
-                raise ValidationError("As parcelas vem do banco (Pluggy) e nao mudam.")
-            continue
-        if entry_type == "TRANSFER":
-            side = item.get("account_id") if direction == "OUT" else item.get("transfer_account_id")
-            if side != link["account_id"]:
-                raise ValidationError(
-                    "A conta de onde o dinheiro saiu ou entrou vem do banco (Pluggy) e nao muda."
-                )
-            continue
-        expected = "EXPENSE" if direction == "OUT" else "INCOME"
-        if entry_type != expected:
-            raise ValidationError(
-                "O banco (Pluggy) diz que este dinheiro "
-                + ("saiu da conta: e despesa ou transferencia." if direction == "OUT" else "entrou na conta: e receita ou transferencia.")
-            )
-        if item.get("account_id") != link["account_id"]:
-            raise ValidationError("A conta vem do banco (Pluggy) e nao muda.")
-
-
 def update_item(conn, current_user_id, item_id, payload):
     item = _load(conn, current_user_id, item_id, version=payload.get("version"))
     changes = parse_changes(conn, current_user_id, item, payload)
     full = _with_changes(conn, current_user_id, item, changes)
     if full:
-        ledger_rows = inbox.item_ledger_rows(conn, current_user_id, item["id"], states=("REVIEW",))
-        check_pluggy_consistency(conn, current_user_id, {**item, **full}, ledger_rows)
         inbox.save_item(conn, current_user_id, item, full)
     return inbox.fetch_item(conn, current_user_id, item_id)
 
@@ -268,31 +232,6 @@ def _ensure_complete(conn, current_user_id, item):
         item["category"], item["category_id"] = inbox.suggest_category(
             conn, current_user_id, item.get("description"), entry_type, item["amount"], item.get("account_id"),
         )
-
-
-def _importable(conn, current_user_id, item, ledger_rows):
-    """O lancamento pode nascer da Pluggy (e a conciliacao seguir o banco)?"""
-    if not ledger_rows or item["entry_type"] == "TRANSFER":
-        return False
-    if len({row["pluggy_account_id"] for row in ledger_rows}) != 1:
-        return False
-    link = pluggy_sync.ledger_link(conn, current_user_id, ledger_rows[0])
-    if not link:
-        return False
-    if link["pluggy_account_type"] == "CREDIT":
-        return item["entry_type"] == "CARD"
-    return len(ledger_rows) == 1
-
-
-def _draft(item):
-    return {
-        "amount": item["amount"],
-        "date": inbox.date_of(item["occurred_at"]),
-        "occurred_at": item["occurred_at"],
-        "description": item.get("description"),
-        "category": item["category"],
-        "category_id": item.get("category_id"),
-    }
 
 
 def _existing_by_client_key(conn, current_user_id, item):
@@ -387,11 +326,8 @@ def create_entry(conn, current_user_id, item):
 
 
 def _source_description(conn, current_user_id, item):
-    """A descricao como a fonte disse (o banco ou o estabelecimento da
-    notificacao), para a chave lembrada de uma transferencia."""
-    for row in inbox.item_ledger_rows(conn, current_user_id, item["id"]):
-        if row["description"]:
-            return row["description"]
+    """A descricao como a fonte disse (o estabelecimento da notificacao), para
+    a chave lembrada de uma transferencia."""
     for row in inbox.item_detections(conn, current_user_id, item["id"]):
         if row["merchant"]:
             return row["merchant"]
@@ -470,23 +406,13 @@ def approve_item(conn, current_user_id, item_id, payload):
     if full:
         inbox.save_item(conn, current_user_id, item, full)
     remember = payload.get("remember", True) is not False
-    ledger_rows = inbox.item_ledger_rows(conn, current_user_id, item["id"], states=("REVIEW",))
 
     candidate = payload.get("candidate")
     if candidate:
-        return _match_candidate(conn, current_user_id, item, before, ledger_rows, candidate, remember)
+        return _match_candidate(conn, current_user_id, item, before, candidate, remember)
 
     _ensure_complete(conn, current_user_id, item)
-    check_pluggy_consistency(conn, current_user_id, item, ledger_rows)
-    if _importable(conn, current_user_id, item, ledger_rows):
-        table, target_id = pluggy_sync.import_reviewed(conn, current_user_id, ledger_rows, _draft(item))
-    else:
-        table, target_id = create_entry(conn, current_user_id, item)
-        if ledger_rows:
-            kind = "transfer" if item["entry_type"] == "TRANSFER" else (
-                "card_purchase" if table == "cc_expenses" else "entry"
-            )
-            pluggy_sync.attach_reviewed(conn, current_user_id, ledger_rows, table, target_id, kind)
+    table, target_id = create_entry(conn, current_user_id, item)
     _link_detections(conn, current_user_id, item["id"], table, target_id)
     if remember:
         remember_choice(conn, current_user_id, item, before)
@@ -497,18 +423,18 @@ def approve_item(conn, current_user_id, item_id, payload):
 def _target_shape(conn, current_user_id, table, target_id):
     if table == "cc_expenses":
         row = conn.execute(
-            "SELECT id, card_id, external_id FROM cc_expenses WHERE id = ? AND user_id = ?",
+            "SELECT id, card_id FROM cc_expenses WHERE id = ? AND user_id = ?",
             (target_id, current_user_id),
         ).fetchone()
         return row, ("CARD" if row else None)
     row = conn.execute(
-        "SELECT id, type, account_id, transfer_account_id, source_type, external_id FROM transactions WHERE id = ? AND user_id = ?",
+        "SELECT id, type, account_id, transfer_account_id, source_type FROM transactions WHERE id = ? AND user_id = ?",
         (target_id, current_user_id),
     ).fetchone()
     return row, (row["type"] if row else None)
 
 
-def _match_candidate(conn, current_user_id, item, before, ledger_rows, candidate, remember):
+def _match_candidate(conn, current_user_id, item, before, candidate, remember):
     table = str(candidate.get("table") or "") if isinstance(candidate, dict) else ""
     target_id = str(candidate.get("id") or "") if isinstance(candidate, dict) else ""
     listed = next(
@@ -521,10 +447,6 @@ def _match_candidate(conn, current_user_id, item, before, ledger_rows, candidate
     if not row:
         raise ValidationError("Este lancamento nao existe mais.")
     kind = listed.get("kind") or "entry"
-    if ledger_rows:
-        if kind in ("entry", "card_purchase") and row["external_id"] and len(ledger_rows) == 1:
-            raise ValidationError("Este lancamento ja foi conferido com outra transacao do banco.")
-        pluggy_sync.attach_reviewed(conn, current_user_id, ledger_rows, table, target_id, kind)
     _link_detections(conn, current_user_id, item["id"], table, target_id)
     if remember and kind in ("entry", "card_purchase") and row_type in ("EXPENSE", "INCOME", "CARD"):
         chosen = {
@@ -566,26 +488,20 @@ def approve_ready(conn, current_user_id, item_ids):
 
 def deny_item(conn, current_user_id, item_id, payload):
     item = _load(conn, current_user_id, item_id, version=payload.get("version"))
-    ledger_rows = inbox.item_ledger_rows(conn, current_user_id, item["id"], states=("REVIEW",))
-    pluggy_sync.set_reviewed_state(conn, current_user_id, ledger_rows, pluggy_sync.DISMISSED, "owner")
     _close(conn, current_user_id, item, inbox.DENIED, None, None, reason="owner")
     return inbox.fetch_item(conn, current_user_id, item_id)
 
 
 def restore_item(conn, current_user_id, item_id, payload):
     item = _load(conn, current_user_id, item_id, version=payload.get("version"), states=(inbox.DENIED,))
-    ledger_rows = inbox.item_ledger_rows(conn, current_user_id, item["id"], states=(pluggy_sync.DISMISSED,))
-    pluggy_sync.set_reviewed_state(conn, current_user_id, ledger_rows, pluggy_sync.REVIEW, "approval")
     inbox.save_item(conn, current_user_id, item, {"state": inbox.PENDING, "decided_at": None, "reason": "restored"})
     return inbox.fetch_item(conn, current_user_id, item_id)
 
 
 def _live_sources(conn, current_user_id, item_id):
-    detections = [
+    return [
         row for row in inbox.item_detections(conn, current_user_id, item_id) if row["role"] in (inbox.SOURCE, inbox.PAIRED)
     ]
-    ledger_rows = inbox.item_ledger_rows(conn, current_user_id, item_id, states=("REVIEW",))
-    return detections, ledger_rows
 
 
 def _back_to_one_side(conn, current_user_id, item):
@@ -616,8 +532,8 @@ def split_item(conn, current_user_id, item_id, payload):
     item = _load(conn, current_user_id, item_id, version=payload.get("version"))
     source = str(payload.get("source") or "")
     source_id = str(payload.get("source_id") or "")
-    detections, ledger_rows = _live_sources(conn, current_user_id, item["id"])
-    if len(detections) + len(ledger_rows) < 2:
+    detections = _live_sources(conn, current_user_id, item["id"])
+    if len(detections) < 2:
         raise ValidationError("Este item tem uma fonte so.")
     if source == "notification":
         row = next((entry for entry in detections if entry["id"] == source_id), None)
@@ -639,18 +555,6 @@ def split_item(conn, current_user_id, item_id, payload):
         if item.get("client_key") == row["dedup_key"]:
             remaining = next((entry for entry in detections if entry["id"] != row["id"]), None)
             inbox.save_item(conn, current_user_id, item, {"client_key": remaining["dedup_key"] if remaining else None})
-    elif source == "pluggy":
-        row = next((entry for entry in ledger_rows if entry["id"] == source_id), None)
-        if not row:
-            raise ValidationError("Fonte nao encontrada neste item.")
-        link = pluggy_sync.ledger_link(conn, current_user_id, row)
-        if not link:
-            raise ValidationError("A conta da Pluggy desta transacao nao esta mais ligada.")
-        new_id_, _how = inbox.queue_pluggy(conn, current_user_id, row, link, reason="split", merge=False)
-        conn.execute(
-            "UPDATE pluggy_transactions SET inbox_item_id = ? WHERE id = ? AND user_id = ?",
-            (new_id_, row["id"], current_user_id),
-        )
     else:
         raise ValidationError("Fonte invalida.")
     item = inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
@@ -663,11 +567,8 @@ def split_item(conn, current_user_id, item_id, payload):
 # Lancado por outro caminho
 # ---------------------------------------------------------------------------
 
-def _absorb(conn, current_user_id, item_row, table, target_id, kind):
+def _absorb(conn, current_user_id, item_row, table, target_id):
     item = inbox.item_dict(item_row)
-    ledger_rows = inbox.item_ledger_rows(conn, current_user_id, item["id"], states=("REVIEW",))
-    if ledger_rows:
-        pluggy_sync.attach_reviewed(conn, current_user_id, ledger_rows, table, target_id, kind)
     _link_detections(conn, current_user_id, item["id"], table, target_id)
     _close(conn, current_user_id, item, inbox.MATCHED, table, target_id, reason="created_elsewhere")
     return item["id"]
@@ -675,7 +576,7 @@ def _absorb(conn, current_user_id, item_row, table, target_id, kind):
 
 def _exact_pending(conn, current_user_id, *, cents, date_text, direction, accept):
     rows = inbox._pending_items(
-        conn, current_user_id, cents=cents, date_text=date_text, days=PLUGGY_MATCH_DAYS, direction=direction,
+        conn, current_user_id, cents=cents, date_text=date_text, days=INBOX_MATCH_DAYS, direction=direction,
     )
     found = [row for row in rows if accept(row)]
     return found[0] if len(found) == 1 else None
@@ -697,10 +598,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
             (current_user_id, row["client_id"]),
         ).fetchone()
         if same:
-            kind = "card_purchase" if table == "cc_expenses" else (
-                "transfer" if row["type"] == "TRANSFER" else "entry"
-            )
-            return [_absorb(conn, current_user_id, same, table, row["id"], kind)]
+            return [_absorb(conn, current_user_id, same, table, row["id"])]
     if table == "cc_expenses":
         card_id = row["card_id"]
         cents = sum(inbox._cents(entry["amount"]) for entry in (installments or [row]))
@@ -710,7 +608,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
             and "card" not in inbox._jlist(item["guessed"]),
         )
         if match:
-            absorbed.append(_absorb(conn, current_user_id, match, table, row["id"], "card_purchase"))
+            absorbed.append(_absorb(conn, current_user_id, match, table, row["id"]))
         return absorbed
 
     cents = inbox._cents(row["amount"])
@@ -731,7 +629,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
                 and item["account_id"] == account_id and "account" not in inbox._jlist(item["guessed"]),
             )
             if side:
-                absorbed.append(_absorb(conn, current_user_id, side, table, row["id"], "transfer"))
+                absorbed.append(_absorb(conn, current_user_id, side, table, row["id"]))
         return absorbed
 
     direction = "IN" if row["type"] == "INCOME" else "OUT"
@@ -741,7 +639,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
         and "account" not in inbox._jlist(item["guessed"]),
     )
     if match:
-        absorbed.append(_absorb(conn, current_user_id, match, table, row["id"], "entry"))
+        absorbed.append(_absorb(conn, current_user_id, match, table, row["id"]))
     return absorbed
 
 

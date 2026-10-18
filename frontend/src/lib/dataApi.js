@@ -272,32 +272,7 @@ export const systemApi = {
   integrations: (params = {}) => apiFetch(`/api/health/integrations${queryString(params)}`)
 }
 
-// Pluggy (027): conexoes, contas ligadas, sincronizacao e possiveis duplicatas.
-// A sincronizacao automatica esta em lib/pluggySync.js.
-export const pluggyApi = {
-  status: () => apiFetch('/api/pluggy'),
-  // O token do Pluggy Connect; com itemRowId, reconecta aquela conexao.
-  connectToken: (itemRowId) => apiFetch('/api/pluggy/connect-token', {
-    method: 'POST',
-    body: JSON.stringify(itemRowId ? { item_row_id: itemRowId } : {})
-  }),
-  addItem: (itemId) => apiFetch('/api/pluggy/items', {
-    method: 'POST',
-    body: JSON.stringify({ item_id: itemId })
-  }),
-  removeItem: (id) => apiFetch(`/api/pluggy/items/${id}`, { method: 'DELETE' }),
-  accounts: (itemRowId) => apiFetch(`/api/pluggy/items/${itemRowId}/accounts`),
-  link: (pluggyAccountId, payload) => apiFetch(`/api/pluggy/links/${encodeURIComponent(pluggyAccountId)}`, {
-    method: 'PUT',
-    body: JSON.stringify(payload)
-  }),
-  unlink: (pluggyAccountId) => apiFetch(`/api/pluggy/links/${encodeURIComponent(pluggyAccountId)}`, { method: 'DELETE' }),
-  // Os conferidos com diferenca; o que espera o dono esta em inboxApi.
-  review: () => apiFetch('/api/pluggy/review')
-}
-
-// Aprovar (028): o que o celular (notificacoes) e o banco (Pluggy) trouxeram,
-// esperando o dono. Fica no servidor: celular e computador veem as mesmas
+// Aprovar (028): o que o celular (notificacoes) trouxe, esperando o dono. Fica no servidor: celular e computador veem as mesmas
 // decisoes. Cada mudanca leva a `version` do item (409 se outro aparelho mexeu).
 const postJson = (path, body) => apiFetch(path, { method: 'POST', body: JSON.stringify(body || {}) })
 

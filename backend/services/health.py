@@ -1,4 +1,4 @@
-"""Healthcheck das integracoes: yfinance, brapi, BCB e Pluggy.
+"""Healthcheck das integracoes: yfinance, brapi e BCB.
 
 `check_integrations()` faz um teste ativo em cada provedor (um ticker, uma
 serie curta), com o mesmo limite de tempo das buscas reais, e junta o ultimo
@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 
 import brapi_client
-import pluggy_client
 from applog import get_logger
 from config import PRICE_FETCH_TIMEOUT_SECONDS
 from integrations import provider_snapshot
@@ -82,20 +81,10 @@ def check_bcb():
     return {"status": "ok", "latency_ms": elapsed, "detail": detail}
 
 
-def check_pluggy():
-    if not pluggy_client.is_configured():
-        return {"status": "not_configured", "detail": pluggy_client.not_configured_message()}
-    _value, error, elapsed = _timed(lambda: pluggy_client.get_api_key(force=True))
-    if error:
-        return {"status": "error", "latency_ms": elapsed, "detail": error}
-    return {"status": "ok", "latency_ms": elapsed, "detail": "Credenciais aceitas."}
-
-
 CHECKS = {
     "yfinance": ("Yahoo Finance (yfinance)", "Cotações de ações e FIIs", check_yfinance),
     "brapi": ("brapi", "Cotações da B3 (primário quando há token)", check_brapi),
     "bcb": ("Banco Central (SGS)", "CDI e IPCA da renda fixa", check_bcb),
-    "pluggy": ("Pluggy (Open Finance)", "Extrato dos bancos e cartões ligados", check_pluggy),
 }
 
 

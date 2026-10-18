@@ -25,7 +25,6 @@ from services.invoices import (
     serialize_cc_expense,
     settle_invoice,
 )
-from services.pluggy_sync import claim_bank_purchase
 from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE
 from validators import (
     ValidationError,
@@ -346,33 +345,6 @@ def create_cc_purchase(current_user_id):
             if not card:
                 raise ValidationError("Cartao nao encontrado.")
 
-            # A Pluggy ja trouxe esta compra (mesmo cartao, parcelas e total) e
-            # ninguem a confirmou: o envio a confirma em vez de criar outra.
-            claimed = client_id and claim_bank_purchase(
-                conn,
-                current_user_id,
-                card_id=card_id,
-                total_amount=purchase["total_amount"],
-                installments=purchase["installments"],
-                purchase_date=purchase["purchase_date"],
-            )
-            if claimed:
-                claimed_ids = [row["id"] for row in claimed]
-                marks = ",".join("?" for _ in claimed_ids)
-                conn.execute(
-                    f"""
-                    UPDATE cc_expenses SET client_id = ?, category = ?, description = ?
-                    WHERE user_id = ? AND id IN ({marks})
-                    """,
-                    (client_id, purchase["category"], purchase["description"], current_user_id, *claimed_ids),
-                )
-                matched = conn.execute(
-                    f"SELECT * FROM cc_expenses WHERE user_id = ? AND id IN ({marks})"
-                    " ORDER BY invoice_year ASC, invoice_month ASC",
-                    (current_user_id, *claimed_ids),
-                ).fetchall()
-                return jsonify([{**row_to_dict(row), "matched_bank": True} for row in matched]), 200
-
             rows = build_installment_rows(purchase, card)
             inserted = []
             for row in rows:
@@ -407,7 +379,7 @@ def create_cc_purchase(current_user_id):
                 " ORDER BY invoice_year ASC, invoice_month ASC",
                 (current_user_id, *inserted),
             ).fetchall()
-            # A mesma compra esperava em Aprovar (notificacao, Pluggy): vira esta.
+            # A mesma compra esperava em Aprovar (notificacao): vira esta.
             absorbed = absorb_created(conn, current_user_id, "cc_expenses", created[0], installments=created)
     except ValidationError as exc:
         return validation_error(str(exc))

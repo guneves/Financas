@@ -31,12 +31,6 @@ const KIND_LABELS = {
 // De onde veio cada fonte do item, numa linha.
 export function sourceLabel(source) {
   if (!source) return ''
-  if (source.source === 'pluggy') {
-    const parts = ['Banco (Pluggy)']
-    if (source.account_name) parts.push(source.account_name)
-    if (source.total_installments) parts.push(`parcela ${source.installment_number}/${source.total_installments}`)
-    return parts.join(' · ')
-  }
   const app = source.app_label || source.app || 'Notificação'
   const kind = KIND_LABELS[source.kind]
   const card = source.card_last4 ? `final ${source.card_last4}` : source.card_name || ''
@@ -51,7 +45,7 @@ export function onlySamsung(item) {
 
 // A hora como a fonte disse, sem converter fuso: "2026-10-17T22:30:00-03:00"
 // e 17/10/2026 às 22:30 em qualquer aparelho. So a data, quando a fonte nao
-// tem hora (a Pluggy costuma mandar so o dia).
+// tem hora.
 export function splitOccurredAt(occurredAt) {
   const text = String(occurredAt || '')
   const date = text.slice(0, 10)
@@ -125,19 +119,17 @@ export const DECISION_LABELS = {
 
 export function decisionText(item) {
   if (item?.state === 'REMOVED') {
-    return item.reason === 'declined' ? 'Compra negada pelo banco' : 'Sumiu do banco (Pluggy)'
+    return item.reason === 'declined' ? 'Compra negada pelo banco' : 'Saiu da lista'
   }
   if (item?.state === 'MATCHED' && item.reason === 'created_elsewhere') return 'Lançado pelo "+ Novo"'
   return DECISION_LABELS[item?.state] || ''
 }
 
 // Fontes que podem ser separadas ("não é a mesma"): toda notificacao ligada
-// ao item e cada transacao da Pluggy ainda a espera.
+// ao item.
 export function splittableSources(item) {
   const sources = (item?.sources || []).filter((source) => (
-    source.source === 'notification'
-      ? ['SOURCE', 'PAIRED'].includes(source.role)
-      : source.state === 'REVIEW'
+    source.source === 'notification' && ['SOURCE', 'PAIRED'].includes(source.role)
   ))
   return sources.length > 1 ? sources : []
 }
@@ -146,9 +138,18 @@ export function readyIds(items = []) {
   return items.filter((item) => item.ready).map((item) => item.id)
 }
 
-// O que vem do banco (Pluggy) nao muda: a conta/cartao de cada transacao.
-export function lockedTarget(item) {
-  return (item?.sources || []).some((source) => source.source === 'pluggy' && source.state === 'REVIEW')
+// Que tipo de lancamento parecido ja gravado e cada candidato.
+export const CANDIDATE_KIND_LABELS = {
+  entry: 'Lançamento',
+  card_purchase: 'Compra no cartão',
+  transfer: 'Transferência',
+  invoice_payment: 'Pagamento de fatura',
+  investment_cash: 'Pela carteira',
+  proceed: 'Provento',
+}
+
+export function candidateKindLabel(kind) {
+  return CANDIDATE_KIND_LABELS[kind] || 'Lançamento'
 }
 
 // O formulario de edicao a partir do item.

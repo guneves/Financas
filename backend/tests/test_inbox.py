@@ -1,12 +1,11 @@
-"""Aprovar (028): o que o celular e a Pluggy trazem espera o dono, um item por movimento.
+"""Aprovar (028): o que o celular traz espera o dono, um item por movimento.
 
 O que estes testes protegem:
 
 - nada vira lancamento sem o dono aprovar, e a hora da fonte fica (a data e a
   local: uma compra as 22h30 em Brasilia fica no dia dela);
-- a mesma compra notificada pelo banco e pelo Samsung Wallet, ou pela
-  notificacao e pela Pluggy, e um item so; duas compras de mesmo valor ficam
-  duas;
+- a mesma compra notificada pelo banco e pelo Samsung Wallet e um item so;
+  duas compras de mesmo valor ficam duas;
 - sem credito/debito, ou sem saber o cartao/conta, o dono decide, e a escolha
   lembrada decide da proxima vez;
 - uma transferencia entre contas do dono e uma linha TRANSFER, nunca uma
@@ -21,26 +20,35 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from test_pluggy_sync import (  # noqa: F401 - fixtures da Pluggy falsa
-    BANK,
-    CARD,
-    OTHER_BANK,
-    add_item,
-    card_rows,
-    create_account,
-    create_card,
-    link,
-    pluggy,
-    raw,
-    rows,
-    run_sync,
-    sync_module,
-)
-
 BRT = timezone(timedelta(hours=-3))
 ITAU = "com.itau"
 BB = "br.com.bb.android"
 SAMSUNG = "com.samsung.android.spay"
+
+
+def create_account(client, auth, name="Itaú"):
+    response = client.post("/api/accounts", json={"name": name, "type": "CHECKING"}, headers=auth)
+    assert response.status_code == 201, response.get_data(as_text=True)
+    return response.get_json()["id"]
+
+
+def create_card(client, auth, name="Itaú Visa"):
+    response = client.post(
+        "/api/credit-cards", json={"name": name, "due_day": 10, "closing_day": 3}, headers=auth,
+    )
+    assert response.status_code == 201, response.get_data(as_text=True)
+    return response.get_json()["id"]
+
+
+def rows(client, auth, account_id=None):
+    items = client.get("/api/transactions", headers=auth).get_json()
+    if account_id:
+        items = [item for item in items if item["account_id"] == account_id]
+    return items
+
+
+def card_rows(client, auth, card_id):
+    return [item for item in client.get("/api/cc-expenses", headers=auth).get_json() if item["card_id"] == card_id]
 
 
 def ms(year, month, day, hour=12, minute=0, second=0):
@@ -244,64 +252,6 @@ class TestOneMovementOneItem:
         assert len(card_rows(client, auth, one_card)) == 2
 
 
-class TestNotificationAndPluggy:
-    def test_the_bank_statement_joins_the_notification_and_keeps_its_time(
-        self, client, auth, pluggy, db_module, user,
-    ):
-        account_id = create_account(client, auth, "Conta corrente")
-        create_account(client, auth, "Poupança")
-        item_row = add_item(client, auth)
-        link(client, auth, item_row, BANK, account_id=account_id)
-        # Duas contas e nenhuma diz o banco: o celular nao sabe qual; a Pluggy sabe.
-        send(client, auth, detection(kind="PIX_OUT", amount_cents=12000, merchant="Fulano",
-                                     at=ms(2026, 10, 10, 19, 5)))
-        [item] = pending(client, auth)
-        assert item["needs"] == ["account"]
-        pluggy.put(BANK, raw("t1", "2026-10-10", 120, description="PIX ENVIADO FULANO"))
-        body = run_sync(client, auth)
-        assert body["review"] == 1
-        [item] = pending(client, auth)
-        assert item["account_id"] == account_id
-        assert item["needs"] == []
-        assert item["occurred_at"] == "2026-10-10T19:05:00-03:00"
-        assert {source["source"] for source in item["sources"]} == {"notification", "pluggy"}
-        approve(client, auth, item)
-        [row] = rows(client, auth, account_id)
-        assert (row["source_type"], row["external_id"]) == ("PLUGGY", "pluggy:t1")
-        assert row["occurred_at"] == "2026-10-10T19:05:00-03:00"
-        # A escolha da conta (a que a Pluggy disse) fica lembrada para o Pix do Itaú.
-        assert any(hint["account_id"] == account_id for hint in hints(client, auth))
-
-    def test_a_notification_after_pluggy_joins_its_item(self, client, auth, pluggy):
-        card_id = create_card(client, auth, "Itaú Visa")
-        item_row = add_item(client, auth)
-        link(client, auth, item_row, CARD, card_id=card_id)
-        pluggy.put(CARD, raw("c1", "2026-10-10", 45.9, description="PADARIA"))
-        run_sync(client, auth)
-        [result] = send(client, auth, detection(at=ms(2026, 10, 10, 8, 15)))
-        assert result["status"] == "merged"
-        [item] = pending(client, auth)
-        assert item["occurred_at"] == "2026-10-10T08:15:00-03:00"
-        assert item["card_id"] == card_id
-        approve(client, auth, item)
-        [purchase] = card_rows(client, auth, card_id)
-        assert purchase["external_id"] == "pluggy:c1"
-        assert purchase["occurred_at"] == "2026-10-10T08:15:00-03:00"
-
-    def test_pluggy_after_an_approved_notification_confirms_it(self, client, auth, pluggy, db_module, user):
-        card_id = create_card(client, auth, "Itaú Visa")
-        send(client, auth, detection(at=ms(2026, 10, 10, 8, 15)))
-        approve(client, auth, pending(client, auth)[0])
-        item_row = add_item(client, auth)
-        link(client, auth, item_row, CARD, card_id=card_id)
-        pluggy.put(CARD, raw("c1", "2026-10-11", 45.9, description="PADARIA"))
-        body = run_sync(client, auth)
-        assert (body["attached"], body["review"]) == (1, 0)
-        assert pending(client, auth) == []
-        [purchase] = card_rows(client, auth, card_id)
-        assert purchase["external_id"] == "pluggy:c1"
-
-
 class TestTheOwnerDecides:
     def test_a_vague_purchase_asks_credit_or_debit_and_remembers(self, client, auth, one_account):
         card_id = create_card(client, auth, "Itaú Visa")
@@ -443,27 +393,6 @@ class TestTheOwnerDecides:
 
 
 class TestOwnTransfers:
-    def test_two_linked_accounts_make_one_transfer(self, client, auth, pluggy):
-        itau = create_account(client, auth, "Itaú")
-        bb = create_account(client, auth, "BB")
-        item_row = add_item(client, auth)
-        link(client, auth, item_row, BANK, account_id=itau)
-        link(client, auth, item_row, OTHER_BANK, account_id=bb)
-        pluggy.put(BANK, raw("t1", "2026-10-10", 500, description="PIX ENVIADO JOAO"))
-        pluggy.put(OTHER_BANK, raw("t2", "2026-10-10", 500, direction="CREDIT", description="PIX RECEBIDO JOAO"))
-        run_sync(client, auth)
-        [item] = pending(client, auth)
-        assert (item["entry_type"], item["account_id"], item["transfer_account_id"]) == ("TRANSFER", itau, bb)
-        assert item["category"] == "Transferencia"
-        approve(client, auth, item)
-        everything = rows(client, auth)
-        assert [entry["type"] for entry in everything] == ["TRANSFER"]
-        assert (everything[0]["account_id"], everything[0]["transfer_account_id"]) == (itau, bb)
-        balances = {entry["id"]: entry["balance"] for entry in client.get("/api/accounts", headers=auth).get_json()}
-        assert (balances[itau], balances[bb]) == (-500, 500)
-        run_sync(client, auth)
-        assert pending(client, auth) == []
-
     def test_pix_out_and_pix_in_notifications_make_one_transfer(self, client, auth):
         itau = create_account(client, auth, "Itaú")
         bb = create_account(client, auth, "BB")
@@ -483,34 +412,24 @@ class TestOwnTransfers:
         [item] = pending(client, auth)
         assert (item["entry_type"], item["account_id"], item["ready"]) == ("INCOME", bb, True)
 
-    def test_a_one_sided_transfer_is_remembered(self, client, auth, pluggy):
+    def test_a_one_sided_transfer_is_remembered(self, client, auth):
         itau = create_account(client, auth, "Itaú")
         brokerage = create_account(client, auth, "Corretora")
-        item_row = add_item(client, auth)
-        link(client, auth, item_row, BANK, account_id=itau)
-        pluggy.put(BANK, raw("t1", "2026-10-10", 1000, description="TED 0001 MESMA TITULARIDADE"))
-        run_sync(client, auth)
+        send(client, auth, detection(
+            kind="TRANSFER_OUT", amount_cents=100000, app=ITAU, at=ms(2026, 10, 10),
+            merchant="TED 0001 MESMA TITULARIDADE",
+        ))
         [item] = pending(client, auth)
-        item = patch(client, auth, item, entry_type="TRANSFER", transfer_account_id=brokerage)
-        assert item["account_id"] == itau
+        item = patch(client, auth, item, entry_type="TRANSFER", account_id=itau, transfer_account_id=brokerage)
         approve(client, auth, item)
         assert [entry["type"] for entry in rows(client, auth)] == ["TRANSFER"]
 
-        pluggy.put(BANK, raw("t2", "2026-10-15", 750, description="TED 0002 MESMA TITULARIDADE"))
-        run_sync(client, auth)
+        send(client, auth, detection(
+            kind="TRANSFER_OUT", amount_cents=75000, app=ITAU, at=ms(2026, 10, 15),
+            merchant="TED 0002 MESMA TITULARIDADE",
+        ))
         [item] = pending(client, auth)
         assert (item["entry_type"], item["transfer_account_id"], item["ready"]) == ("TRANSFER", brokerage, True)
-
-    def test_the_bank_side_of_a_pluggy_item_cannot_change(self, client, auth, pluggy):
-        itau = create_account(client, auth, "Itaú")
-        other = create_account(client, auth, "Outra")
-        item_row = add_item(client, auth)
-        link(client, auth, item_row, BANK, account_id=itau)
-        pluggy.put(BANK, raw("t1", "2026-10-10", 10))
-        run_sync(client, auth)
-        [item] = pending(client, auth)
-        patch(client, auth, item, expected=400, account_id=other)
-        patch(client, auth, item, expected=400, entry_type="INCOME")
 
 
 class TestValidationAndIsolation:

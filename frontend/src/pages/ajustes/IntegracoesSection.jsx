@@ -26,7 +26,7 @@ function whenLabel(iso) {
   return `${formatDateBR(getLocalDateString(date))} ${time}`
 }
 
-// Integracoes: teste ativo de yfinance, brapi, BCB e Pluggy (GET /api/health/integrations).
+// Integracoes: teste ativo de yfinance, brapi e BCB (GET /api/health/integrations).
 // O backend guarda o resultado por 10 minutos; "Verificar agora" refaz.
 export default function IntegracoesSection() {
   const [refreshing, setRefreshing] = useState(false)

@@ -25,7 +25,6 @@ from services.accounts import (
 from services.attachments import remove_attachment_files
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
-from services.pluggy_sync import claim_bank_transaction
 from services.proceeds_cash import apply_paid_proceeds
 from source_types import (
     INVESTMENT_CASH_SOURCE_TYPE,
@@ -194,32 +193,6 @@ def transactions(current_user_id):
             return validation_error(str(exc))
 
         try:
-            # A Pluggy ja trouxe este lancamento do banco e ninguem o confirmou:
-            # o envio vira a confirmacao dele, nao um segundo lancamento. Valor e
-            # data ficam os do banco; categoria e descricao, as do dono.
-            claimed = client_id and claim_bank_transaction(
-                conn,
-                current_user_id,
-                account_id=account_id,
-                transaction_type=transaction_type,
-                amount=amount,
-                date_text=date_value,
-            )
-            if claimed:
-                conn.execute(
-                    """
-                    UPDATE transactions
-                    SET client_id = ?, category = ?, category_id = ?,
-                        description = COALESCE(?, description)
-                    WHERE id = ? AND user_id = ?
-                    """,
-                    (client_id, category, category_id, description, claimed["id"], current_user_id),
-                )
-                matched = conn.execute(
-                    "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
-                    (claimed["id"], current_user_id),
-                ).fetchone()
-                return jsonify({**serialize_transaction(matched), "matched_bank": True}), 200
             conn.execute(
                 """
                 INSERT INTO transactions
@@ -252,7 +225,7 @@ def transactions(current_user_id):
             "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),
         ).fetchone()
-        # O mesmo movimento esperava em Aprovar (notificacao, Pluggy): vira este.
+        # O mesmo movimento esperava em Aprovar (notificacao): vira este.
         absorbed = absorb_created(conn, current_user_id, "transactions", item)
     body = serialize_transaction(item)
     if absorbed:

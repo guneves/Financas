@@ -99,15 +99,6 @@ EXPECTED_ROUTES = {
     ("/api/cc-expenses/<item_id>/attachments/<attachment_id>/file", "GET"),
     ("/api/transactions/export", "GET"),
     ("/api/transfers", "POST"),
-    # Pluggy (routes/pluggy.py, 027).
-    ("/api/pluggy", "GET"),
-    ("/api/pluggy/connect-token", "POST"),
-    ("/api/pluggy/items", "POST"),
-    ("/api/pluggy/items/<item_row_id>", "DELETE"),
-    ("/api/pluggy/items/<item_row_id>/accounts", "GET"),
-    ("/api/pluggy/links/<pluggy_account_id>", "DELETE,PUT"),
-    ("/api/pluggy/sync", "POST"),
-    ("/api/pluggy/review", "GET"),
     # Aprovar (routes/inbox.py, 028).
     ("/api/inbox", "GET"),
     ("/api/inbox/count", "GET"),
@@ -151,8 +142,7 @@ def test_every_route_but_health_and_login_requires_a_token(client, app_module):
         url = rule.replace("<path:ticker>", "PETR4")
         for part in ("<item_id>", "<attachment_id>", "<account_id>", "<category_id>", "<budget_id>",
                      "<recurring_id>", "<rule_id>", "<card_id>", "<proceed_id>", "<investment_id>",
-                     "<asset_id>", "<ticker>", "<action_id>", "<goal_id>", "<item_row_id>",
-                     "<pluggy_account_id>", "<ledger_id>", "<hint_id>"):
+                     "<asset_id>", "<ticker>", "<action_id>", "<goal_id>", "<hint_id>"):
             url = url.replace(part, "x")
         assert "<" not in url, url
         for method in methods.split(","):

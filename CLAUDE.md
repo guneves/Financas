@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1116 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1082 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -129,9 +129,9 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), the Pluggy client and sync with its reconciliation (`test_pluggy_client.py`, `test_pluggy_sync.py`), and backup
-retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN` and `PLUGGY_CLIENT_ID`/`PLUGGY_CLIENT_SECRET`, so no test reaches brapi
-or Pluggy unless it patches them in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner), and backup
+retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
+unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
@@ -142,7 +142,7 @@ so `conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* impor
 there, not inside the test. A test never imports an app module (`db`, `routes.*`, `services.*`) at
 the top of the file — reach it through a fixture or `importlib.import_module` inside the test, after
 `app_module` has loaded. The pure modules (`brapi_client`, `statement_import`, `export_csv`,
-`market_catalog`, `irpf_text`, `pluggy_client`) are fine at the top.
+`market_catalog`, `irpf_text`) are fine at the top.
 
 **Patch where the name is read, not where it is defined.** Modules import settings and helpers by
 name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
@@ -152,10 +152,7 @@ whose code reads the name: `db` for the backup settings, `routes.attachments` fo
 `fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `services.benchmarks` for
 `download_monthly_history` (call its `reset_fetch_throttle()` too), `brapi_client` for `get_history` /
 `get_sectors` / `get_listing` / `is_configured` (call `services.market_listing.reset_cache()` too), `routes.investments` for
-`refresh_market_prices` (registering a corporate action fetches a quote), `pluggy_client` for
-`get_item` / `list_accounts` / `list_transactions` / `get_api_key` (the sync and the routes call them
-through the module), `services.pluggy_sync` for its `local_today` clock and the `PLUGGY_*`
-settings (call `reset_sync_throttle()` too), and *both*
+`refresh_market_prices` (registering a corporate action fetches a quote), and *both*
 `services.prices` and `routes.investments` for `yf`. A patch on the wrong module does not fail — it
 silently does nothing. `app.py` itself exposes almost nothing now; reach code through the module
 that defines it.
@@ -168,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `pluggyRules` and `transactions`, 68 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules` and `transactions`, 66 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -198,18 +195,17 @@ backend/
                       # (aportes x resgates), benchmarks (IPCA/IBOV/IFIX/IDIV closes),
                       # sectors (brapi sector per asset, breakdown), health (integrations),
                       # app_bundle (the APK's screens, zipped for the phone), import_rules
-                      # (categorization shared by import and Pluggy), pluggy_sync (the bank
-                      # statement through Pluggy, reconciled)
+                      # (categorization shared by import and Aprovar), inbox + inbox_decisions
+                      # (Aprovar: the phone's notifications waiting for the owner)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
-                      # proceeds, market, allocation, goals, pluggy, app_bundle (GET /api/app-bundle),
+                      # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
                       # frontend (serves frontend/dist at /)
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
   export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
   irpf_text.py        # texto para colar no programa do IRPF, sobre o relatorio de IR (funcoes puras)
   statusinvest_client.py # historico de proventos por ticker na StatusInvest (funcoes puras + cache)
-  pluggy_client.py    # Pluggy (Open Finance): auth, itens, contas, transacoes (funcoes puras + cache da chave)
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -226,7 +222,7 @@ frontend/src/
                       # queries.js (TanStack Query), confirm.js, toast.js, scroll.js,
                       # outbox.js + outboxRules.js (offline queue), offlineStore.js (IndexedDB),
                       # queryPersist.js (saved read cache), connection.js,
-                      # pluggySync.js + pluggyRules.js (the bank statement read on opening the Extrato)
+                      # inboxRules.js (Aprovar's texts and requests)
 docs/
   next-steps.md       # the plan — open work only
   done-tasks.md       # completed work, moved out of next-steps.md
@@ -359,28 +355,10 @@ mobile-docs/
   `client_id` (not the detection's own `dedupKey`). Itaú Cartões and Ourocard stay
   off (they repeat the bank apps), so don't add them back. Parsers are written against
   exported captures, never against examples from the web.
-- **The bank statement comes through Pluggy, and one movement stays one lançamento** (027,
-  2026-10-18, `services/pluggy_sync.py`). The ledger `pluggy_transactions` (one row per Pluggy
-  transaction, keyed by its id) is the idempotency key and records what became of each: IMPORTED
-  (born with `source_type = 'PLUGGY'`, `source_id` = `external_id` = `'pluggy:<id>'`), ATTACHED
-  (confirms an existing row, which gains `external_id` and otherwise stays as the owner left it),
-  REVIEW ("Possível duplicata": nothing is written until the owner decides), WAITING (PENDING at
-  Pluggy, until POSTED unless `PLUGGY_IMPORT_PENDING`), SKIPPED (before the link's `since`; card
-  credits), DISMISSED, REMOVED. Only typed rows (with or without `client_id`), statement imports
-  and recurrence occurrences are attached automatically, and only when exactly one matches (same
-  account or card, type, amount, ±`PLUGGY_MATCH_DAYS`); transfers, invoice payments, investment
-  cash and proventos are never touched — a bank row that looks like one goes to REVIEW, and "é
-  este" records the pairing in the ledger only. Card rows go to `cc_expenses` through
-  `build_installment_rows()`; the first installment Pluggy sends creates the whole purchase
-  (`source_id` shared by the installments, `external_id` per installment). Changes and deletions
-  at Pluggy are followed only on what was born from it; a deleted one with a receipt or a paid
-  installment stays, and one the owner confirmed from the phone becomes manual. The reverse order
-  is in the creation routes: a `POST` with `client_id` that would repeat an unconfirmed Pluggy row
-  claims it (sets the `client_id`, the owner's category/description, the bank's amount/date) and
-  answers **200 with `matched_bank: true`**, never a second row and never a 409. The network runs
-  before the write transaction; a failed account is never compared (it would read as deletions).
-  `POST /api/pluggy/sync` is not a "write" for `lib/api.js`: the cache is invalidated only when the
-  server reports a change. Credentials live only in the server's `.env`.
+- **No bank-statement API** (owner, 2026-10-17): Pluggy was removed — its free plan gives no
+  access. Migration 029 dropped the tables 027/028 created for it (`pluggy_*`, `external_id`,
+  `cc_expenses.source_type/source_id`); those two files still mention it because migrations are
+  append-only. Aprovar (028) takes the phone's notifications only.
 - **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
   `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.
@@ -529,8 +507,8 @@ mobile-docs/
   `prices` ← `fixed_income` ← `fx` ← `investments` ← `corporate_actions` / `realized_results` /
   `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`, `allocation` ←
   `sectors`, `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
-  on top. `pluggy_sync` sits on `invoices` and `import_rules` and is read by `routes/pluggy.py`,
-  `routes/transactions.py` and `routes/cards.py` (the claim on creation). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
+  on top. `inbox` sits on `import_rules`; `inbox_decisions` on `inbox` and `invoices`, and is read
+  by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
   fails `test_route_map.py` by name.

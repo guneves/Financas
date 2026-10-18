@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BellRing, CheckCheck, Inbox, Landmark, Pencil, RefreshCw, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
+import { BellRing, CheckCheck, Inbox, Pencil, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
 import { accountsApi, categoriesApi, creditCardsApi, inboxApi } from '../../lib/dataApi'
 import {
   AlertMessage,
@@ -20,11 +20,10 @@ import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString 
 import { invalidateServerData, queryClient, queryErrorMessage, useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
-import { syncPluggy, usePluggySync } from '../../lib/pluggySync'
-import { candidateKindLabel, syncSummary } from '../../lib/pluggyRules'
 import {
   amountSign,
   approveReadySummary,
+  candidateKindLabel,
   changesFromDraft,
   CONFIRM_TEXTS,
   decisionText,
@@ -32,7 +31,6 @@ import {
   ENTRY_TYPE_LABELS,
   entryTypeLabel,
   hintText,
-  lockedTarget,
   needText,
   offersRemember,
   onlySamsung,
@@ -61,10 +59,9 @@ function useInbox(view) {
 }
 
 function SourceLine({ source }) {
-  const Icon = source.source === 'pluggy' ? Landmark : Smartphone
   return (
     <li className="flex min-w-0 items-start gap-2 text-xs text-zinc-500">
-      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <Smartphone className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span className="min-w-0">
         {sourceLabel(source)}
         {source.source === 'notification'
@@ -111,7 +108,7 @@ function Select({ label, value, options, onChange, placeholder = 'Escolha…', h
 
 // As escolhas que o item pede, ali mesmo no cartao: credito ou debito, qual
 // cartao, qual conta. Um palpite vem preenchido com "confirme".
-function Decisions({ item, accounts, cards, onQuick, locked }) {
+function Decisions({ item, accounts, cards, onQuick }) {
   const needs = item.needs || NO_ITEMS
   const confirm = item.confirm || NO_ITEMS
   const askMethod = needs.includes('method')
@@ -120,7 +117,7 @@ function Decisions({ item, accounts, cards, onQuick, locked }) {
     && (needs.includes('account') || confirm.includes('account'))
   const showDestination = item.entry_type === 'TRANSFER'
     && (needs.includes('transfer_account') || confirm.includes('transfer_account'))
-  if (locked || !(askMethod || showCard || showAccount || showDestination)) return null
+  if (!(askMethod || showCard || showAccount || showDestination)) return null
   return (
     <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-3">
       {askMethod ? (
@@ -186,7 +183,6 @@ function targetText(item) {
 function ItemCard({ item, accounts, cards, busyKey, onApprove, onDeny, onEdit, onQuick, onMatch, onSplit }) {
   const [remember, setRemember] = useState(true)
   const sign = amountSign(item)
-  const locked = lockedTarget(item)
   const reason = reasonText(item)
   const splittable = splittableSources(item)
   const busy = (action) => busyKey === `${item.id}:${action}`
@@ -225,7 +221,7 @@ function ItemCard({ item, accounts, cards, busyKey, onApprove, onDeny, onEdit, o
 
       {reason ? <p className="text-sm text-zinc-600">{reason}</p> : null}
 
-      <Decisions item={item} accounts={accounts} cards={cards} onQuick={onQuick} locked={locked} />
+      <Decisions item={item} accounts={accounts} cards={cards} onQuick={onQuick} />
 
       {item.candidates?.length ? (
         <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
@@ -265,11 +261,9 @@ const TYPE_ITEMS = Object.entries(ENTRY_TYPE_LABELS).map(([value, label]) => ({
 }))
 
 // Corrigir antes de virar lancamento: tipo, valor, data e hora, descricao,
-// categoria, conta/cartao, parcelas. O que vem do banco (a conta ou o cartao
-// de uma transacao da Pluggy, as parcelas dela) fica travado.
+// categoria, conta/cartao, parcelas.
 function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, saving }) {
   const [draft, setDraft] = useState(() => draftFromItem(item))
-  const locked = lockedTarget(item)
   const set = (field) => (event) => setDraft({ ...draft, [field]: event.target.value })
   const type = draft.entry_type
   const categoryType = type === 'INCOME' ? 'INCOME' : 'EXPENSE'
@@ -296,7 +290,7 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <SegmentedControl
-            items={locked ? TYPE_ITEMS.filter((entry) => entry.value === item.entry_type || (item.entry_type !== 'CARD' && entry.value === 'TRANSFER')) : TYPE_ITEMS}
+            items={TYPE_ITEMS}
             value={type}
             onChange={(value) => setDraft({ ...draft, entry_type: value })}
           />
@@ -307,7 +301,7 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
         <Field label="Data" className="min-w-0">
           <input type="date" value={draft.date} onChange={set('date')} className="app-input" />
         </Field>
-        <Field label="Hora" className="min-w-0" hint={draft.time ? undefined : 'O banco não disse a hora.'}>
+        <Field label="Hora" className="min-w-0" hint={draft.time ? undefined : 'A notificação não disse a hora.'}>
           <input type="time" value={draft.time} onChange={set('time')} className="app-input" />
         </Field>
         <Field label="Descrição" className="col-span-2">
@@ -329,19 +323,19 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
         {type === 'CARD' ? (
           <>
             <Field label="Cartão" className="min-w-0">
-              <select value={draft.card_id} onChange={set('card_id')} className="app-select" disabled={locked}>
+              <select value={draft.card_id} onChange={set('card_id')} className="app-select">
                 <option value="">Escolha…</option>
                 {cards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}
               </select>
             </Field>
             <Field label="Parcelas" className="min-w-0">
-              <input type="number" inputMode="numeric" min="1" max="72" value={draft.installments} onChange={set('installments')} className="app-input" disabled={locked} />
+              <input type="number" inputMode="numeric" min="1" max="72" value={draft.installments} onChange={set('installments')} className="app-input" />
             </Field>
           </>
         ) : null}
         {type === 'EXPENSE' || type === 'INCOME' || type === 'TRANSFER' ? (
           <Field label={type === 'TRANSFER' ? 'De' : 'Conta'} className={type === 'TRANSFER' ? 'min-w-0' : 'col-span-2'}>
-            <select value={draft.account_id} onChange={set('account_id')} className="app-select" disabled={locked && type !== 'TRANSFER'}>
+            <select value={draft.account_id} onChange={set('account_id')} className="app-select">
               <option value="">Escolha…</option>
               {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
             </select>
@@ -359,9 +353,6 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
         ) : null}
         {type === 'TRANSFER' ? (
           <p className="col-span-2 text-sm text-zinc-500">Entre suas contas: não conta como entrada nem saída.</p>
-        ) : null}
-        {locked ? (
-          <p className="col-span-2 text-xs text-zinc-500">A conta (ou cartão) e as parcelas vêm do banco pela Pluggy e não mudam.</p>
         ) : null}
       </div>
     </Sheet>
@@ -387,8 +378,8 @@ function DecidedRow({ item, onRestore, busy }) {
   )
 }
 
-// Lancamentos › Aprovar: o que o celular (notificacoes dos bancos) e o banco
-// (Pluggy) trouxeram. Nada entra no extrato antes de o dono aprovar; a mesma
+// Lancamentos › Aprovar: o que o celular (notificacoes dos bancos) trouxe.
+// Nada entra no extrato antes de o dono aprovar; a mesma
 // compra contada por mais de uma fonte aparece uma vez so.
 export default function Aprovar() {
   const [view, setView] = useState('pending')
@@ -396,9 +387,7 @@ export default function Aprovar() {
   const [busyKey, setBusyKey] = useState('')
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState('')
-  const [syncing, setSyncing] = useState(false)
 
-  usePluggySync()
   const inboxQuery = useInbox(view)
   const hintsQuery = useQuery({ queryKey: ['aprovar', 'lembradas'], queryFn: () => inboxApi.hints() })
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
@@ -495,30 +484,13 @@ export default function Aprovar() {
     if (result) setEditing(null)
   }
 
-  const refresh = async () => {
-    setSyncing(true)
-    setError('')
-    try {
-      const result = await syncPluggy({ force: true })
-      await invalidateServerData()
-      if (result && result.status !== 'not_configured') toast(syncSummary(result), { tone: 'info' })
-    } catch (syncError) {
-      setError(syncError.message || 'Não foi possível ler o banco.')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <PageHeader
         title="Aprovar"
-        description="O que o celular e o banco encontraram. Nada entra no extrato até você aprovar, e a mesma compra aparece uma vez só."
+        description="O que o celular encontrou. Nada entra no extrato até você aprovar, e a mesma compra aparece uma vez só."
         actions={(
           <>
-            <Button variant="secondary" size="sm" icon={RefreshCw} loading={syncing} onClick={refresh}>
-              Ler o banco
-            </Button>
             {ready.length ? (
               <Button size="sm" icon={CheckCheck} loading={busyKey === 'ready'} onClick={approveReady}>
                 Aprovar prontos ({ready.length})
@@ -564,7 +536,7 @@ export default function Aprovar() {
           <EmptyState
             icon={Inbox}
             title="Nada esperando"
-            message="Compras avisadas pelo celular e o que o banco registra (Pluggy) aparecem aqui para você aprovar."
+            message="Compras e Pix avisados pelo celular aparecem aqui para você aprovar."
           />
         )
       ) : items.length ? (

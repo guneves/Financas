@@ -1,4 +1,4 @@
-"""Aprovar: o que o celular (notificacoes dos bancos) e a Pluggy trazem.
+"""Aprovar: o que o celular (notificacoes dos bancos) traz.
 
 As regras moram em services/inbox.py (guardar e juntar) e
 services/inbox_decisions.py (o que o dono decide). Tudo fica no servidor: o
@@ -11,16 +11,14 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db
-from services import inbox, inbox_decisions, pluggy_sync
+from services import inbox, inbox_decisions
 from validators import ValidationError, parse_json_body, require_id_list, validation_error
 
 bp = Blueprint("inbox", __name__)
 
 
 def _serialize(conn, current_user_id, row):
-    item = inbox.serialize_item(
-        conn, current_user_id, row, link_names=inbox.pluggy_link_names(conn, current_user_id),
-    )
+    item = inbox.serialize_item(conn, current_user_id, row)
     item["target"] = inbox_decisions.serialize_target(conn, current_user_id, item.get("target_table"), item.get("target_id"))
     return item
 
@@ -53,7 +51,6 @@ def list_inbox(current_user_id):
     if view not in ("pending", "decided"):
         return validation_error("Visao invalida.")
     with get_db() as conn:
-        pluggy_sync.adopt_orphan_reviews(conn, current_user_id)
         items = inbox.list_items(conn, current_user_id, view)
         if view == "decided":
             for item in items:
@@ -162,7 +159,7 @@ def restore(current_user_id, item_id):
 @bp.route("/api/inbox/<item_id>/split", methods=["POST"])
 @token_required
 def split(current_user_id, item_id):
-    """"Nao e a mesma": `source` (notification | pluggy) e `source_id` saem
+    """"Nao e a mesma": `source` (notification) e `source_id` saem
     para um item proprio."""
     payload = parse_json_body()
     if not isinstance(payload, dict):

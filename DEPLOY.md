@@ -135,13 +135,11 @@ Anyone who logs in as `<user>` can then run docker as root, which is effectively
 server. That is the trade accepted here. The rule deliberately has no `SETENV`.
 
 `/srv/apps/financas/.env` (from `.env.example`, `chmod 600`): `APP_PORT=8101`, `JWT_SECRET`
-(`openssl rand -hex 32`, changing it logs every device out), `BRAPI_TOKEN`, and — for the bank
-statement through Open Finance — `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` (blank: nothing is
-read from Pluggy; the other `PLUGGY_*` settings are in `backend/.env.example`). Edit it on the
-server only. No script or workflow ever writes it. The container reads it only when it is
-created: after an edit run `sudo docker compose up -d --force-recreate` — `docker compose restart`
-keeps the old environment, and Ajustes › Banco (Pluggy) keeps saying "não está configurada" (it
-names the variable that did not arrive).
+(`openssl rand -hex 32`, changing it logs every device out) and `BRAPI_TOKEN`; the other
+settings are in `backend/.env.example`. Edit it on the server only. No script or workflow ever
+writes it. The container reads it only when it is created: after an edit run
+`sudo docker compose up -d --force-recreate` — `docker compose restart` keeps the old
+environment.
 
 ### 3. First deploy, with the PC's data
 
