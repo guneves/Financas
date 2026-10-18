@@ -165,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `transactions` and `sharing`, 73 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `transactions`, `sharing` and `attentionRules`, 80 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -467,6 +467,13 @@ mobile-docs/
   shows "Outras pessoas" apart. A card purchase's share covers every installment, split
   proportionally. Lançamentos › A receber lists the others' part of each expense until marked paid
   (`share_settled_at`); marking writes no money. Transfers and investment cash are never shared.
+- **"Precisa de atenção" lives in two places** (owner, 2026-10-18): Início's cards and the bell in
+  the header (where the theme toggle was). Both read `lib/attentionRules.js` (pure, tested): each
+  item carries a `key` naming the case (the invoices, the recurrence's last occurrence, the
+  budget month and category), not the kind. Início's X dismisses the items on screen for this
+  device (`lib/attention.js`, localStorage), so the same case never comes back there and a new one
+  does; the bell always lists every current item. The bell runs Início's own queries
+  (`useInicio*()`, same keys), so the cache is shared.
 - **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
   payments never count.
 - **Proventos of ações/FIIs are computed, not typed** (026, `services/proceeds_sync.py`):
@@ -591,8 +598,8 @@ mobile-docs/
   `red`, `blue`…) — it does not exist in the theme. `brand` is the deep green of the net-worth block
   and the active nav pill, with `text-brand-ink` on it; text on the bright `emerald-500` fill is
   `text-on-accent`. Charts take colours from `CHART` (grid, axes, ink), `FLOW` / `SERIES` / `OTHER_COLOR` in `charts.jsx` (CSS
-  variables), never a hex literal. The theme lives in `lib/theme.js` (system by default, manual
-  toggle next to the eye) and `index.html` applies it before first paint. The font is Plus Jakarta
+  variables), never a hex literal. The theme lives in `lib/theme.js` (system by default; Sistema / Claro / Escuro
+  in Ajustes › Aparência — no header toggle) and `index.html` applies it before first paint. The font is Plus Jakarta
   Sans served from `public/fonts` (the app must open offline) — no Google Fonts link.
 - **Consolidated balance = sum of `/api/accounts` balances**, fetched with `include_archived`
   (`consolidatedBalance()` in `lib/transactions.js`). Summing `transactions` left each account's

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { BellRing, CloudOff, Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun, UploadCloud } from 'lucide-react'
+import { BellRing, CloudOff, Eye, EyeOff, LogOut, Plus, Settings, UploadCloud } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
@@ -12,8 +12,8 @@ import { NEEDS_ATTENTION } from '../lib/outboxRules'
 import { setValuesHidden, useValuesHidden } from '../lib/privacy'
 import { useLayer } from '../lib/layers'
 import { useScrollRestoration } from '../lib/scroll'
-import { toggleTheme, useIsDark } from '../lib/theme'
 import ApkUpdateBanner from './ApkUpdateBanner'
+import { AttentionBell } from './Attention'
 import InvestmentLaunchModal from './InvestmentLaunchModal'
 import NewEntrySheet from './NewEntrySheet'
 import PendingSheet from './PendingSheet'
@@ -63,18 +63,6 @@ function PrivacyToggle({ hidden, onToggle }) {
   const Icon = hidden ? EyeOff : Eye
   return (
     <button type="button" onClick={onToggle} aria-label={label} aria-pressed={hidden} title={label} className={cx(roundButton, hidden ? roundOn : roundIdle)}>
-      <Icon className="h-5 w-5" />
-    </button>
-  )
-}
-
-// Claro/escuro (lib/theme.js). Segue o sistema ate o primeiro clique.
-function ThemeToggle() {
-  const dark = useIsDark()
-  const label = dark ? 'Usar tema claro' : 'Usar tema escuro'
-  const Icon = dark ? Sun : Moon
-  return (
-    <button type="button" onClick={toggleTheme} aria-label={label} title={label} className={cx(roundButton, roundIdle)}>
       <Icon className="h-5 w-5" />
     </button>
   )
@@ -306,7 +294,7 @@ export default function Layout() {
       <DataVersionContext.Provider value={dataVersion}>
       <div className="min-h-screen text-zinc-950">
         {/* Desktop: uma faixa so, fixa no topo — marca, secoes, e a direita
-            tema, olho, conta e "+ Novo". A altura (h-[4.5rem]) e o top do
+            sino, olho, conta e "+ Novo". A altura (h-[4.5rem]) e o top do
             cabecalho das tabelas em index.css. Entre 1024 e ~1110 px a faixa
             nao cabe com a marca em w-44 e folga larga: "+ Novo" saia da tela. */}
         <header className="sticky top-0 z-30 hidden border-b border-zinc-200/70 bg-zinc-50/90 backdrop-blur lg:block">
@@ -322,7 +310,7 @@ export default function Layout() {
             <div className="flex-1" />
             <InboxPill count={inboxCount} />
             <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} />
-            <ThemeToggle />
+            <AttentionBell />
             <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
             <UserMenu initials={initials} name={name} />
             <button
@@ -343,7 +331,7 @@ export default function Layout() {
             <div className="flex items-center gap-2">
               <InboxPill count={inboxCount} compact />
               <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} compact />
-              <ThemeToggle />
+              <AttentionBell />
               <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
               <NavLink
                 to={SETTINGS_PATH}

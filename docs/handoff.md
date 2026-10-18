@@ -7,39 +7,46 @@
 
 ---
 
-## Session — 2026-10-18 · Expense sharing (032) finished, checked, pushed
+## Session — 2026-10-18 · "Precisa de atenção" dismissable, header bell, theme in Ajustes
 
-Owner: "finish last sessions work, it got interrupted, run checks on the changes it made and if
-everything is green commit and push it to main". The interrupted session had built expense
-sharing ("de quem é o gasto") but never committed it nor wrote its handoff. No session-scout
-(the task was the working tree itself).
+Owner: make "Precisa de atenção" closable so it does not show again, keep those notifications
+under a new bell where the sun (theme toggle) was, and move the light/dark choice into Ajustes;
+open a PR. Branch `claude/confident-cannon-ig2hze`. No session-scout (small, self-contained UI
+task).
 
 ### Done
-- Reviewed the uncommitted work and found it complete end to end: migration
-  `032_expense_share.sql` (+ `schema.sql`), `services/sharing.py`, `routes/receivables.py`
-  (`GET /api/receivables`, `POST /api/receivables/settle`), `PATCH /api/cc-expenses/<id>/share`,
-  share fields on `PATCH /api/transactions/<id>`, the owner's-part rule (`own_amount_sql()`) in
-  the budget and the monthly plan; frontend `lib/sharing.js`, `lib/cashFlow.js` (Início's cash
-  flow moved out of `Dashboard.jsx`, with "Outras pessoas" apart), `ShareFields` in the Extrato
-  edit, `CardShareSheet` from a purchase's menu in Cartões, the Lançamentos › A receber page.
-- Checks: **1126 pytest passed** (`test_expense_share.py` included), **73 node tests**, `vite
-  build` clean. Committed and pushed to `main` — which deploys the server (032 runs there) and,
-  because the earlier unpushed commits touch `frontend/android/`, builds the new APK too.
-- Docs: done-tasks row, CLAUDE.md (tests, convention), this handoff.
+- `lib/attentionRules.js` (pure): the rules Início used inline — overdue invoices, the closed
+  invoice, autopay shortfalls, pending recurrences, categories over budget — plus
+  `attentionItems()`, which gives each item a `key` naming the case. `Dashboard.jsx` now calls
+  these instead of its own copies (behaviour unchanged).
+- Início: an X next to "Precisa de atenção · N" dismisses the items on screen (localStorage,
+  `lib/attention.js`); the same case never returns to Início, a new one does (next month's
+  invoice, a new overdue recurrence, another category or month over budget).
+- Header bell (`components/Attention.jsx`, `AttentionBell`) in place of the theme toggle, desktop
+  and phone: a count badge and a dropdown with every current item, dismissed or not, each linking
+  to its screen (Cartões, Recorrentes, Orçamento). It runs Início's queries with Início's keys.
+- Ajustes › Aparência: Sistema / Claro / Escuro (`setThemePreference`); `toggleTheme` removed.
+- Checks: 80 node tests (7 new in `attentionRules.test.js`), `vite build` clean; clicked through
+  with Playwright on a throwaway DB (desktop + 390 px): dismiss survives reload, bell lists the
+  items, the theme switches from Ajustes.
 
 ### Not done, and why
-- **Not tried in a browser or on the phone**: the request was checks + commit; the screens were
-  only built, not clicked through. Owner walk-through: Extrato → edit a despesa → "Dividida";
-  Cartões → ⋯ → "De quem é?"; A receber → mark paid; Início's flow shows "Outras pessoas".
-- Sharing is set only by editing; the "+ Novo" forms and Aprovar don't offer it (the previous
-  session's design, apparently — nothing half-built for it).
-- A receber's "paid" writes no money on purpose: the Pix the person sends is its own lançamento.
+- The bell's items are links, not actions: paying an invoice needs Início's pay sheet, so the bell
+  sends you to the screen instead of duplicating it.
+- Dismissal is per device (localStorage), like the theme; nothing goes to the server.
+- No backend change, so pytest was not re-run.
 
 ### Next
-1. After the deploy: open A receber, Aprovar and Ajustes once to confirm 029–032 ran.
-2. Install the new APK ("Nova versão disponível"), then one Pix between own accounts, one to
-   someone else, one card purchase → check Aprovar (next-steps, first item).
-3. Keep capture on; the next export drives a parser pass (Samsung first).
+1. Owner: try it on the phone after merge (the bell on the narrow header; the APK gets it with the
+   next screen bundle — no native change, no native-level bump).
+2. Carry on with next-steps' first items (the phone checks, Aprovar walk-through).
+
+### From the expense-sharing session (2026-10-18), still open
+- Sharing not walked through in a browser or on the phone: Extrato → edit a despesa →
+  "Dividida"; Cartões → ⋯ → "De quem é?"; A receber → mark paid; Início's flow "Outras pessoas".
+- After the deploy: open A receber, Aprovar and Ajustes once to confirm 029–032 ran.
+- Install the new APK, then one Pix between own accounts, one to someone else, one card
+  purchase → check Aprovar; keep capture on, the next export drives a parser pass.
 
 ### From the notification session (2026-10-17), still open
 - Not tried end to end on the phone; Samsung Wallet's purchase text never captured (its parser is
