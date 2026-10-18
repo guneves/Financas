@@ -84,10 +84,7 @@ def check_bcb():
 
 def check_pluggy():
     if not pluggy_client.is_configured():
-        return {
-            "status": "not_configured",
-            "detail": "PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET vazios no .env; o extrato do banco não é lido.",
-        }
+        return {"status": "not_configured", "detail": pluggy_client.not_configured_message()}
     _value, error, elapsed = _timed(lambda: pluggy_client.get_api_key(force=True))
     if error:
         return {"status": "error", "latency_ms": elapsed, "detail": error}

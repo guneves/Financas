@@ -138,7 +138,10 @@ server. That is the trade accepted here. The rule deliberately has no `SETENV`.
 (`openssl rand -hex 32`, changing it logs every device out), `BRAPI_TOKEN`, and — for the bank
 statement through Open Finance — `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` (blank: nothing is
 read from Pluggy; the other `PLUGGY_*` settings are in `backend/.env.example`). Edit it on the
-server only. No script or workflow ever writes it.
+server only. No script or workflow ever writes it. The container reads it only when it is
+created: after an edit run `sudo docker compose up -d --force-recreate` — `docker compose restart`
+keeps the old environment, and Ajustes › Banco (Pluggy) keeps saying "não está configurada" (it
+names the variable that did not arrive).
 
 ### 3. First deploy, with the PC's data
 
@@ -266,7 +269,8 @@ the server's data and from `backend\finance.db`.
 ```bash
 cd /srv/apps/financas
 sudo docker compose logs -f --tail 100
-sudo docker compose restart
+sudo docker compose restart                  # same environment: does NOT re-read .env
+sudo docker compose up -d --force-recreate   # after editing .env (a new key, a new token)
 sudo docker image ls ghcr.io/guneves/financas-app      # remove old ones with docker image rm
 # Copy the backups out of the volume (they share its disk with the database):
 sudo docker run --rm --user 0 --entrypoint cp -v financas_data:/data -v "$HOME":/out ghcr.io/guneves/financas-app:latest -r /data/backups /out/

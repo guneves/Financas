@@ -107,7 +107,18 @@ EXPECTED_ROUTES = {
     ("/api/pluggy/links/<pluggy_account_id>", "DELETE,PUT"),
     ("/api/pluggy/sync", "POST"),
     ("/api/pluggy/review", "GET"),
-    ("/api/pluggy/review/<ledger_id>", "POST"),
+    # Aprovar (routes/inbox.py, 028).
+    ("/api/inbox", "GET"),
+    ("/api/inbox/count", "GET"),
+    ("/api/inbox/detections", "POST"),
+    ("/api/inbox/approve-ready", "POST"),
+    ("/api/inbox/hints", "GET"),
+    ("/api/inbox/hints/<hint_id>", "DELETE"),
+    ("/api/inbox/<item_id>", "GET,PATCH"),
+    ("/api/inbox/<item_id>/approve", "POST"),
+    ("/api/inbox/<item_id>/deny", "POST"),
+    ("/api/inbox/<item_id>/restore", "POST"),
+    ("/api/inbox/<item_id>/split", "POST"),
 }
 
 
@@ -140,7 +151,7 @@ def test_every_route_but_health_and_login_requires_a_token(client, app_module):
         for part in ("<item_id>", "<attachment_id>", "<account_id>", "<category_id>", "<budget_id>",
                      "<recurring_id>", "<rule_id>", "<card_id>", "<proceed_id>", "<investment_id>",
                      "<asset_id>", "<ticker>", "<action_id>", "<goal_id>", "<item_row_id>",
-                     "<pluggy_account_id>", "<ledger_id>"):
+                     "<pluggy_account_id>", "<ledger_id>", "<hint_id>"):
             url = url.replace(part, "x")
         assert "<" not in url, url
         for method in methods.split(","):

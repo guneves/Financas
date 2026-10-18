@@ -23,6 +23,7 @@ from services.accounts import (
     resolve_category,
 )
 from services.attachments import remove_attachment_files
+from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.pluggy_sync import claim_bank_transaction
 from services.proceeds_cash import apply_paid_proceeds
@@ -251,7 +252,12 @@ def transactions(current_user_id):
             "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),
         ).fetchone()
-    return jsonify(serialize_transaction(item)), 201
+        # O mesmo movimento esperava em Aprovar (notificacao, Pluggy): vira este.
+        absorbed = absorb_created(conn, current_user_id, "transactions", item)
+    body = serialize_transaction(item)
+    if absorbed:
+        body["matched_inbox"] = True
+    return jsonify(body), 201
 
 
 def account_names_map(conn, current_user_id):

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Landmark, Link2, Plus, RefreshCw, Trash2, Unlink } from 'lucide-react'
 import { accountsApi, creditCardsApi, pluggyApi } from '../../lib/dataApi'
 import {
@@ -13,20 +14,22 @@ import {
   Panel,
   PanelHeader,
 } from '../../components/ui'
-import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../../lib/format'
+import { formatCurrency, formatDateBR, getLocalDateString } from '../../lib/format'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
 import { syncPluggy } from '../../lib/pluggySync'
+import { useInboxCount } from '../../lib/inboxCount'
+import { pendingNoticeText } from '../../lib/inboxRules'
+import { APROVAR_PATH } from '../../lib/navigation'
 import {
-  candidateKindLabel,
   differenceText,
   itemStatusLabel,
   lastSyncAt,
   linkPayload,
   linkTargets,
   pluggyAccountLabel,
-  reviewReasonText,
+  setupProblems,
   syncSummary,
 } from '../../lib/pluggyRules'
 
@@ -37,71 +40,6 @@ function whenLabel(iso) {
   const date = new Date(iso)
   const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
   return `${formatDateBR(getLocalDateString(date))} ${time}`
-}
-
-// Saida do banco com sinal de menos, entrada com mais (o livro guarda o valor positivo).
-function bankAmount(item) {
-  return formatSignedCurrency(item.amount, item.direction === 'DEBIT' ? -1 : 1)
-}
-
-function CandidateRow({ candidate, onPick, busy }) {
-  const where = candidate.card_name || candidate.account_name
-  const transferTo = candidate.transfer_account_name ? ` → ${candidate.transfer_account_name}` : ''
-  return (
-    <li className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-zinc-900">
-          {candidate.description || candidate.category || candidateKindLabel(candidate.kind)}
-        </p>
-        <p className="text-xs text-zinc-500">
-          {candidateKindLabel(candidate.kind)} · {formatDateBR(candidate.date)} · {formatCurrency(candidate.amount)}
-          {candidate.installment_info ? ` · parcela ${candidate.installment_info}` : ''}
-          {where ? ` · ${where}${transferTo}` : ''}
-        </p>
-      </div>
-      <Button variant="secondary" size="sm" onClick={onPick} loading={busy}>É este</Button>
-    </li>
-  )
-}
-
-// Uma transacao do banco que pode ser duplicata: o dono escolhe o lancamento
-// que ela confirma, lanca separado, ou ignora.
-function ReviewItem({ item, onDecide, busyKey }) {
-  return (
-    <li className="space-y-3 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-medium text-zinc-900">{item.description || 'Sem descrição'}</p>
-          <p className="text-xs text-zinc-500">
-            No banco · {formatDateBR(item.date)}{item.account_name ? ` · ${item.account_name}` : ''}
-            {item.total_installments ? ` · parcela ${item.installment_number}/${item.total_installments}` : ''}
-          </p>
-        </div>
-        <p className="num shrink-0 font-semibold text-zinc-900">{bankAmount(item)}</p>
-      </div>
-      <p className="text-sm text-zinc-600">{reviewReasonText(item)}</p>
-      {item.candidates.length ? (
-        <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
-          {item.candidates.map((candidate) => (
-            <CandidateRow
-              key={`${candidate.table}:${candidate.id}`}
-              candidate={candidate}
-              busy={busyKey === `${item.id}:attach:${candidate.id}`}
-              onPick={() => onDecide(item, 'attach', candidate.id)}
-            />
-          ))}
-        </ul>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={() => onDecide(item, 'insert')} loading={busyKey === `${item.id}:insert`}>
-          Lançar separado
-        </Button>
-        <Button variant="subtle" size="sm" onClick={() => onDecide(item, 'dismiss')} loading={busyKey === `${item.id}:dismiss`}>
-          Ignorar
-        </Button>
-      </div>
-    </li>
-  )
 }
 
 // Uma conta da Pluggy e a conta (ou o cartao) do app que ela alimenta.
@@ -228,12 +166,11 @@ function ItemRow({ item, accounts, cards, onRemove, onError }) {
 
 // Ajustes › Banco (Pluggy): o extrato dos bancos pelo Open Finance
 // (backend/services/pluggy_sync.py). O que o banco registra confirma o que o
-// dono e o celular ja lancaram; o que faltava entra; o que pode ser duplicata
-// espera aqui, em "Possivel duplicata".
+// dono e o celular ja lancaram; o resto (o que faltava, o que pode ser
+// duplicata) espera o dono em Lancamentos › Aprovar.
 export default function PluggySection() {
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
-  const [busyKey, setBusyKey] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [itemId, setItemId] = useState('')
   const [adding, setAdding] = useState(false)
@@ -250,7 +187,7 @@ export default function PluggySection() {
   const accounts = accountsQuery.data || NO_ITEMS
   const cards = cardsQuery.data || NO_ITEMS
   const items = status?.items || NO_ITEMS
-  const review = reviewQuery.data?.review || NO_ITEMS
+  const pendingApproval = useInboxCount()
   const differences = reviewQuery.data?.differences || NO_ITEMS
   const configured = Boolean(status?.configured)
   const lastSync = lastSyncAt(items)
@@ -268,23 +205,6 @@ export default function PluggySection() {
       setError(syncError.message || 'Não foi possível sincronizar com a Pluggy.')
     } finally {
       setSyncing(false)
-    }
-  }
-
-  const handleDecide = async (item, action, targetId) => {
-    setBusyKey(action === 'attach' ? `${item.id}:attach:${targetId}` : `${item.id}:${action}`)
-    setError('')
-    try {
-      await pluggyApi.decide(item.id, action, targetId)
-      toast(
-        action === 'attach' ? 'Conferido: ficou um lançamento só.'
-          : action === 'insert' ? 'Lançado separado.'
-            : 'Transação do banco ignorada.'
-      )
-    } catch (decideError) {
-      setError(decideError.message || 'Não foi possível decidir esta transação.')
-    } finally {
-      setBusyKey('')
     }
   }
 
@@ -327,7 +247,7 @@ export default function PluggySection() {
     <Panel id="pluggy" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Banco (Pluggy)"
-        description="O extrato dos bancos pelo Open Finance. O que o banco registra confere o que você e o celular já lançaram; o que faltava entra sozinho."
+        description="O extrato dos bancos pelo Open Finance. O que o banco registra confere o que você e o celular já lançaram; o que faltava espera você em Lançamentos › Aprovar."
         actions={configured && status?.links?.length ? (
           <Button variant="secondary" size="sm" icon={RefreshCw} loading={syncing} onClick={handleSync}>
             Sincronizar
@@ -341,23 +261,21 @@ export default function PluggySection() {
           <ListSkeleton rows={2} className="p-0" />
         ) : !configured ? (
           <AlertMessage tone="info">
-            A Pluggy não está configurada no servidor. Coloque <code>PLUGGY_CLIENT_ID</code> e{' '}
-            <code>PLUGGY_CLIENT_SECRET</code> no <code>.env</code> do servidor e reinicie o app. Até lá, nada é lido dos bancos.
+            <p>A Pluggy não está configurada no servidor; até lá, nada é lido dos bancos.</p>
+            {setupProblems(status?.setup).map((problem) => <p key={problem} className="mt-1">{problem}</p>)}
+            <p className="mt-1">
+              No servidor, <code>PLUGGY_CLIENT_ID</code> e <code>PLUGGY_CLIENT_SECRET</code> vão em{' '}
+              <code>/srv/apps/financas/.env</code>; depois rode{' '}
+              <code>sudo docker compose up -d --force-recreate</code>. Um <code>docker compose restart</code> não lê o <code>.env</code> de novo.
+            </p>
           </AlertMessage>
         ) : (
           <>
-            {review.length ? (
-              <section aria-labelledby="pluggy-revisao" className="space-y-2">
-                <h3 id="pluggy-revisao" className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-                  Possível duplicata <Badge tone="warning">{review.length}</Badge>
-                </h3>
-                <p className="text-sm text-zinc-500">Nada disto entrou no extrato: decida cada uma.</p>
-                <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
-                  {review.map((item) => (
-                    <ReviewItem key={item.id} item={item} onDecide={handleDecide} busyKey={busyKey} />
-                  ))}
-                </ul>
-              </section>
+            {pendingApproval ? (
+              <AlertMessage tone="info">
+                {pendingNoticeText(pendingApproval)}{' '}
+                <Link to={APROVAR_PATH} className="font-semibold underline">Aprovar</Link>
+              </AlertMessage>
             ) : null}
 
             {differences.length ? (

@@ -74,15 +74,72 @@ class PluggyResponseError(PluggyError):
     """Resposta 2xx fora do formato esperado."""
 
 
+CREDENTIAL_NAMES = ("PLUGGY_CLIENT_ID", "PLUGGY_CLIENT_SECRET")
+# Os outros PLUGGY_* que o app le (config.py e base_url). Um nome fora desta
+# lista no ambiente e, quase sempre, uma das credenciais escrita errado.
+KNOWN_SETTING_NAMES = CREDENTIAL_NAMES + (
+    "PLUGGY_BASE_URL",
+    "PLUGGY_IMPORT_PENDING",
+    "PLUGGY_SYNC_MIN_INTERVAL_SECONDS",
+    "PLUGGY_LOOKBACK_DAYS",
+    "PLUGGY_MATCH_DAYS",
+)
+# Onde mexer, para a mensagem: o servidor so tem compose.yaml e .env (DEPLOY.md).
+NOT_CONFIGURED_HINT = (
+    "No servidor, edite /srv/apps/financas/.env e rode "
+    "`sudo docker compose up -d --force-recreate`: um `docker compose restart` "
+    "mantém o ambiente antigo e não lê o .env de novo."
+)
+
+
+def _setting(name):
+    value = str(os.getenv(name, "") or "").strip()
+    # "abc" ou 'abc' no .env: o docker compose antigo (v1) passa as aspas junto.
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1].strip()
+    return value
+
+
 def credentials():
-    client_id = str(os.getenv("PLUGGY_CLIENT_ID", "") or "").strip()
-    client_secret = str(os.getenv("PLUGGY_CLIENT_SECRET", "") or "").strip()
-    return client_id, client_secret
+    return tuple(_setting(name) for name in CREDENTIAL_NAMES)
 
 
 def is_configured():
     client_id, client_secret = credentials()
     return bool(client_id and client_secret)
+
+
+def setup_report():
+    """Por que a Pluggy nao esta configurada, sem nunca mostrar um valor.
+
+    `missing`: credenciais que nem existem no ambiente do processo (o container
+    nao foi recriado, ou o .env e outro); `empty`: existem, mas vazias;
+    `unknown_names`: PLUGGY_* que o app nao le (um nome errado aparece aqui).
+    So nomes saem daqui.
+    """
+    missing = [name for name in CREDENTIAL_NAMES if name not in os.environ]
+    empty = [name for name in CREDENTIAL_NAMES if name in os.environ and not _setting(name)]
+    unknown = sorted(
+        name for name in os.environ
+        if name.upper().startswith("PLUGGY") and name not in KNOWN_SETTING_NAMES
+    )
+    return {"missing": missing, "empty": empty, "unknown_names": unknown}
+
+
+def not_configured_message():
+    """A frase do erro: o que falta e onde mexer."""
+    report = setup_report()
+    parts = []
+    if report["missing"]:
+        verb = "não chegaram" if len(report["missing"]) > 1 else "não chegou"
+        parts.append(f"{' e '.join(report['missing'])} {verb} ao app")
+    if report["empty"]:
+        verb = "estão vazios" if len(report["empty"]) > 1 else "está vazio"
+        parts.append(f"{' e '.join(report['empty'])} {verb}")
+    if report["unknown_names"]:
+        parts.append(f"há {', '.join(report['unknown_names'])} no ambiente (nome errado?)")
+    summary = "; ".join(parts) or "credenciais da Pluggy vazias"
+    return f"A Pluggy não está configurada: {summary}. {NOT_CONFIGURED_HINT}"
 
 
 def base_url():
@@ -136,9 +193,7 @@ def get_api_key(force=False):
     """A apiKey de `POST /auth`, guardada por API_KEY_TTL_SECONDS."""
     client_id, client_secret = credentials()
     if not (client_id and client_secret):
-        raise PluggyNotConfiguredError(
-            "PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET nao configurados; defina-os em backend/.env"
-        )
+        raise PluggyNotConfiguredError(not_configured_message())
     with _key_lock:
         if (
             not force
@@ -224,6 +279,8 @@ class PluggyTransaction:
     purchase_date: str
     operation_type: str
     updated_at: str
+    # A data como veio, com hora e fuso se vierem (`date` e so o AAAA-MM-DD).
+    date_raw: str = ""
 
 
 def _text(value):
@@ -323,6 +380,7 @@ def parse_transaction(raw, account_type="BANK"):
         purchase_date=_iso_date(card.get("purchaseDate")),
         operation_type=_text(raw.get("operationType")).upper(),
         updated_at=_text(raw.get("updatedAt")),
+        date_raw=_text(raw.get("date"))[:40],
     )
 
 

@@ -12,6 +12,7 @@ import Layout from './components/Layout'
 const PAGE_LOADERS = {
   Dashboard: () => import('./pages/Dashboard'),
   Extrato: () => import('./pages/lancamentos/Extrato'),
+  Aprovar: () => import('./pages/lancamentos/Aprovar'),
   Cartoes: () => import('./pages/lancamentos/Cartoes'),
   Importar: () => import('./pages/lancamentos/Importar'),
   Investments: () => import('./pages/Investments'),
@@ -27,6 +28,7 @@ const PAGE_LOADERS = {
 
 const Dashboard = lazy(PAGE_LOADERS.Dashboard)
 const Extrato = lazy(PAGE_LOADERS.Extrato)
+const Aprovar = lazy(PAGE_LOADERS.Aprovar)
 const Cartoes = lazy(PAGE_LOADERS.Cartoes)
 const Importar = lazy(PAGE_LOADERS.Importar)
 const Investments = lazy(PAGE_LOADERS.Investments)
@@ -89,6 +91,7 @@ export default function App() {
 
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
             <Route path="/lancamentos/extrato" element={<Extrato />} />
+            <Route path="/lancamentos/aprovar" element={<Aprovar />} />
             <Route path="/lancamentos/cartoes" element={<Cartoes />} />
             <Route path="/lancamentos/importar" element={<Importar />} />
 

@@ -4,6 +4,27 @@
 // o que entra, o que espera o dono — estao no servidor
 // (backend/services/pluggy_sync.py); aqui so se diz isso em portugues.
 
+// O que falta para a Pluggy funcionar, pelo `setup` de GET /api/pluggy (so
+// nomes de variaveis, nunca valores). Cada frase e um motivo; vazio quando o
+// servidor nao disse nada.
+export function setupProblems(setup) {
+  if (!setup) return []
+  const names = (list) => (list || []).join(' e ')
+  const problems = []
+  const missing = setup.missing || []
+  const empty = setup.empty || []
+  if (missing.length) {
+    problems.push(`${names(missing)} ${missing.length > 1 ? 'não chegaram' : 'não chegou'} ao app. Se já estão no .env, o container ainda roda com o ambiente antigo.`)
+  }
+  if (empty.length) {
+    problems.push(`${names(empty)} ${empty.length > 1 ? 'estão vazios' : 'está vazio'} no .env.`)
+  }
+  if (setup.unknown_names?.length) {
+    problems.push(`O app não lê ${setup.unknown_names.join(', ')}: confira o nome (PLUGGY_CLIENT_ID, PLUGGY_CLIENT_SECRET).`)
+  }
+  return problems
+}
+
 // Uma sincronizacao que mudou algo no servidor pede para as telas lerem de novo.
 const CHANGE_KEYS = ['created', 'attached', 'updated', 'removed', 'review']
 
@@ -18,7 +39,7 @@ function plural(count, one, many) {
 // O resumo de uma sincronizacao pedida pelo botao.
 export function syncSummary(result) {
   if (!result) return 'Não foi possível falar com o servidor.'
-  if (result.status === 'not_configured') return 'A Pluggy não está configurada no servidor.'
+  if (result.status === 'not_configured') return result.message || 'A Pluggy não está configurada no servidor.'
   if (result.status === 'running') return 'Uma sincronização já está em andamento.'
   if (result.status === 'skipped') return result.message || 'Sincronizado há pouco.'
   const parts = []
@@ -26,7 +47,7 @@ export function syncSummary(result) {
   if (result.attached) parts.push(plural(result.attached, 'conferido', 'conferidos'))
   if (result.updated) parts.push(plural(result.updated, 'atualizado', 'atualizados'))
   if (result.removed) parts.push(plural(result.removed, 'removido', 'removidos'))
-  if (result.review) parts.push(plural(result.review, 'para revisar', 'para revisar'))
+  if (result.review) parts.push(plural(result.review, 'para aprovar', 'para aprovar'))
   const body = parts.length ? `Banco: ${parts.join(', ')}.` : 'Nada novo no banco.'
   if (result.status === 'error') return `A Pluggy não respondeu. ${result.message || ''}`.trim()
   if (result.status === 'partial') return `${body} Algumas contas não responderam: ${(result.failed || []).join(', ')}.`
@@ -44,25 +65,6 @@ export const CANDIDATE_KIND_LABELS = {
 
 export function candidateKindLabel(kind) {
   return CANDIDATE_KIND_LABELS[kind] || 'Lançamento'
-}
-
-// Por que uma transacao do banco espera o dono ("Possivel duplicata").
-export function reviewReasonText(item) {
-  if (item?.reason === 'several_candidates') {
-    return 'Há mais de um lançamento parecido (mesma conta, valor e data próxima). Escolha qual é este, ou lance separado.'
-  }
-  if (item?.reason === 'installments_differ') {
-    return 'Há uma compra de mesmo total com outro número de parcelas. Se for a mesma, confirme; se não, lance separado.'
-  }
-  if (item?.reason === 'out_of_reach') {
-    const kinds = [...new Set((item.candidates || [])
-      .map((candidate) => candidate.kind)
-      .filter((kind) => kind && kind !== 'entry' && kind !== 'card_purchase'))]
-      .map((kind) => candidateKindLabel(kind).toLowerCase())
-    const what = kinds.length ? kinds.join(' ou ') : 'um lançamento de outra tela'
-    return `Parece ${what} que já está no app. Se for, confirme para não contar duas vezes.`
-  }
-  return 'Confira antes de lançar.'
 }
 
 // O que um lancamento conferido tem de diferente do que o banco diz.
@@ -108,18 +110,6 @@ export function lastSyncAt(items = []) {
     .filter(Boolean)
     .sort()
     .pop() || ''
-}
-
-export function reviewCount(status) {
-  return Number(status?.counts?.REVIEW) || 0
-}
-
-// O aviso do Extrato quando ha possiveis duplicatas esperando o dono.
-export function reviewNoticeText(count) {
-  if (!count) return ''
-  return count === 1
-    ? '1 transação do banco espera você decidir se já está lançada.'
-    : `${count} transações do banco esperam você decidir se já estão lançadas.`
 }
 
 // O status de uma conexao (item) na Pluggy, em portugues; o desconhecido sai como veio.

@@ -26,6 +26,7 @@ from services.accounts import (
     serialize_account,
 )
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
+from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.investments import PORTFOLIO_ACCOUNT_TYPE
 from services.proceeds_cash import apply_paid_proceeds, mark_portfolio_since
@@ -295,7 +296,12 @@ def create_transfer(current_user_id):
             "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),
         ).fetchone()
-    return jsonify(serialize_transaction(item)), 201
+        # As pontas desta transferencia que esperavam em Aprovar viram ela.
+        absorbed = absorb_created(conn, current_user_id, "transactions", item)
+    body = serialize_transaction(item)
+    if absorbed:
+        body["matched_inbox"] = True
+    return jsonify(body), 201
 
 
 @bp.route("/api/categories", methods=["GET", "POST"])

@@ -12,15 +12,20 @@ novo nao grava nada que o livro ja decidiu — e o livro diz o que foi feito:
   os do celular inclusive), os de extrato importado e os de recorrencia. O
   lancamento ganha `external_id` e fica como o dono deixou; uma diferenca de
   data fica anotada em `difference`, nunca corrigida.
-- IMPORTED: nenhum candidato, nasce um lancamento com source_type 'PLUGGY'. No
-  cartao, uma compra em cc_expenses pela regra da fatura do backend
-  (`build_installment_rows`), com as parcelas da Pluggy: a primeira parcela
-  que chega cria a compra inteira, as seguintes marcam a parcela delas.
-- REVIEW ("Possivel duplicata"): dois candidatos ou mais; um lancamento que a
-  conciliacao nao toca (transferencia, pagamento de fatura, caixa de
-  investimento, provento) com o mesmo valor e data; ou, no cartao, uma compra
-  de mesmo total com outro numero de parcelas. Nada e gravado ate o dono
-  decidir (`resolve_review`): e o mesmo, lancar separado, ou ignorar.
+- REVIEW: espera o dono em Aprovar (services/inbox.py, 028), num item que
+  junta as fontes do mesmo movimento (a notificacao do celular, outra parcela,
+  a outra ponta de uma transferencia entre contas do dono). Nenhum candidato
+  (reason "approval"): um lancamento novo, se o dono aprovar. Dois candidatos
+  ou mais, um lancamento que a conciliacao nao toca (transferencia, pagamento
+  de fatura, caixa de investimento, provento) com o mesmo valor e data, ou, no
+  cartao, uma compra de mesmo total com outro numero de parcelas ("Possivel
+  duplicata"): o item mostra os parecidos. Nada e gravado ate o dono decidir
+  (services/inbox_decisions.py).
+- IMPORTED: o dono aprovou, e nasceu um lancamento com source_type 'PLUGGY'
+  (`import_bank`), com o rascunho que o dono corrigiu. No cartao, uma compra
+  em cc_expenses pela regra da fatura do backend (`build_installment_rows`),
+  com as parcelas da Pluggy: a primeira parcela aprovada cria a compra
+  inteira, as seguintes marcam a parcela delas sem passar por Aprovar.
 - WAITING: PENDING na Pluggy (no cartao, a compra da fatura ainda aberta),
   ate virar POSTED, a menos que PLUGGY_IMPORT_PENDING.
 - SKIPPED: fora do que o app guarda — antes de `since`; credito no cartao
@@ -28,8 +33,9 @@ novo nao grava nada que o livro ja decidiu — e o livro diz o que foi feito:
   fatura, e o pagamento ja e o lancamento da conta).
 - DISMISSED: o dono mandou ignorar. REMOVED: sumiu da Pluggy.
 
-O que a Pluggy muda depois e seguido so no que nasceu dela (valor e data; no
-cartao, o valor da parcela em aberto). Uma transacao que some da Pluggy apaga
+O que a Pluggy muda depois e seguido so no que nasceu dela e o dono nao
+corrigiu ao aprovar (valor e data; no cartao, o valor da parcela em aberto), e
+no rascunho do que ainda espera em Aprovar. Uma transacao que some da Pluggy apaga
 o lancamento que nasceu dela — menos o que tem comprovante ou parcela paga, e o
 que o dono confirmou do celular, que vira lancamento manual — e solta o
 external_id do lancamento que ela confirmava.
@@ -61,6 +67,7 @@ from dates import parse_iso_date, subtract_months
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from integrations import record_provider_result
 from money import rounded_money
+from services import inbox
 from services.import_rules import (
     DEFAULT_IMPORT_CATEGORIES,
     count_rule_hits,
@@ -165,10 +172,7 @@ def sync_pluggy(current_user_id, *, force=False, today=None):
     vez a cada PLUGGY_SYNC_MIN_INTERVAL_SECONDS.
     """
     if not pluggy_client.is_configured():
-        return _result(
-            "not_configured",
-            "PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET nao estao no .env do servidor.",
-        )
+        return _result("not_configured", pluggy_client.not_configured_message())
     now = time.monotonic()
     last = _last_run.get(current_user_id)
     if not force and last is not None and now - last < PLUGGY_SYNC_MIN_INTERVAL_SECONDS:
@@ -320,6 +324,7 @@ def _snapshot(tx, link):
         "total_installments": tx.total_installments or None,
         "purchase_date": tx.purchase_date or None,
         "pluggy_updated_at": tx.updated_at or None,
+        "date_raw": tx.date_raw or None,
     }
 
 
@@ -358,7 +363,8 @@ def _fetch_ledger(context, pluggy_id):
 
 
 OUTCOME_COUNTER = {
-    IMPORTED: "created",
+    # Na sincronizacao, IMPORTED so e a parcela seguinte de uma compra aprovada.
+    IMPORTED: "attached",
     ATTACHED: "attached",
     REVIEW: "review",
     WAITING: "waiting",
@@ -377,6 +383,10 @@ def apply_transaction(context, link, tx):
     if redecide:
         decision = decide(context, link, tx)
         _write_ledger(context, existing, tx, link, decision)
+        if decision["state"] == REVIEW:
+            queue(context, link, _fetch_ledger(context, tx.id), decision)
+        elif decision.get("inbox_item_id"):
+            _link_item(context, tx.id, decision["inbox_item_id"])
         if existing is not None and existing["state"] == decision["state"]:
             return None
         return OUTCOME_COUNTER.get(decision["state"])
@@ -390,12 +400,38 @@ def apply_transaction(context, link, tx):
         "candidates": json.loads(existing["candidates"]) if existing["candidates"] else None,
     }
     outcome = None
-    if state == IMPORTED and follow_changes(context, existing, link, tx):
+    if state == IMPORTED and existing["reason"] != "owner_edited" and follow_changes(context, existing, link, tx):
         outcome = "updated"
     if state == ATTACHED:
         decision["difference"] = attached_difference(context, existing, tx, link)
     _write_ledger(context, existing, tx, link, decision)
+    if state == REVIEW:
+        current = _fetch_ledger(context, tx.id)
+        if not current["inbox_item_id"]:
+            # Da 027, de antes de Aprovar: entra agora.
+            queue(context, link, current, decision)
+        elif inbox.follow_pluggy(context.conn, context.user_id, current, link):
+            outcome = "updated"
     return outcome
+
+
+def queue(context, link, ledger_row, decision):
+    """A transacao espera o dono em Aprovar (services/inbox.py)."""
+    item_id, _how = inbox.queue_pluggy(
+        context.conn, context.user_id, ledger_row, link,
+        reason=decision.get("reason") or "approval",
+        candidates=decision.get("candidates"),
+        categorize=context.categorize,
+    )
+    _link_item(context, ledger_row["pluggy_id"], item_id)
+    return item_id
+
+
+def _link_item(context, pluggy_id, item_id):
+    context.conn.execute(
+        "UPDATE pluggy_transactions SET inbox_item_id = ? WHERE user_id = ? AND pluggy_id = ?",
+        (item_id, context.user_id, pluggy_id),
+    )
 
 
 def decide(context, link, tx):
@@ -493,6 +529,17 @@ def decide_bank(context, link, tx):
     conn, user_id = context.conn, context.user_id
     transaction_type = bank_type(tx)
     account_id = link["account_id"]
+    direction = "OUT" if tx.direction == "DEBIT" else "IN"
+    # A outra ponta de uma transferencia que o dono ja aprovou em Aprovar com
+    # uma ponta so: confirma a transferencia, nao e um movimento novo.
+    awaiting = inbox.approved_transfer_awaiting(
+        conn, user_id, account_id=account_id, direction=direction, cents=tx.amount_cents, date_text=tx.date,
+    )
+    if awaiting:
+        return {
+            "state": ATTACHED, "reason": "transfer", "target_table": "transactions",
+            "target_id": awaiting["target_id"], "inbox_item_id": awaiting["id"],
+        }
     candidates = bank_candidates(conn, user_id, account_id, transaction_type, tx.amount_cents, tx.date)
     blockers = out_of_reach_candidates(conn, user_id, account_id, tx.direction, tx.amount_cents, tx.date)
     if blockers:
@@ -501,28 +548,41 @@ def decide_bank(context, link, tx):
         return {"state": REVIEW, "reason": "several_candidates", "candidates": _listed(candidates)}
     if len(candidates) == 1:
         return attach(context, "transactions", candidates[0]["id"], tx, link)
-    return import_bank(context, link, tx)
+    return {"state": REVIEW, "reason": "approval"}
 
 
-def import_bank(context, link, tx):
+def import_bank(context, link, tx, draft=None):
+    """O lancamento que nasce da transacao (aprovada pelo dono). `draft`: o que
+    o dono corrigiu em Aprovar (amount, date, occurred_at, description,
+    category, category_id); sem ele, o que a Pluggy diz."""
+    draft = draft or {}
     transaction_type = bank_type(tx)
-    amount = _reais(tx.amount_cents)
-    category, category_id = context.categorize(tx.description, transaction_type, amount, link["account_id"])
+    amount = rounded_money(draft["amount"]) if draft.get("amount") is not None else _reais(tx.amount_cents)
+    if "category" in draft:
+        category, category_id = draft["category"], draft.get("category_id")
+    else:
+        category, category_id = context.categorize(tx.description, transaction_type, amount, link["account_id"])
+    description = draft["description"] if "description" in draft else (tx.description or None)
+    date_text = draft.get("date") or tx.date
     item_id = new_id()
     key = external_key(tx.id)
     context.conn.execute(
         """
         INSERT INTO transactions
         (id, user_id, account_id, amount, date, category, category_id, description, type,
-         source_type, source_id, external_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         source_type, source_id, external_id, occurred_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            item_id, context.user_id, link["account_id"], amount, tx.date, category, category_id,
-            tx.description or None, transaction_type, PLUGGY_SOURCE_TYPE, key, key,
+            item_id, context.user_id, link["account_id"], amount, date_text, category, category_id,
+            description, transaction_type, PLUGGY_SOURCE_TYPE, key, key,
+            draft.get("occurred_at") or tx.date_raw or tx.date,
         ),
     )
-    return {"state": IMPORTED, "target_table": "transactions", "target_id": item_id}
+    decision = {"state": IMPORTED, "target_table": "transactions", "target_id": item_id}
+    if _cents(amount) != tx.amount_cents or date_text != tx.date:
+        decision["reason"] = "owner_edited"
+    return decision
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +651,10 @@ def decide_card(context, link, tx, purchase_date):
         return {"state": REVIEW, "reason": "several_candidates", "candidates": _listed(candidates, "cc_expenses")}
     if len(candidates) == 1:
         return attach(context, "cc_expenses", candidates[0]["id"], tx, link)
+    born = born_installment(context, link, tx, purchase_date)
+    if born:
+        # A parcela seguinte de uma compra que o dono ja aprovou.
+        return mark_born_installment(context, born, tx)
     if number == 1:
         mismatches = installment_count_mismatches(
             conn, user_id, link["card_id"], total, tx.amount_cents, purchase_date
@@ -601,16 +665,15 @@ def decide_card(context, link, tx, purchase_date):
                 "reason": "installments_differ",
                 "candidates": _listed(mismatches, "cc_expenses"),
             }
-    return import_card(context, link, tx, purchase_date)
+    return {"state": REVIEW, "reason": "approval"}
 
 
-def import_card(context, link, tx, purchase_date):
-    conn, user_id = context.conn, context.user_id
+def born_installment(context, link, tx, purchase_date):
+    """A parcela desta transacao numa compra que outra parcela da Pluggy ja criou."""
     number, total = _installment(tx)
-    info = f"{number}/{total}"
-    key = external_key(tx.id)
-    # Uma parcela de uma compra que outra parcela ja criou.
-    born = conn.execute(
+    if total <= 1:
+        return None
+    return context.conn.execute(
         """
         SELECT id FROM cc_expenses
         WHERE user_id = ? AND card_id = ? AND source_type = ? AND installment_info = ?
@@ -619,32 +682,55 @@ def import_card(context, link, tx, purchase_date):
         ORDER BY created_at
         LIMIT 1
         """,
-        (user_id, link["card_id"], PLUGGY_SOURCE_TYPE, info, purchase_date, tx.amount_cents),
+        (context.user_id, link["card_id"], PLUGGY_SOURCE_TYPE, f"{number}/{total}", purchase_date, tx.amount_cents),
     ).fetchone()
-    if born and total > 1:
-        conn.execute(
-            "UPDATE cc_expenses SET external_id = ? WHERE id = ? AND user_id = ?",
-            (key, born["id"], user_id),
-        )
-        return {"state": IMPORTED, "target_table": "cc_expenses", "target_id": born["id"]}
+
+
+def mark_born_installment(context, born, tx):
+    context.conn.execute(
+        "UPDATE cc_expenses SET external_id = ? WHERE id = ? AND user_id = ?",
+        (external_key(tx.id), born["id"], context.user_id),
+    )
+    return {"state": IMPORTED, "target_table": "cc_expenses", "target_id": born["id"]}
+
+
+def import_card(context, link, tx, purchase_date, draft=None):
+    """A compra que nasce da transacao (aprovada pelo dono), com todas as
+    parcelas. `draft`: o que o dono corrigiu (amount = total, date,
+    occurred_at, description, category)."""
+    draft = draft or {}
+    conn, user_id = context.conn, context.user_id
+    number, total = _installment(tx)
+    info = f"{number}/{total}"
+    key = external_key(tx.id)
+    born = born_installment(context, link, tx, purchase_date)
+    if born:
+        return mark_born_installment(context, born, tx)
 
     card = conn.execute(
         "SELECT due_day, closing_day FROM credit_cards WHERE id = ? AND user_id = ?",
         (link["card_id"], user_id),
     ).fetchone()
-    category, _category_id = context.categorize(tx.description, "EXPENSE", _reais(tx.amount_cents))
+    # Toda parcela com o valor da Pluggy: o total e parcela x parcelas.
+    pluggy_total = _reais(tx.amount_cents * total)
+    total_amount = rounded_money(draft["amount"]) if draft.get("amount") is not None else pluggy_total
+    if "category" in draft:
+        category = draft["category"]
+    else:
+        category, _category_id = context.categorize(tx.description, "EXPENSE", _reais(tx.amount_cents))
+    purchase_day = draft.get("date") or purchase_date
     rows = build_installment_rows(
         {
             "card_id": link["card_id"],
             "category": category,
-            "description": tx.description or "Compra no cartão",
-            # Toda parcela com o valor da Pluggy: o total e parcela x parcelas.
-            "total_amount": _reais(tx.amount_cents * total),
-            "purchase_date": purchase_date,
+            "description": draft.get("description") or tx.description or "Compra no cartão",
+            "total_amount": total_amount,
+            "purchase_date": purchase_day,
             "installments": total,
         },
         card,
     )
+    occurred_at = draft.get("occurred_at") or purchase_date
     target_id = None
     for row in rows:
         row_id = new_id()
@@ -656,17 +742,20 @@ def import_card(context, link, tx, purchase_date):
             INSERT INTO cc_expenses
             (id, user_id, card_id, category, description, amount, purchase_date,
              invoice_month, invoice_year, installment_info, status, source_type, source_id,
-             external_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             external_id, occurred_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row_id, user_id, row["card_id"], row["category"], row["description"], row["amount"],
                 row["purchase_date"], row["invoice_month"], row["invoice_year"],
                 row["installment_info"], row["status"], PLUGGY_SOURCE_TYPE, key,
-                key if is_target else None,
+                key if is_target else None, occurred_at,
             ),
         )
-    return {"state": IMPORTED, "target_table": "cc_expenses", "target_id": target_id}
+    decision = {"state": IMPORTED, "target_table": "cc_expenses", "target_id": target_id}
+    if _cents(total_amount) != _cents(pluggy_total) or purchase_day != purchase_date:
+        decision["reason"] = "owner_edited"
+    return decision
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +848,8 @@ def remove_missing(context, link, window_start, seen):
             _release(context.conn, context.user_id, row["target_table"], row["target_id"], key)
         elif row["state"] == IMPORTED and row["target_id"]:
             reason = remove_born(context, row, key)
+        elif row["state"] == REVIEW and row["inbox_item_id"]:
+            inbox.drop_pluggy_source(context.conn, context.user_id, row)
         context.conn.execute(
             """
             UPDATE pluggy_transactions SET state = ?, reason = ?, updated_at = ?
@@ -838,7 +929,7 @@ def remove_born(context, ledger_row, key):
 
 
 # ---------------------------------------------------------------------------
-# Possivel duplicata: a decisao do dono
+# A decisao do dono em Aprovar (services/inbox_decisions.py chama estas)
 # ---------------------------------------------------------------------------
 
 def _ledger_transaction(row):
@@ -856,69 +947,153 @@ def _ledger_transaction(row):
         purchase_date=row["purchase_date"] or "",
         operation_type="",
         updated_at=row["pluggy_updated_at"] or "",
+        date_raw=row["date_raw"] or "",
     )
 
 
-REVIEW_ACTIONS = {"attach", "insert", "dismiss"}
-
-
-def resolve_review(conn, current_user_id, ledger_id, action, target_id=None):
-    """O dono decide uma possivel duplicata: e o mesmo (attach), lancar separado, ignorar."""
-    if action not in REVIEW_ACTIONS:
-        raise ValidationError("Acao invalida.")
-    row = conn.execute(
-        "SELECT * FROM pluggy_transactions WHERE id = ? AND user_id = ?",
-        (ledger_id, current_user_id),
-    ).fetchone()
-    if not row:
-        raise LookupError("Transacao da Pluggy nao encontrada.")
-    if row["state"] != REVIEW:
-        raise ValidationError("Esta transacao ja foi decidida.")
-    link = conn.execute(
+def ledger_link(conn, current_user_id, row):
+    return conn.execute(
         "SELECT * FROM pluggy_account_links WHERE user_id = ? AND pluggy_account_id = ?",
         (current_user_id, row["pluggy_account_id"]),
     ).fetchone()
-    if not link and action != "dismiss":
-        raise ValidationError("A conta da Pluggy desta transacao nao esta mais ligada.")
 
-    tx = _ledger_transaction(row)
-    context = SyncContext(conn, current_user_id, import_rules_for_matching(conn, current_user_id))
-    if action == "dismiss":
-        decision = {"state": DISMISSED, "reason": "owner"}
-    elif action == "insert":
-        if link["pluggy_account_type"] == "CREDIT":
-            decision = import_card(context, link, tx, card_purchase_date(tx))
-        else:
-            decision = import_bank(context, link, tx)
-    else:
-        candidates = json.loads(row["candidates"] or "[]")
-        chosen = next((item for item in candidates if item.get("id") == target_id), None)
-        if not chosen:
-            raise ValidationError("Escolha um dos lancamentos parecidos.")
-        table = chosen.get("table")
-        if table not in ("transactions", "cc_expenses"):
-            raise ValidationError("Escolha um dos lancamentos parecidos.")
-        target = conn.execute(
-            f"SELECT id, external_id FROM {table} WHERE id = ? AND user_id = ?",
-            (target_id, current_user_id),
-        ).fetchone()
-        if not target:
-            raise ValidationError("Este lancamento nao existe mais.")
-        if chosen.get("kind") in ("entry", "card_purchase"):
-            if target["external_id"]:
-                raise ValidationError("Este lancamento ja foi conferido com outra transacao do banco.")
-            decision = attach(context, table, target_id, tx, link)
-        else:
-            # Transferencia, fatura, caixa de investimento, provento: o lancamento fica
-            # intocado; so o livro sabe que esta transacao e ele.
-            decision = {"state": ATTACHED, "target_table": table, "target_id": target_id, "reason": chosen.get("kind")}
+
+def _keep_candidates(row, decision):
     decision.setdefault("candidates", json.loads(row["candidates"]) if row["candidates"] else None)
-    _write_ledger(context, row, tx, link or {"pluggy_account_id": row["pluggy_account_id"]}, decision)
+    return decision
+
+
+def import_reviewed(conn, current_user_id, ledger_rows, draft):
+    """O dono aprovou: nasce o lancamento da Pluggy com o rascunho dele. Na
+    conta, uma transacao; no cartao, as parcelas da mesma compra (a primeira
+    cria a compra inteira, as outras marcam a parcela delas). Devolve
+    (tabela, id) do lancamento (no cartao, a primeira parcela)."""
+    context = SyncContext(conn, current_user_id, import_rules_for_matching(conn, current_user_id))
+    ordered = sorted(ledger_rows, key=lambda row: (int(row["installment_number"] or 0), row["date"]))
+    first = ordered[0]
+    link = ledger_link(conn, current_user_id, first)
+    if not link:
+        raise ValidationError("A conta da Pluggy deste item nao esta mais ligada.")
+    tx = _ledger_transaction(first)
+    if link["pluggy_account_type"] == "CREDIT":
+        decision = import_card(context, link, tx, card_purchase_date(tx), draft)
+        _write_ledger(context, first, tx, link, _keep_candidates(first, decision))
+        group = conn.execute(
+            "SELECT source_id FROM cc_expenses WHERE id = ? AND user_id = ?",
+            (decision["target_id"], current_user_id),
+        ).fetchone()
+        for row in ordered[1:]:
+            other = _ledger_transaction(row)
+            number, total = _installment(other)
+            sibling = conn.execute(
+                """
+                SELECT id FROM cc_expenses
+                WHERE user_id = ? AND source_type = ? AND source_id = ? AND installment_info = ?
+                  AND external_id IS NULL
+                """,
+                (current_user_id, PLUGGY_SOURCE_TYPE, group["source_id"], f"{number}/{total}"),
+            ).fetchone()
+            if sibling:
+                outcome = mark_born_installment(context, sibling, other)
+            else:
+                outcome = {"state": ATTACHED, "target_table": "cc_expenses", "target_id": decision["target_id"],
+                           "reason": "card_purchase"}
+            _write_ledger(context, row, other, link, _keep_candidates(row, outcome))
+        table, target_id = "cc_expenses", decision["target_id"]
+    else:
+        decision = import_bank(context, link, tx, draft)
+        _write_ledger(context, first, tx, link, _keep_candidates(first, decision))
+        table, target_id = "transactions", decision["target_id"]
     count_rule_hits(conn, current_user_id, context.rule_hits)
-    return conn.execute(
-        "SELECT * FROM pluggy_transactions WHERE id = ? AND user_id = ?",
-        (ledger_id, current_user_id),
+    return table, target_id
+
+
+def _card_installment(conn, current_user_id, purchase_row_id, info):
+    """A parcela `info` (n/total) da compra a que `purchase_row_id` pertence."""
+    row = conn.execute(
+        "SELECT * FROM cc_expenses WHERE id = ? AND user_id = ?",
+        (purchase_row_id, current_user_id),
     ).fetchone()
+    if not row:
+        return None
+    if row["installment_info"] == info:
+        return row
+    for column in ("client_id", "source_id"):
+        if row[column]:
+            sibling = conn.execute(
+                f"""
+                SELECT * FROM cc_expenses
+                WHERE user_id = ? AND card_id = ? AND {column} = ? AND installment_info = ?
+                """,
+                (current_user_id, row["card_id"], row[column], info),
+            ).fetchone()
+            if sibling:
+                return sibling
+    return None
+
+
+def attach_reviewed(conn, current_user_id, ledger_rows, table, target_id, kind):
+    """O movimento do item e o lancamento (table, target_id): cada transacao da
+    Pluggy confirma ele. Um lancamento comum na mesma conta (ou a parcela da
+    mesma compra) ganha o external_id; uma transferencia, fatura, caixa de
+    investimento ou provento fica intocado, e so o livro sabe."""
+    context = SyncContext(conn, current_user_id, [])
+    for row in ledger_rows:
+        tx = _ledger_transaction(row)
+        link = ledger_link(conn, current_user_id, row)
+        decision = {"state": ATTACHED, "target_table": table, "target_id": target_id, "reason": kind}
+        if link and kind in ("entry", "card_purchase"):
+            target = None
+            if table == "cc_expenses":
+                number, total = _installment(tx)
+                target = _card_installment(conn, current_user_id, target_id, f"{number}/{total}")
+            else:
+                target = conn.execute(
+                    "SELECT * FROM transactions WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+                ).fetchone()
+                if target and (target["type"] == "TRANSFER" or target["account_id"] != link["account_id"]):
+                    target = None
+            if target is not None and not target["external_id"]:
+                decision = attach(context, table, target["id"], tx, link)
+        _write_ledger(
+            context, row, tx, link or {"pluggy_account_id": row["pluggy_account_id"]},
+            _keep_candidates(row, decision),
+        )
+
+
+def set_reviewed_state(conn, current_user_id, ledger_rows, state, reason=None):
+    """Recusado (DISMISSED) ou de volta a espera (REVIEW)."""
+    for row in ledger_rows:
+        conn.execute(
+            "UPDATE pluggy_transactions SET state = ?, reason = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (state, reason, utc_timestamp(), row["id"], current_user_id),
+        )
+
+
+def adopt_orphan_reviews(conn, current_user_id):
+    """Transacoes em REVIEW de antes de Aprovar (027) ganham o item delas."""
+    rows = conn.execute(
+        """
+        SELECT * FROM pluggy_transactions
+        WHERE user_id = ? AND state = 'REVIEW' AND inbox_item_id IS NULL
+        ORDER BY date, id
+        """,
+        (current_user_id,),
+    ).fetchall()
+    if not rows:
+        return 0
+    context = SyncContext(conn, current_user_id, import_rules_for_matching(conn, current_user_id))
+    adopted = 0
+    for row in rows:
+        link = ledger_link(conn, current_user_id, row)
+        if not link:
+            continue
+        queue(context, link, row, {
+            "reason": row["reason"] or "approval",
+            "candidates": json.loads(row["candidates"]) if row["candidates"] else None,
+        })
+        adopted += 1
+    return adopted
 
 
 # ---------------------------------------------------------------------------
@@ -994,43 +1169,9 @@ def claim_bank_purchase(conn, current_user_id, *, card_id, total_amount, install
 # Leitura para a tela
 # ---------------------------------------------------------------------------
 
-def _candidate_details(conn, current_user_id, candidates):
-    details = []
-    for item in candidates or []:
-        table = item.get("table")
-        if table == "transactions":
-            row = conn.execute(
-                """
-                SELECT t.id, t.date, t.amount, t.description, t.category, t.type, t.source_type,
-                       a.name AS account_name, d.name AS transfer_account_name
-                FROM transactions t
-                LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
-                LEFT JOIN accounts d ON d.id = t.transfer_account_id AND d.user_id = t.user_id
-                WHERE t.id = ? AND t.user_id = ?
-                """,
-                (item.get("id"), current_user_id),
-            ).fetchone()
-        elif table == "cc_expenses":
-            row = conn.execute(
-                """
-                SELECT e.id, e.purchase_date AS date, e.amount, e.description, e.category,
-                       e.installment_info, c.name AS card_name
-                FROM cc_expenses e
-                LEFT JOIN credit_cards c ON c.id = e.card_id AND c.user_id = e.user_id
-                WHERE e.id = ? AND e.user_id = ?
-                """,
-                (item.get("id"), current_user_id),
-            ).fetchone()
-        else:
-            row = None
-        if row:
-            details.append({**item, **row_to_dict(row)})
-    return details
-
-
 def serialize_ledger(conn, current_user_id, row, link_names=None):
     item = row_to_dict(row)
-    item["candidates"] = _candidate_details(
+    item["candidates"] = inbox.candidate_details(
         conn, current_user_id, json.loads(item["candidates"]) if item.get("candidates") else []
     )
     item["difference"] = json.loads(item["difference"]) if item.get("difference") else None
@@ -1053,16 +1194,9 @@ def link_names(conn, current_user_id):
 
 
 def review_items(conn, current_user_id):
-    """O que espera o dono: as possiveis duplicatas e os conferidos com diferenca."""
+    """Os conferidos com diferenca: o lancamento ficou como o dono deixou, e o
+    banco diz outra data ou valor. (O que espera o dono esta em Aprovar.)"""
     names = link_names(conn, current_user_id)
-    review = conn.execute(
-        """
-        SELECT * FROM pluggy_transactions
-        WHERE user_id = ? AND state = 'REVIEW'
-        ORDER BY date DESC, created_at DESC
-        """,
-        (current_user_id,),
-    ).fetchall()
     differences = conn.execute(
         """
         SELECT * FROM pluggy_transactions
@@ -1073,7 +1207,6 @@ def review_items(conn, current_user_id):
         (current_user_id,),
     ).fetchall()
     return {
-        "review": [serialize_ledger(conn, current_user_id, row, names) for row in review],
         "differences": [serialize_ledger(conn, current_user_id, row, names) for row in differences],
     }
 

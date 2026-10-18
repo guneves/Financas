@@ -18,9 +18,7 @@ from integrations import provider_snapshot
 from services.accounts import require_account
 from services.invoices import ensure_credit_card_owner, local_today
 from services.pluggy_sync import (
-    resolve_review,
     review_items,
-    serialize_ledger,
     state_counts,
     sync_pluggy,
 )
@@ -38,10 +36,6 @@ bp = Blueprint("pluggy", __name__)
 
 # Os ids da Pluggy sao UUIDs; um formato fechado basta para nao gravar lixo.
 PLUGGY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{7,63}$")
-NOT_CONFIGURED_MESSAGE = (
-    "A Pluggy nao esta configurada: defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET "
-    "no .env do servidor."
-)
 
 
 def require_pluggy_id(payload, key, label):
@@ -81,8 +75,11 @@ def pluggy_status(current_user_id):
             "SELECT * FROM pluggy_items WHERE user_id = ? ORDER BY created_at",
             (current_user_id,),
         ).fetchall()
+        configured = pluggy_client.is_configured()
         body = {
-            "configured": pluggy_client.is_configured(),
+            "configured": configured,
+            # So nomes de variaveis, nunca valores: o que a tela diz que falta.
+            "setup": None if configured else pluggy_client.setup_report(),
             "items": [row_to_dict(row) for row in items],
             "links": serialize_links(conn, current_user_id),
             "counts": state_counts(conn, current_user_id),
@@ -101,7 +98,7 @@ def add_pluggy_item(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     if not pluggy_client.is_configured():
-        return validation_error(NOT_CONFIGURED_MESSAGE)
+        return validation_error(pluggy_client.not_configured_message())
     try:
         item = pluggy_client.get_item(item_id)
     except pluggy_client.PluggyHTTPError as exc:
@@ -160,7 +157,7 @@ def pluggy_item_accounts(current_user_id, item_row_id):
             return jsonify({"error": "Conexao nao encontrada."}), 404
         links = {link["pluggy_account_id"]: link for link in serialize_links(conn, current_user_id)}
     if not pluggy_client.is_configured():
-        return validation_error(NOT_CONFIGURED_MESSAGE)
+        return validation_error(pluggy_client.not_configured_message())
     try:
         accounts = pluggy_client.list_accounts(item["item_id"])
     except pluggy_client.PluggyError as exc:
@@ -272,25 +269,7 @@ def pluggy_sync(current_user_id):
 @bp.route("/api/pluggy/review", methods=["GET"])
 @token_required
 def pluggy_review(current_user_id):
+    """Os conferidos com diferenca. O que espera o dono esta em /api/inbox."""
     with get_db() as conn:
         body = review_items(conn, current_user_id)
-    return jsonify(body), 200
-
-
-@bp.route("/api/pluggy/review/<ledger_id>", methods=["POST"])
-@token_required
-def pluggy_review_decide(current_user_id, ledger_id):
-    """Possivel duplicata: `attach` (e este lancamento, `target_id`), `insert`
-    (lancar separado) ou `dismiss` (ignorar a transacao do banco)."""
-    payload = parse_json_body()
-    action = str(payload.get("action") or "").strip().lower() if isinstance(payload, dict) else ""
-    target_id = str(payload.get("target_id") or "").strip() if isinstance(payload, dict) else ""
-    with get_db() as conn:
-        try:
-            row = resolve_review(conn, current_user_id, ledger_id, action, target_id or None)
-        except LookupError as exc:
-            return jsonify({"error": str(exc)}), 404
-        except ValidationError as exc:
-            return validation_error(str(exc))
-        body = serialize_ledger(conn, current_user_id, row)
     return jsonify(body), 200

@@ -764,7 +764,8 @@ function PillBackground({ pill }) {
 
 // Abas ligadas a rota: cada item e um link, o ativo e o da URL atual.
 // O Layout nao remonta as abas ao trocar de rota, entao a pilula desliza.
-export function Tabs({ items, className = '' }) {
+// `counts`: um numero ao lado da aba cujo `badge` e a chave (ex.: Aprovar).
+export function Tabs({ items, counts = {}, className = '' }) {
   const navRef = useRef(null)
   const { pathname } = useLocation()
   const pill = useSlidingPill(navRef, '[aria-current="page"]', [pathname, items])
@@ -788,6 +789,11 @@ export function Tabs({ items, className = '' }) {
           >
             {Icon ? <Icon className="hidden h-4 w-4 sm:block" /> : null}
             {item.label}
+            {item.badge && counts[item.badge] ? (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-800">
+                {counts[item.badge]}
+              </span>
+            ) : null}
           </NavLink>
         )
       })}

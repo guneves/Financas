@@ -9,9 +9,7 @@ import {
   linkPayload,
   linkTargets,
   matchedBankNotice,
-  reviewCount,
-  reviewNoticeText,
-  reviewReasonText,
+  setupProblems,
   syncChangedData,
   syncSummary,
 } from './pluggyRules.js'
@@ -31,15 +29,7 @@ test('the sync summary says what happened', () => {
   assert.match(syncSummary({ status: 'error', message: 'fora do ar' }), /fora do ar/)
 })
 
-test('the review reason names what the bank row looks like', () => {
-  const transfer = reviewReasonText({
-    reason: 'out_of_reach',
-    candidates: [{ kind: 'transfer' }, { kind: 'entry' }],
-  })
-  assert.match(transfer, /transferência/)
-  assert.doesNotMatch(transfer, /lançamento,/)
-  assert.match(reviewReasonText({ reason: 'several_candidates' }), /mais de um/)
-  assert.match(reviewReasonText({ reason: 'installments_differ' }), /parcelas/)
+test('a candidate is named by what kind of entry it is', () => {
   assert.equal(candidateKindLabel('invoice_payment'), 'Pagamento de fatura')
   assert.equal(candidateKindLabel('?'), 'Lançamento')
 })
@@ -68,11 +58,9 @@ test('the link payload carries the right target', () => {
   )
 })
 
-test('the newest sync, the review count and the bank mark', () => {
+test('the newest sync and the bank mark', () => {
   assert.equal(lastSyncAt([{ last_sync_at: '2026-10-17T10:00:00Z' }, { last_sync_at: null }, { last_sync_at: '2026-10-17T12:00:00Z' }]), '2026-10-17T12:00:00Z')
   assert.equal(lastSyncAt([]), '')
-  assert.equal(reviewCount({ counts: { REVIEW: 2, IMPORTED: 5 } }), 2)
-  assert.equal(reviewCount(undefined), 0)
   assert.equal(bankMark({ external_id: 'pluggy:1', source_type: 'PLUGGY' }), 'Veio do banco (Pluggy)')
   assert.equal(bankMark({ external_id: 'pluggy:1', source_type: null }), 'Conferido pelo banco (Pluggy)')
   assert.equal(bankMark({ source_type: 'PLUGGY' }), '')
@@ -85,11 +73,26 @@ test('a confirmation that met the bank row says so', () => {
 })
 
 test('the Extrato notice agrees in number, and the item status is in Portuguese', () => {
-  assert.equal(reviewNoticeText(0), '')
-  assert.equal(reviewNoticeText(1), '1 transação do banco espera você decidir se já está lançada.')
-  assert.equal(reviewNoticeText(2), '2 transações do banco esperam você decidir se já estão lançadas.')
   assert.equal(itemStatusLabel('UPDATED'), 'Atualizada')
   assert.equal(itemStatusLabel('LOGIN_ERROR'), 'Erro de login no banco')
   assert.equal(itemStatusLabel('NOVO_STATUS'), 'NOVO_STATUS')
   assert.equal(itemStatusLabel(null), 'Sem status')
+})
+
+test('the setup problems name what is missing, never a value', () => {
+  assert.deepEqual(setupProblems(null), [])
+  assert.deepEqual(setupProblems({ missing: [], empty: [], unknown_names: [] }), [])
+  const both = setupProblems({ missing: ['PLUGGY_CLIENT_ID', 'PLUGGY_CLIENT_SECRET'], empty: [], unknown_names: [] })
+  assert.equal(both.length, 1)
+  assert.match(both[0], /PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET não chegaram ao app/)
+  assert.match(both[0], /ambiente antigo/)
+  assert.match(setupProblems({ missing: [], empty: ['PLUGGY_CLIENT_SECRET'] })[0], /PLUGGY_CLIENT_SECRET está vazio/)
+  assert.match(setupProblems({ unknown_names: ['PLUGGY_CLIENTID'] })[0], /PLUGGY_CLIENTID/)
+})
+
+test('a not-configured sync says what the server said', () => {
+  assert.equal(
+    syncSummary({ status: 'not_configured', message: 'A Pluggy não está configurada: PLUGGY_CLIENT_ID está vazio.' }),
+    'A Pluggy não está configurada: PLUGGY_CLIENT_ID está vazio.',
+  )
 })

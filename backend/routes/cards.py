@@ -13,6 +13,7 @@ from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction
 from services.accounts import fetch_account, require_account, resolve_account_id
 from services.attachments import cc_expense_attachment_names, remove_attachment_files
+from services.inbox_decisions import absorb_created
 from services.invoices import (
     InvoiceStillOpenError,
     apply_due_autopay,
@@ -406,6 +407,8 @@ def create_cc_purchase(current_user_id):
                 " ORDER BY invoice_year ASC, invoice_month ASC",
                 (current_user_id, *inserted),
             ).fetchall()
+            # A mesma compra esperava em Aprovar (notificacao, Pluggy): vira esta.
+            absorbed = absorb_created(conn, current_user_id, "cc_expenses", created[0], installments=created)
     except ValidationError as exc:
         return validation_error(str(exc))
     except sqlite3.IntegrityError:
@@ -417,6 +420,8 @@ def create_cc_purchase(current_user_id):
             return jsonify([row_to_dict(row) for row in existing]), 200
         return jsonify({"error": "Nao foi possivel criar a compra no cartao."}), 400
 
+    if absorbed:
+        return jsonify([{**row_to_dict(row), "matched_inbox": True} for row in created]), 201
     return jsonify([row_to_dict(row) for row in created]), 201
 
 
