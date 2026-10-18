@@ -344,7 +344,7 @@ export default function InvestmentLaunchModal({
                   required
                 />
                 <datalist id="investment-assets">
-                  {assets.map((asset) => (
+                  {assets.filter((asset) => asset.class === form.asset_class).map((asset) => (
                     <option key={asset.id} value={asset.ticker || asset.name} />
                   ))}
                 </datalist>
