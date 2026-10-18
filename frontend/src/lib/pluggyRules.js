@@ -4,6 +4,27 @@
 // o que entra, o que espera o dono — estao no servidor
 // (backend/services/pluggy_sync.py); aqui so se diz isso em portugues.
 
+// O que falta para a Pluggy funcionar, pelo `setup` de GET /api/pluggy (so
+// nomes de variaveis, nunca valores). Cada frase e um motivo; vazio quando o
+// servidor nao disse nada.
+export function setupProblems(setup) {
+  if (!setup) return []
+  const names = (list) => (list || []).join(' e ')
+  const problems = []
+  const missing = setup.missing || []
+  const empty = setup.empty || []
+  if (missing.length) {
+    problems.push(`${names(missing)} ${missing.length > 1 ? 'não chegaram' : 'não chegou'} ao app. Se já estão no .env, o container ainda roda com o ambiente antigo.`)
+  }
+  if (empty.length) {
+    problems.push(`${names(empty)} ${empty.length > 1 ? 'estão vazios' : 'está vazio'} no .env.`)
+  }
+  if (setup.unknown_names?.length) {
+    problems.push(`O app não lê ${setup.unknown_names.join(', ')}: confira o nome (PLUGGY_CLIENT_ID, PLUGGY_CLIENT_SECRET).`)
+  }
+  return problems
+}
+
 // Uma sincronizacao que mudou algo no servidor pede para as telas lerem de novo.
 const CHANGE_KEYS = ['created', 'attached', 'updated', 'removed', 'review']
 
@@ -18,7 +39,7 @@ function plural(count, one, many) {
 // O resumo de uma sincronizacao pedida pelo botao.
 export function syncSummary(result) {
   if (!result) return 'Não foi possível falar com o servidor.'
-  if (result.status === 'not_configured') return 'A Pluggy não está configurada no servidor.'
+  if (result.status === 'not_configured') return result.message || 'A Pluggy não está configurada no servidor.'
   if (result.status === 'running') return 'Uma sincronização já está em andamento.'
   if (result.status === 'skipped') return result.message || 'Sincronizado há pouco.'
   const parts = []

@@ -27,6 +27,7 @@ import {
   linkTargets,
   pluggyAccountLabel,
   reviewReasonText,
+  setupProblems,
   syncSummary,
 } from '../../lib/pluggyRules'
 
@@ -341,8 +342,13 @@ export default function PluggySection() {
           <ListSkeleton rows={2} className="p-0" />
         ) : !configured ? (
           <AlertMessage tone="info">
-            A Pluggy não está configurada no servidor. Coloque <code>PLUGGY_CLIENT_ID</code> e{' '}
-            <code>PLUGGY_CLIENT_SECRET</code> no <code>.env</code> do servidor e reinicie o app. Até lá, nada é lido dos bancos.
+            <p>A Pluggy não está configurada no servidor; até lá, nada é lido dos bancos.</p>
+            {setupProblems(status?.setup).map((problem) => <p key={problem} className="mt-1">{problem}</p>)}
+            <p className="mt-1">
+              No servidor, <code>PLUGGY_CLIENT_ID</code> e <code>PLUGGY_CLIENT_SECRET</code> vão em{' '}
+              <code>/srv/apps/financas/.env</code>; depois rode{' '}
+              <code>sudo docker compose up -d --force-recreate</code>. Um <code>docker compose restart</code> não lê o <code>.env</code> de novo.
+            </p>
           </AlertMessage>
         ) : (
           <>

@@ -126,6 +126,44 @@ def configured(monkeypatch):
     pluggy_client.reset_api_key()
 
 
+class TestSetup:
+    """Por que a Pluggy nao esta configurada: so nomes, nunca valores."""
+
+    def test_a_key_the_container_never_got_is_missing(self, monkeypatch):
+        monkeypatch.delenv("PLUGGY_CLIENT_ID", raising=False)
+        monkeypatch.setenv("PLUGGY_CLIENT_SECRET", "")
+        report = pluggy_client.setup_report()
+        assert report["missing"] == ["PLUGGY_CLIENT_ID"]
+        assert report["empty"] == ["PLUGGY_CLIENT_SECRET"]
+        message = pluggy_client.not_configured_message()
+        assert "PLUGGY_CLIENT_ID não chegou ao app" in message
+        assert "PLUGGY_CLIENT_SECRET está vazio" in message
+        assert "--force-recreate" in message
+
+    def test_a_misspelled_name_is_named_and_its_value_never_shown(self, monkeypatch):
+        monkeypatch.delenv("PLUGGY_CLIENT_ID", raising=False)
+        monkeypatch.setenv("PLUGGY_CLIENT_SECRET", "segredo-que-nao-aparece")
+        monkeypatch.setenv("PLUGGY_CLIENTID", "id-que-nao-aparece")
+        report = pluggy_client.setup_report()
+        assert report["unknown_names"] == ["PLUGGY_CLIENTID"]
+        message = pluggy_client.not_configured_message()
+        assert "PLUGGY_CLIENTID" in message
+        assert "nao-aparece" not in message and "nao-aparece" not in json.dumps(report)
+
+    def test_the_settings_the_app_reads_are_not_unknown(self, monkeypatch):
+        monkeypatch.setenv("PLUGGY_MATCH_DAYS", "3")
+        monkeypatch.setenv("PLUGGY_BASE_URL", "http://127.0.0.1:9")
+        assert pluggy_client.setup_report()["unknown_names"] == []
+
+    def test_quotes_around_a_value_are_not_part_of_it(self, monkeypatch):
+        monkeypatch.setenv("PLUGGY_CLIENT_ID", '"11111111-2222"')
+        monkeypatch.setenv("PLUGGY_CLIENT_SECRET", "'segredo'")
+        assert pluggy_client.credentials() == ("11111111-2222", "segredo")
+        monkeypatch.setenv("PLUGGY_CLIENT_SECRET", '""')
+        assert pluggy_client.is_configured() is False
+        assert pluggy_client.setup_report()["empty"] == ["PLUGGY_CLIENT_SECRET"]
+
+
 class TestHttp:
     def test_blank_credentials_never_reach_the_network(self, monkeypatch):
         monkeypatch.setenv("PLUGGY_CLIENT_ID", "")

@@ -38,10 +38,6 @@ bp = Blueprint("pluggy", __name__)
 
 # Os ids da Pluggy sao UUIDs; um formato fechado basta para nao gravar lixo.
 PLUGGY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{7,63}$")
-NOT_CONFIGURED_MESSAGE = (
-    "A Pluggy nao esta configurada: defina PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET "
-    "no .env do servidor."
-)
 
 
 def require_pluggy_id(payload, key, label):
@@ -81,8 +77,11 @@ def pluggy_status(current_user_id):
             "SELECT * FROM pluggy_items WHERE user_id = ? ORDER BY created_at",
             (current_user_id,),
         ).fetchall()
+        configured = pluggy_client.is_configured()
         body = {
-            "configured": pluggy_client.is_configured(),
+            "configured": configured,
+            # So nomes de variaveis, nunca valores: o que a tela diz que falta.
+            "setup": None if configured else pluggy_client.setup_report(),
             "items": [row_to_dict(row) for row in items],
             "links": serialize_links(conn, current_user_id),
             "counts": state_counts(conn, current_user_id),
@@ -101,7 +100,7 @@ def add_pluggy_item(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     if not pluggy_client.is_configured():
-        return validation_error(NOT_CONFIGURED_MESSAGE)
+        return validation_error(pluggy_client.not_configured_message())
     try:
         item = pluggy_client.get_item(item_id)
     except pluggy_client.PluggyHTTPError as exc:
@@ -160,7 +159,7 @@ def pluggy_item_accounts(current_user_id, item_row_id):
             return jsonify({"error": "Conexao nao encontrada."}), 404
         links = {link["pluggy_account_id"]: link for link in serialize_links(conn, current_user_id)}
     if not pluggy_client.is_configured():
-        return validation_error(NOT_CONFIGURED_MESSAGE)
+        return validation_error(pluggy_client.not_configured_message())
     try:
         accounts = pluggy_client.list_accounts(item["item_id"])
     except pluggy_client.PluggyError as exc:

@@ -165,10 +165,7 @@ def sync_pluggy(current_user_id, *, force=False, today=None):
     vez a cada PLUGGY_SYNC_MIN_INTERVAL_SECONDS.
     """
     if not pluggy_client.is_configured():
-        return _result(
-            "not_configured",
-            "PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET nao estao no .env do servidor.",
-        )
+        return _result("not_configured", pluggy_client.not_configured_message())
     now = time.monotonic()
     last = _last_run.get(current_user_id)
     if not force and last is not None and now - last < PLUGGY_SYNC_MIN_INTERVAL_SECONDS:

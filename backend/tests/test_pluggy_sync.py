@@ -189,7 +189,15 @@ class TestWithoutCredentials:
         monkeypatch.setattr(pluggy_client, "get_item", lambda *a, **k: pytest.fail("foi a rede"))
         body = client.post("/api/pluggy/sync", json={"force": True}, headers=auth).get_json()
         assert body["status"] == "not_configured"
-        assert client.get("/api/pluggy", headers=auth).get_json()["configured"] is False
+        assert "PLUGGY_CLIENT_ID" in body["message"]
+        status = client.get("/api/pluggy", headers=auth).get_json()
+        assert status["configured"] is False
+        # conftest deixa as duas vazias: estao no ambiente, sem valor.
+        assert status["setup"] == {
+            "missing": [],
+            "empty": ["PLUGGY_CLIENT_ID", "PLUGGY_CLIENT_SECRET"],
+            "unknown_names": [],
+        }
 
     def test_a_connection_needs_the_credentials(self, client, auth):
         response = client.post("/api/pluggy/items", json={"item_id": ITEM}, headers=auth)
