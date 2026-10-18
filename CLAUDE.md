@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1142 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1164 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -129,7 +129,7 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -165,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `transactions`, `sharing` and `attentionRules`, 82 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `transactions` and `sharing`, 76 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -196,7 +196,8 @@ backend/
                       # sectors (brapi sector per asset, breakdown), health (integrations),
                       # app_bundle (the APK's screens, zipped for the phone), import_rules
                       # (categorization shared by import and Aprovar), inbox + inbox_decisions
-                      # (Aprovar: the phone's notifications waiting for the owner)
+                      # (Aprovar: the phone's notifications waiting for the owner),
+                      # recurring (the recurrences' calendar, /run, Aprovar's settlements)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
@@ -279,7 +280,20 @@ mobile-docs/
   A pause skips only its own window (019): `paused_at` on pause, `(paused_at, resume day)` appended
   to `pause_gaps` on resume, so an occurrence due before the pause stays pending. Anything that walks
   occurrences goes through `recurring_occurrence_dates()` / `skip_pause_gaps()`, and revival starts
-  after the stored `last_occurrence_date`, not after the last surviving lançamento.
+  after the stored `last_occurrence_date`, not after the last surviving lançamento. That calendar
+  lives in `services/recurring.py` (the blueprint only validates and serves).
+- **Aprovar settles a recurrence's occurrence** (034, owner 2026-10-18). A pending item shows the
+  open occurrence it looks like (`suggest_for_item()`: same type — an outflow/card purchase is an
+  EXPENSE, an inflow an INCOME, a transfer never —, within `RECURRING_MATCH_DAYS` = 7 days, and the
+  exact amount, or within 20% when the description shares a word or the category matches; an
+  INCOME within 20% even without the name, because the salary arrives in the employer's name).
+  Approving it (or "É este" on a lançamento already there) writes a `recurring_settlements` row:
+  `/run` skips that date, it is not pending, it leaves the forecast, and the cursor walks over a
+  settled prefix. The approved lançamento keeps the notification's real amount, card or account;
+  it takes the recurrence's category only when the item had the import default. "Não é esta"
+  (`PATCH /api/inbox/<id>` `{recurring: false}`, `inbox_items.recurring_off`) holds for "Aprovar
+  todos" too; `approve` takes `recurring: false` or an explicit `{recurring_id, date}`, checked
+  before anything is written.
 - **An invoice is paid only once it has closed.** `invoice_closing_date()` in `backend/services/invoices.py`
   is the rule (same shift as `compute_invoice_start()`; closed *on* the closing day). Every path
   that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is

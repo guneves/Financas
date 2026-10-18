@@ -7,54 +7,55 @@
 
 ---
 
-## Session — 2026-10-18 · "Precisa de atenção" dismissable, header bell, theme in Ajustes
+## Session — 2026-10-18 · Aprovar × Recorrentes (034)
 
-Owner: make "Precisa de atenção" closable so it does not show again, keep those notifications
-under a new bell where the sun (theme toggle) was, and move the light/dark choice into Ajustes;
-open a PR. Branch `claude/confident-cannon-ig2hze`. No session-scout (small, self-contained UI
-task).
+Owner: "Aprovar should work along with recorrentes: if a notification of a purchase of a monthly
+subscription or of my salary comes up, flag that it will update my recorrentes as done if I approve
+the lançamento", then "make a PR when done". No session-scout (context read directly).
 
 ### Done
-- `lib/attentionRules.js` (pure): the rules Início used inline — overdue invoices, the closed
-  invoice, autopay shortfalls, pending recurrences, categories over budget — plus
-  `attentionItems()`, which gives each item a `key` naming the case. `Dashboard.jsx` now calls
-  these instead of its own copies (behaviour unchanged).
-- Início: an X next to "Precisa de atenção · N" dismisses the items on screen (localStorage,
-  `lib/attention.js`); the same case never returns to Início, a new one does (next month's
-  invoice, a new overdue recurrence, another category or month over budget).
-- Header bell (`components/Attention.jsx`, `AttentionBell`) in place of the theme toggle, desktop
-  and phone: a count badge and a dropdown with every current item, dismissed or not, each linking
-  to its screen (Cartões, Recorrentes, Orçamento). It runs Início's queries with Início's keys.
-- Ajustes › Aparência: Sistema / Claro / Escuro (`setThemePreference`); `toggleTheme` removed.
-- Merged main's card refunds (033) in: the shared rules sum card rows through
-  `cardSignedAmount()`, an invoice in credit is neither payable nor overdue (as main had it).
-- Checks: 82 node tests (8 new in `attentionRules.test.js`, one for refunds), `vite build` clean; clicked through
-  with Playwright on a throwaway DB (desktop + 390 px): dismiss survives reload, bell lists the
-  items, the theme switches from Ajustes.
+- **Migration `034_recurring_settlements.sql`**: `recurring_settlements` (recurrence, occurrence
+  date, the lançamento that made it, the inbox item) and `inbox_items.recurring_off`.
+- **`services/recurring.py`** (new): the recurrences' calendar, `/run`'s materialization, pending
+  count and forecast moved out of `routes/recurring.py` unchanged, because `services/inbox.py`
+  needs them and a service cannot import a blueprint. Plus the new rule: `suggest_for_item()`,
+  `settle_occurrence()`, `advance_past_settled()`. `/run` skips a settled date, pending count and
+  forecast leave it out.
+- **Matching**: same type (outflow/card → EXPENSE, inflow → INCOME, transfer never), an open
+  occurrence within 7 days, and exact amount, or ±20% when a description word or the category
+  matches; an INCOME ±20% even without the name (the salary Pix carries the employer's name, not
+  "Salário"). Name match beats exact amount, then the closest date.
+- **Approve** writes the notification's lançamento (real amount, card/account) and settles the
+  occurrence; with the import default category it takes the recurrence's. "É este" on an existing
+  manual lançamento settles too. "Não é esta" on the item (PATCH `recurring: false`) holds for
+  "Aprovar todos"; an explicit `{recurring_id, date}` is validated before anything is written.
+- **Screen**: Aprovar's card shows "Recorrente: ao aprovar, "Netflix" de 05/10 fica como feita em
+  Recorrentes" with "Não é esta" / "Desfazer"; Decididos shows "Marcou … como feita".
+- Checks: 1164 pytest passed (22 new in `test_inbox_recurring.py`), 76 node tests, `vite build`
+  clean.
 
 ### Not done, and why
-- The bell's items are links, not actions: paying an invoice needs Início's pay sheet, so the bell
-  sends you to the screen instead of duplicating it.
-- Dismissal is per device (localStorage), like the theme; nothing goes to the server.
-- No backend change, so pytest was not re-run.
+- Not clicked through in a browser or on the phone. Walk-through in next-steps ("Aprovar ×
+  Recorrentes, what is left").
+- An occurrence `/run` already wrote is matched only at the exact amount (existing candidates); a
+  new price gives a second lançamento. Deciding whether Aprovar should replace the `/run` row is
+  the owner's call.
+- The recurrence's amount is not updated after a price change; a deleted approved lançamento does
+  not reopen the occurrence (same as a `/run` row today).
+- The previous session's open items (card refund walk-through, estorno from Aprovar) still stand.
 
 ### Next
-1. Owner: try it on the phone after merge (the bell on the narrow header; the APK gets it with the
-   next screen bundle — no native change, no native-level bump).
-2. Carry on with next-steps' first items (the phone checks, Aprovar walk-through).
+1. After the deploy: open A receber, Aprovar, Ajustes, Cartões and Recorrentes once to confirm
+   029–034 ran.
+2. Owner walk-throughs: this one, the card refund (Cartões → ⋯ → Registrar estorno), Início's
+   daily tile, and the sharing ones.
+3. Install the new APK, then one Pix between own accounts, one to someone else, one card purchase
+   → check Aprovar.
 
-### From the card-refund session (2026-10-18), still open
-- Not clicked through: Cartões → ⋯ on a purchase → Registrar estorno; the invoice total drops;
-  Início's "Disponível por dia" with and without a month plan ("days" read as days *remaining*;
-  flip `daysRemainingInMonth` in `Dashboard.jsx` if the owner meant all days).
-- Aprovar's "estorno" detections still draft an INCOME lançamento, not a card refund.
-- An installment purchase's refund is one credit in one invoice; cancelling the remaining
-  installments is not offered.
-- After the deploy: open A receber, Aprovar, Ajustes and Cartões once to confirm 029–033 ran.
-- Sharing walk-through: Extrato → edit a despesa → "Dividida"; Cartões → ⋯ → "De quem é?";
-  A receber → mark paid. Sharing is set only by editing ("+ Novo" and Aprovar don't offer it).
-- Install the new APK, then one Pix between own accounts, one to someone else, one card
-  purchase → check Aprovar; keep capture on, the next export drives a parser pass.
+### Learned
+- `routes/recurring.py` had the whole calendar; anything outside that blueprint wanting it now
+  imports `services.recurring`. `recurring_pending_count()` takes `(conn, user_id, row, today)`.
+- In this cloud container there is no `.venv`; the suite ran from a venv in the scratch area.
 
 
 ### From the notification session (2026-10-17), still open

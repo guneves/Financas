@@ -6,17 +6,31 @@ ocorrencias vencidas como `transactions` com
 e o indice unico de source torna a segunda execucao um no-op.
 """
 
-import calendar
-import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from dates import parse_iso_date
-from db import get_db, new_id, serialize_metadata_row, serialize_transaction, utc_timestamp
+from db import get_db, new_id, utc_timestamp
 from money import rounded_money
-from services.accounts import ensure_default_account, resolve_account_id, resolve_category
+from services.accounts import resolve_account_id, resolve_category
+from services.recurring import (
+    ALLOWED_RECURRENCE_FREQUENCIES,
+    ALLOWED_RECURRING_TYPES,
+    build_recurring_forecast,
+    encode_pause_gaps,
+    fetch_recurring,
+    materialize_recurring,
+    recurring_cursor_after_gaps,
+    recurring_pause_gaps,
+    recurring_pending_count,
+    recurring_resume_date,
+    recurring_revival_date,
+    recurring_rows,
+    recurring_today,
+    serialize_recurring,
+)
 from source_types import RECURRING_SOURCE_TYPE
 from validators import (
     ValidationError,
@@ -31,399 +45,6 @@ from validators import (
 )
 
 bp = Blueprint("recurring", __name__)
-
-
-ALLOWED_RECURRING_TYPES = {"INCOME", "EXPENSE"}
-ALLOWED_RECURRENCE_FREQUENCIES = {"WEEKLY", "MONTHLY", "YEARLY"}
-# Teto por recorrencia numa unica chamada de /api/recurring/run: uma semanal
-# esquecida por anos nao pode gerar milhares de lancamentos de uma vez.
-RECURRING_MAX_OCCURRENCES = 400
-
-
-def recurring_add_months(date_value, months, anchor_day=None):
-    """Soma meses preservando o dia de ancoragem, com clamp no fim do mes.
-
-    O dia vem de `start_date` e nao da ultima ocorrencia, senao uma recorrencia
-    dia 31 cairia em 28 no primeiro fevereiro e ficaria presa no dia 28 para
-    sempre.
-    """
-    index = date_value.year * 12 + (date_value.month - 1) + months
-    year, month_index = divmod(index, 12)
-    month = month_index + 1
-    day = min(anchor_day or date_value.day, calendar.monthrange(year, month)[1])
-    return datetime(year, month, day)
-
-
-def recurring_next_date(date_value, frequency, interval_count, anchor_day=None):
-    interval = max(1, int(interval_count or 1))
-    if frequency == "WEEKLY":
-        return date_value + timedelta(weeks=interval)
-    if frequency == "YEARLY":
-        return recurring_add_months(date_value, 12 * interval, anchor_day)
-    return recurring_add_months(date_value, interval, anchor_day)
-
-
-def recurring_today():
-    return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def recurring_pause_gaps(row):
-    """Janelas de pausa ja retomadas (019), como pares (inicio, fim) exclusivos.
-
-    Uma ocorrencia estritamente entre o dia da pausa e o dia da retomada nao e
-    devida: a assinatura estava cancelada. O dia da pausa em si ainda vale (o
-    que venceu nele ja tinha vencido quando o usuario pausou), e o dia da
-    retomada tambem.
-    """
-    try:
-        raw = json.loads(row["pause_gaps"] or "[]")
-    except (TypeError, ValueError):
-        return []
-    gaps = []
-    for item in raw if isinstance(raw, list) else []:
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            gap_start, gap_end = parse_iso_date(item[0]), parse_iso_date(item[1])
-            if gap_start and gap_end:
-                gaps.append((gap_start, gap_end))
-    return gaps
-
-
-def encode_pause_gaps(gaps):
-    if not gaps:
-        return None
-    return json.dumps(
-        [[gap_start.strftime("%Y-%m-%d"), gap_end.strftime("%Y-%m-%d")] for gap_start, gap_end in gaps]
-    )
-
-
-def skip_pause_gaps(row, cursor_date, anchor_day, gaps=None):
-    """Anda o cursor ate a primeira data fora de qualquer janela de pausa."""
-    gaps = recurring_pause_gaps(row) if gaps is None else gaps
-    guard = 0
-    while (
-        any(gap_start < cursor_date < gap_end for gap_start, gap_end in gaps)
-        and guard < RECURRING_MAX_OCCURRENCES * 25
-    ):
-        cursor_date = recurring_next_date(
-            cursor_date, row["frequency"], row["interval_count"], anchor_day
-        )
-        guard += 1
-    return cursor_date
-
-
-def recurring_occurrence_dates(row, through_date, *, limit=RECURRING_MAX_OCCURRENCES):
-    """Datas devidas por esta recorrencia ate `through_date`, inclusive.
-
-    Comeca em next_run_date (o que ainda nao foi materializado), salta as
-    janelas de pausa, respeita end_date e tem um teto de seguranca: uma
-    recorrencia semanal esquecida por anos nao pode gerar milhares de
-    lancamentos numa chamada.
-
-    next_run_date nulo e recorrencia encerrada: nao deve nada. Cair de volta em
-    start_date aqui recontava o historico inteiro como pendente — o /run nao
-    duplicava (o indice unico barra), mas o contador nunca zerava.
-    """
-    start = parse_iso_date(row["start_date"])
-    cursor_date = parse_iso_date(row["next_run_date"])
-    if not cursor_date or not through_date:
-        return []
-
-    end = parse_iso_date(row["end_date"]) if row["end_date"] else None
-    anchor_day = start.day if start else cursor_date.day
-    gaps = recurring_pause_gaps(row)
-    cursor_date = skip_pause_gaps(row, cursor_date, anchor_day, gaps)
-    dates = []
-    while cursor_date <= through_date and len(dates) < limit:
-        if end and cursor_date > end:
-            break
-        dates.append(cursor_date)
-        cursor_date = skip_pause_gaps(
-            row,
-            recurring_next_date(cursor_date, row["frequency"], row["interval_count"], anchor_day),
-            anchor_day,
-            gaps,
-        )
-    return dates
-
-
-def recurring_date_after(row, date_value):
-    """A ocorrencia seguinte a `date_value`, ou None se a recorrencia acabou."""
-    start = parse_iso_date(row["start_date"])
-    anchor_day = start.day if start else date_value.day
-    following = skip_pause_gaps(
-        row,
-        recurring_next_date(date_value, row["frequency"], row["interval_count"], anchor_day),
-        anchor_day,
-    )
-    end = parse_iso_date(row["end_date"]) if row["end_date"] else None
-    if end and following > end:
-        return None
-    return following
-
-
-def recurring_cursor_after_gaps(row):
-    """next_run_date de `row` fora das janelas de pausa, ou None se passou do fim."""
-    cursor_date = parse_iso_date(row["next_run_date"])
-    if not cursor_date:
-        return None
-    start = parse_iso_date(row["start_date"])
-    anchor_day = start.day if start else cursor_date.day
-    cursor_date = skip_pause_gaps(row, cursor_date, anchor_day)
-    end = parse_iso_date(row["end_date"]) if row["end_date"] else None
-    if end and cursor_date > end:
-        return None
-    return cursor_date.strftime("%Y-%m-%d")
-
-
-def recurring_resume_date(row, from_date):
-    """Primeira ocorrencia em ou depois de `from_date`, ao retomar uma pausa
-    sem `paused_at` (pausada antes de 019, quando o dia da pausa nao era guardado).
-
-    Retomar nao pode gerar o periodo pausado: a assinatura foi cancelada
-    naqueles meses, o dinheiro nao saiu, e materializar aquilo criaria despesas
-    que nunca existiram — que o orcamento (009) e o saldo por conta (007)
-    contariam como reais. Sem saber quando a pausa comecou, anda ate hoje.
-    """
-    cursor_date = parse_iso_date(row["next_run_date"])
-    if not cursor_date:
-        return None
-
-    end = parse_iso_date(row["end_date"]) if row["end_date"] else None
-    start = parse_iso_date(row["start_date"])
-    anchor_day = start.day if start else cursor_date.day
-    guard = 0
-    while cursor_date < from_date and guard < RECURRING_MAX_OCCURRENCES:
-        cursor_date = recurring_next_date(
-            cursor_date, row["frequency"], row["interval_count"], anchor_day
-        )
-        guard += 1
-
-    if end and cursor_date > end:
-        return None
-    return cursor_date.strftime("%Y-%m-%d")
-
-
-def recurring_revival_date(row):
-    """Proxima ocorrencia de uma recorrencia encerrada cujo end_date foi estendido.
-
-    Encerrada perde o next_run_date, entao o cursor e reconstruido: a primeira
-    data do calendario (ancorado no dia de start_date, com a frequencia do
-    DEPOIS do PATCH) estritamente posterior a `last_occurrence_date`, a ultima
-    data que o /run percorreu. Sem nada percorrido, comeca em start_date.
-
-    O ponto de partida e o cursor guardado (019), nao o ultimo lancamento
-    gerado que ainda existe: apagar esse lancamento nao pode faze-lo voltar.
-
-    Diferente de retomar uma pausa: prorrogar diz que o contrato continuou, e o
-    intervalo entre o fim antigo e hoje fica pendente de proposito.
-    """
-    start = parse_iso_date(row["start_date"])
-    if not start:
-        return None
-
-    last_date = parse_iso_date(row["last_occurrence_date"])
-
-    cursor_date = start
-    if last_date:
-        guard = 0
-        while cursor_date <= last_date and guard < RECURRING_MAX_OCCURRENCES * 25:
-            cursor_date = recurring_next_date(
-                cursor_date, row["frequency"], row["interval_count"], start.day
-            )
-            guard += 1
-    cursor_date = skip_pause_gaps(row, cursor_date, start.day)
-
-    end = parse_iso_date(row["end_date"]) if row["end_date"] else None
-    if end and cursor_date > end:
-        return None
-    return cursor_date.strftime("%Y-%m-%d")
-
-
-def recurring_status(row):
-    if not row["active"]:
-        return "PAUSED"
-    if not row["next_run_date"]:
-        return "FINISHED"
-    return "ACTIVE"
-
-
-def recurring_source_id(recurring_id, date_text):
-    return f"{recurring_id}:{date_text}"
-
-
-def serialize_recurring(row, *, pending=None):
-    item = serialize_metadata_row(row)
-    if not item:
-        return item
-    item["active"] = bool(item.get("active"))
-    item["amount"] = rounded_money(item.get("amount"))
-    item["pause_gaps"] = [
-        [gap_start.strftime("%Y-%m-%d"), gap_end.strftime("%Y-%m-%d")]
-        for gap_start, gap_end in recurring_pause_gaps(row)
-    ]
-    item["status"] = recurring_status(row)
-    if pending is not None:
-        item["pending_count"] = pending
-    return item
-
-
-def fetch_recurring(conn, current_user_id, recurring_id):
-    return conn.execute(
-        "SELECT * FROM recurring_transactions WHERE id = ? AND user_id = ?",
-        (recurring_id, current_user_id),
-    ).fetchone()
-
-
-def recurring_rows(conn, current_user_id, *, include_inactive=True):
-    query = "SELECT * FROM recurring_transactions WHERE user_id = ?"
-    if not include_inactive:
-        query += " AND active = 1"
-    query += " ORDER BY active DESC, next_run_date IS NULL, next_run_date, description COLLATE NOCASE, id"
-    return conn.execute(query, (current_user_id,)).fetchall()
-
-
-def materialize_recurring(conn, current_user_id, row, through_date):
-    """Gera em `transactions` tudo o que esta recorrencia deve ate `through_date`.
-
-    Devolve (lancamentos criados, ja existentes). A repeticao e inofensiva: o
-    indice unico (user_id, source_type, source_id) rejeita a segunda insercao
-    da mesma data, e o INSERT OR IGNORE transforma isso em "ja existia".
-    """
-    created = []
-    skipped = 0
-    dates = recurring_occurrence_dates(row, through_date)
-    if not dates:
-        return created, skipped
-
-    account_id = row["account_id"] or ensure_default_account(conn, current_user_id)
-    amount = rounded_money(row["amount"])
-    for occurrence in dates:
-        date_text = occurrence.strftime("%Y-%m-%d")
-        cursor = conn.execute(
-            """
-            INSERT OR IGNORE INTO transactions
-            (id, user_id, account_id, amount, date, category, category_id, description,
-             type, source_type, source_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                new_id(),
-                current_user_id,
-                account_id,
-                amount,
-                date_text,
-                row["category"],
-                row["category_id"],
-                row["description"],
-                row["type"],
-                RECURRING_SOURCE_TYPE,
-                recurring_source_id(row["id"], date_text),
-            ),
-        )
-        if cursor.rowcount:
-            item = conn.execute(
-                """
-                SELECT * FROM transactions
-                WHERE user_id = ? AND source_type = ? AND source_id = ?
-                """,
-                (current_user_id, RECURRING_SOURCE_TYPE, recurring_source_id(row["id"], date_text)),
-            ).fetchone()
-            created.append(serialize_transaction(item))
-        else:
-            skipped += 1
-
-    following = recurring_date_after(row, dates[-1])
-    # O cursor so anda para a frente: um next_run_date rebobinado a mao nao
-    # pode trazer last_occurrence_date de volta. Janelas de pausa que ficaram
-    # para tras nunca mais valem nada.
-    last_occurrence = dates[-1]
-    previous_last = parse_iso_date(row["last_occurrence_date"])
-    if previous_last and previous_last > last_occurrence:
-        last_occurrence = previous_last
-    remaining_gaps = [
-        gap for gap in recurring_pause_gaps(row) if gap[1] > last_occurrence
-    ]
-    conn.execute(
-        """
-        UPDATE recurring_transactions
-        SET next_run_date = ?, last_occurrence_date = ?, pause_gaps = ?,
-            last_run_at = ?, updated_at = ?
-        WHERE id = ? AND user_id = ?
-        """,
-        (
-            following.strftime("%Y-%m-%d") if following else None,
-            last_occurrence.strftime("%Y-%m-%d"),
-            encode_pause_gaps(remaining_gaps),
-            utc_timestamp(),
-            utc_timestamp(),
-            row["id"],
-            current_user_id,
-        ),
-    )
-    return created, skipped
-
-
-def recurring_pending_count(row, today):
-    if not row["active"]:
-        return 0
-    return len(recurring_occurrence_dates(row, today))
-
-
-def build_recurring_forecast(conn, current_user_id, days):
-    """Previsao de caixa: o que as recorrencias ativas lancam ate hoje + `days`.
-
-    Nada e gravado. Ocorrencias com data <= hoje aparecem como `pending` — elas
-    ja venceram e so nao existem porque /run ainda nao foi chamado.
-    """
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    horizon = today + timedelta(days=days)
-    occurrences = []
-    for row in recurring_rows(conn, current_user_id, include_inactive=False):
-        for occurrence in recurring_occurrence_dates(row, horizon):
-            date_text = occurrence.strftime("%Y-%m-%d")
-            occurrences.append({
-                "recurring_id": row["id"],
-                "date": date_text,
-                "type": row["type"],
-                "amount": rounded_money(row["amount"]),
-                "category": row["category"],
-                "category_id": row["category_id"],
-                "description": row["description"],
-                "account_id": row["account_id"],
-                "pending": occurrence <= today,
-            })
-    occurrences.sort(key=lambda item: (item["date"], item["description"] or "", item["recurring_id"]))
-
-    def totals_through(limit_date):
-        income = sum(
-            item["amount"] for item in occurrences
-            if item["type"] == "INCOME" and item["date"] <= limit_date
-        )
-        expense = sum(
-            item["amount"] for item in occurrences
-            if item["type"] == "EXPENSE" and item["date"] <= limit_date
-        )
-        return {
-            "income": rounded_money(income),
-            "expense": rounded_money(expense),
-            "net": rounded_money(income - expense),
-        }
-
-    buckets = {}
-    for window in (30, 60, 90):
-        if window <= days:
-            limit_date = (today + timedelta(days=window)).strftime("%Y-%m-%d")
-            buckets[str(window)] = totals_through(limit_date)
-
-    return {
-        "from_date": today.strftime("%Y-%m-%d"),
-        "through_date": horizon.strftime("%Y-%m-%d"),
-        "days": days,
-        "occurrences": occurrences,
-        "pending_count": sum(1 for item in occurrences if item["pending"]),
-        "totals": totals_through(horizon.strftime("%Y-%m-%d")),
-        "windows": buckets,
-    }
 
 
 def read_recurring_payload(conn, current_user_id, payload, existing=None):
@@ -562,7 +183,7 @@ def recurring_transactions(current_user_id):
         with get_db() as conn:
             rows = recurring_rows(conn, current_user_id, include_inactive=include_inactive)
             items = [
-                serialize_recurring(row, pending=recurring_pending_count(row, today))
+                serialize_recurring(row, pending=recurring_pending_count(conn, current_user_id, row, today))
                 for row in rows
             ]
         return jsonify({
@@ -586,7 +207,7 @@ def recurring_transactions(current_user_id):
             (recurring_id, current_user_id, *fields.values()),
         )
         row = fetch_recurring(conn, current_user_id, recurring_id)
-        item = serialize_recurring(row, pending=recurring_pending_count(row, datetime.now()))
+        item = serialize_recurring(row, pending=recurring_pending_count(conn, current_user_id, row, datetime.now()))
     return jsonify(item), 201
 
 
@@ -632,7 +253,7 @@ def recurring_detail(current_user_id, recurring_id):
         )
         updated = fetch_recurring(conn, current_user_id, recurring_id)
         item = serialize_recurring(
-            updated, pending=recurring_pending_count(updated, datetime.now())
+            updated, pending=recurring_pending_count(conn, current_user_id, updated, datetime.now())
         )
     return jsonify(item), 200
 

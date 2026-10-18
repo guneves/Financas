@@ -244,3 +244,31 @@ export function hintText(hint) {
       : `${hint.account_name || 'conta removida'}${hint.entry_type === 'INCOME' ? ' (receita)' : ''}`
   return `${hint.label || hint.hint_key} → ${target}`
 }
+
+// A recorrencia que aprovar da como feita (034): Netflix de 05/10, salario do
+// mes. O servidor escolhe; aqui so se diz em portugues.
+function shortDate(date) {
+  const [, month, day] = String(date || '').split('-')
+  return day && month ? `${day}/${month}` : ''
+}
+
+function brl(value) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0)
+}
+
+export function recurringText(item) {
+  const occurrence = item?.recurring
+  if (!occurrence) return ''
+  const name = occurrence.description || occurrence.category || 'recorrência'
+  const when = shortDate(occurrence.date)
+  if (occurrence.settled) return `Marcou "${name}" de ${when} como feita em Recorrentes.`
+  if (item.recurring_off) return `Não marca "${name}" de ${when} em Recorrentes.`
+  const amount = occurrence.exact_amount === false ? ` (previsto ${brl(occurrence.amount)})` : ''
+  return `Recorrente: ao aprovar, "${name}" de ${when}${amount} fica como feita em Recorrentes — não será lançada de novo.`
+}
+
+// "Não é esta" (false) e desfazer (true): fica no item, vale para o
+// "Aprovar todos".
+export function recurringToggle(item, on) {
+  return { version: item?.version, recurring: Boolean(on) }
+}

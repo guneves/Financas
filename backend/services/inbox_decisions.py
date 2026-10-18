@@ -21,10 +21,12 @@ desfaz sem ver (409, com o item como esta).
 import sqlite3
 
 from config import INBOX_MATCH_DAYS
+from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services import inbox
+from services import inbox, recurring
 from services.accounts import fetch_category, fetch_transaction_by_client_id
+from services.import_rules import DEFAULT_IMPORT_CATEGORIES
 from services.invoices import build_installment_rows
 from validators import ValidationError, parse_number
 
@@ -198,6 +200,12 @@ def update_item(conn, current_user_id, item_id, payload):
     item = _load(conn, current_user_id, item_id, version=payload.get("version"))
     changes = parse_changes(conn, current_user_id, item, payload)
     full = _with_changes(conn, current_user_id, item, changes)
+    if "recurring" in payload and payload["recurring"] in (True, False, None):
+        # "Nao e esta recorrencia" (false) e desfazer (true): vale tambem para
+        # o "Aprovar todos".
+        off = 0 if payload["recurring"] else 1
+        if off != int(item.get("recurring_off") or 0):
+            full["recurring_off"] = off
     if full:
         inbox.save_item(conn, current_user_id, item, full)
     return inbox.fetch_item(conn, current_user_id, item_id)
@@ -413,15 +421,67 @@ def approve_item(conn, current_user_id, item_id, payload):
 
     candidate = payload.get("candidate")
     if candidate:
-        return _match_candidate(conn, current_user_id, item, before, candidate, remember)
+        return _match_candidate(conn, current_user_id, item, before, candidate, remember, payload)
 
     _ensure_complete(conn, current_user_id, item)
+    occurrence = recurring_choice(conn, current_user_id, item, payload)
+    if occurrence:
+        _adopt_recurring_category(item, occurrence)
     table, target_id = create_entry(conn, current_user_id, item)
     _link_detections(conn, current_user_id, item["id"], table, target_id)
+    if occurrence:
+        _settle(conn, current_user_id, item, occurrence, table, target_id)
     if remember:
         remember_choice(conn, current_user_id, item, before)
     _close(conn, current_user_id, item, inbox.APPROVED, table, target_id)
     return inbox.fetch_item(conn, current_user_id, item_id)
+
+
+def recurring_choice(conn, current_user_id, item, payload):
+    """A ocorrencia de recorrencia que aprovar este item da como feita (034).
+
+    `recurring` no payload: ausente, a que a tela mostra (a sugestao, salvo
+    "nao e esta"); false/null, nenhuma; {recurring_id, date}, essa — conferida
+    aqui, antes de gravar qualquer coisa.
+    """
+    if "recurring" not in payload:
+        if item.get("recurring_off"):
+            return None
+        return recurring.suggest_for_item(conn, current_user_id, item)
+    chosen = payload["recurring"]
+    if not chosen:
+        return None
+    if not isinstance(chosen, dict):
+        raise ValidationError("Recorrencia invalida.")
+    row = recurring.fetch_recurring(conn, current_user_id, str(chosen.get("recurring_id") or ""))
+    occurrence = parse_iso_date(str(chosen.get("date") or ""))
+    if not row or not occurrence:
+        raise ValidationError("Recorrencia nao encontrada.")
+    if not row["active"] or row["type"] != recurring.recurring_type_of_item(item):
+        raise ValidationError("Esta recorrencia nao combina com o lancamento.")
+    if occurrence not in recurring.open_occurrences(conn, current_user_id, row, occurrence, occurrence):
+        raise ValidationError("Esta ocorrencia da recorrencia ja foi lancada.")
+    return recurring.occurrence_dict(row, occurrence.strftime("%Y-%m-%d"))
+
+
+def _adopt_recurring_category(item, occurrence):
+    """Sem regra do extrato (a categoria padrao) e sem o dono ter escolhido, o
+    lancamento fica na categoria da recorrencia."""
+    if "category" in (item.get("edited") or []) or item["entry_type"] == "TRANSFER":
+        return
+    if item.get("category") and item["category"] not in DEFAULT_IMPORT_CATEGORIES.values():
+        return
+    item["category"], item["category_id"] = occurrence["category"], occurrence["category_id"]
+
+
+def _settle(conn, current_user_id, item, occurrence, table, target_id):
+    try:
+        recurring.settle_occurrence(
+            conn, current_user_id, occurrence["recurring_id"], occurrence["date"],
+            item=item, target_table=table, target_id=target_id,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
 
 
 def _target_shape(conn, current_user_id, table, target_id):
@@ -438,7 +498,7 @@ def _target_shape(conn, current_user_id, table, target_id):
     return row, (row["type"] if row else None)
 
 
-def _match_candidate(conn, current_user_id, item, before, candidate, remember):
+def _match_candidate(conn, current_user_id, item, before, candidate, remember, payload):
     table = str(candidate.get("table") or "") if isinstance(candidate, dict) else ""
     target_id = str(candidate.get("id") or "") if isinstance(candidate, dict) else ""
     listed = next(
@@ -451,7 +511,14 @@ def _match_candidate(conn, current_user_id, item, before, candidate, remember):
     if not row:
         raise ValidationError("Este lancamento nao existe mais.")
     kind = listed.get("kind") or "entry"
+    occurrence = None
+    if kind in ("entry", "card_purchase") and row_type in ("EXPENSE", "INCOME", "CARD"):
+        # O lancamento que ja existia (digitado a mao) faz a ocorrencia, como
+        # um aprovado faria — com o tipo dele, nao o do rascunho.
+        occurrence = recurring_choice(conn, current_user_id, {**item, "entry_type": row_type}, payload)
     _link_detections(conn, current_user_id, item["id"], table, target_id)
+    if occurrence:
+        _settle(conn, current_user_id, {**item, "entry_type": row_type}, occurrence, table, target_id)
     if remember and kind in ("entry", "card_purchase") and row_type in ("EXPENSE", "INCOME", "CARD"):
         chosen = {
             **item,

@@ -102,6 +102,14 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
 - [ ] **Card estorno from Aprovar.** A card refund exists now (033, `POST /api/cc-expenses/refunds`),
   but an estorno detection still drafts an INCOME lançamento. Once a real estorno capture shows
   the card final, approve it as a card refund instead.
+- [ ] **Aprovar × Recorrentes, what is left** (034, 2026-10-18). Owner walk-through: a Netflix
+  (or similar) recurrence, its card purchase notification → the item says "Recorrente: ao aprovar…"
+  → approve → Recorrentes shows the next month as próxima and no pending; the salary's Pix the same
+  way. Not built: (1) an occurrence `/run` **already wrote** is a candidate only at the exact amount
+  — at a new price the notification is approved as a second lançamento; (2) a price change is not
+  carried back into the recurrence's amount; (3) a settlement is not undone if the approved
+  lançamento is deleted (same as a `/run` row). Tune `RECURRING_MATCH_DAYS` / the 20% tolerance
+  from real use.
 - [ ] **Bank × Samsung Wallet window**: the server pairs them (`services/inbox.py`, 10 min, bank
   wins). From an export with both notifications of the same purchase, show the owner the lag and
   tune `NOTIFY_WINDOW_MS` (and `NotifyPairing.DEFAULT_WINDOW_MS`, kept equal). The phone-side
