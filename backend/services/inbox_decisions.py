@@ -27,7 +27,7 @@ from money import rounded_money
 from services import inbox, recurring
 from services.accounts import category_id_for_name, fetch_category, fetch_transaction_by_client_id
 from services.import_rules import DEFAULT_IMPORT_CATEGORIES
-from services.invoices import build_installment_rows
+from services.invoices import build_installment_rows, purchase_invoice_start, require_active_card
 from validators import ValidationError, parse_number
 
 EDITABLE_FIELDS = (
@@ -81,13 +81,8 @@ def _account(conn, current_user_id, account_id, label):
 
 
 def _card(conn, current_user_id, card_id):
-    row = conn.execute(
-        "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
-        (card_id, current_user_id),
-    ).fetchone()
-    if not row:
-        raise ValidationError("Cartao nao encontrado.")
-    return row
+    # Um cartao excluido (arquivado, 037) nao recebe compra aprovada.
+    return require_active_card(conn, current_user_id, card_id)
 
 
 def _text_or_none(value, max_length):
@@ -280,6 +275,8 @@ def create_entry(conn, current_user_id, item):
                     "installments": int(item.get("installments") or 1),
                 },
                 card,
+                # Fatura ja paga nao recebe a compra (ficaria aberta para sempre).
+                purchase_invoice_start(conn, current_user_id, card, date_text),
             )
             first = None
             # O client_id e a compra (035): sem o da notificacao, um novo.

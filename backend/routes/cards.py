@@ -2,8 +2,10 @@
 
 `/api/credit-cards` e `/api/cc-expenses/*`. As regras (mes da fatura,
 fechamento, debito automatico) estao em `services/invoices.py`; o pagamento
-real e `POST /api/cc-expenses/pay-invoice`. Um estorno (033) e uma linha
+real e `POST /api/cc-expenses/pay-invoice`, e o desfazer e
+`DELETE /api/cc-expenses/payments/<lancamento>`. Um estorno (033) e uma linha
 `kind = 'REFUND'` da mesma tabela, criada por `POST /api/cc-expenses/refunds`.
+Um cartao com historico e arquivado, nunca apagado (037).
 """
 
 import sqlite3
@@ -11,7 +13,7 @@ import sqlite3
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
-from db import get_db, new_id, row_to_dict, serialize_transaction
+from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
 from money import rounded_money
 from services.accounts import (
     category_id_for_name,
@@ -29,6 +31,7 @@ from services.attachments import (
 from services.inbox_decisions import absorb_created
 from services.sharing import update_purchase_share
 from services.invoices import (
+    InvoiceConflictError,
     InvoiceStillOpenError,
     apply_due_autopay,
     autopay_source_id,
@@ -38,11 +41,15 @@ from services.invoices import (
     invoice_label,
     invoice_open_lines,
     local_today,
+    purchase_invoice_start,
     refund_invoice,
+    require_active_card,
     serialize_cc_expense,
     settle_invoice,
+    signed_amount_sql,
+    undo_invoice_payment,
 )
-from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE
+from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
     ValidationError,
     optional_client_id,
@@ -80,10 +87,16 @@ ALLOWED_CC_STATUS = {"OPEN", "PAID"}
 @token_required
 def credit_cards(current_user_id):
     if request.method == "GET":
+        # Os arquivados (037) so com include_archived: nenhuma tela lanca neles.
+        include_archived = str(request.args.get("include_archived", "")).lower() in ("1", "true", "yes")
         with get_db() as conn:
             apply_due_autopay(conn, current_user_id)
             rows = conn.execute(
-                "SELECT * FROM credit_cards WHERE user_id = ? ORDER BY name ASC",
+                f"""
+                SELECT * FROM credit_cards WHERE user_id = ?
+                {"" if include_archived else "AND archived_at IS NULL"}
+                ORDER BY name ASC
+                """,
                 (current_user_id,),
             ).fetchall()
         return jsonify([row_to_dict(row) for row in rows]), 200
@@ -122,6 +135,14 @@ def credit_cards(current_user_id):
             item = conn.execute("SELECT * FROM credit_cards WHERE id = ?", (item_id,)).fetchone()
     except sqlite3.IntegrityError as exc:
         if "UNIQUE" in str(exc).upper():
+            with get_db() as conn:
+                archived = conn.execute(
+                    "SELECT 1 FROM credit_cards WHERE user_id = ? AND name = ? AND archived_at IS NOT NULL",
+                    (current_user_id, name),
+                ).fetchone()
+            if archived:
+                # O excluido continua com o nome: as compras antigas dele o mostram.
+                return jsonify({"error": "Um cartao excluido ainda usa este nome no historico. Escolha outro nome."}), 409
             return jsonify({"error": "Ja existe um cartao com este nome."}), 409
         return jsonify({"error": "Nao foi possivel criar o cartao."}), 400
     return jsonify(row_to_dict(item)), 201
@@ -152,7 +173,7 @@ def update_credit_card(current_user_id, card_id):
             "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
             (card_id, current_user_id),
         ).fetchone()
-        if not card:
+        if not card or card["archived_at"]:
             return jsonify({"error": "Cartao nao encontrado."}), 404
         try:
             autopay_account_id = resolve_autopay_account(conn, current_user_id, payload)
@@ -183,10 +204,66 @@ def update_credit_card(current_user_id, card_id):
     return jsonify(row_to_dict(item)), 200
 
 
+def card_payment_count(conn, current_user_id, card_id):
+    """Pagamentos de fatura deste cartao no Extrato (source_id '<cartao>:...')."""
+    placeholders = ",".join("?" for _ in INVOICE_PAYMENT_SOURCE_TYPES)
+    prefix = f"{card_id}:"
+    return conn.execute(
+        f"""
+        SELECT COUNT(*) FROM transactions
+        WHERE user_id = ? AND source_type IN ({placeholders})
+          AND substr(source_id, 1, ?) = ?
+        """,
+        (current_user_id, *sorted(INVOICE_PAYMENT_SOURCE_TYPES), len(prefix), prefix),
+    ).fetchone()[0]
+
+
 @bp.route("/api/credit-cards/<card_id>", methods=["DELETE"])
 @token_required
 def delete_credit_card(current_user_id, card_id):
+    """Exclui um cartao sem perder historico (037).
+
+    Com item em aberto, recusa (409): essas parcelas ainda vao ser cobradas.
+    Com compras pagas ou pagamentos de fatura, arquiva: o DELETE real levava
+    pelo CASCADE todas as compras (orcamentos passados mudavam) e deixava os
+    pagamentos presos no Extrato. Sem nada, apaga de verdade.
+    """
     with get_db() as conn:
+        card = conn.execute(
+            "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
+            (card_id, current_user_id),
+        ).fetchone()
+        if not card or card["archived_at"]:
+            return jsonify({"deleted": False}), 404
+        open_items = conn.execute(
+            f"""
+            SELECT COUNT(*) AS count, COALESCE(SUM(amount * {signed_amount_sql()}), 0) AS total
+            FROM cc_expenses WHERE user_id = ? AND card_id = ? AND status = 'OPEN'
+            """,
+            (current_user_id, card_id),
+        ).fetchone()
+        if open_items["count"]:
+            total_text = f"{rounded_money(open_items['total']):.2f}".replace(".", ",")
+            return validation_error(
+                f"O cartao {card['name']} ainda tem {open_items['count']} item(ns) em aberto nas faturas "
+                f"(R$ {total_text}). Pague as faturas ou exclua as compras em aberto "
+                "em Lancamentos > Cartoes antes de excluir o cartao.",
+                409,
+            )
+        history = conn.execute(
+            "SELECT COUNT(*) FROM cc_expenses WHERE user_id = ? AND card_id = ?",
+            (current_user_id, card_id),
+        ).fetchone()[0] + card_payment_count(conn, current_user_id, card_id)
+        if history:
+            conn.execute(
+                """
+                UPDATE credit_cards
+                SET archived_at = ?, autopay_account_id = NULL, autopay_start_date = NULL
+                WHERE id = ? AND user_id = ?
+                """,
+                (utc_timestamp(), card_id, current_user_id),
+            )
+            return jsonify({"deleted": True, "archived": True}), 200
         stored_names = cc_expense_attachment_names(conn, current_user_id, card_id=card_id)
         cursor = conn.execute(
             "DELETE FROM credit_cards WHERE id = ? AND user_id = ?",
@@ -195,7 +272,7 @@ def delete_credit_card(current_user_id, card_id):
     if cursor.rowcount == 0:
         return jsonify({"deleted": False}), 404
     remove_attachment_files(current_user_id, stored_names)
-    return jsonify({"deleted": True}), 200
+    return jsonify({"deleted": True, "archived": False}), 200
 
 
 @bp.route("/api/cc-expenses", methods=["GET", "POST", "DELETE"])
@@ -247,6 +324,19 @@ def cc_expenses(current_user_id):
 
         placeholders = ",".join("?" for _ in ids)
         with get_db() as conn:
+            # Item de fatura paga fica: o pagamento saiu com ele, e apaga-lo
+            # deixava o lancamento com o valor antigo e a compra fora dos
+            # orcamentos passados. Desfaz-se o pagamento antes (Extrato).
+            paid = conn.execute(
+                f"SELECT COUNT(*) FROM cc_expenses WHERE user_id = ? AND status = 'PAID' AND id IN ({placeholders})",
+                [current_user_id, *ids],
+            ).fetchone()[0]
+            if paid:
+                return validation_error(
+                    f"{paid} item(ns) ja foram pagos com a fatura e nao se excluem. "
+                    "Para tira-los, desfaca o pagamento da fatura no Extrato.",
+                    409,
+                )
             # Os comprovantes saem pelo CASCADE; os arquivos, depois do commit.
             stored_names = cc_expense_attachment_names(conn, current_user_id, expense_ids=ids)
             cursor = conn.execute(
@@ -269,7 +359,7 @@ def cc_expenses(current_user_id):
                     raise ValidationError("Cada fatura deve ser um objeto valido.")
 
                 card_id = require_string(item, "card_id", "Cartao")
-                ensure_credit_card_owner(conn, current_user_id, card_id)
+                require_active_card(conn, current_user_id, card_id)
                 category, category_id = resolve_category(conn, current_user_id, item)
                 description = require_string(item, "description", "Descricao", max_length=500)
                 amount = parse_number(item, "amount", "Valor", minimum=0, allow_zero=False)
@@ -354,18 +444,15 @@ def create_cc_purchase(current_user_id):
             # A categoria pelo id (035): pelo nome, "Lazer › Outros" virava o
             # "Outros" da raiz e contava no orcamento dele.
             purchase["category"], purchase["category_id"] = resolve_category(conn, current_user_id, payload)
-            ensure_credit_card_owner(conn, current_user_id, card_id)
-            card = conn.execute(
-                "SELECT due_day, closing_day FROM credit_cards WHERE id = ? AND user_id = ?",
-                (card_id, current_user_id),
-            ).fetchone()
-            if not card:
-                raise ValidationError("Cartao nao encontrado.")
+            card = require_active_card(conn, current_user_id, card_id)
 
             # O client_id e a compra (035): sem um do cliente, ela ganha o seu,
             # e duas compras iguais nunca viram uma.
             purchase_id = client_id or new_id()
-            rows = build_installment_rows(purchase, card)
+            # Numa fatura ja paga a compra ficaria em aberto para sempre (o
+            # debito nao roda de novo): ela comeca na primeira nao paga.
+            start = purchase_invoice_start(conn, current_user_id, card, purchase["purchase_date"])
+            rows = build_installment_rows(purchase, card, start)
             inserted = []
             for row in rows:
                 item_id = new_id()
@@ -446,12 +533,7 @@ def create_cc_refund(current_user_id):
         refund_of = str(payload.get("refund_of") or "").strip() or None
 
         with get_db() as conn:
-            card = conn.execute(
-                "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
-                (card_id, current_user_id),
-            ).fetchone()
-            if not card:
-                raise ValidationError("Cartao nao encontrado.")
+            card = require_active_card(conn, current_user_id, card_id)
             original = None
             if refund_of:
                 original = conn.execute(
@@ -611,10 +693,11 @@ def update_cc_expense_status(current_user_id):
             except ValidationError as exc:
                 return validation_error(str(exc), 409)
 
+        # Uma troca de status a mao desliga o item do pagamento que o baixou.
         cursor = conn.execute(
             f"""
             UPDATE cc_expenses
-            SET status = ?
+            SET status = ?, paid_by = NULL
             WHERE user_id = ? AND id IN ({placeholders})
             """,
             [status, current_user_id, *ids],
@@ -656,7 +739,7 @@ def update_invoice_status(current_user_id):
         cursor = conn.execute(
             """
             UPDATE cc_expenses
-            SET status = ?
+            SET status = ?, paid_by = NULL
             WHERE user_id = ?
               AND card_id = ?
               AND invoice_month = ?
@@ -746,3 +829,25 @@ def pay_invoice(current_user_id):
                 return jsonify({"transaction": None}), 200
             return jsonify({"error": "Nao ha itens em aberto nesta fatura."}), 409
     return jsonify({"transaction": serialize_transaction(row)}), 201
+
+
+@bp.route("/api/cc-expenses/payments/<item_id>", methods=["DELETE"])
+@token_required
+def undo_invoice_payment_route(current_user_id, item_id):
+    """Desfaz o pagamento de uma fatura (037): o lancamento sai do Extrato, o
+    valor volta para o saldo da conta e os itens pagos por ele reabrem.
+
+    A fatura volta para o botao Pagar; o debito automatico nao a paga de novo.
+    """
+    with get_db() as conn:
+        try:
+            result = undo_invoice_payment(conn, current_user_id, item_id)
+        except InvoiceConflictError as exc:
+            return validation_error(str(exc), 409)
+    if not result:
+        return jsonify({"error": "Pagamento de fatura nao encontrado."}), 404
+    return jsonify({
+        "undone": True,
+        "reopened": result["reopened"],
+        "transaction": serialize_transaction(result["transaction"]),
+    }), 200

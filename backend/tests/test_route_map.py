@@ -32,6 +32,7 @@ EXPECTED_ROUTES = {
     ("/api/cc-expenses/candidates", "GET"),
     ("/api/cc-expenses/invoice-status", "PATCH"),
     ("/api/cc-expenses/pay-invoice", "POST"),
+    ("/api/cc-expenses/payments/<item_id>", "DELETE"),
     ("/api/cc-expenses/purchases", "POST"),
     ("/api/cc-expenses/refunds", "POST"),
     ("/api/cc-expenses/status", "PATCH"),

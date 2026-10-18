@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1234 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1253 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -130,7 +130,7 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -281,6 +281,11 @@ mobile-docs/
   identical Uber rides one purchase.
 - **Accounts and categories are archived, never deleted.** Both use `ON DELETE SET NULL`, so a real
   delete would silently orphan lancamentos. `DELETE` on either endpoint sets `archived_at`.
+  **Cards too** (037): `cc_expenses` cascade from `credit_cards`, so `DELETE /api/credit-cards/<id>`
+  refuses (409) while the card has an `OPEN` item, archives one with history (paid items or
+  payments; autopay off) and really deletes only an empty one. An archived card is out of the GET
+  (`?include_archived=1`) and takes no purchase, refund, autopay or Aprovar approval
+  (`require_active_card()`).
 - **Migrations are append-only.** Add a new numbered file in `database/migrations/`; never edit one
   that has been applied. They run automatically at boot.
 - **Destructive endpoints take a confirmation guard.** Deleting by asset requires the matching
@@ -321,6 +326,15 @@ mobile-docs/
   that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is
   `POST /api/cc-expenses/pay-invoice` — don't go back to a client-side EXPENSE + status PATCH.
   The client reads `invoice_closed` / `invoice_closing_date` from `GET /api/cc-expenses`.
+- **A paid invoice is history** (037). A paid item is never deleted (`DELETE /api/cc-expenses`
+  refuses it; Cartões deletes only a purchase's `OPEN` installments), and a new purchase or refund
+  never lands in a paid invoice: `first_unpaid_invoice()` starts it at the first one from its date
+  with an open item or no paid one (the autopay `source_id` is taken, so it would never be debited).
+  `settle_invoice()` stamps each item's `paid_by` (the payment lançamento);
+  `DELETE /api/cc-expenses/payments/<id>` (Extrato › "⋯" › Desfazer pagamento) removes the payment,
+  reopens what it paid (or, before 037, its invoice's paid items without `paid_by`) and writes
+  `cc_invoice_manual`, so autopay never debits that invoice again — it goes back to "Pagar".
+  Refused while the payment has a receipt.
 - **The next invoice is per card, by due date, never "next month's"** (2026-10-18). The invoice
   month is the due month, so a card that closes before its due day (3/10) pays this month's
   invoice and one that closes after it (25/5) next month's. `nextInvoices()` in

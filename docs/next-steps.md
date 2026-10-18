@@ -46,7 +46,24 @@ purchase its own `client_id` (migration 035). Open:
   stop earlier, cap the retries of a plain 500 in `outboxRules.js` and `OutboxRules.java` together
   (native-level bump).
 - [ ] The old list `POST /api/cc-expenses` (no screen uses it, tests do) still writes rows with no
-  `client_id`, which fall back to the old purchase key. Give it a purchase id or remove it.
+  `client_id`, which fall back to the old purchase key, and takes the invoice month as sent (so it
+  can still write into a paid invoice). Give it a purchase id and the unpaid-invoice rule, or
+  remove it.
+
+### Card history (037, 2026-10-18) — what is left
+Purchase deletion, purchases into paid invoices, card deletion and payment undo were fixed (see
+`docs/done-tasks.md`). Open:
+- [ ] **Owner, after the deploy:** look in Cartões for an old invoice already paid by autopay that
+  still shows an item "Em atraso" (a purchase entered after the debit, before this fix). It is not
+  moved automatically — nothing tells a late purchase from an item reopened by hand. Either pay it
+  with "Pagar" (a second payment for the rest), or Extrato › the autopay's "⋯" › Desfazer
+  pagamento and pay the whole invoice again.
+- [ ] Cards deleted before 037 took their purchases with them; their payments are still in the
+  Extrato. Each can now be removed by "Desfazer pagamento" (the money returns to the account
+  balance) — the owner decides whether those payments are history to keep.
+- [ ] No list of archived cards and no "unarchive". If a card is deleted by mistake, its name
+  cannot be reused; reactivating it needs a SQL `UPDATE credit_cards SET archived_at = NULL`.
+- [ ] Cartões shows only open invoices, so "Desfazer pagamento" lives only in the Extrato.
 
 ### Aprovar: ambiguous target and "Sempre perguntar" (2026-10-18) — what is left
 - [ ] **Depends on the bank field (owner's "Prompt 1"):** the rule counts only accounts whose bank

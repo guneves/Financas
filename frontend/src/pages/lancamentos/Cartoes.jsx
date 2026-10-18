@@ -213,8 +213,6 @@ export default function Cartoes() {
   }
 
   const handleDeleteCCPurchase = async (purchase) => {
-    if (!(await confirmAction({ title: `Excluir a compra "${purchase.description}"?`, message: 'Todas as parcelas dela saem das faturas.', confirmLabel: 'Excluir compra' }))) return
-
     // As parcelas desta compra, pelo id dela (o client_id, 035): uma compra
     // igual no mesmo dia (outra corrida de Uber) e outra compra e fica.
     let candidates = []
@@ -228,18 +226,27 @@ export default function Cartoes() {
     // servidor; ai valor e parcelas ainda separam compras diferentes. As
     // parcelas de uma compra diferem em ate 1 centavo (100/3 = 33,34 + 33,33...).
     const purchaseCents = Math.round(parseFloat(purchase.amount) * 100)
-    const idsToDelete = (candidates || [])
-      .filter((item) => {
-        const installment = parseInstallmentInfo(item.installment_info)
-        return Math.abs(Math.round(parseFloat(item.amount) * 100) - purchaseCents) <= 1
-          && installment.total === purchase.installmentTotal
-      })
-      .map((item) => item.id)
+    const installments = (candidates || []).filter((item) => {
+      const installment = parseInstallmentInfo(item.installment_info)
+      return Math.abs(Math.round(parseFloat(item.amount) * 100) - purchaseCents) <= 1
+        && installment.total === purchase.installmentTotal
+    })
+    // So as em aberto saem: uma parcela paga foi junto com o pagamento da
+    // fatura, e o servidor recusa (409) apaga-la.
+    const idsToDelete = installments.filter((item) => item.status === 'OPEN').map((item) => item.id)
+    const paidCount = installments.length - idsToDelete.length
 
     if (idsToDelete.length === 0) {
-      setDataError('Nenhuma fatura vinculada foi encontrada para essa compra.')
+      setDataError('Nenhuma parcela em aberto foi encontrada para essa compra.')
       return
     }
+
+    const openText = idsToDelete.length === 1 ? 'A parcela em aberto sai da fatura.' : `As ${idsToDelete.length} parcelas em aberto saem das faturas.`
+    const paidText = paidCount === 1
+      ? 'A parcela já paga fica: saiu com o pagamento da fatura. Para tirá-la também, desfaça esse pagamento no Extrato.'
+      : `As ${paidCount} parcelas já pagas ficam: saíram com o pagamento das faturas. Para tirá-las também, desfaça esses pagamentos no Extrato.`
+    const message = paidCount > 0 ? `${openText} ${paidText}` : 'Todas as parcelas dela saem das faturas.'
+    if (!(await confirmAction({ title: `Excluir a compra "${purchase.description}"?`, message, confirmLabel: 'Excluir compra' }))) return
 
     try {
       await ccExpensesApi.removeMany(idsToDelete)

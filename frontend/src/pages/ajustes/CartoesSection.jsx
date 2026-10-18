@@ -21,7 +21,7 @@ const emptyCardForm = () => ({ name: '', due_day: '', closing_day: '', autopay_a
 
 const NO_ITEMS = []
 
-// Cartoes de credito: lista, excluir e criar. Veio de Transactions.jsx.
+// Cartoes de credito: lista, excluir (arquivar, 037) e criar. Veio de Transactions.jsx.
 // As compras e faturas continuam em Lancamentos > Cartoes.
 //
 // Debito automatico: com uma conta escolhida, cada fatura e paga sozinha no
@@ -98,10 +98,12 @@ export default function CartoesSection() {
     }
   }
 
+  // O servidor decide (037): com item em aberto recusa; com historico arquiva
+  // (compras, orcamentos e pagamentos ficam); sem nada, apaga.
   const handleDeleteCard = async (id, name) => {
     if (!(await confirmAction({
       title: `Excluir o cartão "${name}"?`,
-      message: 'Isso apaga TODAS as faturas e compras vinculadas a ele. Esta ação não pode ser desfeita.',
+      message: 'Ele sai das listas e não recebe compras novas. As compras já pagas e os pagamentos de fatura continuam no histórico e nos orçamentos. Um cartão com fatura em aberto não pode ser excluído.',
       confirmLabel: 'Excluir cartão',
     }))) return
 

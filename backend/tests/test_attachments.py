@@ -484,13 +484,14 @@ class TestCardPurchaseReceipts:
         assert response.status_code == 200
         assert not os.path.exists(path)
 
-    def test_deleting_the_card_removes_the_files(self, client, auth, user):
+    def test_a_card_with_an_open_purchase_is_not_deleted_and_keeps_the_files(self, client, auth, user):
+        # 037: excluir o cartao nao leva mais as compras (nem os recibos) junto.
         card, installments = create_card_purchase(client, auth)
         attachment = upload_to_expense(client, auth, installments[0]["id"]).get_json()
         path = expense_stored_path(user["id"], attachment["id"])
 
-        assert client.delete(f"/api/credit-cards/{card['id']}", headers=auth).status_code == 200
-        assert not os.path.exists(path)
+        assert client.delete(f"/api/credit-cards/{card['id']}", headers=auth).status_code == 409
+        assert os.path.exists(path)
 
     def test_orphan_sweep_keeps_card_receipts(self, client, auth, user):
         _card, installments = create_card_purchase(client, auth)

@@ -6,7 +6,11 @@ As regras moram aqui para que o front nunca tenha uma copia:
   (`ensure_invoice_closed()` guarda todo caminho que marca PAID);
 - `settle_invoice()` grava o pagamento e o PAID dos itens juntos (um estorno,
   033, abate: `signed_amount()`);
-- `apply_due_autopay()` materializa o debito automatico na leitura.
+- `apply_due_autopay()` materializa o debito automatico na leitura;
+- `first_unpaid_invoice()` desvia de fatura ja paga a compra e o estorno que
+  cairiam nela (o pagamento nao os levou, e o debito nao roda de novo);
+- `undo_invoice_payment()` desfaz um pagamento: apaga o lancamento e reabre
+  os itens que ele baixou (037).
 
 `local_today()` e o relogio: os testes o congelam com monkeypatch aqui e em
 `routes/cards.py`, os dois modulos que o chamam.
@@ -18,7 +22,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from dates import clamped_date, parse_iso_date
 from db import new_id, row_to_dict
 from money import rounded_money
-from source_types import CC_AUTOPAY_SOURCE_TYPE
+from source_types import CC_AUTOPAY_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import ValidationError
 
 
@@ -29,6 +33,19 @@ def ensure_credit_card_owner(conn, current_user_id, card_id):
     ).fetchone()
     if not card:
         raise ValidationError("Cartao nao encontrado.")
+
+
+def require_active_card(conn, current_user_id, card_id):
+    """O cartao, para lancar nele: do dono e nao arquivado (037)."""
+    card = conn.execute(
+        "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
+        (card_id, current_user_id),
+    ).fetchone()
+    if not card:
+        raise ValidationError("Cartao nao encontrado.")
+    if card["archived_at"]:
+        raise ValidationError(f"O cartao {card['name']} foi excluido; ele nao recebe lancamentos novos.")
+    return card
 
 
 def default_closing_day(due_day):
@@ -88,9 +105,13 @@ def split_installments(total_amount, installments_count):
     ]
 
 
-def build_installment_rows(purchase, card):
-    """Linhas de cc_expenses para uma compra parcelada, ja com a fatura de cada uma."""
-    start = compute_invoice_start(
+def build_installment_rows(purchase, card, start=None):
+    """Linhas de cc_expenses para uma compra parcelada, ja com a fatura de cada uma.
+
+    `start` e a fatura da primeira parcela; sem ele, a da data da compra. Quem
+    grava passa `purchase_invoice_start()`, que desvia de fatura ja paga.
+    """
+    start = start or compute_invoice_start(
         purchase["purchase_date"],
         card["due_day"],
         card["closing_day"],
@@ -175,6 +196,10 @@ class InvoiceStillOpenError(ValidationError):
     """Pagamento de fatura antes do fechamento (respondido com 409)."""
 
 
+class InvoiceConflictError(ValidationError):
+    """Pedido que deixaria fatura e pagamento em desacordo (respondido com 409)."""
+
+
 def ensure_invoice_closed(card, invoice_month, invoice_year, today=None):
     """Recusa pagar uma fatura que ainda nao fechou."""
     closing = invoice_closing_date(invoice_month, invoice_year, card["due_day"], card["closing_day"])
@@ -245,7 +270,7 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
     placeholders = ",".join("?" for _ in line_ids)
     if total == 0:
         conn.execute(
-            f"UPDATE cc_expenses SET status = 'PAID' WHERE user_id = ? AND id IN ({placeholders})",
+            f"UPDATE cc_expenses SET status = 'PAID', paid_by = NULL WHERE user_id = ? AND id IN ({placeholders})",
             [current_user_id, *line_ids],
         )
         return None
@@ -273,9 +298,10 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
     if not cursor.rowcount:
         return None
 
+    # paid_by (037): o que o desfazer deste pagamento reabre.
     conn.execute(
-        f"UPDATE cc_expenses SET status = 'PAID' WHERE user_id = ? AND id IN ({placeholders})",
-        [current_user_id, *line_ids],
+        f"UPDATE cc_expenses SET status = 'PAID', paid_by = ? WHERE user_id = ? AND id IN ({placeholders})",
+        [transaction_id, current_user_id, *line_ids],
     )
     return conn.execute(
         "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
@@ -283,26 +309,47 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
     ).fetchone()
 
 
+def invoice_is_paid(conn, current_user_id, card_id, invoice_month, invoice_year):
+    """Fatura quitada: tem item pago e nenhum em aberto."""
+    row = conn.execute(
+        """
+        SELECT SUM(CASE WHEN status = 'PAID' THEN 1 ELSE 0 END) AS paid,
+               SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) AS open
+        FROM cc_expenses
+        WHERE user_id = ? AND card_id = ? AND invoice_month = ? AND invoice_year = ?
+        """,
+        (current_user_id, card_id, invoice_month, invoice_year),
+    ).fetchone()
+    return bool(row["paid"]) and not row["open"]
+
+
+def first_unpaid_invoice(conn, current_user_id, card, invoice_month, invoice_year):
+    """A fatura (mes, ano), ou a primeira depois dela que ainda nao foi paga.
+
+    Um item novo numa fatura quitada ficaria em aberto para sempre: o
+    pagamento ja saiu sem ele e o debito automatico nao roda de novo (o
+    source_id '<cartao>:<AAAA-MM>' ja existe). Vai para a proxima, que e onde
+    o dinheiro dele ainda vai sair.
+    """
+    month, year = int(invoice_month), int(invoice_year)
+    for _ in range(120):
+        if not invoice_is_paid(conn, current_user_id, card["id"], month, year):
+            break
+        month, year = add_invoice_months(month, year, 1)
+    return {"invoice_month": month, "invoice_year": year}
+
+
+def purchase_invoice_start(conn, current_user_id, card, purchase_date):
+    """Fatura da primeira parcela: a da data, ou a primeira seguinte nao paga."""
+    start = compute_invoice_start(purchase_date, card["due_day"], card["closing_day"])
+    return first_unpaid_invoice(conn, current_user_id, card, start["invoice_month"], start["invoice_year"])
+
+
 def refund_invoice(conn, current_user_id, card, refund_date):
     """Fatura em que um estorno cai: a da data, ou a primeira depois dela que
     ainda nao foi paga — um credito numa fatura ja quitada iria para o nada.
     """
-    start = compute_invoice_start(refund_date, card["due_day"], card["closing_day"])
-    month, year = start["invoice_month"], start["invoice_year"]
-    for _ in range(120):
-        row = conn.execute(
-            """
-            SELECT SUM(CASE WHEN status = 'PAID' THEN 1 ELSE 0 END) AS paid,
-                   SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) AS open
-            FROM cc_expenses
-            WHERE user_id = ? AND card_id = ? AND invoice_month = ? AND invoice_year = ?
-            """,
-            (current_user_id, card["id"], month, year),
-        ).fetchone()
-        if not row["paid"] or row["open"]:
-            break
-        month, year = add_invoice_months(month, year, 1)
-    return {"invoice_month": month, "invoice_year": year}
+    return purchase_invoice_start(conn, current_user_id, card, refund_date)
 
 
 def autopay_source_id(card_id, invoice_month, invoice_year):
@@ -316,7 +363,8 @@ def apply_due_autopay(conn, current_user_id, today=None):
     cartoes, faturas) — o app e local e nao tem cron. O pagamento sai no dia
     do vencimento, mesmo que o app so seja aberto dias depois. Idempotente
     pelo source_id deterministico '<cartao>:<AAAA-MM>': uma fatura reaberta a
-    mao depois do debito nao e paga de novo.
+    mao depois do debito nao e paga de novo, nem uma cujo pagamento foi
+    desfeito (cc_invoice_manual, 037).
     """
     today = today or local_today()
     cards = conn.execute(
@@ -345,6 +393,14 @@ def apply_due_autopay(conn, current_user_id, today=None):
             due = invoice_due_date(invoice["invoice_month"], invoice["invoice_year"], card["due_day"])
             if due > today or (start and due < start):
                 continue
+            if conn.execute(
+                """
+                SELECT 1 FROM cc_invoice_manual
+                WHERE user_id = ? AND card_id = ? AND invoice_year = ? AND invoice_month = ?
+                """,
+                (current_user_id, card["id"], invoice["invoice_year"], invoice["invoice_month"]),
+            ).fetchone():
+                continue
             row = settle_invoice(
                 conn,
                 current_user_id,
@@ -359,3 +415,87 @@ def apply_due_autopay(conn, current_user_id, today=None):
             if row:
                 paid.append(row)
     return paid
+
+
+def parse_payment_source_id(source_id):
+    """(card_id, mes, ano) de um pagamento: '<cartao>:<AAAA-MM>' (debito) ou
+    '<cartao>:<AAAA-MM>:<id>' (manual). None quando o texto nao tem esse formato."""
+    parts = str(source_id or "").split(":")
+    if len(parts) not in (2, 3) or not parts[0]:
+        return None
+    year_month = parts[1].split("-")
+    if len(year_month) != 2 or not all(part.isdigit() for part in year_month):
+        return None
+    year, month = int(year_month[0]), int(year_month[1])
+    if not 1 <= month <= 12:
+        return None
+    return parts[0], month, year
+
+
+def undo_invoice_payment(conn, current_user_id, transaction_id):
+    """Desfaz um pagamento de fatura: apaga o lancamento e reabre o que ele baixou.
+
+    Reabre os itens com paid_by = este lancamento; um pagamento anterior a
+    037 (nenhum item com o paid_by dele) reabre os pagos sem paid_by da sua
+    fatura. A fatura vai para
+    cc_invoice_manual: o debito automatico nao a paga de novo, ela volta para
+    o botao Pagar. Um pagamento cujo cartao ja nao existe (excluido antes de
+    037) e so apagado. Recusa (409) enquanto o lancamento tem comprovante.
+    Devolve {"transaction", "reopened"} ou None quando nao e um pagamento.
+    """
+    placeholders = ",".join("?" for _ in INVOICE_PAYMENT_SOURCE_TYPES)
+    payment = conn.execute(
+        f"""
+        SELECT * FROM transactions
+        WHERE id = ? AND user_id = ? AND source_type IN ({placeholders})
+        """,
+        (transaction_id, current_user_id, *sorted(INVOICE_PAYMENT_SOURCE_TYPES)),
+    ).fetchone()
+    if not payment:
+        return None
+    if conn.execute(
+        "SELECT 1 FROM transaction_attachments WHERE user_id = ? AND transaction_id = ?",
+        (current_user_id, transaction_id),
+    ).fetchone():
+        raise InvoiceConflictError(
+            "Este pagamento tem comprovante. Remova o comprovante antes de desfazer o pagamento."
+        )
+
+    invoice = parse_payment_source_id(payment["source_id"])
+    card = None
+    if invoice:
+        card = conn.execute(
+            "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
+            (invoice[0], current_user_id),
+        ).fetchone()
+
+    reopened = conn.execute(
+        """
+        UPDATE cc_expenses SET status = 'OPEN', paid_by = NULL
+        WHERE user_id = ? AND paid_by = ?
+        """,
+        (current_user_id, transaction_id),
+    ).rowcount
+    if card:
+        _, month, year = invoice
+        if not reopened:
+            reopened = conn.execute(
+                """
+                UPDATE cc_expenses SET status = 'OPEN'
+                WHERE user_id = ? AND card_id = ? AND invoice_month = ? AND invoice_year = ?
+                  AND status = 'PAID' AND paid_by IS NULL
+                """,
+                (current_user_id, card["id"], month, year),
+            ).rowcount
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO cc_invoice_manual (user_id, card_id, invoice_year, invoice_month)
+            VALUES (?, ?, ?, ?)
+            """,
+            (current_user_id, card["id"], year, month),
+        )
+    conn.execute(
+        "DELETE FROM transactions WHERE id = ? AND user_id = ?",
+        (transaction_id, current_user_id),
+    )
+    return {"transaction": payment, "reopened": reopened}
