@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle, ChevronDown, CreditCard, Paperclip, Plus, Trash2, Users } from 'lucide-react'
+import { CheckCircle, ChevronDown, CreditCard, Paperclip, Plus, Trash2, Undo2, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ccExpensesApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
@@ -15,7 +15,8 @@ import {
   Panel,
   cx,
 } from '../../components/ui'
-import { formatCurrency } from '../../lib/format'
+import { formatCurrency, formatSignedCurrency } from '../../lib/format'
+import { cardSignedAmount, isCardRefund } from '../../lib/transactions'
 import {
   formatDateBR,
   formatInvoiceLabel,
@@ -27,6 +28,7 @@ import ProjectionHeader from './ProjectionHeader'
 import PayInvoiceSheet from '../../components/PayInvoiceSheet'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import CardShareSheet from './CardShareSheet'
+import CardRefundSheet from './CardRefundSheet'
 import { shareSummary } from '../../lib/sharing'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
@@ -59,6 +61,8 @@ export default function Cartoes() {
   const [attachmentsFor, setAttachmentsFor] = useState(null)
   // Compra com o "De quem é?" aberto (CardShareSheet).
   const [shareFor, setShareFor] = useState(null)
+  // Estorno sendo lancado (CardRefundSheet): { purchase } ou {} pelo topo.
+  const [refundFor, setRefundFor] = useState(null)
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
   // Cartoes com as faturas futuras desdobradas, por card_id.
@@ -95,7 +99,8 @@ export default function Cartoes() {
         }
       }
 
-      acc[cardKey].invoices[invoiceKey].total += parseFloat(expense.amount)
+      // Um estorno (033) abate a fatura.
+      acc[cardKey].invoices[invoiceKey].total += cardSignedAmount(expense)
 
       const purchaseKey = getPurchaseGroupKey(expense)
       const installment = parseInstallmentInfo(expense.installment_info)
@@ -111,6 +116,7 @@ export default function Cartoes() {
           category_raw: expense.category,
           purchase_date: expense.purchase_date,
           amount: parseFloat(expense.amount),
+          refund: isCardRefund(expense),
           installmentCurrent: installment.current,
           installmentTotal: installment.total,
           // A parcela desta fatura: "Dividida com Ana · sua parte" e da parcela.
@@ -195,6 +201,16 @@ export default function Cartoes() {
     }
   }
 
+  const handleDeleteRefund = async (purchase) => {
+    if (!(await confirmAction({ title: `Excluir o estorno "${purchase.description}"?`, message: 'O crédito sai da fatura.', confirmLabel: 'Excluir estorno' }))) return
+    try {
+      await ccExpensesApi.removeMany([purchase.id])
+      await fetchData()
+    } catch (error) {
+      setDataError(error.message || 'Não foi possível excluir o estorno.')
+    }
+  }
+
   const handleDeleteCCPurchase = async (purchase) => {
     if (!(await confirmAction({ title: `Excluir a compra "${purchase.description}"?`, message: 'Todas as parcelas dela saem das faturas.', confirmLabel: 'Excluir compra' }))) return
 
@@ -248,6 +264,7 @@ export default function Cartoes() {
   // Por que o botao Pagar esta (ou nao) ali, numa linha. Numa fatura futura
   // basta a data do fechamento; o "liberado depois" ja esta dito na primeira.
   const paymentHint = (invoice, cardGroup, future = false) => {
+    if (invoice.total < 0) return 'O crédito do estorno abate a próxima fatura'
     if (!invoice.closed) {
       if (!invoice.closingDate) return 'Pagamento liberado após o fechamento'
       return future
@@ -271,6 +288,9 @@ export default function Cartoes() {
   const headerActions = (
     <>
       <Button type="button" variant="secondary" icon={Plus} onClick={() => openNewEntry('CARD')}>Nova compra</Button>
+      {cards.length > 0 ? (
+        <Button type="button" variant="secondary" icon={Undo2} onClick={() => setRefundFor({})}>Estorno</Button>
+      ) : null}
       {canPayNearest ? (
         <Button
           type="button"
@@ -303,7 +323,7 @@ export default function Cartoes() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <p className="font-semibold text-zinc-950">{formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
-                {future ? null : getInvoiceStatus(invoice, cardGroup.dueDay)}
+                {invoice.total < 0 ? <Badge tone="success">Crédito</Badge> : future ? null : getInvoiceStatus(invoice, cardGroup.dueDay)}
                 {isNearest ? <Badge>Próxima</Badge> : null}
               </div>
               {/* No celular o valor desce para baixo do rotulo: ao lado, com o
@@ -313,7 +333,7 @@ export default function Cartoes() {
             </div>
           </button>
           <p className="num hidden whitespace-nowrap font-semibold text-zinc-950 sm:block">{formatCurrency(invoice.total)}</p>
-          {invoice.closed ? (
+          {invoice.closed && invoice.total >= 0 ? (
             <Button
               type="button"
               size="sm"
@@ -339,15 +359,36 @@ export default function Cartoes() {
                     ) : null}
                   </p>
                   <p className="truncate text-xs text-zinc-500">
-                    {purchase.category} · {formatDateBR(purchase.purchase_date)}
+                    {purchase.refund ? 'Estorno · ' : ''}{purchase.category} · {formatDateBR(purchase.purchase_date)}
                     {purchase.installmentTotal > 1 ? ` · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}` : ''}
                   </p>
                   {purchase.shareText ? <p className="truncate text-xs font-medium text-zinc-500">{purchase.shareText}</p> : null}
                 </div>
-                <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
+                {purchase.refund ? (
+                  <p className="num whitespace-nowrap font-semibold text-emerald-700">{formatSignedCurrency(purchase.amount)}</p>
+                ) : (
+                  <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
+                )}
                 <Menu
                   label={`Ações de ${purchase.description}`}
-                  items={[
+                  items={purchase.refund ? [
+                    {
+                      label: purchase.attachmentCount > 0 ? `Comprovantes (${purchase.attachmentCount})` : 'Comprovantes',
+                      icon: Paperclip,
+                      onSelect: () => setAttachmentsFor(purchase),
+                    },
+                    {
+                      label: 'Excluir estorno',
+                      icon: Trash2,
+                      tone: 'danger',
+                      onSelect: () => handleDeleteRefund(purchase),
+                    },
+                  ] : [
+                    {
+                      label: 'Registrar estorno',
+                      icon: Undo2,
+                      onSelect: () => setRefundFor({ purchase }),
+                    },
                     {
                       label: 'De quem é?',
                       icon: Users,
@@ -386,6 +427,12 @@ export default function Cartoes() {
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 
+      <CardRefundSheet
+        target={refundFor}
+        cards={cards}
+        onClose={() => setRefundFor(null)}
+        onSaved={fetchData}
+      />
       <CardShareSheet
         purchase={shareFor}
         onClose={() => setShareFor(null)}

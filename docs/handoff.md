@@ -7,45 +7,58 @@
 
 ---
 
-## Session — 2026-10-18 · Expense sharing (032) finished, checked, pushed
+## Session — 2026-10-18 · Card refunds (033) and "Disponível por dia" from the plan
 
-Owner: "finish last sessions work, it got interrupted, run checks on the changes it made and if
-everything is green commit and push it to main". The interrupted session had built expense
-sharing ("de quem é o gasto") but never committed it nor wrote its handoff. No session-scout
-(the task was the working tree itself).
+Owner: "make it so i can add a reinbursement to my card", then mid-session: "Disponível por dia
+should be the amount left in gastar in orçamento divided by the days of the month", then "commit
+and push to main when done". No session-scout (follow-up on fresh context).
 
 ### Done
-- Reviewed the uncommitted work and found it complete end to end: migration
-  `032_expense_share.sql` (+ `schema.sql`), `services/sharing.py`, `routes/receivables.py`
-  (`GET /api/receivables`, `POST /api/receivables/settle`), `PATCH /api/cc-expenses/<id>/share`,
-  share fields on `PATCH /api/transactions/<id>`, the owner's-part rule (`own_amount_sql()`) in
-  the budget and the monthly plan; frontend `lib/sharing.js`, `lib/cashFlow.js` (Início's cash
-  flow moved out of `Dashboard.jsx`, with "Outras pessoas" apart), `ShareFields` in the Extrato
-  edit, `CardShareSheet` from a purchase's menu in Cartões, the Lançamentos › A receber page.
-- Checks: **1126 pytest passed** (`test_expense_share.py` included), **73 node tests**, `vite
-  build` clean. Committed and pushed to `main` — which deploys the server (032 runs there) and,
-  because the earlier unpushed commits touch `frontend/android/`, builds the new APK too.
-- Docs: done-tasks row, CLAUDE.md (tests, convention), this handoff.
+- **Estorno no cartão** (migration `033_cc_refunds.sql`: `cc_expenses.kind` PURCHASE/REFUND +
+  `refund_of`). `POST /api/cc-expenses/refunds` (card, amount, date, description, optional
+  category/`refund_of`/`client_id`). Invoice rules in `services/invoices.py`: `signed_amount()`,
+  `invoice_open_lines()`, `refund_invoice()`; `settle_invoice()` debits the net, settles a zeroed
+  invoice without a lançamento, skips one in credit (manual pay → 409), and an earlier invoice in
+  credit is absorbed by the next payment. Budget and monthly plan subtract refunds; candidates,
+  the attachments sibling query and inbox matching ignore them; sharing a refund is refused.
+- Frontend: Cartões › purchase ⋯ "Registrar estorno" (prefilled with the purchase's total,
+  category and card) and an "Estorno" header button → `CardRefundSheet.jsx`. Refund rows show
+  green "+R$", an invoice in credit shows "Crédito" with no Pagar. All card sums (Início, flow,
+  projections, autopay warning, overdue) go through `cardSignedAmount()`.
+- **Disponível por dia** (Início): `progress.spend_remaining` of the month plan ÷ days left in
+  the month, today included. I read "divided by the days of the month" as the days *remaining* —
+  a per-day allowance over the whole month's days would undercount every day after the 1st; flip
+  `daysRemainingInMonth` in `Dashboard.jsx` if the owner meant all days. Without a plan the tile
+  keeps the old rule (balance − next invoice) and its old caption.
+- Checks: 1142 pytest passed, 74 node tests, `vite build` clean. Committed and pushed.
 
 ### Not done, and why
-- **Not tried in a browser or on the phone**: the request was checks + commit; the screens were
-  only built, not clicked through. Owner walk-through: Extrato → edit a despesa → "Dividida";
-  Cartões → ⋯ → "De quem é?"; A receber → mark paid; Início's flow shows "Outras pessoas".
-- Sharing is set only by editing; the "+ Novo" forms and Aprovar don't offer it (the previous
-  session's design, apparently — nothing half-built for it).
-- A receber's "paid" writes no money on purpose: the Pix the person sends is its own lançamento.
+- **Not clicked through in a browser or on the phone** — only built and tested. Walk-through:
+  Cartões → ⋯ on a purchase → Registrar estorno; check the invoice total drops; Início's daily tile
+  with and without a plan.
+- Aprovar's "estorno" detections still draft an INCOME lançamento, not a card refund. Wiring a
+  card-final estorno into `CardRefundSheet`'s endpoint is the natural next step once a real
+  estorno notification is captured.
+- An installment purchase's refund is one credit in one invoice (what most banks do); cancelling
+  the remaining installments instead is not offered.
 
 ### Next
-1. After the deploy: open A receber, Aprovar and Ajustes once to confirm 029–032 ran.
-2. Install the new APK ("Nova versão disponível"), then one Pix between own accounts, one to
+1. After the deploy: open A receber, Aprovar, Ajustes and Cartões once to confirm 029–033 ran.
+2. Owner walk-throughs above, plus the sharing ones still open: Extrato → edit a despesa →
+   "Dividida"; Cartões → ⋯ → "De quem é?"; A receber → mark paid.
+3. Install the new APK ("Nova versão disponível"), then one Pix between own accounts, one to
    someone else, one card purchase → check Aprovar (next-steps, first item).
-3. Keep capture on; the next export drives a parser pass (Samsung first).
+4. Keep capture on; the next export drives a parser pass (Samsung first).
+
+### Carried from the sharing session (2026-10-18)
+- Sharing is set only by editing; the "+ Novo" forms and Aprovar don't offer it.
+- A receber's "paid" writes no money on purpose: the Pix the person sends is its own lançamento.
 
 ### From the notification session (2026-10-17), still open
 - Not tried end to end on the phone; Samsung Wallet's purchase text never captured (its parser is
   a guess), same for credit/debit "final", declined, estorno, boleto, BTG Investimentos.
 - Mapping screen (Phase 6 step 5) and raw-text-to-inbox (step 6): not built, on purpose.
-- `schema.sql` still lacks the 028 tables and 031's columns (032 is in it).
+- `schema.sql` still lacks the 028 tables and 031's columns (032 and 033 are in it).
 - TWR: Tesouro mark-to-market, the 12-month window definition (owner to decide), AMER3 not added.
 - `adb` is at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`; the installed app is the
   release build, so `run-as` can't read `financas_notify.db` — captures come from the owner's

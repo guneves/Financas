@@ -11,7 +11,7 @@
 //
 // O saldo de fim de mes (balance) e o das contas de verdade: saldo inicial +
 // lancamentos, com o pagamento da fatura no dia em que saiu da conta.
-import { isInvestmentInflow, isInvestmentOutflow } from './transactions.js'
+import { isCardRefund, isInvestmentInflow, isInvestmentOutflow } from './transactions.js'
 import { othersAmount, ownAmount } from './sharing.js'
 
 const INVOICE_SOURCE_TYPES = ['CC_INVOICE_PAYMENT', 'CC_AUTOPAY']
@@ -55,6 +55,11 @@ export function buildMonthlyFlow({ transactions = [], ccExpenses = [], keys = []
   ccExpenses.forEach((expense) => {
     const month = byKey[String(expense.purchase_date || '').slice(0, 7)]
     if (!month) return
+    // O estorno (033) devolve gasto no mes dele; nunca e dividido.
+    if (isCardRefund(expense)) {
+      month.expense -= cents(expense.amount)
+      return
+    }
     month.expense += cents(ownAmount(expense))
     month.othersPaid += cents(othersAmount(expense))
   })

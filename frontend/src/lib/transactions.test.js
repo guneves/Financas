@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import {
   bankingAccounts,
   bankingTransactions,
+  cardSignedAmount,
   consolidatedBalance,
+  isCardRefund,
   isInvestmentInflow,
   isInvestmentOutflow,
   openingBalanceTotal,
@@ -63,4 +65,12 @@ test('the Corretora balance is summed apart, for the investments area', async ()
   const { portfolioCashBalance } = await import('./transactions.js')
   assert.equal(portfolioCashBalance(accounts), 7000)
   assert.equal(portfolioCashBalance(accounts.slice(0, 2)), 0)
+})
+
+test('a card refund subtracts from the invoice; a purchase adds', () => {
+  assert.equal(cardSignedAmount({ amount: 120.5 }), 120.5)
+  assert.equal(cardSignedAmount({ amount: 120.5, kind: 'PURCHASE' }), 120.5)
+  assert.equal(cardSignedAmount({ amount: '40', kind: 'REFUND' }), -40)
+  assert.equal(isCardRefund({ kind: 'REFUND' }), true)
+  assert.equal(isCardRefund({}), false)
 })

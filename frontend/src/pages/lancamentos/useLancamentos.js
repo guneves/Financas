@@ -9,7 +9,7 @@ import {
 import { useOutbox } from '../../lib/outbox'
 import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/queries'
-import { activeAccounts, consolidatedBalance } from '../../lib/transactions'
+import { activeAccounts, cardSignedAmount, consolidatedBalance } from '../../lib/transactions'
 import {
   buildCategoryOptions,
   filterCategoryOptions,
@@ -52,11 +52,11 @@ function projections(balance, ccExpenses) {
     nextYear += 1
   }
 
-  const totalOpenCredit = ccExpenses.reduce((acc, curr) => acc + Number(curr.amount || 0), 0)
+  const totalOpenCredit = ccExpenses.reduce((acc, curr) => acc + cardSignedAmount(curr), 0)
   const creditUpToNextMonth = ccExpenses.reduce((acc, curr) => {
     const isPastOrCurrent = curr.invoice_year < currentYear || (curr.invoice_year === currentYear && curr.invoice_month <= currentMonth)
     const isNextMonth = curr.invoice_year === nextYear && curr.invoice_month === nextMonth
-    return isPastOrCurrent || isNextMonth ? acc + Number(curr.amount || 0) : acc
+    return isPastOrCurrent || isNextMonth ? acc + cardSignedAmount(curr) : acc
   }, 0)
 
   return {

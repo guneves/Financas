@@ -99,6 +99,9 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   capture on and bring a new "Exportar JSON"; anything mis-read becomes a `NotifyParsersTest`
   case first. Not answered by the export either: whether a bank *updates* a notification (new
   posted time, same key).
+- [ ] **Card estorno from Aprovar.** A card refund exists now (033, `POST /api/cc-expenses/refunds`),
+  but an estorno detection still drafts an INCOME lançamento. Once a real estorno capture shows
+  the card final, approve it as a card refund instead.
 - [ ] **Bank × Samsung Wallet window**: the server pairs them (`services/inbox.py`, 10 min, bank
   wins). From an export with both notifications of the same purchase, show the owner the lag and
   tune `NOTIFY_WINDOW_MS` (and `NotifyPairing.DEFAULT_WINDOW_MS`, kept equal). The phone-side

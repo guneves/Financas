@@ -4,7 +4,8 @@ As regras moram aqui para que o front nunca tenha uma copia:
 - `compute_invoice_start()` decide em que fatura cai uma compra;
 - `invoice_closing_date()` decide quando ela fecha — so fatura fechada e paga
   (`ensure_invoice_closed()` guarda todo caminho que marca PAID);
-- `settle_invoice()` grava o pagamento e o PAID dos itens juntos;
+- `settle_invoice()` grava o pagamento e o PAID dos itens juntos (um estorno,
+  033, abate: `signed_amount()`);
 - `apply_due_autopay()` materializa o debito automatico na leitura.
 
 `local_today()` e o relogio: os testes o congelam com monkeypatch aqui e em
@@ -183,6 +184,47 @@ def ensure_invoice_closed(card, invoice_month, invoice_year, today=None):
         )
 
 
+REFUND_KIND = "REFUND"
+
+
+def signed_amount(row):
+    """Valor de uma linha da fatura com sinal: o estorno (033) abate."""
+    amount = Decimal(str(row["amount"] or 0))
+    return -amount if row["kind"] == REFUND_KIND else amount
+
+
+def signed_amount_sql(prefix=""):
+    """O sinal de `signed_amount()` em SQL, para multiplicar um valor da linha."""
+    return f"(CASE {prefix}kind WHEN '{REFUND_KIND}' THEN -1 ELSE 1 END)"
+
+
+def invoice_open_lines(conn, current_user_id, card_id, invoice_month, invoice_year):
+    """Itens em aberto que o pagamento da fatura baixa, e o total liquido.
+
+    Os da propria fatura e, de faturas anteriores que ficaram com credito
+    (estorno maior que as compras), os itens delas: o credito abate esta.
+    """
+    target = (int(invoice_year), int(invoice_month))
+    rows = conn.execute(
+        """
+        SELECT id, amount, kind, invoice_month, invoice_year FROM cc_expenses
+        WHERE user_id = ? AND card_id = ? AND status = 'OPEN'
+          AND (invoice_year < ? OR (invoice_year = ? AND invoice_month <= ?))
+        """,
+        (current_user_id, card_id, target[0], target[0], target[1]),
+    ).fetchall()
+    by_invoice = {}
+    for row in rows:
+        by_invoice.setdefault((row["invoice_year"], row["invoice_month"]), []).append(row)
+    if target not in by_invoice:
+        return [], Decimal("0")
+    lines = []
+    for key, group in by_invoice.items():
+        if key == target or sum(signed_amount(line) for line in group) < 0:
+            lines.extend(group)
+    return lines, sum(signed_amount(line) for line in lines)
+
+
 def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
                    account_id, payment_date, source_type, source_id):
     """Paga os itens em aberto de uma fatura: um EXPENSE na conta + status PAID.
@@ -190,19 +232,23 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
     As duas coisas acontecem na mesma transacao do banco. Devolve o lancamento
     criado, ou None quando nao havia nada em aberto ou quando o source_id ja
     existia (outra chamada pagou primeiro) — nesse caso nada e alterado.
+    Fatura com credito (total negativo) nao e paga: o credito fica para a
+    proxima. Fatura zerada por estorno e baixada sem lancamento (None).
     """
-    lines = conn.execute(
-        """
-        SELECT id, amount FROM cc_expenses
-        WHERE user_id = ? AND card_id = ? AND invoice_month = ? AND invoice_year = ?
-          AND status = 'OPEN'
-        """,
-        (current_user_id, card["id"], int(invoice_month), int(invoice_year)),
-    ).fetchall()
-    if not lines:
+    lines, total = invoice_open_lines(conn, current_user_id, card["id"], invoice_month, invoice_year)
+    if not lines or total < 0:
+        return None
+    total = rounded_money(total)
+
+    line_ids = [line["id"] for line in lines]
+    placeholders = ",".join("?" for _ in line_ids)
+    if total == 0:
+        conn.execute(
+            f"UPDATE cc_expenses SET status = 'PAID' WHERE user_id = ? AND id IN ({placeholders})",
+            [current_user_id, *line_ids],
+        )
         return None
 
-    total = rounded_money(sum(Decimal(str(line["amount"])) for line in lines))
     transaction_id = new_id()
     cursor = conn.execute(
         """
@@ -226,8 +272,6 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
     if not cursor.rowcount:
         return None
 
-    line_ids = [line["id"] for line in lines]
-    placeholders = ",".join("?" for _ in line_ids)
     conn.execute(
         f"UPDATE cc_expenses SET status = 'PAID' WHERE user_id = ? AND id IN ({placeholders})",
         [current_user_id, *line_ids],
@@ -236,6 +280,28 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
         "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
         (transaction_id, current_user_id),
     ).fetchone()
+
+
+def refund_invoice(conn, current_user_id, card, refund_date):
+    """Fatura em que um estorno cai: a da data, ou a primeira depois dela que
+    ainda nao foi paga — um credito numa fatura ja quitada iria para o nada.
+    """
+    start = compute_invoice_start(refund_date, card["due_day"], card["closing_day"])
+    month, year = start["invoice_month"], start["invoice_year"]
+    for _ in range(120):
+        row = conn.execute(
+            """
+            SELECT SUM(CASE WHEN status = 'PAID' THEN 1 ELSE 0 END) AS paid,
+                   SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) AS open
+            FROM cc_expenses
+            WHERE user_id = ? AND card_id = ? AND invoice_month = ? AND invoice_year = ?
+            """,
+            (current_user_id, card["id"], month, year),
+        ).fetchone()
+        if not row["paid"] or row["open"]:
+            break
+        month, year = add_invoice_months(month, year, 1)
+    return {"invoice_month": month, "invoice_year": year}
 
 
 def autopay_source_id(card_id, invoice_month, invoice_year):

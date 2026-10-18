@@ -15,6 +15,7 @@ from dates import month_key
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from services.accounts import fetch_category
+from services.invoices import signed_amount_sql
 from services.sharing import own_amount_sql
 from source_types import INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
@@ -79,7 +80,8 @@ def budget_spend_by_category(conn, current_user_id, month):
     ).fetchall()
     card_rows = conn.execute(
         f"""
-        SELECT 'EXPENSE' AS type, NULL AS category_id, category, SUM({own_amount_sql()}) AS total
+        SELECT 'EXPENSE' AS type, NULL AS category_id, category,
+               SUM({signed_amount_sql()} * {own_amount_sql()}) AS total
         FROM cc_expenses
         WHERE user_id = ?
           AND substr(purchase_date, 1, 7) = ?

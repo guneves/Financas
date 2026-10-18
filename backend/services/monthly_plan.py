@@ -28,7 +28,7 @@ from money import rounded_money
 from services.contributions import movement_flow
 from services.goals import list_goals
 from services.investments import fetch_investments, investment_operation_date
-from services.invoices import local_today
+from services.invoices import local_today, signed_amount_sql
 from services.sharing import own_amount_sql
 from source_types import INVESTMENT_CASH_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
@@ -90,7 +90,7 @@ def month_banking_totals(conn, current_user_id, month):
     ).fetchone()
     card = conn.execute(
         f"""
-        SELECT SUM({own}) AS spent FROM cc_expenses
+        SELECT SUM({signed_amount_sql()} * {own}) AS spent FROM cc_expenses
         WHERE user_id = ? AND substr(purchase_date, 1, 7) = ?
         """,
         (current_user_id, month),

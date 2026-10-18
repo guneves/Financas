@@ -28,7 +28,7 @@ import {
   Target,
   Wallet,
 } from 'lucide-react'
-import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from '../lib/dataApi'
+import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, monthlyPlanApi, recurringApi, transactionsApi } from '../lib/dataApi'
 import { useOutbox } from '../lib/outbox'
 import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../lib/queries'
@@ -66,7 +66,7 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, isPortfolioAccount, bankingTransactions, consolidatedBalance, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, isPortfolioAccount, bankingTransactions, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { buildMonthlyFlow, isInvoicePayment } from '../lib/cashFlow'
 import { ownAmount } from '../lib/sharing'
@@ -141,10 +141,11 @@ function buildSpending(transactions, ccExpenses, key) {
     if (!purchases[groupKey]) {
       purchases[groupKey] = { day: Number(expense.purchase_date.slice(8, 10)), category: expense.category, amount: 0 }
     }
-    purchases[groupKey].amount += ownAmount(expense)
+    // O estorno (033) abate a categoria no dia dele.
+    purchases[groupKey].amount += isCardRefund(expense) ? cardSignedAmount(expense) : ownAmount(expense)
   })
   Object.values(purchases).forEach((purchase) => {
-    if (purchase.amount > 0) add(purchase.day, purchase.category, 'credit', purchase.amount)
+    if (purchase.amount !== 0) add(purchase.day, purchase.category, 'credit', purchase.amount)
   })
 
   const total = Object.values(byDay).reduce((acc, value) => acc + value, 0)
@@ -190,6 +191,8 @@ export default function Dashboard() {
   // Orcamento do mes para a faixa de orcamento.
   const budgetMonth = monthKey(new Date())
   const budgetQuery = useQuery({ queryKey: ['inicio', 'orcamento', budgetMonth], queryFn: () => budgetsApi.month(budgetMonth) })
+  // Plano do mes (Orcamento): o "Ainda pode gastar" vira o Disponivel por dia.
+  const planQuery = useQuery({ queryKey: ['plano-do-mes', budgetMonth], queryFn: () => monthlyPlanApi.month(budgetMonth) })
 
   // Lancamentos guardados no aparelho, ainda sem chegar ao servidor
   // (lib/outbox.js): entram nas contas e no mes como em Lancamentos, e o
@@ -376,7 +379,7 @@ export default function Dashboard() {
   }), [openCcExpenses, nextKey])
 
   const currentMonthInvoice = useMemo(
-    () => nextInvoiceItems.reduce((acc, curr) => acc + parseFloat(curr.amount), 0),
+    () => nextInvoiceItems.reduce((acc, curr) => acc + cardSignedAmount(curr), 0),
     [nextInvoiceItems]
   )
 
@@ -389,9 +392,10 @@ export default function Dashboard() {
       if (!byCard[item.card_id]) {
         byCard[item.card_id] = { card_id: item.card_id, invoice_month: item.invoice_month, invoice_year: item.invoice_year, total: 0 }
       }
-      byCard[item.card_id].total += parseFloat(item.amount)
+      byCard[item.card_id].total += cardSignedAmount(item)
     })
-    return Object.values(byCard)
+    // Fatura com credito de estorno nao se paga (o servidor recusa).
+    return Object.values(byCard).filter((invoice) => invoice.total >= 0)
   }, [nextInvoiceItems])
 
   const payableTotal = payableInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
@@ -415,10 +419,12 @@ export default function Dashboard() {
           count: 0,
         }
       }
-      byInvoice[key].total += parseFloat(item.amount)
+      byInvoice[key].total += cardSignedAmount(item)
       byInvoice[key].count += 1
     })
-    return Object.values(byInvoice).sort((a, b) => a.due_date.localeCompare(b.due_date))
+    return Object.values(byInvoice)
+      .filter((invoice) => invoice.total > 0)
+      .sort((a, b) => a.due_date.localeCompare(b.due_date))
   }, [openCcExpenses])
 
   const overdueTotal = overdueInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
@@ -446,7 +452,7 @@ export default function Dashboard() {
       const due = item.invoice_due_date
       if (!accountId || !due || due < todayText || due > limitText) return
       if (!byAccount[accountId]) byAccount[accountId] = { accountId, total: 0, firstDue: due }
-      byAccount[accountId].total += parseFloat(item.amount) || 0
+      byAccount[accountId].total += cardSignedAmount(item)
       if (due < byAccount[accountId].firstDue) byAccount[accountId].firstDue = due
     })
     return Object.values(byAccount)
@@ -476,7 +482,7 @@ export default function Dashboard() {
     const byKey = Object.fromEntries(keys.map((key) => [key, 0]))
     openCcExpenses.forEach((expense) => {
       const key = `${expense.invoice_year}-${String(expense.invoice_month).padStart(2, '0')}`
-      if (key in byKey) byKey[key] += parseFloat(expense.amount) || 0
+      if (key in byKey) byKey[key] += cardSignedAmount(expense)
     })
     return keys.map((key) => ({ key, label: shortMonth(key), value: Number(byKey[key].toFixed(2)) }))
   }, [openCcExpenses, nextKey])
@@ -591,7 +597,11 @@ export default function Dashboard() {
   }
 
   const daysRemainingInMonth = getDaysRemainingInMonth()
-  const dailyAvailable = (bankBalance - currentMonthInvoice) / daysRemainingInMonth
+  // Com plano do mes: o que ainda pode gastar nele, pelos dias que faltam
+  // (hoje incluido). Sem plano: o saldo menos a proxima fatura, como antes.
+  const planSpendRemaining = planQuery.data?.plan ? Number(planQuery.data.progress?.spend_remaining) : null
+  const hasSpendPlan = Number.isFinite(planSpendRemaining)
+  const dailyAvailable = (hasSpendPlan ? planSpendRemaining : bankBalance - currentMonthInvoice) / daysRemainingInMonth
   const paceMonths = spendingPace.months.length
   const paceDifference = spendingPace.currentToDate - spendingPace.averageToDate
   const spendingVsAverage = paceMonths > 0 ? percentChange(spendingPace.currentToDate, spendingPace.averageToDate) : null
@@ -650,6 +660,7 @@ export default function Dashboard() {
             value={dailyAvailable}
             day={today.getDate()}
             daysLeft={daysRemainingInMonth}
+            fromPlan={hasSpendPlan}
           />
           <NextInvoiceTile
             total={currentMonthInvoice}
@@ -1160,7 +1171,7 @@ function BalanceHero({ total, accounts, monthName, result, income, expense, inve
 // "setembro de 2026" -> "Setembro de 2026" (o capitalize do CSS pega o "De").
 const sentenceCase = (text = '') => text.charAt(0).toUpperCase() + text.slice(1)
 
-function DailyTile({ value, day, daysLeft }) {
+function DailyTile({ value, day, daysLeft, fromPlan }) {
   const privateMoney = usePrivateFormatter(formatCurrency)
   return (
     <Panel className="flex flex-col justify-between gap-4 p-5 sm:p-6">
@@ -1169,7 +1180,11 @@ function DailyTile({ value, day, daysLeft }) {
         <p className={cx('mt-1 whitespace-nowrap text-3xl font-extrabold tracking-tight tabular', value < 0 ? 'text-rose-600' : 'text-zinc-950')}>
           {privateMoney(value)}
         </p>
-        <p className="mt-1 text-sm text-zinc-500">Saldo menos a próxima fatura, por {daysLeft} dia(s)</p>
+        <p className="mt-1 text-sm text-zinc-500">
+          {fromPlan ? (
+            <>O que resta para gastar no <Link to="/planejamento/orcamento" className="font-semibold underline-offset-2 hover:underline">plano do mês</Link>, por {daysLeft} dia(s)</>
+          ) : `Saldo menos a próxima fatura, por ${daysLeft} dia(s)`}
+        </p>
       </div>
       <MonthProgress day={day} daysLeft={daysLeft} />
     </Panel>

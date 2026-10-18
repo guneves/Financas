@@ -450,7 +450,10 @@ CREATE TABLE IF NOT EXISTS cc_expenses (
     share_mode TEXT CHECK (share_mode IN ('OTHERS', 'SPLIT')),
     share_others_amount REAL CHECK (share_others_amount >= 0),
     share_person TEXT,
-    share_settled_at TEXT
+    share_settled_at TEXT,
+    -- 033: estorno (credito na fatura); amount positivo, o sinal vem de kind.
+    kind TEXT NOT NULL DEFAULT 'PURCHASE' CHECK (kind IN ('PURCHASE', 'REFUND')),
+    refund_of TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_client

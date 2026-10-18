@@ -1058,7 +1058,7 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
         sql = """
             SELECT id, purchase_date AS date, amount, installment_info, card_id FROM cc_expenses e
             WHERE user_id = ? AND purchase_date BETWEEN ? AND ?
-              AND installment_info LIKE '1/%'
+              AND installment_info LIKE '1/%' AND kind = 'PURCHASE'
         """
         params = [current_user_id, start, end]
         if card_id:
