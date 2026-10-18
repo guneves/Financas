@@ -276,6 +276,11 @@ export const systemApi = {
 // A sincronizacao automatica esta em lib/pluggySync.js.
 export const pluggyApi = {
   status: () => apiFetch('/api/pluggy'),
+  // O token do Pluggy Connect; com itemRowId, reconecta aquela conexao.
+  connectToken: (itemRowId) => apiFetch('/api/pluggy/connect-token', {
+    method: 'POST',
+    body: JSON.stringify(itemRowId ? { item_row_id: itemRowId } : {})
+  }),
   addItem: (itemId) => apiFetch('/api/pluggy/items', {
     method: 'POST',
     body: JSON.stringify({ item_id: itemId })

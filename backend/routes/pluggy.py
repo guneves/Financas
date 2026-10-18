@@ -88,6 +88,32 @@ def pluggy_status(current_user_id):
     return jsonify(body), 200
 
 
+@bp.route("/api/pluggy/connect-token", methods=["POST"])
+@token_required
+def pluggy_connect_token(current_user_id):
+    """O token do Pluggy Connect, o widget em que o dono conecta o banco.
+
+    Com `item_row_id` (uma conexao ja cadastrada, do proprio usuario), o widget
+    reconecta aquela conexao em vez de criar outra.
+    """
+    payload = parse_json_body()
+    item_id = None
+    item_row_id = payload.get("item_row_id")
+    if item_row_id:
+        with get_db() as conn:
+            row = fetch_item(conn, current_user_id, str(item_row_id))
+        if row is None:
+            return jsonify({"error": "Conexao nao encontrada."}), 404
+        item_id = row["item_id"]
+    if not pluggy_client.is_configured():
+        return validation_error(pluggy_client.not_configured_message())
+    try:
+        token = pluggy_client.create_connect_token(item_id)
+    except pluggy_client.PluggyError as exc:
+        return jsonify({"error": f"A Pluggy nao respondeu: {exc}"}), 502
+    return jsonify({"access_token": token, "item_id": item_id}), 200
+
+
 @bp.route("/api/pluggy/items", methods=["POST"])
 @token_required
 def add_pluggy_item(current_user_id):

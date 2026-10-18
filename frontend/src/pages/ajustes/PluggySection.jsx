@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Landmark, Link2, Plus, RefreshCw, Trash2, Unlink } from 'lucide-react'
+import { KeyRound, Landmark, Link2, Plus, RefreshCw, Trash2, Unlink } from 'lucide-react'
 import { accountsApi, creditCardsApi, pluggyApi } from '../../lib/dataApi'
 import {
   AlertMessage,
@@ -19,6 +19,8 @@ import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/que
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
 import { syncPluggy } from '../../lib/pluggySync'
+import { openPluggyConnect } from '../../lib/pluggyConnect'
+import { useIsDark } from '../../lib/theme'
 import { useInboxCount } from '../../lib/inboxCount'
 import { pendingNoticeText } from '../../lib/inboxRules'
 import { APROVAR_PATH } from '../../lib/navigation'
@@ -142,7 +144,7 @@ function ItemAccounts({ item, accounts, cards, onError }) {
   )
 }
 
-function ItemRow({ item, accounts, cards, onRemove, onError }) {
+function ItemRow({ item, accounts, cards, onRemove, onReconnect, reconnecting, onError }) {
   const [open, setOpen] = useState(false)
   return (
     <li className="space-y-3 px-4 py-3">
@@ -155,7 +157,10 @@ function ItemRow({ item, accounts, cards, onRemove, onError }) {
           </p>
           {item.last_error ? <p className="mt-1 text-xs text-zinc-600">Última falha: {item.last_error}</p> : null}
         </div>
-        <IconButton label="Remover conexão" icon={Trash2} variant="danger" size="sm" onClick={() => onRemove(item)} />
+        <div className="flex shrink-0 gap-1">
+          <IconButton label="Reconectar no banco" icon={KeyRound} size="sm" onClick={() => onReconnect(item)} disabled={reconnecting} />
+          <IconButton label="Remover conexão" icon={Trash2} variant="danger" size="sm" onClick={() => onRemove(item)} />
+        </div>
       </div>
       <Collapsible label="Contas desta conexão" variant="secondary" size="sm" open={open} onOpenChange={setOpen}>
         {open ? <ItemAccounts item={item} accounts={accounts} cards={cards} onError={onError} /> : null}
@@ -174,6 +179,9 @@ export default function PluggySection() {
   const [formOpen, setFormOpen] = useState(false)
   const [itemId, setItemId] = useState('')
   const [adding, setAdding] = useState(false)
+  // O id da conexao que o widget da Pluggy esta conectando ('new' para uma nova).
+  const [connecting, setConnecting] = useState('')
+  const dark = useIsDark()
 
   const statusQuery = useQuery({ queryKey: ['pluggy'], queryFn: () => pluggyApi.status() })
   const status = statusQuery.data
@@ -225,6 +233,33 @@ export default function PluggySection() {
       setError(addError.message || 'Não foi possível cadastrar a conexão.')
     } finally {
       setAdding(false)
+    }
+  }
+
+  // Abre o Pluggy Connect; uma conexao nova e cadastrada sozinha ao terminar.
+  const handleConnect = async (existing) => {
+    setConnecting(existing?.id || 'new')
+    setError('')
+    try {
+      const item = await openPluggyConnect({ itemRowId: existing?.id, dark })
+      if (!item) return
+      if (existing) {
+        await invalidateServerData()
+        toast(`${existing.connector_name || 'Conexão'} reconectada.`)
+        return
+      }
+      try {
+        const row = await pluggyApi.addItem(item.id)
+        toast(`${row.connector_name ? `Conexão ${row.connector_name}` : 'Conexão'} cadastrada. Agora ligue as contas dela.`)
+      } catch (addError) {
+        // A Pluggy pode devolver uma conexao que ja estava aqui.
+        if (addError.status !== 409) throw addError
+        toast('Esta conexão já estava cadastrada; ela foi atualizada na Pluggy.')
+      }
+    } catch (connectError) {
+      setError(connectError.message || 'Não foi possível abrir o Pluggy Connect.')
+    } finally {
+      setConnecting('')
     }
   }
 
@@ -300,19 +335,32 @@ export default function PluggySection() {
             {items.length ? (
               <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
                 {items.map((item) => (
-                  <ItemRow key={item.id} item={item} accounts={accounts} cards={cards} onRemove={handleRemove} onError={setError} />
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    accounts={accounts}
+                    cards={cards}
+                    onRemove={handleRemove}
+                    onReconnect={handleConnect}
+                    reconnecting={Boolean(connecting)}
+                    onError={setError}
+                  />
                 ))}
               </ul>
             ) : (
               <EmptyState
                 icon={Landmark}
                 title="Nenhuma conexão"
-                message="Conecte o banco na Pluggy (MeuPluggy ou o painel da Pluggy) e cole aqui o id da conexão (item)."
+                message="Conecte um banco: você escolhe a instituição e autoriza o Open Finance na tela da Pluggy."
                 className="min-h-40"
               />
             )}
 
-            <Collapsible label="Nova conexão" icon={Plus} open={formOpen} onOpenChange={setFormOpen}>
+            <Button icon={Plus} onClick={() => handleConnect()} loading={connecting === 'new'} disabled={Boolean(connecting)} className="w-full sm:w-auto">
+              Conectar banco
+            </Button>
+
+            <Collapsible label="Colar o id de uma conexão" variant="secondary" size="sm" open={formOpen} onOpenChange={setFormOpen}>
               <form onSubmit={handleAdd} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-[1fr_auto]">
                 <Field label="Id da conexão (item) na Pluggy" hint="Um código como 1a2b3c4d-…; a Pluggy mostra ao conectar o banco.">
                   <input

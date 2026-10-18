@@ -101,6 +101,7 @@ EXPECTED_ROUTES = {
     ("/api/transfers", "POST"),
     # Pluggy (routes/pluggy.py, 027).
     ("/api/pluggy", "GET"),
+    ("/api/pluggy/connect-token", "POST"),
     ("/api/pluggy/items", "POST"),
     ("/api/pluggy/items/<item_row_id>", "DELETE"),
     ("/api/pluggy/items/<item_row_id>/accounts", "GET"),

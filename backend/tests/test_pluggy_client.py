@@ -238,3 +238,24 @@ class TestHttp:
         monkeypatch.setattr(pluggy_client, "_open", http)
         with pytest.raises(pluggy_client.PluggyResponseError):
             pluggy_client.list_accounts("item-1")
+
+    def test_the_connect_token_is_a_post_with_the_item_to_update(self, configured, monkeypatch):
+        bodies = []
+
+        def connect_token(req, _query):
+            assert req.get_method() == "POST"
+            assert req.get_header("X-api-key") == "chave"
+            bodies.append(json.loads(req.data))
+            return {"accessToken": "token-do-connect"}
+
+        http = FakeHttp({"/auth": {"apiKey": "chave"}, "/connect_token": connect_token})
+        monkeypatch.setattr(pluggy_client, "_open", http)
+        assert pluggy_client.create_connect_token() == "token-do-connect"
+        assert pluggy_client.create_connect_token("item-1") == "token-do-connect"
+        assert bodies == [{}, {"itemId": "item-1"}]
+
+    def test_a_connect_token_answer_without_the_token_is_an_error(self, configured, monkeypatch):
+        http = FakeHttp({"/auth": {"apiKey": "chave"}, "/connect_token": {"oops": True}})
+        monkeypatch.setattr(pluggy_client, "_open", http)
+        with pytest.raises(pluggy_client.PluggyResponseError):
+            pluggy_client.create_connect_token()

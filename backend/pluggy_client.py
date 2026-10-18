@@ -224,14 +224,22 @@ def get_api_key(force=False):
 def _get(path, params=None):
     """GET autenticado; num 401/403 pede outra apiKey e tenta uma vez mais."""
     query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
-    url = base_url() + path + (f"?{query}" if query else "")
+    return _request("GET", path + (f"?{query}" if query else ""))
+
+
+def _post(path, body):
+    return _request("POST", path, body)
+
+
+def _request(method, path, body=None):
+    url = base_url() + path
+    data = None if body is None else json.dumps(body).encode("utf-8")
     for attempt in (0, 1):
         key = get_api_key(force=attempt == 1)
-        req = urllib.request.Request(
-            url,
-            headers={"X-API-KEY": key, "Accept": "application/json"},
-            method="GET",
-        )
+        headers = {"X-API-KEY": key, "Accept": "application/json"}
+        if data is not None:
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             return _decode(_open(req, REQUEST_TIMEOUT_SECONDS))
         except PluggyHTTPError as exc:
@@ -387,6 +395,21 @@ def parse_transaction(raw, account_type="BANK"):
 # ---------------------------------------------------------------------------
 # Chamadas
 # ---------------------------------------------------------------------------
+
+def create_connect_token(item_id=None):
+    """O token de curta duracao do Pluggy Connect (`POST /connect_token`).
+
+    E o que a tela entrega ao widget da Pluggy, onde o dono escolhe o banco e
+    da o consentimento do Open Finance; a apiKey nunca sai do backend. Com
+    `item_id`, o widget abre no modo de atualizacao daquela conexao
+    (consentimento vencido, senha trocada).
+    """
+    payload = _post("/connect_token", {"itemId": item_id} if item_id else {})
+    token = payload.get("accessToken") if isinstance(payload, dict) else None
+    if not token:
+        raise PluggyResponseError("A Pluggy nao devolveu o token do Connect.")
+    return token
+
 
 def get_item(item_id):
     return parse_item(_get(f"/items/{urllib.parse.quote(str(item_id), safe='')}"))

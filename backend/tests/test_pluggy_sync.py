@@ -234,6 +234,37 @@ class TestWithoutCredentials:
         assert "PLUGGY_CLIENT_ID" in response.get_json()["error"]
 
 
+class TestConnectToken:
+    def test_it_needs_the_credentials(self, client, auth):
+        response = client.post("/api/pluggy/connect-token", json={}, headers=auth)
+        assert response.status_code == 400
+        assert "PLUGGY_CLIENT_ID" in response.get_json()["error"]
+
+    def test_a_new_connection_gets_a_token(self, client, auth, pluggy, monkeypatch):
+        asked = []
+        monkeypatch.setattr(pluggy_client, "create_connect_token", lambda item_id=None: asked.append(item_id) or "tok")
+        response = client.post("/api/pluggy/connect-token", json={}, headers=auth)
+        assert response.status_code == 200
+        assert response.get_json() == {"access_token": "tok", "item_id": None}
+        assert asked == [None]
+
+    def test_reconnecting_sends_the_items_pluggy_id(self, client, auth, pluggy, monkeypatch):
+        row = add_item(client, auth)
+        asked = []
+        monkeypatch.setattr(pluggy_client, "create_connect_token", lambda item_id=None: asked.append(item_id) or "tok")
+        response = client.post("/api/pluggy/connect-token", json={"item_row_id": row}, headers=auth)
+        assert response.status_code == 200
+        assert asked == [ITEM]
+
+    def test_another_users_item_is_not_found(self, client, auth, other_user, pluggy, monkeypatch):
+        row = add_item(client, auth)
+        monkeypatch.setattr(pluggy_client, "create_connect_token", lambda item_id=None: pytest.fail("foi a Pluggy"))
+        response = client.post(
+            "/api/pluggy/connect-token", json={"item_row_id": row}, headers=other_user["headers"],
+        )
+        assert response.status_code == 404
+
+
 class TestConnections:
     def test_an_item_is_checked_on_pluggy(self, client, auth, pluggy, monkeypatch):
         def missing(_item_id):
