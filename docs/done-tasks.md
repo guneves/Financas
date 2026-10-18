@@ -119,6 +119,9 @@
 | Corretora balance only in Investimentos: out of "Saldo em conta" (Início), the Extrato's "Saldo em contas", Ajustes › Contas ("Em Investimentos"), the invoice-payment sheet and the autopay warning; Início turns a transfer into the Corretora into an aporte; Posição shows "Saldo na corretora". `lib/transactions.test.js` (6 tests); phone-width walk on a scratch database; APK screen bundle built at native level 2 | 2026-10-17 |
 | Samsung Wallet, Itaú Cartões and Ourocard off the notification allow-list (owner: they repeat purchases the bank apps already notify): `NotifyRules.APPS`, the manifest `<queries>`, a JVM test that they are ignored, the Ajustes text | 2026-10-17 |
 | Samsung Wallet back on the notification allow-list as a fallback source (capture only; pairing with the bank app planned in `docs/prompts/notifications-pluggy-integration.md`) | 2026-10-17 |
+| Bank × Samsung Wallet pairing rule, pure Java (`notify/NotifyPairing.java`): same amount to the cent, card that does not contradict, 10-min window (inclusive); Samsung held then promoted, bank wins and takes the suggestion's place with the first detection's `client_id`, late bank after confirm is MATCHED, a bank decline cancels an unconfirmed Samsung. 30 JVM tests (`NotifyPairingTest`). **Not wired**: no parser, store table or WorkManager yet | 2026-10-18 |
+| Pluggy on the server (027, `pluggy_client.py`, `services/pluggy_sync.py`, `routes/pluggy.py`): connections, account/card links with `since`, sync with the ledger `pluggy_transactions`, attach to the owner's entry, "Possível duplicata", card purchases by the invoice rule with Pluggy's installments, PENDING waits, follows edits/deletions, healthcheck card; creation with `client_id` confirms an unconfirmed Pluggy row instead of adding one (`matched_bank`). 66 pytest | 2026-10-18 |
+| Pluggy screens: Ajustes › Banco (Pluggy) (connections, links, Sincronizar, review, differences), the Extrato's read-on-open, review notice and bank mark, the "+ Novo" toast. `lib/pluggyRules.test.js` (9 tests); walked in Chromium at 390/1280 px against a fake Pluggy | 2026-10-18 |
 
 ---
 
@@ -656,3 +659,38 @@ the stored ones.
 - JCP's 17,5% from 2026 (LC 224/2025) and the MP 1.303/2025 lapse were checked; the rate stays.
 - False alarm worth knowing: in a downscaled full-page screenshot "R$ 0,00" read as "R$ 0.00";
   reading the cell text showed the formatting was right.
+
+### Samsung Wallet pairing and Pluggy — 2026-10-18
+Asked as the prompt in `docs/prompts/notifications-pluggy-integration.md` (Parts A–C). Done in
+the cloud container: no Android SDK (pure Java compiled with `javac` + JUnit 4.13.2 + `org.json`
+from Maven Central), and **docs.pluggy.ai / api.pluggy.ai are blocked there** — the API was read
+from the official Python SDK on PyPI (`pluggy-sdk` 1.0.0.post73, generated from Pluggy's OpenAPI):
+`POST /auth` → `apiKey` sent as `X-API-KEY`; `GET /items/{id}`; `GET /accounts?itemId=`;
+`GET /transactions?accountId=&from=&to=&pageSize(≤500)=&page=`; `type` DEBIT/CREDIT already
+normalized (a card purchase is always DEBIT); `status` POSTED/PENDING (on a card, PENDING is the
+open bill); `creditCardMetadata.installmentNumber/totalInstallments/purchaseDate`.
+- **The ledger is the idempotency key.** Every Pluggy transaction gets a `pluggy_transactions` row
+  saying what became of it, so a re-sync writes nothing new, an entry the owner deletes does not
+  come back, and a transfer can be "confirmed" by two bank rows (one per side) without touching
+  it. `external_id` on the row marks only one-to-one confirmations.
+- **What can be confirmed automatically**: typed rows (with or without `client_id`), statement
+  imports and recurrence occurrences — the prompt named the first two; recurrences were added
+  because a materialized rent/salary is the same money the bank posts. Transfers, invoice
+  payments, investment cash and proventos are never touched: a bank row that looks like one goes
+  to review, so it is neither doubled nor merged.
+- **The reverse path returns 200, not the prompt's 409.** A creation with `client_id` that
+  matches an unconfirmed Pluggy row (same account/type/amount, ±3 days; card: same card,
+  installments and total) sets the `client_id` on that row, applies the owner's category and
+  description, keeps the bank's amount and date, and answers 200 with `matched_bank: true`. A 409
+  would leave the item "needs attention" in the native queue with the app closed and needed an
+  override for two real same-amount purchases; with the claim, a second same-amount purchase finds
+  no unconfirmed bank row and is created, and Pluggy's second row later confirms it.
+- **Order inside a sync**: what vanished from Pluggy is handled before the new rows, so a PENDING
+  that settles under a new id frees the owner-confirmed row (turned manual) and the POSTED row
+  confirms it — one entry, the owner's category kept.
+- **Bank decline vs Samsung decline**: the prompt said a DECLINED from either source cancels the
+  counterpart; the rule lets only the bank's decline cancel (an unconfirmed Samsung), because the
+  bank wins and a lost real purchase costs more than one extra suggestion.
+- `from` is requested one day early (the SDK calls it "greater than"); a failed account is never
+  compared, so a network failure is not read as deletions. `POST /api/pluggy/sync` is not a "write"
+  for `lib/api.js`: the cache is invalidated only when the server reports a change.

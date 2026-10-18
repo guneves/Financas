@@ -895,7 +895,9 @@ def resolve_review(conn, current_user_id, ledger_id, action, target_id=None):
         chosen = next((item for item in candidates if item.get("id") == target_id), None)
         if not chosen:
             raise ValidationError("Escolha um dos lancamentos parecidos.")
-        table = chosen["table"]
+        table = chosen.get("table")
+        if table not in ("transactions", "cc_expenses"):
+            raise ValidationError("Escolha um dos lancamentos parecidos.")
         target = conn.execute(
             f"SELECT id, external_id FROM {table} WHERE id = ? AND user_id = ?",
             (target_id, current_user_id),

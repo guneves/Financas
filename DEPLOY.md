@@ -135,8 +135,10 @@ Anyone who logs in as `<user>` can then run docker as root, which is effectively
 server. That is the trade accepted here. The rule deliberately has no `SETENV`.
 
 `/srv/apps/financas/.env` (from `.env.example`, `chmod 600`): `APP_PORT=8101`, `JWT_SECRET`
-(`openssl rand -hex 32`, changing it logs every device out), `BRAPI_TOKEN`. Edit it on the server
-only. No script or workflow ever writes it.
+(`openssl rand -hex 32`, changing it logs every device out), `BRAPI_TOKEN`, and — for the bank
+statement through Open Finance — `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` (blank: nothing is
+read from Pluggy; the other `PLUGGY_*` settings are in `backend/.env.example`). Edit it on the
+server only. No script or workflow ever writes it.
 
 ### 3. First deploy, with the PC's data
 

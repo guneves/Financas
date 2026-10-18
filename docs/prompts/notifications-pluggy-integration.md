@@ -2,6 +2,13 @@
 
 > Hand this whole file to the AI session that does the work. It was written on 2026-10-17, after
 > Samsung Wallet went back on the notification allow-list (capture only, no parser yet).
+>
+> **Status (2026-10-18).** Built: Part A's pure pairing rule (`notify/NotifyPairing.java`, step 2
+> and the state logic of 3–4), Part B (client, 027, links, sync, Ajustes › Banco (Pluggy)) and
+> Part C (attach, "Possível duplicata", the claim on creation — answered with **200
+> `matched_bank`, not 409**; reasons in `docs/done-tasks.md`). Not built: the parsers, the
+> detections table, the WorkManager promotion and the inbox (they wait for the owner's capture
+> export), and nothing has run against the real Pluggy. What is left is in `docs/next-steps.md`.
 
 ---
 

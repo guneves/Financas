@@ -91,11 +91,23 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   the file to the next session. Battery: if the counts stop between purchases, set the app's
   battery use to "Sem restrições" (the screen shows when Android last disconnected the listener).
 - [ ] Phase 6 steps 4–6, written against that export: one parser per app (Itaú, BB, the
-  two BTG), the mapping screen, unrecognised text into the inbox. Samsung Wallet is heard again as a
-  fallback (2026-10-17), so cross-app pairing **is** needed: bank wins, Samsung only when no bank
-  notification arrives — `docs/prompts/notifications-pluggy-integration.md` (Part A). Also read from the export whether
-  a bank *updates* a notification (new posted time, same key), which decides whether Phase 7's
-  `client_id` can keep posted time in it.
+  two BTG **and Samsung Wallet**), the mapping screen, unrecognised text into the inbox. Each
+  parser returns a `NotifyPairing.Detection` (kind, amount in cents, merchant, card last 4,
+  issuer). Also read from the export whether a bank *updates* a notification (new posted time,
+  same key), which decides whether Phase 7's `client_id` can keep posted time in it.
+- [ ] **Bank × Samsung Wallet pairing, the rest** (the pure rule is built: `notify/NotifyPairing.java`,
+  30 JVM tests, see `docs/done-tasks.md`). Left, once parsers exist:
+  - from the export, the lag between Samsung's and the bank's notification of the same purchase
+    — **show it to the owner** and tune `DEFAULT_WINDOW_MS` (10 min now); whether Samsung's text
+    names the card (last 4 or product name → `issuer`);
+  - a detections table in `financas_notify.db` (state, `group_client_id`, `paired_with`), the
+    listener calling `NotifyPairing.arrive()` in one transaction with the insert, and a
+    `WorkManager` one-off at `promoteAt()` calling `promoteDue()` (also on app open), so a held
+    Samsung detection is promoted with the app closed; Phase 7's notification for a SUPERSEDED
+    suggestion is cancelled and the bank's posted;
+  - the confirmed entry's `client_id` is the detection's `groupClientId`, not its own `dedupKey`.
+  - Owner's call: only the bank's DECLINED cancels a Samsung suggestion (the prompt said either
+    source; see `docs/done-tasks.md`).
 - [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
   `.debug` package; left alone because another session owns that file.
 - [ ] Brokerage operations from notifications (owner, 2026-10-17; plan in
@@ -108,10 +120,43 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   table). Kept as confirm until the owner says otherwise; one tap on Confirmar in the app's own
   notification records it with the app closed.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
-- [ ] **Pluggy** (owner, 2026-10-17): Open Finance sync on the server, reconciled with the
-  notification-born entries so one purchase stays one lançamento. Plan and prompt:
-  `docs/prompts/notifications-pluggy-integration.md` (Parts B and C). Needs the owner's Pluggy
-  credentials and plan first.
+- [ ] **Pluggy, on the owner's side** (built 2026-10-18, see `docs/done-tasks.md`; never run
+  against the real Pluggy — the cloud container cannot reach it, the API was read from the
+  official SDK). The owner:
+  - says which Pluggy product is used (developer account, MeuPluggy, paid plan) and creates the
+    bank connection there — the app takes the connection's **item id** (Ajustes › Banco (Pluggy)
+    › Nova conexão); it does not run Pluggy Connect itself;
+  - puts `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` in the server's `.env` and restarts; Ajustes ›
+    Integrações shows "Pluggy" green when the credentials work;
+  - links each account and card with "Desde" = the day its balance was last typed (default
+    today), presses Sincronizar, and checks the result: what was confirmed, what came in new, the
+    "Possível duplicata" list. The first real sync is the test of the field mapping: date (the app
+    takes the date part Pluggy sends), sign/direction, installment metadata, and whether a card
+    installment carries the purchase date or the bill date (see the open item below).
+- [ ] Pluggy, owner's calls: `PLUGGY_IMPORT_PENDING` (off: card purchases arrive only when the bill
+  closes, because Pluggy marks the open bill PENDING; on: right away, followed if they settle
+  under a new id); whether a confirmed entry should take the bank's date/amount when they differ
+  (today: kept, listed under "Conferidos com diferença"); webhooks through Tailscale Funnel
+  instead of polling (not built: the server is tailnet-only).
+- [ ] Pluggy, known gaps:
+  - **Invoice payment typed after Pluggy brought it**: a bank row "pagamento de fatura" synced
+    *before* the owner presses Pagar (or before autopay materializes) enters as a plain expense,
+    and the in-app payment then debits the account again. Autopay that already ran, or a payment
+    already recorded, sends the bank row to review instead. Fix: `pay-invoice` / autopay look for
+    an unconfirmed Pluggy row first (like `claim_bank_transaction`).
+  - **A transfer between two linked accounts** that the owner never typed comes in as an expense
+    on one and an income on the other (balances right, totals inflated). Typing the transfer first
+    sends both sides to review.
+  - A statement import (CSV/OFX) does not see Pluggy rows: importing the same month duplicates
+    them (Phase 8's probable-duplicate would cover it).
+  - Card refunds/cashback/bill credits are skipped (no negative invoice item in the app).
+  - If Pluggy dates installment *n* by the purchase date, installments older than
+    `PLUGGY_LOOKBACK_DAYS` (45) are never read after the first sync; widen the window for cards
+    if the real data shows that.
+  - A connection whose consent expires shows only Pluggy's status
+    ("Erro de login no banco"/"Desatualizada"); no notice elsewhere.
+  - `outbox` edge: an *edited* pending item whose delivery is answered with `matched_bank` and a
+    different date reads as "already delivered with the old values" (`deliveredDiffers`).
 
 ### Investments separate from banking — what is left
 Built on 2026-10-12 and 2026-10-17 (see `docs/done-tasks.md`): every operation comes out of the
