@@ -35,7 +35,7 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
     one offline entry was sent by the WorkManager job (logcat: `OutboxWorker` RETRY, then
     SUCCESS 30 s later) and arrived once, but the app was still on screen. If Samsung's battery
     management holds the job with the app closed, set the app's battery use to "Sem restrições";
-  - the back button, the theme toggle, the keyboard over "+ Novo" (and whether the decimal
+  - the back button, the theme choice (Ajustes › Aparência), the keyboard over "+ Novo" (and whether the decimal
     keypad's comma is accepted by the amount field), the notification permission prompt.
 - [ ] Native sender backoff (`OutboxWorker`): `Result.retry()` with EXPONENTIAL from 30 s, which
   WorkManager caps at 5 h. With the server off or Tailscale down for an hour or two, the job is

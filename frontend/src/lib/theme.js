@@ -1,5 +1,5 @@
 // Tema claro/escuro. 'system' segue o sistema operacional; 'light' e 'dark'
-// sao a escolha manual (botao ao lado do olho). O index.html aplica a mesma
+// sao a escolha manual (Ajustes › Aparencia). O index.html aplica a mesma
 // regra antes da primeira pintura; aqui ela continua valendo quando o sistema
 // troca de tema com o app aberto.
 //
@@ -56,12 +56,6 @@ export function setThemePreference(next) {
     // Sem localStorage a escolha so dura ate recarregar a pagina.
   }
   apply()
-}
-
-// Um clique alterna entre claro e escuro a partir do que esta na tela; a
-// escolha manual passa a valer por cima do sistema.
-export function toggleTheme() {
-  setThemePreference(isDark() ? 'light' : 'dark')
 }
 
 export function useIsDark() {

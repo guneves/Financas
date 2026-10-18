@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import { isAppBundleAvailable } from '../lib/appBundle'
+import AparenciaSection from './ajustes/AparenciaSection'
 import AppVersionSection from './ajustes/AppVersionSection'
 import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
@@ -17,6 +18,7 @@ const SECTION_LINKS = [
   { id: 'categorias', label: 'Categorias' },
   { id: 'regras-de-importacao', label: 'Regras de importação' },
   { id: 'integracoes', label: 'Integrações' },
+  { id: 'aparencia', label: 'Aparência' },
   { id: 'perfil', label: 'Perfil' },
   // So no APK (NotificacoesSection, AppVersionSection).
   ...(isAppBundleAvailable() ? [{ id: 'notificacoes', label: 'Notificações' }, { id: 'versao', label: 'Versão' }] : []),
@@ -44,7 +46,7 @@ function useHashScroll() {
 }
 
 // Configuracao feita uma vez: contas, cartoes, categorias, regras, integracoes,
-// perfil
+// aparencia (tema), perfil
 // (e, no APK, as notificacoes dos bancos e a versao do app).
 export default function Ajustes() {
   useHashScroll()
@@ -77,6 +79,7 @@ export default function Ajustes() {
       <CategoriasSection />
       <RegrasSection />
       <IntegracoesSection />
+      <AparenciaSection />
       <PerfilSection />
       <NotificacoesSection />
       <AppVersionSection />

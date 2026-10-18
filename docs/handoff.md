@@ -57,9 +57,6 @@ the lançamento", then "make a PR when done". No session-scout (context read dir
   imports `services.recurring`. `recurring_pending_count()` takes `(conn, user_id, row, today)`.
 - In this cloud container there is no `.venv`; the suite ran from a venv in the scratch area.
 
-### Carried from the sharing session (2026-10-18)
-- Sharing is set only by editing; the "+ Novo" forms and Aprovar don't offer it.
-- A receber's "paid" writes no money on purpose: the Pix the person sends is its own lançamento.
 
 ### From the notification session (2026-10-17), still open
 - Not tried end to end on the phone; Samsung Wallet's purchase text never captured (its parser is
