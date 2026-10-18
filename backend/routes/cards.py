@@ -14,6 +14,7 @@ from db import get_db, new_id, row_to_dict, serialize_transaction
 from services.accounts import fetch_account, require_account, resolve_account_id
 from services.attachments import cc_expense_attachment_names, remove_attachment_files
 from services.inbox_decisions import absorb_created
+from services.sharing import update_purchase_share
 from services.invoices import (
     InvoiceStillOpenError,
     apply_due_autopay,
@@ -403,7 +404,8 @@ def cc_expense_candidates(current_user_id):
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT id, amount, installment_info
+            SELECT id, amount, installment_info, status,
+                   share_mode, share_others_amount, share_person, share_settled_at
             FROM cc_expenses
             WHERE user_id = ?
               AND card_id = ?
@@ -420,6 +422,25 @@ def cc_expense_candidates(current_user_id):
             ),
         ).fetchall()
     return jsonify([row_to_dict(row) for row in rows]), 200
+
+
+@bp.route("/api/cc-expenses/<item_id>/share", methods=["PATCH"])
+@token_required
+def update_cc_purchase_share(current_user_id, item_id):
+    """De quem e a compra (032): a unica coisa que se edita numa compra no cartao.
+
+    Vale para a compra inteira — todas as parcelas, cada uma com a sua fatia
+    da parte dos outros (services/sharing.py).
+    """
+    payload = parse_json_body()
+    try:
+        with get_db() as conn:
+            rows = update_purchase_share(conn, current_user_id, item_id, payload)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    if rows is None:
+        return jsonify({"error": "Compra nao encontrada."}), 404
+    return jsonify(rows), 200
 
 
 @bp.route("/api/cc-expenses/status", methods=["PATCH"])

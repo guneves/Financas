@@ -126,6 +126,7 @@
 | Pluggy out of the migrations too (owner): 027/029 reserved and empty, 028 without its Pluggy lines, 030 renames their `schema_migrations` rows (session financas-5e) | 2026-10-17 |
 | Notification auto-identifier: Java parsers per bank on the phone, every money notification sent to Aprovar (parsed fields only), own-account transfer vs Pix to someone else by the counterparty (migration 031), the bank's double posting dropped, nothing matched without Aprovar | 2026-10-17 |
 | TWR like Investidor10: daily returns chained instead of monthly Modified Dietz, Yahoo's bonus-as-split price adjustment undone (`restore_quantity_basis()`), a bonificação is no flow, Rentabilidade › "Tudo" (`?months=all`, since the first operation); the evolution reads the same restored closes | 2026-10-18 |
+| Expense sharing (032): a lançamento or card purchase can be the owner's, split (`SPLIT`, others' part in `share_others_amount`) or someone else's (`OTHERS`), with the person's name. Balances are untouched; budget, monthly plan, Despesas por categoria and the Início cash flow count only the owner's part, the flow shows "Outras pessoas" apart. Lançamentos › A receber lists the others' part of each expense until marked paid (`/api/receivables`, `/settle`); a card purchase's share is set for every installment (`PATCH /api/cc-expenses/<id>/share`). `services/sharing.py`, `lib/sharing.js`, `lib/cashFlow.js`; `test_expense_share.py`, `sharing.test.js` | 2026-10-18 |
 
 ---
 

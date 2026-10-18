@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1106 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1126 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -129,7 +129,7 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts), expense sharing and A receber (`test_expense_share.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -165,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules` and `transactions`, 66 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `transactions` and `sharing`, 73 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -460,6 +460,13 @@ mobile-docs/
   `lib/transactions.js` — and every banking total (Início, Extrato, Recorrentes) keeps it apart.
   "+ Novo" is banking-only (despesa, receita, transferência, cartão); inside `/investimentos` the
   same button opens "Registrar operação".
+- **Whose expense it is** (032, `services/sharing.py`, `lib/sharing.js`): a despesa/receita or a
+  card purchase can be the owner's, `SPLIT` (others' part in `share_others_amount`) or `OTHERS`,
+  with `share_person`. Balances never change; the budget, the monthly plan, Despesas por categoria
+  and Início's cash flow count only the owner's part (`own_amount_sql()` / `ownAmount()`), the flow
+  shows "Outras pessoas" apart. A card purchase's share covers every installment, split
+  proportionally. Lançamentos › A receber lists the others' part of each expense until marked paid
+  (`share_settled_at`); marking writes no money. Transfers and investment cash are never shared.
 - **Budget spent (decision 1):** card purchases count in full in the purchase month; invoice
   payments never count.
 - **Proventos of ações/FIIs are computed, not typed** (026, `services/proceeds_sync.py`):

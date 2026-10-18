@@ -30,6 +30,7 @@ from routes import (
     market as market_routes,
     monthly_plan as monthly_plan_routes,
     proceeds as proceeds_routes,
+    receivables as receivable_routes,
     recurring as recurring_routes,
     system as system_routes,
     transactions as transaction_routes,
@@ -64,6 +65,7 @@ for blueprint_module in (
     goal_routes,
     monthly_plan_routes,
     inbox_routes,
+    receivable_routes,
     app_bundle_routes,
     frontend_routes,
 ):

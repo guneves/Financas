@@ -195,6 +195,11 @@ export const ccExpensesApi = {
     body: JSON.stringify(payload)
   }),
   candidates: (params) => apiFetch(`/api/cc-expenses/candidates${queryString(params)}`),
+  // De quem e a compra (032): vale para todas as parcelas.
+  updateShare: (id, payload) => apiFetch(`/api/cc-expenses/${id}/share`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
   removeMany: (ids) => apiFetch('/api/cc-expenses', {
     method: 'DELETE',
     body: JSON.stringify({ ids })
@@ -287,6 +292,12 @@ export const inboxApi = {
   approveReady: (ids) => postJson('/api/inbox/approve-ready', { ids }),
   hints: () => apiFetch('/api/inbox/hints'),
   forgetHint: (id) => apiFetch(`/api/inbox/hints/${id}`, { method: 'DELETE' })
+}
+
+// A receber (032): a parte dos outros nas despesas, ate o dono marcar que pagaram.
+export const receivablesApi = {
+  list: (includeSettled = false) => apiFetch(`/api/receivables${queryString(includeSettled ? { include_settled: 1 } : {})}`),
+  settle: (payload) => postJson('/api/receivables/settle', payload)
 }
 
 // Desdobramento, grupamento e bonificacao (017).

@@ -20,6 +20,8 @@ export const FLOW = {
   income: '#1baf7a',
   expense: '#e34948',
   investment: '#2a78d6',
+  // O que foi de outras pessoas (lib/sharing.js): nem despesa nem receita do dono.
+  others: '#eda100',
   net: 'var(--chart-ink)',
 }
 

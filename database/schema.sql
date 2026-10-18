@@ -105,6 +105,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     -- 024: id gerado pelo cliente; repetir o envio nao duplica o lancamento.
     client_id TEXT,
+    -- 032: de quem e (NULL = do dono, OTHERS = de outra pessoa, SPLIT = dividido).
+    share_mode TEXT CHECK (share_mode IN ('OTHERS', 'SPLIT')),
+    share_others_amount REAL CHECK (share_others_amount >= 0),
+    share_person TEXT,
+    share_settled_at TEXT,
     CHECK (type <> 'TRANSFER' OR (account_id IS NOT NULL
                                   AND transfer_account_id IS NOT NULL
                                   AND account_id <> transfer_account_id)),
@@ -440,7 +445,12 @@ CREATE TABLE IF NOT EXISTS cc_expenses (
     status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'PAID')),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     -- 024: id do envio da compra, o mesmo em todas as parcelas.
-    client_id TEXT
+    client_id TEXT,
+    -- 032: de quem e; numa compra parcelada, cada parcela guarda a sua fatia.
+    share_mode TEXT CHECK (share_mode IN ('OTHERS', 'SPLIT')),
+    share_others_amount REAL CHECK (share_others_amount >= 0),
+    share_person TEXT,
+    share_settled_at TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_client

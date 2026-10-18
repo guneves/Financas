@@ -14,6 +14,7 @@ const PAGE_LOADERS = {
   Extrato: () => import('./pages/lancamentos/Extrato'),
   Aprovar: () => import('./pages/lancamentos/Aprovar'),
   Cartoes: () => import('./pages/lancamentos/Cartoes'),
+  AReceber: () => import('./pages/lancamentos/AReceber'),
   Importar: () => import('./pages/lancamentos/Importar'),
   Investments: () => import('./pages/Investments'),
   Proventos: () => import('./pages/Proventos'),
@@ -30,6 +31,7 @@ const Dashboard = lazy(PAGE_LOADERS.Dashboard)
 const Extrato = lazy(PAGE_LOADERS.Extrato)
 const Aprovar = lazy(PAGE_LOADERS.Aprovar)
 const Cartoes = lazy(PAGE_LOADERS.Cartoes)
+const AReceber = lazy(PAGE_LOADERS.AReceber)
 const Importar = lazy(PAGE_LOADERS.Importar)
 const Investments = lazy(PAGE_LOADERS.Investments)
 const Proventos = lazy(PAGE_LOADERS.Proventos)
@@ -93,6 +95,7 @@ export default function App() {
             <Route path="/lancamentos/extrato" element={<Extrato />} />
             <Route path="/lancamentos/aprovar" element={<Aprovar />} />
             <Route path="/lancamentos/cartoes" element={<Cartoes />} />
+            <Route path="/lancamentos/a-receber" element={<AReceber />} />
             <Route path="/lancamentos/importar" element={<Importar />} />
 
             <Route path="/planejamento" element={<Navigate to="/planejamento/orcamento" replace />} />

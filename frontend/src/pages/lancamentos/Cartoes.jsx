@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle, ChevronDown, CreditCard, Paperclip, Plus, Trash2 } from 'lucide-react'
+import { CheckCircle, ChevronDown, CreditCard, Paperclip, Plus, Trash2, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ccExpensesApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
@@ -26,6 +26,8 @@ import {
 import ProjectionHeader from './ProjectionHeader'
 import PayInvoiceSheet from '../../components/PayInvoiceSheet'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
+import CardShareSheet from './CardShareSheet'
+import { shareSummary } from '../../lib/sharing'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
 import { toast } from '../../lib/toast'
@@ -55,6 +57,8 @@ export default function Cartoes() {
   const [paying, setPaying] = useState(null)
   const [payError, setPayError] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState(null)
+  // Compra com o "De quem é?" aberto (CardShareSheet).
+  const [shareFor, setShareFor] = useState(null)
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
   // Cartoes com as faturas futuras desdobradas, por card_id.
@@ -104,10 +108,13 @@ export default function Cartoes() {
           card_id: expense.card_id,
           description: expense.description,
           category: expense.category || 'Outros',
+          category_raw: expense.category,
           purchase_date: expense.purchase_date,
           amount: parseFloat(expense.amount),
           installmentCurrent: installment.current,
           installmentTotal: installment.total,
+          // A parcela desta fatura: "Dividida com Ana · sua parte" e da parcela.
+          shareText: shareSummary(expense),
         }
       }
       return acc
@@ -335,11 +342,17 @@ export default function Cartoes() {
                     {purchase.category} · {formatDateBR(purchase.purchase_date)}
                     {purchase.installmentTotal > 1 ? ` · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}` : ''}
                   </p>
+                  {purchase.shareText ? <p className="truncate text-xs font-medium text-zinc-500">{purchase.shareText}</p> : null}
                 </div>
                 <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
                 <Menu
                   label={`Ações de ${purchase.description}`}
                   items={[
+                    {
+                      label: 'De quem é?',
+                      icon: Users,
+                      onSelect: () => setShareFor(purchase),
+                    },
                     {
                       label: purchase.attachmentCount > 0 ? `Comprovantes (${purchase.attachmentCount})` : 'Comprovantes',
                       icon: Paperclip,
@@ -373,6 +386,11 @@ export default function Cartoes() {
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 
+      <CardShareSheet
+        purchase={shareFor}
+        onClose={() => setShareFor(null)}
+        onSaved={fetchData}
+      />
       <AttachmentsSheet
         purchase={attachmentsFor}
         onClose={() => setAttachmentsFor(null)}

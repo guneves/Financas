@@ -29,6 +29,7 @@ from services.contributions import movement_flow
 from services.goals import list_goals
 from services.investments import fetch_investments, investment_operation_date
 from services.invoices import local_today
+from services.sharing import own_amount_sql
 from source_types import INVESTMENT_CASH_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
     normalize_month,
@@ -64,14 +65,18 @@ def fetch_plan_for_month(conn, current_user_id, month):
 
 
 def month_banking_totals(conn, current_user_id, month):
-    """(gasto nas contas, gasto no cartao, receita) do mes, em reais."""
+    """(gasto nas contas, gasto no cartao, receita) do mes, em reais.
+
+    So a parte do dono (032): o que era de outra pessoa nao e gasto nem renda dele.
+    """
+    own = own_amount_sql()
     invoice_types = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
     invoice_placeholders = ", ".join("?" for _ in invoice_types)
     row = conn.execute(
         f"""
         SELECT
-          SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END) AS spent,
-          SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END) AS income
+          SUM(CASE WHEN type = 'EXPENSE' THEN {own} ELSE 0 END) AS spent,
+          SUM(CASE WHEN type = 'INCOME' THEN {own} ELSE 0 END) AS income
         FROM transactions
         WHERE user_id = ?
           AND type IN ('EXPENSE', 'INCOME')
@@ -84,8 +89,8 @@ def month_banking_totals(conn, current_user_id, month):
         (current_user_id, month, *invoice_types, INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_CATEGORY),
     ).fetchone()
     card = conn.execute(
-        """
-        SELECT SUM(amount) AS spent FROM cc_expenses
+        f"""
+        SELECT SUM({own}) AS spent FROM cc_expenses
         WHERE user_id = ? AND substr(purchase_date, 1, 7) = ?
         """,
         (current_user_id, month),

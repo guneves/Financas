@@ -2,6 +2,7 @@ import {
   BellRing,
   Briefcase,
   CalendarDays,
+  Coins,
   CreditCard,
   FileText,
   Flag,
@@ -31,6 +32,8 @@ export const sections = [
       // O que o celular trouxe, esperando o dono (028).
       { to: APROVAR_PATH, label: 'Aprovar', icon: BellRing, badge: 'inbox' },
       { to: '/lancamentos/cartoes', label: 'Cartões', icon: CreditCard },
+      // A parte dos outros nas despesas, ate o dono marcar que pagaram (032).
+      { to: '/lancamentos/a-receber', label: 'A receber', icon: Coins },
       { to: '/lancamentos/importar', label: 'Importar', icon: Upload },
     ],
   },

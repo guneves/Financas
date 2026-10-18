@@ -66,8 +66,10 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, isPortfolioAccount, bankingTransactions, consolidatedBalance, isInvestmentInflow, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, isPortfolioAccount, bankingTransactions, consolidatedBalance, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
+import { buildMonthlyFlow, isInvoicePayment } from '../lib/cashFlow'
+import { ownAmount } from '../lib/sharing'
 
 const HISTORY_MONTHS = 12
 const INVOICE_MONTHS = 6
@@ -106,8 +108,6 @@ const getPurchaseGroupKey = (expense) => {
 
 const shortMonth = shortMonthLabel
 
-const isInvoicePayment = (transaction) => transaction.category?.startsWith('Pagamento Fatura')
-
 const percentChange = (current, previous) => {
   if (!previous) return null
   return ((current - previous) / Math.abs(previous)) * 100
@@ -116,6 +116,7 @@ const percentChange = (current, previous) => {
 // Gasto de consumo de um mes, por dia e por categoria: saidas da conta (menos
 // o pagamento de fatura, que ja e a soma das compras, e os aportes em
 // investimento) + compras no cartao pelo valor total da compra, na data da compra.
+// So a parte do dono (lib/sharing.js): o que era de outra pessoa nao e gasto dele.
 function buildSpending(transactions, ccExpenses, key) {
   const byDay = {}
   const byCategory = {}
@@ -129,7 +130,8 @@ function buildSpending(transactions, ccExpenses, key) {
   transactions.forEach((transaction) => {
     if (transaction.type !== 'EXPENSE' || isInvoicePayment(transaction) || isInvestmentOutflow(transaction)) return
     if (String(transaction.date).slice(0, 7) !== key) return
-    add(Number(transaction.date.slice(8, 10)), transaction.category, 'cash', parseFloat(transaction.amount) || 0)
+    const own = ownAmount(transaction)
+    if (own > 0) add(Number(transaction.date.slice(8, 10)), transaction.category, 'cash', own)
   })
 
   const purchases = {}
@@ -139,9 +141,11 @@ function buildSpending(transactions, ccExpenses, key) {
     if (!purchases[groupKey]) {
       purchases[groupKey] = { day: Number(expense.purchase_date.slice(8, 10)), category: expense.category, amount: 0 }
     }
-    purchases[groupKey].amount += parseFloat(expense.amount) || 0
+    purchases[groupKey].amount += ownAmount(expense)
   })
-  Object.values(purchases).forEach((purchase) => add(purchase.day, purchase.category, 'credit', purchase.amount))
+  Object.values(purchases).forEach((purchase) => {
+    if (purchase.amount > 0) add(purchase.day, purchase.category, 'credit', purchase.amount)
+  })
 
   const total = Object.values(byDay).reduce((acc, value) => acc + value, 0)
   return { byDay, byCategory, total }
@@ -260,58 +264,22 @@ export default function Dashboard() {
   // que a soma dos lancamentos deixava de fora (lib/transactions.js).
   const bankBalance = useMemo(() => consolidatedBalance(allAccounts), [allAccounts])
 
-  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses. Investimento
-  // fica a parte (lib/transactions.js): o aporte tira dinheiro da conta mas nao
-  // e gasto, e o resgate devolve mas nao e receita. Todos mexem no saldo.
+  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses (lib/cashFlow.js).
+  // Cada gasto entra no dia em que acontece — a compra no cartao no mes da
+  // compra, nao no pagamento da fatura. Investimento e o que era de outra
+  // pessoa ficam a parte; o saldo e o das contas de verdade.
   const monthlyHistory = useMemo(() => {
     const keys = Array.from({ length: HISTORY_MONTHS }, (_, index) => shiftMonth(currentKey, index - (HISTORY_MONTHS - 1)))
-    const firstKey = keys[0]
-    const byKey = Object.fromEntries(keys.map((key) => [key, { income: 0, expense: 0, invested: 0, redeemed: 0 }]))
     // Saldo inicial das contas + tudo antes da janela: a curva termina no
     // mesmo saldo do topo da pagina.
-    let openingBalance = openingBalanceTotal(allAccounts)
-
-    transactions.forEach((transaction) => {
-      if (transaction.type === 'TRANSFER') return
-      const amount = parseFloat(transaction.amount) || 0
-      const signed = transaction.type === 'INCOME' ? amount : -amount
-      const key = String(transaction.date).slice(0, 7)
-      if (key < firstKey) {
-        openingBalance += signed
-        return
-      }
-      if (!byKey[key]) return
-      if (isInvestmentInflow(transaction)) byKey[key].redeemed += amount
-      else if (transaction.type === 'INCOME') byKey[key].income += amount
-      else if (isInvestmentOutflow(transaction)) byKey[key].invested += amount
-      else byKey[key].expense += amount
-    })
-
-    let running = openingBalance
-    return keys.map((key) => {
-      const { income, expense, invested, redeemed } = byKey[key]
-      const net = income - expense - invested + redeemed
-      running += net
-      return {
-        key,
-        label: shortMonth(key),
-        income: Number(income.toFixed(2)),
-        // Desenhadas abaixo do zero: a posicao diz "saida" sem depender da cor.
-        expense: -Number(expense.toFixed(2)),
-        // Uma serie so, liquida (aportes menos resgates): abaixo do zero quando
-        // saiu mais do que voltou, acima no mes em que o resgate foi maior.
-        investment: -Number((invested - redeemed).toFixed(2)),
-        invested: Number(invested.toFixed(2)),
-        redeemed: Number(redeemed.toFixed(2)),
-        net: Number(net.toFixed(2)),
-        balance: Number(running.toFixed(2)),
-      }
-    })
-  }, [transactions, allAccounts, currentKey])
+    return buildMonthlyFlow({ transactions, ccExpenses, keys, openingBalance: openingBalanceTotal(allAccounts) })
+      .map((item) => ({ ...item, label: shortMonth(item.key) }))
+  }, [transactions, ccExpenses, allAccounts, currentKey])
 
   const flowSummary = useMemo(() => {
     const hasInvestment = (item) => item.invested !== 0 || item.redeemed !== 0
-    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0 || hasInvestment(item))
+    const hasOthers = (item) => item.othersPaid !== 0 || item.othersReceived !== 0
+    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0 || hasInvestment(item) || hasOthers(item))
     const income = monthlyHistory.reduce((acc, item) => acc + item.income, 0)
     const expense = monthlyHistory.reduce((acc, item) => acc - item.expense, 0)
     const investment = monthlyHistory.reduce((acc, item) => acc - item.investment, 0)
@@ -327,6 +295,9 @@ export default function Dashboard() {
       // So existe investimento aqui se algum aporte ou resgate passou pelo
       // extrato; sem isso a media e a serie do grafico nem aparecem.
       hasInvestment: monthlyHistory.some(hasInvestment),
+      // Algo pago por (ou recebido de) outra pessoa nos 12 meses: so entao a
+      // serie aparece.
+      hasOthers: monthlyHistory.some(hasOthers),
     }
   }, [monthlyHistory])
 
@@ -625,10 +596,11 @@ export default function Dashboard() {
   const paceDifference = spendingPace.currentToDate - spendingPace.averageToDate
   const spendingVsAverage = paceMonths > 0 ? percentChange(spendingPace.currentToDate, spendingPace.averageToDate) : null
   const paceAverageLabel = paceMonths > 1 ? `Média de ${paceMonths} meses` : `Mês de ${shortMonth(spendingPace.months[0]?.key)}`
-  // Movimento do mes nas contas: receitas menos despesas, menos aportes, mais
-  // resgates — o "Resultado" do fluxo de caixa. Aporte e resgate nao sao
-  // despesa nem receita (lib/transactions.js) e aparecem a parte.
-  const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, invested: 0, redeemed: 0, net: 0 }
+  // O mes atual do fluxo de caixa: receitas menos despesas (o cartao no dia
+  // da compra), menos aportes, mais resgates, com o que foi de outras pessoas
+  // — o "Resultado" do grafico. Aporte, resgate e outras pessoas nao sao
+  // despesa nem receita do dono e aparecem a parte.
+  const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, invested: 0, redeemed: 0, others: 0, othersPaid: 0, othersReceived: 0, net: 0 }
   const monthIncome = currentMonth.income
   const monthExpense = -currentMonth.expense
 
@@ -671,6 +643,7 @@ export default function Dashboard() {
           expense={monthExpense}
           invested={currentMonth.invested}
           redeemed={currentMonth.redeemed}
+          others={currentMonth.othersPaid || currentMonth.othersReceived ? currentMonth.others : null}
         />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:col-span-4 xl:grid-cols-1">
           <DailyTile
@@ -708,9 +681,13 @@ export default function Dashboard() {
         <Panel className="flex flex-col xl:col-span-3">
           <PanelHeader
             title={<PanelLink to="/lancamentos/extrato">Fluxo de caixa</PanelLink>}
-            description={flowSummary.hasInvestment
-              ? 'Receitas, despesas e investimentos (aportes menos resgates) lançados nas contas nos últimos 12 meses. Transferências entre contas não entram.'
-              : 'Receitas e despesas das contas nos últimos 12 meses. Transferências entre contas não entram.'}
+            description={[
+              flowSummary.hasInvestment
+                ? 'Receitas, despesas e investimentos (aportes menos resgates) dos últimos 12 meses.'
+                : 'Receitas e despesas dos últimos 12 meses.',
+              'Compras no cartão entram no mês da compra; pagamento de fatura e transferências entre contas não entram.',
+              flowSummary.hasOthers ? 'O que foi de outras pessoas fica à parte.' : '',
+            ].filter(Boolean).join(' ')}
           />
           <div className="flex flex-1 flex-col p-5">
             {flowSummary.hasData ? (
@@ -739,6 +716,7 @@ export default function Dashboard() {
                   <LegendDot color={FLOW.income} label="Receitas" />
                   <LegendDot color={FLOW.expense} label="Despesas" />
                   {flowSummary.hasInvestment ? <LegendDot color={FLOW.investment} label="Investimentos" /> : null}
+                  {flowSummary.hasOthers ? <LegendDot color={FLOW.others} label="Outras pessoas" /> : null}
                   <LegendDot color={FLOW.net} label="Resultado" shape="line" />
                 </div>
                 <div className="h-72 xl:h-auto xl:min-h-72 xl:flex-1">
@@ -753,6 +731,9 @@ export default function Dashboard() {
                       <Bar dataKey="expense" stackId="flow" fill={FLOW.expense} maxBarSize={24} {...chartAnimation} />
                       {flowSummary.hasInvestment ? (
                         <Bar dataKey="investment" stackId="flow" fill={FLOW.investment} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
+                      ) : null}
+                      {flowSummary.hasOthers ? (
+                        <Bar dataKey="others" stackId="flow" fill={FLOW.others} maxBarSize={24} radius={[4, 4, 0, 0]} {...chartAnimation} />
                       ) : null}
                       <Line
                         type="monotone"
@@ -1103,7 +1084,7 @@ export default function Dashboard() {
 // para o numero daqui ser o dinheiro que existe nas contas. Saldo e contas
 // somem no modo privado; receitas, despesas, aportes e resgates do mes vem dos
 // lancamentos, que ficam visiveis (lib/privacy.js).
-function BalanceHero({ total, accounts, monthName, result, income, expense, invested, redeemed, className = '' }) {
+function BalanceHero({ total, accounts, monthName, result, income, expense, invested, redeemed, others = null, className = '' }) {
   const hidden = useValuesHidden()
   const privateMoney = usePrivateFormatter(formatCurrency)
 
@@ -1127,8 +1108,8 @@ function BalanceHero({ total, accounts, monthName, result, income, expense, inve
       </FitValue>
 
       <div className="flex flex-wrap gap-2">
-        {/* O movimento do mes some com o olho (decisao 9): ao lado do saldo ele
-            diz quanto o saldo andou. A cor sai junto, senao o sinal vaza. */}
+        {/* O resultado do mes some com o olho (decisao 9). A cor sai junto,
+            senao o sinal vaza. */}
         <span
           className={cx(
             'rounded-full px-3 py-1.5 text-sm font-bold tabular',
@@ -1144,6 +1125,9 @@ function BalanceHero({ total, accounts, monthName, result, income, expense, inve
         ) : null}
         {redeemed > 0 ? (
           <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Resgates {formatCurrency(redeemed)}</span>
+        ) : null}
+        {others !== null ? (
+          <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Outras pessoas {formatSignedCurrency(others)}</span>
         ) : null}
       </div>
 
@@ -1493,17 +1477,29 @@ function AttentionLink({ to, children }) {
 // Tooltip do fluxo de caixa. As saidas sao desenhadas abaixo do zero e aparecem
 // em modulo; o resultado mantem o sinal. A serie de investimento e liquida:
 // abaixo do zero o mes investiu, acima resgatou, e o rotulo diz qual dos dois.
+// Outras pessoas tambem e liquida: abaixo do zero o dono pagou mais por elas
+// do que recebeu delas.
 function FlowTooltip({ payload, ...props }) {
   const rows = payload?.map((item) => {
     if (item.dataKey === 'net' || item.value === null || item.value === undefined) return item
     const redeemed = item.dataKey === 'investment' && item.value > 0
-    return { ...item, dataKey: redeemed ? 'redeemed' : item.dataKey, value: Math.abs(Number(item.value)) }
+    const othersBack = item.dataKey === 'others' && item.value > 0
+    const dataKey = redeemed ? 'redeemed' : othersBack ? 'othersBack' : item.dataKey
+    return { ...item, dataKey, value: Math.abs(Number(item.value)) }
   })
   return (
     <ChartTooltip
       {...props}
       payload={rows}
-      names={{ income: 'Receitas', expense: 'Despesas', investment: 'Investido', redeemed: 'Resgatado', net: 'Resultado' }}
+      names={{
+        income: 'Receitas',
+        expense: 'Despesas',
+        investment: 'Investido',
+        redeemed: 'Resgatado',
+        others: 'Pago por outras pessoas',
+        othersBack: 'Recebido de outras pessoas',
+        net: 'Resultado',
+      }}
       labelFormatter={(_, items) => monthLabel(items?.[0]?.payload?.key)}
     />
   )

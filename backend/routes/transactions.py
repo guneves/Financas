@@ -26,6 +26,12 @@ from services.attachments import remove_attachment_files
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.proceeds_cash import apply_paid_proceeds
+from services.sharing import (
+    INVESTMENT_CATEGORY,
+    check_split_fits,
+    has_share_fields,
+    parse_share,
+)
 from source_types import (
     INVESTMENT_CASH_SOURCE_TYPE,
     INVESTMENT_PROCEED_SOURCE_TYPE,
@@ -337,6 +343,22 @@ def update_transaction(current_user_id, item_id):
                     str(payload.get("transfer_account_id") or ""),
                     "Conta de destino",
                 )["id"]
+            # De quem e (032): so despesa e receita comuns; aporte e resgate
+            # nao se dividem. O valor final vale tanto para a divisao nova
+            # quanto para a que ja estava gravada.
+            final_amount = updates.get("amount", item["amount"])
+            final_category = updates.get("category", item["category"])
+            if has_share_fields(payload):
+                if item["type"] == "TRANSFER":
+                    raise ValidationError("Transferencia entre contas nao se divide com outra pessoa.")
+                share = parse_share(payload, final_amount)
+                if share["share_mode"] and final_category == INVESTMENT_CATEGORY:
+                    raise ValidationError("Investimento nao se divide com outra pessoa.")
+                updates.update(share)
+            else:
+                check_split_fits(item["share_mode"], item["share_others_amount"], final_amount)
+                if item["share_mode"] and final_category == INVESTMENT_CATEGORY:
+                    raise ValidationError("Investimento nao se divide com outra pessoa. Volte para \"Só minha\" antes.")
         except ValidationError as exc:
             return validation_error(str(exc))
 

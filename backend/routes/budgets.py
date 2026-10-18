@@ -15,6 +15,7 @@ from dates import month_key
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from services.accounts import fetch_category
+from services.sharing import own_amount_sql
 from source_types import INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
     ValidationError,
@@ -45,6 +46,9 @@ def budget_spend_by_category(conn, current_user_id, month):
     de compras ja contadas. Pagamento de fatura e o lancamento com source_type
     de fatura, ou, nos anteriores ao pagamento pelo servidor, a categoria
     "Pagamento Fatura...".
+
+    De quem e (032): conta so a parte do dono — a pizza dividida pesa no
+    orcamento so pela fatia dele (services/sharing.py).
     """
     name_to_id = {}
     for row in conn.execute(
@@ -62,7 +66,7 @@ def budget_spend_by_category(conn, current_user_id, month):
     totals = {}
     rows = conn.execute(
         f"""
-        SELECT type, category_id, category, SUM(amount) AS total
+        SELECT type, category_id, category, SUM({own_amount_sql()}) AS total
         FROM transactions
         WHERE user_id = ?
           AND type <> 'TRANSFER'
@@ -74,8 +78,8 @@ def budget_spend_by_category(conn, current_user_id, month):
         (current_user_id, month, *invoice_types),
     ).fetchall()
     card_rows = conn.execute(
-        """
-        SELECT 'EXPENSE' AS type, NULL AS category_id, category, SUM(amount) AS total
+        f"""
+        SELECT 'EXPENSE' AS type, NULL AS category_id, category, SUM({own_amount_sql()}) AS total
         FROM cc_expenses
         WHERE user_id = ?
           AND substr(purchase_date, 1, 7) = ?

@@ -7,76 +7,49 @@
 
 ---
 
-## Session — 2026-10-17 (late) · Notification auto-identifier, v1 (session financas-78)
+## Session — 2026-10-18 · Expense sharing (032) finished, checked, pushed
 
-Owner: "check its notification history and the notifications recorded on the app to create the
-first version of the transactions auto identificator, that will identify and insert under approve
-every notification that refers to a transaction, make sure to recognize when a transaction is
-made between my accounts and with external accounts"; then "every transaction identified through
-a notification should end up in aprovar"; and "samsung wallet only handles card payments, it must
-serve as a fallback … in case of a duplication, use the own banks notification". session-scout
-ran directly (no fallback needed).
+Owner: "finish last sessions work, it got interrupted, run checks on the changes it made and if
+everything is green commit and push it to main". The interrupted session had built expense
+sharing ("de quem é o gasto") but never committed it nor wrote its handoff. No session-scout
+(the task was the working tree itself).
 
 ### Done
-- **Phone** (`frontend/android/.../notify/`): `NotifyParsers.java` (pure, 17 JVM tests built from
-  the owner's export with names/CPF swapped), `DetectionQueue` (`financas_detections.db`),
-  `DetectionSender` + `DetectionWorker` (WorkManager, app closed; also scheduled at login from
-  `OutboxPlugin.setSession`). `BankNotificationListener` parses every allowed notification,
-  capture on or off. Only parsed fields leave the phone. No native-level bump (no screen calls
-  the new Java). `gradlew testDebugUnitTest compileReleaseJavaWithJavac` green, 91 JVM tests.
-- **Server**: migration `031_notify_counterparty.sql`; `services/inbox.py` learns "it's me"
-  (`self:doc:` / `self:name:` hints) from paired legs and approved transfers, drafts a single leg
-  to the owner as a TRANSFER (other side from the cited institution), a Pix to someone else as
-  despesa/receita "Pix para/de <nome>" (`external_transfer`), never pairs legs with different
-  counterparties, drops a bank's repeated posting (`repeated`), and no longer matches a detection
-  to an existing lançamento without an Aprovar item. `test_inbox_counterparty.py` (15);
-  one `test_inbox.py` case rewritten for the new "always Aprovar" rule. 1099 pytest green.
-- **Second export** (`Downloads\notificacoes-20261017-232518.json`, owner: "the transferencia was
-  from the btg banking account to the btg investimentos app"): BTG Banking's "Sua transferência
-  de R$ 5,08 foi confirmada." was dropped by v1 (no direction word) — "confirmada" now means
-  outgoing; BTG Investimentos' "Recebemos sua transferência…" is TRANSFER_IN. Server: a transfer
-  seen by the brokerage app is always the owner's own (`BROKERAGE_APP`), other side BTG Banking.
-  2 more parser tests (19), 2 more server tests.
-- **Frontend**: `lib/inboxRules.js` — the `external_transfer` reason text and the counterparty in
-  a source's line (66 node tests green).
-- Docs: CLAUDE.md, next-steps (Phase 6 rewritten; the "automatic vs confirm" decision closed —
-  the owner's "insert under approve"), done-tasks, mobile-docs Phase 6.
+- Reviewed the uncommitted work and found it complete end to end: migration
+  `032_expense_share.sql` (+ `schema.sql`), `services/sharing.py`, `routes/receivables.py`
+  (`GET /api/receivables`, `POST /api/receivables/settle`), `PATCH /api/cc-expenses/<id>/share`,
+  share fields on `PATCH /api/transactions/<id>`, the owner's-part rule (`own_amount_sql()`) in
+  the budget and the monthly plan; frontend `lib/sharing.js`, `lib/cashFlow.js` (Início's cash
+  flow moved out of `Dashboard.jsx`, with "Outras pessoas" apart), `ShareFields` in the Extrato
+  edit, `CardShareSheet` from a purchase's menu in Cartões, the Lançamentos › A receber page.
+- Checks: **1126 pytest passed** (`test_expense_share.py` included), **73 node tests**, `vite
+  build` clean. Committed and pushed to `main` — which deploys the server (032 runs there) and,
+  because the earlier unpushed commits touch `frontend/android/`, builds the new APK too.
+- Docs: done-tasks row, CLAUDE.md (tests, convention), this handoff.
 
-### Follow-up, 2026-10-18 (session financas-4d): TWR like Investidor10
-Owner: "TWR seems to be off… investidor 10… 25,48% last 12 months and 57,42% total… make sure
-every transaction is exactly the same"; later "your average seems to be precise, no need to be
-exactly the same". No session-scout (follow-up in a running session).
-- **Found**: the operations match Investidor10 id by id (only AMER3, R$ 16,80 round trip in
-  2024–25, is missing). The error was Yahoo's bonus-as-split price adjustment against our
-  unrescaled quantities, plus the bonus counted as an aporte. Fixed (`restore_quantity_basis()`,
-  bonus = no flow), and the TWR is now daily-chained like Investidor10's. Total 48,13% → 56,45%
-  (theirs 57,42%). Rentabilidade got a "Tudo" period (`?months=all`). Details in done-tasks.
-- **Not done**: Tesouro mark-to-market (the main remaining gap, next-steps); the 12-month window
-  definition (Investidor10 uses 13 calendar months; owner to decide); AMER3 not added. **The
-  server's data was not read**: ssh to production was refused by the sandbox, so everything ran
-  on the PC's dev copy of the 2026-10-16 snapshot. Not pushed (a push deploys).
-- **Learned**: Investidor10's wallet API is readable from the owner's logged-in Chrome tab
-  (`/wallet/api/proxy/wallet-app/…`, wallet 1138417): `entries/<id>/<type>` (1 = ações/FIIs/
-  ETFs, 3 = renda fixa, 5 = Tesouro), `profitability/<id>/table|summary`,
-  `summary/actives/<id>/Ticker|Etf|FixedIncome|Treasure` (per-asset `weighted_return`,
-  `earnings_received`). The imported rows carry Investidor10's id in `metadata.external_id`.
+### Not done, and why
+- **Not tried in a browser or on the phone**: the request was checks + commit; the screens were
+  only built, not clicked through. Owner walk-through: Extrato → edit a despesa → "Dividida";
+  Cartões → ⋯ → "De quem é?"; A receber → mark paid; Início's flow shows "Outras pessoas".
+- Sharing is set only by editing; the "+ Novo" forms and Aprovar don't offer it (the previous
+  session's design, apparently — nothing half-built for it).
+- A receber's "paid" writes no money on purpose: the Pix the person sends is its own lançamento.
 
-### Follow-up, same day (session financas-5e): Pluggy out of the migrations
-Owner: "take down all pluggy mentions in the database", done after deploy `39088581530` applied
-029. `027_reserved.sql` / `029_reserved.sql` are comment-only and **keep their numbers** (a
-database that applied them skips any new file with that number); `028_inbox.sql` lost its Pluggy
-lines; `030_reserved_names.sql` renames the 027/029 rows in `schema_migrations`. Checked with
-`db.init_db()` from the old migrations and from scratch. One comment word stays inside the stored
-`CREATE TABLE inbox_items` on old databases (a rebuild isn't worth it). Committed together with
-this session's work, as the owner asked.
+### Next
+1. After the deploy: open A receber, Aprovar and Ajustes once to confirm 029–032 ran.
+2. Install the new APK ("Nova versão disponível"), then one Pix between own accounts, one to
+   someone else, one card purchase → check Aprovar (next-steps, first item).
+3. Keep capture on; the next export drives a parser pass (Samsung first).
 
-### How the phone was read
-- `adb` is not on PATH: `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`. The phone
-  (SM-S931B) is connected; the installed app is the **release** build, so `run-as` cannot read
-  `financas_notify.db`. `dumpsys notification` keeps no text in its archive, and Android's
-  notification history is not readable without root. The share sheet has no local-save target.
-  The owner exported the JSON by hand to `Downloads\notificacoes-20261017-225528.json` — that is
-  the source. It is not in the repo.
+### From the notification session (2026-10-17), still open
+- Not tried end to end on the phone; Samsung Wallet's purchase text never captured (its parser is
+  a guess), same for credit/debit "final", declined, estorno, boleto, BTG Investimentos.
+- Mapping screen (Phase 6 step 5) and raw-text-to-inbox (step 6): not built, on purpose.
+- `schema.sql` still lacks the 028 tables and 031's columns (032 is in it).
+- TWR: Tesouro mark-to-market, the 12-month window definition (owner to decide), AMER3 not added.
+- `adb` is at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`; the installed app is the
+  release build, so `run-as` can't read `financas_notify.db` — captures come from the owner's
+  export.
 
 ### Learned from the capture
 - **BTG puts the message in `android.infoText`**; title/text/bigText are empty. Anything reading
@@ -87,24 +60,6 @@ this session's work, as the owner asked.
 - Pix texts carry the counterparty's masked CPF (`***.378.195-**`, `XXX.378.195-XX`) on Itaú and
   BTG, and the destination institution on BB — that is the own-vs-external signal.
 - The phone's time zone is `America/Bahia` (UTC−3, no DST).
-
-### Not done, and why
-- **Not pushed.** A push to `main` deploys the server and builds a new APK (the `apk` job runs on
-  `frontend/android/` changes); left for the owner to say so.
-- **Not tried end to end on the phone**: needs the new APK. The parsers ran only on the JVM.
-- Samsung Wallet's purchase text was never captured (only its "Instalando…"): its parser is a
-  guess (amount + "compra/aprovada", merchant from the title). Same for credit/debit with "final",
-  declined, estorno, boleto, BTG Investimentos.
-- Mapping screen (Phase 6 step 5) and raw-text-to-inbox (step 6): not built, on purpose (see
-  next-steps).
-- `schema.sql` still lacks the 028 tables and now 031's columns — drift that predates this.
-- The server's `.env` may still hold `PLUGGY_*` lines (harmless).
-
-### Next
-1. Owner: push (or say so), install the APK by "Nova versão disponível", then one Pix between two
-   own accounts, one to someone else, one card purchase → check Aprovar (next-steps, first item).
-2. Keep capture on; the next export drives a parser pass (Samsung first) and the Samsung × bank
-   window.
 
 ### Carried, still open
 - After the deploy, open Lançamentos › Aprovar and Ajustes once to confirm 029–031 ran.

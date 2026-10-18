@@ -33,6 +33,10 @@ EXPECTED_ROUTES = {
     ("/api/cc-expenses/pay-invoice", "POST"),
     ("/api/cc-expenses/purchases", "POST"),
     ("/api/cc-expenses/status", "PATCH"),
+    ("/api/cc-expenses/<item_id>/share", "PATCH"),
+    # A receber (routes/receivables.py, 032).
+    ("/api/receivables", "GET"),
+    ("/api/receivables/settle", "POST"),
     ("/api/credit-cards", "GET,POST"),
     ("/api/credit-cards/<card_id>", "PATCH"),
     ("/api/credit-cards/<card_id>", "DELETE"),

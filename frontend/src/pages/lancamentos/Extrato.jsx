@@ -20,7 +20,9 @@ import {
   useArrivals,
 } from '../../components/ui'
 import { formatSignedCurrency } from '../../lib/format'
-import { isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
+import { INVESTMENT_CATEGORY, isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
+import { shareFormError, shareFormFrom, sharePayload, shareSummary } from '../../lib/sharing'
+import ShareFields from '../../components/ShareFields'
 import { categoryLabel, getNow } from './helpers'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import ProjectionHeader from './ProjectionHeader'
@@ -127,6 +129,19 @@ function isEditableHere(transaction) {
   return !['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
 }
 
+// "De quem é?" (lib/sharing.js) so vale para despesa e receita comuns:
+// transferencia e investimento nao se dividem com outra pessoa.
+const canShare = (transaction, form) => transaction.type !== 'TRANSFER'
+  && form.category !== INVESTMENT_CATEGORY
+  && !['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED'].includes(transaction.source_type)
+
+// "Dividida com Ana · sua parte R$ 40,00", embaixo da descricao.
+function ShareMark({ transaction }) {
+  const text = shareSummary(transaction)
+  if (!text) return null
+  return <span className="block truncate text-xs font-medium text-zinc-500" title={text}>{text}</span>
+}
+
 // Clipe ao lado da descricao quando ha comprovante; so informa, nao e botao.
 function AttachmentMark({ transaction }) {
   const count = Number(transaction.attachment_count || 0)
@@ -231,7 +246,7 @@ function ExtratoContas({ viewSwitch }) {
   const [exportOpen, setExportOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState(null)
-  const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '' })
+  const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '', share: shareFormFrom(null) })
 
   // Filtros do extrato: aplicados no backend (GET /api/transactions?...).
   // Sem filtro, o extrato usa a lista completa ja carregada por useLancamentos.
@@ -303,6 +318,7 @@ function ExtratoContas({ viewSwitch }) {
       description: transaction.description || '',
       type: transaction.type,
       account_id: transaction.account_id || '',
+      share: shareFormFrom(transaction),
     })
   }
 
@@ -314,6 +330,12 @@ function ExtratoContas({ viewSwitch }) {
     const amount = Number(editForm.amount)
     if (!Number.isFinite(amount) || amount <= 0) {
       setDataError('Informe um valor valido.')
+      return
+    }
+    const sharing = canShare(transaction, editForm)
+    const shareError = sharing ? shareFormError(editForm.share, amount) : ''
+    if (shareError) {
+      setDataError(shareError)
       return
     }
 
@@ -331,6 +353,11 @@ function ExtratoContas({ viewSwitch }) {
       if (transaction.type !== 'TRANSFER') {
         payload.category = editForm.category
         payload.type = editForm.type
+      }
+      // Sem mudar a divisao, o PATCH nem leva os campos (o servidor so confere
+      // que o valor novo ainda cabe nela).
+      if (sharing && JSON.stringify(editForm.share) !== JSON.stringify(shareFormFrom(transaction))) {
+        Object.assign(payload, sharePayload(editForm.share))
       }
       await transactionsApi.update(transaction.id, payload)
       setEditingId('')
@@ -391,6 +418,9 @@ function ExtratoContas({ viewSwitch }) {
         </select>
       ),
       amount: <input type="number" inputMode="decimal" step="0.01" value={editForm.amount} onChange={setEditField('amount')} className="app-input" />,
+      share: canShare(transaction, editForm) ? (
+        <ShareFields form={editForm.share} type={editForm.type} onChange={(share) => setEditForm({ ...editForm, share })} />
+      ) : null,
       actions: (
         <>
           <IconButton label="Salvar alterações" icon={Check} disabled={saving} onClick={() => handleEditSubmit(transaction)} />
@@ -612,7 +642,7 @@ function ExtratoContas({ viewSwitch }) {
                     {group.items.map((transaction) => {
                       if (editingId === transaction.id) {
                         const controls = editControls(transaction)
-                        return (
+                        return [
                           <tr key={transaction.id} className="bg-zinc-50">
                             {showAccount ? <td>{controls.account}</td> : null}
                             <td className="space-y-2">{controls.category}{controls.type}</td>
@@ -621,8 +651,13 @@ function ExtratoContas({ viewSwitch }) {
                             <td className="text-right">
                               <div className="flex justify-end gap-2">{controls.actions}</div>
                             </td>
-                          </tr>
-                        )
+                          </tr>,
+                          controls.share ? (
+                            <tr key={`${transaction.id}-share`} className="bg-zinc-50 hover:bg-zinc-50">
+                              <td colSpan={showAccount ? 5 : 4} className="!pt-0">{controls.share}</td>
+                            </tr>
+                          ) : null,
+                        ]
                       }
 
                       const account = accountLabel(transaction)
@@ -636,6 +671,7 @@ function ExtratoContas({ viewSwitch }) {
                               <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
                               <AttachmentMark transaction={transaction} />
                             </div>
+                            <ShareMark transaction={transaction} />
                           </td>
                           <td className={cx('num font-semibold', amountClass(transaction))}>{amountText(transaction)}</td>
                           <td className="py-1.5 text-right">
@@ -673,6 +709,7 @@ function ExtratoContas({ viewSwitch }) {
                         <Field label="Tipo">{controls.type}</Field>
                         <Field label="Conta">{controls.account}</Field>
                       </div>
+                      {controls.share}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex gap-2">
                           <Button type="button" variant="danger" size="lg" icon={Trash2} onClick={() => handleDeleteTransaction(transaction.id)}>
@@ -698,6 +735,7 @@ function ExtratoContas({ viewSwitch }) {
                         </span>
                         <AttachmentMark transaction={transaction} />
                       </p>
+                      {transaction.share_mode ? <p className="flex min-w-0"><ShareMark transaction={transaction} /></p> : null}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-0.5">
                       <p className={cx('whitespace-nowrap font-semibold', amountClass(transaction))}>{amountText(transaction)}</p>
