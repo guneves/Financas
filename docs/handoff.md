@@ -7,68 +7,57 @@
 
 ---
 
-## Session — 2026-10-18 (evening) · Five bugs from the owner's review
+## Session — 2026-10-18 (night) · Aprovar: ambiguous target, "Trocar", "Sempre perguntar"
 
-Owner: "Fix every one of these and create a pr when done" — a numbered list of five bugs, each
-already confirmed: the transfer 500 against Aprovar, Início/bell looking at next month's invoice,
-categories matched by name, the rename that only touched lançamentos, identical card purchases
-merged. Cloud session (no phone, no browser); read the docs directly instead of session-scout,
-since the task list came complete.
+Owner, three numbered asks under Aprovar: (1) don't save a choice when the case is ambiguous — no
+card final and more than one active account/card at that bank — and ask every time, resting on
+"Prompt 1's bank field", falling back to today's behaviour for "Sem banco" accounts; (2) always
+show the target with a quick "Trocar"; (3) optional Ajustes switch "Sempre perguntar a
+conta/cartão", off by default. Cloud session; read the docs directly (the ask was complete).
 
 ### Done
-1. **Transfer vs Aprovar** — `absorb_created()` called `_absorb()` with an extra `"transfer"`
-   argument (`services/inbox_decisions.py`), so `POST /api/transfers` matching a pending TRANSFER
-   item raised `TypeError`, rolled back and answered 500. Removed; test in `test_inbox.py`.
-2. **Next invoice per card** — `nextInvoices()` / `nearestOpenInvoice()` / `isPastDue()` in
-   `lib/attentionRules.js`, used by Início (tile, "Próximas faturas" panel and chart, "Pagar
-   fatura"), the bell (`lib/attention.js`) and Cartões (the invoice it opens and pays; "Em atraso"
-   only after the due day — it said so on the due day itself). "Disponível por dia" without a plan
-   = balance − each card's next invoice − any overdue one ("Saldo menos as faturas a pagar").
-3. **Categories by id** — every category select sends `category_id` ("+ Novo", Extrato edit —
-   only when changed —, Importar, Aprovar, Ajustes › Regras). Migration **035** adds
-   `cc_expenses.category_id` (backfilled by name, root first) and the budget counts card purchases
-   by it. Server: `category_id_for_name()` / `category_ids_by_name()` (root, then the oldest
-   subcategory), `resolve_category(current=...)` keeps a row's id when the edit sends its own name
-   back, `allow_archived` for the import commit, rule apply compares ids, the import default
-   ("Outros") is the root one.
-4. **Rename everywhere** — `rename_category_rows()` (`services/accounts.py`) rewrites the name in
-   `transactions`, `cc_expenses`, `recurring_transactions`, `import_rules`, `inbox_items`; a row
-   with only the old text adopts the id when the old name was this category's.
-5. **Each card purchase is its `client_id`** — `same_purchase_sql()` / `cc_purchase_expense_ids()`
-   (`services/attachments.py`) for receipts, sharing, A receber, the attachment count;
-   `GET /api/cc-expenses/candidates?id=` (Cartões delete and the share sheet); `cardPurchaseKey()`
-   (`lib/transactions.js`) for Cartões' rows and Início's grouping. Every new purchase gets an id
-   (generated when the client sends none, also refunds and Aprovar); 035 gives the old ones
-   `legacy:<id>`, splitting identical ones by write order.
-- Checks: pytest **1195 passed** (`-o addopts=""`); node tests **91 passed**; `vite build` clean.
-  Each new backend test was run against the old code (fixes stashed) and fails there: 9 of 11 in
-  each new file; the other four are guards for the new paths.
+1. **Ambiguous target** — `ambiguous_target()` / `bank_of_row()` in `services/inbox.py`, checked in
+   `resolve_detection` (no hint, no guess), `remember_choice` (nothing saved, also a transfer's
+   side keys), `apply_hint_to_pending`, and serialized as `item.ambiguous` (the screen hides
+   "Lembrar a escolha" and says why under the picker). Details in `done-tasks.md`.
+2. **Target line + "Trocar"** — `TargetLine` in `Aprovar.jsx` ("→ BB Corrente"), replacing the
+   target badge; "Trocar" opens the same pickers as a guess, closes after a choice.
+   `targetText()` / `targetFields()` moved into `lib/inboxRules.js` (tested).
+3. **"Sempre perguntar a conta/cartão"** — Ajustes › Aprovar (`AprovarSection.jsx`),
+   `GET/PATCH /api/inbox/settings`, migration **036** `user_settings`. With it on,
+   `confirm_targets()` adds every target the owner didn't pick on the item, so nothing is "ready".
+- Checks: pytest **1208 passed** (`-o addopts=""`); the 13 new tests all fail with the service
+  and route changes stashed. node tests **94 passed**; `vite build` clean. Screenshotted the built
+  app at 390 px against a throwaway DB (an ambiguous Itaú Pix, a remembered BB item, Trocar open,
+  the Ajustes switch).
 
 ### Not done, and why
-- Not clicked through in a browser or on the phone (cloud container). The owner check is in
-  `next-steps.md` ("Bug fixes of 2026-10-18").
-- The outbox's 5xx = retry rule is unchanged on purpose: a transfer stuck in a phone's queue is
-  delivered (same `client_id`) once this is deployed. A cap for a plain 500 would need
-  `outboxRules.js` and `OutboxRules.java` together plus a native-level bump.
-- Card purchases already orphaned by a rename before this fix stay orphaned (the text matches no
-  category; a card purchase's category can't be edited). Identical purchases shared together
-  before the fix keep the pair's share on both halves. Both need the owner's data.
-- Início's "Despesas por categoria" still groups by name (CLAUDE.md: the Dashboard groups on the
-  text column) — owner's call.
-- The unused list `POST /api/cc-expenses` still writes rows with no `client_id` (old-key fallback).
+- **"Prompt 1's bank field" does not exist in this repo** (only `main` and this branch on the
+  remote). I used what exists: `accounts.institution`, mapped to itau/bb/btg by
+  `issuer_of_institution()`; a `bank` column, if Prompt 1 adds one, is read first. Cards have no
+  bank field, so they keep today's behaviour. Institution is editable only at account creation, so
+  for existing accounts the rule is dormant until the bank field lands.
+- Name matching ("Itaú corrente") deliberately doesn't count as a bank: the owner said the rule
+  rests on the bank field.
+- Not tried on the phone.
 
 ### Learned / decided
-- **The invoice month is the due month** (`invoice_closing_date()`): "next month's invoice" is
-  right only for cards that close after their due day (25/5). The seed's cards (3/10, 13/20) close
-  before it, which is why the bug showed on every seeded database.
-- `client_id` doubles as the purchase id, as the owner suggested — no new column. A refund can
-  never share a purchase's `client_id` (the refund route returns the existing rows for a known id).
-- 035's category backfill follows the budget's own name order, so no realizado moves at migration
-  time; only new rows and edits change where things count.
-- A refund sent with the purchase's name and `refund_of` takes the purchase's id
-  (`current=original`), so `CardRefundSheet` needed no change — and sending the id would have
-  refused a purchase in an archived category.
-- Migration number 035 was free: the remote had only `main` when this branch was cut.
+- **Migration 036 is claimed here.** If Prompt 1's branch also adds a 036, whichever merges second
+  renumbers before the server applies it.
+- Ambiguity is computed from the hint key at each use, never stored, so adding or archiving an
+  account changes waiting items on the next read.
+- "Always ask" doesn't block approving: approving one item is the confirmation, the way a guess
+  already worked. Picking the same value in a `<select>` fires no change, so a confirm button would
+  have needed a new PATCH semantic for nothing.
+- `/api/inbox/settings` takes GET and PATCH both, so a PATCH never falls to `/api/inbox/<item_id>`.
+- Starting the app for screenshots: signup wants a username of 2+ characters, and the auth goes in
+  localStorage `@financeMVP:auth` (the signup body, JSON). Global Playwright is at
+  `/opt/node22/lib/node_modules/playwright`.
+
+### Carried from the five-bugs session (2026-10-18 evening), still open
+- Owner checks in `next-steps.md` ("Bug fixes of 2026-10-18"): Cartões after 035, the next invoice
+  per card, orphaned card categories, split shares, Início's categories by name, the 5xx outbox
+  cap, the old list `POST /api/cc-expenses`.
 - In a fresh cloud container: `python3 -m venv .venv && .venv/bin/pip install -r
   backend/requirements-dev.txt`, `npm ci` in `frontend/`. Importing `app` outside pytest writes a
   boot backup into `backend/backups/` (gitignored) — delete it.

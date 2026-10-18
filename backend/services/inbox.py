@@ -586,6 +586,37 @@ def _hint_usable(conn, current_user_id, hint):
 # De qual cartao ou conta e: lembrado, palpite, ou o dono decide
 # ---------------------------------------------------------------------------
 
+def bank_of_row(row):
+    """O banco (itau, bb, btg) de uma conta ou cartao, pelo campo de banco —
+    nunca pelo nome. Sem banco (o campo vazio, ou um cartao, que ainda nao tem
+    o campo), None: o app nao sabe contar quantos ha naquele banco."""
+    keys = row.keys()
+    text = (row["bank"] if "bank" in keys else None) or (row["institution"] if "institution" in keys else None)
+    return issuer_of_institution(text)
+
+
+def ambiguous_target(conn, current_user_id, key, entry_type):
+    """A notificacao nao diz o final do cartao e o dono tem mais de uma conta
+    (ou cartao, para CARD) ativa naquele banco: a escolha nao fica lembrada e
+    o item pergunta toda vez. Contas/cartoes sem banco nao entram na conta;
+    com menos de dois no banco, vale o de sempre (lembrar, palpite)."""
+    parts = (key or "").split(":", 3)
+    if len(parts) != 4 or parts[0] != "notify" or parts[3] != "-" or entry_type not in REQUIRED_TARGETS:
+        return False
+    issuer = ISSUER_OF_APP.get(parts[1])
+    if not issuer or entry_type is None or entry_type == "TRANSFER":
+        return False
+    if entry_type == "CARD":
+        rows = conn.execute("SELECT * FROM credit_cards WHERE user_id = ?", (current_user_id,)).fetchall()
+    else:
+        ids = [row["id"] for row in _usable_accounts(conn, current_user_id, parts[1])]
+        rows = [
+            row for row in conn.execute("SELECT * FROM accounts WHERE user_id = ?", (current_user_id,)).fetchall()
+            if row["id"] in ids
+        ]
+    return sum(1 for row in rows if bank_of_row(row) == issuer) > 1
+
+
 def _mentions(row_text, aliases):
     words = f" {normalized(row_text)} "
     return any(f" {alias} " in words for alias in aliases)
@@ -612,10 +643,16 @@ def guess_card(conn, current_user_id, detection):
     return None
 
 
-def guess_account(conn, current_user_id, detection):
+def _usable_accounts(conn, current_user_id, app):
+    """As contas onde a notificacao deste app pode cair: ativas, em reais, e
+    a Corretora so para o app da corretora."""
     accounts = [row for row in _active_accounts(conn, current_user_id) if (row["currency"] or "BRL") == "BRL"]
-    brokerage_app = detection.get("app") == BROKERAGE_APP
-    usable = [row for row in accounts if (row["type"] == "BROKERAGE") == brokerage_app]
+    brokerage_app = app == BROKERAGE_APP
+    return [row for row in accounts if (row["type"] == "BROKERAGE") == brokerage_app]
+
+
+def guess_account(conn, current_user_id, detection):
+    usable = _usable_accounts(conn, current_user_id, detection.get("app"))
     issuer = issuer_of(detection)
     if issuer in ISSUER_ALIASES:
         by_issuer = [
@@ -653,7 +690,9 @@ def resolve_detection(conn, current_user_id, detection):
         # um recebido uma entrada, na mesma conta lembrada); so a compra sem
         # credito/debito leva o tipo que o dono escolheu.
         remembered_type = hint["entry_type"] if entry_type is None else entry_type
-        if (remembered_type == "CARD") == bool(hint["card_id"]):
+        if (remembered_type == "CARD") == bool(hint["card_id"]) and not ambiguous_target(
+            conn, current_user_id, key, remembered_type,
+        ):
             draft.update({
                 "entry_type": remembered_type,
                 "account_id": hint["account_id"] if remembered_type != "CARD" else None,
@@ -663,11 +702,14 @@ def resolve_detection(conn, current_user_id, detection):
             return draft
     # Sem metodo (o dono ainda vai dizer credito ou debito), os dois palpites
     # ficam prontos: escolhido o metodo, o cartao ou a conta ja esta la.
-    if entry_type in (None, "CARD"):
+    # Ambiguo (mais de um no banco, sem o final): nem palpite, o dono escolhe.
+    if entry_type in (None, "CARD") and not ambiguous_target(conn, current_user_id, key, "CARD"):
         draft["card_id"] = guess_card(conn, current_user_id, detection)
         if draft["card_id"]:
             draft["guessed"].append("card")
-    if entry_type in (None, "EXPENSE", "INCOME"):
+    if entry_type in (None, "EXPENSE", "INCOME") and not ambiguous_target(
+        conn, current_user_id, key, entry_type or "EXPENSE",
+    ):
         draft["account_id"] = guess_account(conn, current_user_id, detection)
         if draft["account_id"]:
             draft["guessed"].append("account")
@@ -680,6 +722,21 @@ def relevant_guesses(item):
     importa se o dono disse que foi no debito)."""
     wanted = REQUIRED_TARGETS.get(item.get("entry_type"), ())
     return [guess for guess in item.get("guessed") or [] if guess in wanted]
+
+
+def confirm_targets(item, always_ask=False):
+    """O que o dono confirma antes do item ficar pronto: os palpites que contam
+    e, com "Sempre perguntar a conta/cartao", tambem o cartao/conta lembrado
+    (so o que ele mesmo escolheu neste item fica de fora)."""
+    confirm = relevant_guesses(item)
+    if not always_ask or item.get("state", PENDING) != PENDING:
+        return confirm
+    edited = set(item.get("edited") or [])
+    for need in REQUIRED_TARGETS.get(item.get("entry_type"), ()):
+        field = FIELD_OF_NEED.get(need)
+        if field and item.get(field) and field not in edited and need not in confirm:
+            confirm.append(need)
+    return confirm
 
 
 def missing_targets(draft):
@@ -1597,6 +1654,8 @@ def apply_hint_to_pending(conn, current_user_id, key, *, exclude_id=None):
         entry_type = item["entry_type"] or hint["entry_type"]
         if (entry_type == "CARD") != bool(hint["card_id"]):
             continue
+        if ambiguous_target(conn, current_user_id, key, entry_type):
+            continue
         changes = {
             "entry_type": entry_type,
             "card_id": hint["card_id"] if entry_type == "CARD" else None,
@@ -1641,7 +1700,7 @@ def _names(conn, current_user_id):
     return accounts, cards
 
 
-def serialize_item(conn, current_user_id, row, names=None, recurrences=None):
+def serialize_item(conn, current_user_id, row, names=None, recurrences=None, ask=None):
     item = item_dict(row) if not isinstance(row, dict) else dict(row)
     accounts, cards = names or _names(conn, current_user_id)
     item["account_name"] = accounts.get(item.get("account_id"))
@@ -1669,7 +1728,14 @@ def serialize_item(conn, current_user_id, row, names=None, recurrences=None):
             "received_at": detection["created_at"],
         })
     item["sources"] = sources
-    item["confirm"] = relevant_guesses(item)
+    if ask is None:
+        ask = always_ask(conn, current_user_id)
+    item["confirm"] = confirm_targets(item, ask)
+    # Mais de uma conta/cartao no banco e a notificacao sem o final: a tela
+    # pergunta toda vez e nao oferece "Lembrar a escolha".
+    item["ambiguous"] = item.get("state") == PENDING and ambiguous_target(
+        conn, current_user_id, item.get("hint_key"), item.get("entry_type"),
+    )
     # A recorrencia que aprovar da como feita (034): a sugestao enquanto
     # pendente (mesmo com "nao e esta", para poder desfazer), a gravada depois.
     item["recurring_off"] = bool(item.get("recurring_off"))
@@ -1705,4 +1771,32 @@ def list_items(conn, current_user_id, view="pending", limit=200):
         ).fetchall()
     names = _names(conn, current_user_id)
     recurrences = recurring.recurring_rows(conn, current_user_id, include_inactive=False)
-    return [serialize_item(conn, current_user_id, row, names, recurrences) for row in rows]
+    ask = always_ask(conn, current_user_id)
+    return [serialize_item(conn, current_user_id, row, names, recurrences, ask) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Preferencias (036)
+# ---------------------------------------------------------------------------
+
+ALWAYS_ASK_SETTING = "inbox_always_ask"
+
+
+def always_ask(conn, current_user_id):
+    """"Sempre perguntar a conta/cartao" (Ajustes, desligado por padrao)."""
+    row = conn.execute(
+        "SELECT value FROM user_settings WHERE user_id = ? AND setting_key = ?",
+        (current_user_id, ALWAYS_ASK_SETTING),
+    ).fetchone()
+    return bool(row) and row["value"] == "1"
+
+
+def set_always_ask(conn, current_user_id, value):
+    conn.execute(
+        """
+        INSERT INTO user_settings (user_id, setting_key, value, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT (user_id, setting_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """,
+        (current_user_id, ALWAYS_ASK_SETTING, "1" if value else "0", utc_timestamp()),
+    )
