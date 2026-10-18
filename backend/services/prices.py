@@ -1,17 +1,18 @@
 """Cotacoes de mercado: download (brapi e yfinance), cache em memoria e gravacao.
 
 `download_market_prices()` pergunta ao brapi primeiro (quando ha token) e manda
-ao yfinance so o que faltou. Os caches `_price_cache` / `_history_cache` sao do
-processo, protegidos por `_price_cache_lock`; `_price_fetch_executor` limita o
-tempo de espera de um download travado. `record_price_quote()` grava a cotacao
-em `price_quotes` — e o unico caminho que escreve la.
+ao yfinance so o que faltou. Os caches `_price_cache` / `_history_cache` /
+`_daily_history_cache` sao do processo, protegidos por `_price_cache_lock`;
+`_price_fetch_executor` limita o tempo de espera de um download travado.
+`record_price_quote()` grava a cotacao em `price_quotes` — e o unico caminho
+que escreve la.
 
 Os testes trocam `yf` e `download_close_prices` aqui; `routes/investments.py`
 tambem le `yf` (o historico), entao o teste de evolucao troca os dois.
 """
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import math
 import threading
 import time
@@ -32,7 +33,7 @@ from config import (
     PRICE_FETCH_WORKERS,
     PRICE_QUOTE_STALE_HOURS,
 )
-from dates import parse_iso_date, parse_iso_datetime
+from dates import parse_iso_date, parse_iso_datetime, subtract_months
 from db import encode_metadata, new_id, utc_timestamp
 from money import rounded_money
 from validators import safe_float
@@ -43,6 +44,9 @@ logger = get_logger(__name__)
 
 _price_cache = {}
 _history_cache = {}
+# {ticker: {"from": AAAA-MM-DD, "prices", "splits", "updated_at"}}: o historico
+# diario por ticker, desde `from`. Serve qualquer pedido que comece depois dele.
+_daily_history_cache = {}
 _price_cache_lock = threading.Lock()
 _price_fetch_executor = ThreadPoolExecutor(max_workers=PRICE_FETCH_WORKERS)
 
@@ -510,30 +514,54 @@ def download_daily_history(tickers, start_date):
     return result
 
 
+# Os graficos pedem no maximo 60 meses, mais o mes do valor inicial e o
+# fechamento anterior dos indices. Toda busca de historico comeca, no maximo,
+# aqui: uma ida ao provedor serve a todas as janelas e classes, e trocar de
+# periodo (6M, 1A, Tudo) ou de classe le o cache em vez de baixar de novo.
+HISTORY_FETCH_MONTHS = 63
+
+
+def history_fetch_floor(today=None):
+    """Dia 1 do mes HISTORY_FETCH_MONTHS meses atras (um date)."""
+    today = today or date.today()
+    return subtract_months(today.replace(day=1), HISTORY_FETCH_MONTHS)
+
+
 def get_daily_history(tickers, start_date):
-    """`download_daily_history()` com o cache de historico do processo."""
+    """`download_daily_history()` com o cache de historico do processo.
+
+    O cache e por ticker e guarda desde onde cobre: um pedido que comeca
+    depois disso le o cache, recortado em `start_date` (o mesmo que o
+    download desde ela devolveria). So os tickers que faltam vao ao Yahoo,
+    desde o piso de `history_fetch_floor()`."""
     normalized_tickers = tuple(sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)}))
     if not normalized_tickers:
         return {"prices": {}, "splits": {}}
 
-    cache_key = ("daily", normalized_tickers, start_date)
+    result = {"prices": {}, "splits": {}}
+    missing = []
     now = time.time()
     with _price_cache_lock:
-        cached = _history_cache.get(cache_key)
-        if cached and now - cached.get("updated_at", 0) <= HISTORY_CACHE_TTL_SECONDS:
-            return {
-                "prices": {ticker: dict(days) for ticker, days in cached["prices"].items()},
-                "splits": {ticker: list(events) for ticker, events in cached["splits"].items()},
-            }
+        for ticker in normalized_tickers:
+            cached = _daily_history_cache.get(ticker)
+            if cached and cached["from"] <= start_date and now - cached["updated_at"] <= HISTORY_CACHE_TTL_SECONDS:
+                result["prices"][ticker] = {day: price for day, price in cached["prices"].items() if day >= start_date}
+                result["splits"][ticker] = [event for event in cached["splits"] if event[0] >= start_date]
+            else:
+                missing.append(ticker)
+    if not missing:
+        return result
 
-    history = download_daily_history(list(normalized_tickers), start_date)
+    fetch_from = min(start_date, history_fetch_floor().isoformat())
+    history = download_daily_history(missing, fetch_from)
     with _price_cache_lock:
-        _history_cache[cache_key] = {
-            "prices": {ticker: dict(days) for ticker, days in history["prices"].items()},
-            "splits": {ticker: list(events) for ticker, events in history["splits"].items()},
-            "updated_at": now,
-        }
-    return history
+        for ticker in missing:
+            prices = dict(history["prices"].get(ticker) or {})
+            splits = list(history["splits"].get(ticker) or [])
+            _daily_history_cache[ticker] = {"from": fetch_from, "prices": prices, "splits": splits, "updated_at": now}
+            result["prices"][ticker] = {day: price for day, price in prices.items() if day >= start_date}
+            result["splits"][ticker] = [event for event in splits if event[0] >= start_date]
+    return result
 
 
 # Um evento do Yahoo e o mesmo desdobramento/grupamento registrado quando cai

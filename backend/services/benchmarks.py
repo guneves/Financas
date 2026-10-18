@@ -22,7 +22,8 @@ indice cobre.
 
 Os testes trocam `download_monthly_history` aqui, `brapi_client.get_history`
 / `is_configured` no modulo `brapi_client` e `fetch_bcb_series` em
-`services.fixed_income`; `reset_fetch_throttle()` limpa as tentativas.
+`services.fixed_income`; `reset_fetch_throttle()` limpa as tentativas e o
+IPCA guardado.
 """
 
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -38,7 +39,7 @@ from dates import month_key, month_label, subtract_months
 from db import get_db
 from integrations import record_provider_result
 from services import fixed_income
-from services.prices import _price_fetch_executor, download_monthly_history
+from services.prices import _price_fetch_executor, download_monthly_history, history_fetch_floor
 from validators import safe_float
 
 logger = get_logger(__name__)
@@ -61,16 +62,14 @@ BRAPI_SYMBOLS = {"IBOV": "^BVSP", "IFIX": "IFIX"}
 # meio disso a tela le o banco. Sem rede, nao espera o timeout a cada abertura.
 _attempts = {}
 _attempts_lock = threading.Lock()
-_ipca_cache = {}
-_ipca_lock = threading.Lock()
 
 
 def reset_fetch_throttle():
     """Para os testes."""
     with _attempts_lock:
         _attempts.clear()
-    with _ipca_lock:
-        _ipca_cache.clear()
+    with fixed_income._index_history_lock:
+        fixed_income._index_history_cache.pop("ipca", None)
 
 
 def _may_fetch(key):
@@ -213,11 +212,15 @@ def download_index_closes(start_date, today):
 
 def refresh_benchmark_closes(current_user_id, start_date, today):
     """Busca os fechamentos (no maximo uma vez por TTL) e guarda. Devolve
-    {benchmark: fonte} do que veio agora, ou None quando nao buscou/falhou."""
-    key = ("closes", current_user_id, start_date.isoformat())
+    {benchmark: fonte} do que veio agora, ou None quando nao buscou/falhou.
+
+    Busca desde o piso do historico (`history_fetch_floor()`), nao desde a
+    janela: uma ida por TTL serve a todos os periodos da tela."""
+    fetch_from = min(start_date, history_fetch_floor(today))
+    key = ("closes", current_user_id, fetch_from.isoformat())
     if not _may_fetch(key):
         return None
-    future = _price_fetch_executor.submit(download_index_closes, start_date, today)
+    future = _price_fetch_executor.submit(download_index_closes, fetch_from, today)
     try:
         closes, sources = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
     except FutureTimeoutError:
@@ -233,22 +236,11 @@ def refresh_benchmark_closes(current_user_id, start_date, today):
     return sources
 
 
-def fetch_ipca(start_date):
-    """[(mes, variacao)] do BCB desde `start_date`, em cache pelo TTL do historico."""
-    key = start_date.isoformat()
-    now = time.monotonic()
-    with _ipca_lock:
-        cached = _ipca_cache.get(key)
-        if cached and now - cached[0] < HISTORY_CACHE_TTL_SECONDS:
-            return cached[1]
-    start = datetime(start_date.year, start_date.month, 1)
-    future = fixed_income._index_fetch_executor.submit(
-        fixed_income.fetch_bcb_series, fixed_income.BCB_SERIES_IPCA, start,
-    )
-    series = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
-    with _ipca_lock:
-        _ipca_cache[key] = (now, series)
-    return series
+def start_ipca_fetch(start_date):
+    """[(mes, variacao)] do BCB desde o mes de `start_date`, em segundo plano.
+
+    O cache e o da renda fixa (`fixed_income.ipca_since()`), pelo TTL do historico."""
+    return fixed_income._index_fetch_executor.submit(fixed_income.ipca_since, start_date)
 
 
 # --- entrada ----------------------------------------------------------------------
@@ -270,9 +262,15 @@ def load_benchmarks(current_user_id, first_month, now=None):
     # O retorno do primeiro mes precisa do fechamento do mes anterior.
     since = subtract_months(date(first_month.year, first_month.month, 1), 1)
 
+    # O IPCA (BCB) corre enquanto os fechamentos (yfinance) sao buscados; o
+    # prazo de cada um conta do inicio, nao do fim do outro.
+    ipca_future = start_ipca_fetch(date(first_month.year, first_month.month, 1))
+    ipca_deadline = time.monotonic() + PRICE_FETCH_TIMEOUT_SECONDS
+    fresh_sources = refresh_benchmark_closes(current_user_id, since, today) or {}
+
     result = {}
     try:
-        ipca = fetch_ipca(date(first_month.year, first_month.month, 1))
+        ipca = ipca_future.result(timeout=max(0.0, ipca_deadline - time.monotonic()))
         result["IPCA"] = {"monthly": ipca_monthly_returns(ipca, keys), "source": "bcb", "error": None}
     except FutureTimeoutError:
         result["IPCA"] = {"monthly": {}, "source": None, "error": "Tempo limite ao buscar o IPCA no BCB."}
@@ -280,7 +278,6 @@ def load_benchmarks(current_user_id, first_month, now=None):
         logger.warning(f"IPCA indisponivel para a rentabilidade: {exc}")
         result["IPCA"] = {"monthly": {}, "source": None, "error": "O BCB não respondeu o IPCA."}
 
-    fresh_sources = refresh_benchmark_closes(current_user_id, since, today) or {}
     with get_db() as conn:
         for benchmark in CLOSE_BENCHMARKS:
             closes = stored_closes(conn, current_user_id, benchmark, since)

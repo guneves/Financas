@@ -140,6 +140,7 @@
 | Aprovar, ambiguous target: a notification with no card final, when 2+ active accounts (or cards) carry that bank in their bank field, is never remembered nor guessed — it asks every time, an older remembered choice stops deciding, and "Lembrar a escolha" is hidden. `test_inbox_ambiguous.py` | 2026-10-18 |
 | Aprovar shows every item's target ("→ Itaú Conta corrente"), remembered ones too, with "Trocar" opening the picker in place | 2026-10-18 |
 | Ajustes › Aprovar: "Sempre perguntar a conta/cartão" (off by default, server-side in `user_settings`, migration 036): every item asks to confirm its target and "Aprovar prontos" takes none. `test_inbox_ambiguous.py` | 2026-10-18 |
+| Charts faster: Rentabilidade fetches prices, CDI, IPCA and index closes at once instead of in sequence, and the price/BCB caches cover every period and class (one download per TTL) — cold 6 s → 1 s, period/class switch ~4 s → < 0.1 s on the 1 s-latency harness. `test_history_fetch.py` | 2026-10-18 |
 
 ---
 
@@ -798,3 +799,20 @@ the old code. One PR.
 - `GET/PATCH /api/inbox/settings` `{always_ask}`; `user_settings` (036) is a generic
   `(user_id, setting_key) → value` table for future account-wide preferences.
 
+### Chart loading speed — 2026-10-18
+- **Coverage caches.** Daily closes are cached per ticker (`_daily_history_cache` in
+  `services/prices.py`) and the BCB series per series (`_index_history_cache["cdi" | "ipca"]` in
+  `services/fixed_income.py`), each with the date it covers from. A request starting on or after
+  it is served from the cache, sliced at its start, so it equals a download from that start (the
+  Yahoo split events too). A miss downloads from `history_fetch_floor()` (day 1 of the month 63
+  months back: 60-month windows + the V0 month + the indices' previous close), so the first load
+  covers every later period. The index closes fetch (`refresh_benchmark_closes()`) starts at the
+  same floor and throttles on it.
+- **Parallel fetches.** `start_index_history()` returns `(future, deadline)`;
+  `wait_index_history()` waits only what is left of that deadline, so starting early never adds a
+  second timeout. Returns: window CDI and `load_benchmarks()` are started first, then
+  `load_history_inputs()` (which starts the fixed-income BCB fetch before the Yahoo download); in
+  `load_benchmarks()` the IPCA runs during the closes fetch. The response waits for the slowest
+  fetch, not the sum.
+- Today's value in TWR and the evolution comes from the stored quote, never the history, so the
+  history only carries past closes.
