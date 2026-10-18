@@ -110,6 +110,7 @@ EXPECTED_ROUTES = {
     ("/api/inbox/count", "GET"),
     ("/api/inbox/detections", "POST"),
     ("/api/inbox/approve-ready", "POST"),
+    ("/api/inbox/settings", "GET,PATCH"),
     ("/api/inbox/hints", "GET"),
     ("/api/inbox/hints/<hint_id>", "DELETE"),
     ("/api/inbox/<item_id>", "GET,PATCH"),

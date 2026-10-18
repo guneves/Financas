@@ -297,7 +297,9 @@ export const inboxApi = {
   split: (id, payload) => postJson(`/api/inbox/${id}/split`, payload),
   approveReady: (ids) => postJson('/api/inbox/approve-ready', { ids }),
   hints: () => apiFetch('/api/inbox/hints'),
-  forgetHint: (id) => apiFetch(`/api/inbox/hints/${id}`, { method: 'DELETE' })
+  forgetHint: (id) => apiFetch(`/api/inbox/hints/${id}`, { method: 'DELETE' }),
+  settings: () => apiFetch('/api/inbox/settings'),
+  updateSettings: (payload) => apiFetch('/api/inbox/settings', { method: 'PATCH', body: JSON.stringify(payload) })
 }
 
 // A receber (032): a parte dos outros nas despesas, ate o dono marcar que pagaram.

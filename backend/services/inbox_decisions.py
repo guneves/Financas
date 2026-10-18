@@ -356,7 +356,13 @@ def remember_choice(conn, current_user_id, item, before):
     had_decision = bool(before.get("needs") or before.get("guessed") or set(item.get("edited") or []) & {
         "entry_type", "card_id", "account_id",
     })
-    if key and entry_type in ("CARD", "EXPENSE", "INCOME") and (had_decision or not inbox.fetch_hint(conn, current_user_id, key)):
+    # Ambiguo (mais de uma conta/cartao no banco, a notificacao sem o final):
+    # nada fica lembrado, o proximo item pergunta de novo.
+    if (
+        key and entry_type in ("CARD", "EXPENSE", "INCOME")
+        and not inbox.ambiguous_target(conn, current_user_id, key, entry_type)
+        and (had_decision or not inbox.fetch_hint(conn, current_user_id, key))
+    ):
         inbox.remember(
             conn, current_user_id, key, item.get("hint_label"),
             entry_type=entry_type,
@@ -374,7 +380,10 @@ def remember_choice(conn, current_user_id, item, before):
             side_account = item["account_id"] if side == "OUT" else item["transfer_account_id"]
             parsed = inbox.detection_from_row(detection)
             side_key = inbox.detection_hint_key(parsed)
-            if side_type in ("EXPENSE", "INCOME") and side_account and side_key not in remembered:
+            if (
+                side_type in ("EXPENSE", "INCOME") and side_account and side_key not in remembered
+                and not inbox.ambiguous_target(conn, current_user_id, side_key, side_type)
+            ):
                 inbox.remember(
                     conn, current_user_id, side_key, inbox.detection_hint_label(parsed),
                     entry_type=side_type, account_id=side_account,
@@ -539,13 +548,14 @@ def approve_ready(conn, current_user_id, item_ids):
     """"Aprovar todos": so os itens prontos (nada a escolher, nenhum palpite a
     confirmar); o resto fica, com o motivo."""
     approved, skipped = [], []
+    ask = inbox.always_ask(conn, current_user_id)
     for item_id in item_ids:
         row = inbox.fetch_item(conn, current_user_id, item_id)
         if not row or row["state"] != inbox.PENDING:
             skipped.append({"id": item_id, "reason": "decided"})
             continue
         item = inbox.item_dict(row)
-        if item["needs"] or inbox.relevant_guesses(item):
+        if item["needs"] or inbox.confirm_targets(item, ask):
             skipped.append({"id": item_id, "reason": "needs_decision"})
             continue
         try:

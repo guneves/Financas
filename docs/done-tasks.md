@@ -137,6 +137,9 @@
 | Bug: categories matched by name ("Outros" at the root and under two parents): every category select sends the id ("+ Novo", Extrato edit, Importar, Aprovar, Ajustes › Regras); card purchases store `category_id` (migration 035, backfilled) and the budget counts them by it; an edit that resends the name keeps the id; a bare name means the root; rules compare by id. `test_category_identity.py` | 2026-10-18 |
 | Bug: renaming a category only rewrote `transactions`: now card purchases, recurrences, import rules and Aprovar items too (by id), and a row with only the old text keeps counting where it counted. `test_category_identity.py` | 2026-10-18 |
 | Bug: two identical card purchases (same card, description, date, category) were one — sharing, A receber, delete, receipts and the Cartões row merged them. The purchase is its `client_id` now; every purchase has one (migration 035 gives the old ones `legacy:<id>`, identical ones split by write order); `/api/cc-expenses/candidates?id=`. `test_cc_purchase_identity.py`, `transactions.test.js` | 2026-10-18 |
+| Aprovar, ambiguous target: a notification with no card final, when 2+ active accounts (or cards) carry that bank in their bank field, is never remembered nor guessed — it asks every time, an older remembered choice stops deciding, and "Lembrar a escolha" is hidden. `test_inbox_ambiguous.py` | 2026-10-18 |
+| Aprovar shows every item's target ("→ Itaú Conta corrente"), remembered ones too, with "Trocar" opening the picker in place | 2026-10-18 |
+| Ajustes › Aprovar: "Sempre perguntar a conta/cartão" (off by default, server-side in `user_settings`, migration 036): every item asks to confirm its target and "Aprovar prontos" takes none. `test_inbox_ambiguous.py` | 2026-10-18 |
 
 ---
 
@@ -778,4 +781,20 @@ the old code. One PR.
   category, kind, installment) group by `created_at` and joins the k-th of each installment into
   purchase k. The Cartões delete keeps its ±1 cent / installment-count guard for rows with no
   `client_id`.
+
+### Aprovar: ambiguous target, "Trocar", "Sempre perguntar" — 2026-10-18
+- **Ambiguous** = `ambiguous_target()` (`services/inbox.py`): the hint key's card part is `-` (no
+  final, no card name), the app has an issuer, and more than one active account (BRL; Corretora
+  only for the brokerage app) — or card, for a CARD item — has that issuer in its bank field
+  (`bank_of_row()`: a `bank` column if one exists, else `accounts.institution`; never the name).
+  Checked at every use, not stored: `resolve_detection` (no hint, no guess), `remember_choice`
+  (no hint, also for a transfer's side keys), `apply_hint_to_pending`, and `serialize_item`
+  (`ambiguous`, read by the screen). Accounts with no bank, and cards (no bank field yet), don't
+  count, so with fewer than two at the bank everything works as before.
+- **Always ask** = `confirm_targets(item, always_ask)`: the relevant guesses plus, with the setting
+  on, the target fields the owner did not pick on this item (`edited`). Read on every list, so
+  toggling it applies to items already waiting; `approve_ready` uses the same function. The
+  remembered choice still fills the item — approving it one by one is the confirmation.
+- `GET/PATCH /api/inbox/settings` `{always_ask}`; `user_settings` (036) is a generic
+  `(user_id, setting_key) → value` table for future account-wide preferences.
 

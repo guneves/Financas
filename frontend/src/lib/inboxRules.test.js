@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   ITEM_CATEGORY,
+  ambiguousText,
   amountSign,
   approveReadySummary,
   candidateKindLabel,
@@ -23,6 +24,8 @@ import {
   sourceLabel,
   splitOccurredAt,
   splittableSources,
+  targetFields,
+  targetText,
   whenText,
 } from './inboxRules.js'
 
@@ -160,4 +163,31 @@ test('the category goes by id: same name under two parents is two categories', (
   assert.equal(nameOnly.category_id, ITEM_CATEGORY)
   assert.deepEqual(changesFromDraft(item, nameOnly), { version: 3 })
   assert.deepEqual(changesFromDraft(item, { ...nameOnly, category_id: 'mercado' }), { version: 3, category_id: 'mercado' })
+})
+
+test('targetText: where the item goes, only once it is known', () => {
+  assert.equal(targetText({ entry_type: 'EXPENSE', account_id: 'a1', account_name: 'Itaú Conta corrente' }), 'Itaú Conta corrente')
+  assert.equal(targetText({ entry_type: 'CARD', card_id: 'c1', card_name: 'Itaú Visa', installments: 3 }), 'Itaú Visa · 3x')
+  assert.equal(
+    targetText({ entry_type: 'TRANSFER', account_id: 'a1', account_name: 'Itaú', transfer_account_id: 'a2', transfer_account_name: 'BTG' }),
+    'Itaú → BTG'
+  )
+  // Falta escolher (ou credito/debito ainda aberto): nada, o seletor ja esta la.
+  assert.equal(targetText({ entry_type: 'EXPENSE', account_id: null }), '')
+  assert.equal(targetText({ entry_type: 'TRANSFER', account_id: 'a1', transfer_account_id: null }), '')
+  assert.equal(targetText({ entry_type: null, account_id: 'a1' }), '')
+})
+
+test('targetFields: the pickers "Trocar" opens for each type', () => {
+  assert.deepEqual(targetFields({ entry_type: 'CARD' }), ['card'])
+  assert.deepEqual(targetFields({ entry_type: 'INCOME' }), ['account'])
+  assert.deepEqual(targetFields({ entry_type: 'TRANSFER' }), ['account', 'transfer_account'])
+  assert.deepEqual(targetFields({ entry_type: null }), [])
+})
+
+test('an ambiguous item never offers to remember, and says why', () => {
+  assert.equal(offersRemember({ needs: ['account'], confirm: [], ambiguous: true }), false)
+  assert.match(ambiguousText({ ambiguous: true, entry_type: 'EXPENSE' }), /mais de uma conta neste banco/)
+  assert.match(ambiguousText({ ambiguous: true, entry_type: 'CARD' }), /mais de um cartão/)
+  assert.equal(ambiguousText({ ambiguous: false }), '')
 })

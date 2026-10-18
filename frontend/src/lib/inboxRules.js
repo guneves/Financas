@@ -216,9 +216,50 @@ export function quickChoice(item, choice) {
   return body
 }
 
-// Lembrar so faz sentido quando havia o que decidir.
+// Lembrar so faz sentido quando havia o que decidir — e nunca quando o caso e
+// ambiguo (o servidor nao guarda: pergunta toda vez).
 export function offersRemember(item) {
+  if (item?.ambiguous) return false
   return Boolean(item?.needs?.length || item?.confirm?.length)
+}
+
+// Mais de uma conta (ou cartao) no banco e a notificacao sem o final.
+export function ambiguousText(item) {
+  if (!item?.ambiguous) return ''
+  const what = item.entry_type === 'CARD' ? 'um cartão' : 'uma conta'
+  return `Você tem mais de ${what} neste banco e o aviso não diz o final: o app pergunta toda vez.`
+}
+
+// Os seletores de destino que o tipo do item usa (o "Trocar" abre estes).
+export function targetFields(item) {
+  switch (item?.entry_type) {
+    case 'CARD':
+      return ['card']
+    case 'EXPENSE':
+    case 'INCOME':
+      return ['account']
+    case 'TRANSFER':
+      return ['account', 'transfer_account']
+    default:
+      return []
+  }
+}
+
+// Para onde o item vai, numa linha ("Itaú Conta corrente", "Itaú Visa · 3x",
+// "Itaú → BTG"). Vazio enquanto falta escolher: o seletor ja esta aberto.
+export function targetText(item) {
+  if (!item?.entry_type) return ''
+  if (item.entry_type === 'CARD') {
+    if (!item.card_id) return ''
+    const parts = [item.card_name || 'Cartão']
+    if (item.installments > 1) parts.push(`${item.installments}x`)
+    return parts.join(' · ')
+  }
+  if (!item.account_id) return ''
+  if (item.entry_type === 'TRANSFER') {
+    return item.transfer_account_id ? `${item.account_name || 'Conta'} → ${item.transfer_account_name || 'Conta'}` : ''
+  }
+  return item.account_name || 'Conta'
 }
 
 // O aviso do Extrato e do cabecalho.

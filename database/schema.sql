@@ -601,3 +601,13 @@ ON recurring_settlements(user_id, recurring_id, occurrence_date);
 
 CREATE INDEX IF NOT EXISTS idx_recurring_settlements_item
 ON recurring_settlements(user_id, inbox_item_id);
+
+-- Preferencias do dono que valem em todo aparelho (036): inbox_always_ask, o
+-- "Sempre perguntar a conta/cartao" de Aprovar (services/inbox.py).
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    setting_key TEXT NOT NULL,
+    value TEXT,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (user_id, setting_key)
+);

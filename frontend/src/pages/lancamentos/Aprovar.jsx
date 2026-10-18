@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BellRing, CheckCheck, Inbox, Pencil, Repeat, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
+import { ArrowRight, BellRing, CheckCheck, Inbox, Pencil, Repeat, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
 import { accountsApi, categoriesApi, creditCardsApi, inboxApi } from '../../lib/dataApi'
 import {
   AlertMessage,
@@ -21,6 +21,7 @@ import { invalidateServerData, queryClient, queryErrorMessage, useQuery } from '
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
 import {
+  ambiguousText,
   amountSign,
   approveReadySummary,
   candidateKindLabel,
@@ -41,6 +42,8 @@ import {
   recurringToggle,
   sourceLabel,
   splittableSources,
+  targetFields,
+  targetText,
   whenText,
 } from '../../lib/inboxRules'
 import { buildCategoryOptions, filterCategoryOptions } from './helpers'
@@ -108,20 +111,30 @@ function Select({ label, value, options, onChange, placeholder = 'Escolha…', h
   )
 }
 
+// Os seletores que o item mostra aberto: o que falta, o palpite a confirmar e,
+// depois de "Trocar", todos os do tipo.
+function openPickers(item, changing) {
+  const needs = item.needs || NO_ITEMS
+  const confirm = item.confirm || NO_ITEMS
+  return targetFields(item).filter((field) => changing || needs.includes(field) || confirm.includes(field))
+}
+
 // As escolhas que o item pede, ali mesmo no cartao: credito ou debito, qual
-// cartao, qual conta. Um palpite vem preenchido com "confirme".
-function Decisions({ item, accounts, cards, onQuick }) {
+// cartao, qual conta. Um palpite vem preenchido com "confirme"; "Trocar" abre
+// os mesmos seletores num item que ja sabia para onde ia.
+function Decisions({ item, accounts, cards, onQuick, changing }) {
   const needs = item.needs || NO_ITEMS
   const confirm = item.confirm || NO_ITEMS
   const askMethod = needs.includes('method')
-  const showCard = item.entry_type === 'CARD' && (needs.includes('card') || confirm.includes('card'))
-  const showAccount = ['EXPENSE', 'INCOME', 'TRANSFER'].includes(item.entry_type)
-    && (needs.includes('account') || confirm.includes('account'))
-  const showDestination = item.entry_type === 'TRANSFER'
-    && (needs.includes('transfer_account') || confirm.includes('transfer_account'))
+  const open = openPickers(item, changing)
+  const showCard = open.includes('card')
+  const showAccount = open.includes('account')
+  const showDestination = open.includes('transfer_account')
   if (!(askMethod || showCard || showAccount || showDestination)) return null
+  const warn = askMethod || open.some((field) => needs.includes(field) || confirm.includes(field))
+  const ambiguous = ambiguousText(item)
   return (
-    <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-3">
+    <div className={warn ? 'space-y-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-3' : 'space-y-3 rounded-2xl border border-zinc-200 p-3'}>
       {askMethod ? (
         <div className="space-y-1.5">
           <p className="text-sm font-semibold text-zinc-800">{needText('method')}</p>
@@ -164,26 +177,39 @@ function Decisions({ item, accounts, cards, onQuick }) {
           />
         ) : null}
       </div>
+      {ambiguous ? <p className="text-xs text-zinc-600">{ambiguous}</p> : null}
     </div>
   )
 }
 
-function targetText(item) {
-  if (item.entry_type === 'CARD') {
-    const parts = [item.card_name || 'Cartão?']
-    if (item.installments > 1) parts.push(`${item.installments}x`)
-    return parts.join(' · ')
-  }
-  if (item.entry_type === 'TRANSFER') {
-    return `${item.account_name || '?'} → ${item.transfer_account_name || '?'}`
-  }
-  // Sem credito/debito escolhido, o palpite de conta (ou cartao) ainda nao conta.
-  if (!item.entry_type) return ''
-  return item.account_name || 'Conta?'
+// Para onde vai, sempre a vista — inclusive o lembrado —, com "Trocar" ali
+// mesmo. Some o botao quando os seletores ja estao abertos.
+function TargetLine({ item, changing, onToggle }) {
+  const text = targetText(item)
+  if (!text) return null
+  const fields = targetFields(item)
+  const alreadyOpen = !changing && fields.length > 0 && openPickers(item, false).length === fields.length
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <ArrowRight className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden="true" />
+      <p className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800">{text}</p>
+      {alreadyOpen ? null : (
+        <Button variant="subtle" size="sm" onClick={onToggle} aria-expanded={changing}>
+          {changing ? 'Fechar' : 'Trocar'}
+        </Button>
+      )}
+    </div>
+  )
 }
 
 function ItemCard({ item, accounts, cards, busyKey, onApprove, onDeny, onEdit, onQuick, onMatch, onSplit }) {
   const [remember, setRemember] = useState(true)
+  const [changing, setChanging] = useState(false)
+  // Trocado num seletor, o item volta a mostrar so a linha de destino.
+  const choose = async (target, body) => {
+    await onQuick(target, body)
+    setChanging(false)
+  }
   const sign = amountSign(item)
   const reason = reasonText(item)
   const splittable = splittableSources(item)
@@ -211,7 +237,6 @@ function ItemCard({ item, accounts, cards, busyKey, onApprove, onDeny, onEdit, o
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Badge tone={item.entry_type ? 'neutral' : 'warning'}>{entryTypeLabel(item.entry_type)}</Badge>
-        {targetText(item) ? <Badge>{targetText(item)}</Badge> : null}
         {item.category && item.entry_type !== 'TRANSFER' ? <Badge>{item.category}</Badge> : null}
         {onlySamsung(item) ? <Badge tone="info">via Samsung Wallet</Badge> : null}
         {item.edited?.length ? <Badge tone="info">corrigido</Badge> : null}
@@ -223,7 +248,9 @@ function ItemCard({ item, accounts, cards, busyKey, onApprove, onDeny, onEdit, o
 
       {reason ? <p className="text-sm text-zinc-600">{reason}</p> : null}
 
-      <Decisions item={item} accounts={accounts} cards={cards} onQuick={onQuick} />
+      <TargetLine item={item} changing={changing} onToggle={() => setChanging(!changing)} />
+
+      <Decisions item={item} accounts={accounts} cards={cards} onQuick={choose} changing={changing} />
 
       {item.recurring ? (
         <div className="flex flex-col gap-2 rounded-2xl border border-zinc-200 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">

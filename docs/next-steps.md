@@ -48,6 +48,18 @@ purchase its own `client_id` (migration 035). Open:
 - [ ] The old list `POST /api/cc-expenses` (no screen uses it, tests do) still writes rows with no
   `client_id`, which fall back to the old purchase key. Give it a purchase id or remove it.
 
+### Aprovar: ambiguous target and "Sempre perguntar" (2026-10-18) — what is left
+- [ ] **Depends on the bank field (owner's "Prompt 1"):** the rule counts only accounts whose bank
+  is set. Today that is `accounts.institution`, which Ajustes › Contas asks only when creating an
+  account (no edit on screen), so existing accounts read as "Sem banco" and nothing changes for
+  them until the bank field can be set on each account.
+- [ ] **Owner, after the deploy and the bank field:** set each account's bank. With two Itaú accounts, a Pix from Itaú
+  should ask every time and offer no "Lembrar a escolha". Try "Trocar" on a remembered item and the
+  Ajustes › Aprovar switch. Tested in pytest/node and screenshotted at 390 px; not on the phone.
+- [ ] Cards have no bank field, so two cards at one bank still remember as before. When a bank
+  field lands for accounts and cards (a `bank` column), `bank_of_row()` already reads it first;
+  check that its values name the bank in a way `issuer_of_institution()` recognizes.
+
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
 Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2

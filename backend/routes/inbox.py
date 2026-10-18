@@ -99,6 +99,23 @@ def approve_ready(current_user_id):
     return jsonify(body), 200
 
 
+@bp.route("/api/inbox/settings", methods=["GET", "PATCH"])
+@token_required
+def inbox_settings(current_user_id):
+    """`always_ask`: "Sempre perguntar a conta/cartao" (desligado por padrao).
+    Ligado, todo item pede confirmar a conta/cartao, inclusive o lembrado, e
+    "Aprovar todos" nao leva nenhum."""
+    if request.method == "PATCH":
+        payload = parse_json_body()
+        if not isinstance(payload, dict) or not isinstance(payload.get("always_ask"), bool):
+            return validation_error("Envie always_ask como true ou false.")
+        with get_db() as conn:
+            inbox.set_always_ask(conn, current_user_id, payload["always_ask"])
+    with get_db() as conn:
+        body = {"always_ask": inbox.always_ask(conn, current_user_id)}
+    return jsonify(body), 200
+
+
 @bp.route("/api/inbox/hints", methods=["GET"])
 @token_required
 def list_hints(current_user_id):
