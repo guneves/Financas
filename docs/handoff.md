@@ -7,52 +7,55 @@
 
 ---
 
-## Session — 2026-10-18 · Card refunds (033) and "Disponível por dia" from the plan
+## Session — 2026-10-18 · "Precisa de atenção" dismissable, header bell, theme in Ajustes
 
-Owner: "make it so i can add a reinbursement to my card", then mid-session: "Disponível por dia
-should be the amount left in gastar in orçamento divided by the days of the month", then "commit
-and push to main when done". No session-scout (follow-up on fresh context).
+Owner: make "Precisa de atenção" closable so it does not show again, keep those notifications
+under a new bell where the sun (theme toggle) was, and move the light/dark choice into Ajustes;
+open a PR. Branch `claude/confident-cannon-ig2hze`. No session-scout (small, self-contained UI
+task).
 
 ### Done
-- **Estorno no cartão** (migration `033_cc_refunds.sql`: `cc_expenses.kind` PURCHASE/REFUND +
-  `refund_of`). `POST /api/cc-expenses/refunds` (card, amount, date, description, optional
-  category/`refund_of`/`client_id`). Invoice rules in `services/invoices.py`: `signed_amount()`,
-  `invoice_open_lines()`, `refund_invoice()`; `settle_invoice()` debits the net, settles a zeroed
-  invoice without a lançamento, skips one in credit (manual pay → 409), and an earlier invoice in
-  credit is absorbed by the next payment. Budget and monthly plan subtract refunds; candidates,
-  the attachments sibling query and inbox matching ignore them; sharing a refund is refused.
-- Frontend: Cartões › purchase ⋯ "Registrar estorno" (prefilled with the purchase's total,
-  category and card) and an "Estorno" header button → `CardRefundSheet.jsx`. Refund rows show
-  green "+R$", an invoice in credit shows "Crédito" with no Pagar. All card sums (Início, flow,
-  projections, autopay warning, overdue) go through `cardSignedAmount()`.
-- **Disponível por dia** (Início): `progress.spend_remaining` of the month plan ÷ days left in
-  the month, today included. I read "divided by the days of the month" as the days *remaining* —
-  a per-day allowance over the whole month's days would undercount every day after the 1st; flip
-  `daysRemainingInMonth` in `Dashboard.jsx` if the owner meant all days. Without a plan the tile
-  keeps the old rule (balance − next invoice) and its old caption.
-- Checks: 1142 pytest passed, 74 node tests, `vite build` clean. Committed and pushed.
+- `lib/attentionRules.js` (pure): the rules Início used inline — overdue invoices, the closed
+  invoice, autopay shortfalls, pending recurrences, categories over budget — plus
+  `attentionItems()`, which gives each item a `key` naming the case. `Dashboard.jsx` now calls
+  these instead of its own copies (behaviour unchanged).
+- Início: an X next to "Precisa de atenção · N" dismisses the items on screen (localStorage,
+  `lib/attention.js`); the same case never returns to Início, a new one does (next month's
+  invoice, a new overdue recurrence, another category or month over budget).
+- Header bell (`components/Attention.jsx`, `AttentionBell`) in place of the theme toggle, desktop
+  and phone: a count badge and a dropdown with every current item, dismissed or not, each linking
+  to its screen (Cartões, Recorrentes, Orçamento). It runs Início's queries with Início's keys.
+- Ajustes › Aparência: Sistema / Claro / Escuro (`setThemePreference`); `toggleTheme` removed.
+- Merged main's card refunds (033) in: the shared rules sum card rows through
+  `cardSignedAmount()`, an invoice in credit is neither payable nor overdue (as main had it).
+- Checks: 82 node tests (8 new in `attentionRules.test.js`, one for refunds), `vite build` clean; clicked through
+  with Playwright on a throwaway DB (desktop + 390 px): dismiss survives reload, bell lists the
+  items, the theme switches from Ajustes.
 
 ### Not done, and why
-- **Not clicked through in a browser or on the phone** — only built and tested. Walk-through:
-  Cartões → ⋯ on a purchase → Registrar estorno; check the invoice total drops; Início's daily tile
-  with and without a plan.
-- Aprovar's "estorno" detections still draft an INCOME lançamento, not a card refund. Wiring a
-  card-final estorno into `CardRefundSheet`'s endpoint is the natural next step once a real
-  estorno notification is captured.
-- An installment purchase's refund is one credit in one invoice (what most banks do); cancelling
-  the remaining installments instead is not offered.
+- The bell's items are links, not actions: paying an invoice needs Início's pay sheet, so the bell
+  sends you to the screen instead of duplicating it.
+- Dismissal is per device (localStorage), like the theme; nothing goes to the server.
+- No backend change, so pytest was not re-run.
 
 ### Next
-1. After the deploy: open A receber, Aprovar, Ajustes and Cartões once to confirm 029–033 ran.
-2. Owner walk-throughs above, plus the sharing ones still open: Extrato → edit a despesa →
-   "Dividida"; Cartões → ⋯ → "De quem é?"; A receber → mark paid.
-3. Install the new APK ("Nova versão disponível"), then one Pix between own accounts, one to
-   someone else, one card purchase → check Aprovar (next-steps, first item).
-4. Keep capture on; the next export drives a parser pass (Samsung first).
+1. Owner: try it on the phone after merge (the bell on the narrow header; the APK gets it with the
+   next screen bundle — no native change, no native-level bump).
+2. Carry on with next-steps' first items (the phone checks, Aprovar walk-through).
 
-### Carried from the sharing session (2026-10-18)
-- Sharing is set only by editing; the "+ Novo" forms and Aprovar don't offer it.
-- A receber's "paid" writes no money on purpose: the Pix the person sends is its own lançamento.
+### From the card-refund session (2026-10-18), still open
+- Not clicked through: Cartões → ⋯ on a purchase → Registrar estorno; the invoice total drops;
+  Início's "Disponível por dia" with and without a month plan ("days" read as days *remaining*;
+  flip `daysRemainingInMonth` in `Dashboard.jsx` if the owner meant all days).
+- Aprovar's "estorno" detections still draft an INCOME lançamento, not a card refund.
+- An installment purchase's refund is one credit in one invoice; cancelling the remaining
+  installments is not offered.
+- After the deploy: open A receber, Aprovar, Ajustes and Cartões once to confirm 029–033 ran.
+- Sharing walk-through: Extrato → edit a despesa → "Dividida"; Cartões → ⋯ → "De quem é?";
+  A receber → mark paid. Sharing is set only by editing ("+ Novo" and Aprovar don't offer it).
+- Install the new APK, then one Pix between own accounts, one to someone else, one card
+  purchase → check Aprovar; keep capture on, the next export drives a parser pass.
+
 
 ### From the notification session (2026-10-17), still open
 - Not tried end to end on the phone; Samsung Wallet's purchase text never captured (its parser is

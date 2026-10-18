@@ -26,9 +26,21 @@ import {
   Receipt,
   Repeat,
   Target,
-  Wallet,
+  X,
 } from 'lucide-react'
-import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, monthlyPlanApi, recurringApi, transactionsApi } from '../lib/dataApi'
+import { ccExpensesApi, monthlyPlanApi, recurringApi } from '../lib/dataApi'
+import { dismissAttention, useDismissedAttention, useInicioBudget, useInicioCards, useInicioMovements, useInicioRecurring } from '../lib/attention'
+import {
+  attentionItems,
+  autopayShortfalls as autopayShortfallsOf,
+  invoiceItemsOf,
+  openCardExpenses,
+  overdueDetail as overdueDetailOf,
+  overdueInvoices as overdueInvoicesOf,
+  payableInvoices as payableInvoicesOf,
+  undismissedItems,
+} from '../lib/attentionRules'
+import { AttentionCards } from '../components/Attention'
 import { useOutbox } from '../lib/outbox'
 import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../lib/queries'
@@ -47,6 +59,7 @@ import {
   DeltaBadge,
   EmptyState,
   FitValue,
+  IconButton,
   Panel,
   PanelHeader,
   Skeleton,
@@ -66,7 +79,7 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, isPortfolioAccount, bankingTransactions, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, bankingTransactions, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { buildMonthlyFlow, isInvoicePayment } from '../lib/cashFlow'
 import { ownAmount } from '../lib/sharing'
@@ -173,24 +186,15 @@ export default function Dashboard() {
   // o aviso ou a faixa que dependem deles.
   // Todas as compras do cartao, nao so as abertas: o ritmo de gastos do mes
   // passado precisa das compras que ja foram pagas.
-  const movementsQuery = useQuery({
-    queryKey: ['inicio', 'movimentos'],
-    queryFn: async () => {
-      const [transactions, ccExpenses, accounts] = await Promise.all([
-        transactionsApi.list(),
-        ccExpensesApi.list(),
-        accountsApi.list({ include_archived: 1 }),
-      ])
-      return { transactions: transactions || [], ccExpenses: ccExpenses || [], allAccounts: accounts || [] }
-    },
-  })
+  const movementsQuery = useInicioMovements()
   // Cartoes so para o aviso de debito automatico sem saldo.
-  const cardsQuery = useQuery({ queryKey: ['inicio', 'cartoes'], queryFn: () => creditCardsApi.list() })
-  // Recorrencias vencidas para o "Precisa de voce".
-  const recurringQuery = useQuery({ queryKey: ['inicio', 'recorrencias'], queryFn: () => recurringApi.list() })
+  const cardsQuery = useInicioCards()
+  // Recorrencias vencidas para o "Precisa de atencao".
+  const recurringQuery = useInicioRecurring()
   // Orcamento do mes para a faixa de orcamento.
   const budgetMonth = monthKey(new Date())
-  const budgetQuery = useQuery({ queryKey: ['inicio', 'orcamento', budgetMonth], queryFn: () => budgetsApi.month(budgetMonth) })
+  const budgetQuery = useInicioBudget(budgetMonth)
+  const dismissedAttention = useDismissedAttention()
   // Plano do mes (Orcamento): o "Ainda pode gastar" vira o Disponivel por dia.
   const planQuery = useQuery({ queryKey: ['plano-do-mes', budgetMonth], queryFn: () => monthlyPlanApi.month(budgetMonth) })
 
@@ -229,12 +233,6 @@ export default function Dashboard() {
 
   const fetchAllData = () => invalidateServerData()
 
-  // Mesma conta da tela Recorrentes: soma do pending_count de cada recorrencia.
-  const pendingRecurringCount = useMemo(
-    () => recurringItems.reduce((total, item) => total + Number(item.pending_count || 0), 0),
-    [recurringItems]
-  )
-
   // Mesma chamada do botao "Lancar pendentes" de Recorrentes (idempotente).
   const handleRunRecurring = async () => {
     setIsRunningRecurring(true)
@@ -260,7 +258,7 @@ export default function Dashboard() {
   const currentKey = monthKey(today)
   const nextKey = shiftMonth(currentKey, 1)
 
-  const openCcExpenses = useMemo(() => ccExpenses.filter((expense) => expense.status === 'OPEN'), [ccExpenses])
+  const openCcExpenses = useMemo(() => openCardExpenses(ccExpenses), [ccExpenses])
 
   const accounts = useMemo(() => activeAccounts(allAccounts), [allAccounts])
   // A soma dos saldos de /api/accounts: inclui o saldo inicial de cada conta,
@@ -373,10 +371,7 @@ export default function Dashboard() {
       .filter((item) => item.value > 0)
   }, [currentSpending, previousSpending])
 
-  const nextInvoiceItems = useMemo(() => openCcExpenses.filter((expense) => {
-    const [year, month] = nextKey.split('-').map(Number)
-    return expense.invoice_month === month && expense.invoice_year === year
-  }), [openCcExpenses, nextKey])
+  const nextInvoiceItems = useMemo(() => invoiceItemsOf(openCcExpenses, nextKey), [openCcExpenses, nextKey])
 
   const currentMonthInvoice = useMemo(
     () => nextInvoiceItems.reduce((acc, curr) => acc + cardSignedAmount(curr), 0),
@@ -385,91 +380,33 @@ export default function Dashboard() {
 
   // So fatura fechada pode ser paga (o servidor recusa as outras). Uma por
   // cartao: cada uma vira um pagamento proprio.
-  const payableInvoices = useMemo(() => {
-    const byCard = {}
-    nextInvoiceItems.forEach((item) => {
-      if (item.invoice_closed !== true) return
-      if (!byCard[item.card_id]) {
-        byCard[item.card_id] = { card_id: item.card_id, invoice_month: item.invoice_month, invoice_year: item.invoice_year, total: 0 }
-      }
-      byCard[item.card_id].total += cardSignedAmount(item)
-    })
-    // Fatura com credito de estorno nao se paga (o servidor recusa).
-    return Object.values(byCard).filter((invoice) => invoice.total >= 0)
-  }, [nextInvoiceItems])
+  const payableInvoices = useMemo(() => payableInvoicesOf(nextInvoiceItems), [nextInvoiceItems])
 
   const payableTotal = payableInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
 
-  // "Precisa de voce" so cobra fatura vencida: passou do dia do vencimento e
-  // continua em aberto. A data vem do servidor (invoice_due_date).
-  const overdueInvoices = useMemo(() => {
-    const todayText = getLocalDateString()
-    const byInvoice = {}
-    openCcExpenses.forEach((item) => {
-      if (!item.invoice_due_date || item.invoice_due_date >= todayText) return
-      const key = `${item.card_id}|${item.invoice_year}-${item.invoice_month}`
-      if (!byInvoice[key]) {
-        byInvoice[key] = {
-          card_id: item.card_id,
-          card_name: item.credit_cards?.name || 'Cartão',
-          invoice_month: item.invoice_month,
-          invoice_year: item.invoice_year,
-          due_date: item.invoice_due_date,
-          total: 0,
-          count: 0,
-        }
-      }
-      byInvoice[key].total += cardSignedAmount(item)
-      byInvoice[key].count += 1
-    })
-    return Object.values(byInvoice)
-      .filter((invoice) => invoice.total > 0)
-      .sort((a, b) => a.due_date.localeCompare(b.due_date))
-  }, [openCcExpenses])
+  // "Precisa de atencao" so cobra fatura vencida: passou do dia do vencimento
+  // e continua em aberto (lib/attentionRules.js).
+  const overdueInvoices = useMemo(() => overdueInvoicesOf(openCcExpenses, getLocalDateString()), [openCcExpenses])
 
   const overdueTotal = overdueInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
-  const overdueItemCount = overdueInvoices.reduce((acc, invoice) => acc + invoice.count, 0)
-  const overdueDetail = overdueInvoices.length === 1
-    ? `${overdueInvoices[0].card_name} · venceu em ${formatDateBR(overdueInvoices[0].due_date)}`
-    : `${overdueInvoices.length} faturas · a mais antiga venceu em ${formatDateBR(overdueInvoices[0]?.due_date)}`
+  const overdueDetail = overdueDetailOf(overdueInvoices)
 
-  // Debito automatico que a conta nao cobre: faturas de cartoes com debito
-  // automatico que vencem nos proximos 31 dias, somadas por conta e comparadas
-  // ao saldo de hoje. O debito acontece mesmo assim (deixa a conta negativa),
-  // entao o aviso e para transferir antes. Fatura ainda aberta entra pelo
-  // total atual, que ainda pode crescer.
+  // Debito automatico que a conta nao cobre nos proximos 31 dias.
   const autopayShortfalls = useMemo(() => {
-    const todayText = getLocalDateString()
     const limit = new Date()
     limit.setDate(limit.getDate() + 31)
-    const limitText = getLocalDateString(limit)
-    const autopayByCard = Object.fromEntries(
-      cards.filter((card) => card.autopay_account_id).map((card) => [card.id, card.autopay_account_id])
-    )
-    const byAccount = {}
-    openCcExpenses.forEach((item) => {
-      const accountId = autopayByCard[item.card_id]
-      const due = item.invoice_due_date
-      if (!accountId || !due || due < todayText || due > limitText) return
-      if (!byAccount[accountId]) byAccount[accountId] = { accountId, total: 0, firstDue: due }
-      byAccount[accountId].total += cardSignedAmount(item)
-      if (due < byAccount[accountId].firstDue) byAccount[accountId].firstDue = due
-    })
-    return Object.values(byAccount)
-      .map((entry) => {
-        const account = accounts.find((row) => row.id === entry.accountId)
-        // A Corretora nao tem saldo no Inicio: o aviso nao o mostra.
-        if (!account || account.archived_at || isPortfolioAccount(account)) return null
-        // Em reais, como a fatura. Sem cambio hoje nao da para dizer se cobre.
-        const accountBalance = accountBalanceBrl(account)
-        if (accountBalance === null) return null
-        return accountBalance < entry.total
-          ? { ...entry, accountName: account.name, balance: accountBalance, missing: entry.total - accountBalance }
-          : null
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.firstDue.localeCompare(b.firstDue))
+    return autopayShortfallsOf({ cards, accounts, openExpenses: openCcExpenses, todayText: getLocalDateString(), limitText: getLocalDateString(limit) })
   }, [cards, accounts, openCcExpenses])
+
+  // Os avisos de "Precisa de atencao", os mesmos do sino do cabecalho.
+  const attention = useMemo(() => attentionItems({
+    overdue: overdueInvoices,
+    payable: payableInvoices,
+    shortfalls: autopayShortfalls,
+    recurringItems,
+    budget,
+  }), [overdueInvoices, payableInvoices, autopayShortfalls, recurringItems, budget])
+  const shownAttention = useMemo(() => undismissedItems(attention, dismissedAttention), [attention, dismissedAttention])
 
   const nextClosingDate = useMemo(() => nextInvoiceItems
     .filter((item) => item.invoice_closed !== true && item.invoice_closing_date)
@@ -672,17 +609,11 @@ export default function Dashboard() {
       </div>
 
       <NeedsAttention
-        pendingRecurringCount={pendingRecurringCount}
+        items={shownAttention}
         onRunRecurring={handleRunRecurring}
         isRunningRecurring={isRunningRecurring}
-        invoiceAmount={overdueTotal}
-        invoiceItemCount={overdueItemCount}
-        invoiceDetail={overdueDetail}
         onPayInvoice={handlePayOverdueInvoices}
         isPayingInvoice={isPayingCurrentInvoice}
-        autopayShortfalls={autopayShortfalls}
-        budget={budget}
-        payableTotal={payableTotal}
         onPayPayable={handlePayCurrentMonthInvoice}
       />
 
@@ -1372,120 +1303,41 @@ function PanelLink({ to, children }) {
 }
 
 // "Precisa de atencao": so aparece quando ha algo a fazer. Um cartao por
-// item, cada um com a sua acao; nenhum item e calculado aqui — todos vem do
-// que o painel ja carrega.
+// item, cada um com a sua acao (components/Attention.jsx). O X dispensa os
+// avisos de agora neste aparelho: o mesmo caso nao volta aqui, um novo volta,
+// e todos continuam no sino do cabecalho.
 function NeedsAttention({
-  pendingRecurringCount,
+  items,
   onRunRecurring,
   isRunningRecurring,
-  invoiceAmount,
-  invoiceItemCount,
-  invoiceDetail,
   onPayInvoice,
   isPayingInvoice,
-  autopayShortfalls = [],
-  budget,
-  payableTotal = 0,
   onPayPayable,
 }) {
-  // Saldo da conta (e o que falta, que o revela) somem no modo privado.
-  const privateMoney = usePrivateFormatter(formatCurrency)
-  const overBudget = (budget?.items || [])
-    .filter((item) => item.status === 'OVER')
-    .sort((a, b) => (b.spent - b.available) - (a.spent - a.available))
-  const hasRecurring = pendingRecurringCount > 0
-  const hasInvoice = invoiceItemCount > 0 && invoiceAmount > 0
-  const hasPayable = !hasInvoice && payableTotal > 0
-  const count = (hasRecurring ? 1 : 0) + (hasInvoice ? 1 : 0) + (hasPayable ? 1 : 0) + autopayShortfalls.length + overBudget.length
-  if (count === 0) return null
-  const categoryName = (item) => (item.parent_name ? `${item.parent_name} › ${item.category_name}` : item.category_name)
+  if (items.length === 0) return null
+  const dismiss = () => {
+    dismissAttention(items.map((item) => item.key))
+    toast('Avisos dispensados. Eles continuam no sino, no topo da tela.', { tone: 'info' })
+  }
 
   return (
     <section aria-labelledby="precisa-de-atencao" className="animate-fade-up">
-      <h2 id="precisa-de-atencao" className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-600">
-        <BellRing className="h-4 w-4" />
-        Precisa de atenção · {count}
-      </h2>
-      <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {hasInvoice ? (
-          <AttentionItem
-            tone="danger"
-            icon={CreditCard}
-            title={`Fatura vencida: ${formatCurrency(invoiceAmount)}`}
-            detail={`${invoiceDetail} · ${invoiceItemCount} lançamento(s)`}
-            action={<Button type="button" size="sm" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayInvoice}>Pagar</Button>}
-          />
-        ) : null}
-        {hasPayable ? (
-          <AttentionItem
-            tone="warning"
-            icon={CreditCard}
-            title={`Fatura fechada: ${formatCurrency(payableTotal)}`}
-            detail="O pagamento já está liberado."
-            action={<Button type="button" size="sm" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayPayable}>Pagar</Button>}
-          />
-        ) : null}
-        {autopayShortfalls.map((entry) => (
-          <AttentionItem
-            key={entry.accountId}
-            tone="danger"
-            icon={Wallet}
-            title={`Débito automático sem saldo: faltam ${privateMoney(entry.missing)}`}
-            detail={`${entry.accountName} tem ${privateMoney(entry.balance)} para ${formatCurrency(entry.total)} a debitar · o primeiro em ${formatDateBR(entry.firstDue)}`}
-            action={<AttentionLink to="/lancamentos/cartoes">Ver faturas</AttentionLink>}
-          />
-        ))}
-        {hasRecurring ? (
-          <AttentionItem
-            tone="info"
-            icon={Repeat}
-            title={`${pendingRecurringCount} ${pendingRecurringCount === 1 ? 'recorrência vencida' : 'recorrências vencidas'}`}
-            detail={<AttentionLink to="/planejamento/recorrentes">Ver recorrentes</AttentionLink>}
-            action={<Button type="button" size="sm" icon={Repeat} loading={isRunningRecurring} onClick={onRunRecurring}>Lançar</Button>}
-          />
-        ) : null}
-        {overBudget.map((item) => (
-          <AttentionItem
-            key={item.id}
-            tone="warning"
-            icon={Target}
-            title={`${categoryName(item)} passou do orçamento`}
-            detail={`${formatCurrency(item.spent)} de ${formatCurrency(item.available)}`}
-            action={<AttentionLink to="/planejamento/orcamento">Ver orçamento</AttentionLink>}
-          />
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-const attentionTones = {
-  danger: 'bg-rose-100 text-rose-700',
-  warning: 'bg-amber-100 text-amber-800',
-  info: 'bg-sky-100 text-sky-700',
-}
-
-function AttentionItem({ icon: Icon, title, detail, action, tone = 'warning' }) {
-  return (
-    <li className="flex min-w-0 flex-col gap-3 rounded-[1.25rem] border border-zinc-200/60 bg-white p-4">
-      <span className={cx('flex h-9 w-9 items-center justify-center rounded-xl', attentionTones[tone])}>
-        <Icon className="h-4 w-4" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold text-zinc-950">{title}</p>
-        <div className="mt-1 text-sm text-zinc-600">{detail}</div>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 id="precisa-de-atencao" className="flex items-center gap-2 text-sm font-semibold text-zinc-600">
+          <BellRing className="h-4 w-4" />
+          Precisa de atenção · {items.length}
+        </h2>
+        <IconButton size="sm" icon={X} label="Dispensar avisos" onClick={dismiss} />
       </div>
-      <div>{action}</div>
-    </li>
-  )
-}
-
-function AttentionLink({ to, children }) {
-  return (
-    <Link to={to} className="inline-flex min-h-11 items-center gap-1 text-sm font-bold text-emerald-700 lg:min-h-9 underline-offset-2 hover:underline">
-      {children}
-      <ChevronRight className="h-4 w-4" aria-hidden="true" />
-    </Link>
+      <AttentionCards
+        items={items}
+        actions={{
+          INVOICE_OVERDUE: <Button type="button" size="sm" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayInvoice}>Pagar</Button>,
+          INVOICE_PAYABLE: <Button type="button" size="sm" icon={CheckCircle2} loading={isPayingInvoice} onClick={onPayPayable}>Pagar</Button>,
+          RECURRING: <Button type="button" size="sm" icon={Repeat} loading={isRunningRecurring} onClick={onRunRecurring}>Lançar</Button>,
+        }}
+      />
+    </section>
   )
 }
 
