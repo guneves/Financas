@@ -47,7 +47,7 @@ export function formatUnitCurrency(value) {
 // numero cru sairia "1022" e, numa fracao (bonificacao, desdobramento), "62.7",
 // que no Brasil se le como 627.
 export function formatQuantity(value) {
-  return withTrueMinus(Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 }))
+  return withTrueMinus(Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 8 }))
 }
 
 // "12,50%", com virgula. `signed` poe "+" nos positivos (rentabilidade).

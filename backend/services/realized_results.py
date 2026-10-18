@@ -11,6 +11,7 @@ nunca editada a mao.
 
 import math
 
+from asset_classes import is_crypto_asset
 from dates import parse_iso_date
 from db import encode_metadata, get_db, row_to_dict
 from money import rounded_money
@@ -25,6 +26,7 @@ from services.investments import (
     investment_operation_date,
     movement_sort_key,
 )
+from services.crypto_tax import monthly_crypto_tax
 from services.variable_income_tax import BUCKET_BY_TAX_KIND, monthly_apuration
 from validators import safe_float
 
@@ -223,6 +225,12 @@ MONTHLY_TAX_NOTE = (
     "ate R$ 20 mil, prejuizo acumulado, ETF e BDR sem isencao, FII a 20%)."
 )
 
+CRYPTO_TAX_NOTE = (
+    "Ganho de capital em criptoativo: isento no mes em que o total vendido fica em ate "
+    "R$ 35 mil; acima, 15% do ganho (progressivo acima de R$ 5 milhoes), sem compensar "
+    "prejuizo. GCAP, DARF 4600."
+)
+
 
 def apply_monthly_tax(results, investments_by_id):
     """Troca o imposto de cada venda de acao, ETF, BDR e FII em reais pela parte
@@ -230,14 +238,24 @@ def apply_monthly_tax(results, investments_by_id):
 
     Sem isso a lista de Operacoes cobrava 15% de uma venda isenta e taxava um
     lote com lucro dentro de uma venda com prejuizo. ETF de renda fixa, ativo
-    no exterior e "outros" ficam com a estimativa da propria venda.
+    no exterior e "outros" ficam com a estimativa da propria venda; criptoativo
+    em reais tem a regra dele (services/crypto_tax.py).
     """
     sales = []
+    crypto_sales = []
     for result in results:
         if result["movement_type"] != "SELL":
             continue
         investment = investments_by_id.get(str(result["source_transaction_id"])) or {}
         if normalize_currency(investment.get("asset_currency")) != BASE_CURRENCY:
+            continue
+        if is_crypto_asset(investment.get("asset_class"), investment.get("ticker_or_name")):
+            crypto_sales.append({
+                "id": result["source_transaction_id"],
+                "month": str(result["operation_date"])[:7],
+                "gross": result["gross_proceeds"],
+                "result": result["realized_profit"],
+            })
             continue
         kind = market_listing.tax_kind(investment.get("ticker_or_name"), investment.get("asset_class"))
         bucket = BUCKET_BY_TAX_KIND.get(kind)
@@ -251,8 +269,10 @@ def apply_monthly_tax(results, investments_by_id):
             "result": result["realized_profit"],
         })
     tax_by_sale = monthly_apuration(sales)["tax_by_sale"]
+    crypto_tax_by_sale = monthly_crypto_tax(crypto_sales)["tax_by_sale"]
     for result in results:
-        tax = tax_by_sale.get(result["source_transaction_id"])
+        crypto = result["source_transaction_id"] in crypto_tax_by_sale
+        tax = (crypto_tax_by_sale if crypto else tax_by_sale).get(result["source_transaction_id"])
         if tax is None:
             continue
         profit = result["realized_profit"]
@@ -266,8 +286,8 @@ def apply_monthly_tax(results, investments_by_id):
         ]
         result["metadata"] = {
             **result["metadata"],
-            "tax_method": "apuracao_mensal",
-            "tax_note": MONTHLY_TAX_NOTE,
+            "tax_method": "ganho_de_capital_cripto" if crypto else "apuracao_mensal",
+            "tax_note": CRYPTO_TAX_NOTE if crypto else MONTHLY_TAX_NOTE,
             "allocations": allocations,
         }
     return results

@@ -43,18 +43,21 @@ const POSITION_TABS = [
 ]
 
 // A classe STOCKS junta acao, ETF e BDR; a tela separa pelo tipo do papel
-// (`market_kind`, do catalogo da B3). FII e Outros seguem a classe.
-const VARIABLE_GROUP_ORDER = ['ACAO', 'ETF', 'BDR', 'FII', 'OTHER']
+// (`market_kind`, do catalogo da B3). FII e Outros seguem a classe; o
+// Bitcoin, dentro de Outros, tem o grupo dele (market_kind CRIPTO).
+const VARIABLE_GROUP_ORDER = ['ACAO', 'ETF', 'BDR', 'FII', 'CRIPTO', 'OTHER']
 const VARIABLE_GROUP_LABELS = {
   ACAO: 'Ações',
   ETF: 'ETFs',
   BDR: 'BDRs',
   FII: 'Fundos Imobiliários',
+  CRIPTO: 'Cripto',
 }
 
 function variableGroupKey(asset) {
   if (asset.class === 'STOCKS') return asset.market_kind || 'ACAO'
   if (asset.class === 'REIT') return 'FII'
+  if (asset.market_kind === 'CRIPTO') return 'CRIPTO'
   return asset.class
 }
 const FIXED_INCOME_TYPE_ORDER = FIXED_INCOME_TYPES.map((type) => type.value)

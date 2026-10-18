@@ -24,6 +24,7 @@ BENS_GROUPS = {
     "03": "Participações Societárias",
     "04": "Aplicações e Investimentos",
     "07": "Fundos",
+    "08": "Criptoativos",
     "99": "Outros Bens e Direitos",
 }
 
@@ -32,10 +33,16 @@ BENS_CODES = {
     ("04", "02"): "Títulos públicos e privados sujeitos à tributação (Tesouro Direto, CDB, RDB e outros)",
     ("04", "03"): "Títulos isentos de tributação (LCI, LCA, CRI, CRA e outros)",
     ("07", "03"): "Fundos de Investimento Imobiliário (FII)",
+    ("08", "01"): "Criptoativo Bitcoin (BTC)",
     ("99", "99"): "Outros bens e direitos",
 }
 
 INCOME_CODES = {
+    "05": (
+        "Ganho de capital na alienação de bem, direito ou conjunto de bens ou direitos da mesma "
+        "natureza, alienados em um mesmo mês, de valor total de alienação até R$ 20.000,00, para "
+        "ações alienadas no mercado de balcão, e R$ 35.000,00, nos demais casos"
+    ),
     "06": "Rendimentos de aplicações financeiras",
     "09": "Lucros e dividendos recebidos",
     "10": "Juros sobre capital próprio",
@@ -57,8 +64,8 @@ def br_money(value):
 
 
 def br_quantity(value):
-    """1000 -> "1.000"; 12.5 -> "12,5" (cotas fracionadas: ate 6 casas)."""
-    text = f"{float(value or 0):,.6f}".rstrip("0").rstrip(".")
+    """1000 -> "1.000"; 12.5 -> "12,5" (fracoes ate 8 casas: o satoshi do Bitcoin)."""
+    text = f"{float(value or 0):,.8f}".rstrip("0").rstrip(".")
     return text.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
@@ -122,10 +129,17 @@ def bens_block(item, year):
             )
         else:
             description = f"{label}: posição zerada em 31/12/{year} (vendida no ano)."
+    elif group == "08":
+        if quantity > 0:
+            description = f"{br_quantity(quantity)} {label}, custo médio de R$ {br_money(cost / quantity)} por unidade."
+        else:
+            description = f"{label}: posição zerada em 31/12/{year} (vendida no ano)."
     else:
         description = f"{label}." if cost > 0 else f"{label}: posição zerada em 31/12/{year} (resgatada no ano)."
     if foreign:
         description += f" Custodiado no exterior, em {currency}; custo em reais pelo câmbio de cada compra."
+    elif group == "08":
+        description += f" Exchange/custodiante: {FILL}."
     else:
         description += f" Corretora/custodiante: {FILL}."
     lines.append(f"Discriminação: {description}")
@@ -191,11 +205,24 @@ def exempt_sales_block(report):
     return {"title": "20 · vendas isentas", "text": "\n".join(lines)}
 
 
+def exempt_crypto_block(report):
+    line = next((item for item in report["rendimentos_isentos"] if line_code(item["line"]) == "05"), None)
+    if not line or not line["amount"]:
+        return None
+    lines = [
+        f"Código: {code_text('05')}",
+        "Tipo de beneficiário: Titular",
+        f"Valor (R$): {br_money(line['amount'])}",
+        "(Criptoativos vendidos em meses de até R$ 35 mil; o GCAP leva este valor à declaração.)",
+    ]
+    return {"title": "05 · criptoativos isentos", "text": "\n".join(lines)}
+
+
 def isentos_section(report):
     blocks = [income_block(item) for item in report.get("rendimentos_por_fonte", []) if item["section"] == "isentos"]
-    exempt = exempt_sales_block(report)
-    if exempt:
-        blocks.append(exempt)
+    for block in (exempt_sales_block(report), exempt_crypto_block(report)):
+        if block:
+            blocks.append(block)
     blocks.sort(key=lambda block: block["title"])
     return section(
         "isentos",

@@ -20,8 +20,23 @@ const ASSET_TYPES = [
   { value: 'STOCKS', label: 'Ações' },
   { value: 'REIT', label: 'Fundos Imobiliários' },
   { value: 'FIXED_INCOME', label: 'Renda Fixa' },
+  { value: 'BITCOIN', label: 'Bitcoin' },
   { value: 'OTHER', label: 'Outros' },
 ]
+
+// Bitcoin e um tipo so na tela: na API e a classe "Outros" com o ticker BTC,
+// cotado em reais (BTC-BRL) e com o IR de criptoativo.
+const BITCOIN = 'BITCOIN'
+const BITCOIN_TICKER = 'BTC'
+
+function movementAssetClass(assetType) {
+  return assetType === BITCOIN ? 'OTHER' : assetType
+}
+
+function assetTypeOf(asset) {
+  if (!asset) return 'STOCKS'
+  return asset.market_kind === 'CRIPTO' ? BITCOIN : asset.class
+}
 
 const FORM_ID = 'investment-launch-form'
 
@@ -86,7 +101,7 @@ export default function InvestmentLaunchModal({
       setForm({
         ...initialForm(),
         asset_id: nextMode === 'SELL' && selectedAsset ? String(selectedAsset.id) : '',
-        asset_class: nextMode === 'SELL' ? selectedAsset?.class || 'STOCKS' : 'STOCKS',
+        asset_class: nextMode === 'SELL' ? assetTypeOf(selectedAsset) : 'STOCKS',
         ticker_or_name: nextMode === 'SELL' && selectedAsset ? selectedAsset.ticker || selectedAsset.name || '' : '',
         price: nextMode === 'SELL' ? saleUnitPrice(selectedAsset) : '',
       })
@@ -132,7 +147,7 @@ export default function InvestmentLaunchModal({
     setForm((current) => ({
       ...current,
       asset_class: nextClass,
-      ticker_or_name: '',
+      ticker_or_name: nextClass === BITCOIN ? BITCOIN_TICKER : '',
       ticker_confirmed: false,
     }))
   }
@@ -156,7 +171,7 @@ export default function InvestmentLaunchModal({
     setForm((current) => ({
       ...current,
       asset_id: assetId,
-      asset_class: asset?.class || current.asset_class,
+      asset_class: asset ? assetTypeOf(asset) : current.asset_class,
       ticker_or_name: asset?.ticker || asset?.name || '',
       price: saleUnitPrice(asset) || current.price,
     }))
@@ -233,7 +248,7 @@ export default function InvestmentLaunchModal({
 
     const insertedData = await investmentsApi.create([
       {
-        asset_class: form.asset_class,
+        asset_class: movementAssetClass(form.asset_class),
         ticker_or_name: tickerName,
         quantity: finalQuantity,
         average_price: Number(averagePrice.toFixed(6)),
@@ -325,7 +340,11 @@ export default function InvestmentLaunchModal({
           </Field>
 
           <Field label="Ativo">
-            {mode === 'BUY' && usesCatalog ? (
+            {mode === 'BUY' && form.asset_class === BITCOIN ? (
+              <div className="app-input flex h-11 items-center text-zinc-700">
+                Bitcoin (BTC) · cotação automática em reais
+              </div>
+            ) : mode === 'BUY' && usesCatalog ? (
               <TickerAutocomplete
                 value={form.ticker_or_name}
                 onChange={handleTickerChange}
@@ -384,7 +403,7 @@ export default function InvestmentLaunchModal({
               <input
                 type="number"
                 min="0"
-                step="0.0001"
+                step={form.asset_class === BITCOIN ? 'any' : '0.0001'}
                 inputMode="decimal"
                 value={form.quantity}
                 onChange={(event) => updateForm('quantity', event.target.value)}
