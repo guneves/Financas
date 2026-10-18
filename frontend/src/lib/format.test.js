@@ -18,7 +18,8 @@ test('maskEmail nunca devolve o e-mail inteiro, nem quebra sem um', () => {
 test('formatQuantity usa os separadores do pt-BR', () => {
   assert.equal(formatQuantity(1022), '1.022')
   assert.equal(formatQuantity(62.7), '62,7')
-  assert.equal(formatQuantity(0.3333333), '0,333333')
+  assert.equal(formatQuantity(1 / 3), '0,33333333')
+  assert.equal(formatQuantity(0.00012345), '0,00012345')
   assert.equal(formatQuantity(-5), '−5')
   assert.equal(formatQuantity(null), '0')
 })
