@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   bankingAccounts,
   bankingTransactions,
+  cardPurchaseKey,
   cardSignedAmount,
   consolidatedBalance,
   isCardRefund,
@@ -73,4 +74,23 @@ test('a card refund subtracts from the invoice; a purchase adds', () => {
   assert.equal(cardSignedAmount({ amount: '40', kind: 'REFUND' }), -40)
   assert.equal(isCardRefund({ kind: 'REFUND' }), true)
   assert.equal(isCardRefund({}), false)
+})
+
+test('a card purchase is its client_id: two identical rides stay two purchases', () => {
+  const ride = { card_id: 'c1', description: 'Uber', purchase_date: '2026-10-10', category: 'Transporte', amount: '10', installment_info: '1/1' }
+  const first = { ...ride, id: 'a', client_id: 'compra-a' }
+  const second = { ...ride, id: 'b', client_id: 'compra-b' }
+  assert.notEqual(cardPurchaseKey(first), cardPurchaseKey(second))
+  // As parcelas de uma compra dividem o client_id (e podem diferir em 1 centavo).
+  const installments = [
+    { ...ride, amount: '33.34', installment_info: '1/3', client_id: 'geladeira' },
+    { ...ride, amount: '33.33', installment_info: '2/3', client_id: 'geladeira' },
+  ]
+  assert.equal(cardPurchaseKey(installments[0]), cardPurchaseKey(installments[1]))
+  // Sem client_id (caminho antigo): a chave antiga, que nao olha o valor.
+  assert.equal(
+    cardPurchaseKey({ ...ride, installment_info: '1/2', amount: '5.01' }),
+    cardPurchaseKey({ ...ride, installment_info: '2/2', amount: '5.00' }),
+  )
+  assert.notEqual(cardPurchaseKey(ride), cardPurchaseKey({ ...ride, kind: 'REFUND' }))
 })

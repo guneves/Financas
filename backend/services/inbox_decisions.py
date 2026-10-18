@@ -25,7 +25,7 @@ from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from services import inbox, recurring
-from services.accounts import fetch_category, fetch_transaction_by_client_id
+from services.accounts import category_id_for_name, fetch_category, fetch_transaction_by_client_id
 from services.import_rules import DEFAULT_IMPORT_CATEGORIES
 from services.invoices import build_installment_rows
 from validators import ValidationError, parse_number
@@ -147,12 +147,12 @@ def parse_changes(conn, current_user_id, item, payload):
                 raise ValidationError("Parcelas invalidas.")
         changes[field] = value
     if "category" in changes and "category_id" not in changes:
-        # Um nome digitado: o id e o da categoria com esse nome, se houver.
-        row = conn.execute(
-            "SELECT id FROM categories WHERE user_id = ? AND name = ? LIMIT 1",
-            (current_user_id, changes["category"]),
-        ).fetchone()
-        changes["category_id"] = row["id"] if row else None
+        # So o nome (a tela manda o id): o mesmo nome do rascunho fica com o id
+        # dele; outro, o da categoria com esse nome (a raiz antes).
+        if changes["category"] == item.get("category"):
+            changes["category_id"] = item.get("category_id")
+        else:
+            changes["category_id"] = category_id_for_name(conn, current_user_id, changes["category"])
     touched = {field for field in changes if field in NEED_OF_FIELD and changes[field]}
     changes = {field: value for field, value in changes.items() if item.get(field) != value}
     if touched - set(changes):
@@ -273,6 +273,7 @@ def create_entry(conn, current_user_id, item):
                 {
                     "card_id": card["id"],
                     "category": item["category"],
+                    "category_id": item.get("category_id"),
                     "description": item.get("description") or "Compra no cartão",
                     "total_amount": amount,
                     "purchase_date": date_text,
@@ -281,20 +282,23 @@ def create_entry(conn, current_user_id, item):
                 card,
             )
             first = None
+            # O client_id e a compra (035): sem o da notificacao, um novo.
+            purchase_id = client_id or new_id()
             for row in rows:
                 row_id = new_id()
                 first = first or row_id
                 conn.execute(
                     """
                     INSERT INTO cc_expenses
-                    (id, user_id, card_id, category, description, amount, purchase_date,
+                    (id, user_id, card_id, category, category_id, description, amount, purchase_date,
                      invoice_month, invoice_year, installment_info, status, client_id, occurred_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        row_id, current_user_id, row["card_id"], row["category"], row["description"],
-                        row["amount"], row["purchase_date"], row["invoice_month"], row["invoice_year"],
-                        row["installment_info"], row["status"], client_id, item["occurred_at"],
+                        row_id, current_user_id, row["card_id"], row["category"], row["category_id"],
+                        row["description"], row["amount"], row["purchase_date"], row["invoice_month"],
+                        row["invoice_year"], row["installment_info"], row["status"], purchase_id,
+                        item["occurred_at"],
                     ),
                 )
             return "cc_expenses", first
@@ -690,7 +694,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
             and item["transfer_account_id"] == row["transfer_account_id"],
         )
         if match:
-            return [_absorb(conn, current_user_id, match, table, row["id"], "transfer")]
+            return [_absorb(conn, current_user_id, match, table, row["id"])]
         for direction, account_id, entry_type in (
             ("OUT", row["account_id"], "EXPENSE"), ("IN", row["transfer_account_id"], "INCOME"),
         ):

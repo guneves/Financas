@@ -141,19 +141,83 @@ def fetch_category(conn, current_user_id, category_id):
     ).fetchone()
 
 
-def resolve_category(conn, current_user_id, payload, required=True):
+# Um nome so nao diz qual categoria e: "Outros" pode ser a raiz e tambem
+# "Alimentação › Outros" e "Lazer › Outros". Quando so o nome chega (cliente
+# antigo, item da fila de antes do id, texto livre), vale esta ordem: a raiz,
+# que e unica, e depois a subcategoria mais antiga. As telas mandam o id.
+CATEGORY_NAME_ORDER = "parent_id IS NOT NULL, created_at, id"
+
+
+def category_id_for_name(conn, current_user_id, name):
+    """O id da categoria com este nome, pela ordem de CATEGORY_NAME_ORDER."""
+    if not name:
+        return None
+    row = conn.execute(
+        f"SELECT id FROM categories WHERE user_id = ? AND name = ? ORDER BY {CATEGORY_NAME_ORDER} LIMIT 1",
+        (current_user_id, name),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def category_ids_by_name(conn, current_user_id):
+    """{nome: id} de todas as categorias, com a mesma escolha de
+    category_id_for_name() — para quem resolve muitas linhas de uma vez."""
+    ids = {}
+    for row in conn.execute(
+        f"SELECT id, name FROM categories WHERE user_id = ? ORDER BY {CATEGORY_NAME_ORDER}",
+        (current_user_id,),
+    ).fetchall():
+        ids.setdefault(row["name"], row["id"])
+    return ids
+
+
+# Tabelas que guardam o nome da categoria ao lado do id: o Dashboard agrupa
+# pelo nome, e a recorrencia, a regra e o rascunho de Aprovar gravam o nome
+# deles nos lancamentos que criam.
+CATEGORY_NAME_TABLES = ("transactions", "cc_expenses", "recurring_transactions", "import_rules", "inbox_items")
+
+
+def rename_category_rows(conn, current_user_id, category_id, old_name, new_name, *, owned_old_name):
+    """Renomear a categoria arrasta o nome gravado em toda linha dela, pelo id.
+
+    `owned_old_name`: o nome antigo era desta categoria (category_id_for_name,
+    lido antes de renomear). Entao uma linha so com esse texto, sem id, contava
+    aqui pelo nome; ela ganha o id e o nome novo para continuar contando onde
+    contava. Sem isso a compra no cartao saia do orcamento depois de renomear.
+    """
+    for table in CATEGORY_NAME_TABLES:
+        conn.execute(
+            f"UPDATE {table} SET category = ? WHERE user_id = ? AND category_id = ?",
+            (new_name, current_user_id, category_id),
+        )
+        if owned_old_name:
+            conn.execute(
+                f"UPDATE {table} SET category = ?, category_id = ?"
+                " WHERE user_id = ? AND category_id IS NULL AND category = ?",
+                (new_name, category_id, current_user_id, old_name),
+            )
+
+
+def resolve_category(conn, current_user_id, payload, required=True, current=None, allow_archived=False):
     """Resolve (nome, id) da categoria de um lancamento.
 
-    Aceita `category_id` (novo) ou `category` em texto (o que o app sempre
-    mandou). O nome continua sendo gravado em transactions.category: e ele que
-    o Dashboard agrupa e e o fallback caso a categoria seja apagada depois.
+    Aceita `category_id` (o que as telas mandam) ou `category` em texto. O nome
+    continua sendo gravado em transactions.category: e ele que o Dashboard
+    agrupa e e o fallback caso a categoria seja apagada depois.
+
+    `current`: a linha que esta sendo editada. Um nome igual ao que ela ja tem
+    nao a tira da categoria dela — "Alimentação › Outros" nao vira o "Outros"
+    da raiz so porque a edicao mandou o nome de volta.
+
+    `allow_archived`: a importacao grava a categoria que a regra escolheu, mesmo
+    arquivada (pelo nome ja era assim); uma escolha nova do dono nao pode.
     """
     category_id = payload.get("category_id")
     if category_id not in (None, ""):
         row = fetch_category(conn, current_user_id, str(category_id))
         if not row:
             raise ValidationError("Categoria nao encontrada.")
-        if row["archived_at"]:
+        if row["archived_at"] and not allow_archived:
             raise ValidationError("Categoria esta arquivada.")
         return row["name"], row["id"]
 
@@ -164,11 +228,9 @@ def resolve_category(conn, current_user_id, payload, required=True):
         if not name:
             return None, None
 
-    row = conn.execute(
-        "SELECT id FROM categories WHERE user_id = ? AND name = ? LIMIT 1",
-        (current_user_id, name),
-    ).fetchone()
-    return name, row["id"] if row else None
+    if current is not None and name == current["category"]:
+        return name, current["category_id"]
+    return name, category_id_for_name(conn, current_user_id, name)
 
 
 def account_balance_rows(conn, current_user_id):

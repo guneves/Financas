@@ -11,6 +11,11 @@ import { accountBalanceBrl, cardSignedAmount, isPortfolioAccount } from './trans
 const amountOf = cardSignedAmount
 const invoiceId = (invoice) => `${invoice.card_id}|${invoice.invoice_year}-${invoice.invoice_month}`
 
+// O mes da fatura (AAAA-MM), que e o mes do vencimento.
+export function invoiceMonthKey(invoice) {
+  return `${invoice.invoice_year}-${String(invoice.invoice_month).padStart(2, '0')}`
+}
+
 export function openCardExpenses(ccExpenses = []) {
   return ccExpenses.filter((expense) => expense.status === 'OPEN')
 }
@@ -20,10 +25,48 @@ export function pendingRecurringCount(recurringItems = []) {
   return recurringItems.reduce((total, item) => total + Number(item.pending_count || 0), 0)
 }
 
-// Compras abertas da fatura do mes `invoiceKey` (AAAA-MM).
-export function invoiceItemsOf(openExpenses, invoiceKey) {
-  const [year, month] = invoiceKey.split('-').map(Number)
-  return openExpenses.filter((expense) => expense.invoice_month === month && expense.invoice_year === year)
+// Vencida so depois do dia do vencimento: no proprio dia ainda se paga em dia.
+export function isPastDue(dueDateText, todayText) {
+  return Boolean(dueDateText) && dueDateText < todayText
+}
+
+// A proxima fatura de cada cartao: a em aberto que vence primeiro, de hoje em
+// diante (a que ja venceu e o aviso de vencida). Nao e "a fatura do mes que
+// vem": um cartao que fecha antes de vencer (fecha 3, vence 10) paga em
+// novembro a fatura de novembro, e um que fecha depois (fecha 25, vence 5) ja
+// tem fechada em novembro a de dezembro. As datas vem do servidor
+// (invoice_due_date, invoice_closed), onde mora a regra.
+export function nextInvoices(openExpenses, todayText) {
+  const byCard = {}
+  openExpenses.forEach((item) => {
+    const due = item.invoice_due_date
+    if (!due || isPastDue(due, todayText)) return
+    const known = byCard[item.card_id]
+    if (known && known.due_date < due) return
+    if (!known || due < known.due_date) {
+      byCard[item.card_id] = {
+        card_id: item.card_id,
+        card_name: item.card_name || item.credit_cards?.name || 'Cartão',
+        invoice_month: item.invoice_month,
+        invoice_year: item.invoice_year,
+        due_date: due,
+        closing_date: item.invoice_closing_date || null,
+        closed: item.invoice_closed === true,
+        total: 0,
+        items: [],
+      }
+    }
+    byCard[item.card_id].total += amountOf(item)
+    byCard[item.card_id].items.push(item)
+  })
+  return Object.values(byCard).sort((a, b) => a.due_date.localeCompare(b.due_date))
+}
+
+// A fatura em aberto que vence primeiro, de qualquer cartao: a vencida mais
+// antiga ou, sem vencida, a primeira das proximas. A tela Cartoes abre esta e
+// o "Pagar fatura" do topo dela paga esta.
+export function nearestOpenInvoice(openExpenses, todayText) {
+  return overdueInvoices(openExpenses, todayText)[0] || nextInvoices(openExpenses, todayText)[0] || null
 }
 
 // So fatura fechada pode ser paga (o servidor recusa as outras). Uma por
@@ -46,7 +89,7 @@ export function payableInvoices(invoiceItems) {
 export function overdueInvoices(openExpenses, todayText) {
   const byInvoice = {}
   openExpenses.forEach((item) => {
-    if (!item.invoice_due_date || item.invoice_due_date >= todayText) return
+    if (!isPastDue(item.invoice_due_date, todayText)) return
     const key = invoiceId(item)
     if (!byInvoice[key]) {
       byInvoice[key] = {

@@ -23,12 +23,9 @@ export default function CardShareSheet({ purchase, onClose, onSaved }) {
     let cancelled = false
     setRows(null)
     setError('')
-    ccExpensesApi.candidates({
-      card_id: purchase.card_id,
-      description: purchase.description,
-      purchase_date: purchase.purchase_date,
-      category: purchase.category_raw ?? purchase.category,
-    }).then((items) => {
+    // As parcelas desta compra pelo id dela: outra compra igual no mesmo dia
+    // nao entra na conta.
+    ccExpensesApi.candidates({ id: purchase.id }).then((items) => {
       if (cancelled) return
       const list = items || []
       setRows(list)

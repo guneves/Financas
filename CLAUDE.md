@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1164 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1195 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -129,7 +129,7 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -165,7 +165,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `transactions` and `sharing`, 76 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions` and `sharing`, 91 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -254,9 +254,28 @@ mobile-docs/
   `transfer_account_id` in a single `transactions` row, so the consolidated balance ignores it for
   free. Anything that sums `transactions` must skip `type = 'TRANSFER'` — otherwise moving money
   between your own accounts reads as an expense.
-- **`transactions.category` still holds the category *name*.** `category_id` was added in migration
-  008, but the text column is what the Dashboard groups on and what survives a category being
-  archived. Renaming a category has to rewrite both; `PATCH /api/categories/<id>` does.
+- **`transactions.category` still holds the category *name*, but the id decides** (035). `category_id`
+  was added in migration 008; the text column is what the Dashboard groups on and what survives a
+  category being archived. The same name exists under different parents ("Outros" at the root,
+  "Alimentação › Outros", "Lazer › Outros"), so every table that keeps a category keeps both —
+  `transactions`, `cc_expenses` (035), `recurring_transactions`, `import_rules`, `inbox_items` —
+  and every screen's category select sends `category_id` (value = id, never the name). A bare name
+  (old client, an outbox item queued before the id) resolves to the root first, then the oldest
+  subcategory (`category_id_for_name()`, `CATEGORY_NAME_ORDER` in `services/accounts.py`; the
+  budget's fallback for rows with no id reads the same order), and an edit that sends back the
+  row's own name keeps its id (`resolve_category(current=...)`). Renaming rewrites the name in all
+  five tables (`rename_category_rows()`), and a row with only the old text adopts the id when that
+  name was this category's. The import commit accepts a rule's archived category
+  (`allow_archived`); a new choice by the owner does not.
+- **A card purchase is its `client_id`** (035). Every installment shares it and every purchase has
+  one: the delivery's, one generated when the client sends none (`POST /api/cc-expenses/purchases`,
+  refunds, Aprovar), or `legacy:<id>` for those written before 024 (the migration splits identical
+  old purchases by write order). Receipts, sharing, A receber, the attachment count and the
+  purchase's installments (`GET /api/cc-expenses/candidates?id=<any installment>`) go through
+  `same_purchase_sql()` / `cc_purchase_expense_ids()` in `services/attachments.py`; the screens
+  group by `cardPurchaseKey()` (`lib/transactions.js`). Card + description + date + category is
+  only the fallback for a row with no `client_id` (the old list `POST /api/cc-expenses`): it made two
+  identical Uber rides one purchase.
 - **Accounts and categories are archived, never deleted.** Both use `ON DELETE SET NULL`, so a real
   delete would silently orphan lancamentos. `DELETE` on either endpoint sets `archived_at`.
 - **Migrations are append-only.** Add a new numbered file in `database/migrations/`; never edit one
@@ -299,6 +318,13 @@ mobile-docs/
   that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is
   `POST /api/cc-expenses/pay-invoice` — don't go back to a client-side EXPENSE + status PATCH.
   The client reads `invoice_closed` / `invoice_closing_date` from `GET /api/cc-expenses`.
+- **The next invoice is per card, by due date, never "next month's"** (2026-10-18). The invoice
+  month is the due month, so a card that closes before its due day (3/10) pays this month's
+  invoice and one that closes after it (25/5) next month's. `nextInvoices()` in
+  `lib/attentionRules.js` (each card's open invoice with the earliest due date from today on) feeds
+  Início's "Próxima fatura", its "Pagar fatura", the projection and the bell;
+  `nearestOpenInvoice()` (overdue first) is the one Cartões opens and pays from its header. Overdue
+  means after the due day (`isPastDue()`), on every screen.
 - **Débito automático** (`credit_cards.autopay_account_id`, migration 011) is materialized on read
   by `apply_due_autopay()`, dated on the due day, with `source_type = 'CC_AUTOPAY'` and
   `source_id = '<card>:<AAAA-MM>'` — same idempotency shape as recurrences. Only invoices due on or
@@ -497,7 +523,8 @@ mobile-docs/
 - **Budget spent (decision 1):** card purchases count in full in the purchase month (a refund
   subtracts in its month); invoice payments never count.
 - **Início's "Disponível por dia"** is the month plan's `spend_remaining` ÷ days left in the month
-  (today included); with no plan it falls back to balance − next invoice.
+  (today included); with no plan it falls back to balance − the invoices still to pay (each card's
+  next invoice and any overdue one).
 - **Proventos of ações/FIIs are computed, not typed** (026, `services/proceeds_sync.py`):
   `POST /api/investment-proceeds/sync` takes each event from StatusInvest (`statusinvest_client.py`;
   brapi's dividends need a paid plan) and multiplies its value per share by the position on its

@@ -18,6 +18,22 @@ export const cardSignedAmount = (expense) => {
   return isCardRefund(expense) ? -amount : amount
 }
 
+// A compra no cartao e o client_id dela (035): todas as parcelas o dividem, e
+// duas compras iguais (mesmo cartao, descricao, data e valor) tem cada uma o
+// seu — duas corridas de Uber no mesmo dia sao duas linhas, nao uma. Uma linha
+// sem client_id (do caminho antigo) cai na chave antiga.
+export function cardPurchaseKey(expense) {
+  if (expense?.client_id) return `compra:${expense.client_id}`
+  return [
+    expense?.card_id || 'sem-cartao',
+    expense?.description || 'sem-descricao',
+    expense?.purchase_date || 'sem-data',
+    expense?.category || 'sem-categoria',
+    String(expense?.installment_info || '1/1').split('/').pop(),
+    expense?.kind || 'PURCHASE',
+  ].join('|')
+}
+
 const isInvestmentRow = (transaction) =>
   ['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED'].includes(transaction?.source_type) || transaction?.category === INVESTMENT_CATEGORY
 

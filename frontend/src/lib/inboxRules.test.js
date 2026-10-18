@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  ITEM_CATEGORY,
   amountSign,
   approveReadySummary,
   candidateKindLabel,
@@ -143,4 +144,20 @@ test('recurringText: the occurrence approving settles, the opt-out and the settl
 test('recurringToggle: the PATCH body keeps the version', () => {
   assert.deepEqual(recurringToggle({ version: 3 }, false), { version: 3, recurring: false })
   assert.deepEqual(recurringToggle({ version: 4 }, true), { version: 4, recurring: true })
+})
+
+test('the category goes by id: same name under two parents is two categories', () => {
+  const withId = { ...item, category: 'Outros', category_id: 'lazer-outros' }
+  const draft = draftFromItem(withId)
+  assert.equal(draft.category_id, 'lazer-outros')
+  // Sem mexer na categoria, nada dela vai no pedido.
+  assert.deepEqual(changesFromDraft(withId, { ...draft, description: 'Cinema' }), { version: 3, description: 'Cinema' })
+  assert.deepEqual(changesFromDraft(withId, { ...draft, category_id: 'raiz-outros' }), { version: 3, category_id: 'raiz-outros' })
+  // "Sugerida pelas regras" limpa as duas: o servidor escolhe ao aprovar.
+  assert.deepEqual(changesFromDraft(withId, { ...draft, category_id: '' }), { version: 3, category: null, category_id: null })
+  // Um item so com o nome fica como esta ate o dono escolher outra.
+  const nameOnly = draftFromItem(item)
+  assert.equal(nameOnly.category_id, ITEM_CATEGORY)
+  assert.deepEqual(changesFromDraft(item, nameOnly), { version: 3 })
+  assert.deepEqual(changesFromDraft(item, { ...nameOnly, category_id: 'mercado' }), { version: 3, category_id: 'mercado' })
 })

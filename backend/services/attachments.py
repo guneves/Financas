@@ -66,30 +66,35 @@ def remove_attachment_files(current_user_id, stored_names):
             logger.warning(f"Nao foi possivel remover o comprovante {path}: {exc}")
 
 
-def cc_purchase_expense_ids(conn, current_user_id, expense_id):
-    """Ids de todas as parcelas da compra de `expense_id` (016).
+def same_purchase_sql(row, other):
+    """SQL: as linhas `row` e `other` (aliases com ponto) sao parcelas da mesma
+    compra? A compra e o client_id (024): todas as parcelas o dividem, e desde
+    035 toda compra tem um. Sem ele (o POST antigo de /api/cc-expenses), sobra
+    a chave antiga — cartao, descricao, data e categoria —, que junta duas
+    compras iguais."""
+    return (
+        f"(({other}client_id IS NOT NULL AND {row}client_id = {other}client_id)"
+        f" OR ({other}client_id IS NULL AND {row}client_id IS NULL"
+        f" AND {row}card_id = {other}card_id AND {row}description = {other}description"
+        f" AND {row}purchase_date = {other}purchase_date AND {row}category = {other}category"
+        f" AND {row}kind = {other}kind))"
+    )
 
-    cc_expenses nao tem id de compra: as parcelas sao as linhas do mesmo
-    cartao com a mesma descricao, data e categoria — a chave que
-    /api/cc-expenses/candidates e a tela Cartoes usam. Vazio se a linha nao e
-    do usuario.
+
+def cc_purchase_expense_ids(conn, current_user_id, expense_id):
+    """Ids de todas as parcelas da compra de `expense_id` (016): as que dividem
+    o client_id dela (same_purchase_sql). Duas corridas iguais no mesmo dia sao
+    duas compras: o comprovante, a divisao e a exclusao de uma nao tocam a
+    outra. Vazio se a linha nao e do usuario.
     """
-    row = conn.execute(
-        """
-        SELECT card_id, description, purchase_date, category, kind
-        FROM cc_expenses WHERE id = ? AND user_id = ?
+    rows = conn.execute(
+        f"""
+        SELECT sib.id FROM cc_expenses e
+        JOIN cc_expenses sib ON sib.user_id = e.user_id AND {same_purchase_sql("sib.", "e.")}
+        WHERE e.id = ? AND e.user_id = ?
+        ORDER BY sib.invoice_year, sib.invoice_month, sib.created_at, sib.id
         """,
         (expense_id, current_user_id),
-    ).fetchone()
-    if not row:
-        return []
-    rows = conn.execute(
-        """
-        SELECT id FROM cc_expenses
-        WHERE user_id = ? AND card_id = ? AND description = ?
-          AND purchase_date = ? AND category = ? AND kind = ?
-        """,
-        (current_user_id, row["card_id"], row["description"], row["purchase_date"], row["category"], row["kind"]),
     ).fetchall()
     return [item["id"] for item in rows]
 

@@ -156,7 +156,11 @@ export function candidateKindLabel(kind) {
   return CANDIDATE_KIND_LABELS[kind] || 'Lançamento'
 }
 
-// O formulario de edicao a partir do item.
+// A categoria do proprio item quando ela so tem nome (sem id): fica como esta.
+export const ITEM_CATEGORY = '__item__'
+
+// O formulario de edicao a partir do item. A categoria e pelo id: o nome se
+// repete ("Outros" na raiz e em "Lazer › Outros").
 export function draftFromItem(item) {
   const { date, time } = splitOccurredAt(item?.occurred_at)
   return {
@@ -165,7 +169,7 @@ export function draftFromItem(item) {
     date,
     time,
     description: item?.description || '',
-    category: item?.category || '',
+    category_id: item?.category_id || (item?.category ? ITEM_CATEGORY : ''),
     account_id: item?.account_id || '',
     card_id: item?.card_id || '',
     transfer_account_id: item?.transfer_account_id || '',
@@ -186,7 +190,11 @@ export function changesFromDraft(item, draft) {
   }
   const description = String(draft.description || '').trim()
   if (description !== original.description) changes.description = description || null
-  if ((draft.category || '') !== original.category) changes.category = draft.category || null
+  if ((draft.category_id || '') !== original.category_id) {
+    // Vazio e "sugerida pelas regras": o servidor escolhe ao aprovar.
+    if (!draft.category_id) Object.assign(changes, { category: null, category_id: null })
+    else if (draft.category_id !== ITEM_CATEGORY) changes.category_id = draft.category_id
+  }
   ;['account_id', 'card_id', 'transfer_account_id'].forEach((key) => {
     if ((draft[key] || '') !== original[key]) changes[key] = draft[key] || null
   })

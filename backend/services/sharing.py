@@ -200,7 +200,8 @@ def list_receivables(conn, current_user_id, *, include_settled=False):
         """,
         (current_user_id,),
     ).fetchall():
-        key = (row["card_id"], row["description"], row["purchase_date"], row["category"])
+        # A compra e o client_id (035): duas corridas iguais sao dois itens.
+        key = row["client_id"] or (row["card_id"], row["description"], row["purchase_date"], row["category"])
         purchase = purchases.get(key)
         if purchase is None:
             purchase = purchases[key] = {

@@ -5,6 +5,8 @@ import { accountsApi, categoriesApi, creditCardsApi } from '../lib/dataApi'
 import { createEntry, flush, updateItem } from '../lib/outbox'
 import {
   buildCategoryOptions,
+  categoryIdForName,
+  categoryNameOf,
   filterCategoryOptions,
   getLocalDateString,
   parseLocalDate,
@@ -68,9 +70,9 @@ const settingsLink = (hash, text) => (
 // cartao = primeiro cartao, 1 parcela.
 const NO_ITEMS = []
 
-const emptyBankForm = (type, accountId) => ({ amount: '', date: getLocalDateString(), category: '', description: '', type, account_id: accountId })
+const emptyBankForm = (type, accountId) => ({ amount: '', date: getLocalDateString(), category_id: '', description: '', type, account_id: accountId })
 const emptyTransferForm = (accountId) => ({ amount: '', date: getLocalDateString(), account_id: accountId, transfer_account_id: '', description: '' })
-const emptyExpenseForm = (cardId) => ({ card_id: cardId, category: '', description: '', total_amount: '', purchase_date: getLocalDateString(), installments: '1' })
+const emptyExpenseForm = (cardId) => ({ card_id: cardId, category_id: '', description: '', total_amount: '', purchase_date: getLocalDateString(), installments: '1' })
 
 // O "+ Novo": todos os formularios de lancamento num lugar so. Os handlers de
 // envio vieram de Transactions.jsx (banco, transferencia) e de Carteira.jsx
@@ -118,8 +120,10 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
       setType(initialType || 'EXPENSE')
       return
     }
-    // Item da fila: o payload guardado tem os mesmos campos do formulario.
+    // Item da fila: o payload guardado tem os mesmos campos do formulario. Um
+    // item guardado antes do id da categoria so tem o nome.
     const { kind, payload } = editingItem
+    const categoryId = payload.category_id || categoryIdForName(categoryOptions, payload.category)
     setType(kind)
     if (kind === 'TRANSFER') {
       setTransferForm({ ...emptyTransferForm(''), ...payload, amount: String(payload.amount ?? '') })
@@ -127,11 +131,12 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
       setExpenseForm({
         ...emptyExpenseForm(''),
         ...payload,
+        category_id: categoryId,
         total_amount: String(payload.total_amount ?? ''),
         installments: String(payload.installments ?? '1'),
       })
     } else {
-      setTransForm({ ...emptyBankForm(kind, ''), ...payload, type: kind, amount: String(payload.amount ?? ''), account_id: payload.account_id || '' })
+      setTransForm({ ...emptyBankForm(kind, ''), ...payload, category_id: categoryId, type: kind, amount: String(payload.amount ?? ''), account_id: payload.account_id || '' })
     }
   }, [open, initialType, editingItem])
 
@@ -152,7 +157,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
     setError('')
     if (nextType === 'EXPENSE' || nextType === 'INCOME') {
       // A categoria depende do tipo (receita x despesa); o resto do que foi digitado fica.
-      setTransForm((current) => (current.type === nextType ? current : { ...current, type: nextType, category: '' }))
+      setTransForm((current) => (current.type === nextType ? current : { ...current, type: nextType, category_id: '' }))
     }
   }
 
@@ -198,10 +203,13 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
     setSaving(true)
     setError('')
     try {
+      // O id decide a categoria; o nome vai junto para a linha pendente do
+      // extrato (lib/outboxRules.js) mostrar qual e.
       await submitEntry(transForm.type, {
         amount,
         date: transForm.date,
-        category: transForm.category,
+        category_id: transForm.category_id,
+        category: categoryNameOf(categoryOptions, transForm.category_id),
         description: transForm.description,
         type: transForm.type,
         account_id: transForm.account_id || defaultAccountId || undefined,
@@ -261,7 +269,8 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
       // (POST /api/cc-expenses/purchases), junto do cartao que define a regra.
       await submitEntry('CARD', {
         card_id: expenseForm.card_id,
-        category: expenseForm.category,
+        category_id: expenseForm.category_id,
+        category: categoryNameOf(categoryOptions, expenseForm.category_id),
         description: expenseForm.description,
         total_amount: totalAmount,
         purchase_date: expenseForm.purchase_date,
@@ -294,10 +303,10 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
         <input type="text" inputMode="decimal" autoComplete="off" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
       </Field>
       <Field label="Categoria" className="col-span-2">
-        <select value={transForm.category} onChange={(event) => setTransForm({ ...transForm, category: event.target.value })} className="app-select" required>
+        <select value={transForm.category_id} onChange={(event) => setTransForm({ ...transForm, category_id: event.target.value })} className="app-select" required>
           <option value="">Selecione...</option>
           {filterCategoryOptions(categoryOptions, transForm.type).map((category) => (
-            <option key={category.id} value={category.name}>{category.label}</option>
+            <option key={category.id} value={category.id}>{category.label}</option>
           ))}
         </select>
       </Field>
@@ -376,10 +385,10 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
           <input type="number" inputMode="numeric" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className={cx(AMOUNT_INPUT, 'text-center')} required />
         </Field>
         <Field label="Categoria" className="col-span-2">
-          <select value={expenseForm.category} onChange={(event) => setExpenseForm({ ...expenseForm, category: event.target.value })} className="app-select" required>
+          <select value={expenseForm.category_id} onChange={(event) => setExpenseForm({ ...expenseForm, category_id: event.target.value })} className="app-select" required>
             <option value="">Selecione...</option>
             {filterCategoryOptions(categoryOptions, 'EXPENSE').map((category) => (
-              <option key={category.id} value={category.name}>{category.label}</option>
+              <option key={category.id} value={category.id}>{category.label}</option>
             ))}
           </select>
         </Field>

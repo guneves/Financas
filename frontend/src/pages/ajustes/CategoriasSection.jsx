@@ -117,7 +117,7 @@ export default function CategoriasSection() {
     <Panel id="categorias" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Categorias"
-        description="Renomear arrasta junto o texto gravado nos lançamentos. Arquivar não apaga histórico."
+        description="Renomear leva o nome novo para os lançamentos, compras no cartão, recorrências e regras dela. Arquivar não apaga histórico."
         actions={<Badge>{categories.filter((category) => !category.archived_at).length} ativa(s)</Badge>}
       />
 

@@ -13,8 +13,19 @@ from flask import Blueprint, jsonify, request
 from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction
 from money import rounded_money
-from services.accounts import fetch_account, require_account, resolve_account_id
-from services.attachments import cc_expense_attachment_names, remove_attachment_files
+from services.accounts import (
+    category_id_for_name,
+    fetch_account,
+    require_account,
+    resolve_account_id,
+    resolve_category,
+)
+from services.attachments import (
+    cc_expense_attachment_names,
+    cc_purchase_expense_ids,
+    remove_attachment_files,
+    same_purchase_sql,
+)
 from services.inbox_decisions import absorb_created
 from services.sharing import update_purchase_share
 from services.invoices import (
@@ -215,10 +226,7 @@ def cc_expenses(current_user_id):
                         SELECT COUNT(*) FROM cc_expense_attachments a
                         JOIN cc_expenses sib ON sib.id = a.cc_expense_id AND sib.user_id = a.user_id
                         WHERE a.user_id = cce.user_id
-                          AND sib.card_id = cce.card_id
-                          AND sib.description = cce.description
-                          AND sib.purchase_date = cce.purchase_date
-                          AND sib.category = cce.category
+                          AND {same_purchase_sql("sib.", "cce.")}
                     ) AS attachment_count
                 FROM cc_expenses cce
                 LEFT JOIN credit_cards cc ON cc.id = cce.card_id
@@ -262,7 +270,7 @@ def cc_expenses(current_user_id):
 
                 card_id = require_string(item, "card_id", "Cartao")
                 ensure_credit_card_owner(conn, current_user_id, card_id)
-                category = require_string(item, "category", "Categoria")
+                category, category_id = resolve_category(conn, current_user_id, item)
                 description = require_string(item, "description", "Descricao", max_length=500)
                 amount = parse_number(item, "amount", "Valor", minimum=0, allow_zero=False)
                 purchase_date = require_date(item, "purchase_date", "Data da compra")
@@ -277,15 +285,16 @@ def cc_expenses(current_user_id):
                 conn.execute(
                     """
                     INSERT INTO cc_expenses
-                    (id, user_id, card_id, category, description, amount, purchase_date,
+                    (id, user_id, card_id, category, category_id, description, amount, purchase_date,
                      invoice_month, invoice_year, installment_info, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item_id,
                         current_user_id,
                         card_id,
                         category,
+                        category_id,
                         description,
                         amount,
                         purchase_date,
@@ -335,7 +344,6 @@ def create_cc_purchase(current_user_id):
         card_id = require_string(payload, "card_id", "Cartao")
         purchase = {
             "card_id": card_id,
-            "category": require_string(payload, "category", "Categoria"),
             "description": require_string(payload, "description", "Descricao", max_length=500),
             "total_amount": parse_number(payload, "total_amount", "Valor total", minimum=0, allow_zero=False),
             "purchase_date": require_date(payload, "purchase_date", "Data da compra"),
@@ -343,6 +351,9 @@ def create_cc_purchase(current_user_id):
         }
 
         with get_db() as conn:
+            # A categoria pelo id (035): pelo nome, "Lazer › Outros" virava o
+            # "Outros" da raiz e contava no orcamento dele.
+            purchase["category"], purchase["category_id"] = resolve_category(conn, current_user_id, payload)
             ensure_credit_card_owner(conn, current_user_id, card_id)
             card = conn.execute(
                 "SELECT due_day, closing_day FROM credit_cards WHERE id = ? AND user_id = ?",
@@ -351,6 +362,9 @@ def create_cc_purchase(current_user_id):
             if not card:
                 raise ValidationError("Cartao nao encontrado.")
 
+            # O client_id e a compra (035): sem um do cliente, ela ganha o seu,
+            # e duas compras iguais nunca viram uma.
+            purchase_id = client_id or new_id()
             rows = build_installment_rows(purchase, card)
             inserted = []
             for row in rows:
@@ -358,15 +372,16 @@ def create_cc_purchase(current_user_id):
                 conn.execute(
                     """
                     INSERT INTO cc_expenses
-                    (id, user_id, card_id, category, description, amount, purchase_date,
+                    (id, user_id, card_id, category, category_id, description, amount, purchase_date,
                      invoice_month, invoice_year, installment_info, status, client_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item_id,
                         current_user_id,
                         row["card_id"],
                         row["category"],
+                        row["category_id"],
                         row["description"],
                         row["amount"],
                         row["purchase_date"],
@@ -374,7 +389,7 @@ def create_cc_purchase(current_user_id):
                         row["invoice_year"],
                         row["installment_info"],
                         row["status"],
-                        client_id,
+                        purchase_id,
                     ),
                 )
                 inserted.append(item_id)
@@ -428,7 +443,6 @@ def create_cc_refund(current_user_id):
         amount = rounded_money(parse_number(payload, "amount", "Valor do estorno", minimum=0, allow_zero=False))
         refund_date = require_date(payload, "purchase_date", "Data do estorno")
         description = require_string(payload, "description", "Descricao", max_length=500)
-        category = str(payload.get("category") or "").strip() or "Estorno"
         refund_of = str(payload.get("refund_of") or "").strip() or None
 
         with get_db() as conn:
@@ -438,36 +452,48 @@ def create_cc_refund(current_user_id):
             ).fetchone()
             if not card:
                 raise ValidationError("Cartao nao encontrado.")
+            original = None
             if refund_of:
                 original = conn.execute(
-                    "SELECT id FROM cc_expenses"
+                    "SELECT id, category, category_id FROM cc_expenses"
                     " WHERE id = ? AND user_id = ? AND card_id = ? AND kind = 'PURCHASE'",
                     (refund_of, current_user_id, card_id),
                 ).fetchone()
                 if not original:
                     raise ValidationError("Compra estornada nao encontrada neste cartao.")
+            # O estorno abate a categoria da compra estornada: o nome dela
+            # volta com o id dela, nao com o de outra categoria de mesmo nome.
+            category, category_id = resolve_category(
+                conn, current_user_id, payload, required=False, current=original,
+            )
+            if not category:
+                if original is not None:
+                    category, category_id = original["category"], original["category_id"]
+                else:
+                    category, category_id = "Estorno", category_id_for_name(conn, current_user_id, "Estorno")
 
             invoice = refund_invoice(conn, current_user_id, card, refund_date)
             item_id = new_id()
             conn.execute(
                 """
                 INSERT INTO cc_expenses
-                (id, user_id, card_id, category, description, amount, purchase_date,
+                (id, user_id, card_id, category, category_id, description, amount, purchase_date,
                  invoice_month, invoice_year, installment_info, status, client_id,
                  kind, refund_of)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '1/1', 'OPEN', ?, 'REFUND', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '1/1', 'OPEN', ?, 'REFUND', ?)
                 """,
                 (
                     item_id,
                     current_user_id,
                     card_id,
                     category,
+                    category_id,
                     description,
                     amount,
                     refund_date,
                     invoice["invoice_month"],
                     invoice["invoice_year"],
-                    client_id,
+                    client_id or new_id(),
                     refund_of,
                 ),
             )
@@ -486,14 +512,37 @@ def create_cc_refund(current_user_id):
     return jsonify(row_to_dict(created)), 201
 
 
+CANDIDATE_COLUMNS = (
+    "id, amount, installment_info, status, share_mode, share_others_amount, share_person, share_settled_at"
+)
+
+
 @bp.route("/api/cc-expenses/candidates", methods=["GET"])
 @token_required
 def cc_expense_candidates(current_user_id):
+    """As parcelas de uma compra (excluir a compra, dividir a compra).
+
+    `id`: qualquer parcela dela. A compra e o client_id (035), entao duas
+    compras iguais (mesmo cartao, descricao, data e categoria) nao se misturam.
+    Sem `id`, a busca antiga por esses quatro campos, para uma tela antiga.
+    """
+    expense_id = str(request.args.get("id") or "").strip()
     with get_db() as conn:
+        if expense_id:
+            ids = cc_purchase_expense_ids(conn, current_user_id, expense_id)
+            placeholders = ", ".join("?" for _ in ids)
+            rows = conn.execute(
+                f"""
+                SELECT {CANDIDATE_COLUMNS} FROM cc_expenses
+                WHERE user_id = ? AND kind = 'PURCHASE' AND id IN ({placeholders})
+                ORDER BY invoice_year, invoice_month, created_at, id
+                """,
+                (current_user_id, *ids),
+            ).fetchall() if ids else []
+            return jsonify([row_to_dict(row) for row in rows]), 200
         rows = conn.execute(
-            """
-            SELECT id, amount, installment_info, status,
-                   share_mode, share_others_amount, share_person, share_settled_at
+            f"""
+            SELECT {CANDIDATE_COLUMNS}
             FROM cc_expenses
             WHERE user_id = ?
               AND kind = 'PURCHASE'

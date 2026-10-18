@@ -5,6 +5,9 @@ import {
   addDismissed,
   attentionItems,
   autopayShortfalls,
+  isPastDue,
+  nearestOpenInvoice,
+  nextInvoices,
   overdueInvoices,
   payableInvoices,
   undismissedItems,
@@ -100,4 +103,80 @@ test('estorno abate a fatura: em credito nao e vencida nem pagavel', () => {
     refund({ invoice_closed: true, amount: '40' }),
   ])
   assert.deepEqual(payable, [])
+})
+
+// Fecha 3, vence 10 (o Nubank do seed): a fatura de novembro fecha em 03/11 e
+// vence em 10/11. Fecha 25, vence 5: a de dezembro fecha em 25/11.
+const nubank = (month, fields) => expense({
+  card_id: 'nubank',
+  invoice_month: month,
+  invoice_due_date: `2026-${String(month).padStart(2, '0')}-10`,
+  invoice_closing_date: `2026-${String(month).padStart(2, '0')}-03`,
+  ...fields,
+})
+const late = (month, year, fields) => expense({
+  card_id: 'late',
+  invoice_month: month,
+  invoice_year: year,
+  invoice_due_date: `${year}-${String(month).padStart(2, '0')}-05`,
+  ...fields,
+})
+
+test('proxima fatura: quem fecha antes de vencer paga a do proprio mes', () => {
+  // 5 de novembro: a de novembro (R$ 1.200) fechou no dia 3 e vence no 10.
+  const open = [
+    nubank(11, { amount: '1000', invoice_closed: true }),
+    nubank(11, { amount: '200', invoice_closed: true }),
+    nubank(12, { amount: '80', invoice_closed: false }),
+  ]
+  const [invoice, ...others] = nextInvoices(open, '2026-11-05')
+  assert.equal(others.length, 0)
+  assert.equal(invoice.invoice_month, 11)
+  assert.equal(invoice.total, 1200)
+  assert.equal(invoice.closed, true)
+  assert.equal(invoice.items.length, 2)
+  assert.deepEqual(payableInvoices(invoice.items).map((entry) => [entry.invoice_month, entry.total]), [[11, 1200]])
+})
+
+test('proxima fatura: no dia do vencimento ainda e ela; no dia seguinte e a vencida', () => {
+  const open = [nubank(11, { amount: '1200', invoice_closed: true }), nubank(12, { amount: '80' })]
+  assert.equal(nextInvoices(open, '2026-11-10')[0].invoice_month, 11)
+  assert.deepEqual(overdueInvoices(open, '2026-11-10'), [])
+  assert.equal(nextInvoices(open, '2026-11-11')[0].invoice_month, 12)
+  assert.equal(overdueInvoices(open, '2026-11-11')[0].invoice_month, 11)
+  assert.equal(isPastDue('2026-11-10', '2026-11-10'), false)
+  assert.equal(isPastDue('2026-11-10', '2026-11-11'), true)
+  assert.equal(isPastDue(undefined, '2026-11-11'), false)
+})
+
+test('proxima fatura: quem fecha depois de vencer ja tem fechada a do mes seguinte', () => {
+  // 26 de novembro: a de dezembro fechou no dia 25 e vence em 05/12.
+  const open = [
+    late(12, 2026, { amount: '300', invoice_closed: true }),
+    late(1, 2027, { amount: '40', invoice_closed: false }),
+  ]
+  const [invoice] = nextInvoices(open, '2026-11-26')
+  assert.deepEqual([invoice.invoice_month, invoice.total, invoice.closed], [12, 300, true])
+})
+
+test('proxima fatura: uma por cartao, pela ordem do vencimento; paga nao conta', () => {
+  const open = [
+    late(12, 2026, { amount: '300' }),
+    nubank(12, { amount: '80' }),
+    nubank(1, { invoice_year: 2027, invoice_due_date: '2027-01-10', amount: '50' }),
+  ]
+  // A de novembro do Nubank foi paga (saiu das abertas): a proxima e a de dezembro.
+  const invoices = nextInvoices(open, '2026-11-12')
+  assert.deepEqual(invoices.map((invoice) => [invoice.card_id, invoice.invoice_month, invoice.total]), [
+    ['late', 12, 300],
+    ['nubank', 12, 80],
+  ])
+})
+
+test('fatura mais proxima (tela Cartoes): a vencida antes, senao a primeira das proximas', () => {
+  const open = [nubank(11, { amount: '1200', invoice_closed: true }), late(12, 2026, { amount: '300' })]
+  assert.equal(nearestOpenInvoice(open, '2026-11-05').card_id, 'nubank')
+  const overdue = nearestOpenInvoice(open, '2026-11-20')
+  assert.deepEqual([overdue.card_id, overdue.invoice_month], ['nubank', 11])
+  assert.equal(nearestOpenInvoice([], '2026-11-20'), null)
 })

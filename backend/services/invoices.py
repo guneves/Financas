@@ -103,6 +103,7 @@ def build_installment_rows(purchase, card):
         rows.append({
             "card_id": purchase["card_id"],
             "category": purchase["category"],
+            "category_id": purchase.get("category_id"),
             "description": purchase["description"],
             "amount": amount,
             "purchase_date": purchase["purchase_date"],

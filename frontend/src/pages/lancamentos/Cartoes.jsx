@@ -17,10 +17,11 @@ import {
 } from '../../components/ui'
 import { formatCurrency, formatSignedCurrency } from '../../lib/format'
 import { cardSignedAmount, isCardRefund } from '../../lib/transactions'
+import { isPastDue, nearestOpenInvoice } from '../../lib/attentionRules'
 import {
   formatDateBR,
   formatInvoiceLabel,
-  getNow,
+  getLocalDateString,
   getPurchaseGroupKey,
   parseInstallmentInfo,
 } from './helpers'
@@ -109,6 +110,7 @@ export default function Cartoes() {
         acc[cardKey].invoices[invoiceKey].purchases[purchaseKey] = {
           purchaseKey,
           id: expense.id,
+          client_id: expense.client_id || null,
           attachmentCount: Number(expense.attachment_count || 0),
           card_id: expense.card_id,
           description: expense.description,
@@ -140,19 +142,18 @@ export default function Cartoes() {
       .sort((a, b) => a.cardName.localeCompare(b.cardName))
   }, [ccExpenses, cards])
 
-  // A fatura em aberto com o vencimento mais proximo (atrasadas primeiro).
+  // A fatura em aberto com o vencimento mais proximo (atrasadas primeiro): a
+  // regra de lib/attentionRules.js, a mesma da proxima fatura do Inicio e do
+  // sino.
+  const todayText = getLocalDateString()
   const nearestInvoice = useMemo(() => {
-    let nearest = null
-    openInvoicesByCard.forEach((cardGroup) => {
-      cardGroup.invoices.forEach((invoice) => {
-        const due = invoiceDueDate(invoice, cardGroup.dueDay)
-        if (!nearest || due < nearest.due) {
-          nearest = { due, invoice, cardGroup, key: `${cardGroup.cardId}|${invoice.invoiceKey}` }
-        }
-      })
-    })
-    return nearest
-  }, [openInvoicesByCard])
+    const nearest = nearestOpenInvoice(ccExpenses, todayText)
+    if (!nearest) return null
+    const invoiceKey = `${nearest.invoice_year}-${String(nearest.invoice_month).padStart(2, '0')}`
+    const cardGroup = openInvoicesByCard.find((group) => group.cardId === nearest.card_id)
+    const invoice = cardGroup?.invoices.find((entry) => entry.invoiceKey === invoiceKey)
+    return invoice ? { invoice, cardGroup, key: `${cardGroup.cardId}|${invoiceKey}` } : null
+  }, [ccExpenses, openInvoicesByCard, todayText])
 
   const isInvoiceExpanded = (key) => (
     key in toggledInvoices ? toggledInvoices[key] : key === nearestInvoice?.key
@@ -214,23 +215,18 @@ export default function Cartoes() {
   const handleDeleteCCPurchase = async (purchase) => {
     if (!(await confirmAction({ title: `Excluir a compra "${purchase.description}"?`, message: 'Todas as parcelas dela saem das faturas.', confirmLabel: 'Excluir compra' }))) return
 
+    // As parcelas desta compra, pelo id dela (o client_id, 035): uma compra
+    // igual no mesmo dia (outra corrida de Uber) e outra compra e fica.
     let candidates = []
     try {
-      candidates = await ccExpensesApi.candidates({
-        card_id: purchase.card_id,
-        description: purchase.description,
-        purchase_date: purchase.purchase_date,
-        category: purchase.category,
-      })
+      candidates = await ccExpensesApi.candidates({ id: purchase.id })
     } catch (error) {
       setDataError(error.message || 'Não foi possível localizar as faturas da compra.')
       return
     }
-
-    // POST /api/cc-expenses/purchases distribui o resto dos centavos nas
-    // primeiras parcelas (100/3 = 33,34 + 33,33 + 33,33), entao as parcelas de
-    // uma mesma compra podem diferir em 1 centavo. A comparacao aceita essa
-    // diferenca; antes ela exigia valor identico e deixava parcelas para tras.
+    // Uma linha sem client_id (do caminho antigo) cai na chave antiga no
+    // servidor; ai valor e parcelas ainda separam compras diferentes. As
+    // parcelas de uma compra diferem em ate 1 centavo (100/3 = 33,34 + 33,33...).
     const purchaseCents = Math.round(parseFloat(purchase.amount) * 100)
     const idsToDelete = (candidates || [])
       .filter((item) => {
@@ -253,10 +249,11 @@ export default function Cartoes() {
     }
   }
 
+  // Em atraso so depois do dia do vencimento, como no Inicio e no sino: no
+  // proprio dia a fatura ainda se paga em dia.
   const getInvoiceStatus = (invoice, dueDay) => {
-    const today = getNow()
-    const dueDate = new Date(invoice.invoiceYear, invoice.invoiceMonth - 1, dueDay)
-    if (today > dueDate) return <Badge tone="danger">Em atraso</Badge>
+    const dueDate = invoice.dueDate || getLocalDateString(invoiceDueDate(invoice, dueDay))
+    if (isPastDue(dueDate, todayText)) return <Badge tone="danger">Em atraso</Badge>
     if (invoice.closed) return <Badge tone="warning">Fechada</Badge>
     return <Badge>Aberta</Badge>
   }
