@@ -24,6 +24,7 @@ const PAGE_LOADERS = {
   Metas: () => import('./pages/Metas'),
   Alocacao: () => import('./pages/investimentos/Alocacao'),
   Rentabilidade: () => import('./pages/investimentos/Rentabilidade'),
+  Calculadora: () => import('./pages/investimentos/Calculadora'),
   Ajustes: () => import('./pages/Ajustes'),
 }
 
@@ -41,6 +42,7 @@ const Recorrentes = lazy(PAGE_LOADERS.Recorrentes)
 const Metas = lazy(PAGE_LOADERS.Metas)
 const Alocacao = lazy(PAGE_LOADERS.Alocacao)
 const Rentabilidade = lazy(PAGE_LOADERS.Rentabilidade)
+const Calculadora = lazy(PAGE_LOADERS.Calculadora)
 const Ajustes = lazy(PAGE_LOADERS.Ajustes)
 
 // Depois que a primeira tela abriu, baixa o codigo das outras em segundo plano:
@@ -110,6 +112,7 @@ export default function App() {
             <Route path="/investimentos/alocacao" element={<Alocacao />} />
             <Route path="/investimentos/proventos" element={<Proventos />} />
             <Route path="/investimentos/ir" element={<ImpostoRenda />} />
+            <Route path="/investimentos/calculadora" element={<Calculadora />} />
 
             <Route path="/ajustes" element={<Ajustes />} />
 

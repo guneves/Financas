@@ -261,6 +261,12 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
   is safe (past closes don't change; today's value is the stored quote), but must be done in all
   three places to help, and a failed background download must not overwrite good data.
 
+### Compound interest calculator (2026-10-18) — what is left
+- Owner check: Investimentos › Calculadora on the phone (seven tabs now; the row scrolls).
+- Not built, owner's call: IR on the simulated gain (regressive table for fixed income, 15% for
+  stocks), a "start from my portfolio" button prefilling the current value, and a reverse mode
+  ("how much per month to reach R$ X").
+
 ### Owner walk-through on real data
 Everything below was built and clicked through on a seeded scratch database (Chrome + Playwright,
 2026-09-23); none of it has been used on the owner's real data yet. What each item does is in

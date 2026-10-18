@@ -141,6 +141,7 @@
 | Aprovar shows every item's target ("→ Itaú Conta corrente"), remembered ones too, with "Trocar" opening the picker in place | 2026-10-18 |
 | Ajustes › Aprovar: "Sempre perguntar a conta/cartão" (off by default, server-side in `user_settings`, migration 036): every item asks to confirm its target and "Aprovar prontos" takes none. `test_inbox_ambiguous.py` | 2026-10-18 |
 | Charts faster: Rentabilidade fetches prices, CDI, IPCA and index closes at once instead of in sequence, and the price/BCB caches cover every period and class (one download per TTL) — cold 6 s → 1 s, period/class switch ~4 s → < 0.1 s on the 1 s-latency harness. `test_history_fetch.py` | 2026-10-18 |
+| Investimentos › Calculadora: compound interest simulator (initial amount, monthly contribution at the end or start of the month, rate per year or month by equivalent rate, period in years or months, optional inflation → value in today's reais). Pure rule in `lib/compoundInterest.js`, 12 node tests | 2026-10-18 |
 
 ---
 
@@ -816,3 +817,21 @@ the old code. One PR.
   fetch, not the sum.
 - Today's value in TWR and the evolution comes from the stored quote, never the history, so the
   history only carries past closes.
+
+### Compound interest calculator — 2026-10-18
+Owner: "Em investimentos crie uma sessão calculadora, quero uma calculadora de juros compostos".
+A seventh tab, `/investimentos/calculadora` (`pages/investimentos/Calculadora.jsx`). It reads and
+writes nothing on the server; the last inputs are kept on the device (`localStorage`,
+`@financeMVP:calculadoraJuros`, wrapped in try/catch).
+- Rule (`lib/compoundInterest.js`, pure, `compoundInterest.test.js`): month by month,
+  `VF = VP·(1+i)^n + PMT·((1+i)^n − 1)/i`, ×(1+i) when the contribution is at the start of the
+  month; the schedule is checked against that closed form. An annual rate becomes monthly by the
+  **equivalent** rate `(1+ia)^(1/12) − 1` — the same as `monthly_rate()` in `services/goals.py`,
+  never `ia/12`. Inflation deflates each month by `(1+π)^(k/12)` and the real rate is Fisher's
+  `(1+i)/(1+π) − 1`. Limits: 100 years, rate > −100% and ≤ 1000%.
+- Screen: the form, a `SummaryPanel` (valor final, total investido, juros, and either "Em reais de
+  hoje" with inflation or "Rende por mês no fim" without), a stacked area chart of invested vs
+  interest (monthly up to 5 years, yearly after; the real value as a dashed line) and a year-by-year
+  table (the last year may be partial: "Ano 3 (6 meses)"). Values are hypothetical, so privacy mode
+  does not mask them. No IR on the result (it depends on the product).
+
