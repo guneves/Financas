@@ -13,6 +13,7 @@ import {
 import { AlertMessage, Button, cx, EmptyState, Field, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
 import { matchedBankNotice } from '../lib/pluggyRules'
+import { matchedInboxNotice } from '../lib/inboxRules'
 import { toast } from '../lib/toast'
 import { useQuery } from '../lib/queries'
 
@@ -178,7 +179,9 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
     }
     // A Pluggy ja tinha trazido este lancamento do banco: o servidor confirmou
     // aquela linha em vez de criar outra (matched_bank).
-    const matched = matchedBankNotice(result.data, label)
+    // Ou o mesmo movimento esperava em Aprovar (do celular ou do banco): o
+    // servidor fechou aquele item com este lancamento (matched_inbox).
+    const matched = matchedBankNotice(result.data, label) || matchedInboxNotice(result.data, label)
     if (matched) {
       await finish(matched, { tone: 'info', duration: 6000 })
       return

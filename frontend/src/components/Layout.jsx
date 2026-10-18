@@ -1,10 +1,11 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { CloudOff, Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun, UploadCloud } from 'lucide-react'
+import { BellRing, CloudOff, Eye, EyeOff, LogOut, Moon, Plus, Settings, Sun, UploadCloud } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
 import { useServerReachable } from '../lib/connection'
-import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
+import { useInboxCount } from '../lib/inboxCount'
+import { APROVAR_PATH, findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
 import { useOutbox } from '../lib/outbox'
 import { NEEDS_ATTENTION } from '../lib/outboxRules'
@@ -163,6 +164,24 @@ function PendingPill({ count, attention, reachable, onClick, compact = false }) 
   )
 }
 
+// O que o celular e o banco trouxeram esperando aprovacao (Lancamentos ›
+// Aprovar). Ambar: e algo a decidir. Some quando nao ha nada.
+function InboxPill({ count, compact = false }) {
+  if (!count) return null
+  const label = `${count} para aprovar`
+  return (
+    <NavLink
+      to={APROVAR_PATH}
+      title="Movimentos do celular e do banco esperando sua aprovação"
+      aria-label={label}
+      className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
+    >
+      <BellRing className="h-4 w-4" aria-hidden="true" />
+      <span>{compact ? count : label}</span>
+    </NavLink>
+  )
+}
+
 function BottomTab({ to, name, icon: Icon }) {
   return (
     <NavLink
@@ -270,6 +289,8 @@ export default function Layout() {
   const closeInvestment = useCallback(() => setInvestmentOpen(false), [])
 
   const newEntryValue = useMemo(() => ({ openNewEntry }), [openNewEntry])
+  const inboxCount = useInboxCount()
+  const tabCounts = useMemo(() => ({ inbox: inboxCount }), [inboxCount])
 
   const name = displayName(user)
   const initials = name
@@ -299,6 +320,7 @@ export default function Layout() {
               ))}
             </nav>
             <div className="flex-1" />
+            <InboxPill count={inboxCount} />
             <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} />
             <ThemeToggle />
             <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
@@ -319,6 +341,7 @@ export default function Layout() {
           <div className="flex h-16 items-center justify-between gap-2 px-4">
             <BrandMark />
             <div className="flex items-center gap-2">
+              <InboxPill count={inboxCount} compact />
               <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} compact />
               <ThemeToggle />
               <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
@@ -337,7 +360,7 @@ export default function Layout() {
         <main className="mx-auto min-h-screen w-full max-w-[1500px] px-4 pb-28 pt-6 sm:px-6 lg:py-8 xl:px-8">
           <ApkUpdateBanner className="mb-5" />
           {section?.tabs.length ? (
-            <Tabs items={section.tabs} className="mb-5" />
+            <Tabs items={section.tabs} counts={tabCounts} className="mb-5" />
           ) : null}
 
           {/* Trocar de pagina remonta e anima a entrada. O modo privado e o

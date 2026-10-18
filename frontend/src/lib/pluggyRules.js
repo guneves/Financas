@@ -47,7 +47,7 @@ export function syncSummary(result) {
   if (result.attached) parts.push(plural(result.attached, 'conferido', 'conferidos'))
   if (result.updated) parts.push(plural(result.updated, 'atualizado', 'atualizados'))
   if (result.removed) parts.push(plural(result.removed, 'removido', 'removidos'))
-  if (result.review) parts.push(plural(result.review, 'para revisar', 'para revisar'))
+  if (result.review) parts.push(plural(result.review, 'para aprovar', 'para aprovar'))
   const body = parts.length ? `Banco: ${parts.join(', ')}.` : 'Nada novo no banco.'
   if (result.status === 'error') return `A Pluggy não respondeu. ${result.message || ''}`.trim()
   if (result.status === 'partial') return `${body} Algumas contas não responderam: ${(result.failed || []).join(', ')}.`
@@ -65,25 +65,6 @@ export const CANDIDATE_KIND_LABELS = {
 
 export function candidateKindLabel(kind) {
   return CANDIDATE_KIND_LABELS[kind] || 'Lançamento'
-}
-
-// Por que uma transacao do banco espera o dono ("Possivel duplicata").
-export function reviewReasonText(item) {
-  if (item?.reason === 'several_candidates') {
-    return 'Há mais de um lançamento parecido (mesma conta, valor e data próxima). Escolha qual é este, ou lance separado.'
-  }
-  if (item?.reason === 'installments_differ') {
-    return 'Há uma compra de mesmo total com outro número de parcelas. Se for a mesma, confirme; se não, lance separado.'
-  }
-  if (item?.reason === 'out_of_reach') {
-    const kinds = [...new Set((item.candidates || [])
-      .map((candidate) => candidate.kind)
-      .filter((kind) => kind && kind !== 'entry' && kind !== 'card_purchase'))]
-      .map((kind) => candidateKindLabel(kind).toLowerCase())
-    const what = kinds.length ? kinds.join(' ou ') : 'um lançamento de outra tela'
-    return `Parece ${what} que já está no app. Se for, confirme para não contar duas vezes.`
-  }
-  return 'Confira antes de lançar.'
 }
 
 // O que um lancamento conferido tem de diferente do que o banco diz.
@@ -129,18 +110,6 @@ export function lastSyncAt(items = []) {
     .filter(Boolean)
     .sort()
     .pop() || ''
-}
-
-export function reviewCount(status) {
-  return Number(status?.counts?.REVIEW) || 0
-}
-
-// O aviso do Extrato quando ha possiveis duplicatas esperando o dono.
-export function reviewNoticeText(count) {
-  if (!count) return ''
-  return count === 1
-    ? '1 transação do banco espera você decidir se já está lançada.'
-    : `${count} transações do banco esperam você decidir se já estão lançadas.`
 }
 
 // O status de uma conexao (item) na Pluggy, em portugues; o desconhecido sai como veio.

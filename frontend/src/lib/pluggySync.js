@@ -1,11 +1,12 @@
 // Extrato do banco pela Pluggy (backend: services/pluggy_sync.py). O servidor
 // le o que o banco registrou e confere com o que ja esta lancado: o que
-// confirma um lancamento marca esse lancamento, o que faltava entra, o que
-// pode ser duplicata espera o dono em Ajustes › Banco.
+// confirma um lancamento marca esse lancamento; o resto (o que faltava, o que
+// pode ser duplicata) espera o dono em Lançamentos › Aprovar.
 //
-// Quando pedir: ao abrir o Extrato (`usePluggySync`), no maximo a cada
-// MIN_INTERVAL_MS por sessao — o servidor tem o proprio limite. Sem
-// credenciais no servidor, para de pedir ate recarregar o app. Falha e
+// Quando pedir: ao abrir o Extrato ou Aprovar (`usePluggySync`), no maximo a
+// cada MIN_INTERVAL_MS por sessao — o servidor tem o proprio limite. Sem
+// credenciais no servidor, tambem so a cada MIN_INTERVAL_MS: um app aberto ha
+// dias ve a Pluggy assim que o .env do servidor for corrigido. Falha e
 // silenciosa: o extrato gravado continua la, e a proxima abertura tenta de novo.
 //
 // Nao e uma "gravacao" para lib/api.js (que invalidaria todo o cache a cada
@@ -19,7 +20,6 @@ const MIN_INTERVAL_MS = 10 * 60 * 1000
 
 let lastRunAt = 0
 let inFlight = null
-let notConfigured = false
 
 export function syncPluggy({ force = false } = {}) {
   if (inFlight) return inFlight
@@ -29,7 +29,6 @@ export function syncPluggy({ force = false } = {}) {
     body: JSON.stringify(force ? { force: true } : {}),
   })
     .then(async (result) => {
-      notConfigured = result?.status === 'not_configured'
       if (syncChangedData(result)) await invalidateServerData()
       return result
     })
@@ -46,7 +45,6 @@ export function syncPluggy({ force = false } = {}) {
 
 export function usePluggySync() {
   useEffect(() => {
-    if (notConfigured) return
     if (Date.now() - lastRunAt >= MIN_INTERVAL_MS) syncPluggy()
   }, [])
 }

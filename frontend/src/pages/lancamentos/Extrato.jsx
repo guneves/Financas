@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { BadgeCheck, Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, X } from 'lucide-react'
-import { pluggyApi, transactionsApi } from '../../lib/dataApi'
+import { transactionsApi } from '../../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
   AlertMessage,
@@ -31,7 +31,10 @@ import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries
 import useDebouncedValue from '../../lib/useDebouncedValue'
 import ExtratoInvestimentos from './ExtratoInvestimentos'
 import { usePluggySync } from '../../lib/pluggySync'
-import { bankMark, reviewCount, reviewNoticeText } from '../../lib/pluggyRules'
+import { bankMark } from '../../lib/pluggyRules'
+import { useInboxCount } from '../../lib/inboxCount'
+import { pendingNoticeText } from '../../lib/inboxRules'
+import { APROVAR_PATH } from '../../lib/navigation'
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
@@ -236,10 +239,9 @@ function ExtratoContas({ viewSwitch }) {
   } = useLancamentos()
 
   // O extrato do banco (Pluggy) e lido ao abrir, no maximo a cada 10 min; o que
-  // pode ser duplicata espera o dono em Ajustes › Banco.
+  // ele (e o celular) trazem espera o dono em Lancamentos › Aprovar.
   usePluggySync()
-  const pluggyQuery = useQuery({ queryKey: ['pluggy'], queryFn: () => pluggyApi.status(), staleTime: 5 * 60_000 })
-  const pendingReview = reviewCount(pluggyQuery.data)
+  const pendingApproval = useInboxCount()
 
   const [saving, setSaving] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -464,10 +466,10 @@ function ExtratoContas({ viewSwitch }) {
       {viewSwitch}
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
-      {pendingReview ? (
+      {pendingApproval ? (
         <AlertMessage tone="info">
-          {reviewNoticeText(pendingReview)}{' '}
-          <Link to="/ajustes#pluggy" className="font-semibold underline">Revisar</Link>
+          {pendingNoticeText(pendingApproval)}{' '}
+          <Link to={APROVAR_PATH} className="font-semibold underline">Aprovar</Link>
         </AlertMessage>
       ) : null}
 

@@ -1,4 +1,5 @@
 import {
+  BellRing,
   Briefcase,
   CalendarDays,
   CreditCard,
@@ -16,6 +17,8 @@ import {
   Wallet,
 } from 'lucide-react'
 
+export const APROVAR_PATH = '/lancamentos/aprovar'
+
 // Mapa de telas (docs/ux-reorganization.md §3). Layout, rotas e abas saem daqui.
 export const sections = [
   { name: 'Início', path: '/inicio', icon: Home, tabs: [] },
@@ -25,6 +28,8 @@ export const sections = [
     icon: Receipt,
     tabs: [
       { to: '/lancamentos/extrato', label: 'Extrato', icon: Wallet },
+      // O que o celular e o banco (Pluggy) trouxeram, esperando o dono (028).
+      { to: APROVAR_PATH, label: 'Aprovar', icon: BellRing, badge: 'inbox' },
       { to: '/lancamentos/cartoes', label: 'Cartões', icon: CreditCard },
       { to: '/lancamentos/importar', label: 'Importar', icon: Upload },
     ],
@@ -65,6 +70,7 @@ export const legacyRedirects = {
   '/recorrentes': '/planejamento/recorrentes',
   '/investments': '/investimentos/posicao',
   '/proventos': '/investimentos/proventos',
+  '/aprovar': APROVAR_PATH,
 }
 
 export function findSection(pathname) {

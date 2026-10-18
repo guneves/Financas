@@ -287,11 +287,26 @@ export const pluggyApi = {
     body: JSON.stringify(payload)
   }),
   unlink: (pluggyAccountId) => apiFetch(`/api/pluggy/links/${encodeURIComponent(pluggyAccountId)}`, { method: 'DELETE' }),
-  review: () => apiFetch('/api/pluggy/review'),
-  decide: (ledgerId, action, targetId) => apiFetch(`/api/pluggy/review/${ledgerId}`, {
-    method: 'POST',
-    body: JSON.stringify({ action, target_id: targetId || undefined })
-  })
+  // Os conferidos com diferenca; o que espera o dono esta em inboxApi.
+  review: () => apiFetch('/api/pluggy/review')
+}
+
+// Aprovar (028): o que o celular (notificacoes) e o banco (Pluggy) trouxeram,
+// esperando o dono. Fica no servidor: celular e computador veem as mesmas
+// decisoes. Cada mudanca leva a `version` do item (409 se outro aparelho mexeu).
+const postJson = (path, body) => apiFetch(path, { method: 'POST', body: JSON.stringify(body || {}) })
+
+export const inboxApi = {
+  list: (view = 'pending') => apiFetch(`/api/inbox${queryString({ view })}`),
+  count: () => apiFetch('/api/inbox/count'),
+  update: (id, payload) => apiFetch(`/api/inbox/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  approve: (id, payload) => postJson(`/api/inbox/${id}/approve`, payload),
+  deny: (id, version) => postJson(`/api/inbox/${id}/deny`, { version }),
+  restore: (id, version) => postJson(`/api/inbox/${id}/restore`, { version }),
+  split: (id, payload) => postJson(`/api/inbox/${id}/split`, payload),
+  approveReady: (ids) => postJson('/api/inbox/approve-ready', { ids }),
+  hints: () => apiFetch('/api/inbox/hints'),
+  forgetHint: (id) => apiFetch(`/api/inbox/hints/${id}`, { method: 'DELETE' })
 }
 
 // Desdobramento, grupamento e bonificacao (017).
