@@ -7,26 +7,58 @@
 
 ---
 
-## Session — 2026-10-18 · Orçamento: the lançamentos behind each category
+## Session — 2026-10-18 · Phone layout pass (sizing) and "45,90 or 45.90"
 
-Owner: "Under orcamento, make a dropdown button for each category that shows every transaction
-that justifies the value that is being shown there, commit and push". No session-scout (small,
-self-contained task); pulled PR #5 (034) first.
+Owner: "My phone is connected, check the screens and improve button sizing and information
+sizing, do a few tests to check if everything works, insert data to analyse graphs". Mid-session:
+"make the saldo em conta bubble overall smaller", "centralize the bottom buttons, the + should be
+at the exact middle", "',' and '.' should be accepted when typing R$45,90 in lançamento".
+session-scout ran by `subagent_type` (worked).
 
 ### Done
-- **`GET /api/budgets/<id>/lines`** (`routes/budgets.py`): the rows behind a budget's `spent` —
-  the category plus its subcategories without their own budget that month, income for an INCOME
-  category, expense otherwise — and `spent`. Built on the new `budget_month_lines()`, which holds
-  the realizado rules (no transfers, no invoice payments, card purchases in full in the purchase
-  month, the owner's part of a shared row); `budget_spend_by_category()` is now just its sum, so
-  the list and the number on screen cannot disagree. A card purchase is one line with every
-  installment (`installments`), a refund a negative line; a shared row carries `total_amount`.
-- **Screen**: each category in Orçamento has "Ver lançamentos" (chevron) that expands
-  `components/BudgetLines.jsx`; it fetches only when opened.
-- Checks: full pytest suite (8 new in `test_budget_lines.py`, route map updated), node tests,
-  `vite build` clean.
+- **Início's balance block on the phone** (`BalanceHero`, `Dashboard.jsx`): ~430 → ~260 px tall at
+  360 px. Below `sm`: number 38 px (56 above), month flow as one wrapped line of "Receitas R$ …"
+  text instead of a pill per figure, accounts in one horizontally scrolling strip. `sm`+ unchanged.
+- **Bottom bar**: five equal grid columns, the "+" at the exact middle (180 of 360). The two long
+  names didn't fit a 72 px column ("Investimentos" needed 72 px with no gap), so the bar shows
+  `shortName` — "Planejar", "Investir" (`lib/navigation.js`); everywhere else keeps the full name.
+- **Section tabs scroll the active tab into view** (`Tabs`, `ui.jsx`): opening Proventos, IR or
+  Alocação left the active tab off-screen. Scrollbar hidden (the cut-off tab is the hint).
+- `PageHeader` title `text-2xl` below `sm`; `SummaryPanel` `p-4`, lead 32 px.
+- `.app-input` / `.app-select` `min-h-11` below `lg` (were 42 px); AportesChart's "Ocultar" 44 px.
+- **Money fields in lançamentos accept comma and dot**: "+ Novo" (despesa, receita, transferência,
+  cartão), the Extrato edit and Aprovar's amount are `type="text" inputMode="decimal"` parsed by
+  `parseMoneyInput()` (`lib/monthlyPlan.js`) — "45,90", "45.90", "1.234,56", "R$ 45,90".
+  `changesFromDraft()` (`lib/inboxRules.js`) uses it too, with tests.
+- Checks: pytest 1172 passed; node tests 84 passed; `vite build` clean. On the phone (Galaxy S25,
+  360×780 dp, Chrome): typed "45,90", "45.90" and "R$1.234,56" in "+ Novo" with the real keyboard
+  → stored 45.90, 45.90, 1234.56.
+
+### How the phone was driven (reusable)
+- Throwaway DB in the session scratchpad: `DATABASE_PATH=<scratch>/demo.db`, signup
+  `demo@local.test`, then `scripts/seed_three_years_mock.py demo@local.test` (3 years, ~15 s; it
+  wrote its pre-wipe copy to `backend/backups/finance-pre-mock-20261018-121425.db` — a copy of the
+  empty demo DB, gitignored, safe to delete). `vite build` + `python app.py` with that env.
+- `adb reverse tcp:5000 tcp:5000` → the phone's Chrome opens `http://localhost:5000`.
+  `adb forward tcp:9222 localabstract:chrome_devtools_remote` → DevTools protocol from Node 24
+  (global `WebSocket`): set `localStorage['@financeMVP:auth']`, navigate, measure, screenshot
+  (`Page.captureScreenshot`; a `clip` beyond the viewport comes out garbled on the phone — scroll
+  and shoot the viewport instead).
+- Git Bash rewrites a `/path` argument into `C:/Program Files/Git/path`: `MSYS_NO_PATHCONV=1`.
+- The release APK can't be pointed at the PC (https-only API base, server bundle), so this checks
+  the same screens in Chrome, not the APK shell.
 
 ### Not done, and why
+- Not deployed: committed only, not pushed (a push to `main` deploys).
+- Other money fields are still `type="number"` (Metas, Orçamento, Recorrentes, Ajustes › Contas'
+  initial balance, ShareFields' others' part, Extrato's min/max filter, the investment forms).
+  The owner asked about lançamentos; the same `parseMoneyInput()` swap applies to each.
+- Seen but left: Início's attention cards are tall (icon block + title + link, ~170 px each);
+  benchmark cards in Rentabilidade that are "indisponível" still take a full card each; charts
+  are 286 px wide (page gutter + panel padding). Rentabilidade took ~19 s today because the BCB
+  (CDI/IPCA) timed out — not a screen problem.
+
+### Carried from the Orçamento lines session, still open
 - Not clicked through in a browser — only built and tested.
 - Lines are read-only; tapping one does not open it in the Extrato/Cartões (no deep link to a
   single lançamento exists yet).

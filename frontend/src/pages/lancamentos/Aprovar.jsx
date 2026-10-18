@@ -315,7 +315,7 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
           />
         </div>
         <Field label="Valor (R$)" className="col-span-2">
-          <input type="number" inputMode="decimal" step="0.01" min="0" value={draft.amount} onChange={set('amount')} className="app-input text-2xl font-bold" />
+          <input type="text" inputMode="decimal" autoComplete="off" value={draft.amount} onChange={set('amount')} className="app-input text-2xl font-bold" />
         </Field>
         <Field label="Data" className="min-w-0">
           <input type="date" value={draft.date} onChange={set('date')} className="app-input" />

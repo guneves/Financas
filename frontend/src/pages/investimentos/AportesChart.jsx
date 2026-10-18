@@ -62,7 +62,7 @@ export default function AportesChart() {
             type="button"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
-            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
+            className="inline-flex h-11 items-center gap-1.5 rounded-full px-2.5 text-sm lg:h-8 font-semibold text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
           >
             {open ? 'Ocultar' : 'Mostrar'}
             <ChevronDown className={cx('h-4 w-4 transition-transform', open && 'rotate-180')} />

@@ -39,6 +39,8 @@ export const sections = [
   },
   {
     name: 'Planejamento',
+    // Nome curto da barra de baixo do celular: cinco colunas de 72 px.
+    shortName: 'Planejar',
     path: '/planejamento',
     icon: Target,
     tabs: [
@@ -49,6 +51,7 @@ export const sections = [
   },
   {
     name: 'Investimentos',
+    shortName: 'Investir',
     path: '/investimentos',
     icon: Briefcase,
     tabs: [

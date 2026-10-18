@@ -176,7 +176,7 @@ function BottomTab({ to, name, icon: Icon }) {
       to={to}
       className={({ isActive }) =>
         cx(
-          'flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition',
+          'flex min-h-[52px] min-w-0 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold tracking-tight transition',
           isActive ? 'text-zinc-950' : 'text-zinc-500 hover:text-zinc-900'
         )
       }
@@ -186,7 +186,7 @@ function BottomTab({ to, name, icon: Icon }) {
           <span className={cx('flex h-7 w-12 items-center justify-center rounded-full transition', isActive && 'bg-emerald-100 text-emerald-800')}>
             <Icon className="h-5 w-5" />
           </span>
-          <span className="max-w-full truncate px-1">{name}</span>
+          <span className="max-w-full truncate">{name}</span>
         </>
       )}
     </NavLink>
@@ -362,11 +362,13 @@ export default function Layout() {
         </main>
 
         <nav aria-label="Seções" className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-          <div className="mx-auto flex max-w-lg items-stretch px-2 py-1">
+          {/* Cinco colunas iguais: o "+" fica no meio exato, qualquer que seja
+              o tamanho dos nomes ao lado. */}
+          <div className="mx-auto grid max-w-lg grid-cols-5 items-stretch py-1">
             {sections.slice(0, 2).map((item) => (
-              <BottomTab key={item.path} to={item.path} name={item.name} icon={item.icon} />
+              <BottomTab key={item.path} to={item.path} name={item.shortName || item.name} icon={item.icon} />
             ))}
-            <div className="flex flex-1 items-center justify-center">
+            <div className="flex items-center justify-center">
               <button
                 type="button"
                 onClick={() => openNewEntry()}
@@ -377,7 +379,7 @@ export default function Layout() {
               </button>
             </div>
             {sections.slice(2).map((item) => (
-              <BottomTab key={item.path} to={item.path} name={item.name} icon={item.icon} />
+              <BottomTab key={item.path} to={item.path} name={item.shortName || item.name} icon={item.icon} />
             ))}
           </div>
         </nav>

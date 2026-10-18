@@ -20,6 +20,7 @@ import {
   useArrivals,
 } from '../../components/ui'
 import { formatSignedCurrency } from '../../lib/format'
+import { parseMoneyInput } from '../../lib/monthlyPlan'
 import { INVESTMENT_CATEGORY, isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
 import { shareFormError, shareFormFrom, sharePayload, shareSummary } from '../../lib/sharing'
 import ShareFields from '../../components/ShareFields'
@@ -327,7 +328,7 @@ function ExtratoContas({ viewSwitch }) {
   }
 
   const handleEditSubmit = async (transaction) => {
-    const amount = Number(editForm.amount)
+    const amount = parseMoneyInput(editForm.amount)
     if (!Number.isFinite(amount) || amount <= 0) {
       setDataError('Informe um valor valido.')
       return
@@ -417,7 +418,7 @@ function ExtratoContas({ viewSwitch }) {
           <option value="INCOME">Receita</option>
         </select>
       ),
-      amount: <input type="number" inputMode="decimal" step="0.01" value={editForm.amount} onChange={setEditField('amount')} className="app-input" />,
+      amount: <input type="text" inputMode="decimal" autoComplete="off" value={editForm.amount} onChange={setEditField('amount')} className="app-input" />,
       share: canShare(transaction, editForm) ? (
         <ShareFields form={editForm.share} type={editForm.type} onChange={(share) => setEditForm({ ...editForm, share })} />
       ) : null,

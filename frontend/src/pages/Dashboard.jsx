@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Area,
@@ -1029,64 +1029,75 @@ export default function Dashboard() {
 function BalanceHero({ total, accounts, monthName, result, income, expense, invested, redeemed, others = null, className = '' }) {
   const hidden = useValuesHidden()
   const privateMoney = usePrivateFormatter(formatCurrency)
+  const wide = useIsSm()
+
+  // No celular o bloco e a primeira coisa que se ve ao abrir o app: numero
+  // menor, o movimento do mes em texto corrido e as contas numa faixa que
+  // rola de lado, para o resto de Inicio aparecer sem rolar.
+  const flow = [
+    ['Receitas', formatCurrency(income)],
+    ['Despesas', formatCurrency(expense)],
+    invested > 0 ? ['Aportes', formatCurrency(invested)] : null,
+    redeemed > 0 ? ['Resgates', formatCurrency(redeemed)] : null,
+    others !== null ? ['Outras pessoas', formatSignedCurrency(others)] : null,
+  ].filter(Boolean)
 
   return (
     <section
       aria-labelledby="saldo-em-conta"
-      className={cx('flex min-w-0 flex-col gap-5 rounded-[1.75rem] bg-brand p-5 text-brand-ink sm:p-8', className)}
+      className={cx('flex min-w-0 flex-col gap-3 rounded-3xl bg-brand p-4 text-brand-ink sm:gap-5 sm:rounded-[1.75rem] sm:p-8', className)}
     >
       <div className="flex items-center gap-3">
         <h2 id="saldo-em-conta" className="flex-1 text-sm font-semibold text-brand-soft">Saldo em conta</h2>
-        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">{sentenceCase(monthName)}</span>
+        <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-semibold sm:px-3 sm:py-1">{sentenceCase(monthName)}</span>
       </div>
 
-      <FitValue
-        measure={hidden ? MASKED_CURRENCY : formatCurrency(total)}
-        baseSize={56}
-        minSize={30}
-        className="font-extrabold tracking-tight"
-      >
-        <AnimatedNumber value={total} format={formatCurrency} masked={hidden} cacheKey="inicio|saldo" />
-      </FitValue>
-
-      <div className="flex flex-wrap gap-2">
-        {/* O resultado do mes some com o olho (decisao 9). A cor sai junto,
-            senao o sinal vaza. */}
-        <span
-          className={cx(
-            'rounded-full px-3 py-1.5 text-sm font-bold tabular',
-            hidden ? 'bg-white/10' : result >= 0 ? 'bg-emerald-400 text-on-accent' : 'bg-rose-200 text-rose-950'
-          )}
+      <div className="flex flex-col gap-2 sm:gap-4">
+        <FitValue
+          measure={hidden ? MASKED_CURRENCY : formatCurrency(total)}
+          baseSize={wide ? 56 : 38}
+          minSize={wide ? 30 : 24}
+          className="font-extrabold tracking-tight"
         >
-          {hidden ? MASKED_CURRENCY : formatSignedCurrency(result)} no mês
-        </span>
-        <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Receitas {formatCurrency(income)}</span>
-        <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Despesas {formatCurrency(expense)}</span>
-        {invested > 0 ? (
-          <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Aportes {formatCurrency(invested)}</span>
-        ) : null}
-        {redeemed > 0 ? (
-          <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Resgates {formatCurrency(redeemed)}</span>
-        ) : null}
-        {others !== null ? (
-          <span className="rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold tabular">Outras pessoas {formatSignedCurrency(others)}</span>
-        ) : null}
+          <AnimatedNumber value={total} format={formatCurrency} masked={hidden} cacheKey="inicio|saldo" />
+        </FitValue>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-2">
+          {/* O resultado do mes some com o olho (decisao 9). A cor sai junto,
+              senao o sinal vaza. */}
+          <span
+            className={cx(
+              'rounded-full px-2.5 py-0.5 text-[13px] font-bold tabular sm:px-3 sm:py-1.5 sm:text-sm',
+              hidden ? 'bg-white/10' : result >= 0 ? 'bg-emerald-400 text-on-accent' : 'bg-rose-200 text-rose-950'
+            )}
+          >
+            {hidden ? MASKED_CURRENCY : formatSignedCurrency(result)} no mês
+          </span>
+          {flow.map(([label, value]) => (
+            <span
+              key={label}
+              className="whitespace-nowrap text-[13px] font-semibold tabular sm:rounded-full sm:bg-white/10 sm:px-3 sm:py-1.5 sm:text-sm"
+            >
+              <span className="font-medium text-brand-soft sm:text-brand-ink">{label}</span> {value}
+            </span>
+          ))}
+        </div>
       </div>
 
       {accounts.length > 0 ? (
-        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
+        <ul className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] sm:overflow-visible sm:px-0">
           {accounts.map((account) => {
             // Tudo em reais: a conta em moeda estrangeira aparece pelo valor
             // convertido, o mesmo que o total acima soma. Sem cambio hoje ela
             // fica fora do total, e o cartao diz isso.
             const balance = accountBalanceBrl(account)
             return (
-              <li key={account.id} className="min-w-0 rounded-2xl bg-white/[0.08] px-4 py-3">
+              <li key={account.id} className="min-w-[8.5rem] max-w-[60%] shrink-0 snap-start rounded-2xl bg-white/[0.08] px-3 py-2 sm:min-w-0 sm:max-w-none sm:px-4 sm:py-3">
                 <p className="truncate text-xs font-medium text-brand-soft" title={account.name}>{account.name}</p>
                 {balance === null ? (
                   <p className="mt-0.5 whitespace-nowrap text-sm font-medium text-brand-soft">sem câmbio hoje</p>
                 ) : (
-                  <p className={cx('mt-0.5 whitespace-nowrap text-[15px] font-bold tabular', balance < 0 && 'text-rose-200')}>
+                  <p className={cx('mt-0.5 whitespace-nowrap text-sm font-bold tabular sm:text-[15px]', balance < 0 && 'text-rose-200')}>
                     {privateMoney(balance)}
                   </p>
                 )}
@@ -1097,6 +1108,18 @@ function BalanceHero({ total, accounts, monthName, result, income, expense, inve
       ) : null}
     </section>
   )
+}
+
+const SM_QUERY = '(min-width: 640px)'
+
+function subscribeSm(onChange) {
+  const media = window.matchMedia(SM_QUERY)
+  media.addEventListener('change', onChange)
+  return () => media.removeEventListener('change', onChange)
+}
+
+function useIsSm() {
+  return useSyncExternalStore(subscribeSm, () => window.matchMedia(SM_QUERY).matches, () => true)
 }
 
 // "setembro de 2026" -> "Setembro de 2026" (o capitalize do CSS pega o "De").

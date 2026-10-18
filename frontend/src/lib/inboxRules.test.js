@@ -58,6 +58,10 @@ test('the edit sends only what changed, with the version', () => {
     { version: 3, amount: 50, description: 'Padaria', occurred_at: '2026-10-17T21:00' },
   )
   assert.deepEqual(changesFromDraft(item, { ...draft, card_id: '' }), { version: 3, card_id: null })
+  // O teclado do celular digita virgula; o do PC, ponto. Os dois valem.
+  assert.deepEqual(changesFromDraft(item, { ...draft, amount: '45,90' }), { version: 3 })
+  assert.deepEqual(changesFromDraft(item, { ...draft, amount: '1.234,56' }), { version: 3, amount: 1234.56 })
+  assert.deepEqual(changesFromDraft(item, { ...draft, amount: 'R$ 50.5' }), { version: 3, amount: 50.5 })
   // Sem tipo escolhido (compra vaga), nao manda tipo.
   const vague = { ...item, entry_type: null }
   assert.deepEqual(changesFromDraft(vague, draftFromItem(vague)), { version: 3 })

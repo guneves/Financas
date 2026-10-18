@@ -5,6 +5,8 @@
 // (backend/services/inbox.py e inbox_decisions.py); aqui so se diz isso em
 // portugues e se monta o pedido.
 
+import { parseMoneyInput } from './monthlyPlan.js'
+
 export const ENTRY_TYPE_LABELS = {
   EXPENSE: 'Despesa',
   INCOME: 'Receita',
@@ -176,7 +178,9 @@ export function changesFromDraft(item, draft) {
   const original = draftFromItem(item)
   const changes = {}
   if (draft.entry_type && draft.entry_type !== original.entry_type) changes.entry_type = draft.entry_type
-  if (Number(draft.amount) !== Number(original.amount)) changes.amount = Number(draft.amount)
+  // "45,90", "45.90" e "1.234,56": o campo e texto, para aceitar os dois teclados.
+  const amount = parseMoneyInput(draft.amount)
+  if (amount !== Number(original.amount)) changes.amount = amount
   if (draft.date !== original.date || (draft.time || '') !== original.time) {
     changes.occurred_at = composeOccurredAt(draft.date, draft.time)
   }

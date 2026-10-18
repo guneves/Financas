@@ -12,6 +12,7 @@ import {
 } from '../pages/lancamentos/helpers'
 import { AlertMessage, Button, cx, EmptyState, Field, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
+import { parseMoneyInput } from '../lib/monthlyPlan'
 import { matchedInboxNotice } from '../lib/inboxRules'
 import { toast } from '../lib/toast'
 import { useQuery } from '../lib/queries'
@@ -188,7 +189,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
 
   const handleBankSubmit = async (event) => {
     event.preventDefault()
-    const amount = Number(transForm.amount)
+    const amount = parseMoneyInput(transForm.amount)
     if (!Number.isFinite(amount) || amount <= 0) {
       setError('Informe um valor bancario valido.')
       return
@@ -214,7 +215,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
 
   const handleTransferSubmit = async (event) => {
     event.preventDefault()
-    const amount = Number(transferForm.amount)
+    const amount = parseMoneyInput(transferForm.amount)
     if (!Number.isFinite(amount) || amount <= 0) {
       setError('Informe um valor valido para a transferencia.')
       return
@@ -243,7 +244,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
 
   const handleCCExpenseSubmit = async (event) => {
     event.preventDefault()
-    const totalAmount = Number(expenseForm.total_amount)
+    const totalAmount = parseMoneyInput(expenseForm.total_amount)
     const installmentsCount = Number(expenseForm.installments)
     const purchaseDate = parseLocalDate(expenseForm.purchase_date)
     const selectedCard = cards.find((card) => card.id === expenseForm.card_id)
@@ -290,7 +291,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   const renderBankForm = () => (
     <div className="grid grid-cols-2 gap-x-3 gap-y-4">
       <Field label="Valor" className="col-span-2">
-        <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
+        <input type="text" inputMode="decimal" autoComplete="off" placeholder="0,00" value={transForm.amount} onChange={(event) => setTransForm({ ...transForm, amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
       </Field>
       <Field label="Categoria" className="col-span-2">
         <select value={transForm.category} onChange={(event) => setTransForm({ ...transForm, category: event.target.value })} className="app-select" required>
@@ -322,7 +323,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   const renderTransferForm = () => (
     <div className="grid grid-cols-2 gap-x-3 gap-y-4">
       <Field label="Valor" className="col-span-2">
-        <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={transferForm.amount} onChange={(event) => setTransferForm({ ...transferForm, amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
+        <input type="text" inputMode="decimal" autoComplete="off" placeholder="0,00" value={transferForm.amount} onChange={(event) => setTransferForm({ ...transferForm, amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
       </Field>
       <Field label="De" className="min-w-0">
         <select value={transferForm.account_id} onChange={(event) => setTransferForm({ ...transferForm, account_id: event.target.value })} className="app-select" required>
@@ -369,7 +370,7 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
     return (
       <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-x-3 gap-y-4">
         <Field label="Valor total" className="min-w-0">
-          <input type="number" inputMode="decimal" step="0.01" placeholder="0,00" value={expenseForm.total_amount} onChange={(event) => setExpenseForm({ ...expenseForm, total_amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
+          <input type="text" inputMode="decimal" autoComplete="off" placeholder="0,00" value={expenseForm.total_amount} onChange={(event) => setExpenseForm({ ...expenseForm, total_amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
         </Field>
         <Field label="Parcelas">
           <input type="number" inputMode="numeric" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className={cx(AMOUNT_INPUT, 'text-center')} required />

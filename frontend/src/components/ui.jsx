@@ -516,13 +516,13 @@ const summaryTones = {
 // quando o valor e ganho ou perda.
 export function SummaryPanel({ lead, figures = [], className = '' }) {
   return (
-    <Panel className={cx('grid animate-fade-up grid-cols-2 gap-x-4 gap-y-5 p-5 sm:p-6 lg:flex lg:items-end lg:gap-0', className)}>
+    <Panel className={cx('grid animate-fade-up grid-cols-2 gap-x-4 gap-y-4 p-4 sm:gap-y-5 sm:p-6 lg:flex lg:items-end lg:gap-0', className)}>
       {lead ? (
         <div className="col-span-2 min-w-0 lg:flex-[1.4] lg:pr-5">
           <p className="text-sm font-semibold text-zinc-600">{lead.label}</p>
           <FitValue
             measure={String(lead.value)}
-            baseSize={34}
+            baseSize={32}
             minSize={22}
             className={cx('mt-1 font-extrabold tracking-tight tabular', summaryTones[lead.tone] || summaryTones.neutral)}
           >
@@ -567,9 +567,10 @@ export function ListSkeleton({ rows = 6, className = '' }) {
 
 export function PageHeader({ title, description, actions, meta }) {
   return (
-    <div className="flex animate-fade-up flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex animate-fade-up flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
       <div className="min-w-0">
-        <h1 className="text-3xl font-extrabold tracking-tight text-zinc-950">{title}</h1>
+        {/* No celular a aba ativa logo acima ja diz onde se esta: titulo menor. */}
+        <h1 className="text-2xl font-extrabold tracking-tight text-zinc-950 sm:text-3xl">{title}</h1>
         {/* No celular a descricao sai: o conteudo sobe para a primeira dobra. */}
         {description ? <p className="mt-2 hidden max-w-3xl text-sm text-zinc-500 sm:block">{description}</p> : null}
         {meta ? <div className="mt-3 flex flex-wrap gap-2">{meta}</div> : null}
@@ -769,9 +770,21 @@ export function Tabs({ items, counts = {}, className = '' }) {
   const navRef = useRef(null)
   const { pathname } = useLocation()
   const pill = useSlidingPill(navRef, '[aria-current="page"]', [pathname, items])
+  const scrolledOnce = useRef(false)
+
+  // No celular as abas rolam de lado: sem isto, abrir Proventos ou IR deixava
+  // a aba ativa fora da tela. Centraliza a ativa (na primeira vez sem animar).
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    const active = nav?.querySelector('[aria-current="page"]')
+    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return
+    const left = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2
+    nav.scrollTo({ left: Math.max(0, left), behavior: scrolledOnce.current ? 'smooth' : 'auto' })
+    scrolledOnce.current = true
+  }, [pathname, items])
 
   return (
-    <nav ref={navRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white p-1', className)}>
+    <nav ref={navRef} className={cx('relative inline-flex max-w-full gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white p-1 [scrollbar-width:none]', className)}>
       <PillBackground pill={pill} />
       {items.map((item) => {
         const Icon = item.icon

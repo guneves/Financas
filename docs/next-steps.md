@@ -71,9 +71,15 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   lançamentos…" beside a header pill saying "3 pendentes" when the third is a card purchase).
   Correct, but the two numbers side by side may read as a mismatch; owner's call.
 - [ ] Phase 2's "done when", on the phone once Phase 1's phone half works: enter a despesa
-  one-handed in under ten seconds, and check that the amount field's keyboard types a comma the
-  field accepts (`type="number"` with `inputMode="decimal"`; keyboards differ). The layout itself
-  was fixed on the PC on 2026-10-16 (see `docs/done-tasks.md` and Phase 2 in the plan).
+  one-handed in under ten seconds. The comma is settled for lançamentos (2026-10-18: "+ Novo",
+  Extrato edit and Aprovar are text fields parsed by `parseMoneyInput()`, checked on the phone).
+  The layout itself was fixed on the PC on 2026-10-16 (see `docs/done-tasks.md`).
+- [ ] The other money fields are still `type="number"` (Metas, Orçamento, Recorrentes, Ajustes ›
+  Contas' initial balance, ShareFields, Extrato's min/max filter, the investment forms): give them
+  the same `type="text" inputMode="decimal"` + `parseMoneyInput()` swap.
+- [ ] Phone layout leftovers seen 2026-10-18 at 360 px: Início's attention cards ~170 px each;
+  "indisponível" benchmark cards in Rentabilidade take a full card each; charts are 286 px wide
+  (page gutter + panel padding).
 - [ ] **Phase 6 on the phone** (listener, capture mode and Ajustes › Notificações dos bancos built
   2026-10-17, see `docs/done-tasks.md`; native level 2). CI published APK 10013 and the test APK
   `/apk/financas-debug.apk` the same day (deploy run 13, green). Check: the real app updates to
