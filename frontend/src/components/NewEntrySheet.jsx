@@ -12,6 +12,7 @@ import {
 } from '../pages/lancamentos/helpers'
 import { AlertMessage, Button, cx, EmptyState, Field, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
+import { matchedBankNotice } from '../lib/pluggyRules'
 import { toast } from '../lib/toast'
 import { useQuery } from '../lib/queries'
 
@@ -173,6 +174,13 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
     const result = await createEntry(kind, payload)
     if (result.queued) {
       await finish(`Sem conexão: ${label.charAt(0).toLowerCase()}${label.slice(1)} guardada neste aparelho. Ela é enviada quando o servidor responder.`, { tone: 'info', duration: 6000 })
+      return
+    }
+    // A Pluggy ja tinha trazido este lancamento do banco: o servidor confirmou
+    // aquela linha em vez de criar outra (matched_bank).
+    const matched = matchedBankNotice(result.data, label)
+    if (matched) {
+      await finish(matched, { tone: 'info', duration: 6000 })
       return
     }
     await finish(`${label} registrada.`)

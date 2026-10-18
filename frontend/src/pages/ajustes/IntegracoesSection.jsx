@@ -26,7 +26,7 @@ function whenLabel(iso) {
   return `${formatDateBR(getLocalDateString(date))} ${time}`
 }
 
-// Integracoes: teste ativo de yfinance, brapi e BCB (GET /api/health/integrations).
+// Integracoes: teste ativo de yfinance, brapi, BCB e Pluggy (GET /api/health/integrations).
 // O backend guarda o resultado por 10 minutos; "Verificar agora" refaz.
 export default function IntegracoesSection() {
   const [refreshing, setRefreshing] = useState(false)
@@ -55,7 +55,7 @@ export default function IntegracoesSection() {
     <Panel id="integracoes" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Integrações"
-        description="De onde vêm as cotações e os índices da renda fixa."
+        description="De onde vêm as cotações, os índices da renda fixa e o extrato dos bancos."
         actions={(
           <Button variant="secondary" size="sm" icon={RefreshCw} loading={refreshing} onClick={handleRefresh}>
             Verificar agora

@@ -272,6 +272,28 @@ export const systemApi = {
   integrations: (params = {}) => apiFetch(`/api/health/integrations${queryString(params)}`)
 }
 
+// Pluggy (027): conexoes, contas ligadas, sincronizacao e possiveis duplicatas.
+// A sincronizacao automatica esta em lib/pluggySync.js.
+export const pluggyApi = {
+  status: () => apiFetch('/api/pluggy'),
+  addItem: (itemId) => apiFetch('/api/pluggy/items', {
+    method: 'POST',
+    body: JSON.stringify({ item_id: itemId })
+  }),
+  removeItem: (id) => apiFetch(`/api/pluggy/items/${id}`, { method: 'DELETE' }),
+  accounts: (itemRowId) => apiFetch(`/api/pluggy/items/${itemRowId}/accounts`),
+  link: (pluggyAccountId, payload) => apiFetch(`/api/pluggy/links/${encodeURIComponent(pluggyAccountId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  }),
+  unlink: (pluggyAccountId) => apiFetch(`/api/pluggy/links/${encodeURIComponent(pluggyAccountId)}`, { method: 'DELETE' }),
+  review: () => apiFetch('/api/pluggy/review'),
+  decide: (ledgerId, action, targetId) => apiFetch(`/api/pluggy/review/${ledgerId}`, {
+    method: 'POST',
+    body: JSON.stringify({ action, target_id: targetId || undefined })
+  })
+}
+
 // Desdobramento, grupamento e bonificacao (017).
 export const corporateActionsApi = {
   list: (params = {}) => apiFetch(`/api/corporate-actions${queryString(params)}`),

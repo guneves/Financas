@@ -9,6 +9,7 @@ import CategoriasSection from './ajustes/CategoriasSection'
 import IntegracoesSection from './ajustes/IntegracoesSection'
 import NotificacoesSection from './ajustes/NotificacoesSection'
 import PerfilSection from './ajustes/PerfilSection'
+import PluggySection from './ajustes/PluggySection'
 import RegrasSection from './ajustes/RegrasSection'
 
 const SECTION_LINKS = [
@@ -16,6 +17,7 @@ const SECTION_LINKS = [
   { id: 'cartoes', label: 'Cartões' },
   { id: 'categorias', label: 'Categorias' },
   { id: 'regras-de-importacao', label: 'Regras de importação' },
+  { id: 'pluggy', label: 'Banco (Pluggy)' },
   { id: 'integracoes', label: 'Integrações' },
   { id: 'perfil', label: 'Perfil' },
   // So no APK (NotificacoesSection, AppVersionSection).
@@ -43,7 +45,8 @@ function useHashScroll() {
   }, [hash])
 }
 
-// Configuracao feita uma vez: contas, cartoes, categorias, regras, integracoes, perfil
+// Configuracao feita uma vez: contas, cartoes, categorias, regras, o banco pela
+// Pluggy, integracoes, perfil
 // (e, no APK, as notificacoes dos bancos e a versao do app).
 export default function Ajustes() {
   useHashScroll()
@@ -75,6 +78,7 @@ export default function Ajustes() {
       <CartoesSection />
       <CategoriasSection />
       <RegrasSection />
+      <PluggySection />
       <IntegracoesSection />
       <PerfilSection />
       <NotificacoesSection />

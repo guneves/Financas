@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, X } from 'lucide-react'
-import { transactionsApi } from '../../lib/dataApi'
+import { Link, useSearchParams } from 'react-router-dom'
+import { BadgeCheck, Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, X } from 'lucide-react'
+import { pluggyApi, transactionsApi } from '../../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
   AlertMessage,
@@ -30,6 +30,8 @@ import ExportSheet from '../../components/ExportSheet'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 import useDebouncedValue from '../../lib/useDebouncedValue'
 import ExtratoInvestimentos from './ExtratoInvestimentos'
+import { usePluggySync } from '../../lib/pluggySync'
+import { bankMark, reviewCount, reviewNoticeText } from '../../lib/pluggyRules'
 
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
@@ -138,6 +140,18 @@ function AttachmentMark({ transaction }) {
   )
 }
 
+// Veio do banco pela Pluggy, ou o banco conferiu (external_id); so informa.
+function BankMark({ transaction }) {
+  const label = bankMark(transaction)
+  if (!label) return null
+  return (
+    <span className="inline-flex shrink-0 items-center text-zinc-500" title={label}>
+      <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
 function originLabel(transaction) {
   if (transaction.pending) return transaction.pending_status === 'needs_attention' ? 'Recusado pelo servidor' : 'Pendente de envio'
   if (transaction.source_type === 'INVESTMENT_TRANSACTION') return 'Pela carteira'
@@ -220,6 +234,12 @@ function ExtratoContas({ viewSwitch }) {
     categoryOptionsFor,
     accountName,
   } = useLancamentos()
+
+  // O extrato do banco (Pluggy) e lido ao abrir, no maximo a cada 10 min; o que
+  // pode ser duplicata espera o dono em Ajustes › Banco.
+  usePluggySync()
+  const pluggyQuery = useQuery({ queryKey: ['pluggy'], queryFn: () => pluggyApi.status(), staleTime: 5 * 60_000 })
+  const pendingReview = reviewCount(pluggyQuery.data)
 
   const [saving, setSaving] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -444,6 +464,12 @@ function ExtratoContas({ viewSwitch }) {
       {viewSwitch}
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
+      {pendingReview ? (
+        <AlertMessage tone="info">
+          {reviewNoticeText(pendingReview)}{' '}
+          <Link to="/ajustes#pluggy" className="font-semibold underline">Revisar</Link>
+        </AlertMessage>
+      ) : null}
 
       <ProjectionHeader
         balance={balance}
@@ -623,6 +649,7 @@ function ExtratoContas({ viewSwitch }) {
                               <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
                               <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
                               <AttachmentMark transaction={transaction} />
+                              <BankMark transaction={transaction} />
                             </div>
                           </td>
                           <td className={cx('num font-semibold', amountClass(transaction))}>{amountText(transaction)}</td>
@@ -685,6 +712,7 @@ function ExtratoContas({ viewSwitch }) {
                           {editable ? '' : ` · ${originLabel(transaction)}`}
                         </span>
                         <AttachmentMark transaction={transaction} />
+                        <BankMark transaction={transaction} />
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-0.5">
