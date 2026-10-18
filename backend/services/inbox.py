@@ -35,6 +35,7 @@ from config import INBOX_MATCH_DAYS
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
+from services import recurring
 from services.import_rules import (
     DEFAULT_IMPORT_CATEGORIES,
     import_default_category,
@@ -1640,7 +1641,7 @@ def _names(conn, current_user_id):
     return accounts, cards
 
 
-def serialize_item(conn, current_user_id, row, names=None):
+def serialize_item(conn, current_user_id, row, names=None, recurrences=None):
     item = item_dict(row) if not isinstance(row, dict) else dict(row)
     accounts, cards = names or _names(conn, current_user_id)
     item["account_name"] = accounts.get(item.get("account_id"))
@@ -1669,6 +1670,13 @@ def serialize_item(conn, current_user_id, row, names=None):
         })
     item["sources"] = sources
     item["confirm"] = relevant_guesses(item)
+    # A recorrencia que aprovar da como feita (034): a sugestao enquanto
+    # pendente (mesmo com "nao e esta", para poder desfazer), a gravada depois.
+    item["recurring_off"] = bool(item.get("recurring_off"))
+    if item.get("state") == PENDING:
+        item["recurring"] = recurring.suggest_for_item(conn, current_user_id, item, rows=recurrences)
+    else:
+        item["recurring"] = recurring.settlement_of_item(conn, current_user_id, item["id"])
     # Pronto para "Aprovar todos": nada a escolher e nenhum palpite a confirmar.
     item["ready"] = item.get("state") == PENDING and not item.get("needs") and not item["confirm"]
     return item
@@ -1696,4 +1704,5 @@ def list_items(conn, current_user_id, view="pending", limit=200):
             (current_user_id, limit),
         ).fetchall()
     names = _names(conn, current_user_id)
-    return [serialize_item(conn, current_user_id, row, names) for row in rows]
+    recurrences = recurring.recurring_rows(conn, current_user_id, include_inactive=False)
+    return [serialize_item(conn, current_user_id, row, names, recurrences) for row in rows]

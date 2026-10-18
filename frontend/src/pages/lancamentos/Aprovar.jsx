@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BellRing, CheckCheck, Inbox, Pencil, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
+import { BellRing, CheckCheck, Inbox, Pencil, Repeat, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
 import { accountsApi, categoriesApi, creditCardsApi, inboxApi } from '../../lib/dataApi'
 import {
   AlertMessage,
@@ -37,6 +37,8 @@ import {
   quickChoice,
   readyIds,
   reasonText,
+  recurringText,
+  recurringToggle,
   sourceLabel,
   splittableSources,
   whenText,
@@ -223,6 +225,23 @@ function ItemCard({ item, accounts, cards, busyKey, onApprove, onDeny, onEdit, o
 
       <Decisions item={item} accounts={accounts} cards={cards} onQuick={onQuick} />
 
+      {item.recurring ? (
+        <div className="flex flex-col gap-2 rounded-2xl border border-zinc-200 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex min-w-0 items-start gap-2 text-sm text-zinc-700">
+            <Repeat className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" aria-hidden="true" />
+            <span className="min-w-0">{recurringText(item)}</span>
+          </p>
+          <Button
+            variant="subtle"
+            size="sm"
+            loading={busy('quick')}
+            onClick={() => onQuick(item, recurringToggle(item, item.recurring_off))}
+          >
+            {item.recurring_off ? 'Desfazer' : 'Não é esta'}
+          </Button>
+        </div>
+      ) : null}
+
       {item.candidates?.length ? (
         <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
           {item.candidates.map((candidate) => (
@@ -368,6 +387,7 @@ function DecidedRow({ item, onRestore, busy }) {
           {decisionText(item)} · {whenText(item.occurred_at)} · {formatCurrency(item.amount)}
           {item.target?.date && item.target.date !== item.occurred_at?.slice(0, 10) ? ` · lançado em ${formatDateBR(item.target.date)}` : ''}
         </p>
+        {item.recurring ? <p className="text-xs text-zinc-500">{recurringText(item)}</p> : null}
       </div>
       {item.state === 'DENIED' ? (
         <Button variant="secondary" size="sm" icon={RotateCcw} loading={busy} onClick={() => onRestore(item)}>

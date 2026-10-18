@@ -573,3 +573,24 @@ CREATE TABLE IF NOT EXISTS proceeds_sync_dismissed (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (user_id, sync_key)
 );
+
+-- Aprovar x Recorrentes (034): a ocorrencia que um lancamento aprovado fez.
+-- O /run passa por ela sem gravar, ela nao e pendente nem entra na previsao
+-- (services/recurring.py). 034 tambem poe inbox_items.recurring_off (o dono
+-- disse "nao e esta"); inbox_items, de 028, ainda nao esta neste arquivo.
+CREATE TABLE IF NOT EXISTS recurring_settlements (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recurring_id TEXT NOT NULL REFERENCES recurring_transactions(id) ON DELETE CASCADE,
+    occurrence_date TEXT NOT NULL,
+    target_table TEXT CHECK (target_table IS NULL OR target_table IN ('transactions', 'cc_expenses')),
+    target_id TEXT,
+    inbox_item_id TEXT REFERENCES inbox_items(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recurring_settlements_occurrence
+ON recurring_settlements(user_id, recurring_id, occurrence_date);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_settlements_item
+ON recurring_settlements(user_id, inbox_item_id);

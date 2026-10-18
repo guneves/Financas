@@ -17,6 +17,8 @@ import {
   quickChoice,
   readyIds,
   reasonText,
+  recurringText,
+  recurringToggle,
   sourceLabel,
   splitOccurredAt,
   splittableSources,
@@ -117,4 +119,24 @@ test('ready items, remember and the texts', () => {
     hintText({ label: 'Samsung Wallet · sem crédito/débito · final 1234', entry_type: 'CARD', card_name: 'Itaú Visa' }),
     'Samsung Wallet · sem crédito/débito · final 1234 → Itaú Visa',
   )
+})
+
+test('recurringText: the occurrence approving settles, the opt-out and the settled one', () => {
+  const recurring = { description: 'Netflix', date: '2026-10-05', amount: 55.9, exact_amount: true, settled: false }
+  assert.equal(recurringText({ recurring: null }), '')
+  assert.match(recurringText({ recurring }), /^Recorrente: ao aprovar, "Netflix" de 05\/10 fica como feita/)
+  assert.match(
+    recurringText({ recurring: { ...recurring, exact_amount: false } }),
+    /\(previsto R\$\s55,90\)/
+  )
+  assert.equal(recurringText({ recurring, recurring_off: true }), 'Não marca "Netflix" de 05/10 em Recorrentes.')
+  assert.equal(
+    recurringText({ recurring: { ...recurring, settled: true } }),
+    'Marcou "Netflix" de 05/10 como feita em Recorrentes.'
+  )
+})
+
+test('recurringToggle: the PATCH body keeps the version', () => {
+  assert.deepEqual(recurringToggle({ version: 3 }, false), { version: 3, recurring: false })
+  assert.deepEqual(recurringToggle({ version: 4 }, true), { version: 4, recurring: true })
 })
