@@ -33,8 +33,8 @@ from validators import (
 bp = Blueprint("budgets", __name__)
 
 
-def budget_spend_by_category(conn, current_user_id, month):
-    """Realizado do mes por categoria: {category_id: {"EXPENSE": x, "INCOME": y}}.
+def budget_month_lines(conn, current_user_id, month):
+    """Cada lancamento que entra no realizado do mes, com a categoria resolvida.
 
     Lancamentos com category_id preenchido contam direto; os que so tem o texto
     (categoria livre, ou lancamento anterior a migration 008) sao resolvidos
@@ -46,10 +46,14 @@ def budget_spend_by_category(conn, current_user_id, month):
     categoria" no Inicio. Por isso o pagamento da fatura nao conta: ele e a soma
     de compras ja contadas. Pagamento de fatura e o lancamento com source_type
     de fatura, ou, nos anteriores ao pagamento pelo servidor, a categoria
-    "Pagamento Fatura...".
+    "Pagamento Fatura...". As parcelas de uma compra viram uma linha so.
 
     De quem e (032): conta so a parte do dono — a pizza dividida pesa no
-    orcamento so pela fatia dele (services/sharing.py).
+    orcamento so pela fatia dele (services/sharing.py). `amount` e essa parte;
+    `total_amount`, o valor cheio da linha.
+
+    E desta lista que sai o realizado (`budget_spend_by_category`), entao o que
+    a tela abre debaixo de uma categoria sempre soma o valor que ela mostra.
     """
     name_to_id = {}
     for row in conn.execute(
@@ -64,37 +68,106 @@ def budget_spend_by_category(conn, current_user_id, month):
 
     invoice_types = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
     invoice_placeholders = ", ".join("?" for _ in invoice_types)
-    totals = {}
     rows = conn.execute(
         f"""
-        SELECT type, category_id, category, SUM({own_amount_sql()}) AS total
-        FROM transactions
-        WHERE user_id = ?
-          AND type <> 'TRANSFER'
-          AND substr(date, 1, 7) = ?
-          AND COALESCE(source_type, '') NOT IN ({invoice_placeholders})
-          AND COALESCE(category, '') NOT LIKE 'Pagamento Fatura%'
-        GROUP BY type, category_id, category
+        SELECT t.id, t.type, t.category_id, t.category, t.date, t.description,
+               t.amount AS total_amount, {own_amount_sql("t.")} AS own_amount,
+               t.share_mode, a.name AS account_name
+        FROM transactions t
+        LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+        WHERE t.user_id = ?
+          AND t.type <> 'TRANSFER'
+          AND substr(t.date, 1, 7) = ?
+          AND COALESCE(t.source_type, '') NOT IN ({invoice_placeholders})
+          AND COALESCE(t.category, '') NOT LIKE 'Pagamento Fatura%'
+        ORDER BY t.date, t.created_at, t.id
         """,
         (current_user_id, month, *invoice_types),
     ).fetchall()
     card_rows = conn.execute(
         f"""
-        SELECT 'EXPENSE' AS type, NULL AS category_id, category,
-               SUM({signed_amount_sql()} * {own_amount_sql()}) AS total
-        FROM cc_expenses
-        WHERE user_id = ?
-          AND substr(purchase_date, 1, 7) = ?
-        GROUP BY category
+        SELECT e.id, e.card_id, e.category, e.purchase_date, e.description, e.kind,
+               e.installment_info, e.client_id, e.share_mode,
+               e.amount * {signed_amount_sql("e.")} AS total_amount,
+               {signed_amount_sql("e.")} * {own_amount_sql("e.")} AS own_amount,
+               c.name AS card_name
+        FROM cc_expenses e
+        LEFT JOIN credit_cards c ON c.id = e.card_id AND c.user_id = e.user_id
+        WHERE e.user_id = ?
+          AND substr(e.purchase_date, 1, 7) = ?
+        ORDER BY e.purchase_date, e.created_at, e.id
         """,
         (current_user_id, month),
     ).fetchall()
-    for row in [*rows, *card_rows]:
-        category_id = row["category_id"] or name_to_id.get(row["category"])
+
+    lines = []
+    for row in rows:
+        lines.append(
+            {
+                "id": row["id"],
+                "source": "TRANSACTION",
+                "type": row["type"],
+                "category_id": row["category_id"] or name_to_id.get(row["category"]),
+                "category": row["category"],
+                "date": row["date"],
+                "description": row["description"],
+                "amount": safe_float(row["own_amount"]),
+                "total_amount": safe_float(row["total_amount"]),
+                "shared": bool(row["share_mode"]),
+                "account_name": row["account_name"],
+            }
+        )
+
+    purchases = {}
+    for row in card_rows:
+        installments = str(row["installment_info"] or "1/1").split("/")[-1]
+        key = (
+            row["card_id"],
+            row["kind"],
+            row["purchase_date"],
+            row["description"],
+            row["category"],
+            row["client_id"] or "",
+            installments,
+        )
+        line = purchases.get(key)
+        if line is None:
+            line = purchases[key] = {
+                "id": row["id"],
+                "source": "CARD",
+                "type": "EXPENSE",
+                "category_id": name_to_id.get(row["category"]),
+                "category": row["category"],
+                "date": row["purchase_date"],
+                "description": row["description"],
+                "amount": 0.0,
+                "total_amount": 0.0,
+                "shared": False,
+                "card_name": row["card_name"],
+                "refund": row["kind"] == "REFUND",
+                "installments": 0,
+            }
+            lines.append(line)
+        line["amount"] += safe_float(row["own_amount"])
+        line["total_amount"] += safe_float(row["total_amount"])
+        line["shared"] = line["shared"] or bool(row["share_mode"])
+        line["installments"] += 1
+    lines.sort(key=lambda line: (line["date"] or "", line["source"]))
+    return lines
+
+
+def budget_spend_by_category(conn, current_user_id, month):
+    """Realizado do mes por categoria: {category_id: {"EXPENSE": x, "INCOME": y}}.
+
+    A soma de `budget_month_lines()` — as regras do que conta estao la.
+    """
+    totals = {}
+    for line in budget_month_lines(conn, current_user_id, month):
+        category_id = line["category_id"]
         if not category_id:
             continue
         bucket = totals.setdefault(category_id, {"EXPENSE": 0.0, "INCOME": 0.0})
-        bucket[row["type"]] = bucket.get(row["type"], 0.0) + safe_float(row["total"])
+        bucket[line["type"]] = bucket.get(line["type"], 0.0) + line["amount"]
     return totals
 
 
@@ -393,6 +466,58 @@ def budget_detail(current_user_id, budget_id):
         )
         item["category_name"] = category["name"] if category else None
     return jsonify(item), 200
+
+
+@bp.route("/api/budgets/<budget_id>/lines", methods=["GET"])
+@token_required
+def budget_lines(current_user_id, budget_id):
+    """Os lancamentos que justificam o realizado de um orcamento.
+
+    A mesma regra de `budget_month_spent()`: a categoria e as subcategorias
+    sem orcamento proprio no mes, receita numa categoria INCOME e despesa nas
+    demais. `spent` e a soma de `amount` das linhas, o mesmo valor da tela.
+    """
+    with get_db() as conn:
+        row = fetch_budget(conn, current_user_id, budget_id)
+        if not row:
+            return jsonify({"error": "Orcamento nao encontrado."}), 404
+        month = row["month"]
+        category = fetch_category(conn, current_user_id, row["category_id"])
+        budgeted_ids = {
+            item["category_id"]
+            for item in conn.execute(
+                "SELECT category_id FROM budgets WHERE user_id = ? AND month = ?",
+                (current_user_id, month),
+            ).fetchall()
+        }
+        children = budget_children_by_parent(conn, current_user_id)
+        included = {row["category_id"]} | {
+            child_id
+            for child_id in children.get(row["category_id"], [])
+            if child_id not in budgeted_ids
+        }
+        wanted_type = "INCOME" if category and category["kind"] == "INCOME" else "EXPENSE"
+        lines = []
+        for line in budget_month_lines(conn, current_user_id, month):
+            if line["category_id"] not in included or line["type"] != wanted_type:
+                continue
+            line["amount"] = rounded_money(line["amount"])
+            line["total_amount"] = rounded_money(line["total_amount"])
+            line["subcategory"] = line["category_id"] != row["category_id"]
+            lines.append(line)
+        spent = budget_month_spent(
+            conn, current_user_id, row["category_id"], month,
+            budgeted_ids=budgeted_ids, children=children,
+        )
+    return jsonify(
+        {
+            "budget_id": budget_id,
+            "month": month,
+            "category_id": row["category_id"],
+            "spent": rounded_money(spent),
+            "lines": lines,
+        }
+    ), 200
 
 
 @bp.route("/api/budgets/copy", methods=["POST"])

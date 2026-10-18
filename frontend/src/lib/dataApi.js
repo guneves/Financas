@@ -103,6 +103,7 @@ export const budgetsApi = {
     body: JSON.stringify(payload)
   }),
   remove: (id) => apiFetch(`/api/budgets/${id}`, { method: 'DELETE' }),
+  lines: (id) => apiFetch(`/api/budgets/${id}/lines`),
   copy: (payload) => apiFetch('/api/budgets/copy', {
     method: 'POST',
     body: JSON.stringify(payload)

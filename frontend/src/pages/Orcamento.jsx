@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Copy,
   Check,
+  ChevronDown,
   Pencil,
   Plus,
   Settings,
@@ -21,6 +22,7 @@ import {
   Button,
   Collapsible,
   EmptyState,
+  Expand,
   ListSkeleton,
   Field,
   IconButton,
@@ -38,6 +40,7 @@ import {
 } from '../components/BudgetProgress'
 import { confirmAction } from '../lib/confirm'
 import MonthlyPlanPanel from '../components/MonthlyPlanPanel'
+import BudgetLines from '../components/BudgetLines'
 
 const emptyBudgetForm = () => ({ category_id: '', planned_amount: '', rollover: false, note: '' })
 
@@ -53,6 +56,14 @@ export default function Orcamento() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [editValue, setEditValue] = useState('')
+  const [openLines, setOpenLines] = useState(() => new Set())
+
+  const toggleLines = (id) => setOpenLines((current) => {
+    const next = new Set(current)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
 
   // Orcamento do mes e categorias (arquivadas inclusive: um orcamento antigo
   // pode apontar para uma). Qualquer gravacao invalida o cache (lib/queries.js).
@@ -378,6 +389,21 @@ export default function Orcamento() {
                   </span>
                 </div>
                 {item.note ? <p className="mt-2 text-sm text-zinc-600">{item.note}</p> : null}
+                <button
+                  type="button"
+                  onClick={() => toggleLines(item.id)}
+                  aria-expanded={openLines.has(item.id)}
+                  aria-controls={`linhas-${item.id}`}
+                  className="mt-2 -ml-2 inline-flex h-11 items-center gap-1 rounded-full px-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950 lg:h-8"
+                >
+                  <ChevronDown
+                    className={cx('h-4 w-4 transition-transform', openLines.has(item.id) && 'rotate-180')}
+                  />
+                  {openLines.has(item.id) ? 'Ocultar lançamentos' : 'Ver lançamentos'}
+                </button>
+                <Expand open={openLines.has(item.id)} id={`linhas-${item.id}`}>
+                  <BudgetLines budgetId={item.id} categoryName={item.category_name} kind={item.category_kind} />
+                </Expand>
               </div>
             ))}
           </div>
