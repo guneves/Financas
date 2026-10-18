@@ -1,5 +1,6 @@
 // Helpers de Lancamentos (Extrato, Cartoes) e do sheet "+ Novo".
 // Movidos de Transactions.jsx sem mudanca de comportamento.
+import { cardPurchaseKey } from '../../lib/transactions'
 
 // Relogio local: as datas padrao passam por aqui, nao por `new Date()` direto
 // (ver CLAUDE.md › Known sharp edges).
@@ -40,17 +41,9 @@ export function parseInstallmentInfo(value) {
   }
 }
 
+// A compra de uma parcela: o client_id dela (lib/transactions.js).
 export function getPurchaseGroupKey(expense) {
-  const installment = parseInstallmentInfo(expense.installment_info)
-  return [
-    expense.card_id || 'sem-cartao',
-    expense.description || 'sem-descricao',
-    expense.purchase_date || 'sem-data',
-    expense.category || 'sem-categoria',
-    Number(parseFloat(expense.amount || 0).toFixed(2)),
-    installment.total,
-    expense.kind || 'PURCHASE',
-  ].join('|')
+  return cardPurchaseKey(expense)
 }
 
 export function formatInvoiceLabel(month, year) {
@@ -77,13 +70,28 @@ export function categoryLabel(category) {
 }
 
 // Opcoes de categoria vindas da tabela de categorias (nunca de lista fixa).
+// O valor de um select de categoria e o id: o nome se repete ("Outros" na raiz
+// e em "Lazer › Outros") e o servidor ficaria com a primeira que achasse.
 export function buildCategoryOptions(categories) {
   return categories.map((category) => ({
     id: category.id,
     name: category.name,
     label: categoryLabel(category),
     kind: category.kind,
+    parent_id: category.parent_id || null,
   }))
+}
+
+// O id para um nome so (um item antigo da fila, guardado antes do id): a
+// raiz antes, como o servidor faz.
+export function categoryIdForName(options, name) {
+  if (!name) return ''
+  const matches = options.filter((option) => option.name === name)
+  return (matches.find((option) => !option.parent_id) || matches[0])?.id || ''
+}
+
+export function categoryNameOf(options, id) {
+  return options.find((option) => option.id === id)?.name || ''
 }
 
 export function filterCategoryOptions(options, type) {

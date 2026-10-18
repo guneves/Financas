@@ -6,7 +6,7 @@
 // mesmo aviso nao volta ao Inicio, um novo volta. O sino mostra todos.
 import { useMemo, useSyncExternalStore } from 'react'
 import { accountsApi, budgetsApi, ccExpensesApi, creditCardsApi, recurringApi, transactionsApi } from './dataApi'
-import { getLocalDateString, monthKey, shiftMonth } from './format'
+import { getLocalDateString, monthKey } from './format'
 import { useOutbox } from './outbox'
 import { applyPendingToAccounts } from './outboxRules'
 import { useQuery } from './queries'
@@ -15,7 +15,7 @@ import {
   addDismissed,
   attentionItems,
   autopayShortfalls,
-  invoiceItemsOf,
+  nextInvoices,
   openCardExpenses,
   overdueInvoices,
   payableInvoices,
@@ -90,6 +90,7 @@ export function useAttentionItems() {
   const cards = useInicioCards()
   const recurring = useInicioRecurring()
   const month = monthKey(new Date())
+  const todayText = getLocalDateString()
   const budget = useInicioBudget(month)
   const pending = useOutbox()
 
@@ -102,15 +103,16 @@ export function useAttentionItems() {
   return useMemo(() => {
     const accounts = activeAccounts(applyPendingToAccounts(serverAccounts, pending))
     const open = openCardExpenses(ccExpenses)
-    const todayText = getLocalDateString()
     const limit = new Date()
     limit.setDate(limit.getDate() + 31)
     return attentionItems({
       overdue: overdueInvoices(open, todayText),
-      payable: payableInvoices(invoiceItemsOf(open, shiftMonth(month, 1))),
+      // A proxima fatura de cada cartao, nao a do mes que vem: a mesma regra
+      // do Inicio e da tela Cartoes.
+      payable: payableInvoices(nextInvoices(open, todayText).flatMap((invoice) => invoice.items)),
       shortfalls: autopayShortfalls({ cards: cardRows, accounts, openExpenses: open, todayText, limitText: getLocalDateString(limit) }),
       recurringItems,
       budget: budgetData,
     })
-  }, [serverAccounts, pending, ccExpenses, cardRows, recurringItems, budgetData, month])
+  }, [serverAccounts, pending, ccExpenses, cardRows, recurringItems, budgetData, todayText])
 }

@@ -14,7 +14,7 @@ from auth import token_required
 from dates import month_key
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services.accounts import fetch_category
+from services.accounts import category_ids_by_name, fetch_category
 from services.invoices import signed_amount_sql
 from services.sharing import own_amount_sql
 from source_types import INVOICE_PAYMENT_SOURCE_TYPES
@@ -36,10 +36,11 @@ bp = Blueprint("budgets", __name__)
 def budget_month_lines(conn, current_user_id, month):
     """Cada lancamento que entra no realizado do mes, com a categoria resolvida.
 
-    Lancamentos com category_id preenchido contam direto; os que so tem o texto
-    (categoria livre, ou lancamento anterior a migration 008) sao resolvidos
-    pelo nome. TRANSFER fica de fora: mover dinheiro entre contas proprias nao e
-    gasto nem receita.
+    Lancamentos e compras no cartao com category_id preenchido contam direto
+    nessa categoria — "Lazer › Outros" nao e o "Outros" da raiz (035); os que so
+    tem o texto (categoria livre) sao resolvidos pelo nome, a raiz antes.
+    TRANSFER fica de fora: mover dinheiro entre contas proprias nao e gasto nem
+    receita.
 
     Cartao (decisao 1, 2026-09-23): a compra conta inteira, na categoria dela,
     no mes em que foi feita — todas as parcelas, a mesma regra de "Despesas por
@@ -55,16 +56,7 @@ def budget_month_lines(conn, current_user_id, month):
     E desta lista que sai o realizado (`budget_spend_by_category`), entao o que
     a tela abre debaixo de uma categoria sempre soma o valor que ela mostra.
     """
-    name_to_id = {}
-    for row in conn.execute(
-        """
-        SELECT id, name, parent_id FROM categories
-        WHERE user_id = ?
-        ORDER BY parent_id IS NOT NULL, created_at, id
-        """,
-        (current_user_id,),
-    ).fetchall():
-        name_to_id.setdefault(row["name"], row["id"])
+    name_to_id = category_ids_by_name(conn, current_user_id)
 
     invoice_types = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
     invoice_placeholders = ", ".join("?" for _ in invoice_types)
@@ -86,7 +78,7 @@ def budget_month_lines(conn, current_user_id, month):
     ).fetchall()
     card_rows = conn.execute(
         f"""
-        SELECT e.id, e.card_id, e.category, e.purchase_date, e.description, e.kind,
+        SELECT e.id, e.card_id, e.category, e.category_id, e.purchase_date, e.description, e.kind,
                e.installment_info, e.client_id, e.share_mode,
                e.amount * {signed_amount_sql("e.")} AS total_amount,
                {signed_amount_sql("e.")} * {own_amount_sql("e.")} AS own_amount,
@@ -136,7 +128,7 @@ def budget_month_lines(conn, current_user_id, month):
                 "id": row["id"],
                 "source": "CARD",
                 "type": "EXPENSE",
-                "category_id": name_to_id.get(row["category"]),
+                "category_id": row["category_id"] or name_to_id.get(row["category"]),
                 "category": row["category"],
                 "date": row["purchase_date"],
                 "description": row["description"],

@@ -327,7 +327,7 @@ def update_transaction(current_user_id, item_id):
                     )
                 updates["type"] = transaction_type
             if "category" in payload or "category_id" in payload:
-                category, category_id = resolve_category(conn, current_user_id, payload)
+                category, category_id = resolve_category(conn, current_user_id, payload, current=item)
                 updates["category"] = category
                 updates["category_id"] = category_id
             if "account_id" in payload:

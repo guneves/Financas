@@ -247,7 +247,7 @@ function ExtratoContas({ viewSwitch }) {
   const [exportOpen, setExportOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState(null)
-  const [editForm, setEditForm] = useState({ amount: '', date: '', category: '', description: '', type: 'EXPENSE', account_id: '', share: shareFormFrom(null) })
+  const [editForm, setEditForm] = useState({ amount: '', date: '', category_id: '', description: '', type: 'EXPENSE', account_id: '', share: shareFormFrom(null) })
 
   // Filtros do extrato: aplicados no backend (GET /api/transactions?...).
   // Sem filtro, o extrato usa a lista completa ja carregada por useLancamentos.
@@ -315,7 +315,7 @@ function ExtratoContas({ viewSwitch }) {
     setEditForm({
       amount: String(transaction.amount ?? ''),
       date: transaction.date || '',
-      category: transaction.category || '',
+      category_id: transaction.category_id || '',
       description: transaction.description || '',
       type: transaction.type,
       account_id: transaction.account_id || '',
@@ -352,8 +352,10 @@ function ExtratoContas({ viewSwitch }) {
         account_id: editForm.account_id,
       }
       if (transaction.type !== 'TRANSFER') {
-        payload.category = editForm.category
         payload.type = editForm.type
+        // A categoria pelo id, e so quando mudou: mandar o nome de volta tirava
+        // um lancamento de "Alimentação › Outros" e o punha no "Outros" da raiz.
+        if (editForm.category_id !== (transaction.category_id || '')) payload.category_id = editForm.category_id
       }
       // Sem mudar a divisao, o PATCH nem leva os campos (o servidor so confere
       // que o valor novo ainda cabe nela).
@@ -403,9 +405,14 @@ function ExtratoContas({ viewSwitch }) {
       category: isTransfer ? (
         <span className="text-zinc-500">{transaction.category}</span>
       ) : (
-        <select value={editForm.category} onChange={setEditField('category')} className="app-select">
+        <select value={editForm.category_id} onChange={setEditField('category_id')} className="app-select">
+          {/* A categoria que o lancamento ja tem, quando ela nao esta na lista
+              (arquivada, de outro tipo ou texto livre): fica como esta. */}
+          {!categoryOptionsFor(editForm.type).some((category) => category.id === (transaction.category_id || '')) ? (
+            <option value={transaction.category_id || ''}>{transaction.category || 'Sem categoria'}</option>
+          ) : null}
           {categoryOptionsFor(editForm.type).map((category) => (
-            <option key={category.id} value={category.name}>{category.label}</option>
+            <option key={category.id} value={category.id}>{category.label}</option>
           ))}
         </select>
       ),

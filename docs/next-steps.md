@@ -23,6 +23,31 @@ The server is the only backend since 2026-10-16 (`DEPLOY.md`; see `docs/done-tas
   Ubuntu 26 after that date is green (test, build, deploy; `setup-python` 3.14 and `setup-node` 24
   on the new image).
 
+### Bug fixes of 2026-10-18 — what is left
+Five bugs from the owner's review were fixed in one PR (see `docs/done-tasks.md`): the transfer
+500 against Aprovar, the next invoice per card, categories by id, the rename everywhere, each card
+purchase its own `client_id` (migration 035). Open:
+- [ ] **Owner, after the deploy:** open Cartões once (035 runs at boot) and check that two identical
+  purchases on one day are two rows; on a day between a 3/10 card's closing and due day, Início
+  shows "Fatura de <mês>" with that invoice and "Pagar fatura", and Cartões agrees. Tested in
+  pytest/node and built; not clicked through in a browser.
+- [ ] Card purchases already moved out of their category by a rename made before this fix keep
+  the old text and count in no budget: the backfill cannot know where they belonged, and a card
+  purchase's category cannot be edited on screen. Either an "Editar categoria" on a card purchase
+  (every installment, by `client_id`) or a one-off repair on the server.
+- [ ] Identical purchases shared or marked paid together before the fix are split into two by the
+  backfill, each keeping the share fields the pair got (the split was spread over both). Check
+  A receber after the deploy and redo the share on the purchase it was meant for.
+- [ ] Início's "Despesas por categoria" still groups by the name, so the root "Outros" and
+  "Lazer › Outros" are one slice there (the budget is per id). Owner's call whether that view should
+  show the parent.
+- [ ] The outbox retries any 5xx (server down or restarting), so a 500 from a bug is retried until
+  the fix is deployed — then it goes through with the same `client_id`, as the transfer will. To
+  stop earlier, cap the retries of a plain 500 in `outboxRules.js` and `OutboxRules.java` together
+  (native-level bump).
+- [ ] The old list `POST /api/cc-expenses` (no screen uses it, tests do) still writes rows with no
+  `client_id`, which fall back to the old purchase key. Give it a purchase id or remove it.
+
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
 Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2

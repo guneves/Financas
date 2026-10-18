@@ -124,7 +124,7 @@ def read_import_rule_payload(conn, current_user_id, payload, existing=None):
         ) if payload.get("applies_to") else "BOTH"
 
     if is_create or "category" in payload or "category_id" in payload:
-        category, category_id = resolve_category(conn, current_user_id, payload)
+        category, category_id = resolve_category(conn, current_user_id, payload, current=existing)
         fields["category"] = category
         fields["category_id"] = category_id
 
@@ -241,6 +241,14 @@ RULE_APPLY_SKIPPED_SOURCE_TYPES = (INVESTMENT_CASH_SOURCE_TYPE, *sorted(INVOICE_
 MAX_RULE_APPLY_ROWS = 2000
 
 
+def same_category(rule, row):
+    """A regra deixaria a linha onde ela esta? Pelo id quando os dois tem um:
+    "Lazer › Outros" e o "Outros" da raiz tem o mesmo nome e nao sao a mesma."""
+    if rule["category_id"] and row["category_id"]:
+        return rule["category_id"] == row["category_id"]
+    return rule["category"] == row["category"]
+
+
 def rule_apply_candidates(conn, current_user_id, rule_id=None, transaction_ids=None):
     """Lancamentos ja gravados cuja categoria mudaria se a regra rodasse agora.
 
@@ -283,7 +291,7 @@ def rule_apply_candidates(conn, current_user_id, rule_id=None, transaction_ids=N
         rule = statement_import.first_matching_rule(
             rules, row["description"], row["type"], row["amount"], row["account_id"]
         )
-        if not rule or rule["category"] == row["category"]:
+        if not rule or same_category(rule, row):
             continue
         candidates.append({
             "id": row["id"],
@@ -528,7 +536,7 @@ def import_commit(current_user_id):
                 date_value = require_date(raw, "date", "Data")
                 transaction_type = require_choice(raw, "type", "Tipo", ALLOWED_IMPORT_TYPES)
                 description = optional_string(raw, "description")
-                category, category_id = resolve_category(conn, current_user_id, raw)
+                category, category_id = resolve_category(conn, current_user_id, raw, allow_archived=True)
                 account_id = resolve_account_id(conn, current_user_id, raw) if raw.get("account_id") \
                     else resolve_account_id(conn, current_user_id, payload)
                 # Normalmente o source_id vem da previa; sem ele, e recalculado

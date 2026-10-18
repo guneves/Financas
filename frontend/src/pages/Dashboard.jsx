@@ -33,7 +33,9 @@ import { dismissAttention, useDismissedAttention, useInicioBudget, useInicioCard
 import {
   attentionItems,
   autopayShortfalls as autopayShortfallsOf,
-  invoiceItemsOf,
+  invoiceMonthKey,
+  isPastDue,
+  nextInvoices as nextInvoicesOf,
   openCardExpenses,
   overdueDetail as overdueDetailOf,
   overdueInvoices as overdueInvoicesOf,
@@ -79,7 +81,7 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, bankingTransactions, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, bankingTransactions, cardPurchaseKey, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { buildMonthlyFlow, isInvoicePayment } from '../lib/cashFlow'
 import { ownAmount } from '../lib/sharing'
@@ -105,18 +107,6 @@ const parseInstallmentInfo = (value) => {
     current: Number.isFinite(current) ? current : 1,
     total: Number.isFinite(total) ? total : 1,
   }
-}
-
-const getPurchaseGroupKey = (expense) => {
-  const installment = parseInstallmentInfo(expense.installment_info)
-  return [
-    expense.card_id || 'sem-cartao',
-    expense.description || 'sem-descricao',
-    expense.purchase_date || 'sem-data',
-    expense.category || 'sem-categoria',
-    Number(parseFloat(expense.amount || 0).toFixed(2)),
-    installment.total,
-  ].join('|')
 }
 
 const shortMonth = shortMonthLabel
@@ -150,7 +140,7 @@ function buildSpending(transactions, ccExpenses, key) {
   const purchases = {}
   ccExpenses.forEach((expense) => {
     if (String(expense.purchase_date || '').slice(0, 7) !== key) return
-    const groupKey = getPurchaseGroupKey(expense)
+    const groupKey = cardPurchaseKey(expense)
     if (!purchases[groupKey]) {
       purchases[groupKey] = { day: Number(expense.purchase_date.slice(8, 10)), category: expense.category, amount: 0 }
     }
@@ -256,7 +246,7 @@ export default function Dashboard() {
 
   const today = new Date()
   const currentKey = monthKey(today)
-  const nextKey = shiftMonth(currentKey, 1)
+  const todayText = getLocalDateString(today)
 
   const openCcExpenses = useMemo(() => openCardExpenses(ccExpenses), [ccExpenses])
 
@@ -371,12 +361,15 @@ export default function Dashboard() {
       .filter((item) => item.value > 0)
   }, [currentSpending, previousSpending])
 
-  const nextInvoiceItems = useMemo(() => invoiceItemsOf(openCcExpenses, nextKey), [openCcExpenses, nextKey])
-
-  const currentMonthInvoice = useMemo(
-    () => nextInvoiceItems.reduce((acc, curr) => acc + cardSignedAmount(curr), 0),
-    [nextInvoiceItems]
-  )
+  // A proxima fatura de cada cartao: a que vence primeiro, de hoje em diante
+  // (lib/attentionRules.js) — a mesma regra do sino e da tela Cartoes. "A
+  // fatura do mes que vem" deixava de fora quem fecha antes de vencer no mesmo
+  // mes (fecha 3, vence 10): a de novembro, fechada, so aparecia vencida.
+  const nextInvoices = useMemo(() => nextInvoicesOf(openCcExpenses, todayText), [openCcExpenses, todayText])
+  const nextInvoiceItems = useMemo(() => nextInvoices.flatMap((invoice) => invoice.items), [nextInvoices])
+  const nextInvoiceTotal = useMemo(() => nextInvoices.reduce((acc, invoice) => acc + invoice.total, 0), [nextInvoices])
+  // Os meses delas: com cartoes de ciclos diferentes, pode ser mais de um.
+  const nextInvoiceMonths = useMemo(() => [...new Set(nextInvoices.map(invoiceMonthKey))].sort(), [nextInvoices])
 
   // So fatura fechada pode ser paga (o servidor recusa as outras). Uma por
   // cartao: cada uma vira um pagamento proprio.
@@ -386,7 +379,7 @@ export default function Dashboard() {
 
   // "Precisa de atencao" so cobra fatura vencida: passou do dia do vencimento
   // e continua em aberto (lib/attentionRules.js).
-  const overdueInvoices = useMemo(() => overdueInvoicesOf(openCcExpenses, getLocalDateString()), [openCcExpenses])
+  const overdueInvoices = useMemo(() => overdueInvoicesOf(openCcExpenses, todayText), [openCcExpenses, todayText])
 
   const overdueTotal = overdueInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
   const overdueDetail = overdueDetailOf(overdueInvoices)
@@ -413,28 +406,33 @@ export default function Dashboard() {
     .map((item) => item.invoice_closing_date)
     .sort()[0] || null, [nextInvoiceItems])
 
-  // Quanto ja esta comprometido nas proximas faturas, por mes de fatura.
+  // Quanto ja esta comprometido nas proximas faturas, por mes de fatura, a
+  // partir do mes da primeira delas. A vencida fica fora: ela e o aviso de
+  // fatura vencida. Em destaque, os meses das proximas faturas.
   const invoiceProjection = useMemo(() => {
-    const keys = Array.from({ length: INVOICE_MONTHS }, (_, index) => shiftMonth(nextKey, index))
+    const keys = Array.from({ length: INVOICE_MONTHS }, (_, index) => shiftMonth(nextInvoiceMonths[0] || currentKey, index))
     const byKey = Object.fromEntries(keys.map((key) => [key, 0]))
     openCcExpenses.forEach((expense) => {
-      const key = `${expense.invoice_year}-${String(expense.invoice_month).padStart(2, '0')}`
+      if (isPastDue(expense.invoice_due_date, todayText)) return
+      const key = invoiceMonthKey(expense)
       if (key in byKey) byKey[key] += cardSignedAmount(expense)
     })
-    return keys.map((key) => ({ key, label: shortMonth(key), value: Number(byKey[key].toFixed(2)) }))
-  }, [openCcExpenses, nextKey])
+    return keys.map((key) => ({
+      key,
+      label: shortMonth(key),
+      value: Number(byKey[key].toFixed(2)),
+      next: nextInvoiceMonths.includes(key),
+    }))
+  }, [openCcExpenses, nextInvoiceMonths, currentKey, todayText])
 
   const groupedInstallmentExpenses = useMemo(() => {
     const grouped = openCcExpenses.reduce((acc, expense) => {
       const installment = parseInstallmentInfo(expense.installment_info)
       if (installment.total <= 1) return acc
 
-      const key = [
-        expense.card_id || 'sem-cartao',
-        expense.description || 'sem-descricao',
-        expense.purchase_date || 'sem-data',
-        expense.category || 'sem-categoria',
-      ].join('|')
+      // A compra e o client_id (lib/transactions.js): duas compras parceladas
+      // iguais sao dois parcelamentos.
+      const key = cardPurchaseKey(expense)
 
       if (!acc[key]) {
         acc[key] = {
@@ -478,10 +476,10 @@ export default function Dashboard() {
     if (payableInvoices.length === 0 || payableTotal <= 0) return
     setPayError('')
     setPayRequest({
-      title: 'Pagar fatura do mês',
+      title: payableInvoices.length === 1 ? 'Pagar fatura' : 'Pagar faturas',
       description: payableInvoices.length === 1
-        ? 'Fatura fechada deste mês.'
-        : `${payableInvoices.length} faturas fechadas deste mês, uma por cartão.`,
+        ? 'A fatura fechada que vence a seguir.'
+        : `${payableInvoices.length} faturas fechadas, a próxima de cada cartão.`,
       invoices: payableInvoices,
       total: payableTotal,
     })
@@ -535,10 +533,11 @@ export default function Dashboard() {
 
   const daysRemainingInMonth = getDaysRemainingInMonth()
   // Com plano do mes: o que ainda pode gastar nele, pelos dias que faltam
-  // (hoje incluido). Sem plano: o saldo menos a proxima fatura, como antes.
+  // (hoje incluido). Sem plano: o saldo menos as faturas a pagar — a proxima
+  // de cada cartao e as vencidas, que tambem saem do saldo.
   const planSpendRemaining = planQuery.data?.plan ? Number(planQuery.data.progress?.spend_remaining) : null
   const hasSpendPlan = Number.isFinite(planSpendRemaining)
-  const dailyAvailable = (hasSpendPlan ? planSpendRemaining : bankBalance - currentMonthInvoice) / daysRemainingInMonth
+  const dailyAvailable = (hasSpendPlan ? planSpendRemaining : bankBalance - overdueTotal - nextInvoiceTotal) / daysRemainingInMonth
   const paceMonths = spendingPace.months.length
   const paceDifference = spendingPace.currentToDate - spendingPace.averageToDate
   const spendingVsAverage = paceMonths > 0 ? percentChange(spendingPace.currentToDate, spendingPace.averageToDate) : null
@@ -600,10 +599,12 @@ export default function Dashboard() {
             fromPlan={hasSpendPlan}
           />
           <NextInvoiceTile
-            total={currentMonthInvoice}
+            total={nextInvoiceTotal}
             closingDate={nextClosingDate}
             payable={payableInvoices.length > 0}
-            label={monthLabel(nextKey)}
+            label={nextInvoiceMonths.length === 1
+              ? `Fatura de ${monthLabel(nextInvoiceMonths[0])}`
+              : nextInvoiceMonths.length > 1 ? 'Próximas faturas' : 'Próxima fatura'}
           />
         </div>
       </div>
@@ -728,7 +729,7 @@ export default function Dashboard() {
             description="O que já está comprometido no cartão para os próximos meses, parcelas incluídas."
             actions={(
               <p className="text-xl font-bold tabular text-zinc-950">
-                {formatCurrency(currentMonthInvoice)}
+                {formatCurrency(nextInvoiceTotal)}
               </p>
             )}
           />
@@ -752,8 +753,8 @@ export default function Dashboard() {
                         )}
                       />
                       <Bar dataKey="value" maxBarSize={28} radius={[4, 4, 0, 0]} {...chartAnimation}>
-                        {invoiceProjection.map((item, index) => (
-                          <Cell key={item.key} fill={SERIES[1]} fillOpacity={index === 0 ? 1 : 0.35} />
+                        {invoiceProjection.map((item) => (
+                          <Cell key={item.key} fill={SERIES[1]} fillOpacity={item.next ? 1 : 0.35} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -762,13 +763,17 @@ export default function Dashboard() {
               ) : (
                 <EmptyState icon={CreditCard} title="Nada comprometido" message="Sem compras abertas nos próximos meses." className="h-60 min-h-0" />
               )}
-              <p className="mt-2 text-xs text-zinc-600">
-                Em destaque, a fatura de {monthLabel(nextKey)}.
-              </p>
+              {nextInvoiceMonths.length ? (
+                <p className="mt-2 text-xs text-zinc-600">
+                  {nextInvoiceMonths.length === 1
+                    ? `Em destaque, a fatura de ${monthLabel(nextInvoiceMonths[0])}.`
+                    : 'Em destaque, a próxima fatura de cada cartão.'}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-col">
-              {currentMonthInvoice > 0 ? (
+              {nextInvoiceTotal > 0 ? (
                 <div className="flex flex-1 flex-col gap-4">
                   <AlertMessage tone="info">
                     <p className="font-semibold">{nextInvoiceItems.length} lançamento(s) em aberto</p>
@@ -1137,7 +1142,7 @@ function DailyTile({ value, day, daysLeft, fromPlan }) {
         <p className="mt-1 text-sm text-zinc-500">
           {fromPlan ? (
             <>O que resta para gastar no <Link to="/planejamento/orcamento" className="font-semibold underline-offset-2 hover:underline">plano do mês</Link>, por {daysLeft} dia(s)</>
-          ) : `Saldo menos a próxima fatura, por ${daysLeft} dia(s)`}
+          ) : `Saldo menos as faturas a pagar, por ${daysLeft} dia(s)`}
         </p>
       </div>
       <MonthProgress day={day} daysLeft={daysLeft} />
@@ -1152,7 +1157,7 @@ function NextInvoiceTile({ total, closingDate, payable, label }) {
         <CreditCard className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-zinc-600">Fatura de {label}</p>
+        <p className="text-sm font-semibold text-zinc-600">{label}</p>
         <p className="mt-0.5 whitespace-nowrap text-2xl font-extrabold tracking-tight tabular text-zinc-950">{formatCurrency(total)}</p>
       </div>
       <div className="shrink-0 text-right text-sm text-zinc-600">

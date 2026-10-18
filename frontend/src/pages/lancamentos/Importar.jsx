@@ -16,6 +16,7 @@ import {
   cx,
 } from '../../components/ui'
 import { useQuery, useReportQueryError } from '../../lib/queries'
+import { categoryLabel } from './helpers'
 
 const COLUMN_ROLES = [
   { key: 'date', label: 'Data' },
@@ -205,17 +206,25 @@ export default function Importar() {
     runPreview(content, options, next, accountId)
   }
 
-  const rowCategory = (row, index) => overrides[index] ?? row.category ?? ''
+  // A categoria de cada linha pelo id: a da regra (ou a padrao) ou a que o dono
+  // escolheu. O nome se repete ("Outros" na raiz e em "Lazer › Outros"). Uma
+  // linha so com o nome (a categoria padrao nao existe) fica com o nome.
+  const rowCategoryId = (row, index) => overrides[index] ?? row.category_id ?? ''
+  const rowCategory = (row, index) => {
+    const id = rowCategoryId(row, index)
+    if (id) return categories.find((category) => category.id === id)?.name || row.category || ''
+    return row.category_id ? '' : (row.category || '')
+  }
 
   const selectedRows = useMemo(() => {
     if (!preview) return []
     return preview.rows
       .map((row, index) => ({ row, index }))
       .filter(({ row, index }) => selected[index] && row.status !== 'ERROR')
-      .map(({ row, index }) => ({ ...row, category: rowCategory(row, index) }))
-  }, [preview, selected, overrides])
+      .map(({ row, index }) => ({ ...row, category_id: rowCategoryId(row, index), category: rowCategory(row, index) }))
+  }, [preview, selected, overrides, categories])
 
-  const missingCategory = selectedRows.some((row) => !row.category)
+  const missingCategory = selectedRows.some((row) => !row.category_id && !row.category)
 
   const handleImport = async () => {
     setSaving(true)
@@ -228,6 +237,7 @@ export default function Importar() {
           amount: row.amount,
           type: row.type,
           description: row.description,
+          category_id: row.category_id || undefined,
           category: row.category,
           source_id: row.source_id,
           rule_id: row.rule_id || undefined,
@@ -251,7 +261,7 @@ export default function Importar() {
     if (!category || !pattern) return
     setError('')
     try {
-      await importRulesApi.create({ pattern, category })
+      await importRulesApi.create({ pattern, category_id: rowCategoryId(row, index) || undefined, category })
       await runPreview(content, options, mapping, accountId)
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível criar a regra.')
@@ -468,14 +478,17 @@ export default function Importar() {
                     {!isError ? (
                       <div className="flex items-center gap-2">
                         <select
-                          value={rowCategory(row, index)}
+                          value={rowCategoryId(row, index)}
                           onChange={(event) => setOverrides({ ...overrides, [index]: event.target.value })}
                           className="app-select h-10 w-44"
                           aria-label={`Categoria da linha ${row.line}`}
                         >
-                          <option value="">Categoria...</option>
+                          <option value="">{!row.category_id && row.category ? row.category : 'Categoria...'}</option>
+                          {row.category_id && !activeCategories.some((category) => category.id === row.category_id) ? (
+                            <option value={row.category_id}>{row.category}</option>
+                          ) : null}
                           {activeCategories.map((category) => (
-                            <option key={category.id} value={category.name}>{category.name}</option>
+                            <option key={category.id} value={category.id}>{categoryLabel(category)}</option>
                           ))}
                         </select>
                         <Button

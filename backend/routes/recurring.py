@@ -79,7 +79,7 @@ def read_recurring_payload(conn, current_user_id, payload, existing=None):
     if is_new or "note" in payload:
         fields["note"] = optional_string(payload, "note", max_length=255) or None
     if is_new or "category" in payload or "category_id" in payload:
-        category, category_id = resolve_category(conn, current_user_id, payload)
+        category, category_id = resolve_category(conn, current_user_id, payload, current=existing)
         fields["category"] = category
         fields["category_id"] = category_id
     if is_new or "account_id" in payload:

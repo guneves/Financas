@@ -418,6 +418,33 @@ class TestOwnTransfers:
         [item] = pending(client, auth)
         assert (item["entry_type"], item["account_id"], item["ready"]) == ("INCOME", bb, True)
 
+    def test_typing_the_transfer_that_waits_in_aprovar_takes_its_place(self, client, auth):
+        # Era 500 (o _absorb recebia um argumento a mais) e nada era gravado;
+        # o celular, com a transferencia na fila, reenviava para sempre.
+        itau = create_account(client, auth, "Itaú")
+        bb = create_account(client, auth, "BB")
+        send(
+            client, auth,
+            detection(kind="PIX_OUT", amount_cents=30000, app=ITAU, at=ms(2026, 10, 10, 10, 0)),
+            detection(kind="PIX_IN", amount_cents=30000, app=BB, at=ms(2026, 10, 10, 10, 0, 20)),
+        )
+        [item] = pending(client, auth)
+        assert item["entry_type"] == "TRANSFER"
+        payload = {
+            "amount": 300, "date": "2026-10-10", "account_id": itau, "transfer_account_id": bb,
+            "client_id": str(uuid.uuid4()),
+        }
+        response = client.post("/api/transfers", json=payload, headers=auth)
+        assert response.status_code == 201, response.get_data(as_text=True)
+        assert response.get_json()["matched_inbox"] is True
+        assert pending(client, auth) == []
+        [closed] = decided(client, auth)
+        assert (closed["state"], closed["target_id"]) == ("MATCHED", response.get_json()["id"])
+        # O reenvio da fila (mesmo client_id) devolve o mesmo, sem gravar outro.
+        again = client.post("/api/transfers", json=payload, headers=auth)
+        assert again.status_code == 200
+        assert [entry["type"] for entry in rows(client, auth)] == ["TRANSFER"]
+
     def test_a_one_sided_transfer_is_remembered(self, client, auth):
         itau = create_account(client, auth, "Itaú")
         brokerage = create_account(client, auth, "Corretora")

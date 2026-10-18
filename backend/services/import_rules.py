@@ -7,6 +7,7 @@ regra so, num lugar so.
 """
 
 from db import row_to_dict
+from services.accounts import CATEGORY_NAME_ORDER
 
 
 # Categoria sugerida quando nenhuma regra casa. E so um palpite: a previa
@@ -32,13 +33,16 @@ def import_rules_for_matching(conn, current_user_id):
 
 
 def import_default_category(conn, current_user_id, transaction_type):
+    """(nome, id) da categoria padrao: "Outros" e o da raiz, nao o de uma
+    subcategoria com o mesmo nome."""
     name = DEFAULT_IMPORT_CATEGORIES.get(transaction_type)
     if not name:
         return None, None
     row = conn.execute(
-        """
+        f"""
         SELECT id, name FROM categories
         WHERE user_id = ? AND name = ? AND archived_at IS NULL
+        ORDER BY {CATEGORY_NAME_ORDER}
         LIMIT 1
         """,
         (current_user_id, name),

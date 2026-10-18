@@ -18,6 +18,7 @@ import { toast } from '../../lib/toast'
 import { formatCurrency, formatDateBR, formatSignedCurrency } from '../../lib/format'
 import { confirmAction } from '../../lib/confirm'
 import { invalidateServerData, useQuery, useReportQueryError } from '../../lib/queries'
+import { categoryLabel } from '../lancamentos/helpers'
 
 const MATCH_LABELS = {
   CONTAINS: 'contém',
@@ -35,7 +36,7 @@ const emptyForm = () => ({
   pattern: '',
   match_type: 'CONTAINS',
   applies_to: 'BOTH',
-  category: '',
+  category_id: '',
   priority: 0,
   amount_min: '',
   amount_max: '',
@@ -46,7 +47,7 @@ const formFromRule = (rule) => ({
   pattern: rule.pattern,
   match_type: rule.match_type,
   applies_to: rule.applies_to,
-  category: rule.category,
+  category_id: rule.category_id || '',
   priority: rule.priority,
   amount_min: rule.amount_min ?? '',
   amount_max: rule.amount_max ?? '',
@@ -127,7 +128,8 @@ export default function RegrasSection() {
       pattern: form.pattern,
       match_type: form.match_type,
       applies_to: form.applies_to,
-      category: form.category,
+      // Pelo id: "Outros" da raiz e "Lazer › Outros" tem o mesmo nome.
+      category_id: form.category_id,
       priority: Number(form.priority) || 0,
       amount_min: amountMin,
       amount_max: amountMax,
@@ -335,10 +337,10 @@ export default function RegrasSection() {
               </select>
             </Field>
             <Field label="Categoria">
-              <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="app-select" required>
+              <select value={form.category_id} onChange={(event) => setForm({ ...form, category_id: event.target.value })} className="app-select" required>
                 <option value="">Escolha...</option>
                 {categories.map((category) => (
-                  <option key={category.id} value={category.name}>{category.name}</option>
+                  <option key={category.id} value={category.id}>{categoryLabel(category)}</option>
                 ))}
               </select>
             </Field>

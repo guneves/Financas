@@ -287,6 +287,7 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
   const type = draft.entry_type
   const categoryType = type === 'INCOME' ? 'INCOME' : 'EXPENSE'
   const categories = filterCategoryOptions(categoryOptions, categoryType)
+  const itemCategory = draftFromItem(item).category_id
   const changes = changesFromDraft(item, draft)
   const footer = (
     <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -328,13 +329,15 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
         </Field>
         {type !== 'TRANSFER' ? (
           <Field label="Categoria" className="col-span-2">
-            <select value={draft.category} onChange={set('category')} className="app-select">
+            <select value={draft.category_id} onChange={set('category_id')} className="app-select">
               <option value="">Sugerida pelas regras</option>
-              {draft.category && !categories.some((option) => option.name === draft.category) ? (
-                <option value={draft.category}>{draft.category}</option>
+              {/* A categoria que o item ja tem, quando nao esta na lista (so o
+                  nome, arquivada ou de outro tipo): fica como esta. */}
+              {itemCategory && !categories.some((option) => option.id === itemCategory) ? (
+                <option value={itemCategory}>{item.category}</option>
               ) : null}
               {categories.map((option) => (
-                <option key={option.id} value={option.name}>{option.label}</option>
+                <option key={option.id} value={option.id}>{option.label}</option>
               ))}
             </select>
           </Field>

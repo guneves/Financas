@@ -16,10 +16,12 @@ from money import rounded_money
 from services.accounts import (
     CLIENT_ID_OTHER_KIND_MESSAGE,
     account_balance_rows,
+    category_id_for_name,
     ensure_default_account,
     fetch_account,
     fetch_category,
     fetch_transaction_by_client_id,
+    rename_category_rows,
     require_account,
     resolve_category,
     seed_default_categories,
@@ -428,9 +430,11 @@ def category_detail(current_user_id, category_id):
         if not updates:
             return validation_error("Informe ao menos um campo para atualizar.")
 
-        # Renomear a categoria renomeia junto o texto gravado nos lancamentos,
-        # que e o que o Dashboard agrupa.
+        # Renomear a categoria renomeia junto o nome gravado em tudo o que e
+        # dela (lancamentos, compras no cartao, recorrencias, regras, Aprovar).
         new_name = updates.get("name")
+        renamed = bool(new_name) and new_name != category["name"]
+        owned_old_name = renamed and category_id_for_name(conn, current_user_id, category["name"]) == category_id
         updates["updated_at"] = utc_timestamp()
         assignments = ", ".join(f"{column} = ?" for column in updates)
         try:
@@ -440,10 +444,9 @@ def category_detail(current_user_id, category_id):
             )
         except sqlite3.IntegrityError:
             return validation_error("Ja existe uma categoria com este nome.", 409)
-        if new_name and new_name != category["name"]:
-            conn.execute(
-                "UPDATE transactions SET category = ? WHERE user_id = ? AND category_id = ?",
-                (new_name, current_user_id, category_id),
+        if renamed:
+            rename_category_rows(
+                conn, current_user_id, category_id, category["name"], new_name, owned_old_name=owned_old_name,
             )
         row = fetch_category(conn, current_user_id, category_id)
     return jsonify(row_to_dict(row)), 200

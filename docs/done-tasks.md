@@ -132,6 +132,11 @@
 | Aprovar × Recorrentes (034): a pending item flags the recurrence occurrence it looks like (a subscription's card purchase, the salary's Pix); approving writes the notification's lançamento and marks that occurrence done (`recurring_settlements`), so `/run` never writes it, it is not pending and leaves the forecast. "Não é esta" on the item opts out, also for "Aprovar todos". Calendar moved to `services/recurring.py`. `test_inbox_recurring.py`, `recurringText()` in `lib/inboxRules.js` | 2026-10-18 |
 | Orçamento › "Ver lançamentos" per category: `GET /api/budgets/<id>/lines` lists the rows behind the realizado (category + unbudgeted subcategories; a card purchase is one line with all its installments, a refund negative, a shared row the owner's part). `budget_month_lines()` is the single source: `budget_spend_by_category()` sums it. `components/BudgetLines.jsx`, `test_budget_lines.py` | 2026-10-18 |
 | Phone layout pass (Galaxy S25, 360 px, seeded demo data): Início's balance block compact below `sm` (~430 → ~260 px), bottom bar in five equal columns with the "+" centred and short names "Planejar"/"Investir", section tabs scroll the active one into view, smaller `PageHeader`/`SummaryPanel` on phones, inputs/selects 44 px. Lançamento amounts ("+ Novo", Extrato edit, Aprovar) accept "45,90", "45.90", "1.234,56" via `parseMoneyInput()` | 2026-10-18 |
+| Bug: typing a transfer that waited in Aprovar returned 500 and saved nothing (`_absorb()` called with an extra argument in `absorb_created()`); the phone's queue retried it forever. Now it takes the item's place. `test_inbox.py` | 2026-10-18 |
+| Bug: Início and the bell looked at "next month's invoice", so a card closing before its due day (3/10, 13/20) never got "Pagar fatura" and "Próxima fatura" showed the wrong one. One rule for the three screens: each card's open invoice with the earliest due date from today on (`nextInvoices()` / `nearestOpenInvoice()` in `lib/attentionRules.js`); "Disponível por dia" without a plan subtracts those plus any overdue one; Cartões says "Em atraso" only after the due day. `attentionRules.test.js` | 2026-10-18 |
+| Bug: categories matched by name ("Outros" at the root and under two parents): every category select sends the id ("+ Novo", Extrato edit, Importar, Aprovar, Ajustes › Regras); card purchases store `category_id` (migration 035, backfilled) and the budget counts them by it; an edit that resends the name keeps the id; a bare name means the root; rules compare by id. `test_category_identity.py` | 2026-10-18 |
+| Bug: renaming a category only rewrote `transactions`: now card purchases, recurrences, import rules and Aprovar items too (by id), and a row with only the old text keeps counting where it counted. `test_category_identity.py` | 2026-10-18 |
+| Bug: two identical card purchases (same card, description, date, category) were one — sharing, A receber, delete, receipts and the Cartões row merged them. The purchase is its `client_id` now; every purchase has one (migration 035 gives the old ones `legacy:<id>`, identical ones split by write order); `/api/cc-expenses/candidates?id=`. `test_cc_purchase_identity.py`, `transactions.test.js` | 2026-10-18 |
 
 ---
 
@@ -744,3 +749,33 @@ Investidor10's own API, read from the owner's logged-in Chrome tab.
   between (`FixedIncomeCurve`), because the full series per day is quadratic.
 - `?months=all` starts at the month of the first operation (of the class, with the filter),
   capped at 60. The 3A window missed Oct/2023, so nothing on screen matched "Rentabilidade total".
+
+### Five bugs from the owner's review — 2026-10-18
+Reported as a numbered list, each already confirmed by the owner; every fix has a test that fails on
+the old code. One PR.
+- **Transfer vs Aprovar**: `absorb_created()` passed `"transfer"` as a sixth argument to
+  `_absorb()` (from the 028 commit). Any typed transfer matching a pending TRANSFER item (both
+  legs notified, same accounts, amount, ±`INBOX_MATCH_DAYS`) raised `TypeError`; the request
+  rolled back. The outbox's 5xx = retry rule is unchanged: a transfer stuck in a phone's queue is
+  delivered (same `client_id`) once the fix is deployed.
+- **Invoices**: the invoice month is the due month (`invoice_closing_date()`), so "the invoice of
+  next month" is right only for cards that close after their due day. The rule now lives in
+  `lib/attentionRules.js`; Início's projection starts at the first next invoice's month, leaves
+  overdue rows out and highlights each card's next invoice; the tile reads "Fatura de <mês>", or
+  "Próximas faturas" when cards fall in different months.
+- **Categories**: `resolve_category()` took `LIMIT 1` on the name, the budget mapped card purchases
+  by name (root first), and the Extrato edit always sent the name back. Migration 035 adds
+  `cc_expenses.category_id`, filled by name in the budget's own order (root first, then the oldest
+  subcategory), so no budget changes on the migration itself. The import commit accepts a rule's
+  archived category (it always did, by name); "+ Novo" still sends the name next to the id so a
+  pending outbox row shows it; a refund takes the purchase's category id when it sends the
+  purchase's name with `refund_of`.
+- **Rename**: `rename_category_rows()` walks `CATEGORY_NAME_TABLES`. A row with no id and the old
+  name adopts the id only when that name resolved to this category before the rename — renaming
+  "Lazer › Outros" leaves bare "Outros" rows with the root.
+- **Purchase identity**: `same_purchase_sql()` is the one definition (client_id, or the old key for
+  rows without one). Migration 035 numbers each legacy row within its (card, description, date,
+  category, kind, installment) group by `created_at` and joins the k-th of each installment into
+  purchase k. The Cartões delete keeps its ±1 cent / installment-count guard for rows with no
+  `client_id`.
+

@@ -270,6 +270,8 @@ def seed_card_expenses(conn, user_id, cards_by_name):
 
         current_month, current_year = invoice_start(purchase["purchase_date"], card)
         amounts = split_installments(purchase["total_amount"], purchase["installments"])
+        # Todas as parcelas com o mesmo client_id: e ele que identifica a compra (035).
+        purchase_id = new_id()
 
         for index, amount in enumerate(amounts, start=1):
             item = {
@@ -293,8 +295,8 @@ def seed_card_expenses(conn, user_id, cards_by_name):
                 """
                 INSERT INTO cc_expenses
                 (id, user_id, card_id, category, description, amount, purchase_date,
-                 invoice_month, invoice_year, installment_info, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 invoice_month, invoice_year, installment_info, status, client_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_id(),
@@ -308,6 +310,7 @@ def seed_card_expenses(conn, user_id, cards_by_name):
                     item["invoice_year"],
                     item["installment_info"],
                     item["status"],
+                    purchase_id,
                 ),
             )
             created += 1

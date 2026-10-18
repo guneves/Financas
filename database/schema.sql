@@ -444,7 +444,9 @@ CREATE TABLE IF NOT EXISTS cc_expenses (
     installment_info TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'PAID')),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    -- 024: id do envio da compra, o mesmo em todas as parcelas.
+    -- 024: id do envio da compra, o mesmo em todas as parcelas. Desde 035 e o
+    -- id da compra: toda compra tem um (gerado quando o cliente nao manda;
+    -- 'legacy:...' nas anteriores a 024).
     client_id TEXT,
     -- 032: de quem e; numa compra parcelada, cada parcela guarda a sua fatia.
     share_mode TEXT CHECK (share_mode IN ('OTHERS', 'SPLIT')),
@@ -453,7 +455,9 @@ CREATE TABLE IF NOT EXISTS cc_expenses (
     share_settled_at TEXT,
     -- 033: estorno (credito na fatura); amount positivo, o sinal vem de kind.
     kind TEXT NOT NULL DEFAULT 'PURCHASE' CHECK (kind IN ('PURCHASE', 'REFUND')),
-    refund_of TEXT
+    refund_of TEXT,
+    -- 035: a categoria pelo id, como em transactions (o nome continua em category).
+    category_id TEXT REFERENCES categories(id) ON DELETE SET NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_expenses_user_client
@@ -468,6 +472,9 @@ ON cc_expenses(user_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_cc_expenses_card_invoice
 ON cc_expenses(user_id, card_id, invoice_year, invoice_month);
+
+CREATE INDEX IF NOT EXISTS idx_cc_expenses_user_category
+ON cc_expenses(user_id, category_id);
 
 -- 017: eventos corporativos (desdobramento, grupamento, bonificacao), ajustados na gravacao.
 CREATE TABLE IF NOT EXISTS corporate_actions (
