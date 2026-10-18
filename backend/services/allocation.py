@@ -25,7 +25,7 @@ exposicao ao exterior. Nao ha classe "exterior": o que conta e a moeda do
 ativo (018).
 """
 
-from asset_classes import ALLOWED_ASSET_CLASSES, ASSET_CLASS_LABELS, QUOTED_ASSET_CLASSES
+from asset_classes import ALLOWED_ASSET_CLASSES, ASSET_CLASS_LABELS, is_quoted_asset
 from db import get_db, new_id
 from money import rounded_money
 from services.investments import ensure_asset_owner
@@ -234,7 +234,7 @@ def build_allocation(current_user_id, contribution=0.0):
             average_price = entry.get("average_price")
             current_price = entry.get("current_price")
             below_average = bool(
-                key in QUOTED_ASSET_CLASSES
+                is_quoted_asset(key, entry["ticker"])
                 and entry["quantity"] > 0
                 and safe_float(average_price) > 0
                 and safe_float(current_price) > 0

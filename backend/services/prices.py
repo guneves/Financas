@@ -21,7 +21,7 @@ try:
 except ImportError:
     yf = None
 
-from asset_classes import QUOTED_ASSET_CLASSES
+from asset_classes import CRYPTO_ASSETS, is_quoted_asset
 import brapi_client
 from integrations import record_provider_result
 from config import (
@@ -54,8 +54,9 @@ def quote_timestamp(date_value=None):
     return utc_timestamp()
 
 
-def quote_transaction_id(asset_class, transaction_id):
-    return None if asset_class in QUOTED_ASSET_CLASSES else transaction_id
+def quote_transaction_id(asset_class, transaction_id, ticker=None):
+    """Ativo cotado tem uma cotacao so (do ativo); o resto, uma por operacao."""
+    return None if is_quoted_asset(asset_class, ticker) else transaction_id
 
 
 def record_price_quote(
@@ -78,11 +79,13 @@ def record_price_quote(
         return None
 
     row = conn.execute(
-        "SELECT asset_class FROM assets WHERE id = ? AND user_id = ?",
+        "SELECT asset_class, ticker FROM assets WHERE id = ? AND user_id = ?",
         (asset_id, current_user_id),
     ).fetchone()
     resolved_asset_class = asset_class or (row["asset_class"] if row else None)
-    scoped_transaction_id = quote_transaction_id(resolved_asset_class, transaction_id)
+    scoped_transaction_id = quote_transaction_id(
+        resolved_asset_class, transaction_id, row["ticker"] if row else None
+    )
 
     quote_id = new_id()
     conn.execute(
@@ -106,11 +109,13 @@ def record_price_quote(
 
 
 def yahoo_symbol(ticker_symbol, foreign=False):
-    """PETR4 -> PETR4.SA. Ticker estrangeiro (ou que ja traz a bolsa, como
-    7203.T) vai como veio."""
+    """PETR4 -> PETR4.SA, BTC -> BTC-BRL. Ticker estrangeiro (ou que ja traz a
+    bolsa, como 7203.T) vai como veio."""
     yf_symbol = str(ticker_symbol or "").strip().upper()
     if foreign or "." in yf_symbol:
         return yf_symbol
+    if yf_symbol in CRYPTO_ASSETS:
+        return CRYPTO_ASSETS[yf_symbol]["yahoo_symbol"]
     if any(char.isdigit() for char in yf_symbol):
         return f"{yf_symbol}.SA"
     return yf_symbol
@@ -344,9 +349,12 @@ def market_price_provider(ticker):
 def download_market_prices(tickers, foreign=()):
     # A brapi e o provedor primario quando ha token; o yfinance cobre o resto
     # (ticker fora da B3, token ausente, brapi fora do ar). Ativo em moeda
-    # estrangeira (`foreign`) vai direto ao yfinance: a brapi e so B3.
+    # estrangeira (`foreign`) vai direto ao yfinance: a brapi e so B3. Cripto
+    # tambem (BTC-BRL no Yahoo).
     foreign = set(foreign or ())
-    prices = download_brapi_prices([ticker for ticker in tickers if ticker not in foreign])
+    prices = download_brapi_prices([
+        ticker for ticker in tickers if ticker not in foreign and ticker not in CRYPTO_ASSETS
+    ])
     tickers = [ticker for ticker in tickers if ticker not in prices]
     if not tickers:
         return prices

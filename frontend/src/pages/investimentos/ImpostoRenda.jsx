@@ -214,7 +214,7 @@ export default function ImpostoRenda() {
                 {report.ganho_de_capital.map((item) => (
                   <li key={`${item.date}-${item.ticker}`} className="flex items-center justify-between gap-3 px-5 py-2 text-sm">
                     <span className="text-zinc-700">{item.ticker} · {item.date}</span>
-                    <span className="num">resultado {formatCurrency(item.result)} · IR est. {formatCurrency(item.tax_estimate)}</span>
+                    <span className="num">resultado {formatCurrency(item.result)} · {item.exempt ? 'isento (cripto até R$ 35 mil no mês)' : `IR est. ${formatCurrency(item.tax_estimate)}`}</span>
                   </li>
                 ))}
               </ul>

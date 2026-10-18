@@ -15,7 +15,7 @@ import sqlite3
 
 from flask import Blueprint, jsonify, request
 
-from asset_classes import ALLOWED_ASSET_CLASSES, QUOTED_ASSET_CLASSES, parse_asset_class_filter
+from asset_classes import ALLOWED_ASSET_CLASSES, is_crypto_asset, is_quoted_asset, parse_asset_class_filter
 from auth import token_required
 from config import PRICE_FETCH_TIMEOUT_SECONDS
 from dates import parse_iso_date, subtract_months
@@ -123,6 +123,9 @@ def read_movement_currency(item, asset_class):
         raise ValidationError(f"Moeda nao suportada: {currency}. Use BRL, USD, EUR ou GBP.")
     if currency != BASE_CURRENCY and asset_class not in FOREIGN_CURRENCY_CLASSES:
         raise ValidationError("So acoes do exterior e 'outros' podem ser em moeda estrangeira.")
+    if currency != BASE_CURRENCY and is_crypto_asset(asset_class, item.get("ticker_or_name")):
+        # A cotacao (BTC-BRL) e o IR sao em reais: lance a operacao em reais.
+        raise ValidationError("Bitcoin e lancado em reais.")
     return currency
 
 
@@ -937,7 +940,7 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
     daily_prices = {}
     quoted_assets = [
         inv for inv in filtered_investments
-        if inv.get("asset_class") in QUOTED_ASSET_CLASSES
+        if is_quoted_asset(inv.get("asset_class"), inv.get("ticker_or_name"))
     ]
     unique_tickers = sorted({
         ticker_key(asset.get("ticker_or_name"))

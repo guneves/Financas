@@ -36,7 +36,7 @@ os fluxos e os proventos do usuario.
 from bisect import bisect_right
 from datetime import datetime, timedelta
 
-from asset_classes import QUOTED_ASSET_CLASSES
+from asset_classes import is_quoted_asset
 from dates import month_end, month_key, month_label, subtract_months
 from db import get_db
 from money import rounded_money
@@ -292,7 +292,7 @@ def position_value_on(position, day_end, is_today, prices, curve):
             position["class"], quantity, applied, position["original_applied"],
             position.get("current_price"), position["metadata"],
         )
-    if position["class"] in QUOTED_ASSET_CLASSES:
+    if is_quoted_asset(position["class"], position["ticker"]):
         price = prices.close_on(position["ticker"], day_end.strftime("%Y-%m-%d"))
         if price is None:
             price = applied / quantity

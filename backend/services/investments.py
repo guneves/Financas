@@ -29,7 +29,7 @@ exterior). O caixa ligado tambem sai em reais. As telas de operacao leem
 from datetime import datetime
 import math
 
-from asset_classes import ASSET_CLASS_LABELS, QUOTED_ASSET_CLASSES
+from asset_classes import ASSET_CLASS_LABELS, CRYPTO_ASSETS, QUOTED_ASSET_CLASSES, crypto_ticker, is_crypto_asset
 from dates import parse_iso_date
 from db import encode_metadata, get_db, new_id, parse_metadata_value, row_to_dict
 import market_catalog
@@ -388,6 +388,12 @@ def investment_operation_date(investment):
     )
 
 
+def asset_display_name(asset_class, ticker, ticker_or_name):
+    if is_crypto_asset(asset_class, ticker):
+        return CRYPTO_ASSETS[crypto_ticker(ticker)]["name"]
+    return ticker or ticker_or_name
+
+
 def get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name, currency=BASE_CURRENCY):
     ticker = ticker_key(ticker_or_name)
     currency = normalize_currency(currency)
@@ -413,7 +419,7 @@ def get_or_create_asset(conn, current_user_id, asset_class, ticker_or_name, curr
         (id, user_id, asset_class, ticker, name, currency)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (asset_id, current_user_id, asset_class, ticker, ticker or ticker_or_name, currency),
+        (asset_id, current_user_id, asset_class, ticker, asset_display_name(asset_class, ticker, ticker_or_name), currency),
     )
     return asset_id
 
@@ -722,6 +728,9 @@ def resolve_catalog_ticker(conn, current_user_id, asset_class, ticker_or_name, q
     existe na carteira do usuario, o lancamento passa mesmo fora da lista.
     """
     ticker = market_catalog.normalize_ticker(ticker_or_name)
+    if is_crypto_asset(asset_class, ticker_or_name):
+        # "bitcoin", "BTC-BRL" e "BTC" sao a mesma posicao.
+        return crypto_ticker(ticker_or_name)
     if asset_class not in QUOTED_ASSET_CLASSES:
         # Renda fixa e outros: o "ticker" e so o nome do ativo, texto livre.
         return ticker_key(ticker_or_name)

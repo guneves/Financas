@@ -19,15 +19,18 @@ Secoes:
   14.754/2023), prejuizo carregado para o ano seguinte;
 - rendimentos_isentos e tributacao_exclusiva: proventos e resgates de renda
   fixa do ano;
-- ganho_de_capital: venda de "outros" em reais, para o GCAP.
+- ganho_de_capital: venda de "outros" em reais, para o GCAP; criptoativo com
+  a isencao do mes de vendas ate R$ 35 mil (services/crypto_tax.py).
 """
 
 from collections import defaultdict
 from datetime import datetime
 
+from asset_classes import is_crypto_asset
 from db import get_db
 from irpf_text import br_money, build_irpf_text
 from money import rounded_money
+from services.crypto_tax import capital_gain_tax, monthly_crypto_tax
 from services.fixed_income import fixed_income_is_tax_free
 import market_catalog
 from services import market_listing
@@ -43,7 +46,6 @@ from services.investments import (
 from services.variable_income_tax import (
     BUCKET_BY_TAX_KIND,
     STOCK_EXEMPTION_LIMIT,
-    STOCK_RATE,
     apply_losses,
     monthly_apuration,
 )
@@ -57,8 +59,10 @@ DISCLAIMER = (
 )
 
 
-def bens_code(asset_class, currency, metadata, tax_kind=None):
+def bens_code(asset_class, currency, metadata, tax_kind=None, ticker=None):
     """(grupo, codigo, rotulo) sugeridos para Bens e Direitos."""
+    if is_crypto_asset(asset_class, ticker):
+        return "08", "01", "Criptoativo Bitcoin (BTC)"
     if asset_class == "STOCKS" and currency == BASE_CURRENCY:
         if tax_kind == market_catalog.TAX_BDR:
             return "04", "04", "Ativos negociados em bolsa no Brasil (BDR)"
@@ -134,7 +138,7 @@ def bens_e_direitos(investments, year, asset_names=None):
         metadata = inv.get("metadata") or {}
         currency = normalize_currency(inv.get("native_currency") or inv.get("asset_currency"))
         kind = market_listing.tax_kind(inv.get("ticker_or_name"), inv.get("asset_class"))
-        group, code, label = bens_code(inv.get("asset_class"), currency, metadata, kind)
+        group, code, label = bens_code(inv.get("asset_class"), currency, metadata, kind, inv.get("ticker_or_name"))
         now = current.get(key)
         before = previous.get(key)
         ticker = inv.get("ticker_or_name")
@@ -149,9 +153,9 @@ def bens_e_direitos(investments, year, asset_names=None):
             "group": group,
             "code": code,
             "code_label": label,
-            "quantity_previous": round(before["quantity"], 6) if before else 0,
+            "quantity_previous": round(before["quantity"], 8) if before else 0,
             "cost_previous": rounded_money(before["cost"]) if before else 0.0,
-            "quantity": round(now["quantity"], 6) if now else 0,
+            "quantity": round(now["quantity"], 8) if now else 0,
             "cost": rounded_money(now["cost"]) if now else 0.0,
             "description": (
                 f"{quantity_text}{ticker}. Custo de aquisição em 31/12/{year}: "
@@ -356,21 +360,50 @@ def income_sections(proceeds, rows, year):
 
 
 def capital_gains(rows, year):
+    """Vendas de "outros" em reais para o GCAP. Criptoativo: isento no mes em que
+    o total vendido de cripto fica em ate R$ 35 mil; o resto, a aliquota
+    progressiva do ganho de capital (services/crypto_tax.py)."""
+    selected = [
+        row for row in rows
+        if row["movement_type"] == "SELL"
+        and str(row["operation_date"])[:4] == str(year)
+        and row["asset_class"] == "OTHER"
+        and normalize_currency(row["currency"]) == BASE_CURRENCY
+    ]
+    crypto_months = monthly_crypto_tax([
+        {
+            "id": row["source_transaction_id"],
+            "month": str(row["operation_date"])[:7],
+            "gross": safe_float(row["gross_proceeds"]),
+            "result": safe_float(row["realized_profit"]),
+        }
+        for row in selected if is_crypto_asset(row["asset_class"], row["ticker"])
+    ])
     items = []
-    for row in rows:
-        if row["movement_type"] != "SELL" or str(row["operation_date"])[:4] != str(year):
-            continue
-        if row["asset_class"] != "OTHER" or normalize_currency(row["currency"]) != BASE_CURRENCY:
-            continue
+    for row in selected:
+        profit = safe_float(row["realized_profit"])
+        crypto = is_crypto_asset(row["asset_class"], row["ticker"])
+        month = crypto_months["months"].get(str(row["operation_date"])[:7]) if crypto else None
         items.append({
             "date": row["operation_date"],
             "ticker": row["ticker"],
+            "crypto": crypto,
+            "exempt": bool(month and month["exempt"]),
+            "month_crypto_sales": month["gross"] if month else None,
             "proceeds": rounded_money(row["net_proceeds"]),
             "cost": rounded_money(row["cost_basis"]),
-            "result": rounded_money(row["realized_profit"]),
-            "tax_estimate": rounded_money(max(safe_float(row["realized_profit"]), 0) * STOCK_RATE),
+            "result": rounded_money(profit),
+            "tax_estimate": (
+                rounded_money(crypto_months["tax_by_sale"].get(row["source_transaction_id"], 0))
+                if crypto else capital_gain_tax(profit)
+            ),
         })
     return items
+
+
+def exempt_crypto_gain(gains):
+    """Ganho isento das vendas de cripto em meses de ate R$ 35 mil vendidos."""
+    return rounded_money(sum(max(item["result"], 0) for item in gains if item["crypto"] and item["exempt"]))
 
 
 def available_years(investments, rows):
@@ -393,12 +426,18 @@ def build_tax_report(current_user_id, year):
         names = asset_names(conn, current_user_id)
     isentos, exclusiva, income_details, income_sources = income_sections(proceeds, rows, year)
     variable = renda_variavel(rows, year)
+    gains = capital_gains(rows, year)
     if variable["totals"]["stock_exempt_gain"]:
         isentos.append({
             "line": "20 - Ganhos líquidos em ações (vendas até R$ 20 mil no mês)",
             "amount": variable["totals"]["stock_exempt_gain"],
         })
-        isentos.sort(key=lambda item: item["line"])
+    if exempt_crypto_gain(gains):
+        isentos.append({
+            "line": "05 - Ganho de capital na alienação de bens de pequeno valor (criptoativos até R$ 35 mil no mês)",
+            "amount": exempt_crypto_gain(gains),
+        })
+    isentos.sort(key=lambda item: item["line"])
     report = {
         "year": year,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -411,7 +450,7 @@ def build_tax_report(current_user_id, year):
         "tributacao_exclusiva": exclusiva,
         "rendimentos_por_fonte": income_sources,
         "proventos": income_details,
-        "ganho_de_capital": capital_gains(rows, year),
+        "ganho_de_capital": gains,
     }
     # Texto para colar no programa da Receita: so formata o que esta acima.
     report["irpf_text"] = build_irpf_text(report)
