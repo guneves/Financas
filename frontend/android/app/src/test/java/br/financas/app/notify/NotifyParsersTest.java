@@ -143,6 +143,35 @@ public class NotifyParsersTest {
         assertEquals("LOJA EXEMPLO", parsed.merchant);
     }
 
+    // "3x de R$ 50,00" e o valor da parcela. Sem captura real nesse formato ainda (2026-10-18):
+    // os textos abaixo sao variacoes escritas a mao; troque por uma captura quando aparecer.
+
+    @Test
+    public void perInstallmentAmountAloneBecomesTheTotal() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra aprovada no cartão final 1234 em 3x de R$ 50,00 em LOJA EXEMPLO."));
+        assertEquals(3, parsed.installments);
+        assertEquals(15_000, parsed.amountCents);
+    }
+
+    @Test
+    public void totalWinsOverThePerInstallmentAmount() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra aprovada em 3x de R$ 50,00, total de R$ 150,00, cartão final 1234."));
+        assertEquals(3, parsed.installments);
+        assertEquals(15_000, parsed.amountCents);
+        parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra de R$ 149,99 aprovada em 3x de R$ 50,00 no cartão final 1234."));
+        assertEquals(14_999, parsed.amountCents);
+    }
+
+    @Test
+    public void limitIsNotTakenForTheTotal() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra aprovada em 3x de R$ 50,00 no cartão final 1234. Limite disponível R$ 2.000,00."));
+        assertEquals(15_000, parsed.amountCents);
+    }
+
     @Test
     public void creditAndDebitAreRead() {
         assertEquals(NotifyParsers.CREDIT_PURCHASE, NotifyParsers.parse(row(BB, "Compra no crédito",

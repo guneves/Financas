@@ -273,6 +273,20 @@ def recurring_rows(conn, current_user_id, *, include_inactive=True):
     return conn.execute(query, (current_user_id,)).fetchall()
 
 
+def recurring_archived_account(conn, current_user_id, row):
+    """A conta arquivada desta recorrencia, ou None. Arquivada, a recorrencia
+    nao lanca: o dinheiro iria para uma conta que saiu das telas. As
+    ocorrencias ficam pendentes ate o dono trocar a conta (ou arquivar a
+    recorrencia)."""
+    if not row["account_id"]:
+        return None
+    account = conn.execute(
+        "SELECT id, name, archived_at FROM accounts WHERE id = ? AND user_id = ?",
+        (row["account_id"], current_user_id),
+    ).fetchone()
+    return account if account and account["archived_at"] else None
+
+
 def materialize_recurring(conn, current_user_id, row, through_date):
     """Gera em `transactions` tudo o que esta recorrencia deve ate `through_date`.
 
@@ -283,7 +297,7 @@ def materialize_recurring(conn, current_user_id, row, through_date):
     created = []
     skipped = 0
     dates = recurring_occurrence_dates(row, through_date)
-    if not dates:
+    if not dates or recurring_archived_account(conn, current_user_id, row):
         return created, skipped
 
     account_id = row["account_id"] or ensure_default_account(conn, current_user_id)

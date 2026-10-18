@@ -345,18 +345,20 @@ def update_current_prices_for_assets(current_user_id, target_assets, market_resu
             if price is None or not math.isfinite(price) or price < 0:
                 continue
 
+            # Centavos pelo ROUND_HALF_UP (money.py), nunca o round() do Python.
+            price = rounded_money(price)
             record_price_quote(
                 conn,
                 current_user_id,
                 asset["asset_id"],
-                round(price, 2),
+                price,
                 asset_class=asset["asset_class"],
                 source="market",
                 metadata={"ticker": ticker, "provider": market_price_provider(ticker)},
             )
             updated_assets.append({
                 **asset,
-                "price": round(price, 2),
+                "price": price,
                 "source": "market",
                 "status": "updated",
             })

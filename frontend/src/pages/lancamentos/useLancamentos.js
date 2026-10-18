@@ -110,9 +110,11 @@ export default function useLancamentos() {
   const categoryOptions = useMemo(() => buildCategoryOptions(categories), [categories])
   const categoryOptionsFor = useCallback((type) => filterCategoryOptions(categoryOptions, type), [categoryOptions])
 
+  // Entre todas as contas, arquivadas tambem: o lancamento de uma conta
+  // arquivada continua no extrato e mostra o nome dela, nao "—".
   const accountName = useCallback((accountId) => {
-    return accounts.find((account) => account.id === accountId)?.name || '—'
-  }, [accounts])
+    return allAccounts.find((account) => account.id === accountId)?.name || '—'
+  }, [allAccounts])
 
   return {
     loading: query.isPending,

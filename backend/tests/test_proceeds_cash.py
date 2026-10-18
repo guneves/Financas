@@ -202,3 +202,21 @@ def test_another_users_brokerage_never_receives_it(client, auth, other_user, clo
     provento(client, auth, asset_id, days(5))
     assert proceed_rows(client, auth) == []
     assert proceed_rows(client, other_user["headers"]) == []
+
+
+def test_import_rules_never_recategorize_a_paid_provento(client, auth, clock):
+    """Recategorizado, o provento saia de "Investimento" e o plano do mes o
+    contava como receita (revisao de 2026-10-18)."""
+    create_account(client, auth, "BTG Corretora", "BROKERAGE")
+    asset_id = buy(client, auth)
+    clock(10)
+    provento(client, auth, asset_id, days(5))
+    [row] = proceed_rows(client, auth)
+    rule = client.post("/api/import-rules", headers=auth, json={"pattern": "petr4", "category": "Receita"})
+    assert rule.status_code == 201, rule.get_data(as_text=True)
+
+    preview = client.post("/api/import-rules/apply/preview", headers=auth, json={}).get_json()
+    assert row["id"] not in [item["id"] for item in preview["items"]]
+    applied = client.post("/api/import-rules/apply", headers=auth, json={"transaction_ids": [row["id"]]})
+    assert applied.status_code in (200, 400)
+    assert proceed_rows(client, auth)[0]["category"] == "Investimento"

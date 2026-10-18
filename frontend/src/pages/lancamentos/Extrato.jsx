@@ -354,8 +354,10 @@ function ExtratoContas({ viewSwitch }) {
         amount,
         date: editForm.date,
         description: editForm.description,
-        account_id: editForm.account_id,
       }
+      // A conta so quando mudou: a de um lancamento antigo pode estar
+      // arquivada, e o servidor recusa escolher uma conta arquivada.
+      if (editForm.account_id && editForm.account_id !== (transaction.account_id || '')) payload.account_id = editForm.account_id
       if (transaction.type !== 'TRANSFER') {
         payload.type = editForm.type
         // A categoria pelo id, e so quando mudou: mandar o nome de volta tirava
@@ -430,6 +432,10 @@ function ExtratoContas({ viewSwitch }) {
       date: <input type="date" value={editForm.date} onChange={setEditField('date')} className="app-input" />,
       account: (
         <select value={editForm.account_id} onChange={setEditField('account_id')} className="app-select">
+          {/* A conta que o lancamento ja tem, quando ela foi arquivada: fica como esta. */}
+          {transaction.account_id && !accounts.some((account) => account.id === transaction.account_id) ? (
+            <option value={transaction.account_id}>{accountName(transaction.account_id)} (arquivada)</option>
+          ) : null}
           {accounts.map((account) => (
             <option key={account.id} value={account.id}>{account.name}</option>
           ))}

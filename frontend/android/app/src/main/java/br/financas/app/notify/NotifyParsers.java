@@ -66,6 +66,9 @@ public final class NotifyParsers {
     private static final Pattern AMOUNT = Pattern.compile("R\\$\\s*(\\d{1,3}(?:\\.\\d{3})*|\\d+),(\\d{2})");
     private static final Pattern CARD_LAST4 = Pattern.compile("(?:final|terminado em|\\*{2,4})\\s*(\\d{4})\\b");
     private static final Pattern INSTALLMENTS = Pattern.compile("(?:em\\s+)?(\\d{1,2})\\s*(?:x\\b|parcelas)");
+    /** "3x de R$ 50,00": o valor da parcela, nao o da compra. */
+    private static final Pattern PER_INSTALLMENT = Pattern.compile(
+        "(\\d{1,2})\\s*[xX]\\s*(?:de\\s+)?(R\\$\\s*(?:\\d{1,3}(?:\\.\\d{3})*|\\d+),\\d{2})");
     /** CPF mascarado: ***.378.195-** ou XXX.378.195-XX. Os seis do meio sao o que se ve. */
     private static final Pattern MASKED_CPF = Pattern.compile("[\\dXx*•]{3}\\.(\\d{3})\\.(\\d{3})-[\\dXx*•]{2}");
     private static final Pattern INSTITUTION = Pattern.compile(
@@ -92,7 +95,26 @@ public final class NotifyParsers {
         boolean samsung = NotifyPairing.SAMSUNG_WALLET.equals(row.packageName);
         if (samsung && !isCardKind(kind)) return null;
 
-        Long cents = amountOf(text, folded);
+        // "Compra em 3x de R$ 50,00": o R$ e o da parcela. Sem outro valor no texto, a compra e
+        // parcelas x parcela; com outro (o total), vale ele. Antes a compra ficava em R$ 50
+        // dividido em 3. Ainda sem captura real com esse formato: confira na primeira.
+        int perInstallmentAt = -1;
+        int perInstallmentCount = 0;
+        long perInstallmentCents = 0;
+        if (isCardKind(kind)) {
+            Matcher per = PER_INSTALLMENT.matcher(text);
+            if (per.find()) {
+                int count = Integer.parseInt(per.group(1));
+                Long each = amountOf(per.group(2), fold(per.group(2)));
+                if (count >= 2 && count <= 72 && each != null) {
+                    perInstallmentAt = per.start(2);
+                    perInstallmentCount = count;
+                    perInstallmentCents = each;
+                }
+            }
+        }
+        Long cents = amountOf(text, folded, perInstallmentAt);
+        if (cents == null && perInstallmentCount > 0) cents = perInstallmentCents * perInstallmentCount;
         if (cents == null || cents <= 0) return null;
 
         Parsed parsed = new Parsed();
@@ -103,7 +125,9 @@ public final class NotifyParsers {
             parsed.merchant = merchantOf(text, folded);
             if (parsed.merchant == null && samsung) parsed.merchant = samsungMerchant(row);
             Matcher installments = INSTALLMENTS.matcher(folded);
-            if (installments.find()) {
+            if (perInstallmentCount > 0) {
+                parsed.installments = perInstallmentCount;
+            } else if (installments.find()) {
                 int count = Integer.parseInt(installments.group(1));
                 if (count >= 2 && count <= 72) parsed.installments = count;
             }
@@ -223,15 +247,22 @@ public final class NotifyParsers {
      * palavra do movimento e nao de "saldo"/"limite".
      */
     static Long amountOf(String text, String folded) {
+        return amountOf(text, folded, -1);
+    }
+
+    /** O mesmo, sem o `R$` que comeca em `skipAt` (o valor da parcela); null se nao sobra nenhum. */
+    static Long amountOf(String text, String folded, int skipAt) {
         List<long[]> found = new ArrayList<>();
         Matcher matcher = AMOUNT.matcher(text);
         while (matcher.find()) {
+            if (matcher.start() == skipAt) continue;
             long reais = Long.parseLong(matcher.group(1).replace(".", ""));
             long cents = reais * 100 + Long.parseLong(matcher.group(2));
             found.add(new long[] { matcher.start(), cents });
         }
         if (found.isEmpty()) return null;
-        if (found.size() == 1) return found.get(0)[1];
+        // Sobrando um so depois de tirar a parcela, ele ainda pode ser o limite: passa pelo filtro.
+        if (found.size() == 1 && skipAt < 0) return found.get(0)[1];
         Long fallback = null;
         for (long[] amount : found) {
             String before = folded.substring(Math.max(0, (int) amount[0] - 40), (int) amount[0]).trim();

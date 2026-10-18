@@ -100,13 +100,23 @@ def parse_int_number(payload, key, label, *, minimum=None, maximum=None):
     return int(value)
 
 
+DATE_PATTERN = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
+MONTH_PATTERN = re.compile(r"^\d{4}-\d{1,2}$")
+
+
 def require_date(payload, key, label):
+    """Data AAAA-MM-DD, devolvida sempre com dois digitos no mes e no dia.
+
+    "2026-1-5" e aceita e gravada como "2026-01-05": os filtros e o orcamento
+    comparam datas como texto, e a forma curta ficava fora deles.
+    """
     value = require_string(payload, key, label, max_length=10)
     try:
-        datetime.strptime(value, "%Y-%m-%d")
+        if not DATE_PATTERN.match(value):
+            raise ValueError(value)
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
     except ValueError:
         raise ValidationError(f"{label} deve estar no formato AAAA-MM-DD.")
-    return value
 
 
 def optional_date(payload, key, label):
@@ -124,10 +134,11 @@ def normalize_month(value, label="Mes"):
     """Valida e devolve um mes no formato AAAA-MM."""
     text = str(value or "").strip()
     try:
-        datetime.strptime(text, "%Y-%m")
+        if not MONTH_PATTERN.match(text):
+            raise ValueError(text)
+        return datetime.strptime(text, "%Y-%m").strftime("%Y-%m")
     except ValueError:
         raise ValidationError(f"{label} deve estar no formato AAAA-MM.")
-    return text
 
 
 def shift_month(month, offset):

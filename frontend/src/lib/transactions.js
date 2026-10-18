@@ -112,3 +112,13 @@ export function bankingTransactions(transactions = [], accounts = []) {
   })
   return result
 }
+
+// POST /api/recurring/run devolve em `blocked` as recorrencias com ocorrencia
+// vencida numa conta arquivada: elas nao lancam ate o dono trocar a conta.
+export function blockedRecurringMessage(blocked = []) {
+  if (!blocked.length) return ''
+  const names = blocked.map((item) => `"${item.description || 'Sem descrição'}" (${item.account_name})`).join(', ')
+  return blocked.length === 1
+    ? `A recorrência ${names} está numa conta arquivada e não foi lançada. Edite a recorrência e escolha outra conta.`
+    : `${blocked.length} recorrências estão em contas arquivadas e não foram lançadas: ${names}. Edite cada uma e escolha outra conta.`
+}

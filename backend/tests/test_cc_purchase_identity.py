@@ -207,8 +207,9 @@ def test_the_running_database_has_035(db_module):
     assert "035" in applied
 
 
-def test_a_purchase_from_the_old_endpoint_still_finds_its_installments(client, auth):
-    """O POST antigo de /api/cc-expenses nao da client_id: a chave antiga vale."""
+def test_a_purchase_from_the_old_endpoint_gets_one_client_id(client, auth):
+    """O POST antigo de /api/cc-expenses da um client_id por compra: as parcelas
+    do mesmo envio dividem um, e se acham pelas parcelas."""
     card_id = create_card(client, auth)
     base = {"card_id": card_id, "category": "Casa", "description": "Sofa", "amount": 50, "purchase_date": "2026-03-10"}
     response = client.post("/api/cc-expenses", headers=auth, json=[
@@ -217,5 +218,19 @@ def test_a_purchase_from_the_old_endpoint_still_finds_its_installments(client, a
     ])
     assert response.status_code == 201, response.get_data(as_text=True)
     created = response.get_json()
-    assert all(row["client_id"] is None for row in created)
+    assert created[0]["client_id"] and created[0]["client_id"] == created[1]["client_id"]
     assert sorted(row["id"] for row in candidates(client, auth, created[0]["id"])) == sorted(row["id"] for row in created)
+
+
+def test_two_identical_purchases_on_the_old_endpoint_stay_two(client, auth):
+    """Sem client_id elas voltavam a chave cartao + descricao + data e viravam uma."""
+    card_id = create_card(client, auth)
+    ride = {
+        "card_id": card_id, "category": "Transporte", "description": "Uber", "amount": 20,
+        "purchase_date": "2026-03-10", "invoice_month": 4, "invoice_year": 2026, "installment_info": "1/1",
+    }
+    in_one = client.post("/api/cc-expenses", headers=auth, json=[ride, ride]).get_json()
+    apart = client.post("/api/cc-expenses", headers=auth, json=ride).get_json()
+    ids = {row["client_id"] for row in [*in_one, *apart]}
+    assert len(ids) == 3
+    assert [row["id"] for row in candidates(client, auth, apart[0]["id"])] == [apart[0]["id"]]

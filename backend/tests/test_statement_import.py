@@ -489,3 +489,54 @@ def test_renaming_a_rule_onto_an_existing_one_is_refused(client, auth):
     assert client.patch(
         f"/api/import-rules/{other['id']}", json={"priority": 5}, headers=auth,
     ).status_code == 200
+
+
+# --- leitura de valores e tipos (revisao de 2026-10-18) --------------------
+
+@pytest.mark.parametrize("raw,expected", [
+    ("1.500", 1500.0),
+    ("-1.500", -1500.0),
+    ("1.500.000", 1500000.0),
+    ("0.500", 0.5),
+    ("42.90", 42.9),
+    ("10,005", 10.005),
+])
+def test_parse_amount_reads_a_dot_in_groups_of_three_as_thousands(raw, expected):
+    assert statement_import.parse_amount(raw) == expected
+
+
+@pytest.mark.parametrize("type_text,expected", [
+    ("d", True), ("D", True), ("Débito", True), ("debito automatico", True), ("Saída", True),
+    ("Depósito", False), ("Devolução", False), ("Crédito", False), ("C", False), ("", False),
+])
+def test_only_debit_words_or_codes_make_an_outflow(type_text, expected):
+    assert statement_import.type_says_debit(statement_import.normalize_text(type_text)) is expected
+
+
+def test_a_deposit_in_the_type_column_is_income(client, auth):
+    content = "Data;Descricao;Valor;Tipo\n01/09/2026;DEPOSITO;100,00;Depósito\n02/09/2026;ESTORNO;20,00;Devolução\n03/09/2026;PADARIA;10,00;D\n"
+    rows = preview(client, auth, content).get_json()["rows"]
+    assert [row["type"] for row in rows] == ["INCOME", "INCOME", "EXPENSE"]
+
+
+def test_a_csv_amount_with_a_thousands_dot_is_read_in_full(client, auth):
+    content = "Data;Descricao;Valor\n01/09/2026;ALUGUEL;-1.500\n"
+    rows = preview(client, auth, content).get_json()["rows"]
+    assert rows[0]["amount"] == 1500.0
+
+
+def test_an_ofx_amount_with_a_comma_keeps_its_cents(client, auth):
+    content = OFX.replace("<TRNAMT>-1234.56", "<TRNAMT>-42,90")
+    rows = preview(client, auth, content).get_json()["rows"]
+    assert rows[0]["amount"] == 42.9
+    assert rows[0]["type"] == "EXPENSE"
+
+
+def test_a_fitid_repeated_in_one_file_is_two_transactions(client, auth):
+    content = OFX.replace("<FITID>ABC2", "<FITID>ABC1")
+    body = preview(client, auth, content).get_json()
+    assert body["summary"]["new"] == 2
+    assert body["rows"][0]["source_id"] != body["rows"][1]["source_id"]
+    assert commit(client, auth, new_rows(body)).get_json()["created"] == 2
+    # Reimportar o mesmo arquivo continua sem duplicar.
+    assert preview(client, auth, content).get_json()["summary"]["duplicates"] == 2

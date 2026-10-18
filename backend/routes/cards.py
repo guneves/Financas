@@ -36,7 +36,6 @@ from services.invoices import (
     apply_due_autopay,
     autopay_source_id,
     build_installment_rows,
-    ensure_credit_card_owner,
     ensure_invoice_closed,
     invoice_label,
     invoice_open_lines,
@@ -136,14 +135,7 @@ def credit_cards(current_user_id):
     except sqlite3.IntegrityError as exc:
         if "UNIQUE" in str(exc).upper():
             with get_db() as conn:
-                archived = conn.execute(
-                    "SELECT 1 FROM credit_cards WHERE user_id = ? AND name = ? AND archived_at IS NOT NULL",
-                    (current_user_id, name),
-                ).fetchone()
-            if archived:
-                # O excluido continua com o nome: as compras antigas dele o mostram.
-                return jsonify({"error": "Um cartao excluido ainda usa este nome no historico. Escolha outro nome."}), 409
-            return jsonify({"error": "Ja existe um cartao com este nome."}), 409
+                return jsonify({"error": card_name_conflict_message(conn, current_user_id, name)}), 409
         return jsonify({"error": "Nao foi possivel criar o cartao."}), 400
     return jsonify(row_to_dict(item)), 201
 
@@ -156,17 +148,47 @@ def resolve_autopay_account(conn, current_user_id, payload):
     return require_account(conn, current_user_id, str(raw), "Conta do debito automatico")["id"]
 
 
+CARD_NAME_TAKEN_MESSAGE = "Ja existe um cartao com este nome."
+# O excluido continua com o nome: as compras antigas dele o mostram.
+ARCHIVED_CARD_NAME_MESSAGE = "Um cartao excluido ainda usa este nome no historico. Escolha outro nome."
+
+
+def card_name_conflict_message(conn, current_user_id, name):
+    archived = conn.execute(
+        "SELECT 1 FROM credit_cards WHERE user_id = ? AND name = ? AND archived_at IS NOT NULL",
+        (current_user_id, name),
+    ).fetchone()
+    return ARCHIVED_CARD_NAME_MESSAGE if archived else CARD_NAME_TAKEN_MESSAGE
+
+
 @bp.route("/api/credit-cards/<card_id>", methods=["PATCH"])
 @token_required
 def update_credit_card(current_user_id, card_id):
-    """Liga, troca ou desliga o debito automatico do cartao.
+    """Corrige o cartao: nome, vencimento, fechamento e debito automatico.
 
-    Ligar (ou trocar de conta) grava hoje em autopay_start_date: faturas que
-    venceram antes disso continuam para pagamento manual.
+    Cada campo e opcional. Vencimento e fechamento valem para as compras novas
+    e para quando cada fatura fecha; as parcelas ja lancadas ficam na fatura em
+    que estao. Ligar (ou trocar de conta) o debito automatico grava hoje em
+    autopay_start_date: faturas que venceram antes disso continuam para
+    pagamento manual.
     """
     payload = parse_json_body()
-    if not isinstance(payload, dict) or "autopay_account_id" not in payload:
-        return validation_error("Informe autopay_account_id (ou null para desligar).")
+    if not isinstance(payload, dict):
+        return validation_error("Informe os dados do cartao.")
+    updates = {}
+    try:
+        if "name" in payload:
+            updates["name"] = require_string(payload, "name", "Nome do cartao")
+        if "due_day" in payload:
+            updates["due_day"] = parse_int_number(payload, "due_day", "Dia de vencimento", minimum=1, maximum=31)
+        if "closing_day" in payload:
+            updates["closing_day"] = parse_int_number(
+                payload, "closing_day", "Dia de fechamento", minimum=1, maximum=31
+            )
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    if not updates and "autopay_account_id" not in payload:
+        return validation_error("Informe ao menos um campo para atualizar.")
 
     with get_db() as conn:
         card = conn.execute(
@@ -175,26 +197,29 @@ def update_credit_card(current_user_id, card_id):
         ).fetchone()
         if not card or card["archived_at"]:
             return jsonify({"error": "Cartao nao encontrado."}), 404
+        if "autopay_account_id" in payload:
+            try:
+                autopay_account_id = resolve_autopay_account(conn, current_user_id, payload)
+            except ValidationError as exc:
+                return validation_error(str(exc))
+            if autopay_account_id is None:
+                start_date = None
+            elif autopay_account_id == card["autopay_account_id"]:
+                start_date = card["autopay_start_date"]
+            else:
+                start_date = local_today().strftime("%Y-%m-%d")
+            updates["autopay_account_id"] = autopay_account_id
+            updates["autopay_start_date"] = start_date
+
+        assignments = ", ".join(f"{column} = ?" for column in updates)
         try:
-            autopay_account_id = resolve_autopay_account(conn, current_user_id, payload)
-        except ValidationError as exc:
-            return validation_error(str(exc))
-
-        if autopay_account_id is None:
-            start_date = None
-        elif autopay_account_id == card["autopay_account_id"]:
-            start_date = card["autopay_start_date"]
-        else:
-            start_date = local_today().strftime("%Y-%m-%d")
-
-        conn.execute(
-            """
-            UPDATE credit_cards
-            SET autopay_account_id = ?, autopay_start_date = ?
-            WHERE id = ? AND user_id = ?
-            """,
-            (autopay_account_id, start_date, card_id, current_user_id),
-        )
+            conn.execute(
+                f"UPDATE credit_cards SET {assignments} WHERE id = ? AND user_id = ?",
+                (*updates.values(), card_id, current_user_id),
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return jsonify({"error": card_name_conflict_message(conn, current_user_id, updates.get("name"))}), 409
         # Uma fatura que vence hoje ja e paga agora, sem esperar a proxima leitura.
         apply_due_autopay(conn, current_user_id)
         item = conn.execute(
@@ -352,6 +377,10 @@ def cc_expenses(current_user_id):
         return validation_error("Informe ao menos uma fatura.")
 
     inserted = []
+    # Cada compra ganha o client_id dela (035): as parcelas da mesma compra
+    # neste envio dividem um, e uma segunda compra igual (a mesma parcela de
+    # novo) abre outro — sem id, duas corridas iguais viravam uma compra so.
+    purchase_groups = {}
     try:
         with get_db() as conn:
             for item in items:
@@ -362,7 +391,7 @@ def cc_expenses(current_user_id):
                 require_active_card(conn, current_user_id, card_id)
                 category, category_id = resolve_category(conn, current_user_id, item)
                 description = require_string(item, "description", "Descricao", max_length=500)
-                amount = parse_number(item, "amount", "Valor", minimum=0, allow_zero=False)
+                amount = rounded_money(parse_number(item, "amount", "Valor", minimum=0, allow_zero=False))
                 purchase_date = require_date(item, "purchase_date", "Data da compra")
                 invoice_month = parse_int_number(item, "invoice_month", "Mes da fatura", minimum=1, maximum=12)
                 invoice_year = parse_int_number(item, "invoice_year", "Ano da fatura", minimum=2000)
@@ -370,14 +399,28 @@ def cc_expenses(current_user_id):
                 status_value = str(item.get("status", "OPEN") or "OPEN").strip().upper()
                 if status_value not in ALLOWED_CC_STATUS:
                     raise ValidationError("Status invalido.")
+                if status_value != "OPEN":
+                    # Pago so pelo pagamento da fatura, que lanca o debito na conta.
+                    raise ValidationError(
+                        "Uma compra entra em aberto; a fatura e paga por POST /api/cc-expenses/pay-invoice."
+                    )
+                client_id = optional_client_id(item)
+                if not client_id:
+                    groups = purchase_groups.setdefault((card_id, description, purchase_date, category_id or category), [])
+                    group = next((g for g in groups if installment_info not in g["installments"]), None)
+                    if group is None:
+                        group = {"client_id": new_id(), "installments": set()}
+                        groups.append(group)
+                    group["installments"].add(installment_info)
+                    client_id = group["client_id"]
 
                 item_id = new_id()
                 conn.execute(
                     """
                     INSERT INTO cc_expenses
                     (id, user_id, card_id, category, category_id, description, amount, purchase_date,
-                     invoice_month, invoice_year, installment_info, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     invoice_month, invoice_year, installment_info, status, client_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
                     """,
                     (
                         item_id,
@@ -391,7 +434,7 @@ def cc_expenses(current_user_id):
                         invoice_month,
                         invoice_year,
                         installment_info,
-                        status_value,
+                        client_id,
                     ),
                 )
                 inserted.append(item_id)
@@ -661,101 +704,6 @@ def update_cc_purchase_share(current_user_id, item_id):
     if rows is None:
         return jsonify({"error": "Compra nao encontrada."}), 404
     return jsonify(rows), 200
-
-
-@bp.route("/api/cc-expenses/status", methods=["PATCH"])
-@token_required
-def update_cc_expense_status(current_user_id):
-    payload = parse_json_body()
-    try:
-        ids = require_id_list(payload)
-        status = str(payload.get("status", "PAID") or "PAID").strip().upper()
-        if status not in ALLOWED_CC_STATUS:
-            raise ValidationError("Status invalido.")
-    except ValidationError as exc:
-        return validation_error(str(exc))
-
-    placeholders = ",".join("?" for _ in ids)
-    with get_db() as conn:
-        if status == "PAID":
-            lines = conn.execute(
-                f"""
-                SELECT DISTINCT cce.invoice_month, cce.invoice_year, cc.due_day, cc.closing_day
-                FROM cc_expenses cce
-                JOIN credit_cards cc ON cc.id = cce.card_id AND cc.user_id = cce.user_id
-                WHERE cce.user_id = ? AND cce.id IN ({placeholders})
-                """,
-                [current_user_id, *ids],
-            ).fetchall()
-            try:
-                for line in lines:
-                    ensure_invoice_closed(line, line["invoice_month"], line["invoice_year"])
-            except ValidationError as exc:
-                return validation_error(str(exc), 409)
-
-        # Uma troca de status a mao desliga o item do pagamento que o baixou.
-        cursor = conn.execute(
-            f"""
-            UPDATE cc_expenses
-            SET status = ?, paid_by = NULL
-            WHERE user_id = ? AND id IN ({placeholders})
-            """,
-            [status, current_user_id, *ids],
-        )
-    return jsonify({"updated": cursor.rowcount}), 200
-
-
-@bp.route("/api/cc-expenses/invoice-status", methods=["PATCH"])
-@token_required
-def update_invoice_status(current_user_id):
-    payload = parse_json_body()
-    try:
-        card_id = require_string(payload, "card_id", "Cartao")
-        invoice_month = parse_int_number(payload, "invoice_month", "Mes da fatura", minimum=1, maximum=12)
-        invoice_year = parse_int_number(payload, "invoice_year", "Ano da fatura", minimum=2000)
-        status = str(payload.get("status", "PAID") or "PAID").strip().upper()
-        current_status = str(payload.get("current_status", "OPEN") or "OPEN").strip().upper()
-        if status not in ALLOWED_CC_STATUS or current_status not in ALLOWED_CC_STATUS:
-            raise ValidationError("Status invalido.")
-    except ValidationError as exc:
-        return validation_error(str(exc))
-
-    with get_db() as conn:
-        try:
-            ensure_credit_card_owner(conn, current_user_id, card_id)
-        except ValidationError as exc:
-            return validation_error(str(exc), 404)
-
-        if status == "PAID":
-            card = conn.execute(
-                "SELECT due_day, closing_day FROM credit_cards WHERE id = ? AND user_id = ?",
-                (card_id, current_user_id),
-            ).fetchone()
-            try:
-                ensure_invoice_closed(card, invoice_month, invoice_year)
-            except ValidationError as exc:
-                return validation_error(str(exc), 409)
-
-        cursor = conn.execute(
-            """
-            UPDATE cc_expenses
-            SET status = ?, paid_by = NULL
-            WHERE user_id = ?
-              AND card_id = ?
-              AND invoice_month = ?
-              AND invoice_year = ?
-              AND status = ?
-            """,
-            (
-                status,
-                current_user_id,
-                card_id,
-                invoice_month,
-                invoice_year,
-                current_status,
-            ),
-        )
-    return jsonify({"updated": cursor.rowcount}), 200
 
 
 def invoice_payment_account_id(conn, current_user_id, card, payload):

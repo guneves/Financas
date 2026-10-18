@@ -132,11 +132,11 @@ def test_rename_account(client, auth):
 
 
 def test_setting_a_new_default_clears_the_previous_one(client, auth):
-    account = create_account(client, auth, "Corretora", "BROKERAGE")
+    account = create_account(client, auth, "Poupanca", "SAVINGS")
     client.patch(f"/api/accounts/{account['id']}", json={"is_default": True}, headers=auth)
     accounts = list_accounts(client, auth)
     defaults = [item["name"] for item in accounts if item["is_default"]]
-    assert defaults == ["Corretora"]
+    assert defaults == ["Poupanca"]
 
 
 def test_archiving_hides_the_account_but_keeps_its_transactions(client, auth):
@@ -349,3 +349,205 @@ def test_cannot_archive_another_users_account(client, auth, other_user):
 def test_account_endpoints_require_authentication(client, method, path):
     response = getattr(client, method)(path, json={})
     assert response.status_code == 401
+
+
+# --------------------------------------------------------------------------
+# A conta padrao nunca se perde (revisao de 2026-10-18)
+# --------------------------------------------------------------------------
+
+
+def defaults_of(client, auth):
+    return [item["name"] for item in list_accounts(client, auth) if item["is_default"]]
+
+
+def test_archiving_the_default_hands_the_mark_to_another_account(client, auth):
+    create_account(client, auth, "Corretora", "BROKERAGE")
+    create_account(client, auth, "Zeta")
+    create_account(client, auth, "Banco")
+    principal = next(item for item in list_accounts(client, auth) if item["name"] == "Conta Principal")
+
+    assert client.delete(f"/api/accounts/{principal['id']}", headers=auth).status_code == 200
+
+    # A primeira pelo nome, fora da Corretora — a mesma que as telas mostram.
+    assert defaults_of(client, auth) == ["Banco"]
+    created = client.post(
+        "/api/transactions",
+        json={"amount": 5, "date": "2026-03-01", "category": "Lazer", "type": "EXPENSE"},
+        headers=auth,
+    ).get_json()
+    banco = next(item for item in list_accounts(client, auth) if item["name"] == "Banco")
+    assert created["account_id"] == banco["id"]
+
+
+def test_a_repeated_name_does_not_clear_the_default(client, auth):
+    other = create_account(client, auth, "Banco")
+    response = client.patch(
+        f"/api/accounts/{other['id']}", json={"is_default": True, "name": "Conta Principal"}, headers=auth
+    )
+    assert response.status_code == 409
+    assert defaults_of(client, auth) == ["Conta Principal"]
+
+
+def test_the_portfolio_account_cannot_be_the_default(client, auth):
+    corretora = create_account(client, auth, "Corretora", "BROKERAGE")
+    response = client.patch(f"/api/accounts/{corretora['id']}", json={"is_default": True}, headers=auth)
+    assert response.status_code == 400
+    assert defaults_of(client, auth) == ["Conta Principal"]
+
+
+def test_linking_the_default_to_the_portfolio_moves_the_mark(client, auth):
+    create_account(client, auth, "Banco")
+    principal = next(item for item in list_accounts(client, auth) if item["is_default"])
+    response = client.patch(f"/api/accounts/{principal['id']}", json={"type": "BROKERAGE"}, headers=auth)
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert defaults_of(client, auth) == ["Banco"]
+    # E desvincular volta o tipo; a marca fica onde esta.
+    response = client.patch(f"/api/accounts/{principal['id']}", json={"type": "CHECKING"}, headers=auth)
+    assert response.status_code == 200
+    assert defaults_of(client, auth) == ["Banco"]
+
+
+def test_an_archived_account_can_be_restored_and_edited(client, auth):
+    account = create_account(client, auth, "Antiga", initial_balance=10)
+    client.delete(f"/api/accounts/{account['id']}", headers=auth)
+    response = client.patch(
+        f"/api/accounts/{account['id']}",
+        json={"archived_at": None, "name": "Antiga 2", "initial_balance": 12.345},
+        headers=auth,
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    body = response.get_json()
+    assert body["archived_at"] is None
+    assert body["name"] == "Antiga 2"
+    assert body["initial_balance"] == 12.35
+
+
+# --------------------------------------------------------------------------
+# Editar um lancamento: a conta (revisao de 2026-10-18)
+# --------------------------------------------------------------------------
+
+
+def test_a_transaction_of_an_archived_account_can_still_be_edited(client, auth):
+    account = create_account(client, auth, "Antiga")
+    item = client.post(
+        "/api/transactions",
+        json={"amount": 10, "date": "2026-03-01", "category": "Lazer", "type": "EXPENSE", "account_id": account["id"]},
+        headers=auth,
+    ).get_json()
+    client.delete(f"/api/accounts/{account['id']}", headers=auth)
+
+    # O Extrato manda a conta de volta em toda edicao.
+    response = client.patch(
+        f"/api/transactions/{item['id']}",
+        json={"amount": 12, "account_id": account["id"], "description": "corrigido"},
+        headers=auth,
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["account_id"] == account["id"]
+    assert response.get_json()["amount"] == 12
+
+    # Outra conta arquivada continua recusada.
+    other = create_account(client, auth, "Outra")
+    client.delete(f"/api/accounts/{other['id']}", headers=auth)
+    response = client.patch(f"/api/transactions/{item['id']}", json={"account_id": other["id"]}, headers=auth)
+    assert response.status_code == 400
+
+
+def test_an_empty_account_on_edit_is_refused_instead_of_moving_to_the_default(client, auth):
+    account = create_account(client, auth, "Banco")
+    item = client.post(
+        "/api/transactions",
+        json={"amount": 10, "date": "2026-03-01", "category": "Lazer", "type": "EXPENSE", "account_id": account["id"]},
+        headers=auth,
+    ).get_json()
+    response = client.patch(f"/api/transactions/{item['id']}", json={"account_id": ""}, headers=auth)
+    assert response.status_code == 400
+    listed = client.get("/api/transactions", headers=auth).get_json()
+    assert listed[0]["account_id"] == account["id"]
+
+
+def test_editing_a_transfer_across_currencies_is_refused(client, auth):
+    origin = create_account(client, auth, "Origem")
+    destination = create_account(client, auth, "Destino")
+    dollars = client.post(
+        "/api/accounts", json={"name": "Dolar", "type": "CHECKING", "currency": "USD"}, headers=auth
+    ).get_json()
+    transfer = client.post(
+        "/api/transfers",
+        json={"amount": 50, "date": "2026-03-01", "account_id": origin["id"], "transfer_account_id": destination["id"]},
+        headers=auth,
+    ).get_json()
+
+    for body in ({"transfer_account_id": dollars["id"]}, {"account_id": dollars["id"]}):
+        response = client.patch(f"/api/transactions/{transfer['id']}", json=body, headers=auth)
+        assert response.status_code == 400, body
+        assert "moedas diferentes" in response.get_json()["error"]
+
+
+# --------------------------------------------------------------------------
+# Hierarquia de categorias (revisao de 2026-10-18)
+# --------------------------------------------------------------------------
+
+
+def create_category(client, auth, name, parent_id=None):
+    response = client.post(
+        "/api/categories", json={"name": name, "kind": "EXPENSE", "parent_id": parent_id}, headers=auth
+    )
+    assert response.status_code == 201, response.get_data(as_text=True)
+    return response.get_json()
+
+
+def test_a_category_with_children_cannot_become_a_child(client, auth):
+    parent = create_category(client, auth, "Casa")
+    create_category(client, auth, "Luz", parent["id"])
+    other = create_category(client, auth, "Contas")
+    response = client.patch(f"/api/categories/{parent['id']}", json={"parent_id": other["id"]}, headers=auth)
+    assert response.status_code == 400
+    assert "subcategorias" in response.get_json()["error"]
+
+
+def test_an_archived_category_cannot_be_a_parent(client, auth):
+    archived = create_category(client, auth, "Velha")
+    client.delete(f"/api/categories/{archived['id']}", headers=auth)
+    response = client.post(
+        "/api/categories", json={"name": "Nova", "kind": "EXPENSE", "parent_id": archived["id"]}, headers=auth
+    )
+    assert response.status_code == 400
+    child = create_category(client, auth, "Solta")
+    response = client.patch(f"/api/categories/{child['id']}", json={"parent_id": archived["id"]}, headers=auth)
+    assert response.status_code == 400
+
+
+def test_a_child_keeps_its_parent_after_the_parent_is_archived(client, auth):
+    parent = create_category(client, auth, "Pai")
+    child = create_category(client, auth, "Filha", parent["id"])
+    client.delete(f"/api/categories/{child['id']}", headers=auth)
+    client.delete(f"/api/categories/{parent['id']}", headers=auth)
+    response = client.patch(
+        f"/api/categories/{child['id']}", json={"name": "Filha 2", "parent_id": parent["id"]}, headers=auth
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+
+
+# --------------------------------------------------------------------------
+# Datas (revisao de 2026-10-18)
+# --------------------------------------------------------------------------
+
+
+def test_a_date_without_leading_zeros_is_stored_padded(client, auth):
+    created = client.post(
+        "/api/transactions",
+        json={"amount": 10, "date": "2026-1-5", "category": "Lazer", "type": "EXPENSE"},
+        headers=auth,
+    )
+    assert created.status_code == 201, created.get_data(as_text=True)
+    assert created.get_json()["date"] == "2026-01-05"
+    listed = client.get("/api/transactions", headers=auth, query_string={"from": "2026-01-01", "to": "2026-01-31"})
+    assert [row["id"] for row in listed.get_json()] == [created.get_json()["id"]]
+    for bad in ("26-01-05", "2026-13-01", "2026-02-30", "2026/01/05"):
+        response = client.post(
+            "/api/transactions",
+            json={"amount": 10, "date": bad, "category": "Lazer", "type": "EXPENSE"},
+            headers=auth,
+        )
+        assert response.status_code == 400, bad

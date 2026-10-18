@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CreditCard, Plus, Trash2 } from 'lucide-react'
+import { CreditCard, Pencil, Plus, Trash2 } from 'lucide-react'
 import { accountsApi, creditCardsApi } from '../../lib/dataApi'
 import {
   AlertMessage,
@@ -9,9 +9,10 @@ import {
   Collapsible,
   EmptyState,
   Field,
-  IconButton,
+  Menu,
   Panel,
   PanelHeader,
+  Sheet,
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
@@ -21,7 +22,7 @@ const emptyCardForm = () => ({ name: '', due_day: '', closing_day: '', autopay_a
 
 const NO_ITEMS = []
 
-// Cartoes de credito: lista, excluir (arquivar, 037) e criar. Veio de Transactions.jsx.
+// Cartoes de credito: lista, editar, excluir (arquivar, 037) e criar. Veio de Transactions.jsx.
 // As compras e faturas continuam em Lancamentos > Cartoes.
 //
 // Debito automatico: com uma conta escolhida, cada fatura e paga sozinha no
@@ -33,6 +34,9 @@ export default function CartoesSection() {
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [cardForm, setCardForm] = useState(emptyCardForm)
+  // Corrigir um cartao (nome, vencimento, fechamento): antes so restava excluir.
+  const [editing, setEditing] = useState(null)
+  const [editForm, setEditForm] = useState({ name: '', due_day: '', closing_day: '' })
 
   const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
@@ -98,6 +102,34 @@ export default function CartoesSection() {
     }
   }
 
+  const openEdit = (card) => {
+    setEditing(card)
+    setEditForm({ name: card.name, due_day: String(card.due_day), closing_day: String(card.closing_day) })
+  }
+
+  const handleSaveEdit = async (event) => {
+    event.preventDefault()
+    if (!editing) return
+    const dueDay = Number(editForm.due_day)
+    const closingDay = Number(editForm.closing_day)
+    if (!editForm.name.trim() || !Number.isInteger(dueDay) || !Number.isInteger(closingDay)) {
+      setError('Preencha os dados do cartão corretamente.')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      await creditCardsApi.update(editing.id, { name: editForm.name, due_day: dueDay, closing_day: closingDay })
+      await fetchCards()
+      toast(`Cartão "${editForm.name}" atualizado.`)
+      setEditing(null)
+    } catch (requestError) {
+      setError(requestError.message || 'Não foi possível atualizar o cartão.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // O servidor decide (037): com item em aberto recusa; com historico arquiva
   // (compras, orcamentos e pagamentos ficam); sem nada, apaga.
   const handleDeleteCard = async (id, name) => {
@@ -156,7 +188,14 @@ export default function CartoesSection() {
                       ))}
                     </select>
                   </label>
-                  <IconButton label="Excluir cartão" icon={Trash2} variant="danger" onClick={() => handleDeleteCard(card.id, card.name)} />
+                  <Menu
+                    label={`Ações do cartão ${card.name}`}
+                    size="md"
+                    items={[
+                      { label: 'Editar cartão', icon: Pencil, onSelect: () => openEdit(card) },
+                      { label: 'Excluir cartão', icon: Trash2, tone: 'danger', onSelect: () => handleDeleteCard(card.id, card.name) },
+                    ]}
+                  />
                 </div>
               </div>
             ))}
@@ -197,6 +236,31 @@ export default function CartoesSection() {
           ) : null}
         </div>
       </div>
+
+      <Sheet
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        title={editing ? `Editar "${editing.name}"` : ''}
+        description="Vencimento e fechamento valem para as próximas compras e para quando cada fatura fecha. As parcelas já lançadas ficam na fatura em que estão."
+        footer={(
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" size="lg" onClick={() => setEditing(null)}>Cancelar</Button>
+            <Button type="submit" form="card-edit-form" size="lg" loading={saving}>Salvar</Button>
+          </div>
+        )}
+      >
+        <form id="card-edit-form" onSubmit={handleSaveEdit} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Nome do cartão" className="sm:col-span-3">
+            <input type="text" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} className="app-input" required />
+          </Field>
+          <Field label="Vencimento">
+            <input type="number" inputMode="numeric" min="1" max="31" value={editForm.due_day} onChange={(event) => setEditForm({ ...editForm, due_day: event.target.value })} className="app-input" required />
+          </Field>
+          <Field label="Fechamento">
+            <input type="number" inputMode="numeric" min="1" max="31" value={editForm.closing_day} onChange={(event) => setEditForm({ ...editForm, closing_day: event.target.value })} className="app-input" required />
+          </Field>
+        </form>
+      </Sheet>
     </Panel>
   )
 }
