@@ -317,15 +317,18 @@ Checked on the PC: backend tests, JVM tests of `BundleRules` and `ApkUpdateRules
 `appBundleRules`, a local image serving the manifest and a zip whose SHA-256 matches, and a local
 release build signed with the key whose fingerprint CI checks.
 
-## Phase 6 — Reading bank notifications (steps 1–3 and the debug half of step 7 built 2026-10-17)
+## Phase 6 — Reading bank notifications (steps 1–4 and the debug half of step 7 built 2026-10-17)
 
-Built: the listener, capture mode, the Ajustes screen, and the debug build that accepts
-adb-posted notifications. **Not built, on purpose: the parsers (step 4) and the mapping screen
-(step 5).** There are no real notification texts yet; the parsers are written next against what
-capture mode collects on the owner's phone, never against examples from the web. CI built it
-green (APK 10013 and the test APK, 2026-10-17). Open: the phone check (APK 10013 installed,
-access granted, an adb-posted notification in the test APK's capture), then about a week of
-capture with real purchases (see `docs/next-steps.md`).
+Built: the listener, capture mode, the Ajustes screen, the debug build that accepts adb-posted
+notifications, and **the parsers (step 4)**, written against the owner's first export (10
+notifications): `notify/NotifyParsers.java`, run on every allowed notification; the parsed
+fields go to the server's Aprovar (`DetectionQueue` → `DetectionWorker` →
+`POST /api/inbox/detections`), which pairs bank × Samsung and the two legs of an own-account
+transfer, and tells a transfer between the owner's accounts from a Pix to someone else by the
+counterparty (`docs/done-tasks.md`, "Notification auto-identifier"). **Not built: the mapping
+screen (step 5)** — Aprovar's remembered choices do that job — and **step 6**: unrecognised texts
+stay on the phone. Open: more captures for the kinds not seen yet (Samsung Wallet's text above
+all; see `docs/next-steps.md`).
 
 Package names, each checked against its Google Play listing on 2026-10-12 (Samsung Wallet on
 2026-10-17, through a web search of play.google.com: the store itself is unreachable from the

@@ -123,6 +123,8 @@
 | Operação form: the "Ativo" suggestions list only the assets of the chosen type (the catalog search already did) | 2026-10-18 |
 | Posição: each category (Ações, ETFs, FIIs, CDB…) is a toggle, collapsed by default, header keeps count and total | 2026-10-18 |
 | Pluggy removed from the app (owner: the free plan gives no access): client, sync, routes, Ajustes › Banco, the Extrato's bank mark, the "+ Novo" bank claim, Aprovar's bank source; migration 029 drops `pluggy_*`, `external_id` and `cc_expenses.source_type/source_id` (a pending Aprovar item only the bank brought is REMOVED, a Pluggy-born lançamento becomes manual) | 2026-10-17 |
+| Pluggy out of the migrations too (owner): 027/029 reserved and empty, 028 without its Pluggy lines, 030 renames their `schema_migrations` rows (session financas-5e) | 2026-10-17 |
+| Notification auto-identifier: Java parsers per bank on the phone, every money notification sent to Aprovar (parsed fields only), own-account transfer vs Pix to someone else by the counterparty (migration 031), the bank's double posting dropped, nothing matched without Aprovar | 2026-10-17 |
 
 ---
 
@@ -667,3 +669,34 @@ Done in the cloud container: no Android SDK (pure Java compiled with `javac` + J
 - **Bank decline vs Samsung decline**: the prompt said a DECLINED from either source cancels the
   counterpart; the rule lets only the bank's decline cancel (an unconfirmed Samsung), because the
   bank wins and a lost real purchase costs more than one extra suggestion.
+
+### Notification auto-identifier — 2026-10-17
+Owner: "identify and insert under approve every notification that refers to a transaction …
+recognize when a transaction is made between my accounts and with external accounts"; "every
+transaction identified through a notification should end up in aprovar"; Samsung Wallet only
+handles card payments and is a fallback — on a duplicate the bank's notification wins.
+
+- **Source**: the owner's capture export (10 notifications, 2026-10-17). The test fixtures in
+  `NotifyParsersTest` keep each text's shape with the name and CPF digits swapped.
+- **Phone** (`android/.../notify/`): `NotifyParsers` (pure, 17 JVM tests) reads title, text/bigText,
+  `android.infoText` (where BTG puts everything) and text lines; negatives first (declined,
+  refund, cancelled/scheduled/fatura ignored), the amount anchored to the movement phrase (not a
+  balance or limit), merchant by fragment (`em <local>`, `Local:`), card `final 1234`,
+  installments, and for Pix/transfers the counterparty name, the masked CPF's six visible digits
+  and the institution. Samsung yields only card purchases or declines. The listener parses every
+  allowed notification, capture on or off; `DetectionQueue` (`financas_detections.db`) holds the
+  parsed fields, `DetectionWorker`/`DetectionSender` POST them in batches to
+  `/api/inbox/detections` with the app closed (also scheduled at login). No native-level bump:
+  no screen calls the new Java.
+- **Server** (`services/inbox.py`, migration 031): detections carry `counterparty`,
+  `counterparty_doc`, `counterparty_bank`. "It's me" is **learned** (`inbox_hints` keys
+  `self:doc:<digits>` / `self:name:<name>`): when an OUT leg and an IN leg of the same amount pair
+  into a transfer, and when the owner approves an item as a transfer. Then a single leg whose
+  counterparty is the owner becomes a TRANSFER draft, the other account guessed from the cited
+  institution (or asked); the other leg, if it arrives, fills that side. A counterparty that is
+  not the owner gives a despesa/receita "Pix para/de <nome>" with reason `external_transfer`. Two
+  legs whose CPFs (or first names) differ never pair. The same notification posted twice by the
+  bank (BTG: 24 ms apart, same `when`) is `repeated`, not a second item. The remembered-choice
+  shortcut that matched an existing lançamento without an item is gone: it is a pending item
+  with the lançamento as candidate. 15 tests in `test_inbox_counterparty.py`.
+

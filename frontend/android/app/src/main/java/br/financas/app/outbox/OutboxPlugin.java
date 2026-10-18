@@ -17,6 +17,8 @@ import org.json.JSONObject;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import br.financas.app.notify.DetectionWorker;
+
 /**
  * A ponte entre lib/outbox.js e a fila nativa (lib/nativeApp.js monta o backend com estes
  * metodos). No APK a tela nunca envia a fila: quem envia e o OutboxSender, aqui ou no
@@ -141,6 +143,8 @@ public class OutboxPlugin extends Plugin {
         }
         LoginNotifier.cancel(getContext());
         OutboxWorker.schedule(getContext());
+        // As deteccoes que esperavam o login (notify/DetectionSender) vao para o Aprovar.
+        DetectionWorker.schedule(getContext());
         call.resolve();
     }
 

@@ -102,6 +102,7 @@ test('ready items, remember and the texts', () => {
   assert.equal(offersRemember({ needs: ['card'], confirm: [] }), true)
   assert.equal(offersRemember({ needs: [], confirm: [] }), false)
   assert.match(reasonText({ reason: 'own_transfer' }), /não conta como entrada nem saída/)
+  assert.match(reasonText({ reason: 'external_transfer' }), /Com outra pessoa/)
   assert.equal(reasonText({ reason: 'new' }), '')
   assert.equal(pendingNoticeText(0), '')
   assert.match(pendingNoticeText(2), /^2 movimentos/)

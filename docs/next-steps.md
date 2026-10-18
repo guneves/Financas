@@ -83,31 +83,31 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   notification appear in the test APK's capture — and **not** in the real app's; one export (JSON
   and text) opens the share sheet. If the adb notification does not appear, `adb logcat -s
   FinancasNotify` names the package it came from.
-- [ ] **A week of capture, then export** (owner). Capture on in the real app; about a week of
-  real use covering Samsung Pay on each card (Itaú, BB, BTG — both Samsung Wallet's and the bank's notification), a debit purchase, Pix sent and
-  received, an estorno, and a declined purchase if one happens — and, since BTG Investimentos
-  joined the list (the next APK CI publishes), a buy and a sell on the brokerage plus a transfer from BTG Banking
-  into it. Then "Exportar JSON" and bring
-  the file to the next session. Battery: if the counts stop between purchases, set the app's
-  battery use to "Sem restrições" (the screen shows when Android last disconnected the listener).
-- [ ] Phase 6 steps 4–6, written against that export: one parser per app (Itaú, BB, the
-  two BTG **and Samsung Wallet**), the mapping screen, unrecognised text into the inbox. Each
-  parser returns a `NotifyPairing.Detection` (kind, amount in cents, merchant, card last 4,
-  issuer). Also read from the export whether a bank *updates* a notification (new posted time,
-  same key), which decides whether Phase 7's `client_id` can keep posted time in it.
-- [ ] **Bank × Samsung Wallet pairing, the rest** (the pure rule is built: `notify/NotifyPairing.java`,
-  30 JVM tests, see `docs/done-tasks.md`). Left, once parsers exist:
-  - from the export, the lag between Samsung's and the bank's notification of the same purchase
-    — **show it to the owner** and tune `DEFAULT_WINDOW_MS` (10 min now); whether Samsung's text
-    names the card (last 4 or product name → `issuer`);
-  - a detections table in `financas_notify.db` (state, `group_client_id`, `paired_with`), the
-    listener calling `NotifyPairing.arrive()` in one transaction with the insert, and a
-    `WorkManager` one-off at `promoteAt()` calling `promoteDue()` (also on app open), so a held
-    Samsung detection is promoted with the app closed; Phase 7's notification for a SUPERSEDED
-    suggestion is cancelled and the bank's posted;
-  - the confirmed entry's `client_id` is the detection's `groupClientId`, not its own `dedupKey`.
-  - Owner's call: only the bank's DECLINED cancels a Samsung suggestion (the prompt said either
-    source; see `docs/done-tasks.md`).
+- [ ] **Install the APK with the parsers and check Aprovar** (owner; built 2026-10-17, see
+  `docs/done-tasks.md`, "Notification auto-identifier"). CI builds it on the push; update by
+  "Nova versão disponível". Then a Pix between two of your accounts, a Pix to someone else and a
+  card purchase: each must appear in Lançamentos › Aprovar (the first as one transfer, the second
+  as a despesa "Pix para …", the third with "crédito ou débito?"). The first own-account Pix must
+  have **both** banks notify (or be approved as a transfer once) before a single-leg Pix to
+  yourself is recognised: the "it's me" CPF digits are learned, never typed.
+- [ ] **Keep capturing, then a second parser pass.** The parsers were written against 10
+  notifications (BB Pix out, Itaú Pix in/out, BTG Pix in, one BTG purchase, Samsung noise).
+  Still unseen: any **Samsung Wallet** purchase text (its parser is generic: an amount plus
+  "compra/aprovada", merchant from the title), a credit/debit purchase with "final 1234", Itaú
+  and BB purchases, an estorno, a declined purchase, a boleto payment, BTG Investimentos. Keep
+  capture on and bring a new "Exportar JSON"; anything mis-read becomes a `NotifyParsersTest`
+  case first. Not answered by the export either: whether a bank *updates* a notification (new
+  posted time, same key).
+- [ ] **Bank × Samsung Wallet window**: the server pairs them (`services/inbox.py`, 10 min, bank
+  wins). From an export with both notifications of the same purchase, show the owner the lag and
+  tune `NOTIFY_WINDOW_MS` (and `NotifyPairing.DEFAULT_WINDOW_MS`, kept equal). The phone-side
+  `NotifyPairing` stays unwired: the phone sends every detection at once and the server pairs,
+  so a held Samsung detection needs no WorkManager timer.
+- [ ] **Mapping screen** (Phase 6 step 5) — not built: Aprovar's remembered choices
+  (`inbox_hints`) already do the job of "this card final / this app is that card or account",
+  learned on the first approval. Build it only if the owner wants to set them up front.
+- [ ] Unrecognised text from an allowed app (Phase 6 step 6) is **not** sent: the texts never
+  leave the phone. Only the capture export shows what the parsers missed.
 - [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
   `.debug` package; left alone because another session owns that file.
 - [ ] Brokerage operations from notifications (owner, 2026-10-17; plan in
@@ -115,10 +115,6 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   Investimentos detection becomes a "Registrar operação" suggestion cash linked to the brokerage
   account; `POST /api/investments` needs a `client_id` first. The owner needs a BRL account for
   the brokerage in Ajustes › Contas.
-- [ ] Owner's call — "every transaction automatically set up" (2026-10-17) against the standing
-  decision "Always confirm: nothing is recorded on its own" (steps-to-production, decisions
-  table). Kept as confirm until the owner says otherwise; one tap on Confirmar in the app's own
-  notification records it with the app closed.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
 
 ### Investments separate from banking — what is left

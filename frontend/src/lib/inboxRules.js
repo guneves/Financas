@@ -34,7 +34,7 @@ export function sourceLabel(source) {
   const app = source.app_label || source.app || 'Notificação'
   const kind = KIND_LABELS[source.kind]
   const card = source.card_last4 ? `final ${source.card_last4}` : source.card_name || ''
-  return [`Notificação ${app}`, kind, card].filter(Boolean).join(' · ')
+  return [`Notificação ${app}`, kind, card, source.counterparty || ''].filter(Boolean).join(' · ')
 }
 
 // "via Samsung Wallet" quando so o Samsung avisou: o banco nao notificou.
@@ -105,6 +105,8 @@ export function reasonText(item) {
       return 'Parece uma transferência, um pagamento de fatura ou um movimento da carteira que já está no app. Se for, toque em "É este".'
     case 'own_transfer':
       return 'Entre suas contas: entra como transferência e não conta como entrada nem saída.'
+    case 'external_transfer':
+      return 'Com outra pessoa: entra como despesa ou receita. Se foi entre suas contas, troque para transferência — o app lembra da próxima vez.'
     default:
       return ''
   }

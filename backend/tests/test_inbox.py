@@ -333,8 +333,14 @@ class TestTheOwnerDecides:
                   "account_id": one_account},
             headers=auth,
         )
+        # Lembrado ou nao, o que a notificacao trouxe passa pelo Aprovar: o
+        # lancamento digitado vem como candidato, e o dono diz que e o mesmo.
         [result] = send(client, auth, detection(kind="DEBIT_PURCHASE", amount_cents=2000, at=ms(2026, 10, 12)))
-        assert result["status"] == "matched"
+        assert result["status"] == "new"
+        [second] = pending(client, auth)
+        assert second["reason"] == "possible_duplicate"
+        assert len(second["candidates"]) == 1
+        approve(client, auth, second, candidate={"table": "transactions", "id": second["candidates"][0]["id"]})
         assert pending(client, auth) == []
         # A notificacao ja explicou o primeiro: uma segunda de mesmo valor nao o rouba.
         [again] = send(client, auth, detection(kind="DEBIT_PURCHASE", at=ms(2026, 10, 10, 15)))

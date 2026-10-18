@@ -63,6 +63,9 @@ SAMSUNG_WALLET = "com.samsung.android.spay"
 # Mesma janela de NotifyPairing.DEFAULT_WINDOW_MS (10 min, inclusiva), a ser
 # ajustada pelo atraso que a captura do dono mostrar.
 NOTIFY_WINDOW_MS = 10 * 60 * 1000
+# Uma notificacao repostada pelo proprio app chega em milissegundos; duas
+# compras iguais no mesmo segundo nao acontecem.
+REPEAT_WINDOW_MS = 60 * 1000
 # As duas pontas de uma transferencia entre contas proprias: Pix e TED caem no
 # mesmo dia; um dia de folga cobre a virada da meia-noite e o D+1 do banco.
 TRANSFER_MATCH_DAYS = 1
@@ -137,6 +140,11 @@ OUT_OF_REACH_SOURCES = {
 
 PACKAGE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
 LAST4_PATTERN = re.compile(r"^\d{4}$")
+# Os digitos que o banco deixa ver de um CPF/CNPJ mascarado ("***.378.195-**").
+DOC_PATTERN = re.compile(r"^\d{3,14}$")
+# Quem e o dono do outro lado de um Pix (031): aprendido, nunca digitado.
+SELF_DOC_PREFIX = "self:doc:"
+SELF_NAME_PREFIX = "self:name:"
 # 2020-01-01 a 2100-01-01: um posted_ms fora disso e lixo, nao uma data.
 MIN_POSTED_MS = 1_577_836_800_000
 MAX_POSTED_MS = 4_102_444_800_000
@@ -279,6 +287,80 @@ def transfer_hint_key(account_id, direction, description):
     return f"transfer:{account_id}:{direction}:{text}"
 
 
+def detection_description(detection):
+    """A descricao do rascunho: o estabelecimento; num Pix sem ele, quem esta
+    do outro lado ("Pix para Fulano", "Transferência de Fulano")."""
+    if detection.get("merchant"):
+        return detection["merchant"]
+    name = detection.get("counterparty")
+    if not name or detection.get("kind") not in MOVEMENT_KINDS:
+        return None
+    label = "Pix" if detection["kind"].startswith("PIX") else "Transferência"
+    preposition = "para" if KIND_SHAPES[detection["kind"]][0] == "OUT" else "de"
+    return f"{label} {preposition} {name}"
+
+
+def issuer_of_institution(text):
+    """O emissor (itau, bb, btg) do nome da instituicao que a notificacao deu."""
+    if not text:
+        return None
+    found = [issuer for issuer, aliases in ISSUER_ALIASES.items() if _mentions(text, aliases)]
+    return found[0] if len(found) == 1 else None
+
+
+def _first_name(value):
+    words = normalized(value).split()
+    return words[0] if words else ""
+
+
+def counterparties_conflict(a, b):
+    """Duas pontas que nao podem ser a mesma pessoa: CPFs diferentes, ou
+    primeiros nomes diferentes. Numa transferencia entre contas do dono, a
+    saida diz "para <dono>" e a entrada "de <dono>": o outro lado e o mesmo."""
+    if a.get("counterparty_doc") and b.get("counterparty_doc"):
+        return a["counterparty_doc"] != b["counterparty_doc"]
+    first_a, first_b = _first_name(a.get("counterparty")), _first_name(b.get("counterparty"))
+    return bool(first_a and first_b and first_a != first_b)
+
+
+def self_keys(detection):
+    keys = []
+    if detection.get("counterparty_doc"):
+        keys.append(SELF_DOC_PREFIX + detection["counterparty_doc"])
+    name = normalized(detection.get("counterparty"))
+    if name:
+        keys.append(SELF_NAME_PREFIX + name)
+    return keys
+
+
+def is_self_counterparty(conn, current_user_id, detection):
+    """O outro lado deste Pix e o proprio dono (aprendido de uma transferencia
+    que ele ja teve entre as contas)? Pelo CPF quando a notificacao o mostra;
+    pelo nome so quando ela nao mostra CPF nenhum."""
+    if detection.get("kind") not in MOVEMENT_KINDS:
+        return False
+    if detection.get("counterparty_doc"):
+        return fetch_hint(conn, current_user_id, SELF_DOC_PREFIX + detection["counterparty_doc"]) is not None
+    name = normalized(detection.get("counterparty"))
+    return bool(name) and fetch_hint(conn, current_user_id, SELF_NAME_PREFIX + name) is not None
+
+
+def learn_self(conn, current_user_id, detections):
+    """Lembra o outro lado destas pontas como o dono (CPF e nome)."""
+    for detection in detections:
+        if detection.get("kind") not in MOVEMENT_KINDS:
+            continue
+        for key in self_keys(detection):
+            remember(conn, current_user_id, key, detection.get("counterparty"), entry_type="TRANSFER")
+
+
+def _movement_sources(conn, current_user_id, item_id):
+    return [
+        row_to_dict(row) for row in item_detections(conn, current_user_id, item_id)
+        if row["role"] == SOURCE and row["kind"] in MOVEMENT_KINDS
+    ]
+
+
 def kinds_match(a, b):
     """Credito, debito e compra sem metodo pareiam entre si (o Samsung pode nao
     saber qual foi); a negada, com compra; o resto, so com o mesmo kind."""
@@ -356,7 +438,9 @@ def parse_detection(raw):
     Campos: key (o dedupKey da notificacao), app (pacote), kind, amount_cents,
     currency, posted_ms, when_ms (Notification.when, opcional),
     utc_offset_minutes (o fuso do celular), merchant, card_last4, card_name,
-    issuer, installments.
+    issuer, installments; num Pix ou transferencia, counterparty (o nome do
+    outro lado), counterparty_doc (os digitos visiveis do CPF mascarado) e
+    counterparty_bank (a instituicao do outro lado, como o banco escreveu).
     """
     if not isinstance(raw, dict):
         raise ValidationError("Deteccao invalida.")
@@ -394,6 +478,9 @@ def parse_detection(raw):
         raise ValidationError("Emissor invalido.")
     installments = raw.get("installments")
     installments = 1 if installments in (None, "") else _int(installments, "Parcelas", minimum=1, maximum=72)
+    counterparty_doc = re.sub(r"\D", "", str(raw.get("counterparty_doc") or "")) or None
+    if counterparty_doc and not DOC_PATTERN.match(counterparty_doc):
+        raise ValidationError("Documento do outro lado invalido.")
     return {
         "key": key,
         "app": app,
@@ -408,6 +495,9 @@ def parse_detection(raw):
         "card_name": _short_text(raw, "card_name", 80),
         "issuer": issuer,
         "installments": installments,
+        "counterparty": _short_text(raw, "counterparty", 120) if kind in MOVEMENT_KINDS else None,
+        "counterparty_doc": counterparty_doc if kind in MOVEMENT_KINDS else None,
+        "counterparty_bank": _short_text(raw, "counterparty_bank", 80) if kind in MOVEMENT_KINDS else None,
     }
 
 
@@ -767,16 +857,28 @@ def _brl_active_account(conn, current_user_id, account_id):
     ).fetchone()
 
 
-def transfer_partner(conn, current_user_id, *, account_id, direction, cents, date_text):
+def _side_need(direction):
+    """O campo de uma transferencia que a ponta desta direcao preenche."""
+    return "account" if direction == "OUT" else "transfer_account"
+
+
+def transfer_partner(conn, current_user_id, *, account_id, direction, cents, date_text, detection=None):
     """O item pendente que e a outra ponta de uma transferencia entre contas do
     dono: saida numa conta e entrada noutra (ou o contrario), mesmo valor, ate
-    TRANSFER_MATCH_DAYS dias; ou uma transferencia pendente sem esta ponta."""
+    TRANSFER_MATCH_DAYS dias; ou uma transferencia pendente sem esta ponta (a
+    conta deste lado vazia, palpite, ou esta mesma). Uma ponta cujo outro lado
+    contradiz o desta (`detection`: outro CPF, outro nome) nao e o par."""
     if not account_id or not _brl_active_account(conn, current_user_id, account_id):
         return None
     other_direction = "IN" if direction == "OUT" else "OUT"
     found = []
     for row in _pending_items(conn, current_user_id, cents=cents, date_text=date_text, days=TRANSFER_MATCH_DAYS):
         if int(row["installments"] or 1) != 1 or _cents(row["amount"]) != cents:
+            continue
+        if detection and any(
+            counterparties_conflict(detection, source)
+            for source in _movement_sources(conn, current_user_id, row["id"])
+        ):
             continue
         edited = set(_jlist(row["edited"]))
         if row["entry_type"] in ("EXPENSE", "INCOME"):
@@ -788,8 +890,15 @@ def transfer_partner(conn, current_user_id, *, account_id, direction, cents, dat
                 continue
             found.append(row)
         elif row["entry_type"] == "TRANSFER":
-            side_account = row["transfer_account_id"] if direction == "IN" else row["account_id"]
-            if side_account != account_id:
+            side_field = FIELD_OF_NEED[_side_need(direction)]
+            other_field = FIELD_OF_NEED[_side_need(other_direction)]
+            side_account = row[side_field]
+            side_open = side_account is None or (
+                _side_need(direction) in _jlist(row["guessed"]) and side_field not in edited
+            )
+            if side_account != account_id and not side_open:
+                continue
+            if row[other_field] == account_id:
                 continue
             if direction in _source_directions(conn, current_user_id, row["id"]):
                 continue
@@ -799,9 +908,26 @@ def transfer_partner(conn, current_user_id, *, account_id, direction, cents, dat
 
 def make_transfer(conn, current_user_id, item, *, account_id, direction, guessed=False):
     """O item vira transferencia: a nova ponta (account_id, direction) entra.
-    `guessed`: a conta da nova ponta e um palpite (o dono confirma)."""
+    `guessed`: a conta da nova ponta e um palpite (o dono confirma). Num item
+    que ja e transferencia (de uma ponta so, o outro lado reconhecido como o
+    dono), a nova ponta preenche o lado dela."""
     if item["entry_type"] == "TRANSFER":
-        return item
+        need = _side_need(direction)
+        field = FIELD_OF_NEED[need]
+        if field in set(item.get("edited") or []):
+            return item
+        changes = {field: account_id}
+        guesses = [value for value in item.get("guessed") or [] if value != need]
+        if guessed:
+            guesses.append(need)
+        changes["guessed"] = guesses
+        changes["needs"] = recompute_needs({**item, **changes})
+        if "description" not in set(item.get("edited") or []):
+            merged = {**item, **changes}
+            changes["description"] = _transfer_description(
+                conn, current_user_id, merged["account_id"], merged["transfer_account_id"], item.get("description"),
+            )
+        return save_item(conn, current_user_id, item, changes)
     if direction == "OUT":
         origin, destination = account_id, item["account_id"]
     else:
@@ -818,11 +944,9 @@ def make_transfer(conn, current_user_id, item, *, account_id, direction, guessed
     if "category" not in edited:
         changes.update({"category": TRANSFER_CATEGORY, "category_id": None})
     if "description" not in edited:
-        names = [
-            (_brl_active_account(conn, current_user_id, value) or {"name": "?"})["name"]
-            for value in (origin, destination)
-        ]
-        changes["description"] = f"{names[0]} -> {names[1]}"
+        changes["description"] = _transfer_description(
+            conn, current_user_id, origin, destination, item.get("description"),
+        )
     merged = {**item, **changes}
     changes["needs"] = recompute_needs(merged)
     # Um palpite continua palpite do lado em que estava: o dono confirma.
@@ -833,6 +957,32 @@ def make_transfer(conn, current_user_id, item, *, account_id, direction, guessed
         guesses.append("account" if direction == "OUT" else "transfer_account")
     changes["guessed"] = guesses
     return save_item(conn, current_user_id, item, changes)
+
+
+def _transfer_description(conn, current_user_id, origin, destination, fallback=None):
+    """"Origem -> Destino" com os nomes das contas; com um lado so, o que a
+    notificacao disse."""
+    if not origin or not destination:
+        return fallback
+    names = [
+        (_brl_active_account(conn, current_user_id, value) or {"name": "?"})["name"]
+        for value in (origin, destination)
+    ]
+    return f"{names[0]} -> {names[1]}"
+
+
+def guess_other_side(conn, current_user_id, detection, own_account_id):
+    """A conta do dono do outro lado de uma transferencia de uma ponta so: a
+    unica conta ativa em reais da instituicao que a notificacao citou."""
+    issuer = issuer_of_institution(detection.get("counterparty_bank"))
+    if not issuer:
+        return None
+    found = [
+        row for row in _active_accounts(conn, current_user_id)
+        if row["id"] != own_account_id and (row["currency"] or "BRL") == "BRL"
+        and (_mentions(row["name"], ISSUER_ALIASES[issuer]) or _mentions(row["institution"], ISSUER_ALIASES[issuer]))
+    ]
+    return found[0]["id"] if len(found) == 1 else None
 
 
 def remembered_transfer(conn, current_user_id, *, account_id, direction, description):
@@ -1045,6 +1195,9 @@ def _insert_detection(conn, current_user_id, detection, role, **extra):
         "card_last4": detection["card_last4"],
         "card_name": detection["card_name"],
         "issuer": detection["issuer"],
+        "counterparty": detection.get("counterparty"),
+        "counterparty_doc": detection.get("counterparty_doc"),
+        "counterparty_bank": detection.get("counterparty_bank"),
         "role": role,
     }
     row.update(extra)
@@ -1092,6 +1245,14 @@ def ingest_detection(conn, current_user_id, detection, rules=None):
     if known:
         return {"key": detection["key"], "status": "known", "item_id": known["item_id"]}
 
+    repeated = _repeated_posting(conn, current_user_id, detection)
+    if repeated:
+        _insert_detection(
+            conn, current_user_id, detection, PAIRED, paired_with=repeated["id"], item_id=repeated["item_id"],
+            target_table=repeated["target_table"], target_id=repeated["target_id"],
+        )
+        return {"key": detection["key"], "status": "repeated", "item_id": repeated["item_id"]}
+
     samsung = detection["app"] == SAMSUNG_WALLET
     detection["issuer"] = detection["issuer"] or ISSUER_OF_APP.get(detection["app"])
 
@@ -1123,6 +1284,32 @@ def ingest_detection(conn, current_user_id, detection, rules=None):
             return _join_partner(conn, current_user_id, detection, partner, newcomer_wins=True, rules=rules)
 
     return _ingest_alone(conn, current_user_id, detection, rules)
+
+
+def _repeated_posting(conn, current_user_id, detection):
+    """A mesma notificacao postada de novo pelo app (o BTG posta cada compra
+    duas vezes, 24 ms uma da outra, com o mesmo Notification.when): mesmo app,
+    tipo, valor, hora do evento e estabelecimento, ate REPEAT_WINDOW_MS. Outro
+    dedupKey (outra hora de postagem), mas o mesmo aviso: nao e outra compra."""
+    rows = conn.execute(
+        """
+        SELECT * FROM notify_detections
+        WHERE user_id = ? AND app = ? AND kind = ? AND amount_cents = ? AND occurred_at = ?
+          AND posted_ms BETWEEN ? AND ? AND paired_with IS NULL
+        ORDER BY posted_ms, id
+        """,
+        (
+            current_user_id, detection["app"], detection["kind"], detection["amount_cents"],
+            detection["occurred_at"], detection["posted_ms"] - REPEAT_WINDOW_MS,
+            detection["posted_ms"] + REPEAT_WINDOW_MS,
+        ),
+    ).fetchall()
+    for row in rows:
+        if (row["merchant"] or "") == (detection.get("merchant") or "") and (
+            row["counterparty_doc"] or ""
+        ) == (detection.get("counterparty_doc") or ""):
+            return row_to_dict(row)
+    return None
 
 
 def _ingest_declined(conn, current_user_id, detection, samsung):
@@ -1221,17 +1408,28 @@ def _ingest_alone(conn, current_user_id, detection, rules):
             return {"key": detection["key"], "status": "matched", "item_id": approved["id"]}
         partner = transfer_partner(
             conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,
-            date_text=date_of(when),
+            date_text=date_of(when), detection=detection,
         )
         if partner:
+            others = _movement_sources(conn, current_user_id, partner["id"])
             _insert_detection(conn, current_user_id, detection, SOURCE, item_id=partner["id"])
             item = make_transfer(
                 conn, current_user_id, item_dict(partner), account_id=target["account_id"], direction=direction,
                 guessed="account" in target["guessed"],
             )
+            # Saida "para X" e entrada "de X" do mesmo valor, entre duas contas
+            # do dono: X e o dono. Da proxima vez, uma ponta so ja basta.
+            if any(
+                (detection.get("counterparty_doc") or detection.get("counterparty"))
+                and (other.get("counterparty_doc") or other.get("counterparty"))
+                for other in others
+            ):
+                learn_self(conn, current_user_id, [detection, *others])
             return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
 
-    # 2. Um lancamento ja gravado (o dono digitou antes do aviso chegar).
+    # 2. Um item novo, com os lancamentos parecidos ja gravados (o dono pode
+    # ter digitado antes do aviso chegar): ele decide no Aprovar se e o mesmo.
+    # Nada que uma notificacao trouxe se resolve sem passar por la.
     candidates = existing_rows(
         conn, current_user_id, entry_type=target["entry_type"], direction=direction, cents=cents,
         date_text=date_of(when),
@@ -1239,14 +1437,6 @@ def _ingest_alone(conn, current_user_id, detection, rules):
         card_id=target["card_id"] if target["remembered"] else None,
         for_notification=True,
     )
-    if target["remembered"] and len(candidates) == 1 and candidates[0]["kind"] in ("entry", "card_purchase"):
-        chosen = candidates[0]
-        _insert_detection(
-            conn, current_user_id, detection, "MATCHED", target_table=chosen["table"], target_id=chosen["id"],
-        )
-        return {"key": detection["key"], "status": "matched", "item_id": None}
-
-    # 3. Um item novo.
     item_id = new_item_for_detection(conn, current_user_id, detection, target, candidates, rules)
     _insert_detection(conn, current_user_id, detection, SOURCE, item_id=item_id)
     return {"key": detection["key"], "status": "new", "item_id": item_id}
@@ -1273,7 +1463,7 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
         "currency": detection["currency"],
         "installments": detection["installments"] if target["entry_type"] in (None, "CARD") else 1,
         "occurred_at": detection["occurred_at"],
-        "description": detection["merchant"],
+        "description": detection_description(detection),
         "account_id": target["account_id"],
         "card_id": target["card_id"],
         "transfer_account_id": target["transfer_account_id"],
@@ -1283,10 +1473,11 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
         "candidates": candidates,
         "client_key": detection["key"],
     }
+    hint = None
     if detection["kind"] in MOVEMENT_KINDS and target["account_id"]:
         hint = remembered_transfer(
             conn, current_user_id, account_id=target["account_id"], direction=direction,
-            description=detection["merchant"],
+            description=detection_description(detection),
         )
         if hint:
             other = hint["transfer_account_id"]
@@ -1300,6 +1491,34 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
                 "guessed": (["account" if direction == "OUT" else "transfer_account"]
                             if "account" in target["guessed"] else []),
             })
+    if detection["kind"] in MOVEMENT_KINDS and not hint:
+        if is_self_counterparty(conn, current_user_id, detection):
+            # So esta ponta notificou (a outra conta e de um banco que o app nao
+            # ouve, ou ainda vai chegar): transferencia, o outro lado pela
+            # instituicao citada, ou o dono escolhe.
+            own = target["account_id"]
+            other = guess_other_side(conn, current_user_id, detection, own)
+            guesses = []
+            if "account" in target["guessed"]:
+                guesses.append(_side_need(direction))
+            if other:
+                guesses.append(_side_need("IN" if direction == "OUT" else "OUT"))
+            origin, destination = (own, other) if direction == "OUT" else (other, own)
+            values.update({
+                "entry_type": "TRANSFER",
+                "direction": "OUT",
+                "account_id": origin,
+                "transfer_account_id": destination,
+                "card_id": None,
+                "reason": "own_transfer" if values["reason"] == "new" else values["reason"],
+                "guessed": guesses,
+                "description": _transfer_description(
+                    conn, current_user_id, origin, destination, values["description"],
+                ),
+            })
+        elif detection.get("counterparty") or detection.get("counterparty_doc"):
+            if values["reason"] == "new":
+                values["reason"] = "external_transfer"
     values["category"], values["category_id"] = suggest_category(
         conn, current_user_id, values["description"], values["entry_type"], values["amount"],
         values["account_id"], rules,
@@ -1435,6 +1654,8 @@ def serialize_item(conn, current_user_id, row, names=None):
             "merchant": detection["merchant"],
             "card_last4": detection["card_last4"],
             "card_name": detection["card_name"],
+            "counterparty": detection["counterparty"],
+            "counterparty_bank": detection["counterparty_bank"],
             "received_at": detection["created_at"],
         })
     item["sources"] = sources

@@ -329,8 +329,9 @@ def _source_description(conn, current_user_id, item):
     """A descricao como a fonte disse (o estabelecimento da notificacao), para
     a chave lembrada de uma transferencia."""
     for row in inbox.item_detections(conn, current_user_id, item["id"]):
-        if row["merchant"]:
-            return row["merchant"]
+        description = inbox.detection_description(inbox.detection_from_row(row))
+        if description:
+            return description
     return item.get("description")
 
 
@@ -367,6 +368,9 @@ def remember_choice(conn, current_user_id, item, before):
                     entry_type=side_type, account_id=side_account,
                 )
                 remembered.append(side_key)
+        # O dono disse que e entre as contas dele: quem a notificacao citou do
+        # outro lado e ele mesmo (031), e o proximo Pix assim ja vem transferencia.
+        inbox.learn_self(conn, current_user_id, inbox._movement_sources(conn, current_user_id, item["id"]))
         sides = inbox._source_directions(conn, current_user_id, item["id"])
         if len(sides) == 1:
             side = next(iter(sides))

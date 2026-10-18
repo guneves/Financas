@@ -1,0 +1,212 @@
+package br.financas.app.notify;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+
+import java.util.TimeZone;
+
+import org.json.JSONObject;
+import org.junit.Test;
+
+/**
+ * Os parsers (NotifyParsers) contra a captura do dono de 2026-10-17: os textos sao os que os
+ * bancos mandaram, com o nome e os digitos do CPF trocados. Os casos sem captura ainda (credito
+ * com final, negada, estorno, saldo no texto) seguem as variacoes que o plano da Fase 6 lista.
+ */
+public class NotifyParsersTest {
+
+    private static final String BB = "br.com.bb.android";
+    private static final String ITAU = "com.itau";
+    private static final String BTG = "com.btg.pactual.banking";
+    private static final String SAMSUNG = "com.samsung.android.spay";
+
+    private static NotifyRules.Captured row(String pkg, String title, String text) {
+        NotifyRules.Captured row = new NotifyRules.Captured();
+        row.packageName = pkg;
+        row.key = "0|" + pkg + "|1|null|10000";
+        row.postedAt = 1_792_221_114_222L;
+        row.when = 1_792_221_114_217L;
+        row.title = title;
+        row.text = text;
+        row.bigText = text;
+        return row;
+    }
+
+    /** O BTG deixa text e bigText vazios e poe a mensagem em android.infoText. */
+    private static NotifyRules.Captured btg(String title, String info) {
+        NotifyRules.Captured row = row(BTG, title, null);
+        row.extras.put("android.infoText", info);
+        row.extras.put("android.subText", "");
+        return row;
+    }
+
+    // --- A captura ------------------------------------------------------------------------
+
+    @Test
+    public void bancoDoBrasilPixSent() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(BB, "Pix Enviado",
+            "Pix de R$  0,01 enviado da conta Corrente para Fulano R Silva, Instituição BANCO BTG PACTUAL S., às 04:11."));
+        assertEquals(NotifyParsers.PIX_OUT, parsed.kind);
+        assertEquals(1, parsed.amountCents);
+        assertEquals("Fulano R Silva", parsed.counterparty);
+        assertEquals("BANCO BTG PACTUAL S", parsed.counterpartyBank);
+        assertNull(parsed.counterpartyDoc);
+        assertNull(parsed.merchant);
+    }
+
+    @Test
+    public void bancoDoBrasilPixSentToItau() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(BB, "Pix Enviado",
+            "Pix de R$  1.250,00 enviado da conta Corrente para Fulano R Silva, Instituição ITAÚ UNIBANCO S.A., às 04:28."));
+        assertEquals(125_000, parsed.amountCents);
+        assertEquals("ITAÚ UNIBANCO S.A", parsed.counterpartyBank);
+    }
+
+    @Test
+    public void btgPixReceivedLivesInInfoText() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(btg("Pix Recebido",
+            "Você recebeu um Pix de Fulano N Souza Silva ***.123.456-** no valor de R$ 0,01."));
+        assertEquals(NotifyParsers.PIX_IN, parsed.kind);
+        assertEquals(1, parsed.amountCents);
+        assertEquals("Fulano N Souza Silva", parsed.counterparty);
+        assertEquals("123456", parsed.counterpartyDoc);
+    }
+
+    @Test
+    public void itauPixReceived() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Pix recebido",
+            "Você recebeu R$ 0,01 de FULANO, CPF XXX.123.456-XX."));
+        assertEquals(NotifyParsers.PIX_IN, parsed.kind);
+        assertEquals("FULANO", parsed.counterparty);
+        assertEquals("123456", parsed.counterpartyDoc);
+    }
+
+    @Test
+    public void itauPixSent() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Feito. Pix enviado",
+            "Você enviou R$ 0,01 para FULANO, CPF XXX.123.456-XX."));
+        assertEquals(NotifyParsers.PIX_OUT, parsed.kind);
+        assertEquals("FULANO", parsed.counterparty);
+        assertEquals("123456", parsed.counterpartyDoc);
+    }
+
+    @Test
+    public void btgPurchaseWithoutCreditOrDebit() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(btg("Compra autorizada",
+            "Sua compra de R$ 19,58 em Drogaria São Paulo foi autorizada."));
+        assertEquals(NotifyParsers.PURCHASE, parsed.kind);
+        assertEquals(1958, parsed.amountCents);
+        assertEquals("Drogaria São Paulo", parsed.merchant);
+        assertNull(parsed.counterparty);
+    }
+
+    @Test
+    public void samsungInstallingIsNothing() {
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Samsung Wallet", "Instalando…")));
+        NotifyRules.Captured summary = row(SAMSUNG, null, null);
+        summary.bigText = null;
+        summary.groupSummary = true;
+        assertNull(NotifyParsers.parse(summary));
+    }
+
+    // --- O que o plano manda esperar -------------------------------------------------------
+
+    @Test
+    public void creditPurchaseWithCardAndInstallments() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra aprovada no cartão Itaú Click final 1234 de R$ 300,00 em 3x em LOJA EXEMPLO às 16h30."));
+        assertEquals(NotifyParsers.PURCHASE, parsed.kind);
+        assertEquals("1234", parsed.cardLast4);
+        assertEquals(3, parsed.installments);
+        assertEquals(30_000, parsed.amountCents);
+        assertEquals("LOJA EXEMPLO", parsed.merchant);
+    }
+
+    @Test
+    public void creditAndDebitAreRead() {
+        assertEquals(NotifyParsers.CREDIT_PURCHASE, NotifyParsers.parse(row(BB, "Compra no crédito",
+            "Compra de R$ 45,90 aprovada em PADARIA BOM PAO, cartão final 9876.")).kind);
+        assertEquals(NotifyParsers.DEBIT_PURCHASE, NotifyParsers.parse(row(BB, "Compra no débito",
+            "Compra de R$ 45,90 aprovada em PADARIA BOM PAO.")).kind);
+    }
+
+    @Test
+    public void declinedComesBeforePurchase() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(btg("Compra não autorizada",
+            "Sua compra de R$ 19,58 em Drogaria São Paulo não foi autorizada."));
+        assertEquals(NotifyParsers.DECLINED, parsed.kind);
+    }
+
+    @Test
+    public void refundComesBeforePurchase() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(btg("Estorno",
+            "O estorno da compra de R$ 19,58 em Drogaria São Paulo foi feito."));
+        assertEquals(NotifyParsers.REFUND, parsed.kind);
+        assertEquals("Drogaria São Paulo", parsed.merchant);
+    }
+
+    @Test
+    public void theAmountIsNotTheBalance() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra de R$ 25,00 em MERCADO. Limite disponível R$ 1.975,00."));
+        assertEquals(2500, parsed.amountCents);
+        parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Seu saldo é R$ 900,00. Compra de R$ 25,00 em MERCADO."));
+        assertEquals(2500, parsed.amountCents);
+    }
+
+    @Test
+    public void anAmountWithoutMerchantIsStillADetection() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada", "Compra aprovada de R$ 12,00."));
+        assertEquals(1200, parsed.amountCents);
+        assertNull(parsed.merchant);
+    }
+
+    @Test
+    public void samsungIsCardOnly() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(SAMSUNG, "MERCADO BOM PRECO", "R$ 25,90 · Compra aprovada"));
+        assertEquals(NotifyParsers.PURCHASE, parsed.kind);
+        assertEquals("MERCADO BOM PRECO", parsed.merchant);
+        // Pix nao e com o Samsung Wallet, nem estorno.
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Pix", "Você enviou R$ 10,00 para FULANO.")));
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Estorno", "Estorno de R$ 10,00.")));
+    }
+
+    @Test
+    public void nonMoneyNotificationsAreIgnored() {
+        assertNull(NotifyParsers.parse(row(ITAU, "Sua fatura fechou", "A fatura de R$ 1.200,00 está disponível.")));
+        assertNull(NotifyParsers.parse(row(BB, "Novidade", "Conheça o novo app.")));
+        assertNull(NotifyParsers.parse(row(BTG, "Pix agendado", "Seu Pix de R$ 10,00 para FULANO está agendado.")));
+    }
+
+    @Test
+    public void transfersWithoutPix() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(BB, "TED recebida",
+            "Você recebeu uma transferência de R$ 500,00 de EMPRESA LTDA."));
+        assertEquals(NotifyParsers.TRANSFER_IN, parsed.kind);
+        assertEquals("EMPRESA LTDA", parsed.counterparty);
+    }
+
+    // --- O que vai para o servidor ----------------------------------------------------------
+
+    @Test
+    public void theDetectionCarriesOnlyReadFields() throws Exception {
+        NotifyRules.Captured captured = row(ITAU, "Feito. Pix enviado",
+            "Você enviou R$ 0,01 para FULANO, CPF XXX.123.456-XX.");
+        JSONObject body = NotifyParsers.toDetection(captured, NotifyParsers.parse(captured),
+            TimeZone.getTimeZone("America/Bahia"));
+        assertEquals(captured.dedupKey(), body.getString("key"));
+        assertEquals(ITAU, body.getString("app"));
+        assertEquals("PIX_OUT", body.getString("kind"));
+        assertEquals(1, body.getLong("amount_cents"));
+        assertEquals(captured.when, body.getLong("when_ms"));
+        assertEquals(-180, body.getInt("utc_offset_minutes"));
+        assertEquals("123456", body.getString("counterparty_doc"));
+        assertFalse(body.has("merchant"));
+        // O texto nunca vai.
+        assertFalse(body.toString().contains("enviou"));
+        assertNotNull(body.optString("counterparty", null));
+    }
+}

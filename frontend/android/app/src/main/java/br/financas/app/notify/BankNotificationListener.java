@@ -8,16 +8,19 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
+import java.util.TimeZone;
+
 import br.financas.app.BuildConfig;
 
 /**
  * O leitor de notificacoes dos bancos (mobile-docs/steps-to-production.md, Fase 6). O Android
  * o liga quando o dono permite o acesso as notificacoes e o mantem ligado com o app fechado.
  *
- * So apps da lista (NotifyRules.APPS) passam; o resto e descartado sem ler o texto. Hoje nao ha
- * parser: com a captura desligada o leitor nao guarda nada, e com ela ligada guarda cada
- * notificacao inteira na tabela do aparelho (NotifyStore), para escrever os parsers contra o
- * texto real. Nada sai do aparelho por aqui.
+ * So apps da lista (NotifyRules.APPS) passam; o resto e descartado sem ler o texto. Cada uma
+ * passa pelo parser (NotifyParsers): a que fala de dinheiro vira uma deteccao na fila do Aprovar
+ * (DetectionQueue), so com os campos lidos, e DetectionWorker a manda ao servidor. Com a captura
+ * ligada, a notificacao inteira tambem fica na tabela do aparelho (NotifyStore), para escrever e
+ * corrigir os parsers contra o texto real; o texto nunca sai do aparelho por aqui.
  *
  * Num build debug o shell do adb tambem passa: `adb shell cmd notification post -S bigtext -t
  * "<titulo>" <tag> "<texto>"` testa o caminho inteiro sem uma compra. Num build release, nao.
@@ -32,15 +35,13 @@ public class BankNotificationListener extends NotificationListenerService {
         NotifySettings.markConnected(this, now);
         NotifyEvents.changed();
         // O que chegou enquanto o leitor estava desligado (APK novo, processo morto) e ainda
-        // esta na bandeja. A chave unica impede a segunda linha do que ja foi guardado.
-        if (!NotifySettings.isCaptureOn(this)) return;
-        long since = NotifySettings.captureSince(this);
+        // esta na bandeja. A chave unica impede a segunda linha (e a segunda deteccao) do que ja
+        // foi lido; o servidor tambem reconhece a chave.
+        DetectionWorker.schedule(this);
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active == null) return;
-            for (StatusBarNotification sbn : active) {
-                if (sbn.getPostTime() >= since) keep(sbn, NotifyRules.VIA_ACTIVE);
-            }
+            for (StatusBarNotification sbn : active) keep(sbn, NotifyRules.VIA_ACTIVE);
         } catch (RuntimeException error) {
             Log.w(TAG, "Nao foi possivel ler a bandeja ao religar", error);
         }
@@ -67,11 +68,29 @@ public class BankNotificationListener extends NotificationListenerService {
             if (BuildConfig.DEBUG) Log.d(TAG, "Fora da lista: " + packageName);
             return;
         }
+        NotifyRules.Captured row = read(sbn, via);
+        detect(row);
         if (!NotifySettings.isCaptureOn(this)) return;
         try {
-            if (NotifyStore.get(this).insert(read(sbn, via))) NotifyEvents.changed();
+            if (NotifyStore.get(this).insert(row)) NotifyEvents.changed();
         } catch (RuntimeException error) {
             Log.w(TAG, "Nao foi possivel guardar a notificacao de " + packageName, error);
+        }
+    }
+
+    /**
+     * O parser le toda notificacao da lista, captura ligada ou nao; o que fala de dinheiro vai
+     * para a fila do Aprovar (so os campos lidos) e o envio e agendado.
+     */
+    private void detect(NotifyRules.Captured row) {
+        try {
+            NotifyParsers.Parsed parsed = NotifyParsers.parse(row);
+            if (parsed == null) return;
+            if (DetectionQueue.get(this).add(NotifyParsers.toDetection(row, parsed, TimeZone.getDefault()))) {
+                DetectionWorker.schedule(this);
+            }
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Nao foi possivel ler a notificacao de " + row.packageName, error);
         }
     }
 

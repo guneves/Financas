@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1082 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1097 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -129,7 +129,7 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -347,18 +347,39 @@ mobile-docs/
   the export (share sheet); never send them to the server or a third party. The listener
   deduplicates only the same posting (`dedupKey`: package + key + posted time). Samsung Wallet is
   heard again (owner, 2026-10-17, later the same day) as a **fallback**: the bank app's notification
-  wins, Samsung's counts only when no bank notification for that purchase arrives. The rule is
-  `notify/NotifyPairing.java` (pure, JVM-tested, **not wired yet** — it needs the parsers): Samsung
-  pairs with a bank app only, one to one, same amount in cents, a card neither side contradicts,
-  within the window; a Samsung detection is HELD and promoted when the window closes; every
-  detection of a purchase carries the first one's `groupClientId`, which is the entry's
-  `client_id` (not the detection's own `dedupKey`). Itaú Cartões and Ourocard stay
-  off (they repeat the bank apps), so don't add them back. Parsers are written against
-  exported captures, never against examples from the web.
+  wins, Samsung's counts only when no bank notification for that purchase arrives, and Samsung
+  only ever yields card purchases (never Pix, transfer or estorno). The pairing runs **on the
+  server** (`services/inbox.py`, `same_purchase()`: one to one, same amount in cents, a card
+  neither side contradicts, within `NOTIFY_WINDOW_MS`; only the bank's decline cancels);
+  `notify/NotifyPairing.java` is the same rule, JVM-tested, and stays unwired because the phone
+  sends every detection at once. Itaú Cartões and Ourocard stay off (they repeat the bank apps),
+  so don't add them back. Parsers are written against exported captures, never against examples
+  from the web.
+- **Every money notification goes to Aprovar, as parsed fields only** (2026-10-17). The listener
+  hands every allowed notification to `notify/NotifyParsers.java` (pure, `NotifyParsersTest`),
+  capture on or off; a detection (kind, amount in cents, merchant, card final, installments, and
+  for a Pix/transfer the counterparty's name, the masked CPF's visible digits and institution)
+  goes to `DetectionQueue` and `DetectionWorker` POSTs it to `/api/inbox/detections`. The text
+  itself never leaves the phone. A parser change gets a test case from a real capture first.
+  Nothing a notification brings is recorded without the owner's approval: a detection that looks
+  like an existing lançamento is a pending item with it as candidate, never a silent match.
+- **Own-account transfer vs someone else is the counterparty** (031, `services/inbox.py`). "It's
+  me" is learned, never typed: `inbox_hints` keys `self:doc:<digits>` / `self:name:<name>`,
+  written when an OUT and an IN leg pair into a transfer and when the owner approves a transfer.
+  A single leg whose counterparty is the owner is drafted as a TRANSFER (other side guessed from
+  the cited institution, or asked); otherwise it is a despesa/receita "Pix para/de <nome>"
+  (`external_transfer`). Two legs whose CPF digits or first names differ never pair. The same
+  notification posted twice by a bank (same app, kind, amount, event time, merchant) is
+  `repeated`, not a second item.
 - **No bank-statement API** (owner, 2026-10-17): Pluggy was removed — its free plan gives no
-  access. Migration 029 dropped the tables 027/028 created for it (`pluggy_*`, `external_id`,
-  `cc_expenses.source_type/source_id`); those two files still mention it because migrations are
-  append-only. Aprovar (028) takes the phone's notifications only.
+  access. Aprovar (028) takes the phone's notifications only. At the owner's request, the
+  migrations no longer mention it either. This was the one deliberate break of append-only,
+  done only after the server had applied 029: `027_reserved.sql` and `029_reserved.sql` are
+  empty but keep their numbers, because a database that already applied them would skip a new
+  file with the same number. 028 lost its Pluggy lines, and 030 renames the two rows in
+  `schema_migrations`. On a database that applied the old 028, the stored `CREATE TABLE
+  inbox_items` still carries one Pluggy word in a comment. Rewriting it would need a table
+  rebuild, which isn't worth it for a comment.
 - **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
   on one origin, which is what the phone opens. A production build calls the API same-origin;
   `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.
