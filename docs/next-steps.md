@@ -120,14 +120,17 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   table). Kept as confirm until the owner says otherwise; one tap on Confirmar in the app's own
   notification records it with the app closed.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
-- [ ] **Pluggy, on the owner's side** (built 2026-10-18, see `docs/done-tasks.md`; never run
-  against the real Pluggy — the cloud container cannot reach it, the API was read from the
-  official SDK). The owner:
-  - says which Pluggy product is used (developer account, MeuPluggy, paid plan) and creates the
-    bank connection there — the app takes the connection's **item id** (Ajustes › Banco (Pluggy)
-    › Nova conexão); it does not run Pluggy Connect itself;
-  - puts `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` in the server's `.env` and restarts; Ajustes ›
-    Integrações shows "Pluggy" green when the credentials work;
+- [ ] **Pluggy, on the owner's side** (built 2026-10-18, see `docs/done-tasks.md`). The local
+  credentials work against the real Pluggy (`/auth`, `/connect_token`; the widget lists Itaú,
+  Inter, Caixa…), but the Pluggy application is a **demo** ("Aplicação demo. Proibido o uso
+  comercial." in the widget) — check what the plan allows for real bank connections. The owner:
+  - puts `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` in the server's `.env` and recreates the
+    container (not checked from the PC: reading the server's environment needs the owner's
+    permission); Ajustes › Integrações shows "Pluggy" green when the credentials work;
+  - connects a bank with Ajustes › Banco (Pluggy) › **Conectar banco** (Pluggy Connect). First
+    from the computer's browser: Open Finance consent redirects to the bank, and that round trip
+    inside the APK's WebView is untested (the SDK's `forceOauthInBrowser` is the knob if it
+    breaks). Pasting an item id stays as the fallback;
   - links each account and card with "Desde" = the day its balance was last typed (default
     today), presses Sincronizar, and checks the result: what was confirmed, what came in new, the
     "Possível duplicata" list. The first real sync is the test of the field mapping: date (the app

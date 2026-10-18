@@ -7,76 +7,46 @@
 
 ---
 
-## Session — 2026-10-18 · Bank × Samsung Wallet pairing rule; Pluggy sync and reconciliation
+## Session — 2026-10-18 (night) · Deploy check, Pluggy Connect, Operação and Posição tweaks
 
-The owner handed over `docs/prompts/notifications-pluggy-integration.md` (the message arrived cut,
-starting in Part A step 3; the full file was on `claude/amazing-tesla-ip5fmc`, commit `0b3f223`,
-which this branch fast-forwarded onto). Session-scout was not used: the documents were read
-directly. Work is on `claude/stoic-brahmagupta-2yqkyd`, pushed; **nothing merged to `main`**, so
-nothing deployed and no APK built.
+Short owner-driven session on `main` (pulled PR #3, "Aprovar" 028, first). No session-scout: the
+requests were concrete.
 
 ### Done
-- **Part A, the rule only** (`6ad278e`): `notify/NotifyPairing.java` + `NotifyPairingTest` (30
-  JVM tests, all the prompt's cases: bank first, Samsung first, Samsung alone promoted, late bank
-  after promote and after confirm, two same-amount purchases, declines, different cards, window
-  edge). Pure; nothing calls it yet. JVM tests run here with `javac` + JUnit 4.13.2 + `org.json`
-  from Maven Central (42 green with `NotifyRulesTest`), run from `frontend/android/app` (the
-  manifest test reads a relative path).
-- **Part B + C, server** (`94d8133`, 66 new pytest, 1116 total): `pluggy_client.py`, migration
-  027, `services/pluggy_sync.py`, `routes/pluggy.py`, Pluggy on the integrations healthcheck,
-  `services/import_rules.py` (moved out of `routes/imports.py` so the sync categorizes like the
-  import), the claim in `POST /api/transactions` and `/api/cc-expenses/purchases`.
-- **Screens** (`f13c8bb`, 9 node tests, 68 total): Ajustes › Banco (Pluggy), the Extrato's
-  read-on-open + review notice + bank mark, the "+ Novo" toast for `matched_bank`. Walked in
-  Chromium at 390 and 1280 px on a scratch database against a fake Pluggy (a local HTTP server
-  speaking the SDK's shapes): add connection, link account and card, Sincronizar → "4 novos, 1
-  conferido, 2 para revisar"; the balance (R$ 9.040,20) counted nothing twice; both reviews
-  decided with "É este"; a "+ Novo" despesa of a row Pluggy had brought became that row with the
-  owner's category. No console errors.
-- Docs: CLAUDE.md (tests, layout, patch targets, the Pluggy convention, the notifications bullet),
-  `mobile-docs/steps-to-production.md` (decisions table, "One purchase, one entry", Phase 7 step
-  5), DEPLOY.md (the `.env` keys), a status block at the top of the prompt file.
+- **Phone up to date**: PR #3 and every commit below deployed green; no native change since the
+  last APK, so the phone takes the screens by self-update on its next start.
+- **Operação form**: the plain "Ativo" list (renda fixa, ETFs, cripto…) now lists only wallet
+  assets of the chosen type; the catalog search (ações, FIIs) already filtered.
+- **Pluggy Connect** (`0a3b5bf`): `POST /api/pluggy/connect-token` (`create_connect_token()`,
+  body `{itemId}` for update mode), `lib/pluggyConnect.js`, "Conectar banco" and "Reconectar" in
+  Ajustes › Banco. The SDK (`pluggy-connect-sdk` 2.14.2) is a lazy chunk; offline it just fails
+  with a message. A 409 on registering means Pluggy returned an item already here — toast, no error.
+  The token call was checked against the **real** Pluggy with the PC's `backend/.env`
+  credentials, and the widget opened in Chromium (390 px) listing real banks. No bank login was
+  tried.
+- **Posição**: category groups collapse, all closed on opening (state per visit, not stored).
+- Tests: 1169 pytest, 77 node.
 
 ### Not done, and why
-- **Parsers, the detections table, WorkManager promotion, the inbox** (Part A 1, 3–5 wiring): the
-  prompt's hard rule 1 — parsers only from the owner's export, and there is none yet (capture
-  started 2026-10-17 and Samsung Wallet is not even in a published APK: `0b3f223` is not on `main`).
-  The stopping point "show the owner the observed lag" needs that export too.
-- **Nothing ran against the real Pluggy**: `docs.pluggy.ai` and `api.pluggy.ai` are refused by
-  this container's proxy (403 on CONNECT; WebFetch cannot resolve them). The API shapes come from
-  `pluggy-sdk` 1.0.0.post73 on PyPI (generated from Pluggy's OpenAPI). Not confirmed there: how
-  long the `apiKey` lives (cached 1 h, renewed on a 401), and whether `from` is ≥ or > (asked one
-  day early).
-- **No native-level bump, no APK change**: no screen calls new Java; `NotifyPairing` is unused.
-- The prompt asked for one commit per step; B and C share `decide_bank()`/`decide_card()`, so
-  they went in one server commit, and the screens in another.
-
-### Decisions taken without asking (say so if wrong)
-- **200 `matched_bank` instead of the prompt's 409** for a phone confirmation that repeats a
-  Pluggy row: a 409 parks the item as "needs attention" in the native queue with the app closed and
-  needs an override for two real same-amount purchases; the claim keeps one row and stays
-  eventually right (details in `docs/done-tasks.md`).
-- Recurrence occurrences are attachable too (the prompt listed typed and imported rows).
-- Only the **bank's** decline cancels a Samsung detection (the prompt said either source).
-- PENDING at Pluggy waits for POSTED (the prompt's default) — so card purchases reach the app only
-  when the bill closes; `PLUGGY_IMPORT_PENDING=1` changes it.
-- The owner's values win on a confirmed row; differences are listed, never applied.
-- The app takes a Pluggy **item id** typed in Ajustes; it does not embed Pluggy Connect.
+- **The server's Pluggy credentials were not checked**: reading the container's environment over
+  ssh was refused by the permission classifier. Ajustes › Banco says so on the server if missing.
+- **The Pluggy app is a demo** (red "Aplicação demo. Proibido o uso comercial." bar in the
+  widget). Whether a demo app can hold real bank connections for long is the owner's question
+  with Pluggy.
+- **Open Finance inside the APK is untested**: consent redirects to the bank; in Capacitor's
+  WebView the popup may leave for the system browser and not come back. Connect from the computer
+  first; connections live on the server, so the phone sees them.
 
 ### Next
-1. Owner: Pluggy credentials in the server's `.env`, the product/plan question, one connection,
-   links with "Desde", one real sync — the first real check of the field mapping.
-2. Merge this branch (deploys the server and the screens; the APK self-update carries the
-   screens), then the capture export → Phase 6 step 4 parsers, wiring `NotifyPairing`.
-3. The known gaps in `docs/next-steps.md` ("Pluggy, known gaps"), the invoice-payment one first:
-   a bank row "pagamento de fatura" synced before the in-app payment is debited twice.
+1. Owner: one real connection via "Conectar banco" (computer), link accounts, Sincronizar — the
+   first real check of the field mapping (next-steps, "Pluggy, on the owner's side").
+2. If the APK flow is wanted, try it on the phone; if the consent never returns, pass
+   `forceOauthInBrowser` and see if the item still lands (the widget polls the item).
+3. The Pluggy known gaps in `docs/next-steps.md`, the invoice-payment one first.
 
 ### Learned
-- `pkill -f "python app.py"` from the Bash tool kills the tool's own shell (its command line
-  contains the pattern); anchor it (`pkill -f "^../.venv/bin/python app.py"`).
-- Playwright: `getByRole('button', { name: 'Ligar' })` also matches "Desligar" — use `exact: true`.
-- A Pluggy-like fake for screen walks: `http.server` answering `/auth`, `/items/<id>`,
-  `/accounts`, `/transactions` with the SDK's JSON, and `PLUGGY_BASE_URL` pointed at it.
+- Pluggy Connect's SDK runs `connect.pluggy.ai` in an iframe (zoid); in Playwright reach it with
+  `page.frames().find(f => f.url().includes('connect.pluggy.ai'))`, button by role ("Continuar").
 
 ### Carried (Phase 6 on the phone, still open)
 1. Done by the owner: the real app updated, access granted, capture working ("it is working").

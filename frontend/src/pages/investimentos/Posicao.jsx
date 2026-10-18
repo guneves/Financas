@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Briefcase, Download, Landmark, Pencil, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
+import { Briefcase, ChevronDown, Download, Landmark, Pencil, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import CashLinkField, { cashLinkMetadata, emptyCashLink } from '../../components/CashLinkField'
 import {
@@ -94,6 +94,22 @@ function groupSummary(group, money) {
   return `${count} ${count === 1 ? 'posição' : 'posições'} · ${money(group.total)}`
 }
 
+// O cabecalho de um grupo abre e fecha os ativos dele; todos comecam fechados.
+function GroupToggle({ group, open, onToggle, money }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex min-h-11 w-full items-center gap-2 text-left xl:min-h-0"
+    >
+      <ChevronDown aria-hidden="true" className={cx('size-4 shrink-0 text-zinc-500 transition-transform', open ? '' : '-rotate-90')} />
+      <span className="flex-1 text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</span>
+      <span className="text-xs font-normal text-zinc-500 tabular">{groupSummary(group, money)}</span>
+    </button>
+  )
+}
+
 export default function Posicao() {
   // Modo privado: valores, quantidades e o principal da renda fixa somem;
   // preco medio de acao, cotacao e rentabilidade (%) ficam.
@@ -113,6 +129,8 @@ export default function Posicao() {
   } = useInvestments()
 
   const [activeTab, setActiveTab] = useState('VARIAVEL')
+  // Grupos (Ações, ETFs, CDB...) abertos; comecam todos fechados.
+  const [openGroups, setOpenGroups] = useState(() => new Set())
   const [loading, setLoading] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false)
@@ -213,6 +231,14 @@ export default function Posicao() {
     return true
   })
   const assetGroups = groupAssets(filteredAssets, activeTab)
+  const toggleGroup = (key) => {
+    setOpenGroups((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const rowProps = (asset) => ({
     asset,
@@ -291,15 +317,16 @@ export default function Posicao() {
             <div className="xl:hidden">
               {assetGroups.map((group) => (
                 <section key={group.key} className="border-b border-zinc-200 last:border-0">
-                  <div className="flex items-baseline justify-between gap-3 bg-zinc-50 px-4 py-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</h3>
-                    <span className="text-xs text-zinc-500 tabular">{groupSummary(group, privateMoney)}</span>
-                  </div>
-                  <ul className="divide-y divide-zinc-100">
-                    {group.assets.map((asset) => (
-                      <PositionCard key={asset.id} {...rowProps(asset)} />
-                    ))}
-                  </ul>
+                  <h3 className="bg-zinc-50 px-4">
+                    <GroupToggle group={group} open={openGroups.has(group.key)} onToggle={() => toggleGroup(group.key)} money={privateMoney} />
+                  </h3>
+                  {openGroups.has(group.key) ? (
+                    <ul className="divide-y divide-zinc-100 border-t border-zinc-200">
+                      {group.assets.map((asset) => (
+                        <PositionCard key={asset.id} {...rowProps(asset)} />
+                      ))}
+                    </ul>
+                  ) : null}
                 </section>
               ))}
             </div>
@@ -334,15 +361,12 @@ export default function Posicao() {
                   <tbody key={group.key}>
                     <tr className="!border-b !border-zinc-200 bg-zinc-50 hover:!bg-zinc-50">
                       <th colSpan={9} scope="rowgroup" className="py-2">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-zinc-600">{group.label}</span>
-                          <span className="text-xs font-normal text-zinc-500 tabular">{groupSummary(group, privateMoney)}</span>
-                        </div>
+                        <GroupToggle group={group} open={openGroups.has(group.key)} onToggle={() => toggleGroup(group.key)} money={privateMoney} />
                       </th>
                     </tr>
-                    {group.assets.map((asset) => (
-                      <PositionRow key={asset.id} {...rowProps(asset)} />
-                    ))}
+                    {openGroups.has(group.key)
+                      ? group.assets.map((asset) => <PositionRow key={asset.id} {...rowProps(asset)} />)
+                      : null}
                   </tbody>
                 ))}
               </table>

@@ -122,6 +122,9 @@
 | Bank × Samsung Wallet pairing rule, pure Java (`notify/NotifyPairing.java`): same amount to the cent, card that does not contradict, 10-min window (inclusive); Samsung held then promoted, bank wins and takes the suggestion's place with the first detection's `client_id`, late bank after confirm is MATCHED, a bank decline cancels an unconfirmed Samsung. 30 JVM tests (`NotifyPairingTest`). **Not wired**: no parser, store table or WorkManager yet | 2026-10-18 |
 | Pluggy on the server (027, `pluggy_client.py`, `services/pluggy_sync.py`, `routes/pluggy.py`): connections, account/card links with `since`, sync with the ledger `pluggy_transactions`, attach to the owner's entry, "Possível duplicata", card purchases by the invoice rule with Pluggy's installments, PENDING waits, follows edits/deletions, healthcheck card; creation with `client_id` confirms an unconfirmed Pluggy row instead of adding one (`matched_bank`). 66 pytest | 2026-10-18 |
 | Pluggy screens: Ajustes › Banco (Pluggy) (connections, links, Sincronizar, review, differences), the Extrato's read-on-open, review notice and bank mark, the "+ Novo" toast. `lib/pluggyRules.test.js` (9 tests); walked in Chromium at 390/1280 px against a fake Pluggy | 2026-10-18 |
+| Operação form: the "Ativo" suggestions list only the assets of the chosen type (the catalog search already did) | 2026-10-18 |
+| Pluggy Connect: `POST /api/pluggy/connect-token`, "Conectar banco" opens Pluggy's widget (`lib/pluggyConnect.js`, SDK `pluggy-connect-sdk` loaded on open) and registers the new item; "Reconectar" per connection (update mode). 6 pytest; token checked against the real Pluggy; widget walked in Chromium at 390 px | 2026-10-18 |
+| Posição: each category (Ações, ETFs, FIIs, CDB…) is a toggle, collapsed by default, header keeps count and total | 2026-10-18 |
 
 ---
 
