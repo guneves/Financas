@@ -265,3 +265,42 @@ class TestEverythingGoesToAprovar:
     def test_a_bad_document_is_refused(self, client, auth, accounts):
         [result] = send(client, auth, itau_pix_out(100, ms(2026, 10, 18, 18), doc="12"))
         assert result["status"] == "invalid"
+
+
+BTG_INVEST = "com.btg.pactual.digital.mobile"
+
+
+class TestTheBrokerage:
+    """BTG Banking -> BTG Investimentos (captura de 2026-10-17, 23:25): "Sua transferencia de
+    R$ 5,08 foi confirmada." e "Recebemos sua transferencia no valor de R$ 5,08"."""
+
+    @pytest.fixture()
+    def btg(self, client, auth):
+        bank = create_account(client, auth, "BTG")
+        response = client.post("/api/accounts", json={"name": "BTG Corretora", "type": "BROKERAGE"}, headers=auth)
+        assert response.status_code == 201, response.get_data(as_text=True)
+        return {"bank": bank, "brokerage": response.get_json()["id"]}
+
+    def test_both_legs_are_one_transfer_into_the_brokerage(self, client, auth, btg):
+        at = ms(2026, 10, 17, 23, 25, 6, 642)
+        results = send(
+            client, auth,
+            detection(BTG, "TRANSFER_OUT", 508, at),
+            detection(BTG_INVEST, "TRANSFER_IN", 508, at + 162),
+        )
+        assert [result["status"] for result in results] == ["new", "merged"]
+        [item] = pending(client, auth)
+        assert item["entry_type"] == "TRANSFER"
+        assert (item["account_id"], item["transfer_account_id"]) == (btg["bank"], btg["brokerage"])
+        assert item["category"] == "Transferencia"
+
+    def test_the_brokerage_leg_alone_is_still_a_transfer(self, client, auth, btg):
+        send(client, auth, detection(BTG_INVEST, "TRANSFER_IN", 508, ms(2026, 10, 17, 23, 25)))
+        [item] = pending(client, auth)
+        assert (item["entry_type"], item["reason"]) == ("TRANSFER", "own_transfer")
+        assert (item["account_id"], item["transfer_account_id"]) == (btg["bank"], btg["brokerage"])
+        assert "account" in item["confirm"]
+        # A ponta do banco chega depois: o mesmo item, confirmado.
+        [late] = send(client, auth, detection(BTG, "TRANSFER_OUT", 508, ms(2026, 10, 17, 23, 25, 1)))
+        assert late["status"] == "merged"
+        assert len(pending(client, auth)) == 1

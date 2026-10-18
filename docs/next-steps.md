@@ -94,7 +94,8 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   notifications (BB Pix out, Itaú Pix in/out, BTG Pix in, one BTG purchase, Samsung noise).
   Still unseen: any **Samsung Wallet** purchase text (its parser is generic: an amount plus
   "compra/aprovada", merchant from the title), a credit/debit purchase with "final 1234", Itaú
-  and BB purchases, an estorno, a declined purchase, a boleto payment, BTG Investimentos. Keep
+  and BB purchases, an estorno, a declined purchase, a boleto payment, BTG Investimentos' buy
+  and sell (only its "Transferência recebida" has been seen). Keep
   capture on and bring a new "Exportar JSON"; anything mis-read becomes a `NotifyParsersTest`
   case first. Not answered by the export either: whether a bank *updates* a notification (new
   posted time, same key).

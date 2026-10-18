@@ -102,6 +102,25 @@ public class NotifyParsersTest {
         assertNull(parsed.counterparty);
     }
 
+    /** BTG Banking -> BTG Investimentos (captura de 2026-10-17, 23:25): as duas pontas. */
+    @Test
+    public void btgTransferConfirmedIsOutgoing() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(btg("Transferência confirmada",
+            "Sua transferência de R$ 5,08 foi confirmada."));
+        assertEquals(NotifyParsers.TRANSFER_OUT, parsed.kind);
+        assertEquals(508, parsed.amountCents);
+        assertNull(parsed.counterparty);
+    }
+
+    @Test
+    public void btgInvestimentosTransferReceived() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row("com.btg.pactual.digital.mobile", "Transferência recebida",
+            "Recebemos sua transferência no valor de R$ 5,08 e o seu saldo já está disponível."));
+        assertEquals(NotifyParsers.TRANSFER_IN, parsed.kind);
+        assertEquals(508, parsed.amountCents);
+        assertNull(parsed.counterparty);
+    }
+
     @Test
     public void samsungInstallingIsNothing() {
         assertNull(NotifyParsers.parse(row(SAMSUNG, "Samsung Wallet", "Instalando…")));

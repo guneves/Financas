@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1097 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1099 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -368,7 +368,9 @@ mobile-docs/
   written when an OUT and an IN leg pair into a transfer and when the owner approves a transfer.
   A single leg whose counterparty is the owner is drafted as a TRANSFER (other side guessed from
   the cited institution, or asked); otherwise it is a despesa/receita "Pix para/de <nome>"
-  (`external_transfer`). Two legs whose CPF digits or first names differ never pair. The same
+  (`external_transfer`). A transfer seen by the brokerage app (`BROKERAGE_APP`, BTG
+  Investimentos) is always the owner's own, the other side BTG Banking. Two legs whose CPF digits
+  or first names differ never pair. The same
   notification posted twice by a bank (same app, kind, amount, event time, merchant) is
   `repeated`, not a second item.
 - **No bank-statement API** (owner, 2026-10-17): Pluggy was removed — its free plan gives no

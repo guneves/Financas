@@ -23,14 +23,20 @@ ran directly (no fallback needed).
   `DetectionSender` + `DetectionWorker` (WorkManager, app closed; also scheduled at login from
   `OutboxPlugin.setSession`). `BankNotificationListener` parses every allowed notification,
   capture on or off. Only parsed fields leave the phone. No native-level bump (no screen calls
-  the new Java). `gradlew testDebugUnitTest compileReleaseJavaWithJavac` green, 89 JVM tests.
+  the new Java). `gradlew testDebugUnitTest compileReleaseJavaWithJavac` green, 91 JVM tests.
 - **Server**: migration `031_notify_counterparty.sql`; `services/inbox.py` learns "it's me"
   (`self:doc:` / `self:name:` hints) from paired legs and approved transfers, drafts a single leg
   to the owner as a TRANSFER (other side from the cited institution), a Pix to someone else as
   despesa/receita "Pix para/de <nome>" (`external_transfer`), never pairs legs with different
   counterparties, drops a bank's repeated posting (`repeated`), and no longer matches a detection
   to an existing lançamento without an Aprovar item. `test_inbox_counterparty.py` (15);
-  one `test_inbox.py` case rewritten for the new "always Aprovar" rule. 1097 pytest green.
+  one `test_inbox.py` case rewritten for the new "always Aprovar" rule. 1099 pytest green.
+- **Second export** (`Downloads\notificacoes-20261017-232518.json`, owner: "the transferencia was
+  from the btg banking account to the btg investimentos app"): BTG Banking's "Sua transferência
+  de R$ 5,08 foi confirmada." was dropped by v1 (no direction word) — "confirmada" now means
+  outgoing; BTG Investimentos' "Recebemos sua transferência…" is TRANSFER_IN. Server: a transfer
+  seen by the brokerage app is always the owner's own (`BROKERAGE_APP`), other side BTG Banking.
+  2 more parser tests (19), 2 more server tests.
 - **Frontend**: `lib/inboxRules.js` — the `external_transfer` reason text and the counterparty in
   a source's line (66 node tests green).
 - Docs: CLAUDE.md, next-steps (Phase 6 rewritten; the "automatic vs confirm" decision closed —

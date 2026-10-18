@@ -80,6 +80,10 @@ APP_LABELS = {
     SAMSUNG_WALLET: "Samsung Wallet",
     "com.android.shell": "Teste (adb)",
 }
+# O app da corretora: dinheiro so entra ou sai dela de uma conta do proprio dono
+# (dono, 2026-10-17: a transferencia do BTG Banking para a corretora e
+# transferencia, nunca despesa nem aporte).
+BROKERAGE_APP = "com.btg.pactual.digital.mobile"
 ISSUER_OF_APP = {
     "com.itau": "itau",
     "br.com.bb.android": "bb",
@@ -339,6 +343,8 @@ def is_self_counterparty(conn, current_user_id, detection):
     pelo nome so quando ela nao mostra CPF nenhum."""
     if detection.get("kind") not in MOVEMENT_KINDS:
         return False
+    if detection.get("app") == BROKERAGE_APP:
+        return True
     if detection.get("counterparty_doc"):
         return fetch_hint(conn, current_user_id, SELF_DOC_PREFIX + detection["counterparty_doc"]) is not None
     name = normalized(detection.get("counterparty"))
@@ -607,7 +613,7 @@ def guess_card(conn, current_user_id, detection):
 
 def guess_account(conn, current_user_id, detection):
     accounts = [row for row in _active_accounts(conn, current_user_id) if (row["currency"] or "BRL") == "BRL"]
-    brokerage_app = detection.get("app") == "com.btg.pactual.digital.mobile"
+    brokerage_app = detection.get("app") == BROKERAGE_APP
     usable = [row for row in accounts if (row["type"] == "BROKERAGE") == brokerage_app]
     issuer = issuer_of(detection)
     if issuer in ISSUER_ALIASES:
@@ -973,8 +979,11 @@ def _transfer_description(conn, current_user_id, origin, destination, fallback=N
 
 def guess_other_side(conn, current_user_id, detection, own_account_id):
     """A conta do dono do outro lado de uma transferencia de uma ponta so: a
-    unica conta ativa em reais da instituicao que a notificacao citou."""
+    unica conta ativa em reais da instituicao que a notificacao citou (a
+    corretora nao cita nenhuma: o outro lado e o banco do mesmo grupo)."""
     issuer = issuer_of_institution(detection.get("counterparty_bank"))
+    if not issuer and detection.get("app") == BROKERAGE_APP:
+        issuer = ISSUER_OF_APP[BROKERAGE_APP]
     if not issuer:
         return None
     found = [

@@ -184,8 +184,9 @@ public final class NotifyParsers {
 
         boolean pix = folded.matches("(?s).*\\bpix\\b.*");
         boolean transfer = folded.matches("(?s).*\\b(transferencia|ted|doc)\\b.*");
-        boolean out = folded.matches("(?s).*\\b(enviad[ao]|enviou|voce fez|realizad[ao]|feito|efetuad[ao]|pagou)\\b.*");
-        boolean in = folded.matches("(?s).*\\b(recebid[ao]|recebeu|caiu|chegou|creditad[ao])\\b.*");
+        // "Sua transferência de R$ 5,08 foi confirmada." (BTG): quem confirma e quem mandou.
+        boolean out = folded.matches("(?s).*\\b(enviad[ao]|enviou|voce fez|realizad[ao]|feito|efetuad[ao]|pagou|confirmad[ao])\\b.*");
+        boolean in = folded.matches("(?s).*\\b(recebid[ao]|recebeu|recebemos|caiu|chegou|creditad[ao])\\b.*");
         if (pix || transfer) {
             if (in && !out) return pix ? PIX_IN : TRANSFER_IN;
             if (out && !in) return pix ? PIX_OUT : TRANSFER_OUT;

@@ -698,5 +698,11 @@ handles card payments and is a fallback — on a duplicate the bank's notificati
   legs whose CPFs (or first names) differ never pair. The same notification posted twice by the
   bank (BTG: 24 ms apart, same `when`) is `repeated`, not a second item. The remembered-choice
   shortcut that matched an existing lançamento without an item is gone: it is a pending item
-  with the lançamento as candidate. 15 tests in `test_inbox_counterparty.py`.
+  with the lançamento as candidate. 17 tests in `test_inbox_counterparty.py`.
+- **Second export, same night** (BTG Banking -> BTG Investimentos, R$ 5,08): the bank says only
+  "Sua transferência de R$ 5,08 foi confirmada." (no direction word: "confirmada" now reads as
+  outgoing) and the brokerage "Recebemos sua transferência no valor de R$ 5,08…" (TRANSFER_IN).
+  Neither names a counterparty, so a transfer seen by the brokerage app is always the owner's own,
+  the other side guessed as the BTG bank account; with both legs it is one transfer
+  bank -> Corretora.
 
