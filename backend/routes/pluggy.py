@@ -18,9 +18,7 @@ from integrations import provider_snapshot
 from services.accounts import require_account
 from services.invoices import ensure_credit_card_owner, local_today
 from services.pluggy_sync import (
-    resolve_review,
     review_items,
-    serialize_ledger,
     state_counts,
     sync_pluggy,
 )
@@ -271,25 +269,7 @@ def pluggy_sync(current_user_id):
 @bp.route("/api/pluggy/review", methods=["GET"])
 @token_required
 def pluggy_review(current_user_id):
+    """Os conferidos com diferenca. O que espera o dono esta em /api/inbox."""
     with get_db() as conn:
         body = review_items(conn, current_user_id)
-    return jsonify(body), 200
-
-
-@bp.route("/api/pluggy/review/<ledger_id>", methods=["POST"])
-@token_required
-def pluggy_review_decide(current_user_id, ledger_id):
-    """Possivel duplicata: `attach` (e este lancamento, `target_id`), `insert`
-    (lancar separado) ou `dismiss` (ignorar a transacao do banco)."""
-    payload = parse_json_body()
-    action = str(payload.get("action") or "").strip().lower() if isinstance(payload, dict) else ""
-    target_id = str(payload.get("target_id") or "").strip() if isinstance(payload, dict) else ""
-    with get_db() as conn:
-        try:
-            row = resolve_review(conn, current_user_id, ledger_id, action, target_id or None)
-        except LookupError as exc:
-            return jsonify({"error": str(exc)}), 404
-        except ValidationError as exc:
-            return validation_error(str(exc))
-        body = serialize_ledger(conn, current_user_id, row)
     return jsonify(body), 200

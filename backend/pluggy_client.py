@@ -279,6 +279,8 @@ class PluggyTransaction:
     purchase_date: str
     operation_type: str
     updated_at: str
+    # A data como veio, com hora e fuso se vierem (`date` e so o AAAA-MM-DD).
+    date_raw: str = ""
 
 
 def _text(value):
@@ -378,6 +380,7 @@ def parse_transaction(raw, account_type="BANK"):
         purchase_date=_iso_date(card.get("purchaseDate")),
         operation_type=_text(raw.get("operationType")).upper(),
         updated_at=_text(raw.get("updatedAt")),
+        date_raw=_text(raw.get("date"))[:40],
     )
 
 
