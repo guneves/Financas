@@ -8,6 +8,16 @@
 // sem ser renda.
 export const INVESTMENT_CATEGORY = 'Investimento'
 
+// Estorno no cartao (033): uma linha da fatura com kind = 'REFUND' e valor
+// positivo, que abate a fatura em vez de somar. Toda soma de compras no
+// cartao passa por cardSignedAmount().
+export const isCardRefund = (expense) => expense?.kind === 'REFUND'
+
+export const cardSignedAmount = (expense) => {
+  const amount = Number(expense?.amount) || 0
+  return isCardRefund(expense) ? -amount : amount
+}
+
 const isInvestmentRow = (transaction) =>
   ['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED'].includes(transaction?.source_type) || transaction?.category === INVESTMENT_CATEGORY
 

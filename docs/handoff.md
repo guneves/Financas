@@ -26,7 +26,9 @@ task).
   and phone: a count badge and a dropdown with every current item, dismissed or not, each linking
   to its screen (Cartões, Recorrentes, Orçamento). It runs Início's queries with Início's keys.
 - Ajustes › Aparência: Sistema / Claro / Escuro (`setThemePreference`); `toggleTheme` removed.
-- Checks: 80 node tests (7 new in `attentionRules.test.js`), `vite build` clean; clicked through
+- Merged main's card refunds (033) in: the shared rules sum card rows through
+  `cardSignedAmount()`, an invoice in credit is neither payable nor overdue (as main had it).
+- Checks: 82 node tests (8 new in `attentionRules.test.js`, one for refunds), `vite build` clean; clicked through
   with Playwright on a throwaway DB (desktop + 390 px): dismiss survives reload, bell lists the
   items, the theme switches from Ajustes.
 
@@ -41,18 +43,25 @@ task).
    next screen bundle — no native change, no native-level bump).
 2. Carry on with next-steps' first items (the phone checks, Aprovar walk-through).
 
-### From the expense-sharing session (2026-10-18), still open
-- Sharing not walked through in a browser or on the phone: Extrato → edit a despesa →
-  "Dividida"; Cartões → ⋯ → "De quem é?"; A receber → mark paid; Início's flow "Outras pessoas".
-- After the deploy: open A receber, Aprovar and Ajustes once to confirm 029–032 ran.
+### From the card-refund session (2026-10-18), still open
+- Not clicked through: Cartões → ⋯ on a purchase → Registrar estorno; the invoice total drops;
+  Início's "Disponível por dia" with and without a month plan ("days" read as days *remaining*;
+  flip `daysRemainingInMonth` in `Dashboard.jsx` if the owner meant all days).
+- Aprovar's "estorno" detections still draft an INCOME lançamento, not a card refund.
+- An installment purchase's refund is one credit in one invoice; cancelling the remaining
+  installments is not offered.
+- After the deploy: open A receber, Aprovar, Ajustes and Cartões once to confirm 029–033 ran.
+- Sharing walk-through: Extrato → edit a despesa → "Dividida"; Cartões → ⋯ → "De quem é?";
+  A receber → mark paid. Sharing is set only by editing ("+ Novo" and Aprovar don't offer it).
 - Install the new APK, then one Pix between own accounts, one to someone else, one card
   purchase → check Aprovar; keep capture on, the next export drives a parser pass.
+
 
 ### From the notification session (2026-10-17), still open
 - Not tried end to end on the phone; Samsung Wallet's purchase text never captured (its parser is
   a guess), same for credit/debit "final", declined, estorno, boleto, BTG Investimentos.
 - Mapping screen (Phase 6 step 5) and raw-text-to-inbox (step 6): not built, on purpose.
-- `schema.sql` still lacks the 028 tables and 031's columns (032 is in it).
+- `schema.sql` still lacks the 028 tables and 031's columns (032 and 033 are in it).
 - TWR: Tesouro mark-to-market, the 12-month window definition (owner to decide), AMER3 not added.
 - `adb` is at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`; the installed app is the
   release build, so `run-as` can't read `financas_notify.db` — captures come from the owner's

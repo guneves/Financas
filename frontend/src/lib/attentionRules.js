@@ -5,9 +5,10 @@
 // "fatura vencida de outubro do Nubank" nao esconde a de novembro. O Inicio
 // esconde os dispensados; o sino mostra todos enquanto valerem.
 import { formatDateBR } from './format.js'
-import { accountBalanceBrl, isPortfolioAccount } from './transactions.js'
+import { accountBalanceBrl, cardSignedAmount, isPortfolioAccount } from './transactions.js'
 
-const amountOf = (item) => parseFloat(item.amount) || 0
+// Estorno (033) abate: toda soma de compras do cartao passa pelo sinal.
+const amountOf = cardSignedAmount
 const invoiceId = (invoice) => `${invoice.card_id}|${invoice.invoice_year}-${invoice.invoice_month}`
 
 export function openCardExpenses(ccExpenses = []) {
@@ -36,7 +37,8 @@ export function payableInvoices(invoiceItems) {
     }
     byCard[item.card_id].total += amountOf(item)
   })
-  return Object.values(byCard)
+  // Fatura com credito de estorno nao se paga (o servidor recusa).
+  return Object.values(byCard).filter((invoice) => invoice.total >= 0)
 }
 
 // Fatura vencida: passou do dia do vencimento e continua em aberto. A data vem
@@ -60,7 +62,9 @@ export function overdueInvoices(openExpenses, todayText) {
     byInvoice[key].total += amountOf(item)
     byInvoice[key].count += 1
   })
-  return Object.values(byInvoice).sort((a, b) => a.due_date.localeCompare(b.due_date))
+  return Object.values(byInvoice)
+    .filter((invoice) => invoice.total > 0)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
 }
 
 // Debito automatico que a conta nao cobre: faturas de cartoes com debito

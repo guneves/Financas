@@ -194,6 +194,11 @@ export const ccExpensesApi = {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
+  // Estorno (033): um credito que abate a fatura.
+  createRefund: (payload) => apiFetch('/api/cc-expenses/refunds', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
   candidates: (params) => apiFetch(`/api/cc-expenses/candidates${queryString(params)}`),
   // De quem e a compra (032): vale para todas as parcelas.
   updateShare: (id, payload) => apiFetch(`/api/cc-expenses/${id}/share`, {

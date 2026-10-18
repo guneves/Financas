@@ -85,3 +85,19 @@ test('a lista de dispensados nao cresce sem fim e nao repete', () => {
   assert.equal(kept.at(-1), `k${MAX_DISMISSED_KEYS + 4}`)
   assert.deepEqual(addDismissed(['a', 'b'], ['a']), ['b', 'a'])
 })
+
+test('estorno abate a fatura: em credito nao e vencida nem pagavel', () => {
+  const refund = (fields) => expense({ kind: 'REFUND', ...fields })
+  const overdue = overdueInvoices([
+    expense({ invoice_due_date: '2026-10-10', amount: '100' }),
+    refund({ invoice_due_date: '2026-10-10', amount: '30' }),
+    expense({ card_id: 2, invoice_due_date: '2026-10-10', amount: '10' }),
+    refund({ card_id: 2, invoice_due_date: '2026-10-10', amount: '50' }),
+  ], '2026-10-18')
+  assert.deepEqual(overdue.map((invoice) => [invoice.card_id, invoice.total]), [[1, 70]])
+  const payable = payableInvoices([
+    expense({ invoice_closed: true, amount: '10' }),
+    refund({ invoice_closed: true, amount: '40' }),
+  ])
+  assert.deepEqual(payable, [])
+})

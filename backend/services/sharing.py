@@ -126,6 +126,8 @@ def update_purchase_share(conn, current_user_id, expense_id, payload):
     rows = purchase_rows(conn, current_user_id, expense_id)
     if not rows:
         return None
+    if any(row["kind"] == "REFUND" for row in rows):
+        raise ValidationError("Um estorno nao se divide.")
     amounts = [safe_float(row["amount"]) for row in rows]
     share = parse_share(payload, sum(amounts))
     settled = share.pop("share_settled_at", "keep")

@@ -49,6 +49,7 @@ export function getPurchaseGroupKey(expense) {
     expense.category || 'sem-categoria',
     Number(parseFloat(expense.amount || 0).toFixed(2)),
     installment.total,
+    expense.kind || 'PURCHASE',
   ].join('|')
 }
 

@@ -2,7 +2,8 @@
 
 `/api/credit-cards` e `/api/cc-expenses/*`. As regras (mes da fatura,
 fechamento, debito automatico) estao em `services/invoices.py`; o pagamento
-real e `POST /api/cc-expenses/pay-invoice`.
+real e `POST /api/cc-expenses/pay-invoice`. Um estorno (033) e uma linha
+`kind = 'REFUND'` da mesma tabela, criada por `POST /api/cc-expenses/refunds`.
 """
 
 import sqlite3
@@ -11,6 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction
+from money import rounded_money
 from services.accounts import fetch_account, require_account, resolve_account_id
 from services.attachments import cc_expense_attachment_names, remove_attachment_files
 from services.inbox_decisions import absorb_created
@@ -22,7 +24,10 @@ from services.invoices import (
     build_installment_rows,
     ensure_credit_card_owner,
     ensure_invoice_closed,
+    invoice_label,
+    invoice_open_lines,
     local_today,
+    refund_invoice,
     serialize_cc_expense,
     settle_invoice,
 )
@@ -398,6 +403,89 @@ def create_cc_purchase(current_user_id):
     return jsonify([row_to_dict(row) for row in created]), 201
 
 
+@bp.route("/api/cc-expenses/refunds", methods=["POST"])
+@token_required
+def create_cc_refund(current_user_id):
+    """Registra um estorno no cartao: um credito que abate a fatura (033).
+
+    Cai na fatura da data do estorno (a mesma regra da compra) ou, se essa ja
+    foi paga, na primeira seguinte em aberto. `refund_of` (opcional) e a compra
+    estornada, so para referencia. Idempotente por `client_id`, como a compra.
+    """
+    payload = parse_json_body()
+    if not isinstance(payload, dict):
+        return validation_error("Informe um estorno valido.")
+
+    client_id = None
+    try:
+        client_id = optional_client_id(payload)
+        with get_db() as conn:
+            existing = fetch_purchase_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return jsonify(row_to_dict(existing[0])), 200
+
+        card_id = require_string(payload, "card_id", "Cartao")
+        amount = rounded_money(parse_number(payload, "amount", "Valor do estorno", minimum=0, allow_zero=False))
+        refund_date = require_date(payload, "purchase_date", "Data do estorno")
+        description = require_string(payload, "description", "Descricao", max_length=500)
+        category = str(payload.get("category") or "").strip() or "Estorno"
+        refund_of = str(payload.get("refund_of") or "").strip() or None
+
+        with get_db() as conn:
+            card = conn.execute(
+                "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
+                (card_id, current_user_id),
+            ).fetchone()
+            if not card:
+                raise ValidationError("Cartao nao encontrado.")
+            if refund_of:
+                original = conn.execute(
+                    "SELECT id FROM cc_expenses"
+                    " WHERE id = ? AND user_id = ? AND card_id = ? AND kind = 'PURCHASE'",
+                    (refund_of, current_user_id, card_id),
+                ).fetchone()
+                if not original:
+                    raise ValidationError("Compra estornada nao encontrada neste cartao.")
+
+            invoice = refund_invoice(conn, current_user_id, card, refund_date)
+            item_id = new_id()
+            conn.execute(
+                """
+                INSERT INTO cc_expenses
+                (id, user_id, card_id, category, description, amount, purchase_date,
+                 invoice_month, invoice_year, installment_info, status, client_id,
+                 kind, refund_of)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '1/1', 'OPEN', ?, 'REFUND', ?)
+                """,
+                (
+                    item_id,
+                    current_user_id,
+                    card_id,
+                    category,
+                    description,
+                    amount,
+                    refund_date,
+                    invoice["invoice_month"],
+                    invoice["invoice_year"],
+                    client_id,
+                    refund_of,
+                ),
+            )
+            created = conn.execute(
+                "SELECT * FROM cc_expenses WHERE id = ? AND user_id = ?",
+                (item_id, current_user_id),
+            ).fetchone()
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    except sqlite3.IntegrityError:
+        with get_db() as conn:
+            existing = fetch_purchase_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return jsonify(row_to_dict(existing[0])), 200
+        return jsonify({"error": "Nao foi possivel registrar o estorno."}), 400
+    return jsonify(row_to_dict(created)), 201
+
+
 @bp.route("/api/cc-expenses/candidates", methods=["GET"])
 @token_required
 def cc_expense_candidates(current_user_id):
@@ -408,6 +496,7 @@ def cc_expense_candidates(current_user_id):
                    share_mode, share_others_amount, share_person, share_settled_at
             FROM cc_expenses
             WHERE user_id = ?
+              AND kind = 'PURCHASE'
               AND card_id = ?
               AND description = ?
               AND purchase_date = ?
@@ -583,6 +672,14 @@ def pay_invoice(current_user_id):
         except ValidationError as exc:
             return validation_error(str(exc))
 
+        lines, total = invoice_open_lines(conn, current_user_id, card_id, invoice_month, invoice_year)
+        if lines and total < 0:
+            return validation_error(
+                f"A fatura {invoice_label(invoice_month, invoice_year)} ficou com credito de estorno; "
+                "ele abate a proxima fatura.",
+                409,
+            )
+
         row = settle_invoice(
             conn,
             current_user_id,
@@ -595,5 +692,8 @@ def pay_invoice(current_user_id):
             source_id=f"{autopay_source_id(card_id, invoice_month, invoice_year)}:{new_id()}",
         )
         if not row:
+            if lines and total == 0:
+                # Zerada por estorno: baixada sem lancamento na conta.
+                return jsonify({"transaction": None}), 200
             return jsonify({"error": "Nao ha itens em aberto nesta fatura."}), 409
     return jsonify({"transaction": serialize_transaction(row)}), 201

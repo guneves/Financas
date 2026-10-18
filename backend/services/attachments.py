@@ -76,7 +76,7 @@ def cc_purchase_expense_ids(conn, current_user_id, expense_id):
     """
     row = conn.execute(
         """
-        SELECT card_id, description, purchase_date, category
+        SELECT card_id, description, purchase_date, category, kind
         FROM cc_expenses WHERE id = ? AND user_id = ?
         """,
         (expense_id, current_user_id),
@@ -87,9 +87,9 @@ def cc_purchase_expense_ids(conn, current_user_id, expense_id):
         """
         SELECT id FROM cc_expenses
         WHERE user_id = ? AND card_id = ? AND description = ?
-          AND purchase_date = ? AND category = ?
+          AND purchase_date = ? AND category = ? AND kind = ?
         """,
-        (current_user_id, row["card_id"], row["description"], row["purchase_date"], row["category"]),
+        (current_user_id, row["card_id"], row["description"], row["purchase_date"], row["category"], row["kind"]),
     ).fetchall()
     return [item["id"] for item in rows]
 
