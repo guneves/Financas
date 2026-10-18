@@ -1,66 +1,79 @@
 """Rentabilidade ponderada no tempo (TWR), da carteira e de cada ativo.
 
-Metodo: Dietz modificado mes a mes, encadeado. Para cada mes,
+Metodo: retorno diario encadeado (o "uma vez ao dia" do Investidor10). Para
+cada dia,
 
-    r = (V1 - V0 - F + D) / (V0 + soma(w_i * F_i))
+    r = (V1 + S + D) / (V0 + B) - 1
 
-V0 e V1 sao o valor no fim do mes anterior e deste, F o fluxo externo liquido
-(compras menos vendas/resgates, em reais), cada fluxo pesado pela fracao do mes
-em que ficou investido, e D os proventos pagos no mes (renda, nao fluxo).
-TWR = produto(1 + r) - 1. Mensal e a resolucao que os dados permitem: o passado
-dos cotados vem do fechamento mensal (`get_monthly_history()`).
+V0 e V1 sao o valor no fim do dia anterior e deste, B as compras do dia (entram
+no inicio, pelo preco pago), S as vendas e resgates (saem no fim, pelo valor
+recebido) e D os proventos pagos no dia (renda, nao fluxo). O mes e o produto
+dos seus dias; TWR = produto(1 + r) - 1. Uma bonificacao nao e fluxo: as cotas
+chegam sem dinheiro, e o preco cai na mesma proporcao.
 
 Valor BRUTO: V0 e V1 sao o valor de mercado antes do IR estimado da renda fixa
-(o que corretoras e o Investidor10 mostram). A evolucao do patrimonio usa o
-liquido; as duas saem da mesma avaliacao (`iter_portfolio_months()`).
+(o que corretoras e o Investidor10 mostram).
+
+Cada dia vale:
+- cotados: quantidade x o ultimo fechamento ate o dia, na base das quantidades
+  gravadas (`restore_quantity_basis()`: o Yahoo trata bonificacao como
+  desdobramento); sem fechamento nenhum, o custo;
+- renda fixa: o aplicado corrigido pela serie do BCB, exata no fim de cada mes
+  e interpolada (geometricamente) entre um fim de mes e o seguinte;
+- hoje: o que a Posicao mostra (`position_value_today()`).
 
 Distorcoes conhecidas (tambem em `RETURN_NOTES`, que vai na resposta):
-- meses passados de classes sem cotacao (outros, preco manual) ficam no
-  custo, e o ganho inteiro cai no mes atual;
-- um mes passado sem fechamento no yfinance usa o anterior, ou o preco de hoje;
-- o mes atual vale o que a Posicao mostra (`position_value_today()`): a
-  ultima cotacao gravada, nao o fechamento do mes nem a serie do BCB;
-- eventos corporativos ja estao reescalados nas movimentacoes gravadas;
-- ativo no exterior: cada mes pela PTAX do fim daquele mes (o historico ja
-  chega em reais); proventos de ativo no exterior entram como reais.
+- ativos sem cotacao (outros, preco manual) ficam no custo, e o ganho inteiro
+  cai hoje (ou no dia da venda);
+- ativo no exterior: cada dia pela PTAX do fim do seu mes; proventos de ativo
+  no exterior entram como reais.
 
-As funcoes de conta (`flow_weights`, `modified_dietz`, `chain_returns`,
-`cdi_monthly_returns`, `year_month_table`) sao puras; `build_investment_returns()`
-junta as posicoes, os fluxos e os proventos do usuario.
+As funcoes de conta (`daily_return`, `chain_returns`, `cdi_monthly_returns`,
+`year_month_table`) sao puras; `build_investment_returns()` junta as posicoes,
+os fluxos e os proventos do usuario.
 """
 
-from datetime import datetime
-import calendar
+from bisect import bisect_right
+from datetime import datetime, timedelta
 
-from dates import month_key, month_label
+from asset_classes import QUOTED_ASSET_CLASSES
+from dates import month_end, month_key, month_label, subtract_months
 from db import get_db
 from money import rounded_money
 from services.benchmarks import benchmark_note
+from services.corporate_actions import is_bonus_movement
+from services.fixed_income import accrual_factor_until
 from services.investments import investment_cash_amount, investment_gross_proceeds
-from services.portfolio import evolution_group_key, investment_movement_date, iter_portfolio_months
+from services.portfolio import (
+    add_movement_to_positions,
+    evolution_group_key,
+    investment_movement_date,
+    position_is_open,
+    position_value_today,
+)
 from services.prices import ticker_key
 from validators import safe_float
 
-# O fechamento mensal vem com auto_adjust=False (services/prices.py): o preco
-# NAO desconta os proventos, entao eles entram como renda no mes em que sao
-# pagos. Se o historico passar a vir ajustado, isto vira True e os proventos
-# deixam de ser somados — senao contariam duas vezes.
+# O fechamento vem com auto_adjust=False (services/prices.py): o preco NAO
+# desconta os proventos, entao eles entram como renda no dia em que sao pagos.
+# Se o historico passar a vir ajustado, isto vira True e os proventos deixam
+# de ser somados — senao contariam duas vezes.
 PRICES_ARE_DIVIDEND_ADJUSTED = False
 
 VALUE_BASIS = "gross"
 VALUE_BASIS_LABEL = "Valor bruto (antes do IR estimado da renda fixa)"
 
 RETURN_NOTES = [
-    "Rentabilidade ponderada no tempo (TWR): Dietz modificado mês a mês, encadeado.",
+    "Rentabilidade ponderada no tempo (TWR): retorno diário encadeado, como o Investidor10.",
     "Valores brutos, antes do IR estimado da renda fixa.",
-    "Proventos pagos no mês entram como rendimento (o histórico de preços não é ajustado por proventos).",
-    "Meses passados de ativos sem cotação (outros, preço manual) ficam no custo; o ganho aparece no mês atual.",
-    "Mês sem fechamento no histórico usa o último disponível ou o preço de hoje.",
-    "O mês atual vai até hoje, pela cotação atual: o mesmo valor da Posição.",
+    "Proventos pagos no dia entram como rendimento (o histórico de preços não é ajustado por proventos).",
+    "Bonificação não é aporte: as cotas chegam sem dinheiro.",
+    "Ativos sem cotação (outros, preço manual) ficam no custo; o ganho aparece hoje ou na venda.",
+    "Hoje vale a cotação atual: o mesmo valor da Posição.",
     "Índices de comparação: IPCA pela variação mensal do IBGE (BCB); Ibovespa, IFIX e IDIV pelo fechamento do fim de cada mês (índices de retorno total).",
 ]
 
-# Abaixo disto (em reais) um valor ou a base do mes e zero: o mes e pulado.
+# Abaixo disto (em reais) a base do dia e zero: o dia e pulado.
 EPSILON = 0.005
 
 
@@ -70,60 +83,24 @@ def returns_evaluated_months(months_back):
     return max(months_back, datetime.now().month) + 1
 
 
-def flow_weights(flows, period_days, v0, v1):
-    """Peso de cada fluxo [(dia, valor)]: a fracao do periodo em que ficou investido.
+def daily_return(previous_value, value, inflow=0.0, outflow=0.0, income=0.0):
+    """Retorno do dia (fracao) ou None quando nao ha base (dia sem valor nem compra).
 
-    Um fluxo no dia d entra no inicio do dia; o periodo vai do inicio do dia 1
-    ao fim do dia `period_days`. Sem valor inicial (V0 = 0), o periodo comeca na
-    primeira entrada — senao uma compra no dia 30 teria a base dividida por 30 e
-    o ganho dela multiplicado por 30. Sem valor final (venda total), o periodo
-    termina na ultima saida, pelo mesmo motivo.
+    `inflow` sao as compras do dia (entram no inicio, pelo preco pago);
+    `outflow`, o que vendas e resgates pagaram (sai no fim); `income`, os
+    proventos pagos no dia.
     """
-    start = 0.0
-    end = float(period_days)
-    if v0 <= EPSILON:
-        inflow_days = [day for day, amount in flows if amount > 0]
-        if inflow_days:
-            start = float(min(inflow_days) - 1)
-    if v1 <= EPSILON:
-        outflow_days = [day for day, amount in flows if amount < 0]
-        if outflow_days:
-            end = float(max(outflow_days) - 1)
-    length = end - start
-    weights = []
-    for day, amount in flows:
-        if length <= 0:
-            # Entrou e saiu no mesmo dia: a base e o que entrou.
-            weight = 1.0 if amount > 0 else 0.0
-        else:
-            weight = (end - (day - 1)) / length
-        weights.append(min(max(weight, 0.0), 1.0))
-    return weights
-
-
-def modified_dietz(v0, v1, flows=(), income=0.0, period_days=30):
-    """Retorno do mes (fracao) ou None quando nao ha base (mes sem valor nem aporte).
-
-    `flows` e [(dia do mes, valor)]: positivo e aporte, negativo e retirada.
-    `income` sao os proventos pagos no mes.
-    """
-    flows = [(int(day), safe_float(amount)) for day, amount in flows if safe_float(amount) != 0]
-    v0 = max(safe_float(v0), 0.0)
-    v1 = max(safe_float(v1), 0.0)
-    if not PRICES_ARE_DIVIDEND_ADJUSTED:
-        income = safe_float(income)
-    else:
-        income = 0.0
-    net_flow = sum(amount for _, amount in flows)
-    weights = flow_weights(flows, period_days, v0, v1)
-    base = v0 + sum(weight * amount for weight, (_, amount) in zip(weights, flows))
+    previous_value = max(safe_float(previous_value), 0.0)
+    value = max(safe_float(value), 0.0)
+    income = 0.0 if PRICES_ARE_DIVIDEND_ADJUSTED else safe_float(income)
+    base = previous_value + safe_float(inflow)
     if base <= EPSILON:
         return None
-    return (v1 - v0 - net_flow + income) / base
+    return (value + safe_float(outflow) + income) / base - 1
 
 
 def chain_returns(returns):
-    """Encadeia retornos mensais (fracoes); None e mes pulado. None se nenhum conta."""
+    """Encadeia retornos (fracoes); None e periodo pulado. None se nenhum conta."""
     factor = 1.0
     counted = 0
     for value in returns:
@@ -164,15 +141,14 @@ def percent(value):
     return None if value is None else round(value * 100, 2)
 
 
-def period_days_of(month_start, now):
-    if month_key(month_start) == month_key(now):
-        return now.day
-    return calendar.monthrange(month_start.year, month_start.month)[1]
-
-
 def movement_flow_amount(investment):
-    """Fluxo externo em reais: + compra, - venda/resgate (o que entrou no caixa)."""
+    """Fluxo externo em reais: + compra, - venda/resgate (o que entrou no caixa).
+
+    Bonificacao e zero: nenhum dinheiro entrou; o custo atribuido a ela e regra
+    do IR, nao aporte."""
     metadata = investment.get("metadata") or {}
+    if is_bonus_movement(metadata):
+        return 0.0
     quantity = safe_float(investment.get("quantity"))
     if quantity > 0 and not metadata.get("is_redemption"):
         return quantity * safe_float(investment.get("average_price"))
@@ -183,7 +159,7 @@ def movement_flow_amount(investment):
 
 
 def movement_flows(investments):
-    """{group_key: {AAAA-MM: [(dia, valor)]}} e a data da primeira compra de cada posicao."""
+    """{group_key: {AAAA-MM-DD: (compras, vendas)}} e a data da primeira compra de cada posicao."""
     flows = {}
     first_purchase = {}
     for investment in investments:
@@ -192,7 +168,13 @@ def movement_flows(investments):
             continue
         date = investment_movement_date(investment)
         amount = movement_flow_amount(investment)
-        flows.setdefault(group_key, {}).setdefault(month_key(date), []).append((date.day, amount))
+        by_day = flows.setdefault(group_key, {})
+        inflow, outflow = by_day.get(date.strftime("%Y-%m-%d"), (0.0, 0.0))
+        if amount > 0:
+            inflow += amount
+        else:
+            outflow -= amount
+        by_day[date.strftime("%Y-%m-%d")] = (inflow, outflow)
         if amount > 0 or safe_float(investment.get("quantity")) > 0:
             if group_key not in first_purchase or date < first_purchase[group_key]:
                 first_purchase[group_key] = date
@@ -200,7 +182,7 @@ def movement_flows(investments):
 
 
 def fetch_period_income(current_user_id, investments, start_date, end_date, asset_class=None):
-    """Proventos liquidos pagos entre as datas: {group_key: {AAAA-MM: valor}}.
+    """Proventos liquidos pagos entre as datas: {group_key: {AAAA-MM-DD: valor}}.
 
     Renda fixa agrupa pelo titulo: a amortizacao aponta para o ativo, e o ativo
     vai para o primeiro titulo (compra) dele."""
@@ -238,38 +220,153 @@ def fetch_period_income(current_user_id, investments, start_date, end_date, asse
                 continue
         else:
             group_key = f"{row['asset_class']}:{ticker_key(row['ticker'])}"
-        key = str(row["payment_date"])[:7]
+        key = str(row["payment_date"])[:10]
         bucket = income.setdefault(group_key, {})
         bucket[key] = bucket.get(key, 0.0) + safe_float(row["net_amount"])
     return income
 
 
-def month_return(month_index, months, group_keys, flows, income, now):
-    """Retorno do mes `month_index` para o conjunto `group_keys` (None = todos)."""
-    month_start, positions = months[month_index]
-    _, previous = months[month_index - 1]
-    key = month_key(month_start)
+class PriceHistory:
+    """Ultimo fechamento ate um dia, por ticker, de {ticker: {AAAA-MM-DD: preco}}."""
 
-    def value_of(valued):
-        return sum(
-            item["gross"] for group, item in valued.items()
-            if group_keys is None or group in group_keys
+    def __init__(self, daily_prices):
+        self.days = {}
+        self.prices = {}
+        for ticker, by_day in (daily_prices or {}).items():
+            ordered = sorted(by_day)
+            self.days[ticker] = ordered
+            self.prices[ticker] = [by_day[day] for day in ordered]
+
+    def close_on(self, ticker, day):
+        days = self.days.get(ticker)
+        if not days:
+            return None
+        index = bisect_right(days, day)
+        return self.prices[ticker][index - 1] if index else None
+
+
+class FixedIncomeCurve:
+    """Fator de correcao de um titulo em qualquer dia: exato no fim de cada mes
+    (e hoje), interpolado geometricamente por tempo corrido entre um e outro.
+    Calcular a serie inteira em cada dia seria quadratico nos dias."""
+
+    def __init__(self, index_series, today_end):
+        self.index_series = index_series
+        self.today_end = today_end
+        self.anchors = {}
+
+    def anchor(self, metadata, purchase, until):
+        key = (id(metadata), purchase, until)
+        if key not in self.anchors:
+            self.anchors[key] = accrual_factor_until(metadata, purchase, until, self.index_series)
+        return self.anchors[key]
+
+    def factor(self, metadata, purchase, day_end):
+        if not self.index_series or purchase is None:
+            return None
+        purchase = datetime(purchase.year, purchase.month, purchase.day)
+        if day_end <= purchase:
+            return 1.0
+        end = min(month_end(day_end), self.today_end)
+        end_factor = self.anchor(metadata, purchase, end)
+        if end_factor is None:
+            return None
+        start = month_end(subtract_months(day_end.replace(day=1), 1))
+        if start < purchase:
+            start, start_factor = purchase, 1.0
+        else:
+            start_factor = self.anchor(metadata, purchase, start)
+        span = (end - start).total_seconds()
+        if not start_factor or start_factor <= 0 or span <= 0:
+            return end_factor
+        weight = min(max((day_end - start).total_seconds() / span, 0.0), 1.0)
+        return start_factor * (end_factor / start_factor) ** weight
+
+
+def position_value_on(position, day_end, is_today, prices, curve):
+    """Valor bruto de uma posicao no fim do dia."""
+    quantity = position["quantity"]
+    applied = position["applied"]
+    if is_today:
+        return position_value_today(
+            position["class"], quantity, applied, position["original_applied"],
+            position.get("current_price"), position["metadata"],
         )
+    if position["class"] in QUOTED_ASSET_CLASSES:
+        price = prices.close_on(position["ticker"], day_end.strftime("%Y-%m-%d"))
+        if price is None:
+            price = applied / quantity
+        return quantity * price
+    if position["class"] == "FIXED_INCOME":
+        factor = curve.factor(position["metadata"], position.get("purchase_date"), day_end)
+        return applied * factor if factor else applied
+    return applied
 
-    selected = flows.keys() if group_keys is None else [g for g in group_keys if g in flows]
-    month_flows = [flow for group in selected for flow in flows[group].get(key, [])]
-    selected_income = income.keys() if group_keys is None else [g for g in group_keys if g in income]
-    month_income = sum(income[group].get(key, 0.0) for group in selected_income)
-    v0 = value_of(previous)
-    v1 = value_of(positions)
-    value = modified_dietz(v0, v1, month_flows, month_income, period_days_of(month_start, now))
-    return value, v1, sum(amount for _, amount in month_flows), month_income
+
+def daily_group_values(investments, daily_prices, index_series, first_day, now):
+    """[(AAAA-MM-DD, {group_key: valor bruto})] no fim de cada dia, de `first_day` a hoje."""
+    today = datetime(now.year, now.month, now.day)
+    prices = PriceHistory(daily_prices)
+    curve = FixedIncomeCurve(index_series, today.replace(hour=23, minute=59, second=59))
+    ordered = sorted(investments, key=investment_movement_date)
+    positions = {}
+    cursor = 0
+    days = []
+    day = datetime(first_day.year, first_day.month, first_day.day)
+    while day <= today:
+        day_end = day.replace(hour=23, minute=59, second=59)
+        while cursor < len(ordered) and investment_movement_date(ordered[cursor]) <= day_end:
+            add_movement_to_positions(positions, ordered[cursor])
+            cursor += 1
+        is_today = day == today
+        values = {
+            group: position_value_on(position, day_end, is_today, prices, curve)
+            for group, position in positions.items()
+            if position_is_open(position)
+        }
+        days.append((day.strftime("%Y-%m-%d"), values))
+        day += timedelta(days=1)
+    return days
+
+
+def monthly_chain(days, group_keys, flows, income):
+    """Retornos diarios encadeados por mes para `group_keys` (None = todos).
+
+    Devolve ({AAAA-MM: retorno}, {AAAA-MM: (valor no fim, fluxo liquido, proventos)});
+    o primeiro dia de `days` e so o valor inicial."""
+    flow_groups = list(flows) if group_keys is None else [g for g in group_keys if g in flows]
+    income_groups = list(income) if group_keys is None else [g for g in group_keys if g in income]
+
+    def value_of(values):
+        if group_keys is None:
+            return sum(values.values())
+        return sum(values.get(group, 0.0) for group in group_keys)
+
+    factors = {}
+    totals = {}
+    previous = value_of(days[0][1]) if days else 0.0
+    for day, values in days[1:]:
+        inflow = outflow = 0.0
+        for group in flow_groups:
+            day_in, day_out = flows[group].get(day, (0.0, 0.0))
+            inflow += day_in
+            outflow += day_out
+        day_income = sum(income[group].get(day, 0.0) for group in income_groups)
+        value = value_of(values)
+        result = daily_return(previous, value, inflow, outflow, day_income)
+        key = day[:7]
+        if result is not None:
+            factors[key] = factors.get(key, 1.0) * (1 + result)
+        _, net_flow, month_income = totals.get(key, (0.0, 0.0, 0.0))
+        totals[key] = (value, net_flow + inflow - outflow, month_income + day_income)
+        previous = value
+    return {key: factor - 1 for key, factor in factors.items()}, totals
 
 
 def build_investment_returns(
     current_user_id,
     investments,
-    historical_prices,
+    daily_prices,
     months_back,
     *,
     index_series=None,
@@ -279,26 +376,32 @@ def build_investment_returns(
 ):
     """TWR da carteira no periodo e no ano, serie mensal, tabela ano x mes e TWR por ativo.
 
-    `benchmarks` e o que `services.benchmarks.load_benchmarks()` devolve:
+    `daily_prices` e {ticker: {AAAA-MM-DD: fechamento}} na base das quantidades
+    (`load_history_inputs()` em routes/investments.py). `benchmarks` e o que
+    `services.benchmarks.load_benchmarks()` devolve:
     {codigo: {"label", "monthly": {AAAA-MM: fracao}, "source", "error", ...}}.
     """
     now = datetime.now()
     evaluated = returns_evaluated_months(months_back)
-    months = list(iter_portfolio_months(investments, historical_prices, evaluated, index_series))
+    current_month = datetime(now.year, now.month, 1)
+    month_starts = [subtract_months(current_month, evaluated - 1 - index) for index in range(evaluated)]
+    # O valor inicial do primeiro mes da conta e o fim do mes anterior a ele.
+    days = daily_group_values(investments, daily_prices, index_series, month_end(month_starts[0]), now)
     flows, first_purchase = movement_flows(investments)
-    first_month = months[1][0]
-    income = fetch_period_income(current_user_id, investments, first_month, now, asset_class)
+    income = fetch_period_income(current_user_id, investments, month_starts[1], now, asset_class)
 
-    keys = [month_key(month_start) for month_start, _ in months]
+    keys = [month_key(month_start) for month_start in month_starts]
     cdi = cdi_monthly_returns(cdi_series, keys) if cdi_series else {}
 
+    portfolio_returns, portfolio_totals = monthly_chain(days, None, flows, income)
     monthly = []
-    for index in range(1, len(months)):
-        value, v1, net_flow, month_income = month_return(index, months, None, flows, income, now)
+    for month_start in month_starts[1:]:
+        key = month_key(month_start)
+        value, net_flow, month_income = portfolio_totals.get(key, (0.0, 0.0, 0.0))
         monthly.append({
-            "month_start": months[index][0],
-            "return": value,
-            "value": v1,
+            "month_start": month_start,
+            "return": portfolio_returns.get(key),
+            "value": value,
             "net_flow": net_flow,
             "income": month_income,
         })
@@ -350,36 +453,36 @@ def build_investment_returns(
     cdi_ytd = chain_returns(cdi.get(key) for key in ytd_keys) if cdi else None
 
     # Por ativo: TWR desde a primeira compra, limitado a janela pedida.
-    window_start_index = len(months) - months_back
-    window_start = months[window_start_index][0]
+    window_start = window[0]["month_start"]
+    window_first_day = month_end(subtract_months(window_start, 1)).strftime("%Y-%m-%d")
+    window_days = [(day, values) for day, values in days if day >= window_first_day]
+    in_window = set()
+    for _, values in window_days:
+        in_window.update(values)
+    for group, by_day in flows.items():
+        if any(day > window_first_day for day in by_day):
+            in_window.add(group)
     group_info = {}
-    for month_start, positions in months[window_start_index - 1:]:
-        for group, item in positions.items():
-            group_info[group] = {"ticker": item["ticker"], "class": item["class"]}
     for investment in investments:
         group = evolution_group_key(investment)
-        if group is None or group in group_info:
-            continue
-        if month_key(investment_movement_date(investment)) in window_keys:
+        if group in in_window and group not in group_info:
             group_info[group] = {
                 "ticker": ticker_key(investment.get("ticker_or_name")),
                 "class": investment.get("asset_class"),
             }
 
-    last_positions = months[-1][1]
+    last_values = days[-1][1] if days else {}
     assets = []
     for group, info in group_info.items():
-        returns = []
-        for index in range(window_start_index, len(months)):
-            value, _, _, _ = month_return(index, months, {group}, flows, income, now)
-            returns.append(value)
+        group_returns, _ = monthly_chain(window_days, {group}, flows, income)
+        returns = [group_returns.get(key) for key in window_keys]
         asset_twr = chain_returns(returns)
         if asset_twr is None:
             continue
         purchase = first_purchase.get(group)
         capped = purchase is None or purchase < window_start
         since = window_start if capped else purchase.replace(day=1)
-        current = last_positions.get(group)
+        current = last_values.get(group)
         assets.append({
             "key": group,
             "ticker": info["ticker"],
@@ -389,13 +492,13 @@ def build_investment_returns(
             "since": month_key(since),
             "capped": capped,
             "months_counted": sum(1 for value in returns if value is not None),
-            "current_value": rounded_money(current["gross"]) if current else 0.0,
+            "current_value": rounded_money(current) if current else 0.0,
             "open": current is not None,
         })
     assets.sort(key=lambda item: (not item["open"], -item["current_value"], item["ticker"] or ""))
 
     return {
-        "method": "modified_dietz_monthly",
+        "method": "daily_chained",
         "basis": VALUE_BASIS,
         "basis_label": VALUE_BASIS_LABEL,
         "months": months_back,

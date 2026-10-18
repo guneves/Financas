@@ -434,6 +434,159 @@ def get_monthly_history(tickers, start_date):
     return prices
 
 
+def extract_split_events(data, yf_symbol):
+    """[(AAAA-MM-DD, fator)] da coluna "Stock Splits" (download com actions=True).
+
+    O Yahoo registra a bonificacao da B3 como desdobramento (KLBN4 1.1 em
+    2024-05-07, SOJA3 1.048629 em 2025-12-19) e ajusta o fechamento anterior
+    por ela; `restore_quantity_basis()` desfaz isso."""
+    if data is None or getattr(data, "empty", True):
+        return []
+    try:
+        columns = data.columns
+        if getattr(columns, "nlevels", 1) > 1:
+            if yf_symbol not in columns.get_level_values(0):
+                return []
+            frame = data[yf_symbol]
+        else:
+            frame = data
+        if "Stock Splits" not in frame:
+            return []
+        splits = frame["Stock Splits"].dropna()
+    except Exception:
+        return []
+    events = []
+    for date, ratio in splits.items():
+        ratio = safe_float(ratio, 0.0)
+        if math.isfinite(ratio) and ratio > 0 and abs(ratio - 1) > 1e-9:
+            events.append((date.strftime("%Y-%m-%d"), ratio))
+    return events
+
+
+def download_daily_history(tickers, start_date):
+    """{"prices": {ticker: {AAAA-MM-DD: fechamento}}, "splits": {ticker: [(AAAA-MM-DD, fator)]}}.
+
+    Fechamento sem ajuste de proventos (auto_adjust=False), mas ajustado pelos
+    desdobramentos que o Yahoo conhece — inclusive as bonificacoes."""
+    result = {"prices": {ticker: {} for ticker in tickers}, "splits": {ticker: [] for ticker in tickers}}
+    if yf is None or not tickers:
+        return result
+
+    symbols_by_ticker = {ticker: yahoo_symbol(ticker) for ticker in tickers}
+    yf_symbols = sorted(set(symbols_by_ticker.values()))
+    try:
+        data = yf.download(
+            tickers=" ".join(yf_symbols),
+            start=start_date,
+            interval="1d",
+            group_by="ticker",
+            threads=True,
+            progress=False,
+            auto_adjust=False,
+            actions=True,
+            timeout=PRICE_DOWNLOAD_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.exception(f"Erro ao consultar historico diario no yfinance: {exc}")
+        return result
+
+    for ticker, yf_symbol in symbols_by_ticker.items():
+        result["splits"][ticker] = extract_split_events(data, yf_symbol)
+        close_values = extract_close_values(data, yf_symbol)
+        if close_values is None:
+            continue
+        for date, price in close_values.items():
+            numeric_price = safe_float(price, None)
+            if numeric_price is not None and math.isfinite(numeric_price) and numeric_price > 0:
+                result["prices"][ticker][date.strftime("%Y-%m-%d")] = numeric_price
+    return result
+
+
+def get_daily_history(tickers, start_date):
+    """`download_daily_history()` com o cache de historico do processo."""
+    normalized_tickers = tuple(sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)}))
+    if not normalized_tickers:
+        return {"prices": {}, "splits": {}}
+
+    cache_key = ("daily", normalized_tickers, start_date)
+    now = time.time()
+    with _price_cache_lock:
+        cached = _history_cache.get(cache_key)
+        if cached and now - cached.get("updated_at", 0) <= HISTORY_CACHE_TTL_SECONDS:
+            return {
+                "prices": {ticker: dict(days) for ticker, days in cached["prices"].items()},
+                "splits": {ticker: list(events) for ticker, events in cached["splits"].items()},
+            }
+
+    history = download_daily_history(list(normalized_tickers), start_date)
+    with _price_cache_lock:
+        _history_cache[cache_key] = {
+            "prices": {ticker: dict(days) for ticker, days in history["prices"].items()},
+            "splits": {ticker: list(events) for ticker, events in history["splits"].items()},
+            "updated_at": now,
+        }
+    return history
+
+
+# Um evento do Yahoo e o mesmo desdobramento/grupamento registrado quando cai
+# ate tantos dias da data ex e o fator difere menos que isto.
+SPLIT_MATCH_DAYS = 7
+SPLIT_MATCH_TOLERANCE = 0.02
+
+
+def restore_quantity_basis(prices_by_ticker, splits_by_ticker, registered_splits):
+    """Fechamentos na base das quantidades gravadas.
+
+    Um desdobramento ou grupamento registrado reescala as operacoes anteriores
+    (services/corporate_actions.py): o ajuste do Yahoo por ele esta certo. Uma
+    bonificacao nao reescala nada (e uma compra de custo zero na data), e um
+    evento nao registrado deixa as quantidades na base antiga: nos dois casos o
+    preco anterior ao evento volta a ser o negociado (vezes o fator), senao cada
+    compra feita antes dele pareceria perder 1 - 1/fator no mesmo dia.
+
+    `prices_by_ticker` e {ticker: {AAAA-MM-DD ou AAAA-MM: preco}};
+    `registered_splits`, {ticker: [(AAAA-MM-DD, fator)]}. Chave mensal: o evento
+    vale para os meses anteriores ao dele (o fechamento do mes ja e depois dele).
+    """
+    restored = {}
+    for ticker, prices in prices_by_ticker.items():
+        pending = []
+        for event_date, ratio in splits_by_ticker.get(ticker) or []:
+            event_day = parse_iso_date(event_date)
+            matched = any(
+                event_day and parse_iso_date(day)
+                and abs((event_day - parse_iso_date(day)).days) <= SPLIT_MATCH_DAYS
+                and abs(ratio / factor - 1) < SPLIT_MATCH_TOLERANCE
+                for day, factor in registered_splits.get(ticker) or []
+                if factor
+            )
+            if not matched:
+                pending.append((event_date, ratio))
+        if not pending:
+            restored[ticker] = dict(prices)
+            continue
+        adjusted = {}
+        for key, price in prices.items():
+            factor = 1.0
+            for event_date, ratio in pending:
+                if key < event_date[:len(key)]:
+                    factor *= ratio
+            adjusted[key] = price * factor
+        restored[ticker] = adjusted
+    return restored
+
+
+def monthly_closes(daily_prices):
+    """{ticker: {AAAA-MM: ultimo fechamento do mes}} a partir do historico diario."""
+    monthly = {}
+    for ticker, days in daily_prices.items():
+        months = {}
+        for day in sorted(days):
+            months[day[:7]] = days[day]
+        monthly[ticker] = months
+    return monthly
+
+
 def get_market_prices(tickers, *, force=False):
     normalized_tickers = sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)})
     if not normalized_tickers:

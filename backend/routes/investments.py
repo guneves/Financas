@@ -6,7 +6,7 @@ resultado realizado e as posicoes materializadas antes de responder.
 
 `load_history_inputs()` (historico e rentabilidade) le `yf` para decidir se
 busca historico — os testes trocam `yf` aqui e em services/prices.py, e
-`get_monthly_history` aqui.
+`get_daily_history` aqui.
 """
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
@@ -27,6 +27,7 @@ import export_xlsx
 from responses import XLSX_MIMETYPE, download_response
 from responses import export_response, read_export_options
 from services.corporate_actions import (
+    action_factor,
     create_corporate_action,
     delete_corporate_action,
     ensure_outside_corporate_actions,
@@ -80,9 +81,11 @@ from services.portfolio import (
 )
 from services.prices import (
     _price_fetch_executor,
-    get_monthly_history,
+    get_daily_history,
+    monthly_closes,
     quote_timestamp,
     record_price_quote,
+    restore_quantity_basis,
     ticker_key,
     yf,
 )
@@ -884,10 +887,46 @@ def read_months_arg(args, default=12):
     return max(1, min(months_back, 60))
 
 
+def months_since_first_movement(current_user_id, asset_class_filter=None, default=12):
+    """Meses do mes da primeira operacao ate o atual (os dois inclusive), de 1 a 60."""
+    query = """
+        SELECT MIN(it.transaction_date) AS first_date
+        FROM investment_transactions it
+        JOIN assets a ON a.id = it.asset_id AND a.user_id = it.user_id
+        WHERE it.user_id = ?
+    """
+    params = [current_user_id]
+    if asset_class_filter:
+        query += " AND a.asset_class = ?"
+        params.append(asset_class_filter)
+    with get_db() as conn:
+        row = conn.execute(query, params).fetchone()
+    first = parse_iso_date(row["first_date"]) if row else None
+    if first is None:
+        return default
+    now = datetime.now()
+    months = (now.year - first.year) * 12 + now.month - first.month + 1
+    return max(1, min(months, 60))
+
+
+def registered_split_events(current_user_id):
+    """{ticker: [(data ex, fator)]} dos desdobramentos e grupamentos registrados."""
+    with get_db() as conn:
+        actions = list_corporate_actions(conn, current_user_id)
+    events = {}
+    for action in actions:
+        if action.get("action_type") in ("SPLIT", "REVERSE_SPLIT"):
+            events.setdefault(ticker_key(action.get("ticker")), []).append(
+                (action.get("ex_date"), action_factor(action)),
+            )
+    return events
+
+
 def load_history_inputs(current_user_id, months_back, asset_class_filter):
     """O que a evolucao e a rentabilidade avaliam: as movimentacoes (em reais,
-    filtradas pela classe), o fechamento mensal dos cotados em reais e as series
-    CDI/IPCA da renda fixa. Cobre os ultimos `months_back` meses."""
+    filtradas pela classe), o fechamento diario dos cotados em reais, na base
+    das quantidades gravadas (`restore_quantity_basis()`), e as series CDI/IPCA
+    da renda fixa. Cobre os ultimos `months_back` meses."""
     investments_data = fetch_investments(current_user_id)
     filtered_investments = [
         inv for inv in investments_data
@@ -895,7 +934,7 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
     ]
     start_date = subtract_months(datetime.now(), months_back + 1).strftime("%Y-%m-%d")
 
-    historical_prices = {}
+    daily_prices = {}
     quoted_assets = [
         inv for inv in filtered_investments
         if inv.get("asset_class") in QUOTED_ASSET_CLASSES
@@ -907,20 +946,23 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
     })
 
     if yf is None:
-        historical_prices = {ticker: {} for ticker in unique_tickers}
+        daily_prices = {ticker: {} for ticker in unique_tickers}
     elif unique_tickers:
-        future = _price_fetch_executor.submit(get_monthly_history, unique_tickers, start_date)
+        future = _price_fetch_executor.submit(get_daily_history, unique_tickers, start_date)
         try:
-            historical_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+            history = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+            daily_prices = restore_quantity_basis(
+                history["prices"], history["splits"], registered_split_events(current_user_id),
+            )
         except FutureTimeoutError:
             logger.warning("Tempo limite ao buscar historico no yfinance.")
-            historical_prices = {ticker: {} for ticker in unique_tickers}
+            daily_prices = {ticker: {} for ticker in unique_tickers}
         except Exception as exc:
             logger.exception(f"Erro ao buscar historico no yfinance: {exc}")
-            historical_prices = {ticker: {} for ticker in unique_tickers}
+            daily_prices = {ticker: {} for ticker in unique_tickers}
 
-    # Historico de ativo em moeda estrangeira vem na moeda dele: cada mes
-    # vira reais pelo cambio do fim daquele mes.
+    # Historico de ativo em moeda estrangeira vem na moeda dele: cada dia
+    # vira reais pelo cambio do fim do seu mes.
     foreign_currency = {
         ticker_key(asset.get("ticker_or_name")): asset.get("native_currency")
         for asset in quoted_assets
@@ -929,10 +971,10 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
     if foreign_currency:
         with get_db() as conn:
             for ticker, currency in foreign_currency.items():
-                months = historical_prices.get(ticker) or {}
-                rates = monthly_rates(conn, current_user_id, currency, sorted(months))
-                historical_prices[ticker] = {
-                    key: price * rates[key] for key, price in months.items() if rates.get(key)
+                days = daily_prices.get(ticker) or {}
+                rates = monthly_rates(conn, current_user_id, currency, sorted({day[:7] for day in days}))
+                daily_prices[ticker] = {
+                    day: price * rates[day[:7]] for day, price in days.items() if rates.get(day[:7])
                 }
 
     # Renda fixa nos meses passados: CDI/IPCA desde a compra mais antiga.
@@ -947,7 +989,7 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
         need_ipca = any((inv.get("metadata") or {}).get("indexer") == "IPCA" for inv in fixed_titles)
         index_series = fetch_index_history(first_purchase, need_ipca)
 
-    return filtered_investments, historical_prices, index_series
+    return filtered_investments, daily_prices, index_series
 
 
 def fetch_index_history(start_date, need_ipca):
@@ -968,9 +1010,10 @@ def get_historical_portfolio(current_user_id):
     try:
         months_back = read_months_arg(request.args)
         asset_class_filter = parse_asset_class_filter(request.args.get("asset_class"))
-        filtered_investments, historical_prices, index_series = load_history_inputs(
+        filtered_investments, daily_prices, index_series = load_history_inputs(
             current_user_id, months_back, asset_class_filter,
         )
+        historical_prices = monthly_closes(daily_prices)
 
         evolution = build_portfolio_evolution(
             filtered_investments,
@@ -991,14 +1034,19 @@ def get_historical_portfolio(current_user_id):
 @bp.route("/api/investments/returns", methods=["GET"])
 @token_required
 def get_investment_returns(current_user_id):
-    """Rentabilidade ponderada no tempo (TWR mensal, Dietz modificado)."""
+    """Rentabilidade ponderada no tempo (TWR, retorno diario encadeado).
+
+    `?months=all` e desde a primeira operacao (da classe, com o filtro), ate 60 meses."""
     try:
-        months_back = read_months_arg(request.args)
         asset_class_filter = parse_asset_class_filter(request.args.get("asset_class"))
+        if str(request.args.get("months", "")).strip().lower() == "all":
+            months_back = months_since_first_movement(current_user_id, asset_class_filter)
+        else:
+            months_back = read_months_arg(request.args)
         # Um mes a mais (o valor inicial do primeiro) e, no minimo, o ano
         # corrente inteiro, para o acumulado no ano.
         evaluated_months = returns_evaluated_months(months_back)
-        filtered_investments, historical_prices, index_series = load_history_inputs(
+        filtered_investments, daily_prices, index_series = load_history_inputs(
             current_user_id, evaluated_months, asset_class_filter,
         )
         first_month = subtract_months(datetime.now().replace(day=1), evaluated_months - 1)
@@ -1014,7 +1062,7 @@ def get_investment_returns(current_user_id):
         result = build_investment_returns(
             current_user_id,
             filtered_investments,
-            historical_prices,
+            daily_prices,
             months_back,
             index_series=index_series,
             cdi_series=(cdi_series or {}).get("cdi"),

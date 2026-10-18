@@ -124,7 +124,7 @@ class Network:
 
 
 @pytest.fixture()
-def network(app_module, prices_module, monkeypatch, benchmarks_module):
+def network(app_module, prices_module, monkeypatch, benchmarks_module, daily_history_from_months):
     routes = importlib.import_module("routes.investments")
     fixed_income = importlib.import_module("services.fixed_income")
     integrations = importlib.import_module("integrations")
@@ -163,7 +163,7 @@ def network(app_module, prices_module, monkeypatch, benchmarks_module):
 
     monkeypatch.setattr(prices_module, "yf", None)
     monkeypatch.setattr(routes, "yf", object())
-    monkeypatch.setattr(routes, "get_monthly_history", fake_history)
+    monkeypatch.setattr(routes, "get_daily_history", lambda tickers, start: daily_history_from_months(fake_history(tickers, start)))
     monkeypatch.setattr(fixed_income, "fetch_bcb_series", fake_bcb)
     monkeypatch.setattr(benchmarks_module, "download_monthly_history", fake_index_history)
     monkeypatch.setattr(brapi_client, "is_configured", lambda: state.brapi_configured)

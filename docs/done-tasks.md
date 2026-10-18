@@ -125,6 +125,7 @@
 | Pluggy removed from the app (owner: the free plan gives no access): client, sync, routes, Ajustes › Banco, the Extrato's bank mark, the "+ Novo" bank claim, Aprovar's bank source; migration 029 drops `pluggy_*`, `external_id` and `cc_expenses.source_type/source_id` (a pending Aprovar item only the bank brought is REMOVED, a Pluggy-born lançamento becomes manual) | 2026-10-17 |
 | Pluggy out of the migrations too (owner): 027/029 reserved and empty, 028 without its Pluggy lines, 030 renames their `schema_migrations` rows (session financas-5e) | 2026-10-17 |
 | Notification auto-identifier: Java parsers per bank on the phone, every money notification sent to Aprovar (parsed fields only), own-account transfer vs Pix to someone else by the counterparty (migration 031), the bank's double posting dropped, nothing matched without Aprovar | 2026-10-17 |
+| TWR like Investidor10: daily returns chained instead of monthly Modified Dietz, Yahoo's bonus-as-split price adjustment undone (`restore_quantity_basis()`), a bonificação is no flow, Rentabilidade › "Tudo" (`?months=all`, since the first operation); the evolution reads the same restored closes | 2026-10-18 |
 
 ---
 
@@ -706,3 +707,34 @@ handles card payments and is a fallback — on a duplicate the bank's notificati
   the other side guessed as the BTG bank account; with both legs it is one transfer
   bank -> Corretora.
 
+### TWR against Investidor10 — 2026-10-18
+Owner: Investidor10 shows 25,48% (12 months) and 57,42% (total) and asked for the same
+behaviour. Compared on the PC's dev copy (the 2026-10-16 snapshot the server imported) against
+Investidor10's own API, read from the owner's logged-in Chrome tab.
+- **Entries**: the 555 imported operations match Investidor10 by id — date, type, quantity and
+  value — and so do the 8 bonificações. Missing here: AMER3 (two buys on 16/08/2024, R$ 16,80,
+  the 100:1 grupamento of 26/08/2024, a sale of R$ 5,75 on 10/04/2025); the owner said exact
+  parity isn't needed. Proventos per asset match Investidor10's "earnings received" (net).
+- **The big error was bonificações, not the method.** Yahoo records a B3 bonificação as a split
+  (KLBN4 1.1 on 2024-05-07, SOJA3 1.048629 on 2025-12-19, ITSA4, SLCE3, GOAU4…) and divides
+  every earlier close by it; our earlier quantities are not rescaled (a bonus is its own BUY
+  row), so every purchase before a bonus looked like an instant loss of 1 − 1/factor, and the
+  bonus row counted as an aporte at its IR cost (GOAU4: R$ 398 that never moved). FESA4 −33%,
+  SOJA3 −28%, KLBN4 −14% per asset came from this. `restore_quantity_basis()` multiplies the
+  closes before each Yahoo event back, except an event matching a registered SPLIT /
+  REVERSE_SPLIT (±7 days, ratio within 2%), whose rescaling already put our quantities in
+  Yahoo's basis. Applied to the daily closes the returns read and to the monthly closes the
+  evolution reads (derived from the same daily download, `monthly_closes()`).
+- **Daily chaining**: Investidor10's FAQ says the weighted return is computed once a day.
+  r = (V1 + sales + proventos) / (V0 + buys) − 1. Results on the dev copy: total 48,13% →
+  56,45% (Investidor10 57,42%); years 10,77 / 3,97 / 18,47 / 14,67 vs 10,66 / 1,98 / 19,59 /
+  16,64. Per asset, BBSE3 84,7 vs 85,4, SAPR4 75,5 vs 77,6, SLCE3 23,3 vs 23,6, ITSA4 110,9 vs
+  115,8. FESA4 stays −38% vs Investidor10's −0,7%: a small 2023 position lost 35% before the big
+  2025–26 buys, which TWR weights fully; Investidor10's per-asset figure behaves differently
+  there, and its portfolio figure agrees with ours.
+- Proventos on the ex date instead of the payment date: total 58,98%, years further off — kept
+  the payment date.
+- Fixed income per day: exact accrual at each month end (and today), geometric interpolation in
+  between (`FixedIncomeCurve`), because the full series per day is quadratic.
+- `?months=all` starts at the month of the first operation (of the class, with the filter),
+  capped at 60. The 3A window missed Oct/2023, so nothing on screen matched "Rentabilidade total".

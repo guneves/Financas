@@ -123,6 +123,54 @@ def evolution_group_key(investment):
     return str(investment.get("id")) if asset_class == "FIXED_INCOME" else f"{asset_class}:{ticker}"
 
 
+def add_movement_to_positions(positions, investment):
+    """Soma a movimentacao a sua posicao em `positions` ({group_key: posicao}).
+
+    E o acumulo da evolucao mensal e da rentabilidade diaria (services/returns.py):
+    quantidade, aplicado pelo custo medio e, na renda fixa, o titulo original."""
+    group_key = evolution_group_key(investment)
+    if group_key is None:
+        return None
+    metadata = investment.get("metadata") or {}
+    asset_class = investment.get("asset_class")
+    ticker = ticker_key(investment.get("ticker_or_name"))
+    quantity = safe_float(investment.get("quantity"))
+    average_price = safe_float(investment.get("average_price"))
+
+    if group_key not in positions:
+        positions[group_key] = {
+            "ticker": ticker,
+            "class": asset_class,
+            "quantity": 0,
+            "applied": 0,
+            "original_applied": 0,
+            "current_price": safe_float(investment.get("current_price"), average_price),
+            "metadata": metadata,
+        }
+
+    position = positions[group_key]
+    # Custo medio (apply_average_cost): a venda tira o custo das cotas
+    # vendidas, nao o valor da venda — uma venda com lucro nao zera o aplicado.
+    position["applied"] += safe_float(investment.get("cost_amount"), quantity * average_price)
+    if not movement_affects_fixed_income_position(investment):
+        position["quantity"] += quantity
+        if asset_class == "FIXED_INCOME" and quantity > 0:
+            position["original_applied"] += quantity * average_price
+            position["metadata"] = metadata
+            position["ticker"] = ticker
+            position["purchase_date"] = investment_movement_date(investment)
+    if investment.get("current_price") is not None and not movement_affects_fixed_income_position(investment):
+        position["current_price"] = safe_float(investment.get("current_price"), average_price)
+    return group_key
+
+
+def position_is_open(position):
+    """Posicao com quantidade e aplicado positivos (e titulo de renda fixa nao encerrado)."""
+    if position["quantity"] <= 0 or position["applied"] <= 0:
+        return False
+    return not (position["class"] == "FIXED_INCOME" and fixed_income_title_closed(position["applied"]))
+
+
 def portfolio_month_positions(investments_data, historical_prices, month_start, index_series, current_month_key):
     """Cada posicao no fim do mes: {group_key: {ticker, class, applied, gross, net}}.
 
@@ -134,50 +182,15 @@ def portfolio_month_positions(investments_data, historical_prices, month_start, 
     positions = {}
 
     for investment in investments_data:
-        metadata = investment.get("metadata") or {}
         if investment_movement_date(investment) > target_end:
             continue
-
-        group_key = evolution_group_key(investment)
-        if group_key is None:
-            continue
-        asset_class = investment.get("asset_class")
-        ticker = ticker_key(investment.get("ticker_or_name"))
-        quantity = safe_float(investment.get("quantity"))
-        average_price = safe_float(investment.get("average_price"))
-
-        if group_key not in positions:
-            positions[group_key] = {
-                "ticker": ticker,
-                "class": asset_class,
-                "quantity": 0,
-                "applied": 0,
-                "original_applied": 0,
-                "current_price": safe_float(investment.get("current_price"), average_price),
-                "metadata": metadata,
-            }
-
-        position = positions[group_key]
-        # Custo medio (apply_average_cost): a venda tira o custo das cotas
-        # vendidas, nao o valor da venda — uma venda com lucro nao zera o aplicado.
-        position["applied"] += safe_float(investment.get("cost_amount"), quantity * average_price)
-        if not movement_affects_fixed_income_position(investment):
-            position["quantity"] += quantity
-            if asset_class == "FIXED_INCOME" and quantity > 0:
-                position["original_applied"] += quantity * average_price
-                position["metadata"] = metadata
-                position["ticker"] = ticker
-                position["purchase_date"] = investment_movement_date(investment)
-        if investment.get("current_price") is not None and not movement_affects_fixed_income_position(investment):
-            position["current_price"] = safe_float(investment.get("current_price"), average_price)
+        add_movement_to_positions(positions, investment)
 
     valued = {}
     for group_key, position in positions.items():
         quantity = position["quantity"]
         applied_value = position["applied"]
-        if quantity <= 0 or applied_value <= 0:
-            continue
-        if position["class"] == "FIXED_INCOME" and fixed_income_title_closed(applied_value):
+        if not position_is_open(position):
             continue
 
         is_current_month = target_key == current_month_key

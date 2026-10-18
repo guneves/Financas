@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1099 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1106 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -496,6 +496,15 @@ mobile-docs/
   sum to 100% in any class that has one), and `DELETE /api/goals/<id>` is a real delete with no
   guard. Current values, gaps, the contribution split and the goal forecast are computed on read
   from `build_portfolio_snapshot()` (net values) — never stored.
+- **TWR is daily and the closes are in the basis of the stored quantities** (2026-10-18,
+  `services/returns.py`): each day r = (V1 + sales + proventos) / (V0 + buys) − 1, months are
+  products of their days — Investidor10's method. Yahoo records a bonificação as a split and
+  adjusts the earlier closes; a bonus here is its own BUY row and earlier quantities are not
+  rescaled, so `restore_quantity_basis()` (`services/prices.py`) undoes every Yahoo event except
+  a registered SPLIT/REVERSE_SPLIT. Returns and evolution both read `get_daily_history()` through
+  `load_history_inputs()` (tests patch `routes.investments.get_daily_history`; the
+  `daily_history_from_months` fixture builds it from monthly paths). A bonificação is never a
+  flow (`movement_flow_amount()`).
 - **The exemption meter reads the IR report's own apuração** (`exemption_meter()` calls
   `renda_variavel()` up to the month), so the R$ 20 mil figure on the IR tab and in the sale form
   always matches the annual report. Don't give it a second copy of the rule.

@@ -312,12 +312,22 @@ Seen in Investidor10 PRO and not built; each needs the owner's call first.
 - Goals: the forecast is deterministic (constant monthly contribution and return, compounded
   monthly); monthly income has no forecast. Income counts net proventos paid in the last 365 days,
   foreign ones taken as BRL like the IR report.
-- Rentabilidade (TWR): monthly Modified Dietz on **gross** values with month-end closes; past months
-  of unquoted classes (OTHER, manual prices) sit at cost, so their gain lands in the current month;
-  a missing yfinance month reuses the previous close; the current month runs to today at the
-  stored quotes, like Posição (a fixed-income title never refreshed from the BCB dips in that month
-  until "Atualizar cotações"); a provento
-  paid while the portfolio is empty is dropped. The response's `notes[]` lists these.
+- Rentabilidade (TWR): daily returns chained (Investidor10's method), on **gross** values; a
+  buy enters at the price paid, a sale leaves at what it paid, proventos count on the payment
+  date (the ex-date variant fit Investidor10 worse), a bonificação is no flow. Unquoted classes
+  (OTHER, manual prices) sit at cost, so their gain lands today or on the sale; fixed income is
+  exact at each month end and interpolated in between; a ticker with no Yahoo history (delisted:
+  GALG11, JBSS3, MALL11, NEOE3) sits at cost; a provento paid while the position is empty is
+  dropped. The response's `notes[]` lists these.
+- **Tesouro Direto is valued by accrual, Investidor10 marks it to market.** Each Tesouro purchase
+  is stored as 1 title × the amount paid (the Investidor10 import did that); Investidor10 keeps
+  the fractional quantity (5.95 × R$ 168,02) and the daily PU. On 2026-10-17 our Renda+ 2065 was
+  R$ 8.122 vs R$ 9.365 there, and that is most of the remaining TWR gap (2026: 14.67% vs
+  16.64%). Needs: the fractional quantity (amount ÷ PU of the purchase day, or re-import), and the
+  Tesouro Transparente PU history as the price source for Tesouro titles.
+- **"Últimos 12 meses" differ by definition**: Investidor10 chains 13 calendar months (from the
+  start of the month a year ago — Oct/2025–Oct/2026 = 25.46%), our 1A is 12 (Nov–Oct). Decide
+  with the owner whether 1A should follow Investidor10.
 - Total return per asset ("Rentab. c/ proventos"): base is all money ever put in (current cost +
   cost of shares sold), so an asset that paid back most of its capital isn't overstated.
 - Benchmarks: IFIX and IDIV have no free monthly history — they accumulate from the closes the app

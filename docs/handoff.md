@@ -42,6 +42,25 @@ ran directly (no fallback needed).
 - Docs: CLAUDE.md, next-steps (Phase 6 rewritten; the "automatic vs confirm" decision closed —
   the owner's "insert under approve"), done-tasks, mobile-docs Phase 6.
 
+### Follow-up, 2026-10-18 (session financas-4d): TWR like Investidor10
+Owner: "TWR seems to be off… investidor 10… 25,48% last 12 months and 57,42% total… make sure
+every transaction is exactly the same"; later "your average seems to be precise, no need to be
+exactly the same". No session-scout (follow-up in a running session).
+- **Found**: the operations match Investidor10 id by id (only AMER3, R$ 16,80 round trip in
+  2024–25, is missing). The error was Yahoo's bonus-as-split price adjustment against our
+  unrescaled quantities, plus the bonus counted as an aporte. Fixed (`restore_quantity_basis()`,
+  bonus = no flow), and the TWR is now daily-chained like Investidor10's. Total 48,13% → 56,45%
+  (theirs 57,42%). Rentabilidade got a "Tudo" period (`?months=all`). Details in done-tasks.
+- **Not done**: Tesouro mark-to-market (the main remaining gap, next-steps); the 12-month window
+  definition (Investidor10 uses 13 calendar months; owner to decide); AMER3 not added. **The
+  server's data was not read**: ssh to production was refused by the sandbox, so everything ran
+  on the PC's dev copy of the 2026-10-16 snapshot. Not pushed (a push deploys).
+- **Learned**: Investidor10's wallet API is readable from the owner's logged-in Chrome tab
+  (`/wallet/api/proxy/wallet-app/…`, wallet 1138417): `entries/<id>/<type>` (1 = ações/FIIs/
+  ETFs, 3 = renda fixa, 5 = Tesouro), `profitability/<id>/table|summary`,
+  `summary/actives/<id>/Ticker|Etf|FixedIncome|Treasure` (per-asset `weighted_return`,
+  `earnings_received`). The imported rows carry Investidor10's id in `metadata.external_id`.
+
 ### Follow-up, same day (session financas-5e): Pluggy out of the migrations
 Owner: "take down all pluggy mentions in the database", done after deploy `39088581530` applied
 029. `027_reserved.sql` / `029_reserved.sql` are comment-only and **keep their numbers** (a

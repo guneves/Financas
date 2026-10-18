@@ -21,13 +21,15 @@ import { usePrivateFormatter } from '../../lib/privacy'
 import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
 import { ASSET_CLASSES, getClassLabel } from './helpers'
 
-// O backend limita a janela a 60 meses (GET /api/investments/returns).
+// O backend limita a janela a 60 meses (GET /api/investments/returns);
+// 'all' e desde a primeira operacao, a "Rentabilidade total" do Investidor10.
 const PERIODS = [
   { value: 6, label: '6M' },
   { value: 12, label: '1A' },
   { value: 24, label: '2A' },
   { value: 36, label: '3A' },
   { value: 60, label: '5A' },
+  { value: 'all', label: 'Tudo' },
 ]
 const DEFAULT_PERIOD = 12
 const PERIOD_STORAGE_KEY = '@financeMVP:rentabilidadePeriod'
@@ -35,8 +37,9 @@ const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'se
 
 function readStoredPeriod() {
   try {
-    const saved = Number(localStorage.getItem(PERIOD_STORAGE_KEY))
-    return PERIODS.some((period) => period.value === saved) ? saved : DEFAULT_PERIOD
+    const saved = localStorage.getItem(PERIOD_STORAGE_KEY)
+    const period = PERIODS.find((item) => String(item.value) === saved)
+    return period ? period.value : DEFAULT_PERIOD
   } catch {
     return DEFAULT_PERIOD
   }

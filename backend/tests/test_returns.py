@@ -1,9 +1,10 @@
 """Rentabilidade ponderada no tempo (TWR): services/returns.py e GET /api/investments/returns.
 
 As funcoes de conta sao testadas puras (valores, fluxos, proventos); a rota, com
-o historico mensal do yfinance e o CDI do BCB trocados onde sao lidos
-(`routes.investments` para `yf` e `get_monthly_history`, `services.fixed_income`
-para `fetch_bcb_series`).
+o historico diario do yfinance e o CDI do BCB trocados onde sao lidos
+(`routes.investments` para `yf` e `get_daily_history`, `services.fixed_income`
+para `fetch_bcb_series`). Os caminhos de preco sao mensais: cada dia do mes
+fecha no preco daquele mes (`daily_history_from_months` no conftest).
 """
 
 import importlib
@@ -19,71 +20,85 @@ def returns_module(app_module):
 
 # --- funcoes puras ---------------------------------------------------------------
 
-class TestModifiedDietz:
-    def test_single_buy_and_hold_equals_the_price_change(self, returns_module):
+class TestDailyReturn:
+    def test_buy_and_hold_equals_the_price_change(self, returns_module):
         r = returns_module
-        # Compra de 100 x 10 no dia 15, fecha o mes a 11 e o seguinte a 12.
-        first = r.modified_dietz(0, 1100, [(15, 1000)], period_days=30)
-        second = r.modified_dietz(1100, 1200, [], period_days=31)
-        assert first == pytest.approx(0.10)
-        assert r.chain_returns([first, second]) == pytest.approx(0.20)
+        # Compra 100 x 10 (fecha a 10,50), depois 11 e 12.
+        days = [
+            r.daily_return(0, 1050, inflow=1000),
+            r.daily_return(1050, 1100),
+            r.daily_return(1100, 1200),
+        ]
+        assert days[0] == pytest.approx(0.05)
+        assert r.chain_returns(days) == pytest.approx(0.20)
 
-    def test_a_buy_on_the_last_day_is_not_magnified(self, returns_module):
-        # Sem valor inicial o periodo comeca na compra: 1%, nao 31%.
-        assert returns_module.modified_dietz(0, 1010, [(31, 1000)], period_days=31) == pytest.approx(0.01)
+    def test_a_buy_enters_at_the_price_paid(self, returns_module):
+        # Valia 1.000, compra mais 1.000 e o dia fecha sem variacao: zero.
+        assert returns_module.daily_return(1000, 2000, inflow=1000) == pytest.approx(0)
 
-    def test_a_contribution_mid_period_does_not_move_twr(self, returns_module):
+    def test_a_contribution_does_not_move_twr(self, returns_module):
         r = returns_module
-        # Mesmo caminho de preco (10 -> 11 -> 12), com e sem um aporte de 100 x 11
-        # no inicio do segundo mes.
-        alone = r.chain_returns([
-            r.modified_dietz(1000, 1100, []),
-            r.modified_dietz(1100, 1200, []),
-        ])
-        with_contribution = r.chain_returns([
-            r.modified_dietz(1000, 1100, []),
-            r.modified_dietz(1100, 2400, [(1, 1100)]),
-        ])
+        alone = r.chain_returns([r.daily_return(1000, 1100), r.daily_return(1100, 1200)])
+        with_contribution = r.chain_returns([r.daily_return(1000, 1100), r.daily_return(1100, 2400, inflow=1100)])
         assert with_contribution == pytest.approx(alone)
         assert alone == pytest.approx(0.20)
 
-    def test_a_mid_month_contribution_in_a_flat_month_is_zero(self, returns_module):
-        assert returns_module.modified_dietz(1000, 1500, [(15, 500)], period_days=30) == pytest.approx(0)
-
-    def test_a_month_with_a_provento_adds_it(self, returns_module):
-        assert returns_module.modified_dietz(1000, 1000, [], income=50) == pytest.approx(0.05)
+    def test_a_provento_adds_to_the_day(self, returns_module):
+        assert returns_module.daily_return(1000, 1000, income=50) == pytest.approx(0.05)
 
     def test_proventos_are_not_added_twice_if_prices_become_adjusted(self, returns_module, monkeypatch):
         monkeypatch.setattr(returns_module, "PRICES_ARE_DIVIDEND_ADJUSTED", True)
-        assert returns_module.modified_dietz(1000, 1000, [], income=50) == pytest.approx(0)
+        assert returns_module.daily_return(1000, 1000, income=50) == pytest.approx(0)
 
-    def test_a_full_sale_and_rebuy(self, returns_module):
-        r = returns_module
-        # Vende tudo no dia 10 por 1.100 (valia 1.000 no inicio): +10%.
-        sale = r.modified_dietz(1000, 0, [(10, -1100)], period_days=30)
-        assert sale == pytest.approx(0.10)
-        # Mes sem posicao: pulado.
-        empty = r.modified_dietz(0, 0, [], period_days=31)
-        assert empty is None
-        # Recompra 800 no dia 20, fecha a 1.000: +25%.
-        rebuy = r.modified_dietz(0, 1000, [(20, 800)], period_days=30)
-        assert rebuy == pytest.approx(0.25)
-        assert r.chain_returns([sale, empty, rebuy]) == pytest.approx(1.10 * 1.25 - 1)
+    def test_a_sale_leaves_at_what_it_paid(self, returns_module):
+        # Valia 1.000 ontem, vende tudo hoje por 1.100: +10%, sem base negativa.
+        assert returns_module.daily_return(1000, 0, outflow=1100) == pytest.approx(0.10)
 
     def test_bought_and_sold_on_the_same_day(self, returns_module):
-        assert returns_module.modified_dietz(0, 0, [(10, 1000), (10, -1050)]) == pytest.approx(0.05)
+        assert returns_module.daily_return(0, 0, inflow=1000, outflow=1050) == pytest.approx(0.05)
 
-    def test_zero_value_months_are_skipped_not_divided_by_zero(self, returns_module):
+    def test_a_day_without_base_is_skipped(self, returns_module):
         r = returns_module
-        assert r.modified_dietz(0, 0, []) is None
-        assert r.modified_dietz(0, 0, [], income=10) is None
+        assert r.daily_return(0, 0) is None
+        assert r.daily_return(0, 0, income=10) is None
         assert r.chain_returns([None, 0.10, None]) == pytest.approx(0.10)
         assert r.chain_returns([None, None]) is None
 
-    def test_a_flow_is_weighted_by_the_time_it_was_invested(self, returns_module):
-        # 1.000 no inicio, aporte de 1.000 no dia 16 de 30 (metade do mes), ganho de 150.
-        value = returns_module.modified_dietz(1000, 2150, [(16, 1000)], period_days=30)
-        assert value == pytest.approx(150 / 1500)
+    def test_a_bonus_is_not_a_contribution(self, returns_module):
+        bonus = {
+            "quantity": 14, "average_price": 5.0,
+            "metadata": {"is_bonus": True, "corporate_action_id": "evento"},
+        }
+        purchase = {"quantity": 14, "average_price": 5.0, "metadata": {}}
+        assert returns_module.movement_flow_amount(bonus) == 0
+        assert returns_module.movement_flow_amount(purchase) == pytest.approx(70.0)
+
+
+class TestQuantityBasis:
+    """O Yahoo trata a bonificacao como desdobramento e ajusta o fechamento anterior."""
+
+    def test_a_bonus_is_undone_on_the_days_before_it(self, prices_module):
+        prices = {"KLBN4": {"2024-05-06": 4.0, "2024-05-07": 4.1}}
+        restored = prices_module.restore_quantity_basis(prices, {"KLBN4": [("2024-05-07", 1.1)]}, {})
+        assert restored["KLBN4"]["2024-05-06"] == pytest.approx(4.4)
+        assert restored["KLBN4"]["2024-05-07"] == pytest.approx(4.1)
+
+    def test_a_registered_split_keeps_the_yahoo_adjustment(self, prices_module):
+        # O desdobramento registrado ja reescalou as quantidades (data ex um dia antes).
+        prices = {"FESA4": {"2024-01-22": 11.0, "2024-01-24": 10.9}}
+        restored = prices_module.restore_quantity_basis(
+            prices, {"FESA4": [("2024-01-24", 4.0)]}, {"FESA4": [("2024-01-23", 4.0)]},
+        )
+        assert restored == prices
+
+    def test_monthly_keys_are_adjusted_before_the_event_month(self, prices_module):
+        prices = {"SOJA3": {"2025-11": 9.0, "2025-12": 8.5}}
+        restored = prices_module.restore_quantity_basis(prices, {"SOJA3": [("2025-12-19", 1.05)]}, {})
+        assert restored["SOJA3"] == {"2025-11": pytest.approx(9.45), "2025-12": pytest.approx(8.5)}
+
+    def test_monthly_closes_take_the_last_day(self, prices_module):
+        daily = {"PETR4": {"2026-01-30": 10.0, "2026-01-02": 9.0, "2026-02-27": 11.0}}
+        assert prices_module.monthly_closes(daily) == {"PETR4": {"2026-01": 10.0, "2026-02": 11.0}}
 
 
 class TestHelpers:
@@ -128,7 +143,7 @@ PRICE_PATHS = {
 
 
 @pytest.fixture()
-def market(app_module, prices_module, monkeypatch):
+def market(app_module, prices_module, monkeypatch, daily_history_from_months):
     routes = importlib.import_module("routes.investments")
     fixed_income = importlib.import_module("services.fixed_income")
     fixed_income._index_history_cache.clear()
@@ -150,7 +165,7 @@ def market(app_module, prices_module, monkeypatch):
 
     monkeypatch.setattr(prices_module, "yf", None)
     monkeypatch.setattr(routes, "yf", object())
-    monkeypatch.setattr(routes, "get_monthly_history", fake_history)
+    monkeypatch.setattr(routes, "get_daily_history", lambda tickers, start: daily_history_from_months(fake_history(tickers, start)))
     monkeypatch.setattr(fixed_income, "fetch_bcb_series", fake_cdi)
     # Indices de comparacao sem rede (test_benchmarks.py cobre esse caminho).
     benchmarks = importlib.import_module("services.benchmarks")
@@ -413,3 +428,56 @@ class TestCurrentMonthMatchesThePosition:
         assert response.get_json()["evolution"][-1]["patrimonio"] == pytest.approx(
             snapshot["current_net_balance"], abs=0.005,
         )
+
+
+class TestBonus:
+    """Bonificacao: o Yahoo ajusta o fechamento anterior como desdobramento, e as
+    cotas chegam sem dinheiro. Preco negociado 11 ate a data ex e 10 depois
+    (11 / 1,1): 100 cotas x 11 = 110 cotas x 10, rentabilidade zero."""
+
+    def test_a_bonus_neither_drags_nor_lifts_the_return(self, client, auth, market, daily_history_from_months, monkeypatch):
+        routes = importlib.import_module("routes.investments")
+        ex_date = (month_start(2) + timedelta(days=14)).strftime("%Y-%m-%d")
+        adjusted = {"PETR4": {key(months): 10.0 for months in (4, 3, 2, 1, 0)}}
+        monkeypatch.setattr(
+            routes, "get_daily_history",
+            lambda tickers, start: daily_history_from_months(adjusted, {"PETR4": [(ex_date, 1.1)]}),
+        )
+        response = client.post("/api/investments", headers=auth, json={
+            "asset_class": "STOCKS", "ticker_or_name": "PETR4", "quantity": 100,
+            "average_price": 11.0, "current_price": 10.0,
+            "metadata": {"purchase_date": iso(3)},
+        })
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+        created = response.get_json()
+        asset_id = (created[0] if isinstance(created, list) else created)["asset_id"]
+        response = client.post("/api/corporate-actions", headers=auth, json={
+            "asset_id": asset_id, "action_type": "BONUS", "ex_date": ex_date,
+            "ratio_from": 10, "ratio_to": 1, "bonus_unit_cost": 5.0,
+        })
+        assert response.status_code == 201, response.get_data(as_text=True)
+
+        body = returns(client, auth, months=6)
+        assert body["twr_percent"] == pytest.approx(0.0, abs=0.01)
+        by_key = {item["month_key"]: item for item in body["series"]}
+        # As 10 cotas a R$ 5 nao sao aporte.
+        assert by_key[key(2)]["net_flow"] == 0
+        assert body["series"][-1]["value"] == pytest.approx(1100.0)
+
+
+class TestSinceTheStart:
+    def test_months_all_starts_at_the_first_operation(self, client, auth, market):
+        trade(client, auth, "PETR4", 100, 10.0, iso(3))
+        body = returns(client, auth, months="all")
+        assert body["months"] == 4
+        assert body["period"]["start"] == key(3)
+        assert body["twr_percent"] == pytest.approx(20.0)
+
+    def test_months_all_follows_the_class_filter(self, client, auth, market):
+        trade(client, auth, "HGLG11", 10, 100.0, iso(3), asset_class="REIT")
+        trade(client, auth, "PETR4", 100, 11.0, iso(2))
+        assert returns(client, auth, months="all", asset_class="STOCKS")["months"] == 3
+        assert returns(client, auth, months="all")["months"] == 4
+
+    def test_months_all_on_an_empty_portfolio(self, client, auth, market):
+        assert returns(client, auth, months="all")["months"] == 12

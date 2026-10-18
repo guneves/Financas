@@ -127,3 +127,29 @@ def realized_results_module(app_module):
 def portfolio_module(app_module):
     """`backend/services/portfolio.py` — posicoes, alvos de cotacao e evolucao."""
     return importlib.import_module("services.portfolio")
+
+
+def _daily_history_from_months(monthly_by_ticker, splits=None):
+    """O que `get_daily_history()` devolve, montado de {ticker: {AAAA-MM: preco}}:
+    todo dia do mes (ate hoje) fecha no preco daquele mes."""
+    import calendar
+    from datetime import date
+
+    today = date.today()
+    prices = {}
+    for ticker, months in monthly_by_ticker.items():
+        by_day = {}
+        for month, price in months.items():
+            year, number = int(month[:4]), int(month[5:7])
+            for day in range(1, calendar.monthrange(year, number)[1] + 1):
+                current = date(year, number, day)
+                if current <= today:
+                    by_day[current.isoformat()] = price
+        prices[ticker] = by_day
+    return {"prices": prices, "splits": dict(splits or {})}
+
+
+@pytest.fixture(scope="session")
+def daily_history_from_months():
+    """Troca de `routes.investments.get_daily_history` a partir de fechamentos mensais."""
+    return _daily_history_from_months
