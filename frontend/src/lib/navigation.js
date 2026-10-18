@@ -1,6 +1,7 @@
 import {
   BellRing,
   Briefcase,
+  Calculator,
   CalendarDays,
   Coins,
   CreditCard,
@@ -61,6 +62,8 @@ export const sections = [
       { to: '/investimentos/alocacao', label: 'Alocação', icon: Scale },
       { to: '/investimentos/proventos', label: 'Proventos', icon: CalendarDays },
       { to: '/investimentos/ir', label: 'IR', icon: FileText },
+      // Simulacao de juros compostos: so conta, nao le nem grava nada da carteira.
+      { to: '/investimentos/calculadora', label: 'Calculadora', icon: Calculator },
     ],
   },
 ]
