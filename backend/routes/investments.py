@@ -12,6 +12,7 @@ busca historico — os testes trocam `yf` aqui e em services/prices.py, e
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
 import sqlite3
+import time
 
 from flask import Blueprint, jsonify, request
 
@@ -109,8 +110,12 @@ logger = get_logger(__name__)
 
 bp = Blueprint("investments", __name__)
 
-# CDI/IPCA da evolucao: fora do executor do yfinance, que o historico ja ocupa.
-_index_history_executor = ThreadPoolExecutor(max_workers=1)
+# CDI/IPCA da evolucao e da rentabilidade: fora do executor do yfinance, que o
+# historico ja ocupa. Dois: a rentabilidade busca o CDI da janela e o da renda
+# fixa ao mesmo tempo.
+_index_history_executor = ThreadPoolExecutor(max_workers=2)
+# Os indices de comparacao da rentabilidade correm ao lado do historico.
+_benchmarks_executor = ThreadPoolExecutor(max_workers=2)
 
 # Moeda estrangeira: acoes/ETFs de fora e "outros" (cripto, conta no
 # exterior). Renda fixa e FII sao em reais.
@@ -937,6 +942,19 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
     ]
     start_date = subtract_months(datetime.now(), months_back + 1).strftime("%Y-%m-%d")
 
+    # Renda fixa nos meses passados: CDI/IPCA desde a compra mais antiga. O BCB
+    # e buscado enquanto o Yahoo baixa os fechamentos, nao depois.
+    pending_index = None
+    fixed_titles = [
+        inv for inv in filtered_investments
+        if inv.get("asset_class") == "FIXED_INCOME" and safe_float(inv.get("quantity")) > 0
+        and not (inv.get("metadata") or {}).get("is_redemption")
+    ]
+    if fixed_titles:
+        first_purchase = min(parse_iso_date(investment_transaction_date(inv.get("metadata") or {}, inv.get("created_at"))) for inv in fixed_titles)
+        need_ipca = any((inv.get("metadata") or {}).get("indexer") == "IPCA" for inv in fixed_titles)
+        pending_index = start_index_history(first_purchase, need_ipca)
+
     daily_prices = {}
     quoted_assets = [
         inv for inv in filtered_investments
@@ -980,26 +998,23 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
                     day: price * rates[day[:7]] for day, price in days.items() if rates.get(day[:7])
                 }
 
-    # Renda fixa nos meses passados: CDI/IPCA desde a compra mais antiga.
-    index_series = None
-    fixed_titles = [
-        inv for inv in filtered_investments
-        if inv.get("asset_class") == "FIXED_INCOME" and safe_float(inv.get("quantity")) > 0
-        and not (inv.get("metadata") or {}).get("is_redemption")
-    ]
-    if fixed_titles:
-        first_purchase = min(parse_iso_date(investment_transaction_date(inv.get("metadata") or {}, inv.get("created_at"))) for inv in fixed_titles)
-        need_ipca = any((inv.get("metadata") or {}).get("indexer") == "IPCA" for inv in fixed_titles)
-        index_series = fetch_index_history(first_purchase, need_ipca)
-
+    index_series = wait_index_history(pending_index) if pending_index else None
     return filtered_investments, daily_prices, index_series
 
 
-def fetch_index_history(start_date, need_ipca):
-    """CDI (e IPCA) do BCB com tempo limite; None se nao vier."""
+def start_index_history(start_date, need_ipca):
+    """Comeca a buscar CDI (e IPCA) do BCB; `wait_index_history()` colhe.
+
+    O prazo conta daqui: quem espera depois de outra busca nao ganha outro."""
     future = _index_history_executor.submit(index_history, start_date, need_ipca)
+    return future, time.monotonic() + PRICE_FETCH_TIMEOUT_SECONDS
+
+
+def wait_index_history(pending):
+    """A serie de `start_index_history()`, ou None se nao vier no prazo."""
+    future, deadline = pending
     try:
-        return future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+        return future.result(timeout=max(0.0, deadline - time.monotonic()))
     except FutureTimeoutError:
         logger.warning("Tempo limite ao buscar CDI/IPCA para a evolucao.")
     except Exception as exc:
@@ -1049,16 +1064,20 @@ def get_investment_returns(current_user_id):
         # Um mes a mais (o valor inicial do primeiro) e, no minimo, o ano
         # corrente inteiro, para o acumulado no ano.
         evaluated_months = returns_evaluated_months(months_back)
+        first_month = subtract_months(datetime.now().replace(day=1), evaluated_months - 1)
+        # Tudo o que vem da rede (fechamentos no Yahoo, CDI da janela e da
+        # renda fixa no BCB, indices de comparacao) e pedido de uma vez: a
+        # resposta espera a busca mais lenta, nao a soma delas.
+        pending_cdi = start_index_history(datetime(first_month.year, first_month.month, 1), False)
+        # IPCA, Ibovespa, IFIX e IDIV: cada um falha sozinho, sem derrubar a resposta.
+        benchmarks_future = _benchmarks_executor.submit(load_benchmarks, current_user_id, first_month)
         filtered_investments, daily_prices, index_series = load_history_inputs(
             current_user_id, evaluated_months, asset_class_filter,
         )
-        first_month = subtract_months(datetime.now().replace(day=1), evaluated_months - 1)
-        cdi_series = fetch_index_history(
-            datetime(first_month.year, first_month.month, 1), False,
-        )
-        # IPCA, Ibovespa, IFIX e IDIV: cada um falha sozinho, sem derrubar a resposta.
+        cdi_series = wait_index_history(pending_cdi)
         try:
-            benchmarks = load_benchmarks(current_user_id, first_month)
+            # load_benchmarks tem os proprios prazos; este so impede uma espera sem fim.
+            benchmarks = benchmarks_future.result(timeout=2 * PRICE_FETCH_TIMEOUT_SECONDS)
         except Exception as exc:
             logger.exception(f"Indices de comparacao indisponiveis: {exc}")
             benchmarks = None

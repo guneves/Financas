@@ -121,8 +121,9 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1208 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
-and its `@token_required`), the weighted average cost (`test_average_cost.py`), tax rules and the
+1234 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
+per-series caches that cover every period, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
@@ -148,7 +149,8 @@ the top of the file — reach it through a fixture or `importlib.import_module` 
 name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
 whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
 *both* `services.invoices` and `routes.cards` for the `local_today` clock (`services.goals` for goals, `services.monthly_plan` *and* `services.goals` for the monthly plan), `services.prices` for
-`download_close_prices`, `services.fixed_income` for `fetch_bcb_series`, `services.fx` for
+`download_close_prices` and `download_daily_history` (the real `get_daily_history()` and its
+per-ticker cache run; clear `_daily_history_cache`), `services.fixed_income` for `fetch_bcb_series` (clear `_index_history_cache`; it returns datetimes), `services.fx` for
 `fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `services.benchmarks` for
 `download_monthly_history` (call its `reset_fetch_throttle()` too), `brapi_client` for `get_history` /
 `get_sectors` / `get_listing` / `is_configured` (call `services.market_listing.reset_cache()` too), `routes.investments` for

@@ -252,6 +252,15 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
   real month.
 - [ ] Decide whether Início should show a one-line plan strip (spent / invested vs plan).
 
+### Chart loading speed (2026-10-18) — what is left
+- Owner check on the server: open Investimentos › Rentabilidade, switch 6M → 1A → Tudo and a
+  class; after the first load each switch should be instant. Not measured against the real
+  yfinance/BCB, only a 1 s-latency harness.
+- Stale-while-revalidate: after the 15-min TTL the next open pays one round trip (now parallel).
+  Serving the stale daily history, BCB series and index closes while refreshing in the background
+  is safe (past closes don't change; today's value is the stored quote), but must be done in all
+  three places to help, and a failed background download must not overwrite good data.
+
 ### Owner walk-through on real data
 Everything below was built and clicked through on a seeded scratch database (Chrome + Playwright,
 2026-09-23); none of it has been used on the owner's real data yet. What each item does is in

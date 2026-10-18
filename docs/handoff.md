@@ -7,52 +7,80 @@
 
 ---
 
-## Session — 2026-10-18 (night) · Aprovar: ambiguous target, "Trocar", "Sempre perguntar"
+## Session — 2026-10-18 (late night) · Chart loading speed
 
-Owner, three numbered asks under Aprovar: (1) don't save a choice when the case is ambiguous — no
-card final and more than one active account/card at that bank — and ask every time, resting on
-"Prompt 1's bank field", falling back to today's behaviour for "Sem banco" accounts; (2) always
-show the target with a quick "Trocar"; (3) optional Ajustes switch "Sempre perguntar a
-conta/cartão", off by default. Cloud session; read the docs directly (the ask was complete).
+Owner: "Optimize graphs, they seem to be a bit slow at times, investigate and fix, create a PR".
+Cloud session; read the docs directly (single, concrete ask).
+
+### Investigation
+- Seeded a throwaway DB (`scripts/seed_three_years_mock.py`), faked the network at 1 s per call,
+  and timed the chart endpoints. **Rentabilidade cold: 6.07 s; every period or class switch after
+  that: ~4 s.** Compute was 40–250 ms; the rest was waiting on the network, for two reasons:
+  1. `GET /api/investments/returns` made its fetches **one after another**: Yahoo daily closes,
+     then BCB CDI for fixed income, then BCB CDI for the window, then BCB IPCA, then the index
+     closes — each with its own 6 s timeout (worst case ~30 s).
+  2. Every cache was keyed by the exact start date (and the ticker set), so 6M/1A/2A/Tudo or a
+     class filter was a cache miss and a new download each time.
+- Frontend: Playwright at 390 px with 4× CPU throttle — every chart page paints its first chart
+  in < 1 s (Início ~2 s with 5 charts); a CPU profile shows Dashboard's own JS at ~7 ms, the rest
+  is Recharts layout. Recharts is already its own lazy chunk. Nothing worth changing there.
 
 ### Done
-1. **Ambiguous target** — `ambiguous_target()` / `bank_of_row()` in `services/inbox.py`, checked in
-   `resolve_detection` (no hint, no guess), `remember_choice` (nothing saved, also a transfer's
-   side keys), `apply_hint_to_pending`, and serialized as `item.ambiguous` (the screen hides
-   "Lembrar a escolha" and says why under the picker). Details in `done-tasks.md`.
-2. **Target line + "Trocar"** — `TargetLine` in `Aprovar.jsx` ("→ BB Corrente"), replacing the
-   target badge; "Trocar" opens the same pickers as a guess, closes after a choice.
-   `targetText()` / `targetFields()` moved into `lib/inboxRules.js` (tested).
-3. **"Sempre perguntar a conta/cartão"** — Ajustes › Aprovar (`AprovarSection.jsx`),
-   `GET/PATCH /api/inbox/settings`, migration **036** `user_settings`. With it on,
-   `confirm_targets()` adds every target the owner didn't pick on the item, so nothing is "ready".
-- Checks: pytest **1208 passed** (`-o addopts=""`); the 13 new tests all fail with the service
-  and route changes stashed. node tests **94 passed**; `vite build` clean. Screenshotted the built
-  app at 390 px against a throwaway DB (an ambiguous Itaú Pix, a remembered BB item, Trocar open,
-  the Ajustes switch).
+- **Per-ticker daily-history cache with coverage** (`get_daily_history()`, `services/prices.py`):
+  `_daily_history_cache[ticker] = {from, prices, splits, updated_at}`; a request starting on or
+  after `from` is served sliced at its start (the same rows a download from that start returns,
+  splits included); only missing tickers go to Yahoo, from `history_fetch_floor()` (day 1, 63
+  months back — covers every chart window), so one download serves all periods and classes.
+- **BCB series the same way** (`services/fixed_income.py`): `cdi_since()` / `ipca_since()` over
+  `_index_history_cache["cdi" | "ipca"] = (instant, from, series)`; `index_history()` is built on
+  them, and the benchmarks' IPCA now reads the same cache (`start_ipca_fetch()`; the old
+  `fetch_ipca()` / `_ipca_cache` are gone).
+- **Index closes** (`refresh_benchmark_closes()`): fetch from the floor, throttle key on it — one
+  Yahoo trip per TTL for every period.
+- **Parallel fetches** (`routes/investments.py`): `start_index_history()` / `wait_index_history()`
+  with a deadline counted from the start; `load_history_inputs()` starts the fixed-income BCB
+  fetch before the Yahoo download; the returns route starts the window CDI and `load_benchmarks()`
+  (`_benchmarks_executor`) before `load_history_inputs()`; inside `load_benchmarks()` the IPCA runs
+  during the closes fetch. `_index_history_executor` went from 1 to 2 workers.
+- Result, same harness: **cold 6.07 s → 1.08 s; switches ~4 s → 36–87 ms; history 1 s → 14–34
+  ms** after the first load. All 46 responses (6 periods × 4 classes × both endpoints) are
+  identical to before except the benchmarks' `source` label, which says `"cache"` instead of
+  `"yfinance"` when the closes were stored by an earlier period's fetch (not shown on screen).
+- `tests/test_history_fetch.py` (11 tests): cache coverage, slicing, missing tickers, expiry,
+  caller isolation, BCB/IPCA sharing, a narrower BCB fetch finishing last never shrinking the
+  cache, one download across periods and classes via the routes, and a `threading.Barrier`
+  proving prices and CDI are in flight at once. The two route tests fail on the old code (6
+  downloads instead of 1; barrier broken). pytest **1234 passed**, node tests 94 passed.
 
 ### Not done, and why
-- **"Prompt 1's bank field" does not exist in this repo** (only `main` and this branch on the
-  remote). I used what exists: `accounts.institution`, mapped to itau/bb/btg by
-  `issuer_of_institution()`; a `bank` column, if Prompt 1 adds one, is read first. Cards have no
-  bank field, so they keep today's behaviour. Institution is editable only at account creation, so
-  for existing accounts the rule is dormant until the bank field lands.
-- Name matching ("Itaú corrente") deliberately doesn't count as a bank: the owner said the rule
-  rests on the bank field.
-- Not tried on the phone.
+- **Stale-while-revalidate.** Once the 15-min TTL expires, the next open pays one (now parallel)
+  round trip. Past closes and CDI days never change and today's value comes from the stored quote
+  (`position_value_today()`), so serving the stale cache while refreshing in the background would
+  be safe — but it needs the same treatment in three places (daily history, BCB, index closes) to
+  help, and a background refresh must never overwrite good data with an empty failed download.
+  Left as an open item in `next-steps.md`.
+- No in-flight dedupe: two cold requests at the same moment (e.g. the window CDI and the
+  fixed-income CDI) both download. Parallel, so no latency cost; serializing them would add one.
+  The BCB cache keeps the wider of the two (`_bcb_series_since()`), so it settles after one round.
+- Not measured against the real yfinance/BCB (no outbound access to them here) nor on the phone.
 
 ### Learned / decided
-- **Migration 036 is claimed here.** If Prompt 1's branch also adds a 036, whichever merges second
-  renumbers before the server applies it.
-- Ambiguity is computed from the hint key at each use, never stored, so adding or archiving an
-  account changes waiting items on the next read.
-- "Always ask" doesn't block approving: approving one item is the confirmation, the way a guess
-  already worked. Picking the same value in a `<select>` fires no change, so a confirm button would
-  have needed a new PATCH semantic for nothing.
-- `/api/inbox/settings` takes GET and PATCH both, so a PATCH never falls to `/api/inbox/<item_id>`.
-- Starting the app for screenshots: signup wants a username of 2+ characters, and the auth goes in
-  localStorage `@financeMVP:auth` (the signup body, JSON). Global Playwright is at
-  `/opt/node22/lib/node_modules/playwright`.
+- The `POST /api/investment-proceeds/sync` that investments screens fire takes 6 s here
+  (StatusInvest unreachable); it is background and no chart waits on it.
+- The bench harness (fake latency, response dump, Playwright render/profile) lived in the
+  scratchpad; recreate from this description if needed: patch `services.prices.download_daily_history`,
+  `services.fixed_income.fetch_bcb_series` (it returns **datetimes**) and
+  `services.benchmarks.download_monthly_history`.
+
+### Carried from the Aprovar session (2026-10-18 night), still open
+- "Prompt 1's bank field" does not exist; the ambiguity rule reads `accounts.institution`
+  (`issuer_of_institution()`), a `bank` column first if one lands. Cards have no bank field.
+  Institution is editable only at account creation, so for existing accounts the rule is dormant.
+- Migration **036** (`user_settings`) is claimed; if another branch adds a 036, whichever merges
+  second renumbers before the server applies it.
+- Not tried on the phone. Starting the app for screenshots: signup wants a username of 2+
+  characters, and the auth goes in localStorage `@financeMVP:auth` (the signup body, JSON). Global
+  Playwright is at `/opt/node22/lib/node_modules/playwright`.
 
 ### Carried from the five-bugs session (2026-10-18 evening), still open
 - Owner checks in `next-steps.md` ("Bug fixes of 2026-10-18"): Cartões after 035, the next invoice

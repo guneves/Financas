@@ -23,7 +23,7 @@ from dates import parse_iso_date
 from db import get_db
 from config import HISTORY_CACHE_TTL_SECONDS
 from money import rounded_money
-from services.prices import record_price_quote, ticker_key
+from services.prices import history_fetch_floor, record_price_quote, ticker_key
 from validators import ValidationError, safe_float
 from applog import get_logger
 from integrations import record_provider_result
@@ -412,25 +412,51 @@ def refresh_fixed_income_prices(current_user_id, investments_to_update):
 # Serie historica para a Evolucao do Patrimonio: cada mes passado corrige a
 # renda fixa ate o fim daquele mes. Guardada em memoria pelo mesmo tempo do
 # historico de precos, para o grafico nao buscar o BCB a cada abertura.
+# {"cdi" | "ipca": (instante, desde, serie)}: cada serie desde `desde`, que
+# serve qualquer pedido que comece depois (a rentabilidade pede o CDI desde o
+# inicio da janela, a renda fixa desde a compra mais antiga, os indices o IPCA).
 _index_history_cache = {}
 _index_history_lock = threading.Lock()
 
 
-def index_history(start_date, need_ipca):
-    """{"cdi": [(data, taxa diaria)], "ipca": [(mes, variacao)] ou None}, desde start_date."""
-    key = (start_date.strftime("%Y-%m-%d"), bool(need_ipca))
+def _bcb_series_since(name, series_code, start):
+    """A serie `series_code` desde `start` (meia-noite), pelo cache acima.
+
+    Sem cobertura, busca desde o mais cedo entre `start` e o piso do historico
+    (`history_fetch_floor()`): a proxima janela, menor ou maior ate la, le o cache."""
     now = time.monotonic()
     with _index_history_lock:
-        cached = _index_history_cache.get(key)
-        if cached and now - cached[0] < HISTORY_CACHE_TTL_SECONDS:
-            return cached[1]
-    series = {
-        "cdi": fetch_bcb_series(BCB_SERIES_CDI, start_date),
-        "ipca": fetch_bcb_series(BCB_SERIES_IPCA, start_date.replace(day=1)) if need_ipca else None,
-    }
+        cached = _index_history_cache.get(name)
+        if cached and now - cached[0] < HISTORY_CACHE_TTL_SECONDS and cached[1] <= start:
+            return [item for item in cached[2] if item[0] >= start]
+    floor = history_fetch_floor()
+    fetch_from = min(start, datetime(floor.year, floor.month, floor.day))
+    series = fetch_bcb_series(series_code, fetch_from)
     with _index_history_lock:
-        _index_history_cache[key] = (now, series)
-    return series
+        # Duas buscas ao mesmo tempo (o CDI da janela e o da renda fixa): a
+        # que cobre menos nao apaga a que cobre mais.
+        current = _index_history_cache.get(name)
+        if not current or fetch_from <= current[1] or now - current[0] >= HISTORY_CACHE_TTL_SECONDS:
+            _index_history_cache[name] = (now, fetch_from, series)
+    return [item for item in series if item[0] >= start]
+
+
+def cdi_since(start_date):
+    """[(data, taxa diaria)] do CDI desde `start_date`."""
+    return _bcb_series_since("cdi", BCB_SERIES_CDI, datetime(start_date.year, start_date.month, start_date.day))
+
+
+def ipca_since(start_date):
+    """[(mes, variacao)] do IPCA desde o mes de `start_date`."""
+    return _bcb_series_since("ipca", BCB_SERIES_IPCA, datetime(start_date.year, start_date.month, 1))
+
+
+def index_history(start_date, need_ipca):
+    """{"cdi": [(data, taxa diaria)], "ipca": [(mes, variacao)] ou None}, desde start_date."""
+    return {
+        "cdi": cdi_since(start_date),
+        "ipca": ipca_since(start_date) if need_ipca else None,
+    }
 
 
 def accrual_factor_until(metadata, purchase_date, until, series):
