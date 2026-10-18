@@ -1,12 +1,11 @@
--- Aprovar (services/inbox.py): o que o celular (notificacoes dos bancos) e a
--- Pluggy trazem espera o dono aprovar, recusar ou corrigir. Fica no servidor,
--- entao o celular e o computador veem a mesma lista e as mesmas decisoes.
+-- Aprovar (services/inbox.py): o que o celular (notificacoes dos bancos) traz
+-- espera o dono aprovar, recusar ou corrigir. Fica no servidor, entao o
+-- celular e o computador veem a mesma lista e as mesmas decisoes.
 --
 -- inbox_items: um movimento do mundo real esperando o dono (ou ja decidido).
 --   Varias fontes do mesmo movimento (a notificacao do banco, a do Samsung
---   Wallet, a transacao da Pluggy; as duas pontas de uma transferencia entre
---   contas proprias) viram UM item. Os campos de lancamento sao o rascunho que
---   o dono pode corrigir; `source_occurred_at` e a hora que a fonte disse e
+--   Wallet; as duas pontas de uma transferencia entre contas proprias) viram
+--   UM item. Os campos de lancamento sao o rascunho que o dono pode corrigir; `source_occurred_at` e a hora que a fonte disse e
 --   nunca muda; `version` sobe a cada mudanca (dois aparelhos nao se
 --   atropelam: quem grava com a versao velha recebe 409).
 -- notify_detections: cada notificacao que um parser do celular leu, so os
@@ -27,7 +26,7 @@ CREATE TABLE IF NOT EXISTS inbox_items (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     -- PENDING: espera o dono; APPROVED: virou lancamento (target);
     -- MATCHED: era um lancamento que ja existia (target); DENIED: recusado;
-    -- REMOVED: a unica fonte sumiu (a Pluggy apagou, o banco negou a compra).
+    -- REMOVED: a unica fonte sumiu (o banco negou a compra).
     state TEXT NOT NULL CHECK (state IN ('PENDING', 'APPROVED', 'MATCHED', 'DENIED', 'REMOVED')),
     reason TEXT,
     -- NULL: a fonte nao diz credito nem debito; o dono decide.
@@ -130,13 +129,6 @@ CREATE TABLE IF NOT EXISTS inbox_hints (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     UNIQUE (user_id, hint_key)
 );
-
-ALTER TABLE pluggy_transactions ADD COLUMN inbox_item_id TEXT;
--- A data como a Pluggy mandou (com hora e fuso, se vier), sem cortar.
-ALTER TABLE pluggy_transactions ADD COLUMN date_raw TEXT;
-
-CREATE INDEX IF NOT EXISTS idx_pluggy_transactions_inbox
-ON pluggy_transactions(user_id, inbox_item_id);
 
 ALTER TABLE transactions ADD COLUMN occurred_at TEXT;
 ALTER TABLE cc_expenses ADD COLUMN occurred_at TEXT;
