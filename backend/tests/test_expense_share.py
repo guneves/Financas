@@ -241,7 +241,7 @@ def test_budget_counts_only_the_owner_part(client, auth):
     categories = {item["name"]: item for item in client.get("/api/categories", headers=auth).get_json()}
     alimentacao = categories["Alimentação"]
     client.post("/api/budgets", headers=auth, json={
-        "category_id": alimentacao["id"], "month": "2026-03", "planned_amount": 1000,
+        "category_id": alimentacao["id"], "month": "2026-03", "planned_percent": 10,
     })
     pizza = create_transaction(client, auth, category_id=alimentacao["id"])
     patch(client, auth, pizza["id"], {"share_mode": "SPLIT", "share_others_amount": 60, "share_person": "Ana"})

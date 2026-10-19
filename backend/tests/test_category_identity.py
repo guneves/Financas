@@ -48,10 +48,10 @@ def three_outros(client, headers):
     }
 
 
-def create_budget(client, headers, category_id, planned=500, month=MONTH):
+def create_budget(client, headers, category_id, planned=10, month=MONTH):
     response = client.post(
         "/api/budgets", headers=headers,
-        json={"category_id": category_id, "month": month, "planned_amount": planned},
+        json={"category_id": category_id, "month": month, "planned_percent": planned},
     )
     assert response.status_code == 201, response.get_data(as_text=True)
     return response.get_json()

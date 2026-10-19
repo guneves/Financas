@@ -42,12 +42,14 @@ test('cada codigo de alerta tem texto', () => {
   const codes = [
     'PLAN_OVER_INCOME', 'SPEND_OVER', 'SPEND_PACE', 'SPEND_NEAR', 'SPEND_KEPT',
     'INVEST_DONE', 'INVEST_PENDING', 'INVEST_MISSED', 'GOAL_SHORT', 'GOAL_COVERED',
+    'CATEGORIES_OVER_SPEND',
   ]
   for (const code of codes) {
     const text = flagText({ code, amount: 100, over: 10, missing: 5, days_left: 3, goal_name: 'Reserva', target_month: '2026-12' })
     assert.ok(text.length > 10, code)
   }
   assert.match(flagText({ code: 'GOAL_SHORT', amount: 1000, missing: 400, goal_name: 'Reserva', target_month: '2026-12' }), /Reserva/)
+  assert.match(flagText({ code: 'CATEGORIES_OVER_SPEND', amount: 180, percent: 120.5 }), /120,5% do Gastar/)
 })
 
 test('alertas que pedem acao vem primeiro', () => {

@@ -6,12 +6,14 @@ export const BUDGET_STATUS_TONES = {
   OK: 'neutral',
   WARNING: 'warning',
   OVER: 'danger',
+  NEEDS_INCOME: 'warning',
 }
 
 export const BUDGET_STATUS_LABELS = {
   OK: 'No plano',
   WARNING: 'Perto do limite',
   OVER: 'Estourou',
+  NEEDS_INCOME: 'Falta a renda',
 }
 
 const BAR_COLORS = {
@@ -20,7 +22,7 @@ const BAR_COLORS = {
   OVER: 'bg-rose-500',
 }
 
-// Mesma regra de serialize_budget() no backend, para o total do mes. O backend
+// Mesma regra de budget_status() no backend (services/budgets.py), para o total do mes. O backend
 // arredonda o percentual (ROUND_HALF_UP, centesimos) antes de comparar com 80:
 // 799,99 de 1.000,00 da 79,999% -> 80,00% -> "Perto do limite".
 export function budgetStatus(spent, available) {

@@ -11,6 +11,12 @@ O que estes testes fixam:
   divida do mes seguinte);
 - tudo passa por `rounded_money()`;
 - nenhum orcamento de outro usuario aparece, nem pode ser lido ou editado.
+
+Desde a 038 cada categoria e um % do Gastar do plano do mes. Para ler os
+testes em reais, `create_budget()` grava antes um plano de renda 10.000 com
+Gastar 100% em 2026-01: 1% de categoria = R$ 100. Um mes sem categorias
+proprias herda as do mes anterior; mexer nelas num mes herdado faz do mes um
+plano proprio (`?month=`).
 """
 
 import importlib
@@ -30,10 +36,34 @@ def categories_of(client, headers):
     return {item["name"]: item for item in response.get_json()}
 
 
+BASE_MONTH = "2026-01"
+# Gastar do plano base: 1% de categoria = R$ 100.
+SPEND_AMOUNT = 10000
+
+
+def ensure_plan(client, headers):
+    """O plano base (renda 10.000, Gastar 100%) desde 2026-01, uma vez por usuario."""
+    body = client.get("/api/monthly-plan", headers=headers, query_string={"month": BASE_MONTH}).get_json()
+    if body["plan"] is None:
+        response = client.put("/api/monthly-plan", headers=headers, json={
+            "month": BASE_MONTH, "income_amount": SPEND_AMOUNT, "invest_percent": 0, "spend_percent": 100,
+        })
+        assert response.status_code == 200, response.get_data(as_text=True)
+
+
 def create_budget(client, headers, category_id, month, planned_amount, **extra):
-    payload = {"category_id": category_id, "month": month, "planned_amount": planned_amount}
+    """Categoria de `planned_amount` reais: o % equivalente do Gastar de 10.000."""
+    ensure_plan(client, headers)
+    payload = {"category_id": category_id, "month": month, "planned_percent": planned_amount * 100 / SPEND_AMOUNT}
     payload.update(extra)
     return client.post("/api/budgets", json=payload, headers=headers)
+
+
+def patch_in(client, headers, budget_id, month, payload):
+    """PATCH na categoria como a tela do mes `month` mostra (herdada ou nao)."""
+    return client.patch(
+        f"/api/budgets/{budget_id}", json=payload, headers=headers, query_string={"month": month}
+    )
 
 
 def add_expense(client, headers, amount, date, category, category_id=None):
@@ -71,6 +101,7 @@ def test_create_budget_returns_the_computed_item(client, auth):
     response = create_budget(client, auth, alimentacao["id"], "2026-09", 1200)
     assert response.status_code == 201, response.get_data(as_text=True)
     body = response.get_json()
+    assert body["planned_percent"] == 12
     assert body["planned_amount"] == 1200
     assert body["available"] == 1200
     assert body["spent"] == 0
@@ -86,28 +117,104 @@ def test_same_category_twice_in_a_month_is_refused(client, auth):
     assert duplicate.status_code == 409
 
 
-def test_same_category_in_another_month_is_fine(client, auth):
+def test_later_months_inherit_the_categories(client, auth):
     lazer = categories_of(client, auth)["Lazer"]
-    assert create_budget(client, auth, lazer["id"], "2026-09", 300).status_code == 201
-    assert create_budget(client, auth, lazer["id"], "2026-10", 400).status_code == 201
+    created = create_budget(client, auth, lazer["id"], "2026-09", 300).get_json()
+
+    october = get_month(client, auth, "2026-10")
+    item = item_for(october, "Lazer")
+    assert item["id"] == created["id"]
+    assert item["inherited"] is True
+    assert item["source_month"] == "2026-09"
+    assert item["planned_amount"] == 300
+    assert october["inherited"] is True
+    # Ja esta no mes (herdada): criar de novo e duplicar.
+    assert create_budget(client, auth, lazer["id"], "2026-10", 400).status_code == 409
+    # Antes do mes em que foi criada, nada.
+    assert get_month(client, auth, "2026-08")["items"] == []
+
+
+def test_categories_cannot_pass_100_percent_of_spend(client, auth):
+    categories = categories_of(client, auth)
+    assert create_budget(client, auth, categories["Moradia"]["id"], "2026-09", 6000).status_code == 201
+    assert create_budget(client, auth, categories["Lazer"]["id"], "2026-09", 4000).status_code == 201
+    over = create_budget(client, auth, categories["Outros"]["id"], "2026-09", 0.01)
+    assert over.status_code == 400
+    assert "100%" in over.get_json()["error"]
+    # Zero cabe: a categoria existe sem levar nada do Gastar.
+    assert create_budget(client, auth, categories["Outros"]["id"], "2026-09", 0).status_code == 201
+
+    lazer = item_for(get_month(client, auth, "2026-09"), "Lazer")
+    assert patch_in(client, auth, lazer["id"], "2026-09", {"planned_percent": 40.01}).status_code == 400
+    assert patch_in(client, auth, lazer["id"], "2026-09", {"planned_percent": 30}).status_code == 200
+
+    totals = get_month(client, auth, "2026-09")["totals"]
+    assert totals["assigned_percent"] == 90
+    assert totals["unassigned_percent"] == 10
+    assert totals["unassigned_amount"] == 1000
+
+
+def test_a_third_of_spend_three_times_does_not_drift(client, auth):
+    categories = categories_of(client, auth)
+    ensure_plan(client, auth)
+    for name in ("Moradia", "Lazer", "Transporte"):
+        response = client.post("/api/budgets", headers=auth, json={
+            "category_id": categories[name]["id"], "month": "2026-09", "planned_percent": "33,33",
+        })
+        assert response.status_code == 201, response.get_data(as_text=True)
+    # 33,33 x 3 = 99,99 exatos: ainda cabe 0,01%, e nada alem disso.
+    fits = client.post("/api/budgets", headers=auth, json={
+        "category_id": categories["Outros"]["id"], "month": "2026-09", "planned_percent": 0.01,
+    })
+    assert fits.status_code == 201, fits.get_data(as_text=True)
+    body = get_month(client, auth, "2026-09")
+    assert body["totals"]["assigned_percent"] == 100
+    assert body["totals"]["unassigned_percent"] == 0
+    assert body["totals"]["planned"] == 10000
+    assert item_for(body, "Moradia")["planned_amount"] == 3333
+
+
+def test_without_a_plan_a_category_needs_income(client, auth):
+    lazer = categories_of(client, auth)["Lazer"]
+    response = client.post("/api/budgets", headers=auth, json={
+        "category_id": lazer["id"], "month": "2026-09", "planned_percent": 10,
+    })
+    assert response.status_code == 201, response.get_data(as_text=True)
+    add_expense(client, auth, 70, "2026-09-05", "Lazer", lazer["id"])
+
+    body = get_month(client, auth, "2026-09")
+    item = item_for(body, "Lazer")
+    assert item["needs_income"] is True
+    assert item["status"] == "NEEDS_INCOME"
+    assert item["planned_percent"] == 10
+    assert item["planned_amount"] is None
+    assert item["available"] is None
+    assert item["spent"] == 70
+    assert body["needs_income"] is True
+    assert body["totals"]["spend_amount"] is None
+    assert body["totals"]["plan_balance"] is None
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        {"month": "2026-09", "planned_amount": 100},
-        {"category_id": "nao-existe", "month": "2026-09", "planned_amount": 100},
-        {"category_id": "x", "month": "setembro", "planned_amount": 100},
+        {"month": "2026-09", "planned_percent": 10},
+        {"category_id": "nao-existe", "month": "2026-09", "planned_percent": 10},
+        {"category_id": "x", "month": "setembro", "planned_percent": 10},
         {"category_id": "x", "month": "2026-09"},
-        {"category_id": "x", "month": "2026-09", "planned_amount": -10},
-        {"category_id": "x", "month": "2026-09", "planned_amount": "muito"},
+        # Reais fixos nao existem mais: so o % do Gastar.
+        {"category_id": "x", "month": "2026-09", "planned_amount": 100},
+        {"category_id": "x", "month": "2026-09", "planned_percent": -10},
+        {"category_id": "x", "month": "2026-09", "planned_percent": 100.01},
+        {"category_id": "x", "month": "2026-09", "planned_percent": "muito"},
+        {"category_id": "x", "month": "2026-09", "planned_percent": True},
     ],
 )
 def test_invalid_payloads_are_refused(client, auth, payload):
     if payload.get("category_id") == "x":
         payload["category_id"] = categories_of(client, auth)["Outros"]["id"]
     response = client.post("/api/budgets", json=payload, headers=auth)
-    assert response.status_code in (400, 404, 409)
+    assert response.status_code == 400
 
 
 def test_archived_category_cannot_be_budgeted(client, auth):
@@ -298,11 +405,12 @@ def test_totals_add_up_and_count_the_overruns(client, auth):
 
 def test_rollover_carries_the_leftover_forward(client, auth):
     lazer = categories_of(client, auth)["Lazer"]
-    create_budget(client, auth, lazer["id"], "2026-08", 400)
+    created = create_budget(client, auth, lazer["id"], "2026-08", 400).get_json()
     add_expense(client, auth, 150, "2026-08-10", "Lazer", lazer["id"])
-    create_budget(client, auth, lazer["id"], "2026-09", 400, rollover=True)
+    assert patch_in(client, auth, created["id"], "2026-09", {"rollover": True}).status_code == 200
 
     item = item_for(get_month(client, auth, "2026-09"), "Lazer")
+    assert item["inherited"] is False
     assert item["carryover"] == 250
     assert item["available"] == 650
     assert item["remaining"] == 650
@@ -311,18 +419,18 @@ def test_rollover_carries_the_leftover_forward(client, auth):
 def test_rollover_off_ignores_the_leftover(client, auth):
     lazer = categories_of(client, auth)["Lazer"]
     create_budget(client, auth, lazer["id"], "2026-08", 400)
-    create_budget(client, auth, lazer["id"], "2026-09", 400)
 
     item = item_for(get_month(client, auth, "2026-09"), "Lazer")
+    assert item["inherited"] is True
     assert item["carryover"] == 0
     assert item["available"] == 400
 
 
 def test_an_overrun_does_not_become_next_month_debt(client, auth):
     lazer = categories_of(client, auth)["Lazer"]
-    create_budget(client, auth, lazer["id"], "2026-08", 400)
+    created = create_budget(client, auth, lazer["id"], "2026-08", 400).get_json()
     add_expense(client, auth, 900, "2026-08-10", "Lazer", lazer["id"])
-    create_budget(client, auth, lazer["id"], "2026-09", 400, rollover=True)
+    patch_in(client, auth, created["id"], "2026-09", {"rollover": True})
 
     item = item_for(get_month(client, auth, "2026-09"), "Lazer")
     assert item["carryover"] == 0
@@ -343,20 +451,20 @@ def test_rollover_uses_the_same_spent_the_screen_shows(client, auth):
         headers=auth,
     ).get_json()
 
-    create_budget(client, auth, alimentacao["id"], "2026-08", 900)
+    created = create_budget(client, auth, alimentacao["id"], "2026-08", 900).get_json()
     add_expense(client, auth, 300, "2026-08-04", "Alimentação", alimentacao["id"])
     add_expense(client, auth, 200, "2026-08-11", "Delivery", delivery["id"])
     assert item_for(get_month(client, auth, "2026-08"), "Alimentação")["remaining"] == 400
 
-    create_budget(client, auth, alimentacao["id"], "2026-09", 900, rollover=True)
+    patch_in(client, auth, created["id"], "2026-09", {"rollover": True})
     assert item_for(get_month(client, auth, "2026-09"), "Alimentação")["carryover"] == 400
 
 
 def test_rollover_crosses_the_year(client, auth):
     lazer = categories_of(client, auth)["Lazer"]
-    create_budget(client, auth, lazer["id"], "2026-12", 500)
+    created = create_budget(client, auth, lazer["id"], "2026-12", 500).get_json()
     add_expense(client, auth, 200, "2026-12-15", "Lazer", lazer["id"])
-    create_budget(client, auth, lazer["id"], "2027-01", 500, rollover=True)
+    patch_in(client, auth, created["id"], "2027-01", {"rollover": True})
 
     assert item_for(get_month(client, auth, "2027-01"), "Lazer")["carryover"] == 300
 
@@ -376,23 +484,57 @@ def test_patch_updates_only_what_was_sent(client, auth):
     created = create_budget(client, auth, outros["id"], "2026-09", 100, note="inicial").get_json()
 
     response = client.patch(
-        f"/api/budgets/{created['id']}", json={"planned_amount": 250}, headers=auth
+        f"/api/budgets/{created['id']}", json={"planned_percent": 2.5}, headers=auth
     )
     assert response.status_code == 200
     body = response.get_json()
+    assert body["planned_percent"] == 2.5
     assert body["planned_amount"] == 250
     assert body["note"] == "inicial"
     assert body["month"] == "2026-09"
 
 
-def test_patch_can_turn_rollover_on(client, auth):
-    lazer = categories_of(client, auth)["Lazer"]
-    create_budget(client, auth, lazer["id"], "2026-08", 400)
-    created = create_budget(client, auth, lazer["id"], "2026-09", 400).get_json()
+def test_patch_in_an_inherited_month_leaves_the_earlier_month_alone(client, auth):
+    categories = categories_of(client, auth)
+    created = create_budget(client, auth, categories["Lazer"]["id"], "2026-08", 400).get_json()
+    create_budget(client, auth, categories["Transporte"]["id"], "2026-08", 300)
 
-    response = client.patch(f"/api/budgets/{created['id']}", json={"rollover": True}, headers=auth)
+    response = patch_in(client, auth, created["id"], "2026-09", {"rollover": True, "planned_percent": 5})
+    assert response.status_code == 200, response.get_data(as_text=True)
+    body = response.get_json()
+    assert body["id"] != created["id"]
+    assert body["month"] == "2026-09"
+    assert body["inherited"] is False
+    assert body["carryover"] == 400
+    assert body["planned_amount"] == 500
+
+    august = get_month(client, auth, "2026-08")
+    assert item_for(august, "Lazer")["rollover"] is False
+    assert item_for(august, "Lazer")["planned_amount"] == 400
+    # O mes virou um plano proprio, com as outras categorias herdadas junto.
+    september = get_month(client, auth, "2026-09")
+    assert september["inherited"] is False
+    assert item_for(september, "Transporte")["planned_amount"] == 300
+    # E outubro herda o de setembro.
+    assert item_for(get_month(client, auth, "2026-10"), "Lazer")["planned_amount"] == 500
+
+
+def test_patch_with_a_month_that_does_not_show_the_row_is_404(client, auth):
+    lazer = categories_of(client, auth)["Lazer"]
+    created = create_budget(client, auth, lazer["id"], "2026-08", 400).get_json()
+    # Julho e antes da linha; ela nao vale la.
+    assert patch_in(client, auth, created["id"], "2026-07", {"rollover": True}).status_code == 404
+
+
+def test_deleting_in_an_inherited_month_keeps_the_earlier_month(client, auth):
+    categories = categories_of(client, auth)
+    lazer = create_budget(client, auth, categories["Lazer"]["id"], "2026-08", 400).get_json()
+
+    response = client.delete(f"/api/budgets/{lazer['id']}", headers=auth, query_string={"month": "2026-09"})
     assert response.status_code == 200
-    assert response.get_json()["carryover"] == 400
+    assert get_month(client, auth, "2026-09")["items"] == []
+    assert get_month(client, auth, "2026-10")["items"] == []
+    assert item_for(get_month(client, auth, "2026-08"), "Lazer")["planned_amount"] == 400
 
 
 def test_empty_patch_is_refused(client, auth):
@@ -404,7 +546,8 @@ def test_empty_patch_is_refused(client, auth):
 def test_patch_into_an_existing_month_is_refused(client, auth):
     outros = categories_of(client, auth)["Outros"]
     create_budget(client, auth, outros["id"], "2026-09", 100)
-    other = create_budget(client, auth, outros["id"], "2026-10", 100).get_json()
+    # Julho vem antes de setembro: nao herda dele.
+    other = create_budget(client, auth, outros["id"], "2026-07", 100).get_json()
 
     response = client.patch(f"/api/budgets/{other['id']}", json={"month": "2026-09"}, headers=auth)
     assert response.status_code == 409
@@ -422,7 +565,7 @@ def test_delete_removes_the_budget_and_keeps_the_transactions(client, auth):
 
 
 def test_unknown_budget_is_404(client, auth):
-    assert client.patch("/api/budgets/nope", json={"planned_amount": 1}, headers=auth).status_code == 404
+    assert client.patch("/api/budgets/nope", json={"planned_percent": 1}, headers=auth).status_code == 404
     assert client.delete("/api/budgets/nope", headers=auth).status_code == 404
 
 
@@ -438,24 +581,46 @@ def test_copy_defaults_to_the_previous_month(client, auth):
     assert response.status_code == 200, response.get_data(as_text=True)
     body = response.get_json()
     assert body["from_month"] == "2026-09"
-    assert body["created"] == 2
+    # Outubro ja herdava as duas: agora sao dele.
+    assert body["created"] + body["skipped"] == 2
+    assert body["inherited"] is False
     assert body["totals"]["planned"] == 1200
+
+
+def test_copy_copies_the_percentages(client, auth):
+    categories = categories_of(client, auth)
+    create_budget(client, auth, categories["Alimentação"]["id"], "2026-09", 900)
+    create_budget(client, auth, categories["Transporte"]["id"], "2026-09", 300)
+    # Julho e antes: nada herdado, a copia cria as duas.
+    body = client.post(
+        "/api/budgets/copy", json={"from_month": "2026-09", "to_month": "2026-07"}, headers=auth
+    ).get_json()
+    assert body["created"] == 2
+    assert sorted(item["planned_percent"] for item in body["items"]) == [3, 9]
+
+    # O mesmo % sobre outro Gastar: julho com renda 5.000, Gastar 100%.
+    client.put("/api/monthly-plan", headers=auth, json={
+        "month": "2026-07", "income_amount": 5000, "invest_percent": 0, "spend_percent": 100,
+    })
+    july = get_month(client, auth, "2026-07")
+    assert item_for(july, "Alimentação")["planned_amount"] == 450
+    assert item_for(july, "Transporte")["planned_amount"] == 150
 
 
 def test_copy_skips_what_already_exists_unless_overwrite(client, auth):
     categories = categories_of(client, auth)
     create_budget(client, auth, categories["Alimentação"]["id"], "2026-09", 900)
-    create_budget(client, auth, categories["Alimentação"]["id"], "2026-10", 100)
+    create_budget(client, auth, categories["Alimentação"]["id"], "2026-07", 100)
 
     skipped = client.post(
-        "/api/budgets/copy", json={"from_month": "2026-09", "to_month": "2026-10"}, headers=auth
+        "/api/budgets/copy", json={"from_month": "2026-09", "to_month": "2026-07"}, headers=auth
     ).get_json()
     assert skipped["skipped"] == 1
     assert skipped["totals"]["planned"] == 100
 
     overwritten = client.post(
         "/api/budgets/copy",
-        json={"from_month": "2026-09", "to_month": "2026-10", "overwrite": True},
+        json={"from_month": "2026-09", "to_month": "2026-07", "overwrite": True},
         headers=auth,
     ).get_json()
     assert overwritten["updated"] == 1
@@ -485,7 +650,7 @@ def test_another_users_budget_cannot_be_edited_or_deleted(client, user, other_us
 
     assert (
         client.patch(
-            f"/api/budgets/{created['id']}", json={"planned_amount": 1}, headers=other_user["headers"]
+            f"/api/budgets/{created['id']}", json={"planned_percent": 1}, headers=other_user["headers"]
         ).status_code
         == 404
     )
@@ -547,7 +712,6 @@ def create_card_purchase(client, headers, *, total, date, category, installments
 def test_a_card_purchase_counts_in_full_in_its_purchase_month(client, auth):
     alimentacao = categories_of(client, auth)["Alimentação"]
     create_budget(client, auth, alimentacao["id"], "2026-09", 1000)
-    create_budget(client, auth, alimentacao["id"], "2026-10", 1000)
     create_card_purchase(client, auth, total=600, date="2026-09-28", category="Alimentação", installments=3)
 
     assert item_for(get_month(client, auth, "2026-09"), "Alimentação")["spent"] == 600
@@ -582,7 +746,7 @@ def test_a_month_without_the_leading_zero_is_stored_padded(client, auth):
     """"2026-9" e o mesmo mes que "2026-09"; gravado curto, ficava fora das buscas."""
     category_id = categories_of(client, auth)["Outros"]["id"]
     response = client.post(
-        "/api/budgets", json={"category_id": category_id, "month": "2026-9", "planned_amount": 100}, headers=auth
+        "/api/budgets", json={"category_id": category_id, "month": "2026-9", "planned_percent": 1}, headers=auth
     )
     assert response.status_code == 201, response.get_data(as_text=True)
     assert response.get_json()["month"] == "2026-09"

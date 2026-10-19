@@ -1,6 +1,7 @@
-"""Plano do mes (025): quanto gastar e investir, e os alertas.
+"""Plano do mes (025, 038): a renda, quanto dela investir e gastar, e os alertas.
 
-O que estes testes fixam:
+O que estes testes fixam (os da 038 — renda, percentuais, Saldo do plano,
+conversao — estao em test_monthly_plan_income.py):
 
 - o gasto do mes soma saidas das contas e compras no cartao (inteiras, no mes
   da compra), e deixa de fora transferencia, pagamento de fatura e aporte
@@ -28,10 +29,14 @@ def frozen_today(app_module, monkeypatch):
         monkeypatch.setattr(importlib.import_module(name), "local_today", lambda: TODAY)
 
 
-def put_plan(client, auth, month, spend, invest, income=None):
-    payload = {"month": month, "spend_amount": spend, "invest_amount": invest}
-    if income is not None:
-        payload["income_amount"] = income
+def put_plan(client, auth, month, spend, invest, income=10000):
+    """Plano em reais, para ler os testes: os % de `spend` e `invest` sobre `income`."""
+    payload = {
+        "month": month,
+        "income_amount": income,
+        "spend_percent": spend * 100 / income,
+        "invest_percent": invest * 100 / income,
+    }
     response = client.put("/api/monthly-plan", headers=auth, json=payload)
     assert response.status_code == 200, response.get_data(as_text=True)
     return response.get_json()
@@ -113,18 +118,34 @@ def test_put_replaces_same_month_and_delete_falls_back(client, auth):
 
 
 def test_amounts_are_rounded_half_up(client, auth):
-    body = put_plan(client, auth, "2025-12", 100.005, 50.125, income=200.005)
-    assert body["plan"]["spend_amount"] == 100.01
-    assert body["plan"]["invest_amount"] == 50.13
-    assert body["plan"]["income_amount"] == 200.01
+    # 100,005 de renda vira 100,01; 50% disso, 50,005, vira 50,01 (o banker's
+    # rounding daria 50,00); 12,5% -> 12,50125 -> 12,50.
+    response = client.put("/api/monthly-plan", headers=auth, json={
+        "month": "2025-12", "income_amount": 100.005, "spend_percent": 50, "invest_percent": 12.5,
+    })
+    body = response.get_json()
+    assert body["plan"]["income_amount"] == 100.01
+    assert body["plan"]["spend_amount"] == 50.01
+    assert body["plan"]["invest_amount"] == 12.5
+    # Sem destino fecha a renda ao centavo: 100,01 - 50,01 - 12,50.
+    assert body["plan"]["unallocated_amount"] == 37.5
 
 
 @pytest.mark.parametrize("payload", [
-    {"month": "2025-12", "spend_amount": -1, "invest_amount": 0},
-    {"month": "2025-12", "spend_amount": 10, "invest_amount": "x"},
-    {"month": "12/2025", "spend_amount": 10, "invest_amount": 0},
-    {"spend_amount": 10, "invest_amount": 0},
-    {"month": "2025-12", "spend_amount": 10, "invest_amount": 0, "income_amount": -5},
+    {"month": "2025-12", "income_amount": 1000, "spend_percent": -1, "invest_percent": 0},
+    {"month": "2025-12", "income_amount": 1000, "spend_percent": 10, "invest_percent": "x"},
+    {"month": "2025-12", "income_amount": 1000, "spend_percent": 10},
+    {"month": "2025-12", "income_amount": 1000, "spend_percent": 101, "invest_percent": 0},
+    {"month": "2025-12", "income_amount": 1000, "spend_percent": 60, "invest_percent": 40.01},
+    {"month": "12/2025", "income_amount": 1000, "spend_percent": 10, "invest_percent": 0},
+    {"income_amount": 1000, "spend_percent": 10, "invest_percent": 0},
+    # Sem renda nao ha plano.
+    {"month": "2025-12", "spend_percent": 10, "invest_percent": 0},
+    {"month": "2025-12", "income_amount": 0, "spend_percent": 10, "invest_percent": 0},
+    {"month": "2025-12", "income_amount": -5, "spend_percent": 10, "invest_percent": 0},
+    {"month": "2025-12", "income_amount": 0.004, "spend_percent": 10, "invest_percent": 0},
+    # O plano antigo, em reais, nao e mais aceito.
+    {"month": "2025-12", "spend_amount": 3000, "invest_amount": 1000},
 ])
 def test_invalid_payload_is_refused(client, auth, payload):
     response = client.put("/api/monthly-plan", headers=auth, json=payload)
@@ -180,14 +201,12 @@ def test_invested_is_net_of_redemptions(client, auth):
 # --- alertas ----------------------------------------------------------------
 
 
-def test_plan_over_income_flag(client, auth):
-    body = put_plan(client, auth, "2026-01", 4000, 1500, income=5000)
-    assert body["period"] == "FUTURE"
-    assert flag(body, "PLAN_OVER_INCOME")["amount"] == 500
-    assert body["plan"]["planned_leftover"] == -500
+def test_plan_leftover_is_what_has_no_destination(client, auth):
     ok = put_plan(client, auth, "2026-01", 3000, 1500, income=5000)
+    assert ok["period"] == "FUTURE"
     assert "PLAN_OVER_INCOME" not in codes(ok)
     assert ok["plan"]["planned_leftover"] == 500
+    assert ok["unallocated"] == {"percent": 10, "amount": 500}
 
 
 def test_spend_over_flag(client, auth):

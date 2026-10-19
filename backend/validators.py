@@ -8,6 +8,7 @@ portugues que vai para a tela; a rota a transforma em 400 com
 import math
 import re
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from flask import jsonify, request
 
@@ -91,6 +92,34 @@ def parse_optional_number(payload, key, label, *, minimum=None, maximum=None):
     if key not in payload or payload.get(key) in (None, ""):
         return None
     return parse_number(payload, key, label, minimum=minimum, maximum=maximum)
+
+
+# Percentuais do plano do mes (038): Decimal com seis casas, nunca float —
+# 33,33% x 3 tem que somar 99,99 exatos.
+PERCENT_STEP = Decimal("0.000001")
+
+
+def to_percent(value):
+    """Um Decimal (ou o texto guardado) com as seis casas do percentual."""
+    return Decimal(str(value)).quantize(PERCENT_STEP, rounding=ROUND_HALF_UP)
+
+
+def parse_percent(payload, key, label):
+    """Percentual de 0 a 100, obrigatorio; aceita numero, "33.33" ou "33,33"."""
+    raw = payload.get(key)
+    if raw is None or raw == "":
+        raise ValidationError(f"{label} e obrigatorio.")
+    if isinstance(raw, bool):
+        raise ValidationError(f"{label} deve ser um numero valido.")
+    try:
+        value = Decimal(str(raw).strip().replace(",", "."))
+    except InvalidOperation:
+        raise ValidationError(f"{label} deve ser um numero valido.")
+    if not value.is_finite():
+        raise ValidationError(f"{label} deve ser um numero valido.")
+    if value < 0 or value > 100:
+        raise ValidationError(f"{label} deve estar entre 0 e 100.")
+    return to_percent(value)
 
 
 def parse_int_number(payload, key, label, *, minimum=None, maximum=None):

@@ -81,8 +81,9 @@ export const categoriesApi = {
   archive: (id) => apiFetch(`/api/categories/${id}`, { method: 'DELETE' })
 }
 
-// Plano do mes: quanto gastar e investir (services/monthly_plan.py). Um mes
-// sem plano proprio herda o anterior; DELETE apaga so o do mes.
+// Plano do mes (services/monthly_plan.py): a renda em reais e quanto dela
+// investir e gastar, em %. Um mes sem plano proprio herda o anterior, com as
+// categorias; DELETE apaga o do mes (e as categorias dele).
 export const monthlyPlanApi = {
   month: (month) => apiFetch(`/api/monthly-plan${queryString({ month })}`),
   save: (payload) => apiFetch('/api/monthly-plan', {
@@ -92,18 +93,21 @@ export const monthlyPlanApi = {
   remove: (month) => apiFetch(`/api/monthly-plan${queryString({ month })}`, { method: 'DELETE' })
 }
 
+// Categorias do Gastar: `planned_percent` e % do Gastar do mes. `month` em
+// update/remove/lines e o mes que a tela mostra — numa categoria herdada, o mes
+// vira um plano proprio antes da mudanca.
 export const budgetsApi = {
   month: (month) => apiFetch(`/api/budgets${queryString({ month })}`),
   create: (payload) => apiFetch('/api/budgets', {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
-  update: (id, payload) => apiFetch(`/api/budgets/${id}`, {
+  update: (id, payload, month) => apiFetch(`/api/budgets/${id}${queryString({ month })}`, {
     method: 'PATCH',
     body: JSON.stringify(payload)
   }),
-  remove: (id) => apiFetch(`/api/budgets/${id}`, { method: 'DELETE' }),
-  lines: (id) => apiFetch(`/api/budgets/${id}/lines`),
+  remove: (id, month) => apiFetch(`/api/budgets/${id}${queryString({ month })}`, { method: 'DELETE' }),
+  lines: (id, month) => apiFetch(`/api/budgets/${id}/lines${queryString({ month })}`),
   copy: (payload) => apiFetch('/api/budgets/copy', {
     method: 'POST',
     body: JSON.stringify(payload)

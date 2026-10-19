@@ -72,11 +72,15 @@ CREATE TABLE IF NOT EXISTS budgets (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     month TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+    -- Reais antigos (009): lido so para converter uma linha sem % (038).
     planned_amount REAL NOT NULL CHECK (planned_amount >= 0),
     rollover INTEGER NOT NULL DEFAULT 0 CHECK (rollover IN (0, 1)),
     note TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- % do Gastar do mes, seis casas ("12.500000"); NULL = linha antiga
+    -- esperando a renda do plano (038).
+    planned_percent TEXT,
     UNIQUE(user_id, category_id, month)
 );
 
@@ -581,6 +585,10 @@ CREATE TABLE IF NOT EXISTS monthly_plans (
     income_amount REAL CHECK (income_amount IS NULL OR income_amount >= 0),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    -- 038: % da renda, seis casas; NULL = plano antigo sem renda. spend_amount
+    -- e invest_amount sao os reais de antes, lidos so para converter.
+    invest_percent TEXT,
+    spend_percent TEXT,
     UNIQUE(user_id, month)
 );
 

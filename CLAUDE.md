@@ -121,13 +121,13 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1305 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1343 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
-transaction, monthly budgets, recurring entries, statement import and its rules (including applying
+transaction, monthly budgets, recurring entries, the monthly plan from income (`test_monthly_plan_income.py`: percentages at both levels, inheritance, Saldo do plano, migration 038 and `needs_income`), statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
 proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), and backup
@@ -199,7 +199,9 @@ backend/
                       # app_bundle (the APK's screens, zipped for the phone), import_rules
                       # (categorization shared by import and Aprovar), inbox + inbox_decisions
                       # (Aprovar: the phone's notifications waiting for the owner),
-                      # recurring (the recurrences' calendar, /run, Aprovar's settlements)
+                      # recurring (the recurrences' calendar, /run, Aprovar's settlements),
+                      # budgets (categories as % of Gastar, the plan row, inheritance),
+                      # monthly_plan (income, Investir/Gastar %, Saldo do plano, flags)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
@@ -311,7 +313,16 @@ mobile-docs/
 - **A budget is a plan, not a record.** `budgets` rows are keyed by `(category_id, month)` and
   `DELETE /api/budgets/<id>` is a real delete with no confirmation guard — removing one destroys
   no lançamento. The `rollover` carry-over is computed on read, never stored, so a retroactive
-  lançamento does not have to rewrite a chain of months.
+  lançamento does not have to rewrite a chain of months. **A budget is a % of the month's Gastar**
+  (038, `services/budgets.py`): `planned_percent` only, never a fixed R$; its R$ = Gastar R$ × % on
+  read (`percent_of()`), the categories sum to at most 100% of Gastar (400; a month converted over
+  100% may lower one, not raise it), and "Sem categoria" is the rest. A month's categories are
+  those of the latest month ≤ it with a plan row or budget rows (`category_source_month()`), so a
+  month without its own inherits them; any write in an inherited month (POST, PATCH/DELETE/lines
+  `?month=`, copy) goes through `materialize_month()` first, which copies the inherited plan and
+  categories into it. Rollover's leftover is the previous month's own Gastar × its %. A row with
+  `planned_percent` NULL predates 038 and waits for income (`needs_income`, status
+  `NEEDS_INCOME`); `planned_amount` is read only to convert it, and new rows write 0 there.
 - **A recurrence is a template, not money.** `recurring_transactions` rows generate real
   `transactions` rows via `POST /api/recurring/run`; nothing is projected into the statement. Each
   occurrence writes `source_type = 'RECURRING_TRANSACTION'` and
@@ -569,8 +580,8 @@ mobile-docs/
   refused (409) and its rows ride along with the next invoice's payment (`invoice_open_lines()`).
 - **Budget spent (decision 1):** card purchases count in full in the purchase month (a refund
   subtracts in its month); invoice payments never count.
-- **Início's "Disponível por dia"** is the month plan's `spend_remaining` ÷ days left in the month
-  (today included); with no plan it falls back to balance − the invoices still to pay (each card's
+- **Início's "Disponível por dia"** is the month plan's Saldo do plano (`plan_balance`) ÷ days left
+  in the month (today included; the server returns the same as `daily_available`); with no plan it falls back to balance − the invoices still to pay (each card's
   next invoice and any overdue one).
 - **Proventos of ações/FIIs are computed, not typed** (026, `services/proceeds_sync.py`):
   `POST /api/investment-proceeds/sync` takes each event from StatusInvest (`statusinvest_client.py`;
@@ -594,13 +605,25 @@ mobile-docs/
   accounts' lançamentos, and a read-only investments statement of operações + proventos
   (`lib/investmentStatement.js`, tested). The investments one writes nothing and never touches an
   account balance; editing stays in Operações and Proventos.
-- **The monthly plan is a plan, like budgets** (025, `services/monthly_plan.py`): `PUT
-  /api/monthly-plan` writes one month's spend/invest (and optional income) amounts, a month
-  without a row inherits the latest earlier one, and `DELETE` is real with no guard. Spent and
-  invested are computed on read: spent is the budget's rule without categories (no transfers,
-  invoice payments or aportes; card purchases in full in the purchase month), invested is
-  aportes − resgates of movements, never the linked cash. Flags are codes plus amounts; the
-  Portuguese text lives in `lib/monthlyPlan.js`. Goal flags are per goal, never summed.
+- **The monthly plan is a plan, like budgets, and starts from income** (025, 038,
+  `services/monthly_plan.py`): `PUT /api/monthly-plan` writes one month's `income_amount` (the only
+  typed R$, required, > 0 — no plan without income) and `invest_percent` / `spend_percent` of it
+  (required, 0 allowed, sum ≤ 100, else 400). Every R$ is computed on read from the **planned**
+  income (income × %, then Gastar R$ × category %, through `percent_of()`), never stored; "Sem
+  destino" = 100% − Investir − Gastar is returned. Percentages are TEXT with six decimals read as
+  `Decimal` (`to_percent()`), never float. A month without a row inherits the latest earlier plan,
+  categories included; a PUT that creates a month's plan copies the inherited categories into it,
+  and `DELETE` (real, no guard) removes the month's plan and its categories. Spent and invested
+  are computed on read: spent is the budget's rule without categories (no transfers, invoice
+  payments or aportes; card purchases in full in the purchase month), invested is aportes −
+  resgates of movements, never the linked cash; the received income only compares. **Saldo do
+  plano** (`plan_balance`) = Gastar R$ − the month's spent is the one "still to spend" number
+  (`progress.spend_remaining` and `/api/budgets` `totals.plan_balance` are the same); budgets'
+  `totals.remaining` is only the categories' own leftover. An old plan without income
+  (`spend_percent` NULL) is `needs_income`: nothing is computed from it, and the PUT with the
+  income converts it (percentages omitted = from the old R$, 038's formula) and the old categories
+  of the months it governs. Flags are codes plus amounts; the Portuguese text lives in
+  `lib/monthlyPlan.js`. Goal flags are per goal, never summed.
 - **Allocation targets and goals are plans, like budgets** (020, 021): `PUT /api/allocation/targets`
   replaces the whole set (class targets sum to 100%; asset targets are % *within* their class and
   sum to 100% in any class that has one), and `DELETE /api/goals/<id>` is a real delete with no
@@ -650,7 +673,8 @@ mobile-docs/
   `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`, `allocation` ←
   `sectors`, `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
   on top. `inbox` sits on `import_rules`; `inbox_decisions` on `inbox` and `invoices`, and is read
-  by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
+  by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`). `monthly_plan` sits on `budgets` (the plan row, Gastar R$ and the categories live in
+  `budgets`; `routes/budgets.py` reads `build_budget_view()` from `monthly_plan`). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
   fails `test_route_map.py` by name.

@@ -21,3 +21,19 @@ def rounded_money(value):
         return float(Decimal(str(numeric)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
     except (InvalidOperation, ValueError):
         return 0.0
+
+
+CENT = Decimal("0.01")
+
+
+def percent_of(amount, percent):
+    """`percent`% de `amount`, em reais: a regra de rounded_money() (ROUND_HALF_UP
+    em centavos) aplicada ao produto exato em Decimal.
+
+    `percent` e o Decimal guardado com seis casas (038); passar o produto por
+    float antes de arredondar perderia digitos. Plano do mes: renda x Investir/
+    Gastar %, e Gastar em reais x % da categoria.
+    """
+    base = Decimal(str(rounded_money(amount)))
+    value = base * Decimal(percent) / Decimal(100)
+    return float(value.quantize(CENT, rounding=ROUND_HALF_UP))

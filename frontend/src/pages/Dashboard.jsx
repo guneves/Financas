@@ -536,7 +536,9 @@ export default function Dashboard() {
   // Com plano do mes: o que ainda pode gastar nele, pelos dias que faltam
   // (hoje incluido). Sem plano: o saldo menos as faturas a pagar — a proxima
   // de cada cartao e as vencidas, que tambem saem do saldo.
-  const planSpendRemaining = planQuery.data?.plan ? Number(planQuery.data.progress?.spend_remaining) : null
+  // Saldo do plano: null sem plano ou com o plano ainda sem renda.
+  const planBalance = planQuery.data?.plan_balance
+  const planSpendRemaining = planBalance === null || planBalance === undefined ? null : Number(planBalance)
   const hasSpendPlan = Number.isFinite(planSpendRemaining)
   const dailyAvailable = (hasSpendPlan ? planSpendRemaining : bankBalance - overdueTotal - nextInvoiceTotal) / daysRemainingInMonth
   const paceMonths = spendingPace.months.length
@@ -1241,7 +1243,7 @@ function BudgetStrip({ budget }) {
   const percent = available > 0 ? (spent / available) * 100 : 0
   const statusRank = { OVER: 0, WARNING: 1, OK: 2 }
   const flagged = items
-    .filter((item) => item.status !== 'OK')
+    .filter((item) => item.status === 'OVER' || item.status === 'WARNING')
     .sort((a, b) => statusRank[a.status] - statusRank[b.status] || b.percent - a.percent)
   const shown = flagged.slice(0, 4)
   const categoryName = (item) => (item.parent_name ? `${item.parent_name} › ${item.category_name}` : item.category_name)

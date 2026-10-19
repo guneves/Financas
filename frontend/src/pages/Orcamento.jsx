@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { budgetsApi, categoriesApi } from '../lib/dataApi'
 import { formatCurrency, monthKey, monthLabel, shiftMonth } from '../lib/format'
+import { moneyInputValue, parseMoneyInput } from '../lib/monthlyPlan'
 import { invalidateServerData, keepPreviousData, useQuery, useReportQueryError } from '../lib/queries'
 import {
   AlertMessage,
@@ -42,7 +43,11 @@ import { confirmAction } from '../lib/confirm'
 import MonthlyPlanPanel from '../components/MonthlyPlanPanel'
 import BudgetLines from '../components/BudgetLines'
 
-const emptyBudgetForm = () => ({ category_id: '', planned_amount: '', rollover: false, note: '' })
+const emptyBudgetForm = () => ({ category_id: '', planned_percent: '', rollover: false, note: '' })
+
+// "12,5" -> 12.5; vazio ou invalido -> NaN (o servidor tambem recusa).
+const parsePercent = (value) => parseMoneyInput(value) ?? Number.NaN
+const formatPercent = (value) => `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
 
 const EMPTY_BUDGET = { items: [], totals: {} }
 const NO_CATEGORIES = []
@@ -111,7 +116,7 @@ export default function Orcamento() {
       await budgetsApi.create({
         category_id: budgetForm.category_id,
         month,
-        planned_amount: Number(budgetForm.planned_amount || 0),
+        planned_percent: parsePercent(budgetForm.planned_percent),
         rollover: budgetForm.rollover,
         note: budgetForm.note || undefined,
       })
@@ -128,7 +133,7 @@ export default function Orcamento() {
     setSaving(true)
     setError('')
     try {
-      await budgetsApi.update(item.id, { planned_amount: Number(editValue || 0) })
+      await budgetsApi.update(item.id, { planned_percent: parsePercent(editValue) }, month)
       setEditingId('')
       await loadAll()
     } catch (requestError) {
@@ -141,7 +146,7 @@ export default function Orcamento() {
   const handleToggleRollover = async (item) => {
     setSaving(true)
     try {
-      await budgetsApi.update(item.id, { rollover: !item.rollover })
+      await budgetsApi.update(item.id, { rollover: !item.rollover }, month)
       await loadAll()
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível atualizar o orçamento.')
@@ -154,7 +159,7 @@ export default function Orcamento() {
     if (!(await confirmAction({ title: `Remover o orçamento de "${item.category_name}"?`, message: `Só o plano de ${monthLabel(month)} sai; nenhum lançamento muda.`, confirmLabel: 'Remover' }))) return
     setSaving(true)
     try {
-      await budgetsApi.remove(item.id)
+      await budgetsApi.remove(item.id, month)
       await loadAll()
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível remover o orçamento.')
@@ -199,15 +204,22 @@ export default function Orcamento() {
 
       <MonthlyPlanPanel month={month} />
 
+      {/* Saldo do plano: Gastar do plano - gasto do mes (o mesmo numero do plano). */}
       <SummaryPanel
         lead={{
           label: 'Saldo do plano',
-          value: formatCurrency(totals.remaining),
-          hint: totals.over_count ? `${totals.over_count} categoria(s) estourada(s)` : 'Nenhuma categoria estourada',
-          tone: Number(totals.remaining || 0) < 0 ? 'loss' : 'neutral',
+          value: totals.plan_balance === null || totals.plan_balance === undefined ? '—' : formatCurrency(totals.plan_balance),
+          hint: totals.plan_balance === null || totals.plan_balance === undefined
+            ? 'Informe a renda no plano do mês'
+            : totals.over_count ? `${totals.over_count} categoria(s) estourada(s)` : 'Nenhuma categoria estourada',
+          tone: Number(totals.plan_balance || 0) < 0 ? 'loss' : 'neutral',
         }}
         figures={[
-          { label: 'Planejado', value: formatCurrency(totals.planned), hint: 'Soma das categorias' },
+          {
+            label: 'Planejado',
+            value: formatCurrency(totals.planned),
+            hint: `${formatPercent(totals.assigned_percent)} do Gastar · sem categoria ${formatPercent(totals.unassigned_percent)}`,
+          },
           {
             label: 'Disponível',
             value: formatCurrency(totals.available),
@@ -248,14 +260,12 @@ export default function Orcamento() {
                   ))}
                 </select>
               </Field>
-              <Field label="Valor planejado">
+              <Field label="% do Gastar">
                 <input
-                  type="number" inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  placeholder="0,00"
-                  value={budgetForm.planned_amount}
-                  onChange={(event) => setBudgetForm({ ...budgetForm, planned_amount: event.target.value })}
+                  type="text" inputMode="decimal" autoComplete="off"
+                  placeholder="0"
+                  value={budgetForm.planned_percent}
+                  onChange={(event) => setBudgetForm({ ...budgetForm, planned_percent: event.target.value })}
                   className="app-input"
                   required
                 />
@@ -284,7 +294,7 @@ export default function Orcamento() {
               </div>
               <p className="text-sm text-zinc-600 sm:col-span-2 xl:col-span-4">
                 {availableCategories.length
-                  ? 'Uma categoria por mês. Subcategoria sem orçamento próprio soma no orçamento do pai.'
+                  ? 'Cada categoria leva um % do Gastar do plano; juntas, no máximo 100%. Subcategoria sem orçamento próprio soma no orçamento do pai.'
                   : 'Todas as categorias ativas já têm orçamento neste mês.'}
               </p>
             </form>
@@ -322,7 +332,9 @@ export default function Orcamento() {
                       {item.parent_name ? `${item.parent_name} › ${item.category_name}` : item.category_name}
                     </p>
                     <p className="mt-0.5 text-sm text-zinc-600">
-                      {formatCurrency(item.spent)} de {formatCurrency(item.available)}
+                      {item.needs_income
+                        ? `${formatCurrency(item.spent)} gastos · ${item.planned_percent === null ? `antes ${formatCurrency(item.legacy_amount)}` : `${formatPercent(item.planned_percent)} do Gastar`} · falta a renda do plano`
+                        : `${formatCurrency(item.spent)} de ${formatCurrency(item.available)} · ${formatPercent(item.planned_percent)} do Gastar`}
                       {item.carryover ? ` (inclui ${formatCurrency(item.carryover)} acumulado)` : ''}
                     </p>
                   </div>
@@ -331,12 +343,10 @@ export default function Orcamento() {
                     {editingId === item.id ? (
                       <>
                         <input
-                          type="number" inputMode="decimal"
-                          step="0.01"
-                          min="0"
+                          type="text" inputMode="decimal" autoComplete="off"
                           value={editValue}
                           onChange={(event) => setEditValue(event.target.value)}
-                          aria-label="Valor planejado"
+                          aria-label="% do Gastar"
                           className="app-input w-32"
                         />
                         <IconButton label="Salvar" icon={Check} variant="primary" onClick={() => handleSaveEdit(item)} />
@@ -363,11 +373,11 @@ export default function Orcamento() {
                           size="md"
                           items={[
                             {
-                              label: 'Editar valor planejado',
+                              label: 'Editar % do Gastar',
                               icon: Pencil,
                               onSelect: () => {
                                 setEditingId(item.id)
-                                setEditValue(String(item.planned_amount))
+                                setEditValue(moneyInputValue(item.planned_percent))
                               },
                             },
                             { label: 'Remover do mês', icon: Trash2, tone: 'danger', onSelect: () => handleRemoveBudget(item) },
@@ -385,7 +395,7 @@ export default function Orcamento() {
                       item.remaining < 0 ? 'text-rose-600' : 'text-zinc-700'
                     )}
                   >
-                    {formatCurrency(item.remaining)}
+                    {item.remaining === null ? '—' : formatCurrency(item.remaining)}
                   </span>
                 </div>
                 {item.note ? <p className="mt-2 text-sm text-zinc-600">{item.note}</p> : null}
@@ -402,7 +412,7 @@ export default function Orcamento() {
                   {openLines.has(item.id) ? 'Ocultar lançamentos' : 'Ver lançamentos'}
                 </button>
                 <Expand open={openLines.has(item.id)} id={`linhas-${item.id}`}>
-                  <BudgetLines budgetId={item.id} categoryName={item.category_name} kind={item.category_kind} />
+                  <BudgetLines budgetId={item.id} month={month} categoryName={item.category_name} kind={item.category_kind} />
                 </Expand>
               </div>
             ))}

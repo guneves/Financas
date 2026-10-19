@@ -9,6 +9,26 @@
 
 ## 1. Open work, in priority order
 
+### Plano do mês a partir da renda — the screen (next session)
+The backend and migration 038 are in (see `done-tasks.md`, 2026-10-19). The screen is the
+interim one: `MonthlyPlanPanel` takes Renda (R$) + Investir % + Gastar %, Orçamento takes "% do
+Gastar" per category, and both read the new fields — nothing was redesigned.
+- [ ] Redesign Orçamento around the levels the API already returns (`GET /api/monthly-plan`):
+  Renda (planned vs received) → Investir / Gastar / Sem destino → categories inside Gastar with
+  Sem categoria → Saldo do plano and Disponível por dia. The response carries each level's %,
+  R$, realizado and remaining; `categories.items` is the same list as `GET /api/budgets`.
+- [ ] A `needs_income` month (an old plan without income, or old categories in a month with no
+  income) shows only "Informar renda" today; the redesign should show the old R$ (`plan.legacy`,
+  each item's `legacy_amount`) and convert on the PUT (percentages left blank = convert).
+- [ ] Início still computes "Disponível por dia" on the client from `plan_balance`; switch it to
+  the server's `daily_available` (same rule, the server's clock) or keep it — owner's call.
+- [ ] Inheritance is new for categories: a month without its own rows now shows the previous
+  plan's categories (it used to show none). Editing a category in such a month (`?month=`) makes
+  the month its own plan first. Check on the server after the deploy that past months read as
+  expected; `DELETE /api/monthly-plan` now removes the month's categories with it.
+- [ ] Owner check after the deploy: open Orçamento in a month planned before 038. A plan that had
+  income comes back in % with the same R$; one without income asks for it.
+
 ### Home server — what is left
 The server is the only backend since 2026-10-16 (`DEPLOY.md`; see `docs/done-tasks.md`). Open:
 - [ ] **Daily encrypted cloud backup of the database** (the owner will do it). Today the backups
@@ -284,8 +304,8 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
   for these.
 
 ### Plano do mês (2026-10-16) — owner checks
-- [ ] Set a plan on the phone, type a comma amount, and confirm the flags make sense against a
-  real month.
+- [ ] Set a plan on the phone (income in reais with a comma, percentages) and confirm the flags make
+  sense against a real month.
 - [ ] Decide whether Início should show a one-line plan strip (spent / invested vs plan).
 
 ### Chart loading speed (2026-10-18) — what is left
@@ -365,6 +385,7 @@ multi-ticker refresh failed on brapi and fell back to yfinance. Since 2026-10-17
 - **Budgets on income categories.** Orçamento offers income categories when adding a budget and the
   backend accepts them; their "spent" is the category's income, and `build_budget_month()` adds it
   to `totals.spent`, so the "Realizado" tile and the Início budget strip mix income into "gasto".
+  Since 038 a category is a % *of Gastar*, which makes an income category even less meaningful.
   Owner's call: refuse income categories in budgets, or keep them out of the totals.
 
 ### Fixed-income form (2026-09-27 night) — leftovers

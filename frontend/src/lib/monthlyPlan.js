@@ -64,7 +64,9 @@ export function flagText(flag) {
   const amount = formatCurrency(flag.amount)
   switch (flag.code) {
     case 'PLAN_OVER_INCOME':
-      return `Gastar e investir o planejado passa da renda esperada em ${amount}. Reduza um dos dois para o plano caber.`
+      return `Investir e gastar passam da renda do mês em ${amount}. Reduza um dos dois para o plano caber.`
+    case 'CATEGORIES_OVER_SPEND':
+      return `As categorias somam ${String(flag.percent).replace('.', ',')}% do Gastar: passam dele em ${amount}. Reduza alguma.`
     case 'SPEND_OVER':
       return `Os gastos passaram do plano em ${amount}.`
     case 'SPEND_PACE':
