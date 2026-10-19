@@ -8,6 +8,7 @@ Nenhum teste vai a rede: `urllib.request.urlopen` e substituido.
 import io
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -158,3 +159,23 @@ def test_tesouro_auto_refresh_stays_off_without_url(app_module):
 
     assert tesouro_client.TESOURO_PRICES_URL == ""
     assert tesouro_client.start_auto_refresh() is False
+
+
+def test_tesouro_prices_are_downloaded_once_a_day(app_module, monkeypatch):
+    import tesouro_client
+
+    assert tesouro_client.PRICES_FRESH_SECONDS == 24 * 3600
+    prices = tesouro_client.TreasuryPrices({}, fetched_at=0)
+    calls = []
+    monkeypatch.setattr(tesouro_client, "TESOURO_PRICES_URL", "https://example.invalid/precos.csv")
+    monkeypatch.setattr(tesouro_client, "_schedule_refresh", lambda: calls.append(1))
+    try:
+        tesouro_client.set_prices(prices)
+        prices.fetched_at = time.time() - 23 * 3600
+        tesouro_client.get_prices()
+        assert calls == []
+        prices.fetched_at = time.time() - 25 * 3600
+        tesouro_client.get_prices()
+        assert calls == [1]
+    finally:
+        tesouro_client.set_prices(None)

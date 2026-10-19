@@ -43,8 +43,11 @@ TESOURO_PACKAGE_URL = (
     "?id=taxas-dos-titulos-ofertados-pelo-tesouro-direto"
 )
 DOWNLOAD_TIMEOUT_SECONDS = 60
-# O arquivo muda uma vez por dia util; antes disso, o cache serve sem perguntar.
-PRICES_FRESH_SECONDS = 6 * 3600
+# O arquivo muda uma vez por dia util: a marcacao a mercado e baixada uma vez
+# por dia (dono, 2026-10-19). Antes disso, o cache serve sem perguntar -- nem
+# a leitura, nem "Atualizar cotacoes", nem a thread baixam de novo. A copia em
+# disco guarda a hora do download, entao um deploy tambem nao rebaixa.
+PRICES_FRESH_SECONDS = 24 * 3600
 # Mais velho que isso, um preco nao e mais "de mercado": a tela volta a curva.
 PRICES_MAX_AGE_SECONDS = 10 * 24 * 3600
 
@@ -496,7 +499,8 @@ _auto_refresh_started = False
 def start_auto_refresh():
     """Mantem os precos em dia sem depender de alguem abrir a carteira.
 
-    Chamado no boot (app.py): baixa logo, e depois confere a cada hora. Assim
+    Chamado no boot (app.py): baixa se a copia tem mais de um dia, e depois
+    confere a cada hora (so a idade; o download e um por dia). Assim
     a marcacao a mercado do dia ja esta pronta quando a Posicao abre, em vez
     de a primeira leitura mostrar a curva enquanto o download corre. Sem URL
     (os testes) nao faz nada."""

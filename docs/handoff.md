@@ -23,6 +23,7 @@ Scout not used (docs read directly; the task was narrow).
   instead of the quotes' 6 s.
 - `tesouro_client.start_auto_refresh()`, called from `app.py`: download at boot, check hourly
   (only downloads past `PRICES_FRESH_SECONDS`), through the same background future as reads.
+  Owner follow-up: marking once a day — `PRICES_FRESH_SECONDS` 6 h → 24 h.
   Default URL's file name now lower-case (`precotaxatesourodireto.csv`, as Finance::Quote uses;
   CKAN ignores the name for an upload, and discovery still covers a moved URL).
 - Operações › Editar on a Tesouro buy: "Quantidade de títulos (opcional)" (`parseTreasuryUnits()`
