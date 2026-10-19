@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
-import { investmentsApi } from '../../lib/dataApi'
+import { investmentsApi, refreshQuotes } from '../../lib/dataApi'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/queries'
 import { useProceedsSync } from '../../lib/proceedsSync'
 
@@ -67,15 +67,13 @@ export default function useInvestments() {
           ? { investment_id: investmentId }
           : {}
 
-      const data = await apiFetch('/api/investments/update-prices', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      })
+      // So refaz as telas se alguma cotacao mudou (refreshQuotes), e sem
+      // esperar a busca nova: o cache mostra o anterior enquanto ela corre.
+      const data = await refreshQuotes(payload)
 
       if (!silent) {
         setQuoteUpdateResult(data)
       }
-      await invalidateServerData()
     } catch (error) {
       console.warn('Erro ao atualizar preços:', error)
       if (!silent) setDataError(error.message || 'Erro de conexão ao tentar atualizar os preços.')

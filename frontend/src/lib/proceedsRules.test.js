@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { filterAssetOptions, normalizeSearchText } from './assetSearch.js'
 import {
+  changesPositions,
   assetCategory,
   assetsForProceedsType,
   categoryLabel,
@@ -93,4 +94,15 @@ test('the search matches ticker or name, without accents, ticker first', () => {
   assert.deepEqual(filterAssetOptions(options, '').map((o) => o.value), ['1', '2', '3', '4', '5'])
   assert.deepEqual(filterAssetOptions(options, 'zzz'), [])
   assert.equal(normalizeSearchText('  Tesouro   IPCA+ '), 'TESOURO IPCA+')
+})
+
+test('changesPositions: operacoes e eventos sim, cotacoes nao', () => {
+  assert.equal(changesPositions('/api/investments'), true)
+  assert.equal(changesPositions('/api/investments/abc'), true)
+  assert.equal(changesPositions('/api/investments/by-asset/abc?asset_class=STOCKS'), true)
+  assert.equal(changesPositions('/api/corporate-actions'), true)
+  assert.equal(changesPositions('/api/investments/update-prices'), false)
+  assert.equal(changesPositions('/api/investments/price-by-asset/abc'), false)
+  assert.equal(changesPositions('/api/investment-proceeds'), false)
+  assert.equal(changesPositions(''), false)
 })

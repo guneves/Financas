@@ -319,44 +319,49 @@ def build_realized_results(current_user_id):
     return apply_monthly_tax(results, investments_by_id)
 
 
+REALIZED_COLUMNS = (
+    "id", "user_id", "asset_id", "source_transaction_id", "movement_type",
+    "quantity", "average_cost", "gross_proceeds", "fee_amount",
+    "net_proceeds", "net_unit_price", "cost_basis", "realized_profit",
+    "profitability_percent", "tax_rate", "tax_amount", "net_profit_after_tax",
+    "operation_date", "metadata",
+)
+
+
+def realized_row_values(item):
+    return tuple(
+        encode_metadata(item.get("metadata")) if column == "metadata" else item[column]
+        for column in REALIZED_COLUMNS
+    )
+
+
 def replace_realized_results(current_user_id, results):
+    """Regrava a tabela so quando o resultado mudou.
+
+    Toda leitura de operacoes e da carteira reconstroi o resultado; regravar
+    a tabela inteira a cada leitura pegava o lock de escrita do SQLite em
+    cada GET, e as leituras que uma gravacao dispara (todas ao mesmo tempo)
+    ficavam na fila umas das outras."""
+    wanted = {row[0]: row for row in (realized_row_values(item) for item in results)}
     with get_db() as conn:
+        stored = {
+            row["id"]: tuple(row[column] for column in REALIZED_COLUMNS)
+            for row in conn.execute(
+                f"SELECT {', '.join(REALIZED_COLUMNS)} FROM investment_realized_results WHERE user_id = ?",
+                (current_user_id,),
+            ).fetchall()
+        }
+        if stored == wanted:
+            return
         conn.execute("DELETE FROM investment_realized_results WHERE user_id = ?", (current_user_id,))
-        for item in results:
-            conn.execute(
-                """
-                INSERT INTO investment_realized_results
-                (
-                    id, user_id, asset_id, source_transaction_id, movement_type,
-                    quantity, average_cost, gross_proceeds, fee_amount,
-                    net_proceeds, net_unit_price, cost_basis, realized_profit,
-                    profitability_percent, tax_rate, tax_amount, net_profit_after_tax,
-                    operation_date, metadata, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                """,
-                (
-                    item["id"],
-                    item["user_id"],
-                    item["asset_id"],
-                    item["source_transaction_id"],
-                    item["movement_type"],
-                    item["quantity"],
-                    item["average_cost"],
-                    item["gross_proceeds"],
-                    item["fee_amount"],
-                    item["net_proceeds"],
-                    item["net_unit_price"],
-                    item["cost_basis"],
-                    item["realized_profit"],
-                    item["profitability_percent"],
-                    item["tax_rate"],
-                    item["tax_amount"],
-                    item["net_profit_after_tax"],
-                    item["operation_date"],
-                    encode_metadata(item.get("metadata")),
-                ),
-            )
+        conn.executemany(
+            f"""
+            INSERT INTO investment_realized_results
+            ({', '.join(REALIZED_COLUMNS)}, updated_at)
+            VALUES ({', '.join('?' for _ in REALIZED_COLUMNS)}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            """,
+            list(wanted.values()),
+        )
 
 
 def refresh_realized_results(current_user_id):

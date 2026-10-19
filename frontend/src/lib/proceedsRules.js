@@ -130,3 +130,13 @@ export function typeForAsset(asset, current) {
 }
 
 export const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.label || value
+
+// Escritas que mudam a posicao de um ativo em alguma data, e com ela os
+// proventos automaticos (lib/proceedsSync.js sincroniza logo depois). Uma
+// cotacao (atualizar precos, preco manual) nao muda posicao nenhuma.
+const QUOTE_ONLY_WRITE = /^\/api\/investments\/(update-prices|price-by-asset)(\/|\?|$)/
+
+export function changesPositions(path) {
+  const value = path || ''
+  return /^\/api\/(investments|corporate-actions)(\/|\?|$)/.test(value) && !QUOTE_ONLY_WRITE.test(value)
+}

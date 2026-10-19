@@ -7,42 +7,63 @@
 
 ---
 
-## Session — 2026-10-19 (later) · BCB integration and automatic Tesouro marking
+## Session — 2026-10-19 (night) · Saving and editing operações without waiting
 
-Cloud session, owner request (Portuguese, BTG screenshot: IPCA+ 2045 0,85 títulos líq.
-R$ 1.144,07 / bruto R$ 1.188,36; Renda+ 2065 venc. 15/12/2084 42,79 títulos líq. R$ 8.881,46 /
-bruto R$ 9.240,47): find why the BCB integration fails, make the Tesouro marking automatic and real.
-Scout not used (docs read directly; the task was narrow).
+Cloud session, owner request (Portuguese): saving an operação in Investir takes too long after the
+click, and so does editing one; optimize both and test other areas for bottlenecks. Scout not
+used (handoff read directly; the task was narrow).
 
 ### Done
-- `gov_http.py` (new, pure): the GET for the BCB SGS and the Tesouro Transparente. TLS context with
-  `VERIFY_X509_STRICT` cleared (chain + hostname still verified), one retry on timeout/429/502/503/
-  504 (not on a refused certificate), errors as readable causes. `fetch_bcb_window()` (CDI, IPCA,
-  PTAX) and `tesouro_client._http_get()` use it.
-- Health: the BCB probe waits `BCB_TIMEOUT_SECONDS` (30 s; the fetch's own timeout also 15 → 30 s)
-  instead of the quotes' 6 s.
-- `tesouro_client.start_auto_refresh()`, called from `app.py`: download at boot, check hourly
-  (only downloads past `PRICES_FRESH_SECONDS`), through the same background future as reads.
-  Owner follow-up: marking once a day — `PRICES_FRESH_SECONDS` 6 h → 24 h.
-  Default URL's file name now lower-case (`precotaxatesourodireto.csv`, as Finance::Quote uses;
-  CKAN ignores the name for an upload, and discovery still covers a moved URL).
-- Operações › Editar on a Tesouro buy: "Quantidade de títulos (opcional)" (`parseTreasuryUnits()`
-  in `lib/treasury.js`, shared with the launch modal). Empty removes `treasury_units`.
-- Tests: `test_gov_http.py` (10), BCB fakes take `**kwargs`; 1458 pytest, 137 node, `vite build`.
+- **Measured first.** Throwaway DB, Flask test client, network faked (daily closes, CDI/IPCA):
+  350 operações over 5 years (and 1500), plus `seed_three_years_mock.py` for the banking side.
+  On the server a POST was 61 ms and a PATCH 67 ms, every GET under 25 ms on the 3-year mock,
+  history ~90 ms and returns ~230 ms. So the wait was not the write itself but what the screen
+  waited for after it:
+  - Registrar operação (buy) awaited `POST /update-prices` (yfinance + BCB with its 30 s timeout
+    and retry + Tesouro) and then `await onSaved()` = a full refetch of every open query;
+  - every write invalidated everything, `update-prices` invalidated everything again, and the
+    screen's `invalidateServerData()` a third time — TanStack's default `cancelRefetch` restarted
+    the in-flight refetches each time, while the server finished the cancelled ones anyway (one
+    gunicorn process, 8 threads, one GIL): the portfolio, history and Rentabilidade computed up to
+    three times per save, competing with the next edit's PATCH;
+  - every write and every portfolio GET rewrote `investment_positions` and
+    `investment_realized_results` whole (write lock on each read the save triggered).
+- **Frontend.** The sheet closes as soon as the POST answers; the buy's quote refresh runs behind
+  (`refreshQuotes()` in `lib/dataApi.js`: `invalidate: false`, refreshes only when
+  `updated_count` > 0), and Operações' edit and the "Atualizar cotações" button go through it too.
+  `invalidateServerData()` now joins running refetches (`cancelRefetch: false`); the write
+  listener keeps cancelling (a refetch started before the write may be stale). `changesPositions()`
+  moved to `lib/proceedsRules.js` (tested) and excludes `update-prices` / `price-by-asset`, so a
+  quote refresh no longer schedules a proventos sync.
+- **Backend.** Writes and the portfolio/update-prices reads no longer rebuild
+  `investment_positions` (its own GET still does; no screen calls it). `replace_realized_results()`
+  compares with the stored rows and writes only on a difference (ids are deterministic,
+  `realized:<movement>`). `compression.py`: gzip for API JSON ≥ 1 KB when `Accept-Encoding`
+  allows (`/api/cc-expenses` was 664 KB and `/api/transactions` 490 KB on the 3-year mock).
+- After: POST 22 ms, PATCH 24 ms on 350 operações (81 / 100 ms on 1500).
+- Tests: `test_write_speed.py` (7), one node test; 1466 pytest, 138 node, `vite build`.
 
 ### Not done, and why
-- **Root cause not observed.** This container is refused api.bcb.gov.br and
-  tesourotransparente.gov.br (proxy 403), and the server's health detail was not available. The
-  diagnosis is by elimination: the image is `python:3.14-slim` with urllib (yfinance, which works,
-  uses curl_cffi, not Python's ssl), Python ≥ 3.13 enables strict X.509 by default and gov.br
-  chains are a known casualty; and the health probe gave the SGS 6 s. If Ajustes › Integrações still
-  shows an error after the deploy, its detail now names the cause — start there.
-- Values not checked against the real price file; the BTG numbers above are the reference.
+- Not measured on the home server or the phone, nor against real yfinance/BCB (blocked here).
+  Owner check in `next-steps.md`.
+- Static frontend files are still served uncompressed (`send_file` is skipped by design);
+  Rentabilidade's daily loop still scales with open positions × days. Both in `next-steps.md`.
 
 ### Learned
-- Python 3.14 `urlopen(..., context=)` still works (only `cafile`/`capath` were removed in 3.13).
-- Patching `fixed_income_module.urllib.request.urlopen` patches the global `urllib.request`, so
-  `gov_http` sees the same fakes.
+- `queryClient.invalidateQueries()` defaults to `cancelRefetch: true`: calling it twice in a row
+  aborts the first round in the browser but not on the server. Await with `cancelRefetch: false`.
+- The werkzeug test client sends no `Accept-Encoding`, so the existing tests see plain JSON; a
+  test that wants gzip sends the header.
+- Profiling harness: env as in `conftest.py`, `services.prices.yf = None`, patch
+  `services.prices.download_daily_history` and `services.fixed_income.fetch_bcb_series` with
+  synthetic series — without the BCB patch the request time is the proxy's 403, not CPU.
+
+### Carried from the BCB/Tesouro gov_http session (2026-10-19), still open
+- The BCB failure's root cause was never observed (this container is refused api.bcb.gov.br and
+  tesourotransparente.gov.br); if Ajustes › Integrações still shows an error after the deploy,
+  its detail names the cause. Tesouro values not checked against the real price file (BTG
+  reference: IPCA+ 2045 0,85 títulos líq. R$ 1.144,07 / bruto R$ 1.188,36; Renda+ 2065 42,79
+  títulos líq. R$ 8.881,46 / bruto R$ 9.240,47).
 
 ### Carried from the Tesouro marked-to-market session (2026-10-19), still open
 - Renda+/Educa+ early-sale custody modelled as the regular 0.20% (sources disagree); BTG's líquido
