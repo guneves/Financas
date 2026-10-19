@@ -60,7 +60,51 @@ APP_BUNDLE_DIR = resolve_app_path(
     os.getenv("APP_BUNDLE_DIR", os.path.join("frontend", "dist-android")),
     PROJECT_DIR,
 )
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
+# Chaves que ja apareceram em codigo ou exemplo (o padrao antigo deste arquivo,
+# .env.example, README): sao publicas, entao valem como chave nenhuma.
+PUBLIC_JWT_SECRETS = frozenset({
+    "",
+    "dev-secret-change-me",
+    "troque-esta-chave-em-producao",
+    "change-this-key-in-production",
+})
+# Sem JWT_SECRET de verdade no ambiente, a chave e gerada uma vez e guardada
+# ao lado do banco (no servidor, dentro do volume de dados), com permissao 600.
+# Antes os tokens eram assinados com o padrao publico e qualquer um forjava um.
+JWT_SECRET_FILE = resolve_app_path(
+    os.getenv("JWT_SECRET_FILE", os.path.join(os.path.dirname(DATABASE_PATH), ".jwt_secret")),
+    BASE_DIR,
+)
+
+
+def load_jwt_secret():
+    configured = str(os.getenv("JWT_SECRET", "") or "").strip()
+    if configured not in PUBLIC_JWT_SECRETS:
+        return configured
+    try:
+        with open(JWT_SECRET_FILE, encoding="utf-8") as handle:
+            stored = handle.read().strip()
+        if stored and stored not in PUBLIC_JWT_SECRETS:
+            return stored
+    except FileNotFoundError:
+        pass
+    import secrets
+
+    generated = secrets.token_urlsafe(48)
+    directory = os.path.dirname(JWT_SECRET_FILE)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    descriptor = os.open(JWT_SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(generated)
+    return generated
+
+
+JWT_SECRET = load_jwt_secret()
+# Cadastro aberto (/api/auth/signup): so enquanto o banco nao tem usuario —
+# o primeiro cadastro e o do dono — ou com ALLOW_SIGNUP=1. O app e de um
+# usuario so, e o servidor nao deve aceitar contas de qualquer um.
+ALLOW_SIGNUP = str(os.getenv("ALLOW_SIGNUP", "0")).strip().lower() in {"1", "true", "yes"}
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 
 

@@ -13,17 +13,43 @@ export const FLAG_TONES = {
   info: 'info',
 }
 
-// "1.234,56", "1234,56", "1234.56" -> 1234.56; "3.000" -> 3000 (sem virgula,
-// ponto seguido de grupos de tres digitos e milhar, como se escreve em reais).
-// Vazio -> null; invalido -> NaN. O teclado decimal do Android em pt-BR
-// digita virgula; o do desktop, ponto.
+// "1.234,56", "1234,56", "1234.56", "1,234.56" -> 1234.56; "3.000" -> 3000.
+// Com virgula e ponto, o ultimo dos dois e o decimal e o outro separa milhar
+// (em grupos de tres). So ponto: grupos de tres depois de um digito que nao e
+// zero sao milhar, como se escreve em reais ("1.500"); senao e decimal
+// ("0.500" -> 0,5). So virgula: decimal; mais de uma, milhar ("1,234,567").
+// Vazio -> null; invalido (milhar fora do lugar, "1.2.3") -> NaN. O teclado
+// decimal do Android em pt-BR digita virgula; o do desktop, ponto.
 export function parseMoneyInput(value) {
   const text = String(value ?? '').trim().replace(/\s|R\$/g, '')
   if (!text) return null
-  const thousandsOnly = !text.includes(',') && /^\d{1,3}(\.\d{3})+$/.test(text)
-  const normalized = text.includes(',') || thousandsOnly ? text.replace(/\./g, '').replace(',', '.') : text
-  if (!/^\d+(\.\d+)?$/.test(normalized)) return Number.NaN
-  return Number(normalized)
+  const lastComma = text.lastIndexOf(',')
+  const lastDot = text.lastIndexOf('.')
+  let integer = text
+  let fraction = ''
+  let groupSeparator = ''
+  const splitAt = (index) => {
+    integer = text.slice(0, index)
+    fraction = text.slice(index + 1)
+  }
+  if (lastComma >= 0 && lastDot >= 0) {
+    splitAt(Math.max(lastComma, lastDot))
+    groupSeparator = lastComma > lastDot ? '.' : ','
+  } else if (lastComma >= 0) {
+    if (text.indexOf(',') === lastComma) splitAt(lastComma)
+    else groupSeparator = ','
+  } else if (lastDot >= 0) {
+    if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(text)) groupSeparator = '.'
+    else if (text.indexOf('.') === lastDot) splitAt(lastDot)
+    else return Number.NaN
+  }
+  if (groupSeparator) {
+    const grouped = groupSeparator === '.' ? /^\d{1,3}(\.\d{3})*$/ : /^\d{1,3}(,\d{3})*$/
+    if (!grouped.test(integer)) return Number.NaN
+    integer = integer.split(groupSeparator).join('')
+  }
+  if (!/^\d*$/.test(integer) || !/^\d*$/.test(fraction) || !(integer || fraction)) return Number.NaN
+  return Number(`${integer || '0'}.${fraction || '0'}`)
 }
 
 // Valor guardado -> texto do campo, no formato que o teclado do celular digita.

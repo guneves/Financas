@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  blockedRecurringMessage,
   bankingAccounts,
   bankingTransactions,
   cardPurchaseKey,
@@ -93,4 +94,13 @@ test('a card purchase is its client_id: two identical rides stay two purchases',
     cardPurchaseKey({ ...ride, installment_info: '2/2', amount: '5.00' }),
   )
   assert.notEqual(cardPurchaseKey(ride), cardPurchaseKey({ ...ride, kind: 'REFUND' }))
+})
+
+test('blockedRecurringMessage: a recorrencia numa conta arquivada', () => {
+  assert.equal(blockedRecurringMessage([]), '')
+  assert.match(blockedRecurringMessage([{ description: 'Aluguel', account_name: 'Velha' }]), /"Aluguel" \(Velha\).*arquivada/)
+  assert.match(blockedRecurringMessage([
+    { description: 'Aluguel', account_name: 'Velha' },
+    { description: '', account_name: 'Outra' },
+  ]), /^2 recorrências/)
 })

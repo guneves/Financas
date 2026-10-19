@@ -13,7 +13,7 @@ import {
 import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../lib/format'
 import { invalidateServerData, useQuery, useReportQueryError } from '../lib/queries'
-import { isInvestmentInflow, isInvestmentOutflow } from '../lib/transactions'
+import { blockedRecurringMessage, isInvestmentInflow, isInvestmentOutflow } from '../lib/transactions'
 import {
   AlertMessage,
   Badge,
@@ -154,6 +154,8 @@ export default function Recorrentes() {
           : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.',
         { tone: result.created ? 'success' : 'info' }
       )
+      // Uma recorrencia numa conta arquivada nao lanca (o servidor a devolve em blocked).
+      if (result.blocked?.length) setError(blockedRecurringMessage(result.blocked))
       await loadAll()
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível gerar os lançamentos.')

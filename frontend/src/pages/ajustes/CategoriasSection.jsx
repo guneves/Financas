@@ -223,7 +223,7 @@ export default function CategoriasSection() {
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {category.archived_at ? (
-                          <Button size="sm" variant="secondary" className="h-11 lg:h-9" onClick={() => handleRestoreCategory(category)}>
+                          <Button size="sm" variant="secondary" onClick={() => handleRestoreCategory(category)}>
                             Reativar
                           </Button>
                         ) : (

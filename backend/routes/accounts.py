@@ -15,6 +15,7 @@ from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
 from money import rounded_money
 from services.accounts import (
     CLIENT_ID_OTHER_KIND_MESSAGE,
+    TRANSFER_CURRENCY_MESSAGE,
     account_balance_rows,
     category_id_for_name,
     ensure_default_account,
@@ -166,6 +167,8 @@ def account_detail(current_user_id, account_id):
                 """,
                 (utc_timestamp(), utc_timestamp(), account_id, current_user_id),
             )
+            # Arquivar a padrao passa a marca para outra (fora da Corretora).
+            ensure_default_account(conn, current_user_id)
             return jsonify({"archived": True, "transactions": used}), 200
 
         payload = parse_json_body()
@@ -188,12 +191,20 @@ def account_detail(current_user_id, account_id):
         except ValidationError as exc:
             return validation_error(str(exc))
 
-        if payload.get("is_default") is True:
-            conn.execute(
-                "UPDATE accounts SET is_default = 0 WHERE user_id = ?",
-                (current_user_id,),
-            )
+        final_type = updates.get("type", account["type"])
+        archived_after = updates.get("archived_at", account["archived_at"])
+        make_default = payload.get("is_default") is True
+        if make_default:
+            if archived_after:
+                return validation_error("Uma conta arquivada nao pode ser a padrao.")
+            if final_type == PORTFOLIO_ACCOUNT_TYPE:
+                # O saldo da Corretora so aparece em Investimentos; a padrao e
+                # onde cai o lancamento sem conta, e ele sumiria do Inicio.
+                return validation_error("A conta da carteira (Corretora) nao pode ser a padrao.")
             updates["is_default"] = 1
+        elif final_type == PORTFOLIO_ACCOUNT_TYPE and account["is_default"]:
+            # A padrao virou a conta da carteira: a marca passa para outra.
+            updates["is_default"] = 0
 
         if not updates:
             return validation_error("Informe ao menos um campo para atualizar.")
@@ -211,7 +222,16 @@ def account_detail(current_user_id, account_id):
                 (*updates.values(), account_id, current_user_id),
             )
         except sqlite3.IntegrityError:
+            conn.rollback()
             return validation_error("Ja existe uma conta com este nome.", 409)
+        # Desmarcar as outras so depois que a conta foi gravada: um nome
+        # repetido (409) nao deixa o usuario sem padrao.
+        if make_default:
+            conn.execute(
+                "UPDATE accounts SET is_default = 0 WHERE user_id = ? AND id <> ?",
+                (current_user_id, account_id),
+            )
+        ensure_default_account(conn, current_user_id)
         row = fetch_account(conn, current_user_id, account_id)
     return jsonify(serialize_account(row)), 200
 
@@ -254,12 +274,7 @@ def create_transfer(current_user_id):
             if origin["id"] == destination["id"]:
                 raise ValidationError("Origem e destino devem ser contas diferentes.")
             if normalize_currency(origin["currency"]) != normalize_currency(destination["currency"]):
-                # Uma transferencia e uma linha com um valor so; entre moedas
-                # o valor que sai e o que entra sao diferentes.
-                raise ValidationError(
-                    "Contas em moedas diferentes: lance uma despesa na origem e uma receita no destino, "
-                    "cada uma na moeda da conta."
-                )
+                raise ValidationError(TRANSFER_CURRENCY_MESSAGE)
             category, category_id = resolve_category(conn, current_user_id, payload, required=False)
         except ValidationError as exc:
             return validation_error(str(exc))
@@ -306,6 +321,18 @@ def create_transfer(current_user_id):
     return jsonify(body), 201
 
 
+def require_parent_category(conn, current_user_id, parent_id):
+    """A categoria pai: do usuario, ativa e da raiz (um nivel de subcategoria)."""
+    parent = fetch_category(conn, current_user_id, str(parent_id))
+    if not parent:
+        raise ValidationError("Categoria pai nao encontrada.")
+    if parent["archived_at"]:
+        raise ValidationError("A categoria pai esta arquivada.")
+    if parent["parent_id"]:
+        raise ValidationError("So existe um nivel de subcategoria.")
+    return parent
+
+
 @bp.route("/api/categories", methods=["GET", "POST"])
 @token_required
 def categories(current_user_id):
@@ -344,11 +371,7 @@ def categories(current_user_id):
             if parent_id in (None, ""):
                 parent_id = None
             else:
-                parent = fetch_category(conn, current_user_id, str(parent_id))
-                if not parent:
-                    raise ValidationError("Categoria pai nao encontrada.")
-                if parent["parent_id"]:
-                    raise ValidationError("So existe um nivel de subcategoria.")
+                parent = require_parent_category(conn, current_user_id, parent_id)
                 parent_id = parent["id"]
         except ValidationError as exc:
             return validation_error(str(exc))
@@ -413,14 +436,24 @@ def category_detail(current_user_id, category_id):
                 parent_id = payload.get("parent_id")
                 if parent_id in (None, ""):
                     updates["parent_id"] = None
+                elif str(parent_id) == category["parent_id"]:
+                    # O pai que ela ja tem fica, mesmo arquivado depois.
+                    updates["parent_id"] = category["parent_id"]
                 else:
-                    parent = fetch_category(conn, current_user_id, str(parent_id))
-                    if not parent:
-                        raise ValidationError("Categoria pai nao encontrada.")
-                    if parent["id"] == category_id:
+                    if str(parent_id) == category_id:
                         raise ValidationError("Uma categoria nao pode ser pai dela mesma.")
-                    if parent["parent_id"]:
-                        raise ValidationError("So existe um nivel de subcategoria.")
+                    parent = require_parent_category(conn, current_user_id, parent_id)
+                    # Com filhas, virar subcategoria criaria um terceiro nivel,
+                    # que o orcamento nao soma.
+                    children = conn.execute(
+                        "SELECT COUNT(*) FROM categories WHERE user_id = ? AND parent_id = ?",
+                        (current_user_id, category_id),
+                    ).fetchone()[0]
+                    if children:
+                        raise ValidationError(
+                            "Esta categoria tem subcategorias e nao pode virar subcategoria. "
+                            "Mova as subcategorias antes."
+                        )
                     updates["parent_id"] = parent["id"]
             if "archived_at" in payload and payload.get("archived_at") in (None, ""):
                 updates["archived_at"] = None

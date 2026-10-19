@@ -38,25 +38,38 @@ def default_account_id(current_user_id):
     return f"acct:{current_user_id}"
 
 
+# A conta padrao, quando nenhuma ativa esta marcada: a primeira que nao e da
+# carteira (Corretora, cujo saldo so aparece em Investimentos), pelo nome — a
+# ordem da lista de contas, que e a que as telas mostram. A marcada e gravada,
+# para servidor e telas lerem a mesma (is_default).
+DEFAULT_ACCOUNT_ORDER = "is_default DESC, type = 'BROKERAGE', name COLLATE NOCASE, created_at, id"
+
+
 def ensure_default_account(conn, current_user_id):
-    """Garante que o usuario tenha ao menos uma conta e devolve o id dela.
+    """Garante que o usuario tenha uma conta padrao ativa e devolve o id dela.
 
     Contas nasceram na migration 007, mas usuarios criados depois dela e
     lancamentos vindos de outros fluxos (caixa de investimento, por exemplo)
-    ainda precisam de um destino. A conta padrao e sempre criada com o mesmo id
-    deterministico usado no backfill, para que nao existam duas "Conta
-    Principal" para o mesmo usuario.
+    ainda precisam de um destino. Sem conta ativa, cria "Conta Principal" com o
+    id deterministico do backfill, para que nao existam duas. Com contas mas
+    nenhuma padrao (a padrao foi arquivada, ou virou Corretora), a escolhida
+    por DEFAULT_ACCOUNT_ORDER passa a ser a padrao.
     """
     existing = conn.execute(
-        """
-        SELECT id FROM accounts
+        f"""
+        SELECT id, is_default FROM accounts
         WHERE user_id = ? AND archived_at IS NULL
-        ORDER BY is_default DESC, created_at ASC
+        ORDER BY {DEFAULT_ACCOUNT_ORDER}
         LIMIT 1
         """,
         (current_user_id,),
     ).fetchone()
     if existing:
+        if not existing["is_default"]:
+            conn.execute(
+                "UPDATE accounts SET is_default = 1 WHERE id = ? AND user_id = ?",
+                (existing["id"], current_user_id),
+            )
         return existing["id"]
 
     account_id = default_account_id(current_user_id)
@@ -100,6 +113,25 @@ def require_account(conn, current_user_id, account_id, label="Conta"):
     if account["archived_at"]:
         raise ValidationError(f"{label} esta arquivada.")
     return account
+
+
+def keep_or_require_account(conn, current_user_id, raw, current_id, label="Conta"):
+    """Conta de uma edicao: a que a linha ja tem fica (arquivada ou nao); outra
+    tem que ser ativa. Vazio e recusado — nao cai na conta padrao."""
+    if raw in (None, ""):
+        raise ValidationError(f"Informe a {label.lower()}.")
+    raw = str(raw)
+    if current_id and raw == current_id:
+        return current_id
+    return require_account(conn, current_user_id, raw, label)["id"]
+
+
+# Uma transferencia e uma linha com um valor so; entre moedas o valor que sai
+# e o que entra sao diferentes.
+TRANSFER_CURRENCY_MESSAGE = (
+    "Contas em moedas diferentes: lance uma despesa na origem e uma receita no destino, "
+    "cada uma na moeda da conta."
+)
 
 
 def resolve_account_id(conn, current_user_id, payload, key="account_id", label="Conta"):

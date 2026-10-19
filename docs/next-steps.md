@@ -45,10 +45,10 @@ purchase its own `client_id` (migration 035). Open:
   the fix is deployed — then it goes through with the same `client_id`, as the transfer will. To
   stop earlier, cap the retries of a plain 500 in `outboxRules.js` and `OutboxRules.java` together
   (native-level bump).
-- [ ] The old list `POST /api/cc-expenses` (no screen uses it, tests do) still writes rows with no
-  `client_id`, which fall back to the old purchase key, and takes the invoice month as sent (so it
-  can still write into a paid invoice). Give it a purchase id and the unpaid-invoice rule, or
-  remove it.
+- [ ] The old list `POST /api/cc-expenses` (no screen uses it, tests do) now gives each purchase a
+  `client_id`, rounds and refuses `PAID`, but still takes the invoice month as sent (so it can
+  write into a paid invoice). Give it the unpaid-invoice rule, or remove it with the tests that
+  use it as a fixture.
 
 ### Card history (037, 2026-10-18) — what is left
 Purchase deletion, purchases into paid invoices, card deletion and payment undo were fixed (see
@@ -65,11 +65,30 @@ Purchase deletion, purchases into paid invoices, card deletion and payment undo 
   cannot be reused; reactivating it needs a SQL `UPDATE credit_cards SET archived_at = NULL`.
 - [ ] Cartões shows only open invoices, so "Desfazer pagamento" lives only in the Extrato.
 
+### Owner's review, "Média" and "Baixa" (2026-10-18 night) — what is left
+Items 4–21 of the review were fixed in one PR (see `docs/done-tasks.md`). Open:
+- [ ] **Aprovar, "3x de R$ 50,00"** (item 19): `NotifyParsers` now reads that R$ as the
+  installment and records 3 × 50 (or the total when the text also has one). Written against
+  hand-made texts, not a capture — the convention asks for a capture first. On the first real
+  installment notification, export it and turn it into a `NotifyParsersTest` case.
+- [ ] **Server, after the deploy:** if the server's `.env` still has an example `JWT_SECRET`
+  (`troque-esta-chave-em-producao`, empty…), the app now generates one into `/data/.jwt_secret`
+  (next to the DB) and every device has to log in once. Signup is closed while a user exists; set
+  `ALLOW_SIGNUP=1` in `.env` only to add a second user.
+- [ ] Dates already stored without the leading zero ("2026-1-5") before the fix stay as they are.
+  A one-off check on the server: `SELECT COUNT(*) FROM transactions WHERE length(date) < 10` (and
+  `cc_expenses.purchase_date`, `recurring_transactions.start_date`); fix by hand if any.
+- [ ] A recurrence in an archived account no longer posts; `/run` returns it in `blocked` and the
+  screens say so. Its occurrences stay pending until the owner edits it and picks another account.
+- [ ] **Owner walk-through:** Ajustes › Contas (Editar conta, Tornar padrão, Desvincular da carteira,
+  Arquivadas › Reativar), Ajustes › Cartões › "⋯" › Editar cartão, editing a lançamento of an
+  archived account in the Extrato. Clicked through in Chromium (390 px and desktop) on a throwaway
+  DB; not on the phone or on real data.
+
 ### Aprovar: ambiguous target and "Sempre perguntar" (2026-10-18) — what is left
 - [ ] **Depends on the bank field (owner's "Prompt 1"):** the rule counts only accounts whose bank
-  is set. Today that is `accounts.institution`, which Ajustes › Contas asks only when creating an
-  account (no edit on screen), so existing accounts read as "Sem banco" and nothing changes for
-  them until the bank field can be set on each account.
+  is set. Today that is `accounts.institution`, now editable in Ajustes › Contas › "⋯" › Editar
+  conta (2026-10-18 night); existing accounts read as "Sem banco" until the owner fills it.
 - [ ] **Owner, after the deploy and the bank field:** set each account's bank. With two Itaú accounts, a Pix from Itaú
   should ask every time and offer no "Lembrar a escolha". Try "Trocar" on a remembered item and the
   Ajustes › Aprovar switch. Tested in pytest/node and screenshotted at 390 px; not on the phone.

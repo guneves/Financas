@@ -46,23 +46,25 @@ def fetch_expense(client, auth, expense_id):
     return matches[0] if matches else None
 
 
+def pay(client, auth, card, month, year=2026):
+    return client.post(
+        "/api/cc-expenses/pay-invoice",
+        headers=auth,
+        json={"card_id": card["id"], "invoice_month": month, "invoice_year": year},
+    )
+
+
 class TestInvoiceSettlement:
+    """A baixa da fatura e o pagamento real (pay-invoice). Os PATCH antigos
+    /status e /invoice-status marcavam PAID sem lancar o pagamento e sairam."""
+
     def test_settling_an_invoice_marks_only_that_month_as_paid(self, client, auth, card):
         march = add_expense(client, auth, card, invoice_month=3, description="Marco")
         april = add_expense(client, auth, card, invoice_month=4, description="Abril")
 
-        response = client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={
-                "card_id": card["id"],
-                "invoice_month": 3,
-                "invoice_year": 2026,
-                "status": "PAID",
-            },
-        )
-        assert response.status_code == 200, response.get_data(as_text=True)
-        assert response.get_json()["updated"] == 1
+        response = pay(client, auth, card, 3)
+        assert response.status_code == 201, response.get_data(as_text=True)
+        assert response.get_json()["transaction"]["amount"] == 100.0
 
         assert fetch_expense(client, auth, march["id"])["status"] == "PAID"
         assert fetch_expense(client, auth, april["id"])["status"] == "OPEN"
@@ -73,98 +75,55 @@ class TestInvoiceSettlement:
             for i in range(3)
         ]
 
-        response = client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={
-                "card_id": card["id"],
-                "invoice_month": 5,
-                "invoice_year": 2026,
-                "status": "PAID",
-            },
-        )
-        assert response.get_json()["updated"] == 3
+        response = pay(client, auth, card, 5)
+        assert response.get_json()["transaction"]["amount"] == 300.0
         for line in lines:
             assert fetch_expense(client, auth, line["id"])["status"] == "PAID"
 
-    def test_settling_is_idempotent(self, client, auth, card):
+    def test_settling_twice_pays_once(self, client, auth, card):
         add_expense(client, auth, card, invoice_month=6)
-        body = {
-            "card_id": card["id"],
-            "invoice_month": 6,
-            "invoice_year": 2026,
-            "status": "PAID",
-        }
 
-        first = client.patch("/api/cc-expenses/invoice-status", headers=auth, json=body)
-        second = client.patch("/api/cc-expenses/invoice-status", headers=auth, json=body)
+        first = pay(client, auth, card, 6)
+        second = pay(client, auth, card, 6)
 
-        assert first.get_json()["updated"] == 1
-        # The second call finds nothing still OPEN, so it changes nothing.
-        assert second.get_json()["updated"] == 0
+        assert first.status_code == 201
+        # Nada mais em aberto: o segundo pedido nao debita a conta de novo.
+        assert second.status_code == 409
 
-    def test_an_invoice_can_be_reopened(self, client, auth, card):
+    def test_an_invoice_is_reopened_by_undoing_its_payment(self, client, auth, card):
         expense = add_expense(client, auth, card, invoice_month=7)
 
-        client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={"card_id": card["id"], "invoice_month": 7, "invoice_year": 2026, "status": "PAID"},
-        )
+        payment = pay(client, auth, card, 7).get_json()["transaction"]
         assert fetch_expense(client, auth, expense["id"])["status"] == "PAID"
 
-        response = client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={
-                "card_id": card["id"],
-                "invoice_month": 7,
-                "invoice_year": 2026,
-                "status": "OPEN",
-                "current_status": "PAID",
-            },
-        )
-        assert response.get_json()["updated"] == 1
+        response = client.delete(f"/api/cc-expenses/payments/{payment['id']}", headers=auth)
+        assert response.status_code == 200, response.get_data(as_text=True)
         assert fetch_expense(client, auth, expense["id"])["status"] == "OPEN"
 
     def test_the_same_month_of_another_year_is_left_alone(self, client, auth, card):
         this_year = add_expense(client, auth, card, invoice_month=8, invoice_year=2026)
         next_year = add_expense(client, auth, card, invoice_month=8, invoice_year=2027)
 
-        client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={"card_id": card["id"], "invoice_month": 8, "invoice_year": 2026, "status": "PAID"},
-        )
+        pay(client, auth, card, 8, 2026)
 
         assert fetch_expense(client, auth, this_year["id"])["status"] == "PAID"
         assert fetch_expense(client, auth, next_year["id"])["status"] == "OPEN"
 
     def test_settling_an_unknown_card_is_refused(self, client, auth):
-        response = client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={
-                "card_id": "does-not-exist",
-                "invoice_month": 3,
-                "invoice_year": 2026,
-                "status": "PAID",
-            },
-        )
+        response = pay(client, auth, {"id": "does-not-exist"}, 3)
         assert response.status_code == 404
 
-    def test_an_invalid_status_is_refused(self, client, auth, card):
-        response = client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={
-                "card_id": card["id"],
-                "invoice_month": 3,
-                "invoice_year": 2026,
-                "status": "LATER",
-            },
-        )
-        assert response.status_code == 400
+    def test_the_old_status_endpoints_are_gone(self, client, auth, card):
+        expense = add_expense(client, auth, card, invoice_month=3)
+        for path, body in (
+            ("/api/cc-expenses/status", {"ids": [expense["id"]], "status": "PAID"}),
+            (
+                "/api/cc-expenses/invoice-status",
+                {"card_id": card["id"], "invoice_month": 3, "invoice_year": 2026, "status": "PAID"},
+            ),
+        ):
+            assert client.patch(path, headers=auth, json=body).status_code in (404, 405)
+        assert fetch_expense(client, auth, expense["id"])["status"] == "OPEN"
 
 
 class TestInstallments:
@@ -201,11 +160,7 @@ class TestInstallments:
             client, auth, card, invoice_month=11, invoice_year=2025, installment_info="2/2"
         )
 
-        client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={"card_id": card["id"], "invoice_month": 10, "invoice_year": 2025, "status": "PAID"},
-        )
+        pay(client, auth, card, 10, 2025)
 
         assert fetch_expense(client, auth, first["id"])["status"] == "PAID"
         assert fetch_expense(client, auth, second["id"])["status"] == "OPEN"

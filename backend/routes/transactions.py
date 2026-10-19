@@ -17,11 +17,14 @@ from export_csv import ColumnError
 from responses import export_response, read_export_options
 from services.accounts import (
     CLIENT_ID_OTHER_KIND_MESSAGE,
+    TRANSFER_CURRENCY_MESSAGE,
+    fetch_account,
     fetch_transaction_by_client_id,
-    require_account,
+    keep_or_require_account,
     resolve_account_id,
     resolve_category,
 )
+from services.fx import normalize_currency
 from services.attachments import remove_attachment_files
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
@@ -330,19 +333,23 @@ def update_transaction(current_user_id, item_id):
                 category, category_id = resolve_category(conn, current_user_id, payload, current=item)
                 updates["category"] = category
                 updates["category_id"] = category_id
+            # A conta que o lancamento ja tem fica, mesmo arquivada: o Extrato
+            # manda a conta de volta em toda edicao. Vazio nao e "a padrao" —
+            # mudaria a conta sem o dono ter escolhido.
             if "account_id" in payload:
-                updates["account_id"] = resolve_account_id(conn, current_user_id, payload)
+                updates["account_id"] = keep_or_require_account(
+                    conn, current_user_id, payload.get("account_id"), item["account_id"],
+                    "Conta de origem" if item["type"] == "TRANSFER" else "Conta",
+                )
             if "transfer_account_id" in payload:
                 if item["type"] != "TRANSFER":
                     raise ValidationError(
                         "Conta de destino so se aplica a transferencias."
                     )
-                updates["transfer_account_id"] = require_account(
-                    conn,
-                    current_user_id,
-                    str(payload.get("transfer_account_id") or ""),
-                    "Conta de destino",
-                )["id"]
+                updates["transfer_account_id"] = keep_or_require_account(
+                    conn, current_user_id, payload.get("transfer_account_id"),
+                    item["transfer_account_id"], "Conta de destino",
+                )
             # De quem e (032): so despesa e receita comuns; aporte e resgate
             # nao se dividem. O valor final vale tanto para a divisao nova
             # quanto para a que ja estava gravada.
@@ -369,6 +376,19 @@ def update_transaction(current_user_id, item_id):
         destination = updates.get("transfer_account_id", item["transfer_account_id"])
         if item["type"] == "TRANSFER" and origin == destination:
             return validation_error("Origem e destino devem ser contas diferentes.")
+        if item["type"] == "TRANSFER" and ("account_id" in updates or "transfer_account_id" in updates):
+            # A mesma regra da criacao (POST /api/transfers): um valor so nao
+            # serve para duas moedas.
+            currencies = {
+                normalize_currency(row["currency"])
+                for row in (
+                    fetch_account(conn, current_user_id, origin),
+                    fetch_account(conn, current_user_id, destination),
+                )
+                if row
+            }
+            if len(currencies) > 1:
+                return validation_error(TRANSFER_CURRENCY_MESSAGE)
 
         assignments = ", ".join(f"{column} = ?" for column in updates)
         conn.execute(

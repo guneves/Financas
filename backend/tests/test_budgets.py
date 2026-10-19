@@ -97,7 +97,6 @@ def test_same_category_in_another_month_is_fine(client, auth):
     [
         {"month": "2026-09", "planned_amount": 100},
         {"category_id": "nao-existe", "month": "2026-09", "planned_amount": 100},
-        {"category_id": "x", "month": "2026-9", "planned_amount": 100},
         {"category_id": "x", "month": "setembro", "planned_amount": 100},
         {"category_id": "x", "month": "2026-09"},
         {"category_id": "x", "month": "2026-09", "planned_amount": -10},
@@ -577,3 +576,13 @@ def test_another_users_card_purchases_do_not_count(client, user, other_user):
     create_budget(client, user["headers"], alimentacao["id"], "2026-09", 1000)
     create_card_purchase(client, other_user["headers"], total=500, date="2026-09-05", category="Alimentação")
     assert item_for(get_month(client, user["headers"], "2026-09"), "Alimentação")["spent"] == 0
+
+
+def test_a_month_without_the_leading_zero_is_stored_padded(client, auth):
+    """"2026-9" e o mesmo mes que "2026-09"; gravado curto, ficava fora das buscas."""
+    category_id = categories_of(client, auth)["Outros"]["id"]
+    response = client.post(
+        "/api/budgets", json={"category_id": category_id, "month": "2026-9", "planned_amount": 100}, headers=auth
+    )
+    assert response.status_code == 201, response.get_data(as_text=True)
+    assert response.get_json()["month"] == "2026-09"

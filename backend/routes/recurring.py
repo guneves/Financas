@@ -22,7 +22,9 @@ from services.recurring import (
     encode_pause_gaps,
     fetch_recurring,
     materialize_recurring,
+    recurring_archived_account,
     recurring_cursor_after_gaps,
+    recurring_occurrence_dates,
     recurring_pause_gaps,
     recurring_pending_count,
     recurring_resume_date,
@@ -289,7 +291,17 @@ def run_recurring(current_user_id):
 
         created = []
         skipped = 0
+        blocked = []
         for row in rows:
+            archived = recurring_archived_account(conn, current_user_id, row)
+            if archived:
+                if recurring_occurrence_dates(row, through_date):
+                    blocked.append({
+                        "id": row["id"],
+                        "description": row["description"],
+                        "account_name": archived["name"],
+                    })
+                continue
             row_created, row_skipped = materialize_recurring(
                 conn, current_user_id, row, through_date
             )
@@ -301,6 +313,8 @@ def run_recurring(current_user_id):
         "created": len(created),
         "already_existed": skipped,
         "transactions": created,
+        # Recorrencias com ocorrencia vencida numa conta arquivada: nao lancam.
+        "blocked": blocked,
     }), 200
 
 

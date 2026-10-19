@@ -968,3 +968,24 @@ def test_recurring_endpoints_require_authentication(client):
     assert client.post("/api/recurring", json={}).status_code == 401
     assert client.post("/api/recurring/run", json={}).status_code == 401
     assert client.get("/api/recurring/forecast").status_code == 401
+
+
+def test_a_recurrence_in_an_archived_account_does_not_post(client, auth):
+    """Revisao de 2026-10-18: lancava numa conta que saiu das telas."""
+    account = client.post("/api/accounts", json={"name": "Velha", "type": "CHECKING"}, headers=auth).get_json()
+    item = create_ok(client, auth, account_id=account["id"], start_date=iso(today_date()))
+    assert client.delete(f"/api/accounts/{account['id']}", headers=auth).status_code == 200
+
+    result = run(client, auth)
+    assert result["created"] == 0
+    assert [blocked["id"] for blocked in result["blocked"]] == [item["id"]]
+    assert result["blocked"][0]["account_name"] == "Velha"
+    assert transactions_of(client, auth) == []
+
+    # Trocada a conta, a ocorrencia que esperava e lancada.
+    principal = next(a for a in client.get("/api/accounts", headers=auth).get_json() if a["is_default"])
+    client.patch(f"/api/recurring/{item['id']}", json={"account_id": principal["id"]}, headers=auth)
+    result = run(client, auth)
+    assert result["created"] == 1
+    assert result["blocked"] == []
+    assert transactions_of(client, auth)[0]["account_id"] == principal["id"]

@@ -32,6 +32,8 @@ def app_module():
     # Nenhuma tela do APK por padrao: test_app_bundle.py aponta para a sua.
     os.environ["APP_BUNDLE_DIR"] = os.path.join(tmp_dir, "app-bundle")
     os.environ["JWT_SECRET"] = "test-secret"
+    # Os testes cadastram varios usuarios (user, other_user).
+    os.environ["ALLOW_SIGNUP"] = "1"
     # O backup automatico de boot e exercitado em test_backups.py, com controle explicito.
     os.environ["AUTO_BACKUP_ON_BOOT"] = "0"
     os.environ["CORS_ORIGINS"] = "*"

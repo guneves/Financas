@@ -81,7 +81,7 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, bankingTransactions, cardPurchaseKey, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { buildMonthlyFlow, isInvoicePayment } from '../lib/cashFlow'
 import { ownAmount } from '../lib/sharing'
@@ -235,6 +235,7 @@ export default function Dashboard() {
           : 'Nada pendente: todos os lançamentos recorrentes já estão em dia.',
         { tone: result?.created ? 'success' : 'info' }
       )
+      if (result?.blocked?.length) setDataError(blockedRecurringMessage(result.blocked))
       await fetchAllData()
     } catch (error) {
       console.warn('Erro ao lançar recorrências:', error)

@@ -25,6 +25,7 @@ from services.import_rules import (
 )
 from source_types import (
     INVESTMENT_CASH_SOURCE_TYPE,
+    INVESTMENT_PROCEED_SOURCE_TYPE,
     INVOICE_PAYMENT_SOURCE_TYPES,
     STATEMENT_IMPORT_SOURCE_TYPE,
 )
@@ -235,9 +236,15 @@ def import_rule_detail(current_user_id, rule_id):
     return jsonify(serialize_import_rule(updated)), 200
 
 
-# Lancamentos que as regras nunca recategorizam: o dinheiro de um investimento e
-# o pagamento de uma fatura sao gerados pelo sistema e tem categoria propria.
-RULE_APPLY_SKIPPED_SOURCE_TYPES = (INVESTMENT_CASH_SOURCE_TYPE, *sorted(INVOICE_PAYMENT_SOURCE_TYPES))
+# Lancamentos que as regras nunca recategorizam: o dinheiro de um investimento,
+# o provento pago na conta da carteira e o pagamento de uma fatura sao gerados
+# pelo sistema e tem categoria propria ("Investimento" tira o provento das
+# receitas do mes; outra categoria o contaria como receita).
+RULE_APPLY_SKIPPED_SOURCE_TYPES = (
+    INVESTMENT_CASH_SOURCE_TYPE,
+    INVESTMENT_PROCEED_SOURCE_TYPE,
+    *sorted(INVOICE_PAYMENT_SOURCE_TYPES),
+)
 MAX_RULE_APPLY_ROWS = 2000
 
 
@@ -397,12 +404,18 @@ def import_content_from_payload(payload):
 
 
 def import_source_id(account_id, row, seen):
-    """Chave de dedupe da linha, ja separando repetidas dentro do arquivo."""
+    """Chave de dedupe da linha, ja separando repetidas dentro do arquivo.
+
+    Vale tambem para o FITID: ha banco que repete o mesmo FITID em dois
+    lancamentos do arquivo, e o segundo era descartado como duplicado. A
+    ordem no arquivo e estavel, entao reimportar da as mesmas chaves.
+    """
     if row.get("fitid"):
-        return statement_import.ofx_source_id(account_id, row["fitid"])
-    base = statement_import.row_hash(
-        account_id, row["date"], row["amount"], row.get("description")
-    )
+        base = statement_import.ofx_source_id(account_id, row["fitid"])
+    else:
+        base = statement_import.row_hash(
+            account_id, row["date"], row["amount"], row.get("description")
+        )
     occurrence = seen.get(base, 0)
     seen[base] = occurrence + 1
     if occurrence == 0:

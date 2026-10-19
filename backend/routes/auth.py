@@ -12,6 +12,7 @@ from auth import (
     normalize_username,
     token_required,
 )
+from config import ALLOW_SIGNUP
 from db import get_db, new_id, row_to_dict
 from services.accounts import ensure_default_account, seed_default_categories
 from validators import parse_json_body
@@ -35,6 +36,10 @@ def signup():
     user_id = new_id()
     try:
         with get_db() as conn:
+            if not ALLOW_SIGNUP and conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                return jsonify({
+                    "error": "O cadastro esta fechado neste servidor. Entre com a conta existente."
+                }), 403
             conn.execute(
                 "INSERT INTO users (id, email, username, password_hash) VALUES (?, ?, ?, ?)",
                 (user_id, email, username, generate_password_hash(password)),

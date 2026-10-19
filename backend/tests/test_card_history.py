@@ -414,15 +414,3 @@ class TestUndoingAPayment:
         }).get_json()
         undo(client, auth, expense["id"], expected=404)
         assert len(payments(client, auth)) == 1
-
-    def test_a_manual_status_change_detaches_the_items_from_the_payment(self, client, auth, today):
-        account = create_account(client, auth)
-        card = create_card(client, auth)
-        [row] = purchase(client, auth, card, total=200)
-        today.set(date(2026, 4, 5))
-        payment = pay(client, auth, card, 4, 2026, account)["transaction"]
-        client.patch("/api/cc-expenses/status", headers=auth, json={"ids": [row["id"]], "status": "OPEN"})
-        pay(client, auth, card, 4, 2026, account)
-        # O primeiro pagamento ja nao baixa nada: desfaze-lo nao mexe no segundo.
-        assert undo(client, auth, payment["id"])["reopened"] == 0
-        assert card_rows(client, auth, card)[0]["status"] == "PAID"

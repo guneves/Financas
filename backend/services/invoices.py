@@ -78,11 +78,15 @@ def compute_invoice_start(purchase_date, due_day, closing_day=None):
     closing_day = int(closing_day) if closing_day else default_closing_day(due_day)
 
     purchase_day = purchase_date.day
+    # Fechamento no dia 29 a 31 num mes mais curto fecha no ultimo dia dele,
+    # como invoice_closing_date() o calcula: a compra feita nesse dia (28/02)
+    # ja vai para a proxima fatura, e nao para uma que aparece fechada.
+    closing_this_month = clamped_date(purchase_date.year, purchase_date.month, closing_day).day
     offset = 0
     if closing_day < due_day:
-        if purchase_day >= closing_day:
+        if purchase_day >= closing_this_month:
             offset = 1
-    elif purchase_day < closing_day:
+    elif purchase_day < closing_this_month:
         offset = 1
     else:
         offset = 2

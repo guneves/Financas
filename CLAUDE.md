@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1253 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1305 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -130,7 +130,7 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -167,7 +167,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 106 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 108 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -279,6 +279,20 @@ mobile-docs/
   group by `cardPurchaseKey()` (`lib/transactions.js`). Card + description + date + category is
   only the fallback for a row with no `client_id` (the old list `POST /api/cc-expenses`): it made two
   identical Uber rides one purchase.
+- **There is always one default account, active and not the Corretora** (2026-10-18 night).
+  `ensure_default_account()` (`DEFAULT_ACCOUNT_ORDER` in `services/accounts.py`: the marked one,
+  else the first non-Corretora by name — the list's order) writes `is_default` when none is
+  marked, so server and screens read the same flag. Archiving the default or making it Corretora
+  hands the mark on; `is_default` on a Corretora is refused; a PATCH clears the other marks only
+  after its own UPDATE went through (a repeated name, 409, changes nothing).
+- **An edit keeps the row's own account even when archived** (`keep_or_require_account()`); a new
+  choice must be active, and `account_id: ""` on an edit is refused, never "the default". The
+  Extrato sends the account only when it changed. A transfer edit checks currencies like the
+  creation (`TRANSFER_CURRENCY_MESSAGE`). A recurrence whose account is archived does not post:
+  `/run` lists it in `blocked`.
+- **Signup is closed once a user exists** (`ALLOW_SIGNUP=1` opens it; `conftest.py` sets it). A
+  missing or example `JWT_SECRET` (`PUBLIC_JWT_SECRETS` in `config.py`) is replaced by a random one
+  stored in `JWT_SECRET_FILE` (`.jwt_secret` next to the DB, mode 600), never the public default.
 - **Accounts and categories are archived, never deleted.** Both use `ON DELETE SET NULL`, so a real
   delete would silently orphan lancamentos. `DELETE` on either endpoint sets `archived_at`.
   **Cards too** (037): `cc_expenses` cascade from `credit_cards`, so `DELETE /api/credit-cards/<id>`
@@ -321,6 +335,10 @@ mobile-docs/
   (`PATCH /api/inbox/<id>` `{recurring: false}`, `inbox_items.recurring_off`) holds for "Aprovar
   todos" too; `approve` takes `recurring: false` or an explicit `{recurring_id, date}`, checked
   before anything is written.
+- **Only `pay-invoice` marks an invoice paid** (2026-10-18 night): `PATCH /api/cc-expenses/status`
+  and `/invoice-status` were removed — they set `PAID` with no payment, and reopen + pay debited
+  twice. Reopening is "Desfazer pagamento". `compute_invoice_start()` clamps a closing day 29–31
+  to the purchase month's last day, as `invoice_closing_date()` does.
 - **An invoice is paid only once it has closed.** `invoice_closing_date()` in `backend/services/invoices.py`
   is the rule (same shift as `compute_invoice_start()`; closed *on* the closing day). Every path
   that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is
@@ -351,8 +369,13 @@ mobile-docs/
   hash (account + date + amount + normalized description) or `'ofx:<conta>:<FITID>'` when the file
   carries one, so the unique index makes a re-import a no-op — same shape as recurrences and
   autopay. Two identical rows in one file get an occurrence suffix, so they are still two
-  lançamentos. Parsing lives in `backend/statement_import.py` (pure functions, no DB) and
-  `POST /api/import/preview` never writes.
+  lançamentos. A FITID repeated inside one file gets the same occurrence suffix. Parsing lives in
+  `backend/statement_import.py` (pure functions, no DB) and `POST /api/import/preview` never
+  writes. Amounts: the last separator is the decimal, a dot in groups of three is thousands
+  ("1.500"), a comma alone is always decimal; OFX's own amount may use a comma. In the type
+  column, short codes ("d", "db") count only on their own, words by prefix.
+- **Dates and months are stored zero-padded**: `require_date()` / `normalize_month()` accept
+  "2026-1-5" and return "2026-01-05" — the filters and the budget compare them as text.
 - **A "+ Novo" creation is idempotent by `client_id`** (024). `POST /api/transactions`,
   `/api/transfers` and `/api/cc-expenses/purchases` take an optional `client_id`; a repeated one
   returns what the first delivery created, with 200, and writes nothing. The lookup runs *before*
@@ -452,7 +475,7 @@ mobile-docs/
 - **Rules touch the past only on confirmation.** `POST /api/import-rules/apply/preview` never writes;
   `POST /api/import-rules/apply` rewrites only the `transaction_ids` it is sent, and re-runs the
   rule on each before writing, so a stale list cannot recategorize a row the rule no longer matches.
-  TRANSFER, investment cash and invoice payments are outside its reach.
+  TRANSFER, investment cash, paid proventos and invoice payments are outside its reach.
 - **A receipt is a file on disk, referenced by a row.** `transaction_attachments` (migration 014)
   holds the reference; the bytes live in `ATTACHMENTS_DIR/<user_id>/<stored_name>`, where
   `stored_name` is generated — the uploaded name is only displayed, never a path. The type is

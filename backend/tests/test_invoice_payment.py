@@ -191,15 +191,14 @@ class TestPayInvoice:
         card = create_card(client, auth)
         add_line(client, auth, card, 10, 2026)
         today.set(date(2026, 10, 5))
-        assert pay(client, auth, card, 10, 2026).status_code == 201
-        client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={"card_id": card["id"], "invoice_month": 10, "invoice_year": 2026,
-                  "status": "OPEN", "current_status": "PAID"},
-        )
+        first = pay(client, auth, card, 10, 2026)
+        assert first.status_code == 201
+        undo = client.delete(f"/api/cc-expenses/payments/{first.get_json()['transaction']['id']}", headers=auth)
+        assert undo.status_code == 200, undo.get_data(as_text=True)
 
         assert pay(client, auth, card, 10, 2026).status_code == 201
+        # Desfazer tira o primeiro pagamento: a conta foi debitada uma vez so.
+        assert len(payments(client, auth)) == 1
 
     def test_another_users_card_is_not_found(self, client, auth, other_user, today):
         card = create_card(client, auth)
@@ -286,49 +285,23 @@ class TestPaymentLancamentoIsLocked:
         assert payments(client, auth)[0]["amount"] == 100
 
 
-class TestStatusEndpointsRespectClosing:
-    def test_invoice_status_refuses_paid_before_closing(self, client, auth, today):
+class TestNoStatusShortcut:
+    """Os PATCH /status e /invoice-status marcavam PAID sem pagamento e, reabrindo
+    e pagando de novo, debitavam duas vezes. Sairam: so pay-invoice baixa."""
+
+    def test_status_endpoints_are_gone(self, client, auth, today):
         card = create_card(client, auth)
-        line = add_line(client, auth, card, 10, 2026)
+        line = add_line(client, auth, card, 9, 2026)
         today.set(date(2026, 10, 2))
 
-        response = client.patch(
-            "/api/cc-expenses/invoice-status",
-            headers=auth,
-            json={"card_id": card["id"], "invoice_month": 10, "invoice_year": 2026, "status": "PAID"},
-        )
-
-        assert response.status_code == 409
+        for path, body in (
+            ("/api/cc-expenses/status", {"ids": [line["id"]], "status": "PAID"}),
+            ("/api/cc-expenses/invoice-status",
+             {"card_id": card["id"], "invoice_month": 9, "invoice_year": 2026, "status": "PAID"}),
+        ):
+            assert client.patch(path, headers=auth, json=body).status_code in (404, 405)
         assert lines(client, auth)[line["id"]]["status"] == "OPEN"
-
-    def test_status_by_ids_refuses_paid_before_closing(self, client, auth, today):
-        card = create_card(client, auth)
-        closed = add_line(client, auth, card, 9, 2026)
-        still_open = add_line(client, auth, card, 10, 2026)
-        today.set(date(2026, 10, 2))
-
-        response = client.patch(
-            "/api/cc-expenses/status",
-            headers=auth,
-            json={"ids": [closed["id"], still_open["id"]], "status": "PAID"},
-        )
-
-        assert response.status_code == 409
-        rows = lines(client, auth)
-        assert rows[closed["id"]]["status"] == "OPEN"
-        assert rows[still_open["id"]]["status"] == "OPEN"
-
-    def test_reopening_is_always_allowed(self, client, auth, today):
-        card = create_card(client, auth)
-        line = add_line(client, auth, card, 10, 2026)
-        today.set(date(2026, 10, 2))
-
-        response = client.patch(
-            "/api/cc-expenses/status",
-            headers=auth,
-            json={"ids": [line["id"]], "status": "OPEN"},
-        )
-        assert response.status_code == 200
+        assert payments(client, auth) == []
 
 
 class TestAutopay:
@@ -397,11 +370,11 @@ class TestAutopay:
         today.set(date(2026, 10, 15))
         assert len(payments(client, auth)) == 1
 
-        client.patch(
-            "/api/cc-expenses/status", headers=auth, json={"ids": [line["id"]], "status": "OPEN"}
-        )
+        payment = payments(client, auth)[0]
+        assert client.delete(f"/api/cc-expenses/payments/{payment['id']}", headers=auth).status_code == 200
 
-        assert len(payments(client, auth)) == 1
+        # Reaberta, ela volta ao Pagar: o debito automatico nao a paga de novo.
+        assert payments(client, auth) == []
         assert lines(client, auth)[line["id"]]["status"] == "OPEN"
 
     def test_invoices_due_before_it_was_enabled_are_left_for_manual_payment(self, client, auth, today):

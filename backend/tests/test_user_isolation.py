@@ -153,14 +153,13 @@ class TestWritesCannotReachAnotherUsersRows:
         assert response.status_code in (400, 403, 404)
 
     def test_a_stranger_cannot_settle_someone_elses_invoice(self, client, owner_data, other_user):
-        response = client.patch(
-            "/api/cc-expenses/invoice-status",
+        response = client.post(
+            "/api/cc-expenses/pay-invoice",
             headers=other_user["headers"],
             json={
                 "card_id": owner_data["card"]["id"],
                 "invoice_month": 3,
                 "invoice_year": 2026,
-                "status": "PAID",
             },
         )
         assert response.status_code in (400, 403, 404)

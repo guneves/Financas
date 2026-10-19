@@ -51,8 +51,20 @@ DATE_FORMATS = (
     "%Y-%m-%dT%H:%M:%S",
 )
 
-# Palavras que, na coluna de tipo, dizem que o valor sai da conta.
-DEBIT_WORDS = ("debito", "saida", "despesa", "pagamento", "d", "debit")
+# Palavras que, na coluna de tipo, dizem que o valor sai da conta: o comeco do
+# texto basta ("debito automatico"). Os codigos curtos so valem sozinhos — "d"
+# como prefixo fazia "Deposito" e "Devolucao" virarem despesa.
+DEBIT_WORDS = ("debito", "saida", "despesa", "pagamento", "debit")
+DEBIT_CODES = ("d", "db", "dr", "deb", "-")
+
+
+def type_says_debit(type_text):
+    """A coluna de tipo (ja normalizada) diz que o valor sai da conta?"""
+    if not type_text:
+        return False
+    if type_text in DEBIT_CODES:
+        return True
+    return any(type_text.startswith(word) for word in DEBIT_WORDS)
 
 MAX_IMPORT_ROWS = 2000
 
@@ -123,6 +135,17 @@ def parse_date(value):
     return None
 
 
+# So o ponto: num extrato brasileiro a virgula e sempre o decimal ("10,005").
+THOUSANDS_ONLY = re.compile(r"^[1-9]\d{0,2}(?:\.\d{3})+$")
+
+
+def ofx_decimal_separator(text):
+    """O OFX usa ponto como decimal, mas ha banco que exporta virgula
+    ("-42,90"); sem milhar no OFX, a ultima virgula depois do ultimo ponto e
+    a decimal."""
+    return "," if text.rfind(",") > text.rfind(".") else "."
+
+
 def parse_amount(value, decimal_separator="auto"):
     """Valor monetario em pt-BR ou en-US, com ou sem R$, parenteses = negativo."""
     text = str(value or "").strip()
@@ -142,6 +165,10 @@ def parse_amount(value, decimal_separator="auto"):
         last_comma = text.rfind(",")
         last_dot = text.rfind(".")
         if last_comma == -1 and last_dot == -1:
+            separator = None
+        elif THOUSANDS_ONLY.match(text):
+            # So ponto, em grupos de tres: e milhar ("1.500" e mil e
+            # quinhentos, nao 1,50). "0.500" nao casa: zero a esquerda e decimal.
             separator = None
         elif last_comma > last_dot:
             separator = ","
@@ -312,7 +339,7 @@ def parse_csv(content, *, mapping=None, delimiter=None, has_header=None,
         line = first_data_line + offset
         date_value = parse_date(cell(raw, effective.get("date")))
         type_text = normalize_text(cell(raw, effective.get("type"))) if "type" in effective else ""
-        says_debit = any(word == type_text or type_text.startswith(word) for word in DEBIT_WORDS)
+        says_debit = type_says_debit(type_text)
         amount = signed_amount(raw, effective, decimal_separator, says_debit)
         description = cell(raw, effective.get("description"))
 
@@ -379,7 +406,8 @@ def parse_ofx(content, *, invert_sign=False):
     for index, block in enumerate(blocks[:MAX_IMPORT_ROWS]):
         line = index + 1
         date_value = parse_date(ofx_tag(block, "DTPOSTED"))
-        amount = parse_amount(ofx_tag(block, "TRNAMT"), ".")
+        raw_amount = ofx_tag(block, "TRNAMT")
+        amount = parse_amount(raw_amount, ofx_decimal_separator(raw_amount))
         description = ofx_tag(block, "MEMO") or ofx_tag(block, "NAME")
 
         if date_value is None:

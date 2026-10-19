@@ -7,54 +7,63 @@
 
 ---
 
-## Session — 2026-10-18 (late night) · Card history: three money bugs
+## Session — 2026-10-18 (night, later) · Owner's review: items 4–21 ("Média" and "Baixa")
 
-Owner's review, three "Alta" items, each reproduced before fixing: (1) deleting an installment
-purchase deleted the paid installments; (2) a purchase dated into an invoice autopay had already
-paid stayed open forever and later showed overdue (Aprovar too); (3) deleting a card cascaded its
-purchases and stranded its payments, and a payment could not be undone. Cloud session; read the
-docs directly (concrete ask).
+Cloud session; read the docs directly (concrete list from the owner). Every item fixed, with a
+test that fails without the fix; one PR.
 
 ### Done
-- Migration **037** (`037_card_archive_and_payment_undo.sql`): `credit_cards.archived_at`,
-  `cc_expenses.paid_by`, table `cc_invoice_manual`. Only new columns/table.
-- (1) `DELETE /api/cc-expenses` refuses (409) any `PAID` id; Cartões fetches the candidates first,
-  deletes only the `OPEN` ones and says how many paid ones stay.
-- (2) `first_unpaid_invoice()` / `purchase_invoice_start()` in `services/invoices.py` (the refund's
-  old loop, now shared): purchases (`/purchases`, Aprovar's `create_entry()`) and refunds start at
-  the first invoice from their date that is not paid.
-- (3) Card `DELETE`: 409 with open items, archive with history, real delete when empty. Archived
-  cards are filtered from the GET, Aprovar's card list/hints/ambiguity, and refused by
-  `require_active_card()`. Undo: `DELETE /api/cc-expenses/payments/<id>` +
-  Extrato's "⋯" › Desfazer pagamento (desktop row and phone list).
-- `test_card_history.py` (19 tests); `test_attachments.py`'s card-delete test now asserts the
-  refusal; `test_route_map.py` has the new route. pytest **1253 passed**; `npm test` 106 passed;
-  `vite build` clean. Clicked through in Chromium at 390 px on a throwaway DB: the late purchase
-  went to 11/2026, the delete confirmation counted the paid installment, Desfazer reopened 10/2026
-  and returned R$ 100 to the balance, Ajustes showed the 409 for a card with open items. No page
-  errors.
+- **Cards (4, 11, 13):** `PATCH /api/credit-cards/<id>` takes `name`, `due_day`, `closing_day`
+  (each optional) besides the autopay; Ajustes › Cartões › "⋯" › Editar cartão. Closing day 29–31
+  is clamped to the purchase month in `compute_invoice_start()`. `PATCH /api/cc-expenses/status`
+  and `/invoice-status` **removed** (and from `dataApi.js`); the list `POST /api/cc-expenses`
+  rounds, refuses `PAID` and gives each purchase a `client_id` (installments of one request share
+  it; a repeated installment opens a new purchase).
+- **Accounts (5, 6):** Ajustes › Contas › "⋯": Editar conta (name, institution, initial balance —
+  negative allowed), Tornar padrão, Vincular/Desvincular da carteira, Arquivar; "Arquivadas (n)"
+  with Reativar. The server always has one default (`ensure_default_account()` writes the mark),
+  never a Corretora; the 409 no longer clears it first.
+- **Lançamentos (7, 16, 17):** `keep_or_require_account()`; Extrato sends `account_id` only when
+  changed and lists the archived own account as "(arquivada)"; `accountName` reads all accounts.
+- **Import (8, 9, 12):** `INVESTMENT_PROCEED` out of the rules' reach; `type_says_debit()`;
+  `THOUSANDS_ONLY` (dot only); `ofx_decimal_separator()`; a repeated FITID gets `:1`, `:2`.
+- **Recurrence (10):** `recurring_archived_account()`; `/run` returns `blocked`, Recorrentes and
+  Início show `blockedRecurringMessage()`.
+- **Dates (14), categories (15), security (18), Aprovar (19), money field (20), conventions (21)**:
+  see `CLAUDE.md` (new bullets) and `docs/done-tasks.md`.
+- pytest **1305 passed**; `npm test` **108**; JVM `NotifyParsersTest` + `NotifyPairingTest` **52**
+  (javac + junit 4.13.2 from `/opt/gradle-8.14.3/lib`, org.json/hamcrest jars from Maven Central);
+  `vite build` clean. Clicked through in Chromium on a throwaway DB (390 px Ajustes, desktop
+  Extrato): edit account, negative initial balance, Arquivadas › Reativar, edit card, edit a
+  lançamento of an archived account. No page errors.
 
 ### Not done, and why
-- **Existing stuck data is not repaired**: an item already open in an autopay-paid invoice stays
-  until the owner pays it or undoes the autopay (listed in `next-steps.md`). A migration cannot tell
-  a late purchase from an item reopened by hand on purpose.
-- No archived-cards list or unarchive; Cartões has no paid-invoice view, so the undo is only in the
-  Extrato. Both are product calls, in `next-steps.md`.
-- The old list `POST /api/cc-expenses` still takes the invoice month as sent.
-- `native-level.txt` not bumped: no Java touched.
+- **Item 19 has no real capture behind it** — the parser convention asks for one. The rule only
+  fires on "Nx de R$ …"; replace the hand-made test texts with a capture when one shows up.
+- Stored dates without the zero are not rewritten (a migration would touch every money table for
+  a case the screens never produced); a one-off SQL check is in `next-steps.md`.
+- The list `POST /api/cc-expenses` still takes the invoice month as sent; archived cards still have
+  no list/unarchive (both in `next-steps.md`).
+- The recurrence form refuses to save while its account is archived ("Conta esta arquivada") —
+  intended: it is the nudge to pick another account.
+- `native-level.txt` not bumped: the Java change is inside the parser, no JS↔Java API changed. The
+  APK job will build a new APK because `frontend/android/` changed.
 
 ### Learned / decisions
-- Undo sends the invoice to manual payment (`cc_invoice_manual`) instead of letting autopay re-debit
-  it at the next read: otherwise "Desfazer" on an overdue autopay invoice would be undone by the
-  very next GET. The confirmation says so.
-- A payment from before 037 has no `paid_by` on its items; its undo falls back to "the `PAID` items
-  of its invoice with no `paid_by`", and only when no item points at it — so undoing an old autopay
-  never reopens what a newer manual payment paid.
-- A card is refused deletion while it has open items rather than archived with them: an archived
-  card leaves the pickers and Ajustes, so open invoices on it would be unreachable (autopay
-  included).
-- Migration **037** is claimed (036 is the Aprovar settings one).
-- Backend error texts stay ASCII ("cartao", "Lancamentos > Cartoes"), like the rest of the API.
+- `"10,005"` in a CSV is 10.005 (Brazilian decimal comma), so the thousands rule is dot-only; the
+  first try made it symmetric and `test_commit_rounds_money_half_up` caught it.
+- The test DB is one per session: a test that needs "no user yet" cannot get it; the signup test
+  signs the owner up first and then closes signup.
+- `parseMoneyInput` stays positive-only; Ajustes › Contas wraps it (`parseBalanceInput`) for a
+  negative initial balance, and that field has no `inputMode="decimal"` (the keypad has no minus).
+- Making the default a Corretora is refused rather than allowed: the default is where a lançamento
+  with no account lands, and a Corretora's balance is hidden from Início.
+
+### Carried from the card-history session (2026-10-18 late night), still open
+- Stuck data is not repaired: an item already open in an autopay-paid invoice stays until the owner
+  pays it or undoes the autopay. Undo sends the invoice to `cc_invoice_manual` (autopay never
+  re-debits it). Migration **037** is the latest; no migration in this session.
+- Cartões has no paid-invoice view, so "Desfazer pagamento" is only in the Extrato.
 
 ### Carried from the calculator session (2026-10-18 night), still open
 - IR on the simulated gain, prefill from the portfolio, a reverse "quanto aportar por mês" mode:
@@ -67,7 +76,8 @@ docs directly (concrete ask).
 ### Carried from the Aprovar session (2026-10-18 night), still open
 - "Prompt 1's bank field" does not exist; the ambiguity rule reads `accounts.institution`
   (`issuer_of_institution()`), a `bank` column first if one lands. Cards have no bank field.
-  Institution is editable only at account creation, so for existing accounts the rule is dormant.
+  Institution is now editable (Ajustes › Contas › Editar conta), but empty on existing accounts
+  until the owner fills it, so for them the rule is still dormant.
 - Migration **036** (`user_settings`) is claimed; if another branch adds a 036, whichever merges
   second renumbers before the server applies it.
 - Not tried on the phone. Starting the app for screenshots: signup wants a username of 2+

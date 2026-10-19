@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Archive, Landmark, TrendingUp, Plus } from 'lucide-react'
+import { Archive, Landmark, Pencil, Plus, RotateCcw, Star, TrendingUp, Unlink } from 'lucide-react'
 import { accountsApi } from '../../lib/dataApi'
 import { formatCurrency } from '../../lib/format'
+import { moneyInputValue, parseMoneyInput } from '../../lib/monthlyPlan'
 import { usePrivateFormatter } from '../../lib/privacy'
 import { PORTFOLIO_ACCOUNT_TYPE, isBrlAccount, pickPortfolioAccountId } from '../../lib/portfolioAccount'
 import { accountBalanceBrl } from '../../lib/transactions'
@@ -17,6 +18,7 @@ import {
   Menu,
   Panel,
   PanelHeader,
+  Sheet,
   cx,
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
@@ -36,24 +38,45 @@ const emptyAccountForm = () => ({ name: '', type: 'CHECKING', institution: '', i
 
 const NO_ITEMS = []
 
-// Contas bancarias: lista com saldo, arquivar e criar. Veio de Transactions.jsx.
-// Conta nunca e apagada: DELETE /api/accounts/<id> so preenche archived_at.
+// Saldo inicial pode ser negativo (cheque especial): o sinal fica de fora da
+// leitura do valor (parseMoneyInput so le positivos).
+function parseBalanceInput(value) {
+  const text = String(value ?? '').trim()
+  const negative = text.startsWith('-')
+  const amount = parseMoneyInput(negative ? text.slice(1) : text)
+  return negative && Number.isFinite(amount) ? -amount : amount
+}
+
+// Contas bancarias: lista com saldo, criar, editar (nome, instituicao, saldo
+// inicial), tornar padrao, vincular/desvincular da carteira, arquivar e
+// reativar. Conta nunca e apagada: DELETE /api/accounts/<id> so preenche
+// archived_at. A padrao e sempre uma conta ativa fora da Corretora: o servidor
+// passa a marca para outra quando a padrao e arquivada ou vira a da carteira.
 export default function ContasSection() {
   const privateMoney = usePrivateFormatter(formatCurrency)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [accountForm, setAccountForm] = useState(emptyAccountForm)
+  const [editing, setEditing] = useState(null)
+  const [editForm, setEditForm] = useState({ name: '', institution: '', initial_balance: '' })
 
-  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
+  const accountsQuery = useQuery({ queryKey: ['contas', 'todas'], queryFn: () => accountsApi.list({ include_archived: 1 }) })
   useReportQueryError(accountsQuery, setError, 'Não foi possível carregar as contas.')
-  const accounts = accountsQuery.data || NO_ITEMS
+  const allAccounts = accountsQuery.data || NO_ITEMS
+  const accounts = allAccounts.filter((account) => !account.archived_at)
+  const archivedAccounts = allAccounts.filter((account) => account.archived_at)
   const portfolioAccountId = pickPortfolioAccountId(accounts)
   const loading = accountsQuery.isPending
   const fetchAccounts = () => invalidateServerData()
 
   const handleCreateAccount = async (event) => {
     event.preventDefault()
+    const initialBalance = parseBalanceInput(accountForm.initial_balance)
+    if (Number.isNaN(initialBalance)) {
+      setError('Informe um saldo inicial válido.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -61,7 +84,7 @@ export default function ContasSection() {
         name: accountForm.name,
         type: accountForm.type,
         institution: accountForm.institution,
-        initial_balance: Number(accountForm.initial_balance || 0),
+        initial_balance: initialBalance ?? 0,
       })
       await fetchAccounts()
       toast(`Conta "${accountForm.name}" criada.`)
@@ -92,6 +115,76 @@ export default function ContasSection() {
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível vincular a conta.')
     }
+  }
+
+  // Volta a ser conta corrente: o saldo dela volta ao Inicio. As operacoes ja
+  // registradas nao mudam; as proximas saem de outra Corretora (ou de nenhuma).
+  const handleUnlinkFromPortfolio = async (account) => {
+    if (!(await confirmAction({
+      title: `Desvincular "${account.name}" da carteira?`,
+      message: 'A conta volta a ser Conta corrente, e o saldo dela volta a aparecer no Início. As operações já registradas não mudam; as próximas precisam de outra conta Corretora, ou de "Não descontar de nenhuma conta".',
+      confirmLabel: 'Desvincular',
+      tone: 'neutral',
+    }))) return
+    await updateAccount(account, { type: 'CHECKING' }, `"${account.name}" desvinculada da carteira.`, 'Não foi possível desvincular a conta.')
+  }
+
+  const updateAccount = async (account, payload, success, failure) => {
+    setSaving(true)
+    setError('')
+    try {
+      await accountsApi.update(account.id, payload)
+      await fetchAccounts()
+      toast(success)
+      return true
+    } catch (requestError) {
+      setError(requestError.message || failure)
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openEdit = (account) => {
+    setEditing(account)
+    setEditForm({
+      name: account.name,
+      institution: account.institution || '',
+      initial_balance: moneyInputValue(account.initial_balance ?? 0),
+    })
+  }
+
+  const handleSaveEdit = async (event) => {
+    event.preventDefault()
+    if (!editing) return
+    const initialBalance = parseBalanceInput(editForm.initial_balance)
+    if (Number.isNaN(initialBalance)) {
+      setError('Informe um saldo inicial válido.')
+      return
+    }
+    const saved = await updateAccount(editing, {
+      name: editForm.name,
+      institution: editForm.institution,
+      initial_balance: initialBalance ?? 0,
+    }, `Conta "${editForm.name}" atualizada.`, 'Não foi possível atualizar a conta.')
+    if (saved) setEditing(null)
+  }
+
+  const accountMenuItems = (account) => {
+    const isPortfolio = account.type === PORTFOLIO_ACCOUNT_TYPE
+    return [
+      { label: 'Editar conta', icon: Pencil, onSelect: () => openEdit(account) },
+      !account.is_default && !isPortfolio
+        ? { label: 'Tornar padrão', icon: Star, onSelect: () => updateAccount(account, { is_default: true }, `"${account.name}" é a conta padrão.`, 'Não foi possível trocar a conta padrão.') }
+        : null,
+      !isPortfolio && !account.is_default && isBrlAccount(account)
+        ? { label: 'Vincular à carteira', icon: TrendingUp, onSelect: () => handleLinkToPortfolio(account) }
+        : null,
+      isPortfolio
+        ? { label: 'Desvincular da carteira', icon: Unlink, onSelect: () => handleUnlinkFromPortfolio(account) }
+        : null,
+      { label: 'Arquivar conta', icon: Archive, onSelect: () => handleArchiveAccount(account) },
+    ].filter(Boolean)
   }
 
   const handleArchiveAccount = async (account) => {
@@ -147,18 +240,7 @@ export default function ContasSection() {
                       {accountBalanceBrl(account) === null ? 'sem câmbio hoje' : privateMoney(accountBalanceBrl(account))}
                     </span>
                   )}
-                  {account.type === PORTFOLIO_ACCOUNT_TYPE || !isBrlAccount(account) ? (
-                    <IconButton label="Arquivar conta" icon={Archive} onClick={() => handleArchiveAccount(account)} />
-                  ) : (
-                    <Menu
-                      label={`Ações da conta ${account.name}`}
-                      size="md"
-                      items={[
-                        { label: 'Vincular à carteira', icon: TrendingUp, onSelect: () => handleLinkToPortfolio(account) },
-                        { label: 'Arquivar conta', icon: Archive, onSelect: () => handleArchiveAccount(account) },
-                      ]}
-                    />
-                  )}
+                  <Menu label={`Ações da conta ${account.name}`} size="md" items={accountMenuItems(account)} />
                 </div>
               </div>
             ))}
@@ -166,6 +248,27 @@ export default function ContasSection() {
         ) : (
           <EmptyState icon={Landmark} title="Nenhuma conta" message="Cadastre a primeira conta para começar." className="min-h-40" />
         )}
+
+        {archivedAccounts.length > 0 ? (
+          <Collapsible label={`Arquivadas (${archivedAccounts.length})`} icon={Archive}>
+            <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200">
+              {archivedAccounts.map((account) => (
+                <div key={account.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-zinc-500">{account.name}</p>
+                    <p className="text-sm text-zinc-500">{ACCOUNT_TYPE_LABELS[account.type] || account.type}</p>
+                  </div>
+                  <IconButton
+                    label={`Reativar a conta ${account.name}`}
+                    icon={RotateCcw}
+                    disabled={saving}
+                    onClick={() => updateAccount(account, { archived_at: null }, `Conta "${account.name}" reativada.`, 'Não foi possível reativar a conta.')}
+                  />
+                </div>
+              ))}
+            </div>
+          </Collapsible>
+        ) : null}
 
         <Collapsible label="Nova conta" icon={Plus} open={formOpen} onOpenChange={setFormOpen}>
           <form onSubmit={handleCreateAccount} className="grid grid-cols-1 gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -183,7 +286,7 @@ export default function ContasSection() {
               <input type="text" placeholder="Opcional" value={accountForm.institution} onChange={(event) => setAccountForm({ ...accountForm, institution: event.target.value })} className="app-input" />
             </Field>
             <Field label="Saldo inicial">
-              <input type="number" step="0.01" placeholder="0,00" value={accountForm.initial_balance} onChange={(event) => setAccountForm({ ...accountForm, initial_balance: event.target.value })} className="app-input" />
+              <input type="text" placeholder="0,00" value={accountForm.initial_balance} onChange={(event) => setAccountForm({ ...accountForm, initial_balance: event.target.value })} className="app-input" />
             </Field>
             <div className="flex items-end">
               <Button type="submit" loading={saving} className="w-full">Salvar</Button>
@@ -191,6 +294,31 @@ export default function ContasSection() {
           </form>
         </Collapsible>
       </div>
+
+      <Sheet
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        title={editing ? `Editar "${editing.name}"` : ''}
+        description="Mudar o saldo inicial recalcula o saldo da conta; nenhum lançamento muda."
+        footer={(
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" size="lg" onClick={() => setEditing(null)}>Cancelar</Button>
+            <Button type="submit" form="account-edit-form" size="lg" loading={saving}>Salvar</Button>
+          </div>
+        )}
+      >
+        <form id="account-edit-form" onSubmit={handleSaveEdit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Nome" className="sm:col-span-2">
+            <input type="text" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} className="app-input" required />
+          </Field>
+          <Field label="Instituição">
+            <input type="text" placeholder="Opcional" value={editForm.institution} onChange={(event) => setEditForm({ ...editForm, institution: event.target.value })} className="app-input" />
+          </Field>
+          <Field label="Saldo inicial">
+            <input type="text" placeholder="0,00" value={editForm.initial_balance} onChange={(event) => setEditForm({ ...editForm, initial_balance: event.target.value })} className="app-input" />
+          </Field>
+        </form>
+      </Sheet>
     </Panel>
   )
 }
