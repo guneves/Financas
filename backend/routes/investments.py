@@ -80,7 +80,6 @@ from services.portfolio import (
     build_portfolio_snapshot,
     refresh_market_prices,
     refresh_materialized_positions,
-    replace_materialized_positions,
 )
 from services.prices import (
     _price_fetch_executor,
@@ -481,7 +480,6 @@ def investments(current_user_id):
         return jsonify({"error": "Nao foi possivel criar o investimento."}), 400
 
     refresh_realized_results(current_user_id)
-    refresh_materialized_positions(current_user_id)
     return jsonify([serialize_investment(row) for row in rows]), 201
 
 
@@ -519,7 +517,6 @@ def investment_detail(current_user_id, investment_id):
                 (investment_id, current_user_id),
             )
         refresh_realized_results(current_user_id)
-        refresh_materialized_positions(current_user_id)
         return jsonify({"deleted": True}), 200
 
     payload = parse_json_body()
@@ -700,7 +697,6 @@ def investment_detail(current_user_id, investment_id):
     if not row:
         return jsonify({"error": "Investimento nao encontrado."}), 404
     refresh_realized_results(current_user_id)
-    refresh_materialized_positions(current_user_id)
     return jsonify(serialize_investment(row)), 200
 
 
@@ -748,7 +744,6 @@ def delete_investments_by_asset(current_user_id, asset_id):
         )
     if rows:
         refresh_realized_results(current_user_id)
-        refresh_materialized_positions(current_user_id)
     return jsonify({"deleted": cursor.rowcount}), 200
 
 
@@ -793,7 +788,6 @@ def update_price_by_asset(current_user_id, asset_id):
             asset_class=asset_class,
             source="manual",
         )
-    refresh_materialized_positions(current_user_id)
     return jsonify({"updated": 1}), 200
 
 
@@ -824,7 +818,6 @@ def get_portfolio(current_user_id):
         refresh_realized_results(current_user_id)
         portfolio = build_portfolio_snapshot(current_user_id)
         portfolio["realized_result"] = realized_results_summary(current_user_id)
-        replace_materialized_positions(current_user_id, portfolio["assets"])
         return jsonify(portfolio), 200
     except Exception as exc:
         logger.exception(f"Erro no calculo: {exc}")
@@ -880,10 +873,6 @@ def update_stock_prices(current_user_id):
         cached_assets = market_result.get("cached_assets", [])
         updated_count = len(updated_assets)
         portfolio = build_portfolio_snapshot(current_user_id)
-        try:
-            replace_materialized_positions(current_user_id, portfolio["assets"])
-        except Exception as exc:
-            logger.warning(f"Nao foi possivel atualizar posicoes materializadas: {exc}")
         scoped_asset_ids = {str(inv.get("asset_id")) for inv in investments_to_update if inv.get("asset_id")}
         stale_assets = [
             {
@@ -1151,7 +1140,6 @@ def corporate_actions(current_user_id):
         logger.warning(f"Cotacao nao atualizada depois do evento corporativo: {exc}")
         item["price_refreshed"] = False
     refresh_realized_results(current_user_id)
-    refresh_materialized_positions(current_user_id)
     return jsonify(item), 201
 
 
@@ -1167,7 +1155,6 @@ def delete_corporate_action_route(current_user_id, action_id):
     except ValidationError as exc:
         return validation_error(str(exc), 409)
     refresh_realized_results(current_user_id)
-    refresh_materialized_positions(current_user_id)
     return jsonify({"deleted": True}), 200
 
 

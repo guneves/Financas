@@ -393,6 +393,18 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
   portfolio is much larger, the next step is caching the computed response per (user, period,
   class) keyed by a data version — not built.
 
+### Saving and editing operações without waiting (2026-10-19) — what is left
+- Owner check on the server and on the phone: Registrar operação closes right after "Salvar"; an
+  edit in Operações closes in under a second; the new quote shows up a few seconds later on its
+  own. Measured only on a synthetic portfolio (350 and 1500 operações) in the test client, without
+  the real yfinance/BCB or the home server's CPU.
+- Not built: the frontend's static files (`/assets/*.js`, 384 KB) still go uncompressed when Flask
+  serves them (`routes/frontend.py` uses `send_file`, which `compression.py` skips on purpose). If
+  the first open on the phone is slow, gzip them at build time or behind `tailscale serve`.
+- Rentabilidade's daily loop (`daily_group_values()` in `services/returns.py`) scales with open
+  positions × days: ~0.23 s on 350 operações, ~0.8 s on 1500 with 225 open CDBs. Off the save path
+  now; the response cache in the section above is still the next step if it bites.
+
 ### Compound interest calculator (2026-10-18) — what is left
 - Owner check: Investimentos › Calculadora on the phone (seven tabs now; the row scrolls).
 - Not built, owner's call: IR on the simulated gain (regressive table for fixed income, 15% for

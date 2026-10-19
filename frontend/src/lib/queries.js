@@ -33,17 +33,22 @@ export const queryClient = new QueryClient({
   },
 })
 
+// Para as telas: espera a busca nova. Uma busca que ja esta correndo e
+// aproveitada (`cancelRefetch: false`) em vez de recomecar — logo depois de
+// uma gravacao o listener abaixo ja disparou todas, e recomecar cada uma fazia
+// o servidor calcular a carteira, os graficos e o Inicio duas vezes.
 export function invalidateServerData() {
-  return queryClient.invalidateQueries()
+  return queryClient.invalidateQueries(undefined, { cancelRefetch: false })
 }
 
 // Toda gravacao que passa por apiFetch invalida o cache sozinha (lib/api.js);
 // as telas ainda chamam invalidateServerData() quando querem esperar a busca
 // nova antes de seguir (ex.: fechar um sheet so com o dado ja atualizado).
+// Aqui a busca em curso e cancelada: ela pode ter comecado antes da gravacao.
 // Gravar uma operacao muda a posicao em alguma data, e com ela os proventos
 // automaticos: a sincronizacao vem logo depois (lib/proceedsSync.js).
 setMutationListener((path) => {
-  invalidateServerData()
+  queryClient.invalidateQueries()
   if (changesPositions(path)) scheduleProceedsSync()
 })
 

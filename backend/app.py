@@ -8,10 +8,11 @@ entao importa este modulo.
 
 import os
 
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 
 import tesouro_client
+from compression import compress_response
 from applog import configure_logging
 from config import CORS_ORIGINS
 from db import init_db, run_startup_backup
@@ -71,6 +72,9 @@ for blueprint_module in (
     frontend_routes,
 ):
     app.register_blueprint(blueprint_module.bp)
+
+# JSON grande (Extrato, Cartoes) vai comprimido: compression.py.
+app.after_request(lambda response: compress_response(request, response))
 
 
 configure_logging()

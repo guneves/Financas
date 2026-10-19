@@ -2,7 +2,8 @@
 
 `build_portfolio_snapshot()` agrega as movimentacoes em uma posicao por ativo;
 `refresh_materialized_positions()` regrava `investment_positions` a partir
-dele (tabela derivada). `refresh_market_prices()` busca cotacao so para os
+dele (tabela derivada), so na leitura de /api/investment-positions: as
+gravacoes nao pagam por uma tabela que nenhuma tela le. `refresh_market_prices()` busca cotacao so para os
 ativos cotados com posicao aberta (`unique_market_asset_targets()`).
 `build_portfolio_evolution()` monta a serie de "Evolucao do Patrimonio".
 """

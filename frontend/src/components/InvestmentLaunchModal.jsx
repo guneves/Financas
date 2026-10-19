@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowDownRight, ArrowUpRight, CalendarDays } from 'lucide-react'
-import { apiFetch } from '../lib/api'
-import { investmentsApi, marketApi } from '../lib/dataApi'
+import { investmentsApi, marketApi, refreshQuotes } from '../lib/dataApi'
 import { AlertMessage, Button, Field, SegmentedControl, Sheet } from './ui'
 import { formatCurrency, formatQuantity, getLocalDateString } from '../lib/format'
 import { usePrivateFormatter } from '../lib/privacy'
@@ -262,14 +261,24 @@ export default function InvestmentLaunchModal({
     setError('')
 
     try {
+      // Compra: a cotacao do ativo depois de fechar. A venda nao busca cotacao.
+      let createdId = null
       if (mode === 'BUY') {
-        await createBuyMovement()
+        createdId = await createBuyMovement()
       } else {
         await createSellMovement()
       }
 
-      await onSaved?.()
+      // A gravacao ja invalidou o cache (lib/api.js): fecha agora, sem esperar
+      // a nova busca de cada tela nem a cotacao (yfinance, BCB, Tesouro), que
+      // vai por tras e so refaz as telas se mudou alguma (refreshQuotes).
+      onSaved?.()
       onClose()
+      if (createdId) {
+        refreshQuotes({ investment_id: createdId }).catch((priceError) => {
+          console.warn('Não foi possível atualizar a cotação após o lançamento:', priceError)
+        })
+      }
       const assetName = normalizeAssetName(form.ticker_or_name)
       toast(mode === 'BUY' ? `Compra de ${assetName} registrada.` : `Venda de ${assetName} registrada.`)
     } catch (submitError) {
@@ -339,17 +348,7 @@ export default function InvestmentLaunchModal({
       },
     ])
 
-    const createdId = insertedData?.[0]?.id
-    if (createdId) {
-      try {
-        await apiFetch('/api/investments/update-prices', {
-          method: 'POST',
-          body: JSON.stringify({ investment_id: createdId }),
-        })
-      } catch (priceError) {
-        console.warn('Não foi possível atualizar a cotação após o lançamento:', priceError)
-      }
-    }
+    return insertedData?.[0]?.id
   }
 
   const createSellMovement = async () => {

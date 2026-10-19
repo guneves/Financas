@@ -1,4 +1,4 @@
-import { apiBlob, apiDownload, apiFetch } from './api'
+import { apiBlob, apiDownload, apiFetch, notifyMutation } from './api'
 
 const queryString = (params) => {
   const searchParams = new URLSearchParams()
@@ -248,6 +248,12 @@ export const investmentsApi = {
     body: JSON.stringify(payload)
   }),
   remove: (id) => apiFetch(`/api/investments/${id}`, { method: 'DELETE' }),
+  // Cotacoes (yfinance, BCB, Tesouro). Ver refreshQuotes() abaixo.
+  updatePrices: (payload = {}) => apiFetch('/api/investments/update-prices', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    invalidate: false
+  }),
   removeByAsset: (assetId, assetClass) => apiFetch(`/api/investments/by-asset/${encodeURIComponent(assetId)}${queryString({ asset_class: assetClass })}`, { method: 'DELETE' }),
   updatePriceByAsset: (assetId, assetClass, currentPrice) => apiFetch(`/api/investments/price-by-asset/${encodeURIComponent(assetId)}`, {
     method: 'PATCH',
@@ -255,6 +261,15 @@ export const investmentsApi = {
   }),
   exportPortfolio: (params = {}) => apiDownload(`/api/investments/portfolio/export${queryString(params)}`, `carteira.${params.format || 'csv'}`),
   exportMovements: (params = {}) => apiDownload(`/api/investments/export${queryString(params)}`, `operacoes.${params.format || 'csv'}`)
+}
+
+// Atualiza cotacoes e so refaz as telas se alguma mudou: uma busca que nao
+// gravou nada (cotacao do cache, provedor fora) nao deve fazer o servidor
+// recalcular a carteira e os graficos de novo.
+export async function refreshQuotes(payload = {}) {
+  const data = await investmentsApi.updatePrices(payload)
+  if (Number(data?.updated_count) > 0) notifyMutation('/api/investments/update-prices')
+  return data
 }
 
 export const marketApi = {

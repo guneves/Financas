@@ -54,10 +54,8 @@ export function syncProceeds({ force = false } = {}) {
   return inFlight
 }
 
-// Escritas que mudam a posicao de um ativo em alguma data.
-export function changesPositions(path) {
-  return /^\/api\/(investments|corporate-actions)(\/|\?|$)/.test(path || '')
-}
+// Escritas que mudam a posicao de um ativo em alguma data (puro, testado).
+export { changesPositions } from './proceedsRules.js'
 
 export function scheduleProceedsSync() {
   if (pendingTimer) clearTimeout(pendingTimer)

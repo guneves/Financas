@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1459 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1466 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -130,7 +130,7 @@ invoice-month rule), the opt-in investment↔cash link, editing an operation kee
 transaction, monthly budgets, recurring entries, the monthly plan from income (`test_monthly_plan_income.py`: percentages at both levels, inheritance, Saldo do plano, migration 038 and `needs_income`), statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), saving and editing without extra work (`test_write_speed.py`: gzip, realized results rewritten only when changed, positions left to their read), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). It
@@ -169,7 +169,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome` and `treasury`, 137 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome` and `treasury`, 138 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -182,6 +182,7 @@ backend/
   validators.py       # ValidationError + require_* / parse_* for request payloads
   auth.py             # hand-rolled JWT, token_required
   money.py            # rounded_money()
+  compression.py      # gzip for API JSON >= 1 KB when the client accepts it (after_request in app.py)
   applog.py           # structured JSON logging; every module logs through get_logger(), never print()
   integrations.py     # last success/failure of each external provider (yfinance, brapi, BCB)
   dates.py            # ISO parsing and month arithmetic
@@ -702,6 +703,16 @@ mobile-docs/
   one pass over the days (`group_monthly_returns()`, the same arithmetic as `monthly_chain()` per
   group), `FixedIncomeCurve` keeps one segment per title × month, and movement dates are parsed
   once — outputs identical to the old code on a 354-operation, 5-year portfolio.
+- **A save waits only for its own request** (owner, 2026-10-19: "demorando muito para salvar e
+  editar operações"). A write through `apiFetch` already invalidates every query; a screen that
+  then awaits `invalidateServerData()` joins those refetches (`cancelRefetch: false`) — never
+  restart them, each restart made the server compute the portfolio and the charts again. The quote
+  refresh after a buy or an edit runs after the sheet closes, through `refreshQuotes()`
+  (`lib/dataApi.js`, `invalidate: false`), which refreshes the screens only when `updated_count`
+  > 0; a quote write is not a position change (`changesPositions()`, no proventos sync). On the
+  server, writes do not rebuild `investment_positions` (only `GET /api/investment-positions` does,
+  and no screen reads it) and `replace_realized_results()` writes only when a result changed, so
+  the reads a write triggers don't queue on SQLite's write lock.
 - **Rentabilidade compares from the same 0%** (owner, 2026-10-19: "a fair comparison starts both
   at 0%"). `GET /api/investments/returns` returns `comparison` (`base_month`, `start`, `end`,
   `months`, `starts_after_window`) and `series[0]` is the base point (`base: true`): the end of the
