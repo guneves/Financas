@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1466 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1468 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -662,8 +662,10 @@ mobile-docs/
   categories included; a PUT that creates a month's plan copies the inherited categories into it,
   and `DELETE` (real, no guard) removes the month's plan and its categories. Spent and invested
   are computed on read: spent is the budget's rule without categories (no transfers, invoice
-  payments or aportes; card purchases in full in the purchase month), invested is aportes −
-  resgates of movements, never the linked cash; the received income only compares. **Saldo do
+  payments or aportes; card purchases in full in the purchase month), invested is Início's
+  "Investido" (owner, 2026-10-19: `month_investment_flow()`, the SQL twin of `bankingTransactions()`
+  + `buildMonthlyFlow()`): transfers bank → Corretora plus portfolio cash rows in a non-Corretora
+  account, minus the way back — a buy paid from money already in the Corretora is not new money; the received income only compares. **Saldo do
   plano** (`plan_balance`) = Gastar R$ − the month's spent is the one "still to spend" number
   (`progress.spend_remaining` and `/api/budgets` `totals.plan_balance` are the same); budgets'
   `totals.remaining` is only the categories' own leftover. An old plan without income

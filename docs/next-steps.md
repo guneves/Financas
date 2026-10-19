@@ -375,6 +375,8 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
 - [ ] Set a plan on the phone (income in reais with a comma, percentages) and confirm the flags make
   sense against a real month.
 - [ ] Decide whether Início should show a one-line plan strip (spent / invested vs plan).
+- [ ] Confirm on real data that Planejar's Investir realized now matches Início's "Investido" for
+  the same month (both count conta → Corretora, 2026-10-19).
 
 ### Chart speed and the fair comparison (2026-10-19) — what is left
 - Owner check on the server, after the deploy: open Investimentos › Posição and Rentabilidade twice

@@ -18,9 +18,11 @@ e o de sempre, calculado na leitura:
   `isInvestmentOutflow()` do Inicio), mais as compras no cartao, inteiras, no mes da compra (decisao 1,
   a mesma do orcamento por categoria);
 - receita do mes = entradas das contas (INCOME), sem resgate nem provento pago;
-- aporte do mes = aportes - resgates das operacoes da carteira no mes (o
-  mesmo fluxo do grafico de Operacoes, `movement_flow()`): dinheiro novo que
-  ficou investido. O caixa ligado nao entra, senao o aporte contaria duas vezes;
+- aporte do mes = aportes - resgates vistos das contas, o "Investido" do
+  Inicio (dono, 2026-10-19): o que saiu de uma conta para a Corretora
+  (transferencia) ou para a carteira (o caixa de uma operacao numa conta que nao
+  e Corretora), menos o que voltou dela. Uma compra feita com o dinheiro que ja
+  estava na Corretora nao e dinheiro novo e nao conta;
 - cada categoria: a regra do orcamento (rollover, subcategoria soma no pai);
 - Saldo do plano = Gastar em reais - gasto do mes. E o unico "quanto ainda
   posso gastar": o `spend_remaining` do progresso e o mesmo numero, e
@@ -50,9 +52,8 @@ from services.budgets import (
     percent_json,
     plan_figures,
 )
-from services.contributions import movement_flow
 from services.goals import list_goals
-from services.investments import fetch_investments, investment_operation_date
+from services.investments import PORTFOLIO_ACCOUNT_TYPE
 from services.invoices import local_today, signed_amount_sql
 from services.sharing import own_amount_sql
 from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
@@ -109,22 +110,38 @@ def month_banking_totals(conn, current_user_id, month):
     return safe_float(row["spent"]), safe_float(card["spent"]), safe_float(row["income"])
 
 
-def month_investment_flow(investments, month):
-    """(aportes, resgates) brutos do mes, a partir das operacoes em reais."""
-    aportes = 0.0
-    resgates = 0.0
-    for investment in investments:
-        flow = movement_flow(investment)
-        if not flow or investment_operation_date(investment)[:7] != month:
-            continue
-        side, amount = flow
-        if amount <= 0:
-            continue
-        if side == "aportes":
-            aportes += amount
-        else:
-            resgates += amount
-    return rounded_money(aportes), rounded_money(resgates)
+def month_investment_flow(conn, current_user_id, month):
+    """(aportes, resgates) do mes vistos das contas, em reais.
+
+    A regra de `bankingTransactions()` + `buildMonthlyFlow()` do Inicio: a
+    transferencia de um banco para a Corretora e aporte (e a de volta,
+    resgate), e o caixa da carteira (`INVESTMENT_SOURCE_TYPES`) numa conta que
+    nao e Corretora e aporte na saida e resgate na entrada. O que acontece
+    dentro da Corretora fica de fora.
+    """
+    placeholders = ", ".join("?" for _ in INVESTMENT_SOURCE_TYPES)
+    from_bank = f"COALESCE(origin.type, '') != '{PORTFOLIO_ACCOUNT_TYPE}'"
+    to_portfolio = f"COALESCE(target.type, '') = '{PORTFOLIO_ACCOUNT_TYPE}'"
+    portfolio_cash = f"COALESCE(t.source_type, '') IN ({placeholders})"
+    row = conn.execute(
+        f"""
+        SELECT
+          SUM(CASE
+                WHEN t.type = 'TRANSFER' AND {from_bank} AND {to_portfolio} THEN t.amount
+                WHEN t.type = 'EXPENSE' AND {from_bank} AND {portfolio_cash} THEN t.amount
+                ELSE 0 END) AS aportes,
+          SUM(CASE
+                WHEN t.type = 'TRANSFER' AND NOT {from_bank} AND NOT {to_portfolio} THEN t.amount
+                WHEN t.type = 'INCOME' AND {from_bank} AND {portfolio_cash} THEN t.amount
+                ELSE 0 END) AS resgates
+        FROM transactions t
+        LEFT JOIN accounts origin ON origin.id = t.account_id
+        LEFT JOIN accounts target ON target.id = t.transfer_account_id
+        WHERE t.user_id = ? AND substr(t.date, 1, 7) = ?
+        """,
+        (*INVESTMENT_SOURCE_TYPES, *INVESTMENT_SOURCE_TYPES, current_user_id, month),
+    ).fetchone()
+    return rounded_money(safe_float(row["aportes"])), rounded_money(safe_float(row["resgates"]))
 
 
 def month_period(month, today):
@@ -303,7 +320,7 @@ def build_monthly_plan(current_user_id, month):
         row = fetch_plan_for_month(conn, current_user_id, month)
         spent_accounts, spent_cards, income = month_banking_totals(conn, current_user_id, month)
         categories = build_budget_month(conn, current_user_id, month)
-    aportes, resgates = month_investment_flow(fetch_investments(current_user_id), month)
+        aportes, resgates = month_investment_flow(conn, current_user_id, month)
 
     spent = rounded_money(spent_accounts + spent_cards)
     invested = rounded_money(aportes - resgates)

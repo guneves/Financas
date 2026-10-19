@@ -7,7 +7,9 @@ conversao — estao em test_monthly_plan_income.py):
   da compra), e deixa de fora transferencia (o aporte digitado e uma, para a
   Corretora), pagamento de fatura, o caixa das operacoes e o provento pago;
   uma categoria chamada "Investimento" e uma categoria como outra (039);
-- o aporte do mes e aportes - resgates das operacoes da carteira;
+- o aporte do mes e o "Investido" do Inicio: o que saiu das contas para a
+  Corretora (ou para a carteira direto de um banco) menos o que voltou; uma
+  compra com o dinheiro que ja estava na Corretora nao conta;
 - um mes sem plano proprio herda o mais recente anterior; apagar o do mes volta
   a herdar;
 - cada alerta: plano maior que a renda, gasto estourado / no ritmo de estourar
@@ -57,16 +59,29 @@ def add_entry(client, auth, amount, day, *, kind="EXPENSE", category="Mercado"):
     return response.get_json()
 
 
-def buy(client, auth, ticker, quantity, price, day):
+def buy(client, auth, ticker, quantity, price, day, **metadata):
     response = client.post("/api/investments", headers=auth, json={
         "asset_class": "STOCKS",
         "ticker_or_name": ticker,
         "quantity": quantity,
         "average_price": price,
         "current_price": price,
-        "metadata": {"purchase_date": day},
+        "metadata": {"purchase_date": day, **metadata},
     })
     assert response.status_code in (200, 201), response.get_data(as_text=True)
+
+
+def bank_and_broker(client, auth):
+    bank = client.post("/api/accounts", headers=auth, json={"name": "Banco", "type": "CHECKING"}).get_json()
+    broker = client.post("/api/accounts", headers=auth, json={"name": "BTG", "type": "BROKERAGE"}).get_json()
+    return bank, broker
+
+
+def transfer(client, auth, origin, target, amount, day):
+    response = client.post("/api/transfers", headers=auth, json={
+        "amount": amount, "date": day, "account_id": origin["id"], "transfer_account_id": target["id"],
+    })
+    assert response.status_code == 201, response.get_data(as_text=True)
 
 
 def codes(body):
@@ -199,18 +214,43 @@ def test_card_purchase_counts_in_full_in_purchase_month(client, auth):
 
 
 def test_invested_is_net_of_redemptions(client, auth):
-    buy(client, auth, "PETR4", 100, 30.0, "2025-12-02")   # 3.000
-    buy(client, auth, "VALE3", 10, 50.0, "2025-11-20")    # outro mes
-    response = client.post("/api/investments", headers=auth, json={
-        "asset_class": "STOCKS", "ticker_or_name": "PETR4", "quantity": -20,
-        "average_price": 35.0, "current_price": 35.0,
-        "metadata": {"purchase_date": "2025-12-08"},
-    })
-    assert response.status_code in (200, 201), response.get_data(as_text=True)
+    bank, broker = bank_and_broker(client, auth)
+    transfer(client, auth, bank, broker, 3000, "2025-12-02")
+    transfer(client, auth, broker, bank, 700, "2025-12-08")
+    transfer(client, auth, bank, broker, 500, "2025-11-20")   # outro mes
     body = get_plan(client, auth, "2025-12")
     assert body["actual"]["aportes"] == 3000
     assert body["actual"]["resgates"] == 700
     assert body["actual"]["invested"] == 2300
+
+
+def test_invested_is_what_left_the_accounts_like_the_home_page(client, auth):
+    # O "Investido" do Inicio: a compra com o dinheiro que ja estava na
+    # Corretora nao e dinheiro novo; a compra paga direto do banco e.
+    bank, broker = bank_and_broker(client, auth)
+    transfer(client, auth, bank, broker, 1000, "2025-12-02")
+    buy(client, auth, "PETR4", 100, 30.0, "2025-12-03")                               # sai da Corretora
+    buy(client, auth, "VALE3", 4, 50.0, "2025-12-04", cash_account_id=bank["id"])      # sai do banco
+    response = client.post("/api/investments", headers=auth, json={
+        "asset_class": "STOCKS", "ticker_or_name": "VALE3", "quantity": -1,
+        "average_price": 60.0, "current_price": 60.0,
+        "metadata": {"purchase_date": "2025-12-05", "cash_account_id": bank["id"]},
+    })
+    assert response.status_code in (200, 201), response.get_data(as_text=True)
+    body = get_plan(client, auth, "2025-12")
+    assert body["actual"]["aportes"] == 1200
+    assert body["actual"]["resgates"] == 60
+    assert body["actual"]["invested"] == 1140
+
+
+def test_moves_between_banks_or_inside_the_broker_are_not_invested(client, auth):
+    bank, broker = bank_and_broker(client, auth)
+    other = client.post("/api/accounts", headers=auth, json={"name": "Outro", "type": "CHECKING"}).get_json()
+    other_broker = client.post("/api/accounts", headers=auth, json={"name": "XP", "type": "BROKERAGE"}).get_json()
+    transfer(client, auth, bank, other, 800, "2025-12-02")
+    transfer(client, auth, broker, other_broker, 900, "2025-12-03")
+    body = get_plan(client, auth, "2025-12")
+    assert (body["actual"]["aportes"], body["actual"]["resgates"]) == (0, 0)
 
 
 # --- alertas ----------------------------------------------------------------
@@ -262,7 +302,8 @@ def test_no_pace_flag_in_first_days(client, auth, monkeypatch):
 def test_past_month_kept_and_missed(client, auth):
     put_plan(client, auth, "2025-11", 2000, 1000)
     add_entry(client, auth, 1500, "2025-11-10")
-    buy(client, auth, "PETR4", 10, 40.0, "2025-11-12")   # 400 de 1.000
+    bank, broker = bank_and_broker(client, auth)
+    transfer(client, auth, bank, broker, 400, "2025-11-12")   # 400 de 1.000
     body = get_plan(client, auth, "2025-11")
     assert body["period"] == "PAST"
     assert flag(body, "SPEND_KEPT")["amount"] == 500
@@ -278,7 +319,8 @@ def test_invest_pending_then_done(client, auth, monkeypatch):
     monkeypatch.setattr(importlib.import_module("services.monthly_plan"), "local_today", lambda: date(2025, 12, 27))
     assert flag(get_plan(client, auth, "2025-12"), "INVEST_PENDING")["tone"] == "warning"
 
-    buy(client, auth, "PETR4", 40, 25.0, "2025-12-20")
+    bank, broker = bank_and_broker(client, auth)
+    transfer(client, auth, bank, broker, 1000, "2025-12-20")
     done = get_plan(client, auth, "2025-12")
     assert flag(done, "INVEST_DONE")["amount"] == 1000
     assert done["progress"]["invest_percent"] == 100
