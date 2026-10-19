@@ -335,13 +335,17 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
 - [ ] Not tried on the phone (the asset list now opens in the flow of the sheet, not floating).
 
 ### Tesouro Direto marked to market (2026-10-19) — what is left
-- [ ] **Owner, after the deploy:** Ajustes › Integrações shows "Tesouro Transparente" ok (the
-  server must reach `www.tesourotransparente.gov.br`; this cloud session could not, so the download
-  and the resource URL were never tried for real — only a synthetic file). Then compare Posição ›
-  Tesouro Direto with the BTG statement: quantity, Saldo bruto, Saldo líquido. A title that shows
-  "valor segue a curva" has a name without type + year, or the file is missing.
-- [ ] If the quantity differs from BTG's, type "Quantidade de títulos" — only on a new buy today;
-  an edit of an old buy has no field for it (Operações › Editar would need it).
+- [ ] **Owner, after the deploy:** Ajustes › Integrações › "Verificar agora" shows "Banco Central
+  (SGS)" and "Tesouro Transparente" ok. The likely cause of both failing (2026-10-19, second
+  session) was Python 3.13+'s strict X.509 mode refusing the gov.br chains, fixed in
+  `gov_http.py`, plus the BCB health probe's 6 s limit — **never confirmed against the real hosts**
+  (this cloud container is refused both). If either still fails, the detail now names the cause
+  ("certificado recusado (...)", "sem resposta em 30 s", "respondeu HTTP 406", DNS): fix from that.
+  Then compare Posição › Tesouro Direto with the BTG statement (2026-10-19: IPCA+ 2045 0,85 títulos
+  líq. R$ 1.144,07 / bruto R$ 1.188,36; Renda+ 2065 42,79 títulos líq. R$ 8.881,46 / bruto
+  R$ 9.240,47). If the quantity differs, type it in Operações › Editar › "Quantidade de títulos"
+  on each purchase. A title that shows "valor segue a curva" has a name without type + year, or
+  the file is missing.
 - [ ] Renda+/Educa+ custody on an early sale: modelled as the regular 0.20% a.a. from D+1 (not
   before 2025). Confirm with BTG's líquido; if BTG shows less, the rule is different for them.
 - [ ] Names stay upper-case (the asset's ticker); BTG shows "Tesouro IPCA+ 2045 (NTNB Princ...)".

@@ -31,15 +31,15 @@ _cache_lock = threading.Lock()
 _cache = {"at": 0.0, "result": None}
 
 
-def _timed(fn):
+def _timed(fn, timeout=PRICE_FETCH_TIMEOUT_SECONDS):
     """(resultado, erro, ms) de fn(), com o limite de tempo das buscas reais."""
     started = time.monotonic()
     future = _executor.submit(fn)
     try:
-        value = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+        value = future.result(timeout=timeout)
         error = None
     except FutureTimeoutError:
-        value, error = None, f"Sem resposta em {PRICE_FETCH_TIMEOUT_SECONDS:g} s"
+        value, error = None, f"Sem resposta em {timeout:g} s"
     except Exception as exc:  # o provedor pode falhar de qualquer jeito
         value, error = None, str(exc) or exc.__class__.__name__
     return value, error, round((time.monotonic() - started) * 1000)
@@ -70,7 +70,12 @@ def check_brapi():
 
 def check_bcb():
     start = datetime.now() - timedelta(days=15)
-    value, error, elapsed = _timed(lambda: fixed_income.fetch_bcb_series(fixed_income.BCB_SERIES_CDI, start))
+    # O limite das cotacoes (6 s) e curto para o SGS, que leva varios segundos
+    # num dia comum: o teste esperava menos que a busca real e dava "erro".
+    value, error, elapsed = _timed(
+        lambda: fixed_income.fetch_bcb_series(fixed_income.BCB_SERIES_CDI, start),
+        timeout=fixed_income.BCB_TIMEOUT_SECONDS,
+    )
     if error:
         return {"status": "error", "latency_ms": elapsed, "detail": error}
     if not value:

@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   allocateTreasuryRedemption,
+  parseTreasuryUnits,
   treasuryMarketRateText,
   treasuryRateLabel,
   treasuryRateText,
@@ -47,4 +48,13 @@ test('the market rate of the day, never for Selic', () => {
   const metadata = { rate_type: 'POS', indexer: 'IPCA' }
   assert.equal(treasuryMarketRateText({ metadata, treasury: { market_rate: 0.062, title_type: 'TESOURO IPCA+' } }), 'IPCA + 6,20% a.a.')
   assert.equal(treasuryMarketRateText({ metadata, treasury: { market_rate: 0.0007, title_type: 'TESOURO SELIC' } }), '')
+})
+
+test('parseTreasuryUnits: virgula ou ponto, vazio e invalido', () => {
+  assert.equal(parseTreasuryUnits('0,85'), 0.85)
+  assert.equal(parseTreasuryUnits('42.79'), 42.79)
+  assert.equal(parseTreasuryUnits('1.042,79'), 1042.79)
+  assert.equal(parseTreasuryUnits('  '), null)
+  assert.ok(Number.isNaN(parseTreasuryUnits('0')))
+  assert.ok(Number.isNaN(parseTreasuryUnits('abc')))
 })

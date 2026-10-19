@@ -11,6 +11,7 @@ import os
 from flask import Flask
 from flask_cors import CORS
 
+import tesouro_client
 from applog import configure_logging
 from config import CORS_ORIGINS
 from db import init_db, run_startup_backup
@@ -76,6 +77,8 @@ configure_logging()
 init_db()
 run_startup_backup()
 prune_orphan_attachment_files()
+# Precos do Tesouro Direto baixados no boot e conferidos de hora em hora.
+tesouro_client.start_auto_refresh()
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG") == "1", port=5000)

@@ -29,8 +29,8 @@ import threading
 import time
 import unicodedata
 import urllib.error
-import urllib.request
 
+import gov_http
 from applog import get_logger
 from config import TESOURO_PRICES_FILE, TESOURO_PRICES_URL
 from integrations import record_provider_result
@@ -351,9 +351,7 @@ def set_prices(prices):
 
 
 def _http_get(url):
-    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
-        return response.read()
+    return gov_http.get(url, DOWNLOAD_TIMEOUT_SECONDS)
 
 
 def _discover_csv_url():
@@ -485,3 +483,38 @@ def get_prices(wait=False):
     if prices is not None and prices.age_seconds() <= PRICES_MAX_AGE_SECONDS:
         return prices
     return None
+
+
+# --- atualizacao automatica -------------------------------------------------
+
+# De quanto em quanto tempo a thread confere a idade do cache; ela so baixa
+# quando ele passou de PRICES_FRESH_SECONDS.
+AUTO_REFRESH_CHECK_SECONDS = 3600
+_auto_refresh_started = False
+
+
+def start_auto_refresh():
+    """Mantem os precos em dia sem depender de alguem abrir a carteira.
+
+    Chamado no boot (app.py): baixa logo, e depois confere a cada hora. Assim
+    a marcacao a mercado do dia ja esta pronta quando a Posicao abre, em vez
+    de a primeira leitura mostrar a curva enquanto o download corre. Sem URL
+    (os testes) nao faz nada."""
+    global _auto_refresh_started
+    with _lock:
+        if _auto_refresh_started or not TESOURO_PRICES_URL:
+            return False
+        _auto_refresh_started = True
+
+    def loop():
+        while True:
+            try:
+                # O mesmo download em segundo plano das leituras: nunca dois ao mesmo tempo.
+                get_prices()
+                wait_refresh(timeout=DOWNLOAD_TIMEOUT_SECONDS * 4)
+            except Exception as exc:  # a thread nao pode morrer
+                logger.warning(f"Atualizacao automatica do Tesouro falhou: {exc}")
+            time.sleep(AUTO_REFRESH_CHECK_SECONDS)
+
+    threading.Thread(target=loop, name="tesouro-auto-refresh", daemon=True).start()
+    return True

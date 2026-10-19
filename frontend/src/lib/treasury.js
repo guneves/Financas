@@ -62,3 +62,12 @@ export function treasuryMarketRateText(asset) {
 }
 
 export const isMarketValued = (asset) => asset?.treasury?.valuation === 'MARKET'
+
+// "0,85" (ou "0.85") -> 0.85; vazio -> null. Um numero invalido ou <= 0 e NaN.
+// A quantidade de titulos que o extrato da corretora mostra, na compra e na edicao.
+export function parseTreasuryUnits(raw) {
+  const text = String(raw ?? '').trim()
+  if (!text) return null
+  const units = Number(text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text)
+  return Number.isFinite(units) && units > 0 ? units : NaN
+}
