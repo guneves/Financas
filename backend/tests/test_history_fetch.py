@@ -100,12 +100,51 @@ class TestDailyHistoryCache:
         prices_module.get_daily_history(["PETR4"], older)
         assert calls[-1] == (("PETR4",), older)
 
-    def test_an_expired_entry_downloads_again(self, prices_module, history_cache, monkeypatch):
+    def test_a_stale_entry_is_served_and_refreshed_in_the_background(self, prices_module, history_cache, monkeypatch):
+        calls = []
+        monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, calls))
+        start = (date.today() - timedelta(days=30)).isoformat()
+        first = prices_module.get_daily_history(["PETR4"], start)
+        prices_module._daily_history_cache["PETR4"]["updated_at"] -= prices_module.HISTORY_CACHE_TTL_SECONDS + 1
+
+        # O pedido nao espera: le o cache vencido e agenda o download.
+        release = threading.Event()
+        def slow(tickers, start_date):
+            release.wait(5)
+            return fake_daily(tickers, start_date, calls)
+        monkeypatch.setattr(prices_module, "download_daily_history", slow)
+        served = prices_module.get_daily_history(["PETR4"], start)
+        assert served["prices"] == first["prices"]
+        assert len(calls) == 1
+
+        release.set()
+        prices_module.wait_history_refreshes(timeout=5)
+        assert len(calls) == 2
+        assert prices_module.history_cache_state(
+            prices_module.time.time() - prices_module._daily_history_cache["PETR4"]["updated_at"],
+        ) == "fresh"
+
+    def test_a_failed_background_refresh_keeps_the_old_history(self, prices_module, history_cache, monkeypatch):
+        monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, []))
+        start = (date.today() - timedelta(days=30)).isoformat()
+        first = prices_module.get_daily_history(["PETR4"], start)
+        prices_module._daily_history_cache["PETR4"]["updated_at"] -= prices_module.HISTORY_CACHE_TTL_SECONDS + 1
+
+        # Yahoo fora: o download devolve o ticker sem fechamentos.
+        monkeypatch.setattr(
+            prices_module, "download_daily_history",
+            lambda tickers, start_date: {"prices": {t: {} for t in tickers}, "splits": {t: [] for t in tickers}},
+        )
+        prices_module.get_daily_history(["PETR4"], start)
+        prices_module.wait_history_refreshes(timeout=5)
+        assert prices_module.get_daily_history(["PETR4"], start)["prices"] == first["prices"]
+
+    def test_an_entry_past_the_stale_limit_downloads_in_the_request(self, prices_module, history_cache, monkeypatch):
         calls = []
         monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, calls))
         start = (date.today() - timedelta(days=30)).isoformat()
         prices_module.get_daily_history(["PETR4"], start)
-        prices_module._daily_history_cache["PETR4"]["updated_at"] -= prices_module.HISTORY_CACHE_TTL_SECONDS + 1
+        prices_module._daily_history_cache["PETR4"]["updated_at"] -= prices_module.HISTORY_CACHE_STALE_MAX_SECONDS + 1
         prices_module.get_daily_history(["PETR4"], start)
         assert len(calls) == 2
 
@@ -126,6 +165,24 @@ class TestBcbSeriesCache:
         series = fixed_income_module.cdi_since(recent)
         assert len(calls) == 1
         assert series == fake_bcb(fixed_income_module.BCB_SERIES_CDI, recent)
+
+    def test_a_stale_cdi_is_served_and_refreshed_in_the_background(self, fixed_income_module, prices_module, history_cache, monkeypatch):
+        calls = []
+        monkeypatch.setattr(fixed_income_module, "fetch_bcb_series", lambda code, start, end=None: fake_bcb(code, start, end, calls))
+        year_ago = datetime.now() - timedelta(days=365)
+        fixed_income_module.cdi_since(year_ago)
+        stamp, since, series = fixed_income_module._index_history_cache["cdi"]
+        fixed_income_module._index_history_cache["cdi"] = (stamp - fixed_income_module.HISTORY_CACHE_TTL_SECONDS - 1, since, series)
+
+        def down(code, start, end=None):
+            calls.append((code, start))
+            raise RuntimeError("BCB fora")
+        monkeypatch.setattr(fixed_income_module, "fetch_bcb_series", down)
+        assert fixed_income_module.cdi_since(year_ago) == [item for item in series if item[0] >= year_ago.replace(hour=0, minute=0, second=0, microsecond=0)]
+        prices_module.wait_history_refreshes(timeout=5)
+        # A busca rodou, falhou, e o cache antigo continua la.
+        assert len(calls) == 2
+        assert fixed_income_module._index_history_cache["cdi"][2] == series
 
     def test_ipca_is_shared_with_the_benchmarks(self, fixed_income_module, history_cache, monkeypatch):
         benchmarks = importlib.import_module("services.benchmarks")

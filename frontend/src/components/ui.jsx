@@ -8,13 +8,16 @@ import {
   ChevronDown,
   Info,
   Loader2,
+  Minus,
   MoreHorizontal,
+  Plus,
   X,
 } from 'lucide-react'
 import { MASKED_CURRENCY, useValuesHidden } from '../lib/privacy'
 import { dismissToast, useToasts } from '../lib/toast'
 import { settleConfirm, useConfirmRequest } from '../lib/confirm'
 import { useLayer } from '../lib/layers'
+import { clampPercent, formatPlanPercent, stepPercent } from '../lib/monthlyPlan'
 
 export function cx(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -621,6 +624,74 @@ export function Field({ label, children, className = '', hint }) {
       {children}
       {hint ? <span className="block text-xs text-zinc-500">{hint}</span> : null}
     </label>
+  )
+}
+
+// Um % escolhido arrastando, de 1 em 1 ponto, com - e + para o ajuste fino
+// (no celular, arrastar acerta mal um ponto so). `room` e quanto cabe: o
+// controle para ali e a parte que nao cabe fica apagada na trilha. `value`
+// null e "em branco" (o plano antigo que o servidor converte): mostra "—" ate
+// ser mexido. `onChange` recebe numeros ja presos em [0, room]
+// (clampPercent / stepPercent, lib/monthlyPlan.js). `aside` vai ao lado do %
+// (o R$ que ele da).
+export function PercentSlider({
+  label,
+  value,
+  onChange,
+  room = 100,
+  aside,
+  hint,
+  disabled = false,
+  className = '',
+}) {
+  const id = useId()
+  const current = value === null || value === undefined ? null : Number(value)
+  const shown = current ?? 0
+  const roomPct = Math.max(0, Math.min(100, room))
+  // Trilha: preenchido ate o valor, neutro ate o limite, apagado depois dele.
+  const track = `linear-gradient(to right, rgb(var(--emerald-500)) 0 ${shown}%, rgb(var(--zinc-200)) ${shown}% ${roomPct}%, rgb(var(--zinc-100)) ${roomPct}% 100%)`
+  return (
+    <div className={cx('space-y-1.5', className)}>
+      <div className="flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className="text-sm font-medium text-zinc-700">{label}</label>
+        <span className="tabular flex items-baseline gap-2 whitespace-nowrap">
+          <span className="text-lg font-bold text-zinc-950" aria-hidden="true">{current === null ? '—' : formatPlanPercent(current)}</span>
+          {aside}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <IconButton
+          label={`Diminuir ${label}`}
+          icon={Minus}
+          size="sm"
+          type="button"
+          disabled={disabled || shown <= 0}
+          onClick={() => onChange(stepPercent(shown, -1, room))}
+        />
+        <input
+          id={id}
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={shown}
+          disabled={disabled}
+          aria-valuetext={current === null ? 'em branco' : formatPlanPercent(current)}
+          onChange={(event) => onChange(clampPercent(Number(event.target.value), room))}
+          className="percent-slider min-w-0 flex-1"
+          style={{ background: track }}
+        />
+        <IconButton
+          label={`Aumentar ${label}`}
+          icon={Plus}
+          size="sm"
+          type="button"
+          disabled={disabled || shown >= room}
+          onClick={() => onChange(stepPercent(shown, 1, room))}
+        />
+      </div>
+      {hint ? <span className="block text-xs text-zinc-500">{hint}</span> : null}
+    </div>
   )
 }
 

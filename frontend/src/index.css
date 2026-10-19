@@ -221,6 +221,27 @@
     @apply min-h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 shadow-sm transition placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 lg:min-h-0;
   }
 
+  /* PercentSlider: a trilha vem do style (preenchido, livre, fora do limite);
+     o polegar e um circulo emerald de 24 px, 44 px de toque pela altura. */
+  .percent-slider {
+    @apply h-2 cursor-pointer appearance-none rounded-full focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
+    -webkit-appearance: none;
+    margin-block: 18px;
+  }
+  .percent-slider::-webkit-slider-thumb {
+    @apply h-6 w-6 appearance-none rounded-full border-2 border-white bg-emerald-500 shadow-md transition;
+    -webkit-appearance: none;
+  }
+  .percent-slider::-moz-range-thumb {
+    @apply h-6 w-6 rounded-full border-2 border-white bg-emerald-500 shadow-md transition;
+  }
+  .percent-slider:focus-visible::-webkit-slider-thumb {
+    @apply ring-4 ring-emerald-500/30;
+  }
+  .percent-slider:focus-visible::-moz-range-thumb {
+    @apply ring-4 ring-emerald-500/30;
+  }
+
   .app-select {
     @apply min-h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800 shadow-sm transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 lg:min-h-0;
   }
