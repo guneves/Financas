@@ -113,11 +113,9 @@ def test_lowering_the_amount_below_the_others_part_is_refused(client, auth):
     assert response.status_code == 200
 
 
-def test_investment_and_transfer_cannot_be_shared(client, auth):
-    aporte = create_transaction(client, auth, category="Investimento")
-    response = patch(client, auth, aporte["id"], {"share_mode": "OTHERS", "share_person": "Ana"})
-    assert response.status_code == 400
-
+def test_a_transfer_cannot_be_shared(client, auth):
+    # O aporte digitado e uma transferencia para a Corretora (039); o caixa de
+    # uma operacao nem chega a ser editavel (409, test_investment_cash_link).
     accounts = [
         client.post("/api/accounts", headers=auth, json={"name": name, "type": "CHECKING"}).get_json()
         for name in ("A", "B")

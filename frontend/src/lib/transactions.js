@@ -1,12 +1,13 @@
 // Investimento no extrato: aporte nao e despesa e resgate nao e receita.
 //
-// As areas sao separadas: uma operacao da carteira so chega ao extrato quando
-// o dono pede, operacao por operacao (o lancamento ligado, source_type), ou
-// quando ele lanca a mao na categoria Investimento. No banco sao linhas
-// EXPENSE / INCOME comuns (o saldo da conta precisa delas), entao a distincao
-// e feita na leitura: o aporte sai da conta sem ser gasto, e o resgate volta
-// sem ser renda.
-export const INVESTMENT_CATEGORY = 'Investimento'
+// Investimento nao e categoria (039): o que faz uma linha ser aporte, resgate
+// ou provento e a origem dela — o caixa de uma operacao ou o provento pago na
+// conta da carteira (source_type) — ou, vista da area bancaria, a
+// transferencia entre um banco e a Corretora (bankingTransactions). O aporte
+// digitado a mao e essa transferencia. No banco o caixa e o provento sao
+// linhas EXPENSE / INCOME comuns (o saldo da conta precisa delas), entao a
+// distincao e feita na leitura.
+export const INVESTMENT_SOURCE_TYPES = ['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED']
 
 // Estorno no cartao (033): uma linha da fatura com kind = 'REFUND' e valor
 // positivo, que abate a fatura em vez de somar. Toda soma de compras no
@@ -35,7 +36,7 @@ export function cardPurchaseKey(expense) {
 }
 
 const isInvestmentRow = (transaction) =>
-  ['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED'].includes(transaction?.source_type) || transaction?.category === INVESTMENT_CATEGORY
+  INVESTMENT_SOURCE_TYPES.includes(transaction?.source_type) || Boolean(transaction?.portfolio_transfer)
 
 export const isInvestmentOutflow = (transaction) =>
   transaction?.type === 'EXPENSE' && isInvestmentRow(transaction)
@@ -107,7 +108,8 @@ export function bankingTransactions(transactions = [], accounts = []) {
       type: toPortfolio ? 'EXPENSE' : 'INCOME',
       account_id: toPortfolio ? transaction.account_id : transaction.transfer_account_id,
       transfer_account_id: null,
-      category: INVESTMENT_CATEGORY,
+      category: toPortfolio ? 'Aporte' : 'Resgate',
+      portfolio_transfer: true,
     })
   })
   return result

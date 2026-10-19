@@ -20,7 +20,6 @@ from validators import ValidationError, parse_number, safe_float
 SHARE_MODES = {"OTHERS", "SPLIT"}
 SHARE_FIELDS = ("share_mode", "share_others_amount", "share_person")
 PERSON_MAX_LENGTH = 120
-INVESTMENT_CATEGORY = "Investimento"
 
 
 def own_amount_sql(prefix=""):

@@ -105,7 +105,8 @@ def test_a_paid_provento_is_income_in_the_portfolio_account(client, auth, clock)
     assert row["type"] == "INCOME"
     assert row["amount"] == pytest.approx(item["net_amount"])
     assert row["date"][:10] == days(5)
-    assert row["category"] == "Investimento"
+    assert row["category"] == "Provento"
+    assert row["category_id"] is None
     assert row["source_id"] == item["id"]
     assert "PETR4" in row["description"]
     assert balance_of(client, auth, brokerage["id"]) == pytest.approx(50.0)
@@ -205,8 +206,8 @@ def test_another_users_brokerage_never_receives_it(client, auth, other_user, clo
 
 
 def test_import_rules_never_recategorize_a_paid_provento(client, auth, clock):
-    """Recategorizado, o provento saia de "Investimento" e o plano do mes o
-    contava como receita (revisao de 2026-10-18)."""
+    """Recategorizado, o provento ganharia uma categoria que nao e dele (revisao
+    de 2026-10-18); o plano o deixa de fora pelo source_type (039)."""
     create_account(client, auth, "BTG Corretora", "BROKERAGE")
     asset_id = buy(client, auth)
     clock(10)
@@ -219,4 +220,4 @@ def test_import_rules_never_recategorize_a_paid_provento(client, auth, clock):
     assert row["id"] not in [item["id"] for item in preview["items"]]
     applied = client.post("/api/import-rules/apply", headers=auth, json={"transaction_ids": [row["id"]]})
     assert applied.status_code in (200, 400)
-    assert proceed_rows(client, auth)[0]["category"] == "Investimento"
+    assert proceed_rows(client, auth)[0]["category"] == "Provento"

@@ -12,7 +12,6 @@ from validators import ValidationError, optional_string, require_string
 DEFAULT_ACCOUNT_NAME = "Conta Principal"
 DEFAULT_CATEGORY_SEEDS = (
     ("receita", "Receita", "INCOME"),
-    ("investimento", "Investimento", "BOTH"),
     ("alimentacao", "Alimentação", "EXPENSE"),
     ("moradia", "Moradia", "EXPENSE"),
     ("transporte", "Transporte", "EXPENSE"),

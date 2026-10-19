@@ -238,8 +238,8 @@ def import_rule_detail(current_user_id, rule_id):
 
 # Lancamentos que as regras nunca recategorizam: o dinheiro de um investimento,
 # o provento pago na conta da carteira e o pagamento de uma fatura sao gerados
-# pelo sistema e tem categoria propria ("Investimento" tira o provento das
-# receitas do mes; outra categoria o contaria como receita).
+# pelo sistema e levam um rotulo, nao uma categoria escolhida (039: "Aporte",
+# "Resgate", "Provento").
 RULE_APPLY_SKIPPED_SOURCE_TYPES = (
     INVESTMENT_CASH_SOURCE_TYPE,
     INVESTMENT_PROCEED_SOURCE_TYPE,

@@ -7,54 +7,42 @@
 
 ---
 
-## Session — 2026-10-19 · Faster Evolução do Patrimônio; Orçamento's % as sliders
+## Session — 2026-10-19 · Investimento is no longer a category (039)
 
-Cloud session; read the docs directly (no scout — the task named the screens). No migration, no
-financial rule changed. Owner's ask: "Evolução de patrimônio is taking too long to update; change
-goals under Planejar, keep the investing goals as is, typing percentages to sliding buttons".
+Cloud session; read the docs directly (follow-up on research done in the same session, no scout).
+The owner asked whether the "Investimento" category should go; the answer was yes, and they chose:
+typed rows become transfers to the Corretora (create one when missing); no recurrence uses it.
 
 ### Done
-- **Evolução do Patrimônio** — profiled `GET /api/investments/history` on the three-year seed with a
-  fake Yahoo: ~0.1 s of computation. The wait was the network (Yahoo's 63-month download, BCB),
-  each time the 15-min history cache expired — and every write invalidates the query. Now both
-  caches are stale-while-revalidate: `history_cache_state()` / `schedule_history_refresh()` /
-  `refresh_daily_history()` in `services/prices.py`, `_fetch_bcb_into_cache()` in
-  `services/fixed_income.py`, `HISTORY_CACHE_STALE_MAX_SECONDS` (7 days) in `config.py`. A failed
-  refresh keeps the old history (before, a Yahoo failure cached empty closes for 15 min). Returns,
-  benchmarks and the evolution all share these caches, so Rentabilidade gets faster too.
-- **Orçamento sliders** — `PercentSlider` (`ui.jsx`, CSS `.percent-slider`) replaces the typed %
-  of Investir, Gastar (plan sheet) and each category (add and edit). Rules `percentRoom()`,
-  `clampPercent()`, `stepPercent()` in `lib/monthlyPlan.js`, 3 node tests. Income stays typed.
-  **Metas left as is** — I read "investing goals" as the Metas tab (Patrimônio/Carteira/Classe/Renda).
-- 1346 pytest, 120 node, `vite build`; Chromium at 390 px on the seed (see `done-tasks.md`).
+- Migration **039** (`039_investment_not_a_category.sql`) and the rules: aporte/resgate/provento is
+  `source_type` (`INVESTMENT_SOURCE_TYPES`) or a bank ↔ Corretora transfer — never a category name.
+  Plan spent/income and `budget_month_lines()` skip those source types; cash rows are labelled
+  "Aporte"/"Resgate"/"Provento" with no `category_id`; seed is nine categories; share guard and
+  Recorrentes' investment label removed. Detail in `done-tasks.md`; convention in CLAUDE.md.
+- Tests: `test_investment_not_a_category.py` (039 on a database stopped at 038, plus the seed),
+  plan test rewritten with real transfers and a "category named Investimento is ordinary" case;
+  node test for `isInvestmentRow()`. 1349 pytest, 118 node, `vite build`.
+- Told the two sessions running in parallel (plan bugs on `claude/compassionate-hawking-3salf9`,
+  Planejar sliders on `claude/magical-cannon-fhhw6f`) that 039 is taken and which queries in
+  `monthly_plan.py` / `budgets.py` changed. No reply had arrived when this was committed.
 
 ### Not done, and why
-- Not tried on the phone, nor in dark mode (open items in `next-steps.md`).
-- The cold start (first open after the server restarts) still waits for Yahoo/BCB; warming the
-  cache at boot would fix it but costs a download per restart — left for the owner's verdict.
+- Not run on the owner's data: how many rows 039 converts, and whether a Corretora gets created,
+  is unknown here. Owner check listed in `next-steps.md`.
+- No screen walk in Chromium: the change is in rules, labels and two frontend predicates; the
+  visible differences are the labels and "Despesa" for every recurrence.
+- The Extrato still shows a bank → Corretora transfer as a transfer (not "Aporte"); imports and
+  Aprovar have no transfer-to-Corretora target. Both open in `next-steps.md`.
 
 ### Decisions worth knowing
-- **Stale is safe only because past months read the history**: the current month uses each
-  asset's live `current_price` (`portfolio_month_positions()`), so a stale cache changes nothing
-  the owner sees today. Don't serve stale for anything that reads today's close from it.
-- **A new plan starts at 0% / 0%**, not blank: a slider at 0 with "—" would block saving and its
-  "−" would be disabled. An old plan without income starts blank (= convert), as before.
-- **Step is 1 point.** A stored fractional % (33,333333 from a conversion) stays until touched;
-  − / + go to the next whole point, and + can reach a fractional limit exactly (66 → 66,67).
-- An edit in a month whose categories are over 100% gets `room = max(own %, free)`: it may lower,
-  never raise, without the thumb jumping down on the first touch.
-
-### Learned
-- Login for a scratch DB: `POST /api/auth/signup` with `username`, `email`, `password`; the
-  localStorage key is `@financeMVP:auth` (the whole login JSON).
-- pytest prints no summary line here (quiet config); use the exit code or `--junitxml` for counts.
-- A Playwright `scrollIntoViewIfNeeded()` after opening a `Menu` closes it (the menu closes on
-  scroll) — scroll first, then open.
-
-### Carried from the Início "Resumo do mês" session (2026-10-19), still open
-- Resumo do mês and the plan flags' X not tried on the phone. The bell does not list plan flags.
-  Resultado do mês is `income − |expense|`, not the cash flow's `net`. The flag X is
-  `AlertMessage`'s 24 px button — widen it in `ui.jsx` if it is hard to hit.
+- Rows 039 cannot convert (already inside the chosen Corretora; non-BRL account) keep the archived
+  category's name and now count as despesa/receita in the plan — a transfer to itself is not
+  possible, and the app is reais-only.
+- Converted rows keep `source_type`/`source_id` (an imported one stays idempotent on re-import).
+- Import rules are switched off, not deleted, so the owner sees what they were.
+- **Possible merge conflict:** `services/monthly_plan.py` (the spent query) and
+  `services/budgets.py` (`budget_month_lines()`) are also being edited by the plan-bugs session;
+  whichever merges second must keep the `INVESTMENT_SOURCE_TYPES` skip.
 
 ### Carried from the Orçamento redesign session (2026-10-19), still open
 - Orçamento reads only `GET /api/monthly-plan` (query key `['plano-do-mes', month]`); `needs_income`

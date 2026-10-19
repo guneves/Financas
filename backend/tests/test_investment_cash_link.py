@@ -176,7 +176,9 @@ class TestALinkedBuyIsAnOutflowInTheChosenAccount:
         assert entry["type"] == "EXPENSE"
         assert entry["amount"] == pytest.approx(1000.0)
         assert entry["date"] == "2026-02-10"
-        assert entry["category"] == "Investimento"
+        # Investimento nao e categoria (039): um rotulo, sem category_id.
+        assert entry["category"] == "Aporte"
+        assert entry["category_id"] is None
         assert entry["account_id"] == broker["id"]
         assert investment["metadata"]["cash_account_id"] == broker["id"]
         # The chosen account paid; the default one was not touched.

@@ -13,11 +13,11 @@ incluidas: o usuario define uma vez e o plano vale ate ser trocado. O realizado
 e o de sempre, calculado na leitura:
 
 - gasto do mes = saidas das contas (EXPENSE), sem transferencias, sem
-  pagamento de fatura e sem aporte (lancamento ligado a uma operacao ou na
-  categoria "Investimento" — a mesma regra de `isInvestmentOutflow()` do
-  Inicio), mais as compras no cartao, inteiras, no mes da compra (decisao 1,
+  pagamento de fatura e sem aporte (o caixa de uma operacao; o aporte digitado
+  e uma transferencia para a Corretora — a mesma regra de
+  `isInvestmentOutflow()` do Inicio), mais as compras no cartao, inteiras, no mes da compra (decisao 1,
   a mesma do orcamento por categoria);
-- receita do mes = entradas das contas (INCOME), sem resgate de investimento;
+- receita do mes = entradas das contas (INCOME), sem resgate nem provento pago;
 - aporte do mes = aportes - resgates das operacoes da carteira no mes (o
   mesmo fluxo do grafico de Operacoes, `movement_flow()`): dinheiro novo que
   ficou investido. O caixa ligado nao entra, senao o aporte contaria duas vezes;
@@ -55,7 +55,7 @@ from services.goals import list_goals
 from services.investments import fetch_investments, investment_operation_date
 from services.invoices import local_today, signed_amount_sql
 from services.sharing import own_amount_sql
-from source_types import INVESTMENT_CASH_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
     ValidationError,
     normalize_month,
@@ -66,7 +66,6 @@ from validators import (
     to_percent,
 )
 
-INVESTMENT_CATEGORY = "Investimento"
 # Gasto a partir deste percentual do plano: alerta de "quase no limite"
 # (o mesmo limiar do orcamento por categoria).
 SPEND_WARNING_PERCENT = 80
@@ -84,8 +83,8 @@ def month_banking_totals(conn, current_user_id, month):
     So a parte do dono (032): o que era de outra pessoa nao e gasto nem renda dele.
     """
     own = own_amount_sql()
-    invoice_types = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
-    invoice_placeholders = ", ".join("?" for _ in invoice_types)
+    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES)
+    skipped_placeholders = ", ".join("?" for _ in skipped_types)
     row = conn.execute(
         f"""
         SELECT
@@ -95,12 +94,10 @@ def month_banking_totals(conn, current_user_id, month):
         WHERE user_id = ?
           AND type IN ('EXPENSE', 'INCOME')
           AND substr(date, 1, 7) = ?
-          AND COALESCE(source_type, '') NOT IN ({invoice_placeholders})
+          AND COALESCE(source_type, '') NOT IN ({skipped_placeholders})
           AND COALESCE(category, '') NOT LIKE 'Pagamento Fatura%'
-          AND COALESCE(source_type, '') <> ?
-          AND COALESCE(category, '') <> ?
         """,
-        (current_user_id, month, *invoice_types, INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_CATEGORY),
+        (current_user_id, month, *skipped_types),
     ).fetchone()
     card = conn.execute(
         f"""

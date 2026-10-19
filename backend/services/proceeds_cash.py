@@ -20,13 +20,15 @@ gravado.
 from dates import parse_iso_date
 from db import encode_metadata, parse_metadata_value
 from money import rounded_money
-from services.investments import INVESTMENT_CASH_CATEGORY, PORTFOLIO_ACCOUNT_TYPE, portfolio_cash_account_id
+from services.investments import PORTFOLIO_ACCOUNT_TYPE, portfolio_cash_account_id
 from source_types import INVESTMENT_PROCEED_SOURCE_TYPE
 from validators import safe_float
 import services.invoices as invoices
 
 # Chave do metadata da conta: o dia em que ela virou a conta da carteira.
 PORTFOLIO_SINCE_KEY = "portfolio_since"
+# O texto em transactions.category do provento pago (039): rotulo, sem categoria.
+PROCEED_LABEL = "Provento"
 
 PROCEED_LABELS = {"DIVIDEND": "Dividendo", "JCP": "JCP", "AMORTIZATION": "Amortização"}
 
@@ -128,7 +130,7 @@ def apply_paid_proceeds(conn, current_user_id):
                 account["id"],
                 rounded_money(safe_float(proceed["net_amount"])),
                 proceed["payment_date"][:10],
-                INVESTMENT_CASH_CATEGORY,
+                PROCEED_LABEL,
                 proceed_description(proceed),
                 INVESTMENT_PROCEED_SOURCE_TYPE,
                 proceed_id,

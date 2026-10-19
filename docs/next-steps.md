@@ -233,7 +233,21 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
 ### Investments separate from banking — what is left
 Built on 2026-10-12 and 2026-10-17 (see `docs/done-tasks.md`): every operation comes out of the
 portfolio account (a Corretora account) unless "Não descontar de nenhuma conta" is ticked,
-Início shows the banking area only, and "+ Novo" is banking-only. Open:
+Início shows the banking area only, and "+ Novo" is banking-only. Since 039 (2026-10-19)
+Investimento is not a category: a typed aporte is a transfer to the Corretora. Open:
+- [ ] Owner, after the deploy that runs 039: the old "Investimento" lançamentos are transfers to the
+  Corretora (bank balances unchanged); if no Corretora existed, one named "Corretora" (balance 0)
+  appeared — its "Saldo na corretora" is the net of those old aportes until its initial balance is
+  set; Ajustes › Regras: rules that chose "Investimento" are switched off — point them elsewhere
+  or delete them. Not run on the owner's data (the counts are unknown here).
+- [ ] Left by 039 as they were, and now counted as despesa/receita: an "Investimento" row typed
+  inside the portfolio Corretora itself, or in a non-BRL account. Check on the server:
+  `SELECT COUNT(*) FROM transactions WHERE category = 'Investimento' AND type <> 'TRANSFER'`.
+- [ ] The Extrato shows a transfer to the Corretora as "Transferência" (its badge and totals), not
+  "Aporte"; Início already reads it as an aporte. Owner's call whether the Extrato should too.
+- [ ] Imports and Aprovar have no "transfer to the Corretora" target: a BTG transfer seen in a bank
+  statement imports as a despesa ("Outros") and must be recorded as a transfer by hand (Aprovar's
+  own-account pairing already drafts one when both legs are seen).
 - [ ] Owner, on the server: Ajustes › Contas → "Vincular à carteira" on the brokerage account (or
   create one of type Corretora with its current balance); register one operation as is and one
   with "Não descontar de nenhuma conta"; check the brokerage balance, the Extrato and Operações

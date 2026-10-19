@@ -42,7 +42,10 @@ from source_types import INVESTMENT_CASH_SOURCE_TYPE
 from validators import ValidationError, safe_float
 
 
-INVESTMENT_CASH_CATEGORY = "Investimento"
+# O texto em transactions.category do caixa de uma operacao (039): um rotulo,
+# sem category_id, como a "Transferencia" das transferencias. Investimento nao
+# e categoria; o source_type e que diz o que a linha e.
+INVESTMENT_CASH_LABELS = {"EXPENSE": "Aporte", "INCOME": "Resgate"}
 # Chave do metadata da movimentacao: a conta do lancamento ligado.
 CASH_ACCOUNT_KEY = "cash_account_id"
 
@@ -313,6 +316,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
                 amount = ?,
                 date = ?,
                 category = ?,
+                category_id = NULL,
                 description = ?,
                 type = ?,
                 metadata = ?
@@ -322,7 +326,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
                 account_id,
                 amount,
                 transaction_date,
-                INVESTMENT_CASH_CATEGORY,
+                INVESTMENT_CASH_LABELS[cash_type],
                 description,
                 cash_type,
                 encode_metadata(metadata),
@@ -344,7 +348,7 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
             account_id,
             amount,
             transaction_date,
-            INVESTMENT_CASH_CATEGORY,
+            INVESTMENT_CASH_LABELS[cash_type],
             description,
             cash_type,
             INVESTMENT_CASH_SOURCE_TYPE,

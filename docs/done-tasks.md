@@ -149,7 +149,7 @@
 | Planejar › Orçamento redesigned around the income-based plan: Saldo do plano as the headline with Disponível por dia (privacy mode hides both), Renda do mês ("Recebido X de Y esperados") with Investir / Gastar / Sem destino rows (%, R$, realizado, progress, "Falta investir" + "Como dividir" → Alocação), the plan flags, Categorias do mês with % + live R$ and Sem categoria; one "Plano do mês" sheet (Renda, Investir %, Gastar %, live totals, save blocked over 100% or without income) for the empty state, editing and `needs_income`. Only `GET /api/monthly-plan` is read; no financial rule changed. `percentOf()`, `livePlanTotals()`, `unallocatedText()` in `lib/monthlyPlan.js` (115 node), 1343 pytest | 2026-10-19 |
 | Início: the month's movement leaves the hero for its own card "Resumo do mês" (Resultado do mês, Entrou, Saiu, Investido when there was an aporte or resgate, "Você pagou por outras pessoas" / "Outras pessoas te pagaram" → A receber), in the place of "Disponível por dia", which left Início (it lives in Orçamento). Same `currentMonth` numbers, no rule changed; privacy masks every value | 2026-10-19 |
 | Plano do mês: each flag gets an X ("Dispensar"), dismissed per device (`lib/planFlags.js`); the key is `planFlagKey()` (code + month + goal), tested in `monthlyPlan.test.js` (117 node); nothing goes to the server | 2026-10-19 |
-| Evolução do Patrimônio: chart history served stale and refreshed in the background (Yahoo + BCB); Orçamento's Investir/Gastar/category % as sliders | 2026-10-19 |
+| Investimento is no longer a category (039): aporte/resgate/provento by `source_type` or a bank ↔ Corretora transfer; typed "Investimento" rows became transfers to the Corretora, the category archived, its import rules switched off; 1349 pytest, 118 node | 2026-10-19 |
 
 ---
 
@@ -987,16 +987,27 @@ the padding; the first snap position is 0 and the next account still snaps 16 px
   privacy on; Orçamento at 390 px: X on SPEND_PACE → 2 flags to 1, still 1 after reload. No console
   errors. 1343 pytest, 117 node, `vite build`.
 
-### 2026-10-19 — Faster Evolução do Patrimônio; Orçamento's % as sliders
-- **Why it was slow:** the chart's own computation takes ~0.1 s on the three-year seed (profiled).
-  The time was the network: every 15 min the history cache expired and the next open waited for a
-  full 63-month Yahoo download and the BCB series (each capped at `PRICE_FETCH_TIMEOUT_SECONDS`,
-  6 s), and a write invalidates every query, so that wait came back often. Now an expired entry
-  (up to 7 days) is served at once and refreshed in the background
-  (`schedule_history_refresh()`); a failed refresh keeps the old data instead of blanking the chart.
-  A cold start (server just restarted) still waits once.
-- **Sliders:** `PercentSlider` in `ui.jsx` (CSS `.percent-slider` in `index.css`), used by the plan
-  sheet and by Orçamento's add/edit category. Rules in `lib/monthlyPlan.js` with 3 node tests.
-  Metas untouched. Chromium on the seed at 390 px: Investir dragged to 100 stops at 35 (Gastar 65),
-  a new category stops at the 25% still free, an edit 6 → 7% saved. No console errors.
-  1346 pytest, 120 node, `vite build`.
+
+### Investimento is no longer a category (039) — 2026-10-19
+
+Owner: "investimentos should not be a category". The meaning used to come from three places, one of
+them the category's *name* (renaming or archiving it made every typed aporte count as spending).
+Now only the row's origin decides:
+- `INVESTMENT_SOURCE_TYPES` (`source_types.py`, `lib/transactions.js`): the movement's cash and
+  the paid provento. The plan's spent/income (`services/monthly_plan.py`) and the budget's lines
+  (`budget_month_lines()`, which also used to list linked aportes) skip them.
+- Seen from the banking area, a transfer bank ↔ Corretora (`bankingTransactions()`, which now marks
+  it `portfolio_transfer` and labels it "Aporte"/"Resgate").
+- The cash rows are written with a label, no `category_id`: "Aporte"/"Resgate"
+  (`INVESTMENT_CASH_LABELS`), "Provento" (`PROCEED_LABEL`).
+- The share guard on the category is gone (linked rows are 409 before it; a typed aporte is a
+  transfer). Recorrentes no longer labels a recurrence "Investimento"/"Resgate".
+- Migration 039: typed EXPENSE/INCOME in "Investimento" (any source but the two above, imports
+  included) → TRANSFER with the portfolio Corretora (`portfolio_cash_account_id()`'s order); a user
+  with rows to convert and no active BRL Corretora gets "Corretora" (or "Corretora (carteira)"
+  when the name is taken), balance 0, not default. Left as they were: rows already in that
+  Corretora, rows in a non-BRL account. Shares on converted rows are cleared. The root
+  "Investimento" category is archived; import rules choosing it get `active = 0`; PENDING Aprovar
+  items in it go to "Outros"/"Receita". No recurrence was in it (owner); one that exists posts a
+  plain despesa in the archived category.
+- New users are seeded with nine categories.
