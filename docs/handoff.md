@@ -7,64 +7,70 @@
 
 ---
 
-## Session — 2026-10-19 · The monthly plan starts from income (backend + 038)
+## Session — 2026-10-19 · Orçamento redesigned around the income-based plan
 
-Cloud session; read the docs directly. One PR. **The screen redesign is the next session** — this
-one is the backend, the migration and only the frontend changes needed to keep saving and reading.
+Cloud session; read the docs directly (no scout). One PR, frontend only — no backend file, no
+migration, no financial rule changed.
 
 ### Done
-- Migration **038**: `monthly_plans.invest_percent` / `spend_percent`, `budgets.planned_percent`
-  (TEXT, six decimals), with the conversion of plans that had income and of the categories of
-  their months. Details and the API shape in `done-tasks.md` ("The monthly plan starts from
-  income (038)").
-- `services/budgets.py` (new): the budget rules moved out of `routes/budgets.py`, plus the plan
-  row of a month, `plan_figures()`, category inheritance (`category_source_month()`,
-  `materialize_month()`) and the legacy conversion. `services/monthly_plan.py` builds the full
-  response on top of it; `routes/budgets.py` only validates and serves.
-- Interim frontend: `MonthlyPlanPanel` (Renda R$ + Investir % + Gastar %; "Informar renda" for a
-  `needs_income` plan, blank % = convert), Orçamento ("% do Gastar", `?month=` on edit/delete/
-  lines, "Saldo do plano" = `totals.plan_balance`), Início (`plan_balance`, null-safe), the
-  `NEEDS_INCOME` status label, the `CATEGORIES_OVER_SPEND` flag text.
-- Seed (`seed_three_years_mock.py`): one plan a year back (income, 20% / 65%) and seven category
-  percentages that the later months inherit; it now also wipes `monthly_plans`.
-- 1343 pytest (21 new in `test_monthly_plan_income.py`, `test_budgets.py` rewritten for
-  inheritance), 108 node, `vite build`. Seed run on a throwaway DB and Orçamento driven in
-  Chromium (save the plan, edit a category %, open Início): right R$, no console errors.
+- `pages/Orcamento.jsx` rebuilt top to bottom: month picker → Saldo do plano (`SummaryPanel` lead,
+  red when negative) with Disponível por dia, both masked in privacy mode → Renda do mês
+  ("Recebido X de Y esperados"; Investir with "Falta investir" and "Como dividir" →
+  `/investimentos/alocacao`; Gastar; Sem destino only when > 0; the flags) → Categorias do mês
+  (% · R$, status, progress, live R$ beside the % in the add form and the inline edit, Sem
+  categoria at the bottom, "Copiar mês anterior" kept).
+- `components/MonthlyPlanPanel.jsx`: the Renda panel (default export, now takes `data`/`onEdit`)
+  and `MonthlyPlanSheet` — Renda, Investir %, Gastar %, live "Investir R$ X · Gastar R$ Y · Sem
+  destino Z%", save blocked over 100% or without income; the same sheet for the empty state
+  ("Comece pelo plano do mês") and `needs_income` ("Informe a renda para converter o plano em
+  porcentagens."), focused on Renda.
+- `lib/monthlyPlan.js`: `percentOf()` (integer cents × millionths, ROUND_HALF_UP = backend's
+  `percent_of()`), `formatPlanPercent()`, `unallocatedText()`, `incomeReceivedText()`,
+  `livePlanTotals()`, `livePlanText()`, `categoryAmountPreview()`; 7 new node tests (115 total).
+- `lib/dataApi.js` needed no change: `monthlyPlanApi` and `budgetsApi` already had every call.
+- 1343 pytest, 115 node, `vite build`. Chromium at 390 px, light and dark, with a plan / no plan /
+  `needs_income`, plus saving a conversion and the privacy toggle: right numbers, no console errors.
+  Details in `done-tasks.md` ("Orçamento redesigned around the income-based plan").
 
 ### Not done, and why
-- **No redesign** of Orçamento / the plan (asked for the next session). The interim screen is
-  functional, not designed: it still lists the plan panel, the summary and the categories
-  separately. The open items are in `next-steps.md` ("Plano do mês a partir da renda — the screen").
-- Not tried on the phone, and 038 not run against the owner's real data (the cloud has none).
-- Início's "Disponível por dia" still divides on the client; the server returns
-  `daily_available` with the same rule.
+- **Início still shows its own "Disponível por dia"** (computed on the client in `Dashboard.jsx`,
+  with a no-plan fallback of balance − invoices). Out of scope here; **the next session removes it**
+  (open item in `next-steps.md`, which also says to drop the matching rule from `CLAUDE.md`).
+- Not tried on the phone; 038 still not run against the owner's real data.
+- "Sem categoria" shows its % and R$ only, not spending outside the categories — the API has no such
+  figure and computing it on the client would be a second rule (optional item in `next-steps.md`).
 
 ### Decisions worth knowing
-- **Categories inherit with the plan.** The brief asked for "category percentages included" in
-  inheritance. Before 038 a month with no budget rows showed none; now it shows the categories of
-  the latest month ≤ it with a plan row or budget rows. To keep that sane, any category write in
-  an inherited month first copies the inherited plan and categories into it, a PUT that creates a
-  month's plan copies the categories in, and `DELETE /api/monthly-plan` takes the month's
-  categories with it. So a budget id from an earlier month is valid in a later one only while that
-  month still inherits; once it has its own copy, `?month=` with the old id is 404 (the screen
-  always uses the ids of the month it shows).
-- **"Saldo do plano" is one number** (`plan_balance` = Gastar R$ − the month's spent, all
-  categories). `totals.remaining` on `/api/budgets` was kept as the *categories'* leftover because
-  Início's budget strip compares categories against their own plan; it is no longer labelled
-  "Saldo do plano" anywhere.
-- **The PUT converts more than "that month".** Old categories without % are converted in every
-  month the saved plan governs (its month up to the next plan row), since those months now take
-  their Gastar from it. A category whose month has Gastar 0 stays `needs_income` (no base).
-- **Over 100% after conversion** (an old plan whose spend + invest passed the income, or old
-  categories summing past the spend) is kept and flagged, not clipped; a PATCH may lower a
-  category while the month is still over 100% but not raise it.
-- Old R$ columns are NOT NULL, so new rows write 0 there; nothing reads them once a % exists.
+- **The page reads only `GET /api/monthly-plan`** — its `categories.items` is the budget list, so
+  one response feeds the whole screen. Same query key as Início (`['plano-do-mes', month]`).
+- **`needs_income` is not auto-opened.** Like the empty state, it shows a card whose button opens
+  the sheet with the text; popping a sheet on page load felt intrusive. Easy to flip if the owner
+  wants it.
+- **A legacy conversion over 100% is not blocked** in the sheet (only an explicit % sum is): the
+  backend deliberately accepts it and flags `PLAN_OVER_INCOME` (see the 038 decisions in git
+  history of this file). The live line turns red and says "Passa de 100% da renda em X%".
+- Saldo, Disponível and the categories are hidden in a `needs_income` month (no R$ to show); the
+  old R$ appear in the sheet's warning.
+- Privacy mode hides only Saldo do plano and Disponível por dia, as asked; the plan's other R$
+  stay visible (privacy is for balances and the portfolio, `lib/privacy.js`).
 
 ### Learned
-- The Playwright trap from the calculator session hit again: the "⋯" menu near the bottom nav at
-  390 px needs `scrollIntoView({ block: 'center' })` before the click.
-- The seed writes `backend/backups/finance-pre-mock-*.db` even with `DATABASE_BACKUP_DIR` set —
-  delete it after.
+- `PanelHeader`'s `description` is `hidden sm:block`: anything that must show on the phone goes in
+  the panel body (the "Recebido … esperados" line does).
+- Playwright: `getByRole('button', { name: 'Mês anterior' })` also matches "Copiar mês anterior";
+  pass `exact: true`.
+- Screenshots here: a throwaway `DATABASE_PATH` + `ALLOW_SIGNUP=1`, signup through
+  `app.app.test_client()`, then `scripts/seed_three_years_mock.py <email>`; a `needs_income` month
+  is a `monthly_plans` row with `income_amount`, `invest_percent`, `spend_percent` NULL (no
+  `sqlite3` CLI in the container — use Python). The seed still writes
+  `backend/backups/finance-pre-mock-*.db` — delete it.
+
+### Carried from the 038 backend session (2026-10-19), still open
+- Categories inherit with the plan; a category write in an inherited month first copies the plan
+  and categories into it (`materialize_month()`), so an old month's budget id is 404 there once the
+  month has its own copy. `DELETE /api/monthly-plan` takes the month's categories with it.
+- `totals.remaining` on `/api/budgets` is the *categories'* leftover (Início's budget strip), not
+  Saldo do plano.
 
 ### Carried from the account-strip session (2026-10-19), still open
 - The strip fix (`scroll-px-4`) was not tried on the phone. Any other `snap-x` strip with side
