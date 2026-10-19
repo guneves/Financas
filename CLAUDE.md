@@ -167,7 +167,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 108 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 115 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 

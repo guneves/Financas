@@ -146,6 +146,7 @@
 | Owner's review, items 4–21: card edit (name, due and closing day); account edit on screen (name, institution, initial balance, default, unlink from the portfolio, reactivate); the default account never lost (archived or turned Corretora → another takes the mark; a 409 no longer clears it; never a Corretora); lançamento of an archived account editable, its name shown; `account_id: ""` on edit refused; a transfer edit across currencies refused; import rules skip paid proventos; CSV type "d"/"Depósito"/"Devolução"; OFX "-42,90", CSV "1.500", a repeated FITID; recurrences skip archived accounts (`blocked`); closing day 29–31 in a short month; old card endpoints (`/status`, `/invoice-status` removed; list POST rounded, no `PAID`, a `client_id` per purchase); dates and months stored zero-padded; no third category level or archived parent; `JWT_SECRET` never the public default (generated into `.jwt_secret`), signup closed once a user exists (`ALLOW_SIGNUP`); Aprovar "Nx de R$" read as the installment; `parseMoneyInput` "1,234.56"/"0.500"; `round()` on quotes; a hand-written button height. `test_card_edit.py`, `test_signup_and_secret.py` and cases in the existing files (1305 pytest), 108 node, 52 JVM | 2026-10-18 |
 | Início's account strip opens at the far left on the phone: `scroll-px-4` on the strip, so `snap-start` stops snapping the first account to 16 px (Chromium, 390 px: `scrollLeft` 0 with 1 and 8 accounts, cold load, back and in-app navigation) | 2026-10-19 |
 | The monthly plan starts from income — backend + migration 038: the plan is Renda (R$, required) + Investir % + Gastar % of it, each category a % of Gastar; every R$ computed on read (`percent_of()`), percentages stored as six-decimal text read as `Decimal`; over 100% refused at both levels; Sem destino / Sem categoria returned; a month inherits the previous plan *with its categories*; Saldo do plano = Gastar − spent (one number in the plan, its progress and the budget) and Disponível por dia; the migration converts plans with income and their months' categories, the rest is `needs_income` until the PUT brings the income. Budget logic moved to `services/budgets.py`. Interim screens only (redesign next). `test_monthly_plan_income.py` (21) + the budget files rewritten (1343 pytest), 108 node | 2026-10-19 |
+| Planejar › Orçamento redesigned around the income-based plan: Saldo do plano as the headline with Disponível por dia (privacy mode hides both), Renda do mês ("Recebido X de Y esperados") with Investir / Gastar / Sem destino rows (%, R$, realizado, progress, "Falta investir" + "Como dividir" → Alocação), the plan flags, Categorias do mês with % + live R$ and Sem categoria; one "Plano do mês" sheet (Renda, Investir %, Gastar %, live totals, save blocked over 100% or without income) for the empty state, editing and `needs_income`. Only `GET /api/monthly-plan` is read; no financial rule changed. `percentOf()`, `livePlanTotals()`, `unallocatedText()` in `lib/monthlyPlan.js` (115 node), 1343 pytest | 2026-10-19 |
 
 ---
 
@@ -924,3 +925,32 @@ the padding; the first snap position is 0 and the next account still snaps 16 px
   category percentages, inherited) run on a throwaway DB, and Orçamento driven in Chromium on it
   (save the plan, edit a category's %, Início) with no console error.
 
+
+### Orçamento redesigned around the income-based plan — 2026-10-19
+- **One read.** The page reads only `GET /api/monthly-plan` (query key `['plano-do-mes', month]`,
+  shared with Início). Its `categories.items` is the same list `GET /api/budgets` returns, so the
+  categories, Saldo do plano and Disponível por dia come from one response; `/api/budgets` is still
+  read by Início's budget strip and written by the category form.
+- **Top to bottom:** month picker → `SummaryPanel` (lead Saldo do plano = `plan_balance`, red when
+  negative; figure Disponível por dia = `daily_available`, "Mês encerrado" in a past month, where
+  the API returns null) → `MonthlyPlanPanel` (Renda do mês; Investir, Gastar, Sem destino only when
+  its % > 0; flags; the definitions of gasto and investido) → Categorias do mês (each % · R$, status,
+  progress, remaining, gasto de disponível; Sem categoria at the bottom; "Copiar mês anterior",
+  "Gerenciar categorias"). Saldo, Disponível and the categories appear only when the plan has
+  figures; with no plan the empty state "Comece pelo plano do mês", with `needs_income` "O plano
+  precisa da renda" — both open the same sheet, focused on Renda.
+- **The sheet** (`MonthlyPlanSheet`, exported from `components/MonthlyPlanPanel.jsx`): Renda,
+  Investir %, Gastar %; the live line "Investir R$ X · Gastar R$ Y · Sem destino Z%" comes from
+  `livePlanTotals()` / `livePlanText()`, which also give the reason saving is blocked (no income,
+  a missing %, over 100%). Percentages are summed as integer millionths, so 33,33 + 66,67 is 100.
+  In a `needs_income` month the two % may stay blank (the server converts the old R$, 038); the
+  live line then shows the old R$ and the share of the income they make, and a conversion over
+  100% is *not* blocked — the backend keeps it and flags it (`PLAN_OVER_INCOME`). The form resets
+  only when the sheet opens, so a background refetch never wipes what is being typed.
+- **Live R$ of a category %** (`categoryAmountPreview()`, `percentOf()`): Gastar R$ × % in integer
+  cents × millionths with ROUND_HALF_UP — the same as the backend's `percent_of()` — beside the
+  add field and the inline edit. Only a preview; the server's figure is what the row shows.
+- Checked in Chromium at 390 px, light and dark: with a plan (the seed's inherited plan), no plan
+  (a month before it), `needs_income` (a legacy row inserted by hand) and its conversion on save
+  (R$ 40.000 income over the old R$ 8.000 / 30.000 → 20% / 75%, Disponível R$ 967,74 = 30.000 ÷ 31),
+  privacy mode; no console errors.

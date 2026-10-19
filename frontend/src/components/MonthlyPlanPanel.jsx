@@ -1,98 +1,184 @@
 import { useState } from 'react'
-import { Check, PiggyBank, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ArrowRight, Check, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { monthlyPlanApi } from '../lib/dataApi'
 import { formatCurrency, monthLabel } from '../lib/format'
-import { FLAG_TONES, flagText, moneyInputValue, parseMoneyInput, sortFlags, spendStatus } from '../lib/monthlyPlan'
-import { keepPreviousData, useQuery, useReportQueryError } from '../lib/queries'
+import {
+  FLAG_TONES,
+  flagText,
+  formatPlanPercent,
+  incomeReceivedText,
+  livePlanText,
+  livePlanTotals,
+  moneyInputValue,
+  parseMoneyInput,
+  sortFlags,
+  spendStatus,
+} from '../lib/monthlyPlan'
 import { toast } from '../lib/toast'
 import { confirmAction } from '../lib/confirm'
-import { AlertMessage, Button, EmptyState, Field, Panel, PanelHeader, Sheet, Skeleton, cx } from './ui'
+import { AlertMessage, Button, Field, Panel, PanelHeader, Sheet, cx } from './ui'
 import { BudgetProgressBar } from './BudgetProgress'
 
-const emptyForm = { income: '', spend: '', invest: '' }
-
-const formatPercent = (value) => `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
-
-function PlanRow({ label, done, planned, percent, status, remainingLabel, remaining, remainingTone }) {
+// Uma linha da renda: Investir, Gastar ou Sem destino. % e R$ a esquerda, o
+// realizado a direita; a barra e o rodape so quando ha o que medir.
+function PlanLevel({ label, percent, amount, realized, progress, status, children }) {
   return (
-    <div>
+    <div className="px-5 py-4 sm:px-6">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="font-semibold text-zinc-900">{label}</p>
-        <p className="num text-sm text-zinc-600">
-          <span className="font-semibold text-zinc-900">{formatCurrency(done)}</span> de {formatCurrency(planned)}
+        <p className="min-w-0 font-semibold text-zinc-900">
+          {label} <span className="tabular font-normal text-zinc-600">· {formatPlanPercent(percent)}</span>
         </p>
+        <p className="tabular whitespace-nowrap text-base font-bold text-zinc-950">{formatCurrency(amount)}</p>
       </div>
-      <BudgetProgressBar percent={percent} status={status} className="mt-2 h-2.5" />
-      <p className={cx('mt-1.5 text-sm', remainingTone === 'loss' ? 'font-semibold text-rose-600' : 'text-zinc-600')}>
-        {remainingLabel} {formatCurrency(remaining)}
-      </p>
+      {realized ? <p className="mt-0.5 text-sm text-zinc-600">{realized}</p> : null}
+      {progress !== undefined ? <BudgetProgressBar percent={progress} status={status} className="mt-2.5 h-2.5" /> : null}
+      {children}
     </div>
   )
 }
 
-// Plano do mes no topo do Orcamento: a renda e quanto dela investir e gastar,
-// em %, e os alertas para chegar nas metas. O calculo e todo do servidor (os
-// reais saem dos %). Versao de transicao: o redesenho da tela vem depois.
-export default function MonthlyPlanPanel({ month }) {
-  const [error, setError] = useState('')
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const [form, setForm] = useState(emptyForm)
+// Renda do mes no Orcamento: quanto se espera receber e como ela se divide em
+// Investir, Gastar e Sem destino, com o realizado de cada um e os alertas do
+// plano. Todo numero vem de GET /api/monthly-plan (services/monthly_plan.py).
+export default function MonthlyPlanPanel({ data, onEdit }) {
+  const plan = data.plan
+  const actual = data.actual || {}
+  const progress = data.progress || {}
+  const flags = sortFlags(data.flags)
+  const investRemaining = Number(progress.invest_remaining || 0)
+  const unallocatedPercent = Number(data.unallocated?.percent || 0)
+
+  return (
+    <Panel>
+      <PanelHeader
+        title="Renda do mês"
+        actions={<Button variant="secondary" icon={SlidersHorizontal} onClick={onEdit}>Editar plano</Button>}
+      />
+
+      {/* Fora do PanelHeader: a descricao dele some no celular, e esta linha e o ponto do painel. */}
+      <div className="border-b border-zinc-100 px-5 py-3 sm:px-6">
+        <p className="tabular text-sm font-semibold text-zinc-900">
+          {incomeReceivedText(data.income?.received, data.income?.planned)}
+        </p>
+        {plan.inherited ? (
+          <p className="mt-0.5 text-sm text-zinc-500">
+            Plano definido em <span className="inline-block first-letter:uppercase">{monthLabel(plan.source_month)}</span>.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="divide-y divide-zinc-100">
+        <PlanLevel
+          label="Investir"
+          percent={data.invest.percent}
+          amount={data.invest.amount}
+          realized={`${formatCurrency(actual.invested)} investidos até agora`}
+          progress={progress.invest_percent ?? 0}
+          status="OK"
+        >
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3">
+            <p className="text-sm text-zinc-600">
+              {investRemaining > 0 ? `Falta investir ${formatCurrency(investRemaining)}` : 'Aporte do mês feito'}
+            </p>
+            {Number(data.invest.amount) > 0 ? (
+              <Link
+                to="/investimentos/alocacao"
+                className="-mr-2 inline-flex h-11 items-center gap-1 rounded-full px-2 text-sm font-semibold text-emerald-700 hover:bg-zinc-100 lg:h-8"
+              >
+                Como dividir
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            ) : null}
+          </div>
+        </PlanLevel>
+
+        <PlanLevel
+          label="Gastar"
+          percent={data.spend.percent}
+          amount={data.spend.amount}
+          realized={`${formatCurrency(actual.spent)} gastos até agora`}
+          progress={progress.spend_percent ?? (actual.spent > 0 ? 100 : 0)}
+          status={spendStatus(flags)}
+        />
+
+        {unallocatedPercent > 0 ? (
+          <PlanLevel label="Sem destino" percent={data.unallocated.percent} amount={data.unallocated.amount} />
+        ) : null}
+      </div>
+
+      {flags.length ? (
+        <ul className="space-y-2 border-t border-zinc-100 px-5 py-4 sm:px-6" aria-label="Alertas do plano">
+          {flags.map((flag) => (
+            <li key={`${flag.code}-${flag.goal_id || ''}`}>
+              <AlertMessage tone={FLAG_TONES[flag.tone]} message={flagText(flag)} className="animate-none" />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <p className="border-t border-zinc-100 px-5 py-3 text-xs text-zinc-500 sm:px-6">
+        Gasto: saídas das contas e compras no cartão (inteiras, no mês da compra), sem transferências, pagamento de fatura e aportes.
+        Investido: aportes menos resgates das operações da carteira no mês.
+      </p>
+    </Panel>
+  )
+}
+
+const formFromPlan = (plan) => {
+  if (!plan) return { income: '', invest: '', spend: '' }
+  if (plan.needs_income) {
+    // Plano antigo: os % ficam em branco para o servidor converter os reais de antes.
+    return { income: moneyInputValue(plan.income_amount), invest: '', spend: '' }
+  }
+  return {
+    income: moneyInputValue(plan.income_amount),
+    invest: moneyInputValue(plan.invest_percent),
+    spend: moneyInputValue(plan.spend_percent),
+  }
+}
+
+// "Plano do mes": Renda, Investir % e Gastar %, nessa ordem, com os R$ ao vivo.
+// O mesmo sheet cria o plano, edita e, num plano antigo sem renda, pede a renda
+// para converte-lo. Abre com o foco na renda.
+export function MonthlyPlanSheet({ open, onClose, month, plan }) {
+  const [form, setForm] = useState(() => formFromPlan(plan))
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
 
-  const query = useQuery({
-    queryKey: ['plano-do-mes', month],
-    queryFn: () => monthlyPlanApi.month(month),
-    placeholderData: keepPreviousData,
-  })
-  useReportQueryError(query, setError, 'Não foi possível carregar o plano do mês.')
-  const data = query.data
-  const plan = data?.plan
-  const actual = data?.actual || {}
-  const progress = data?.progress || {}
-  const flags = sortFlags(data?.flags)
-
-  const needsIncome = Boolean(plan?.needs_income)
-
-  const openSheet = () => {
-    setForm(plan
-      ? {
-          income: needsIncome ? '' : moneyInputValue(plan.income_amount),
-          spend: moneyInputValue(plan.spend_percent),
-          invest: moneyInputValue(plan.invest_percent),
-        }
-      : emptyForm)
-    setFormError('')
-    setSheetOpen(true)
+  // Cada abertura parte do plano que a tela mostra; uma releitura com o sheet
+  // aberto nao apaga o que se esta digitando.
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setForm(formFromPlan(plan))
+      setFormError('')
+    }
   }
 
-  const income = parseMoneyInput(form.income)
-  const spend = parseMoneyInput(form.spend)
-  const invest = parseMoneyInput(form.invest)
-  // Plano antigo sem renda: com os dois % em branco, o servidor converte os
-  // reais de antes sobre a renda informada.
-  const convertLegacy = needsIncome && spend === null && invest === null
-  const leftover = !convertLegacy && spend !== null && invest !== null && !Number.isNaN(spend) && !Number.isNaN(invest)
-    ? 100 - spend - invest
-    : null
+  const needsIncome = Boolean(plan?.needs_income)
+  const totals = livePlanTotals({
+    income: parseMoneyInput(form.income),
+    invest: parseMoneyInput(form.invest),
+    spend: parseMoneyInput(form.spend),
+    legacy: needsIncome ? plan.legacy : null,
+  })
 
   const handleSave = async (event) => {
     event.preventDefault()
-    if (income === null || Number.isNaN(income) || income <= 0) {
-      setFormError('Informe a renda do mês em reais, como 5.000,00.')
-      return
-    }
-    if (!convertLegacy && (spend === null || Number.isNaN(spend) || invest === null || Number.isNaN(invest))) {
-      setFormError('Informe quanto da renda investir e gastar, em %, como 20 ou 33,33.')
+    if (totals.blocked) {
+      setFormError(totals.blocked)
       return
     }
     setSaving(true)
     setFormError('')
     try {
-      await monthlyPlanApi.save(convertLegacy
+      const income = parseMoneyInput(form.income)
+      await monthlyPlanApi.save(totals.convert
         ? { month, income_amount: income }
-        : { month, income_amount: income, spend_percent: spend, invest_percent: invest })
-      setSheetOpen(false)
+        : { month, income_amount: income, invest_percent: parseMoneyInput(form.invest), spend_percent: parseMoneyInput(form.spend) })
+      onClose()
       toast(`Plano salvo a partir de ${monthLabel(month)}.`)
     } catch (requestError) {
       setFormError(requestError.message || 'Não foi possível salvar o plano.')
@@ -110,7 +196,7 @@ export default function MonthlyPlanPanel({ month }) {
     setSaving(true)
     try {
       await monthlyPlanApi.remove(month)
-      setSheetOpen(false)
+      onClose()
       toast('Plano removido.')
     } catch (requestError) {
       setFormError(requestError.message || 'Não foi possível remover o plano.')
@@ -120,144 +206,69 @@ export default function MonthlyPlanPanel({ month }) {
   }
 
   const ownPlan = plan && !plan.inherited
-  const overSpent = Number(data?.plan_balance) < 0
+  const set = (key) => (event) => setForm({ ...form, [key]: event.target.value })
 
   return (
-    <Panel>
-      <PanelHeader
-        title="Plano do mês"
-        description="Da sua renda, quanto investir e quanto gastar. Vale a partir do mês em que é salvo, até você trocar."
-        actions={plan ? (
-          <Button variant="secondary" icon={SlidersHorizontal} onClick={openSheet}>Editar plano</Button>
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Plano do mês"
+      description={`Vale a partir de ${monthLabel(month)}, até você salvar outro.`}
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          {ownPlan ? (
+            <Button variant="danger" icon={Trash2} onClick={handleRemove} disabled={saving}>Remover deste mês</Button>
+          ) : <span />}
+          <Button type="submit" form="monthly-plan-form" icon={Check} loading={saving} disabled={Boolean(totals.blocked)}>
+            Salvar plano
+          </Button>
+        </div>
+      }
+    >
+      <form id="monthly-plan-form" onSubmit={handleSave} className="space-y-4">
+        {needsIncome ? (
+          <AlertMessage tone="warning" className="animate-none">
+            <p className="font-semibold">Informe a renda para converter o plano em porcentagens.</p>
+            <p className="mt-0.5 font-normal">
+              O plano antigo era investir {formatCurrency(plan.legacy?.invest_amount)} e gastar {formatCurrency(plan.legacy?.spend_amount)}.
+              Com os % em branco, eles viram a parte da renda que esses valores representam.
+            </p>
+          </AlertMessage>
         ) : null}
-      />
-
-      <div className="space-y-5 p-5 sm:px-6">
-        <AlertMessage message={error} onDismiss={() => setError('')} />
-
-        {query.isPending ? (
-          <div className="space-y-3">
-            <Skeleton className="h-12" />
-            <Skeleton className="h-12" />
-          </div>
-        ) : !plan ? (
-          <EmptyState
-            icon={PiggyBank}
-            title="Sem plano para este mês"
-            message="Informe a renda do mês e quanto dela vai investir e gastar. O app avisa quando o ritmo sair do plano e se o aporte cobre as suas metas."
-            action={<Button icon={SlidersHorizontal} onClick={openSheet}>Definir plano</Button>}
+        <AlertMessage message={formError} onDismiss={() => setFormError('')} />
+        <Field label="Renda do mês (R$)">
+          <input
+            type="text" inputMode="decimal" autoComplete="off" placeholder="0,00"
+            value={form.income} onChange={set('income')}
+            className="app-input h-14 text-2xl font-bold tabular" required autoFocus
           />
-        ) : needsIncome ? (
-          <EmptyState
-            icon={PiggyBank}
-            title="O plano precisa da renda"
-            message={`O plano agora parte da renda do mês. O antigo era gastar ${formatCurrency(plan.legacy?.spend_amount)} e investir ${formatCurrency(plan.legacy?.invest_amount)}: informe a renda para convertê-lo em percentuais.`}
-            action={<Button icon={SlidersHorizontal} onClick={openSheet}>Informar renda</Button>}
-          />
-        ) : (
-          <>
-            {plan.inherited ? (
-              <p className="text-sm text-zinc-600">
-                Plano definido em <span className="first-letter:uppercase">{monthLabel(plan.source_month)}</span>.
-              </p>
-            ) : null}
-
-            <div className="grid gap-5 md:grid-cols-2">
-              <PlanRow
-                label={`Gastar · ${formatPercent(plan.spend_percent)}`}
-                done={actual.spent}
-                planned={plan.spend_amount}
-                percent={progress.spend_percent ?? (actual.spent > 0 ? 100 : 0)}
-                status={spendStatus(flags)}
-                remainingLabel={overSpent ? 'Acima do plano:' : 'Ainda pode gastar:'}
-                remaining={Math.abs(Number(data?.plan_balance || 0))}
-                remainingTone={overSpent ? 'loss' : 'neutral'}
-              />
-              <PlanRow
-                label={`Investir · ${formatPercent(plan.invest_percent)}`}
-                done={actual.invested}
-                planned={plan.invest_amount}
-                percent={progress.invest_percent ?? 0}
-                status="OK"
-                remainingLabel="Falta investir:"
-                remaining={progress.invest_remaining}
-              />
-            </div>
-
-            <p className="text-sm text-zinc-600">
-              Renda do mês {formatCurrency(plan.income_amount)} · recebido {formatCurrency(actual.income)} · sem destino{' '}
-              <span className={cx('font-semibold', plan.unallocated_amount < 0 ? 'text-rose-600' : 'text-zinc-900')}>
-                {formatCurrency(plan.unallocated_amount)} ({formatPercent(plan.unallocated_percent)})
-              </span>
-              {data?.daily_available !== null && data?.daily_available !== undefined
-                ? <> · disponível por dia {formatCurrency(data.daily_available)}</>
-                : null}
-            </p>
-
-            {flags.length ? (
-              <ul className="space-y-2" aria-label="Alertas do plano">
-                {flags.map((flag) => (
-                  <li key={`${flag.code}-${flag.goal_id || ''}`}>
-                    <AlertMessage tone={FLAG_TONES[flag.tone]} message={flagText(flag)} className="animate-none" />
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            <p className="text-xs text-zinc-500">
-              Gasto: saídas das contas e compras no cartão (inteiras, no mês da compra), sem transferências, pagamento de fatura e aportes.
-              Investido: aportes menos resgates das operações da carteira no mês.
-            </p>
-          </>
-        )}
-      </div>
-
-      <Sheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        title="Plano do mês"
-        description={`Vale a partir de ${monthLabel(month)}, até você salvar outro.`}
-        footer={
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            {ownPlan ? (
-              <Button variant="danger" icon={Trash2} onClick={handleRemove} disabled={saving}>Remover deste mês</Button>
-            ) : <span />}
-            <Button type="submit" form="monthly-plan-form" icon={Check} loading={saving}>Salvar plano</Button>
-          </div>
-        }
-      >
-        <form id="monthly-plan-form" onSubmit={handleSave} className="space-y-4">
-          <AlertMessage message={formError} onDismiss={() => setFormError('')} />
-          <Field label="Renda do mês (R$)">
-            <input
-              type="text" inputMode="decimal" autoComplete="off" placeholder="0,00"
-              value={form.income} onChange={(event) => setForm({ ...form, income: event.target.value })}
-              className="app-input" required autoFocus
-            />
-          </Field>
-          <Field label="Investir (% da renda)" hint={needsIncome ? 'Em branco: converte o plano antigo' : undefined}>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Investir (% da renda)" hint={needsIncome ? 'Em branco: converte' : undefined}>
             <input
               type="text" inputMode="decimal" autoComplete="off" placeholder="0"
-              value={form.invest} onChange={(event) => setForm({ ...form, invest: event.target.value })}
+              value={form.invest} onChange={set('invest')}
               className="app-input" required={!needsIncome}
             />
           </Field>
-          <Field label="Gastar (% da renda)" hint={needsIncome ? 'Em branco: converte o plano antigo' : undefined}>
+          <Field label="Gastar (% da renda)" hint={needsIncome ? 'Em branco: converte' : undefined}>
             <input
               type="text" inputMode="decimal" autoComplete="off" placeholder="0"
-              value={form.spend} onChange={(event) => setForm({ ...form, spend: event.target.value })}
+              value={form.spend} onChange={set('spend')}
               className="app-input" required={!needsIncome}
             />
           </Field>
-          {leftover !== null ? (
-            <p className={cx('text-sm', leftover < 0 ? 'font-semibold text-rose-600' : 'text-zinc-600')}>
-              {leftover < 0
-                ? `Investir e gastar passam de 100% da renda em ${formatPercent(-leftover)}.`
-                : `Sem destino: ${formatPercent(leftover)} da renda.`}
-            </p>
-          ) : null}
-        </form>
-      </Sheet>
-    </Panel>
+        </div>
+        <p
+          className={cx('tabular rounded-2xl bg-zinc-50 px-4 py-3 text-sm', totals.over ? 'font-semibold text-rose-600' : 'text-zinc-700')}
+          aria-live="polite"
+        >
+          {livePlanText(totals)}
+        </p>
+        {totals.blocked && totals.blocked !== formError ? (
+          <p className="text-sm text-zinc-600">{totals.blocked}</p>
+        ) : null}
+      </form>
+    </Sheet>
   )
 }

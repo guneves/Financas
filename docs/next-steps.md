@@ -9,25 +9,23 @@
 
 ## 1. Open work, in priority order
 
-### Plano do mês a partir da renda — the screen (next session)
-The backend and migration 038 are in (see `done-tasks.md`, 2026-10-19). The screen is the
-interim one: `MonthlyPlanPanel` takes Renda (R$) + Investir % + Gastar %, Orçamento takes "% do
-Gastar" per category, and both read the new fields — nothing was redesigned.
-- [ ] Redesign Orçamento around the levels the API already returns (`GET /api/monthly-plan`):
-  Renda (planned vs received) → Investir / Gastar / Sem destino → categories inside Gastar with
-  Sem categoria → Saldo do plano and Disponível por dia. The response carries each level's %,
-  R$, realizado and remaining; `categories.items` is the same list as `GET /api/budgets`.
-- [ ] A `needs_income` month (an old plan without income, or old categories in a month with no
-  income) shows only "Informar renda" today; the redesign should show the old R$ (`plan.legacy`,
-  each item's `legacy_amount`) and convert on the PUT (percentages left blank = convert).
-- [ ] Início still computes "Disponível por dia" on the client from `plan_balance`; switch it to
-  the server's `daily_available` (same rule, the server's clock) or keep it — owner's call.
+### Plano do mês a partir da renda — what is left
+The backend (038) and the Orçamento redesign are in (see `done-tasks.md`, 2026-10-19). Open:
+- [ ] **Início's "Disponível por dia" goes (next session).** Orçamento now shows Saldo do plano
+  and Disponível por dia from the API (`plan_balance`, `daily_available`); Início still shows its
+  own tile, computed on the client (`Dashboard.jsx`, `dailyAvailable`, with the fallback balance −
+  invoices when there is no plan). Remove it there, and the "Disponível por dia" rule in
+  `CLAUDE.md` with it — decide what, if anything, Início keeps in its place.
 - [ ] Inheritance is new for categories: a month without its own rows now shows the previous
   plan's categories (it used to show none). Editing a category in such a month (`?month=`) makes
   the month its own plan first. Check on the server after the deploy that past months read as
   expected; `DELETE /api/monthly-plan` now removes the month's categories with it.
-- [ ] Owner check after the deploy: open Orçamento in a month planned before 038. A plan that had
-  income comes back in % with the same R$; one without income asks for it.
+- [ ] Owner check after the deploy, on the phone: open Orçamento in a month planned before 038. A
+  plan that had income comes back in % with the same R$; one without income shows "O plano precisa
+  da renda" and converts on save (the % left blank). Not tried on a phone yet.
+- [ ] Optional, owner's call: "Sem categoria" shows only its % and R$ of Gastar, not what was spent
+  outside the categories (the API returns no such figure; month spent − categories' spent is not
+  the same rule once subcategories roll up, so it was not computed on the client).
 
 ### Home server — what is left
 The server is the only backend since 2026-10-16 (`DEPLOY.md`; see `docs/done-tasks.md`). Open:
