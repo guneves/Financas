@@ -1090,8 +1090,11 @@ function BalanceHero({ total, accounts, monthName, result, income, expense, inve
         </div>
       </div>
 
+      {/* scroll-px-4: o snap alinha cada conta a borda da area de snap, que
+          ignora o padding; sem ele a primeira conta "encaixa" em 16 px e a
+          faixa abre rolada, colada na borda do bloco. */}
       {accounts.length > 0 ? (
-        <ul className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] sm:overflow-visible sm:px-0">
+        <ul className="-mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] sm:overflow-visible sm:px-0">
           {accounts.map((account) => {
             // Tudo em reais: a conta em moeda estrangeira aparece pelo valor
             // convertido, o mesmo que o total acima soma. Sem cambio hoje ela
