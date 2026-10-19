@@ -226,3 +226,7 @@ Use an authenticated `POST /api/database/backups` to create a backup in `DATABAS
 - For production, replace `JWT_SECRET` with a strong, private value.
 - SQLite serves local/MVP use well. For real multi-user use on a server, the natural next step is migrating the persistence layer to a self-hosted PostgreSQL, keeping the same Flask API.
 - See `docs/next-steps.md` for the active work plan.
+
+## License
+
+[MIT](LICENSE) © 2026 guneves.
