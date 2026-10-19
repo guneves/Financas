@@ -15,7 +15,7 @@ O que estes testes fixam:
 import gzip
 import json
 
-from compression import accepts_gzip
+from gzip_responses import accepts_gzip
 
 
 def post_movement(client, auth, *, quantity, price, date, sale_price=None):
