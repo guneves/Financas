@@ -7,27 +7,51 @@
 
 ---
 
-## Session — 2026-10-19 · Delete operações from the Extrato
+## Session — 2026-10-19 · Operações edit bugs + fixed-income coupons (040)
 
-Local session, short owner request ("I can't delete operações at the extrato, contas and
-investments; if I delete an investment buy, delete the aporte correlated to it"). No scout.
+Cloud session, owner request: (1) a sale shows "-" in Operações › Editar and refuses an edit
+without it; (2) after saving one edit, "Salvar" spins until the screen is left; (3) register
+future coupons and amortizations of fixed income by hand, landing in the account. Scout run
+directly (`subagent_type="session-scout"` worked).
 
 ### Done
-- Extrato › Contas: an `INVESTMENT_TRANSACTION` row ("Pela carteira") now has a "⋯" with
-  "Excluir operação" (desktop and phone), which calls `DELETE /api/investments/<source_id>`.
-- Extrato › Investimentos: every operação except a bonificação has "⋯" › "Excluir operação";
-  `movementEntry()` carries `movementId` and `deletable` (tested, 122 node).
-- The backend needed nothing: deleting a movement already runs
-  `delete_investment_cash_transaction()` (`test_deleting_a_linked_buy_removes_its_expense`), and
-  the backing guard (a sale left without its buy → 409) shows as the screen's warning.
+- (1) `openEditModal()` shows `Math.abs(quantity)`; save sends `-qty` for a sale/resgate. The
+  PATCH keeps the stored operation's sign (`routes/investments.py`), so an old screen or a
+  positive quantity can never turn a sale into a buy. `test_investment_edit_sign.py`.
+- (2) Cause: `handleSaveEdit` awaited `refreshAll()` (every active query) and then
+  `handleUpdateStockPrices()` — `POST /api/investments/update-prices`, yfinance, no timeout —
+  before `setLoading(false)`; the sheet had already closed, and `loading` is the next edit's
+  button. Now the quote refresh runs behind, unawaited (the write already invalidates the cache).
+- (3) Migration **040** rebuilds `investment_proceeds` to allow `INTEREST`. INTEREST/AMORTIZATION
+  take the payment date when no data com is sent; INTEREST's default IR is
+  `interest_tax_rate()` in `routes/proceeds.py` (regressive table from the asset's first BUY up to
+  the payment, 0 for tax-free types or non-fixed-income). `POST /api/investment-proceeds` takes
+  `repeat: {every_months ∈ {1,2,3,6,12}, count ≤ 120}` and answers a list; all or nothing.
+  `proceeds_cash` labels it "Juros"; IR report: INTEREST with IR → 06, without → 12. Proventos'
+  form has a fixed-income mode (Juros (cupom) / Amortização, Pagamento, Valor bruto, IR, Repetir).
+  `test_fixed_income_interest.py`.
+- Clicked through in Chromium against a throwaway DB: sale edit shows 40, saves as "Venda · 30
+  un.", the second edit's Salvar is free; a coupon paid today landed in the Corretora as
+  "Juros: …" with 20% IR, the next scheduled at 17.5%.
 
 ### Not done, and why
-- The aporte row itself is still refused by `DELETE /api/transactions/<id>` (409): deleting cash
-  alone would leave the portfolio saying the money left. The Contas menu deletes the operação.
-- Proventos are not deletable from the Extrato (the owner asked about operações); Proventos'
-  own screen still does it.
-- Not clicked through in a browser; `vite build` and `npm test` pass. A deleted movement's
-  receipt files on the aporte row are left to the boot prune (rows go by cascade), as before.
+- Amortization still does not reduce the title's principal in Posição (it was a provento before
+  040 too); changing that is a modelling decision — in `next-steps.md`.
+- No shortcut from Posição's fixed-income row to "agendar cupom"; the entry point is Proventos.
+- Proventos' list filter still opens on the current year (future-year coupons only in the
+  calendar); editing a coupon keeps its stored IR unless blanked. Both in `next-steps.md`.
+- Not tried on the phone; 040 not run on the owner's data.
+
+### Learned
+- In this container: `python3 -m venv <scratchpad>/venv` + `pip install -r requirements-dev.txt`;
+  `node_modules` was already there; Playwright resolves from `/opt/node-tools/node_modules/playwright`.
+- A throwaway server: `DATABASE_PATH=… DATABASE_BACKUP_DIR=… ATTACHMENTS_DIR=… ALLOW_SIGNUP=1
+  AUTO_BACKUP_ON_BOOT=0 python -c "import app; app.app.run(port=5055)"` from `backend/`, after
+  `vite build`; signup through `POST /api/auth/signup`.
+
+### Carried from the Extrato-delete session (2026-10-19), still open
+- The aporte row itself is still refused by `DELETE /api/transactions/<id>` (409); the Contas menu
+  deletes the operação. Proventos are not deletable from the Extrato.
 
 ### Carried from the 039 session (2026-10-19), still open
 - 039 not run on the owner's data (owner check in `next-steps.md`); the Extrato still shows a

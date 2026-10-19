@@ -542,6 +542,10 @@ def investment_detail(current_user_id, investment_id):
             return validation_error(BONUS_LOCKED_MESSAGE, 409)
         asset_class = existing["asset_class"]
         quantity = parsed_quantity if parsed_quantity is not None else safe_float(existing["quantity"])
+        # O sinal e do tipo da operacao gravada, nao do campo: uma venda (ou
+        # resgate) editada sem o "-" continua venda, e uma compra nao vira venda.
+        if parsed_quantity is not None:
+            quantity = -abs(parsed_quantity) if safe_float(existing["quantity"]) < 0 else abs(parsed_quantity)
         unit_price = (
             parsed_average_price
             if parsed_average_price is not None

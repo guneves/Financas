@@ -13,14 +13,20 @@ import sqlite3
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
+from dates import clamped_date, parse_iso_date
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
 from money import rounded_money
 from responses import export_response, read_export_options
+from services.fixed_income import fixed_income_is_tax_free
 from services.investments import ensure_asset_owner, investment_metadata_dict
 from services.proceeds_sync import sync_proceeds
+from services.realized_results import days_between_dates, fixed_income_tax_rate_for_days
 from services.proceeds import (
     ALLOWED_PROCEEDS_TYPES,
+    FIXED_INCOME_EVENT_TYPES,
+    INTEREST_TYPE,
+    asset_movement_rows,
     build_investment_proceeds_summary,
     default_tax_for_proceed,
     fetch_investment_proceed_by_id,
@@ -44,6 +50,37 @@ from validators import (
 )
 
 bp = Blueprint("proceeds", __name__)
+
+# "Repetir" de um provento novo: um pagamento a cada N meses, `count` ao todo
+# (o primeiro incluido) — os cupons de um titulo ate o vencimento.
+REPEAT_EVERY_MONTHS = {1, 2, 3, 6, 12}
+REPEAT_MAX_COUNT = 120
+
+
+def interest_tax_rate(conn, current_user_id, asset_id, payment_date):
+    """Aliquota do IR retido no cupom de juros de renda fixa.
+
+    Tabela regressiva pelos dias entre a aplicacao e o pagamento (Lei
+    11.033/2004, art. 1o), a mesma do resgate; zero no titulo isento (LCI, LCA,
+    CRI, CRA, debenture incentivada). A aplicacao e a primeira compra do ativo
+    ate o pagamento. Ativo que nao e renda fixa, ou sem compra, nao presume
+    imposto: o dono informa.
+    """
+    asset = conn.execute(
+        "SELECT asset_class FROM assets WHERE id = ? AND user_id = ?",
+        (asset_id, current_user_id),
+    ).fetchone()
+    if not asset or asset["asset_class"] != "FIXED_INCOME":
+        return 0.0
+    for row in asset_movement_rows(conn, current_user_id, asset_id, payment_date):
+        movement = serialize_metadata_row(row)
+        if movement.get("movement_type") != "BUY" or safe_float(movement.get("quantity")) <= 0:
+            continue
+        if fixed_income_is_tax_free(movement.get("metadata")):
+            return 0.0
+        days = days_between_dates(movement.get("transaction_date"), payment_date)
+        return fixed_income_tax_rate_for_days(days)
+    return 0.0
 
 
 def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
@@ -71,9 +108,11 @@ def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
     ensure_asset_owner(conn, current_user_id, asset_id)
     proceeds_type = require_choice(merged, "proceeds_type", "Tipo de provento", ALLOWED_PROCEEDS_TYPES)
     declared_date = optional_date(merged, "declared_date", "Data de declaracao")
+    payment_date = require_date(merged, "payment_date", "Data de pagamento")
+    if proceeds_type in FIXED_INCOME_EVENT_TYPES and merged.get("record_date") in (None, ""):
+        merged["record_date"] = payment_date
     record_date = require_date(merged, "record_date", "Data com")
     ex_date = optional_date(merged, "ex_date", "Data ex")
-    payment_date = require_date(merged, "payment_date", "Data de pagamento")
 
     amount_per_unit = parse_optional_number(
         merged,
@@ -120,20 +159,27 @@ def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
         "Imposto",
         minimum=0,
     )
+    # O IR do cupom muda com a data de pagamento (tabela regressiva).
+    tax_inputs = ("proceeds_type", "amount_per_unit", "eligible_quantity", "gross_amount")
+    if proceeds_type == INTEREST_TYPE:
+        tax_inputs += ("payment_date", "asset_id")
     should_recalculate_tax = (
         not tax_was_provided
         and (
             existing.get("id") is None
-            or any(key in payload for key in ("proceeds_type", "amount_per_unit", "eligible_quantity", "gross_amount"))
+            or any(key in payload for key in tax_inputs)
         )
     )
     if tax_amount is None or should_recalculate_tax:
-        tax_amount = default_tax_for_proceed(
-            proceeds_type,
-            gross_amount,
-            record_date,
-            (parse_metadata_value(merged.get("metadata")) or {}).get("kind"),
-        )
+        if proceeds_type == INTEREST_TYPE:
+            tax_amount = gross_amount * interest_tax_rate(conn, current_user_id, asset_id, payment_date)
+        else:
+            tax_amount = default_tax_for_proceed(
+                proceeds_type,
+                gross_amount,
+                record_date,
+                (parse_metadata_value(merged.get("metadata")) or {}).get("kind"),
+            )
 
     gross_amount = rounded_money(gross_amount)
     tax_amount = rounded_money(tax_amount)
@@ -160,6 +206,84 @@ def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
         "notes": optional_string(merged, "notes", 1000),
         "metadata": investment_metadata_dict(metadata),
     }
+
+
+def shifted_date(value, months):
+    """A data `months` meses depois, no mesmo dia (ou no ultimo do mes curto)."""
+    parsed = parse_iso_date(value) if value not in (None, "") else None
+    if not parsed or not months:
+        return value
+    index = parsed.year * 12 + parsed.month - 1 + months
+    return clamped_date(index // 12, index % 12 + 1, parsed.day).isoformat()
+
+
+def parse_repeat(payload):
+    """`repeat: {every_months, count}` de um POST, ou None (um pagamento so)."""
+    repeat = payload.get("repeat")
+    if repeat in (None, "", False):
+        return None
+    if not isinstance(repeat, dict):
+        raise ValidationError("Repeticao invalida.")
+    try:
+        every_months = int(repeat.get("every_months"))
+        count = int(repeat.get("count"))
+    except (TypeError, ValueError):
+        raise ValidationError("Informe a frequencia e o numero de pagamentos.")
+    if every_months not in REPEAT_EVERY_MONTHS:
+        raise ValidationError("Frequencia invalida: a cada 1, 2, 3, 6 ou 12 meses.")
+    if count < 1 or count > REPEAT_MAX_COUNT:
+        raise ValidationError(f"Numero de pagamentos deve ficar entre 1 e {REPEAT_MAX_COUNT}.")
+    return every_months, count
+
+
+def repeated_payloads(payload, repeat):
+    """Um payload por pagamento; as datas andam juntas, o resto e igual."""
+    if not repeat:
+        return [payload]
+    every_months, count = repeat
+    payloads = []
+    for index in range(count):
+        item = dict(payload)
+        for key in ("declared_date", "record_date", "ex_date", "payment_date"):
+            if key in item:
+                item[key] = shifted_date(item[key], every_months * index)
+        payloads.append(item)
+    return payloads
+
+
+def insert_proceed(conn, current_user_id, proceed):
+    proceed_id = new_id()
+    conn.execute(
+        """
+        INSERT INTO investment_proceeds
+        (
+            id, user_id, asset_id, proceeds_type, declared_date,
+            record_date, ex_date, payment_date, amount_per_unit,
+            eligible_quantity, gross_amount, tax_amount, net_amount,
+            source, notes, metadata
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            proceed_id,
+            current_user_id,
+            proceed["asset_id"],
+            proceed["proceeds_type"],
+            proceed["declared_date"],
+            proceed["record_date"],
+            proceed["ex_date"],
+            proceed["payment_date"],
+            proceed["amount_per_unit"],
+            proceed["eligible_quantity"],
+            proceed["gross_amount"],
+            proceed["tax_amount"],
+            proceed["net_amount"],
+            proceed["source"],
+            proceed["notes"],
+            encode_metadata(proceed["metadata"]),
+        ),
+    )
+    return proceed_id
 
 
 def parse_investment_proceeds_filters(args):
@@ -208,47 +332,25 @@ def investment_proceeds(current_user_id):
     if not isinstance(payload, dict):
         return validation_error("Provento deve ser um objeto valido.")
 
+    # Com `repeat`, todos os pagamentos sao gravados juntos ou nenhum, e a
+    # resposta e a lista; sem ele, o provento sozinho, como sempre.
     try:
+        repeat = parse_repeat(payload)
         with get_db() as conn:
-            proceed = normalize_proceed_payload(conn, current_user_id, payload)
-            proceed_id = new_id()
-            conn.execute(
-                """
-                INSERT INTO investment_proceeds
-                (
-                    id, user_id, asset_id, proceeds_type, declared_date,
-                    record_date, ex_date, payment_date, amount_per_unit,
-                    eligible_quantity, gross_amount, tax_amount, net_amount,
-                    source, notes, metadata
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    proceed_id,
-                    current_user_id,
-                    proceed["asset_id"],
-                    proceed["proceeds_type"],
-                    proceed["declared_date"],
-                    proceed["record_date"],
-                    proceed["ex_date"],
-                    proceed["payment_date"],
-                    proceed["amount_per_unit"],
-                    proceed["eligible_quantity"],
-                    proceed["gross_amount"],
-                    proceed["tax_amount"],
-                    proceed["net_amount"],
-                    proceed["source"],
-                    proceed["notes"],
-                    encode_metadata(proceed["metadata"]),
-                ),
-            )
-            row = fetch_investment_proceed_by_id(conn, current_user_id, proceed_id)
-            item = serialize_investment_proceed(row, conn, current_user_id)
+            items = []
+            for item_payload in repeated_payloads(payload, repeat):
+                proceed = normalize_proceed_payload(conn, current_user_id, item_payload)
+                proceed_id = insert_proceed(conn, current_user_id, proceed)
+                row = fetch_investment_proceed_by_id(conn, current_user_id, proceed_id)
+                items.append(serialize_investment_proceed(row, conn, current_user_id))
     except ValidationError as exc:
         return validation_error(str(exc))
     except sqlite3.IntegrityError:
         return jsonify({"error": "Nao foi possivel registrar o provento."}), 400
 
+    if repeat:
+        return jsonify(items), 201
+    item = items[0]
     return jsonify(item), 201
 
 
