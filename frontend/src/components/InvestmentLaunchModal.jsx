@@ -10,6 +10,7 @@ import { toast } from '../lib/toast'
 import TickerAutocomplete from './TickerAutocomplete'
 import AssetPicker from './AssetPicker'
 import FixedIncomeFields from './FixedIncomeFields'
+import { parseTreasuryUnits } from '../lib/treasury'
 import CashLinkField, { cashLinkMetadata, emptyCashLink } from './CashLinkField'
 import { SaleExemptionNotice } from './ExemptionMeter'
 import {
@@ -77,10 +78,9 @@ const MODE_ITEMS = [
 // "0,85" -> {treasury_units: 0.85}; vazio, nada. Um numero invalido e erro.
 function treasuryUnitsMetadata(form) {
   if (form.asset_class !== TREASURY) return {}
-  const raw = String(form.treasury_units ?? '').trim()
-  if (!raw) return {}
-  const units = Number(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw)
-  if (!Number.isFinite(units) || units <= 0) throw new Error('Informe uma quantidade de títulos válida.')
+  const units = parseTreasuryUnits(form.treasury_units)
+  if (units === null) return {}
+  if (Number.isNaN(units)) throw new Error('Informe uma quantidade de títulos válida.')
   return { treasury_units: units }
 }
 

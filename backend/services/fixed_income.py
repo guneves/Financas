@@ -22,6 +22,7 @@ import urllib.request
 
 from dates import parse_iso_date
 from db import get_db
+import gov_http
 import history_store
 from config import HISTORY_CACHE_TTL_SECONDS
 from money import rounded_money
@@ -238,6 +239,8 @@ def fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca_monthly=None, pur
 
 # O SGS recusa (HTTP 406) consultas de serie diaria com janela acima de 10 anos.
 BCB_MAX_WINDOW_DAYS = 3650
+# O SGS as vezes leva mais de 15 s numa janela longa.
+BCB_TIMEOUT_SECONDS = 30
 
 
 def fetch_bcb_window(series_code, start_date, end_date):
@@ -253,15 +256,15 @@ def fetch_bcb_window(series_code, start_date, end_date):
         f"?formato=json&dataInicial={start_date.strftime('%d/%m/%Y')}"
         f"&dataFinal={end_date.strftime('%d/%m/%Y')}"
     )
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as response_bcb:
-            body = response_bcb.read().decode()
+        body = gov_http.get(url, BCB_TIMEOUT_SECONDS, accept="application/json").decode()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace") if exc.fp else ""
         if exc.code == 404 and "not found" in detail.lower():
             return []
         raise RuntimeError(f"BCB respondeu {exc.code}") from exc
+    except RuntimeError as exc:
+        raise RuntimeError(f"BCB: {exc}") from exc
 
     rows = json.loads(body) if body.strip() else []
     if not isinstance(rows, list):

@@ -20,6 +20,7 @@ import {
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
+import { parseTreasuryUnits } from '../../lib/treasury'
 import { formatCurrency, formatSignedCurrency } from '../../lib/format'
 import {
   FIXED_INCOME_METADATA_KEYS,
@@ -147,6 +148,9 @@ export default function Operacoes() {
       sale_price: mov.metadata?.sale_price || '',
       other_costs: mov.metadata?.other_costs ?? mov.fee_amount ?? '',
       fixed_income: fixedIncomeFormFromMetadata(mov.metadata || {}),
+      // Compra do Tesouro: a quantidade de titulos do extrato da corretora.
+      is_treasury_buy: mov.asset_category === 'TESOURO' && !mov.metadata?.is_redemption && Number(mov.quantity) > 0,
+      treasury_units: mov.metadata?.treasury_units ? String(mov.metadata.treasury_units).replace('.', ',') : '',
       movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
       cash_link: cashLink,
       saved_cash_account_id: cashLink.accountId,
@@ -202,6 +206,12 @@ export default function Operacoes() {
       if (editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption) {
         FIXED_INCOME_METADATA_KEYS.forEach((key) => delete metadata[key])
         Object.assign(metadata, fixedIncomeMetadataFromForm(editModal.fixed_income))
+      }
+      if (editModal.is_treasury_buy) {
+        const units = parseTreasuryUnits(editModal.treasury_units)
+        if (Number.isNaN(units)) throw new Error('Informe uma quantidade de títulos válida.')
+        if (units === null) delete metadata.treasury_units
+        else metadata.treasury_units = units
       }
 
       await investmentsApi.update(editModal.id, {
@@ -441,6 +451,12 @@ export default function Operacoes() {
               savedAccountId={editModal.saved_cash_account_id}
               selectClassName="app-select"
             />
+
+            {editModal.is_treasury_buy && (
+              <Field label="Quantidade de títulos (opcional)" hint="Como no extrato da corretora: o valor de mercado é essa quantidade × o preço do Tesouro. Vazio, o app calcula pelo preço do dia da compra.">
+                <input type="text" inputMode="decimal" value={editModal.treasury_units} onChange={(e) => setEditField('treasury_units', e.target.value)} placeholder="Ex: 0,85" className="app-input" />
+              </Field>
+            )}
 
             {editModal.asset_class === 'FIXED_INCOME' && !editModal.is_redemption && (
               <FixedIncomeFields

@@ -251,7 +251,7 @@ def fake_bcb_http_error(code, body):
 
 def test_bcb_not_found_is_an_empty_series(fixed_income_module, monkeypatch):
     # Titulo comprado hoje: o SGS responde 404 "Value(s) not found".
-    def urlopen(req, timeout=None):
+    def urlopen(req, timeout=None, **_):
         raise fake_bcb_http_error(404, '{"erro":{"statusCode":404,"detail":"SGSNegocioException: Value(s) not found"}}')
 
     monkeypatch.setattr(fixed_income_module.urllib.request, "urlopen", urlopen)
@@ -263,14 +263,14 @@ def test_bcb_error_object_fails_with_its_message(fixed_income_module, monkeypatc
     monkeypatch.setattr(
         fixed_income_module.urllib.request,
         "urlopen",
-        lambda req, timeout=None: FakeBcbResponse('{"error": "Servico indisponivel"}'),
+        lambda req, timeout=None, **_: FakeBcbResponse('{"error": "Servico indisponivel"}'),
     )
     with pytest.raises(RuntimeError, match="Servico indisponivel"):
         fixed_income_module.fetch_bcb_series(12, datetime(2025, 1, 1), datetime(2025, 2, 1))
 
 
 def test_bcb_other_http_errors_still_fail(fixed_income_module, monkeypatch):
-    def urlopen(req, timeout=None):
+    def urlopen(req, timeout=None, **_):
         raise fake_bcb_http_error(500, "boom")
 
     monkeypatch.setattr(fixed_income_module.urllib.request, "urlopen", urlopen)
@@ -281,7 +281,7 @@ def test_bcb_other_http_errors_still_fail(fixed_income_module, monkeypatch):
 def test_bcb_windows_over_ten_years_are_split(fixed_income_module, monkeypatch):
     windows = []
 
-    def urlopen(req, timeout=None):
+    def urlopen(req, timeout=None, **_):
         query = req.full_url.split("?", 1)[1]
         params = dict(part.split("=") for part in query.split("&"))
         windows.append((params["dataInicial"], params["dataFinal"]))
@@ -299,7 +299,7 @@ def test_bcb_windows_over_ten_years_are_split(fixed_income_module, monkeypatch):
 
 
 def test_refresh_of_a_title_bought_today_keeps_its_cost(fixed_income_module, client, auth, monkeypatch):
-    def urlopen(req, timeout=None):
+    def urlopen(req, timeout=None, **_):
         raise fake_bcb_http_error(404, '{"erro":{"statusCode":404,"detail":"Value(s) not found"}}')
 
     monkeypatch.setattr(fixed_income_module.urllib.request, "urlopen", urlopen)

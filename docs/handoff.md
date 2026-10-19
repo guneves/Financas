@@ -7,54 +7,47 @@
 
 ---
 
-## Session — 2026-10-19 · Tesouro Direto marked to market, grouped by title
+## Session — 2026-10-19 (later) · BCB integration and automatic Tesouro marking
 
-Cloud session, owner request (in Portuguese, with a BTG screenshot: Tesouro IPCA+ 2045 0,85 títulos
-líq. R$ 1.144,07 / bruto R$ 1.188,36; Renda+ 2065 (venc. 15/12/2084) 42,79 títulos líq.
-R$ 8.881,46 / bruto R$ 9.240,47): fix the Tesouro analysis, group the same titles with a proper
-average rate, value them exactly with fees and mark-to-market "from the Banco Central API".
-Scout not used (the first `Agent` call failed on a missing parameter; docs read directly).
+Cloud session, owner request (Portuguese, BTG screenshot: IPCA+ 2045 0,85 títulos líq.
+R$ 1.144,07 / bruto R$ 1.188,36; Renda+ 2065 venc. 15/12/2084 42,79 títulos líq. R$ 8.881,46 /
+bruto R$ 9.240,47): find why the BCB integration fails, make the Tesouro marking automatic and real.
+Scout not used (docs read directly; the task was narrow).
 
 ### Done
-- `tesouro_client.py`: the Tesouro Transparente CSV (the BCB publishes no Tesouro PU — only CDI,
-  Selic, IPCA), parsed by header into compact per-title series; title found from the owner's name
-  (type keywords + year; Renda+/Educa+ by conversion year); cache in memory + `tesouro_precos.csv`
-  next to the DB, 6 h fresh, 10 days max; a read never waits; CKAN discovery if the URL moves.
-  Config `TESOURO_PRICES_URL` / `TESOURO_PRICES_FILE` (empty disables; conftest blanks both).
-- `services/treasury.py`: titles per purchase, market value, custody (B3 OC 014/2024), IOF, IR per
-  purchase, the average rate (IRR-to-maturity), grouping, "Atualizar cotações" quotes (source
-  `tesouro`). `regressive_ir_rate()` split out of `fixed_income_net_value()`.
-- `services/portfolio.py`: the snapshot merges Tesouro purchases into one position (`lots`,
-  `treasury`, `asset_ids`); the evolution values Tesouro lots the same way (gross and net match
-  Posição); `services/returns.py` reads the same daily PU. Health: "Tesouro Transparente" (passive,
-  reads the cache — the file is too big for an active probe).
-- Frontend: Posição › Tesouro Direto table/card (Vencimento, Quantidade, PU, Saldo líquido, Saldo
-  bruto), "Detalhes do título" sheet (custody/IOF/IR, PU and data base, market vs your rate, each
-  purchase), grouped redemption oldest first (`lib/treasury.js`, tested), delete of a grouped
-  title by asset, optional "Quantidade de títulos" on a Tesouro buy, quote source "Tesouro
-  Nacional".
-- Tests: `test_treasury.py` (36), `treasury.test.js` (5). 1448 pytest, 136 node, `vite build`.
-  Chromium screenshots (1280 and 390 px) and a real PEPS redemption on a throwaway server with a
-  synthetic price file.
+- `gov_http.py` (new, pure): the GET for the BCB SGS and the Tesouro Transparente. TLS context with
+  `VERIFY_X509_STRICT` cleared (chain + hostname still verified), one retry on timeout/429/502/503/
+  504 (not on a refused certificate), errors as readable causes. `fetch_bcb_window()` (CDI, IPCA,
+  PTAX) and `tesouro_client._http_get()` use it.
+- Health: the BCB probe waits `BCB_TIMEOUT_SECONDS` (30 s; the fetch's own timeout also 15 → 30 s)
+  instead of the quotes' 6 s.
+- `tesouro_client.start_auto_refresh()`, called from `app.py`: download at boot, check hourly
+  (only downloads past `PRICES_FRESH_SECONDS`), through the same background future as reads.
+  Owner follow-up: marking once a day — `PRICES_FRESH_SECONDS` 6 h → 24 h.
+  Default URL's file name now lower-case (`precotaxatesourodireto.csv`, as Finance::Quote uses;
+  CKAN ignores the name for an upload, and discovery still covers a moved URL).
+- Operações › Editar on a Tesouro buy: "Quantidade de títulos (opcional)" (`parseTreasuryUnits()`
+  in `lib/treasury.js`, shared with the launch modal). Empty removes `treasury_units`.
+- Tests: `test_gov_http.py` (10), BCB fakes take `**kwargs`; 1458 pytest, 137 node, `vite build`.
 
 ### Not done, and why
-- **Never downloaded the real file**: this container's proxy refuses tesouro*.gov.br and
-  api.bcb.gov.br, and WebFetch could not resolve them. The URL (CKAN resource
-  `796d2059-…/PrecoTaxaTesouroDireto.csv`) and the header names come from memory of the public
-  dataset; the parser finds columns by keyword, and discovery covers a moved URL — but the first
-  real run is on the server. Owner check in `next-steps.md`.
-- Renda+/Educa+ early-sale custody modelled as the regular 0.20% (sources disagree); BTG's
-  líquido is the check.
-- No field to type the titles on an existing purchase (edit form); no data migration.
+- **Root cause not observed.** This container is refused api.bcb.gov.br and
+  tesourotransparente.gov.br (proxy 403), and the server's health detail was not available. The
+  diagnosis is by elimination: the image is `python:3.14-slim` with urllib (yfinance, which works,
+  uses curl_cffi, not Python's ssl), Python ≥ 3.13 enables strict X.509 by default and gov.br
+  chains are a known casualty; and the health probe gave the SGS 6 s. If Ajustes › Integrações still
+  shows an error after the deploy, its detail now names the cause — start there.
+- Values not checked against the real price file; the BTG numbers above are the reference.
 
 ### Learned
-- A redemption of a merged title must point to purchases (`related_id`); the lots carry their ids
-  and gross for that. A position merged from >1 purchase has id `tesouro:<first id>` and no
-  `source_transaction_id`; a single purchase keeps its own id, so old redemptions still match.
-- `Menu` closes on scroll: in Playwright, `scroll_into_view_if_needed()` + a wait before clicking
-  "⋯"; on desktop the hidden mobile list is first in the DOM, so take `.last`.
-- The Posição resgate needs a Corretora account (or the CashLinkField refuses): create one with
-  `POST /api/accounts {"type": "BROKERAGE"}` on a throwaway server.
+- Python 3.14 `urlopen(..., context=)` still works (only `cafile`/`capath` were removed in 3.13).
+- Patching `fixed_income_module.urllib.request.urlopen` patches the global `urllib.request`, so
+  `gov_http` sees the same fakes.
+
+### Carried from the Tesouro marked-to-market session (2026-10-19), still open
+- Renda+/Educa+ early-sale custody modelled as the regular 0.20% (sources disagree); BTG's líquido
+  is the check. A redemption of a merged title points to purchases (`related_id`); a position
+  merged from >1 purchase has id `tesouro:<first id>`. `Menu` closes on scroll in Playwright.
 
 ### Carried from the asset-categories session (2026-10-19), still open
 - No new DB class (Alocação by class, targets, goals, Rentabilidade's filter still 4 classes);

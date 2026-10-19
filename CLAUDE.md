@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1448 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1459 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -169,7 +169,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome` and `treasury`, 136 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome` and `treasury`, 137 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -217,6 +217,7 @@ backend/
   irpf_text.py        # texto para colar no programa do IRPF, sobre o relatorio de IR (funcoes puras)
   statusinvest_client.py # historico de proventos por ticker na StatusInvest (funcoes puras + cache)
   tesouro_client.py   # precos e taxas do Tesouro Direto (CSV do Tesouro Transparente) + cache em disco
+  gov_http.py         # GET no BCB e no Tesouro: TLS sem o modo estrito do Python 3.13+, nova tentativa, erro legivel
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -763,6 +764,16 @@ mobile-docs/
   `build_treasury_positions()`), so their last point is Posição's. A read never waits for the file
   (`get_prices()` downloads behind; without it the title is on the curve, `valuation: "CURVE"`);
   "Atualizar cotações" waits and records the market value as the quote (source `tesouro`).
+  The file is downloaded **once a day** (owner, 2026-10-19: `PRICES_FRESH_SECONDS` = 24 h, read
+  from the disk copy's mtime, so a deploy does not re-download): at boot when older, then
+  `start_auto_refresh()` checks its age hourly (off without URL); reads and "Atualizar cotações"
+  never download a copy younger than that.
+- **The BCB and the Tesouro are fetched through `gov_http.get()`** (2026-10-19): the image runs
+  Python 3.14, whose default `VERIFY_X509_STRICT` refuses certificate chains that browsers accept;
+  `gov_http` keeps chain and hostname checks and drops only that flag, retries once on a timeout or
+  429/502/503/504, and turns failures into a readable cause for the health screen. Its `urlopen`
+  call passes `context=`, so a test's fake `urlopen` takes `**kwargs`. The BCB health probe waits
+  `BCB_TIMEOUT_SECONDS` (30 s), not the quotes' 6 s.
 - **Registrar provento: the type first, then only the assets that can pay it**
   (`lib/proceedsRules.js`, tested): JCP only ações; the coupon only fixed income and Tesouro titles
   with semiannual coupons; amortization of Tesouro only Renda+/Educa+. The server refuses only by
