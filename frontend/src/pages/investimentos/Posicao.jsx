@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Briefcase, ChevronDown, Download, Landmark, Pencil, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
+import { Banknote, Briefcase, ChevronDown, Download, Landmark, Pencil, Plus, RefreshCw, Trash2, TrendingUp, X } from 'lucide-react'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import CashLinkField, { cashLinkMetadata, emptyCashLink } from '../../components/CashLinkField'
 import {
@@ -40,7 +40,15 @@ import ExportSheet from '../../components/ExportSheet'
 const POSITION_TABS = [
   { value: 'VARIAVEL', label: 'Variável', icon: TrendingUp },
   { value: 'FIXA', label: 'Renda fixa', icon: Landmark },
+  { value: 'TESOURO', label: 'Tesouro Direto', icon: Banknote },
 ]
+
+// Tesouro Direto e a categoria TESOURO da renda fixa (`category` da posicao,
+// services/asset_categories.py): aba propria, agrupada pelo indexador.
+const isTreasury = (asset) => asset.category === 'TESOURO'
+const RATE_KIND_ORDER = ['POS', 'PRE', 'IPCA']
+const RATE_KIND_GROUP_LABELS = { POS: 'Pós-fixado (Selic)', PRE: 'Pré-fixado', IPCA: 'IPCA+' }
+const NO_RATE_KIND = 'SEM_INDEXADOR'
 
 // A classe STOCKS junta acao, ETF e BDR; a tela separa pelo tipo do papel
 // (`market_kind`, do catalogo da B3). FII e Outros seguem a classe; o
@@ -64,20 +72,28 @@ const FIXED_INCOME_TYPE_ORDER = FIXED_INCOME_TYPES.map((type) => type.value)
 const NO_FIXED_INCOME_TYPE = 'SEM_TIPO'
 
 // Subdivide a aba: renda variavel por tipo (Acoes, ETFs, BDRs, FIIs...), renda fixa pelo
-// tipo do titulo (CDB, LCI...). Aporte antigo sem tipo cai em "Sem tipo", no fim.
+// tipo do titulo (CDB, LCI...), Tesouro pelo indexador. Aporte antigo sem tipo cai em
+// "Sem tipo", no fim.
+function groupKeyAndLabel(asset, activeTab) {
+  if (activeTab === 'TESOURO') {
+    const key = asset.rate_kind || NO_RATE_KIND
+    return [key, RATE_KIND_GROUP_LABELS[key] || 'Sem indexador']
+  }
+  if (activeTab === 'FIXA') {
+    const key = asset.metadata?.fixed_income_type || NO_FIXED_INCOME_TYPE
+    return [key, FIXED_INCOME_TYPES.find((type) => type.value === key)?.label || (key === NO_FIXED_INCOME_TYPE ? 'Sem tipo' : key)]
+  }
+  const key = variableGroupKey(asset)
+  return [key, VARIABLE_GROUP_LABELS[key] || getClassLabel(key)]
+}
+
 function groupAssets(assets, activeTab) {
-  const isFixedTab = activeTab === 'FIXA'
-  const order = isFixedTab ? FIXED_INCOME_TYPE_ORDER : VARIABLE_GROUP_ORDER
+  const order = activeTab === 'TESOURO' ? RATE_KIND_ORDER : activeTab === 'FIXA' ? FIXED_INCOME_TYPE_ORDER : VARIABLE_GROUP_ORDER
   const groups = new Map()
 
   assets.forEach((asset) => {
-    const key = isFixedTab
-      ? (asset.metadata?.fixed_income_type || NO_FIXED_INCOME_TYPE)
-      : variableGroupKey(asset)
+    const [key, label] = groupKeyAndLabel(asset, activeTab)
     if (!groups.has(key)) {
-      const label = isFixedTab
-        ? (FIXED_INCOME_TYPES.find((type) => type.value === key)?.label || (key === NO_FIXED_INCOME_TYPE ? 'Sem tipo' : key))
-        : (VARIABLE_GROUP_LABELS[key] || getClassLabel(key))
       groups.set(key, { key, label, assets: [], total: 0 })
     }
     const group = groups.get(key)
@@ -230,7 +246,8 @@ export default function Posicao() {
 
   const filteredAssets = assets.filter((asset) => {
     if (activeTab === 'VARIAVEL') return asset.class !== 'FIXED_INCOME'
-    if (activeTab === 'FIXA') return asset.class === 'FIXED_INCOME'
+    if (activeTab === 'FIXA') return asset.class === 'FIXED_INCOME' && !isTreasury(asset)
+    if (activeTab === 'TESOURO') return isTreasury(asset)
     return true
   })
   const assetGroups = groupAssets(filteredAssets, activeTab)

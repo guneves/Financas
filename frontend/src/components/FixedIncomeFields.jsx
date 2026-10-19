@@ -13,26 +13,37 @@ import {
 // Campos de renda fixa compartilhados pelo lancamento e pela edicao.
 // `value` tem o formato de emptyFixedIncomeForm(); `onChange` recebe o objeto inteiro.
 // A isencao de IR nao e um campo: segue o tipo do titulo (isTaxFreeFixedIncomeType).
-export default function FixedIncomeFields({ value, onChange, inputClassName = 'app-input h-11', selectClassName = 'app-select h-11' }) {
+// `types` sao os tipos oferecidos (a compra de renda fixa nao oferece o Tesouro,
+// que tem o tipo de ativo dele); sem nenhum (`types={[]}`), o tipo e fixo e o
+// campo some — a compra do Tesouro Direto.
+export default function FixedIncomeFields({
+  value,
+  onChange,
+  types = FIXED_INCOME_TYPES,
+  inputClassName = 'app-input h-11',
+  selectClassName = 'app-select h-11',
+}) {
   const update = (patch) => onChange({ ...value, ...patch })
   const rateMode = rateModeOf(value)
   const isTaxFree = isTaxFreeFixedIncomeType(value.fixed_income_type)
 
   return (
     <>
-      <Field label="Tipo de título">
-        <select
-          value={value.fixed_income_type}
-          onChange={(event) => update({ fixed_income_type: event.target.value })}
-          className={selectClassName}
-          required
-        >
-          {!value.fixed_income_type ? <option value="">Selecionar</option> : null}
-          {FIXED_INCOME_TYPES.map((type) => (
-            <option key={type.value} value={type.value}>{type.label}</option>
-          ))}
-        </select>
-      </Field>
+      {types.length ? (
+        <Field label="Tipo de título">
+          <select
+            value={value.fixed_income_type}
+            onChange={(event) => update({ fixed_income_type: event.target.value })}
+            className={selectClassName}
+            required
+          >
+            {!value.fixed_income_type ? <option value="">Selecionar</option> : null}
+            {types.map((type) => (
+              <option key={type.value} value={type.value}>{type.label}</option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
 
       <Field label="Rentabilidade">
         <select

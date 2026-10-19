@@ -17,11 +17,16 @@ const normalize = (value) => String(value || '').trim().toUpperCase()
  * so mostramos o que ele devolve e obrigamos a escolha de uma das opcoes. Os
  * ativos que o usuario ja tem na carteira entram como opcao extra para que uma
  * posicao antiga, fora do catalogo, continue lancavel.
+ *
+ * `kind` limita a um tipo do catalogo (ETF); `excludeKind` tira um tipo (as
+ * Acoes nao listam os ETFs, que tem o tipo deles no formulario).
  */
 export default function TickerAutocomplete({
   value,
   onChange,
   assetClass,
+  kind,
+  excludeKind,
   walletAssets = [],
   placeholder = 'Digite o ticker (ex: PETR4)',
   required = false,
@@ -43,6 +48,7 @@ export default function TickerAutocomplete({
   const walletOptions = useMemo(() => {
     return walletAssets
       .filter((asset) => !assetClass || asset.class === assetClass)
+      .filter((asset) => (!kind || asset.market_kind === kind) && (!excludeKind || asset.market_kind !== excludeKind))
       .map((asset) => ({
         ticker: normalize(asset.ticker || asset.name),
         name: asset.name || asset.ticker,
@@ -50,7 +56,7 @@ export default function TickerAutocomplete({
         kind_label: 'Na carteira',
       }))
       .filter((asset) => asset.ticker)
-  }, [walletAssets, assetClass])
+  }, [walletAssets, assetClass, kind, excludeKind])
 
   useEffect(() => {
     if (skipNextSearch.current) {
@@ -66,15 +72,17 @@ export default function TickerAutocomplete({
         const results = await marketApi.searchTickers({
           q: query,
           asset_class: assetClass,
+          kind,
           limit: 20,
         })
         if (!active) return
-        const catalogTickers = new Set(results.map((item) => item.ticker))
+        const catalog = excludeKind ? results.filter((item) => item.kind !== excludeKind) : results
+        const catalogTickers = new Set(catalog.map((item) => item.ticker))
         const needle = normalize(query)
         const extras = walletOptions.filter((asset) => (
           !catalogTickers.has(asset.ticker) && (!needle || asset.ticker.includes(needle))
         ))
-        setOptions([...results, ...extras])
+        setOptions([...catalog, ...extras])
         setHighlight(0)
       } catch {
         if (active) setOptions([])
@@ -87,7 +95,7 @@ export default function TickerAutocomplete({
       active = false
       clearTimeout(timer)
     }
-  }, [query, assetClass, open, walletOptions])
+  }, [query, assetClass, kind, excludeKind, open, walletOptions])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -180,7 +188,11 @@ export default function TickerAutocomplete({
               <button
                 type="button"
                 onMouseEnter={() => setHighlight(index)}
-                onClick={() => selectOption(option)}
+                // Sem o preventDefault, o <label> do Field devolve o clique ao input.
+                onClick={(event) => {
+                  event.preventDefault()
+                  selectOption(option)
+                }}
                 className={cx(
                   'flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition',
                   index === highlight ? 'bg-zinc-100' : 'hover:bg-zinc-50'

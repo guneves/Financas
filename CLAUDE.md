@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1392 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1412 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -167,7 +167,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 122 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`) and `fixedIncome`, 131 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -202,7 +202,8 @@ backend/
                       # (Aprovar: the phone's notifications waiting for the owner),
                       # recurring (the recurrences' calendar, /run, Aprovar's settlements),
                       # budgets (categories as % of Gastar, the plan row, inheritance),
-                      # monthly_plan (income, Investir/Gastar %, Saldo do plano, flags)
+                      # monthly_plan (income, Investir/Gastar %, Saldo do plano, flags),
+                      # asset_categories (ETF, Tesouro Direto, the fixed-income indexer; on read)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
@@ -737,6 +738,20 @@ mobile-docs/
   (catalog kind, `FIXED_INCOME_ETFS`, BDR ticker suffix), through `market_listing.tax_kind()`.
   Foreign assets and "outros" keep a per-sale estimate. Tributação exclusiva (códigos 06 e 10) is
   declared at the **net** value: the IR tab, the paste text and the export show that.
+- **The category refines the class, on read** (owner, 2026-10-19, `services/asset_categories.py`):
+  ACAO/ETF/BDR inside STOCKS, FII, RENDA_FIXA/TESOURO inside FIXED_INCOME, CRIPTO/OTHER. Tesouro
+  Direto is the title type `TESOURO` (or a typeless title named "Tesouro…"). It is never stored —
+  the DB class (and its `CHECK`) is what IR, targets and goals read; don't rebuild `assets` for a
+  new class (seven tables cascade from it). Screens show `category_label` (`/api/assets`,
+  positions, `asset_category_label` on movements); Posição has a Tesouro Direto tab; fixed
+  income's sector is its indexer (`rate_kind()`, source `INDEXER`) unless set by hand.
+- **Registrar provento: the type first, then only the assets that can pay it**
+  (`lib/proceedsRules.js`, tested): JCP only ações; the coupon only fixed income and Tesouro titles
+  with semiannual coupons; amortization of Tesouro only Renda+/Educa+. The server refuses only by
+  class (`PROCEEDS_TYPE_CLASS_MESSAGES` in `routes/proceeds.py`), and only when the asset or the
+  type changes. An asset already held is picked by typing (`AssetPicker`, the sale and the
+  provento); a new one by the B3 catalog (`TickerAutocomplete`). A picker's option button calls
+  `preventDefault()`: inside `Field`'s `<label>` the click otherwise returns focus to the input.
 - **`CATTLE` (Gado) was removed on 2026-09-27** at the owner's request: the API refuses it and no screen
   lists it. The migrations' `CHECK` constraints still allow the value (append-only; no table rebuild
   for it) — don't read that as the class being alive.
@@ -749,7 +764,8 @@ mobile-docs/
 `realized_results` and `tax_report`), `proceeds` (only `db`/`money`/`dates`/`validators`) and
   `prices` ← `fixed_income` ← `fx` ← `investments` ← `corporate_actions` / `realized_results` /
   `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`, `allocation` ←
-  `sectors`, `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
+  `sectors`, `market_listing` ← `asset_categories` (read by `portfolio`, `sectors`
+  and `routes/investments.py`), `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
   on top. `inbox` sits on `import_rules`; `inbox_decisions` on `inbox` and `invoices`, and is read
   by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`). `monthly_plan` sits on `budgets` (the plan row, Gastar R$ and the categories live in
   `budgets`; `routes/budgets.py` reads `build_budget_view()` from `monthly_plan`). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports

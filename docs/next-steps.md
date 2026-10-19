@@ -317,6 +317,23 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
 - [ ] A coupon with IR 0 goes to "12 - Rendimentos de LCI, LCA, CRI e CRA" (the resgate's rule). An
   incentivized debênture's interest may belong in another isentos line; check with the accountant.
 
+### Asset categories and proventos by type (2026-10-19) — what is left
+- [ ] Owner walk-through after the deploy: Registrar provento (type first, then the asset search),
+  a sale picked by typing, a buy as "ETFs" and as "Tesouro Direto" (the title name fills
+  Rentabilidade), Posição › Tesouro Direto, Alocação › Por setor (renda fixa by indexer).
+- [ ] **Old Tesouro titles registered as CDB (or another type) stay in Renda fixa** — the name only
+  decides for a title without a type. Fix each in Operações › Editar › Tipo de título → "Tesouro
+  Direto". No migration rewrites them.
+- [ ] **Alocação › Por classe, the class targets, the goals and Rentabilidade's class filter still
+  use the four DB classes** (ETFs inside Ações, Tesouro inside Renda Fixa). Targets per category
+  would need `allocation_targets` to accept them (its `CHECK` lists the classes) — an owner
+  decision, with a table rebuild. Posição's donut, its tabs, Operações, Proventos and the sectors
+  already show the categories.
+- [ ] Tesouro Selic is modelled as % of the CDI (Selic ≈ CDI + ~0.1 pp); a Selic indexer (BCB
+  series 11) would be exact.
+- [ ] The Proventos filter panel's "Ativo" is still a plain select; the search is in the form only.
+- [ ] Not tried on the phone (the asset list now opens in the flow of the sheet, not floating).
+
 ### Automatic proventos and the investments Extrato (2026-10-16) — what is left
 - [ ] Owner walk-through: Lançamentos → Extrato → "Investimentos" (operações + proventos, search,
   Tudo/Operações/Proventos), and Investimentos → Proventos → "Atualizar". Register a buy with a

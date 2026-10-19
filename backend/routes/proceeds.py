@@ -83,6 +83,31 @@ def interest_tax_rate(conn, current_user_id, asset_id, payment_date):
     return 0.0
 
 
+# Que tipo de provento cada classe recebe. Cupom de juros e so de renda fixa
+# (o Tesouro Direto e renda fixa no banco); dividendo e JCP nao existem nela;
+# JCP e de sociedade anonima (Lei 9.249/1995, art. 9o), nunca de FII. A tela
+# filtra mais fino, pela categoria (lib/proceedsRules.js): JCP so de acoes, o
+# cupom so de titulo que paga juros.
+PROCEEDS_TYPE_CLASS_MESSAGES = {
+    ("INTEREST", "STOCKS"): "Juros (cupom) sao de renda fixa ou Tesouro Direto.",
+    ("INTEREST", "REIT"): "Juros (cupom) sao de renda fixa ou Tesouro Direto.",
+    ("INTEREST", "OTHER"): "Juros (cupom) sao de renda fixa ou Tesouro Direto.",
+    ("DIVIDEND", "FIXED_INCOME"): "Renda fixa nao paga dividendos: use juros (cupom) ou amortizacao.",
+    ("JCP", "FIXED_INCOME"): "Renda fixa nao paga JCP: use juros (cupom) ou amortizacao.",
+    ("JCP", "REIT"): "FII nao paga JCP: use dividendos (rendimentos) ou amortizacao.",
+}
+
+
+def ensure_proceeds_type_fits_asset(conn, current_user_id, asset_id, proceeds_type):
+    asset = conn.execute(
+        "SELECT asset_class FROM assets WHERE id = ? AND user_id = ?",
+        (asset_id, current_user_id),
+    ).fetchone()
+    message = PROCEEDS_TYPE_CLASS_MESSAGES.get((proceeds_type, asset["asset_class"] if asset else None))
+    if message:
+        raise ValidationError(message)
+
+
 def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
     existing = existing or {}
     merged = {
@@ -107,6 +132,9 @@ def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
     asset_id = require_string(merged, "asset_id", "Ativo")
     ensure_asset_owner(conn, current_user_id, asset_id)
     proceeds_type = require_choice(merged, "proceeds_type", "Tipo de provento", ALLOWED_PROCEEDS_TYPES)
+    # Um provento antigo que so muda de valor ou data nao e recusado aqui.
+    if existing.get("id") is None or (asset_id, proceeds_type) != (existing.get("asset_id"), existing.get("proceeds_type")):
+        ensure_proceeds_type_fits_asset(conn, current_user_id, asset_id, proceeds_type)
     declared_date = optional_date(merged, "declared_date", "Data de declaracao")
     payment_date = require_date(merged, "payment_date", "Data de pagamento")
     if proceeds_type in FIXED_INCOME_EVENT_TYPES and merged.get("record_date") in (None, ""):

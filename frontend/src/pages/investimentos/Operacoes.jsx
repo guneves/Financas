@@ -494,7 +494,7 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
         {info.timeText ? <p className="text-xs text-zinc-500">{info.timeText}</p> : null}
       </td>
       <td>
-        <p className="truncate font-semibold text-zinc-950" title={`${mov.ticker_or_name} · ${getClassLabel(mov.asset_class)}`}>{mov.ticker_or_name}</p>
+        <p className="truncate font-semibold text-zinc-950" title={`${mov.ticker_or_name} · ${mov.asset_category_label || getClassLabel(mov.asset_class)}`}>{mov.ticker_or_name}</p>
         <p className="truncate text-xs text-zinc-500">
           <span className="font-medium text-zinc-700">{info.kind}</span>{info.kindDetail ? ` · ${info.kindDetail}` : ''}
         </p>
@@ -537,7 +537,7 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-semibold text-zinc-950">{mov.ticker_or_name}</p>
-          <p className="text-xs text-zinc-500">{getClassLabel(mov.asset_class)} · {info.dateLabel}</p>
+          <p className="text-xs text-zinc-500">{(mov.asset_category_label || getClassLabel(mov.asset_class))} · {info.dateLabel}</p>
         </div>
         <p className="shrink-0 font-semibold text-zinc-950">{formatCurrency(info.totalValue)}</p>
       </div>

@@ -143,6 +143,9 @@ def fixed_income_rate_terms(metadata):
 FIXED_INCOME_TYPES = {
     "CDB", "LCI", "LCA", "LIG", "LC", "LF", "RDB", "DEBENTURE", "DEBENTURE_INCENTIVADA",
     "CRI", "CRA", "CCB",
+    # Tesouro Direto: titulo publico, tributado pela tabela regressiva. Na tela
+    # e uma categoria propria, separada da renda fixa (services/asset_categories.py).
+    "TESOURO",
 }
 # Isentos de IR para pessoa fisica pela propria especie do titulo.
 TAX_FREE_FIXED_INCOME_TYPES = {"LCI", "LCA", "LIG", "CRI", "CRA", "DEBENTURE_INCENTIVADA"}

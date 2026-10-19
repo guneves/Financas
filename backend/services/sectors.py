@@ -8,8 +8,13 @@ De onde vem o setor:
   segmento. Para FII o `sector` da brapi nao diz nada ("Finance",
   "Miscellaneous"), entao o setor de um FII e o segmento dele (Logistica,
   Shoppings, Escritorios...);
-- o dono (`MANUAL`), para qualquer ativo: renda fixa, exterior, ou
-  quando a brapi erra. A brapi nunca sobrescreve um setor manual.
+- a renda fixa e o Tesouro Direto (`INDEXER`, calculado na leitura, nunca
+  gravado): o setor e o indexador do titulo -- Pre-fixado, Pos-fixado ou
+  IPCA+ (`services/asset_categories.rate_kind`) -- e o segmento, o tipo
+  (CDB, LCI, Tesouro Direto...);
+- o dono (`MANUAL`), para qualquer ativo: exterior, ou quando a brapi erra
+  ou o indexador nao diz o que ele quer. Nada automatico sobrescreve um setor
+  manual.
 
 A leitura (`build_sector_allocation`) tenta preencher, uma vez, os ativos em
 carteira que nunca foram consultados; falhar na brapi nao falha a leitura — o
@@ -27,6 +32,7 @@ from db import get_db, utc_timestamp
 from integrations import record_provider_result
 from money import rounded_money
 from services.allocation import percent_of
+from services.asset_categories import CATEGORY_LABELS, category_fields, fixed_income_type_label
 from services.investments import ensure_asset_owner
 from services.portfolio import build_portfolio_snapshot
 from validators import ValidationError, safe_float
@@ -229,13 +235,25 @@ def build_sector_allocation(current_user_id, asset_class=None, *, fill=True):
     for position in positions:
         key = position.get("asset_id") or position.get("id")
         row = sector_rows.get(position.get("asset_id"))
+        sector = row["sector"] if row else None
+        segment = row["segment"] if row else None
+        source = row["sector_source"] if row else None
+        category = category_fields(position.get("class"), position.get("ticker"), position.get("metadata"))
+        if position.get("class") == "FIXED_INCOME" and source != "MANUAL" and category.get("rate_kind_label"):
+            sector = category["rate_kind_label"]
+            segment = fixed_income_type_label(category.get("fixed_income_type")) or (
+                CATEGORY_LABELS["TESOURO"] if category["category"] == "TESOURO" else None
+            )
+            source = "INDEXER"
         entry = by_asset.setdefault(key, {
             "asset_id": position.get("asset_id"),
             "ticker": position.get("ticker"),
             "asset_class": position.get("class"),
-            "sector": row["sector"] if row else None,
-            "segment": row["segment"] if row else None,
-            "source": row["sector_source"] if row else None,
+            "category": category["category"],
+            "category_label": category["category_label"],
+            "sector": sector,
+            "segment": segment,
+            "source": source,
             "value": 0.0,
         })
         entry["value"] += safe_float(position.get("net_value"))
@@ -264,6 +282,8 @@ def build_sector_allocation(current_user_id, asset_class=None, *, fill=True):
                     "ticker": item["ticker"],
                     "asset_class": item["asset_class"],
                     "class_label": ASSET_CLASS_LABELS.get(item["asset_class"], item["asset_class"]),
+                    "category": item["category"],
+                    "category_label": item["category_label"],
                     "segment": item["segment"],
                     "source": item["source"],
                     "value": rounded_money(item["value"]),

@@ -154,6 +154,7 @@
 | Operações › Editar: a sale shows its quantity without "-" and is saved as a sale (the screen puts the sign back, and `PATCH /api/investments/<id>` keeps the stored operation's sign: a positive quantity on a sale stays a sale, a negative one on a buy stays a buy); "Salvar" no longer waits for the quote refresh, which left it spinning on the next edit until the screen was left. `test_investment_edit_sign.py` (5) | 2026-10-19 |
 | Fixed-income coupons and amortizations typed ahead (040): new provento type `INTEREST` ("Juros (cupom)"; table rebuilt for the CHECK), no data com for INTEREST/AMORTIZATION (payment date used), the coupon's default IR from the regressive table since the title's first purchase (0 if tax-free or not fixed income), `repeat: {every_months, count}` on the POST writes every payment at once (each with its own date's rate), paid ones land in the Corretora as "Juros: <título>", IR report: coupon with IR → 06, without → 12, amortization out. Proventos' form switches to Pagamento / Valor bruto / IR / Repetir for a fixed-income asset. `test_fixed_income_interest.py` (24), 1381 pytest, 122 node; clicked through in Chromium | 2026-10-19 |
 | Investir charts fast and the index comparison fair: history caches copied to disk (`history_store.py`, `history_cache.json` next to the DB) so a deploy no longer waits for Yahoo/BCB; stored index closes served while they refresh in the background; proventos' sync invalidates only when it changed something; `accrual_factor_until()` by cumulative products, one pass for every asset's TWR, outputs identical. Rentabilidade starts the portfolio, the CDI and every index at 0% at the same point (the month before the period, or before the first operação) and the cards cover the same months. 1392 pytest, 122 node; Chromium screenshots | 2026-10-19 |
+| Asset categories, proventos by type, asset search: ETFs are "ETFs" and Tesouro Direto its own category (computed on read, `services/asset_categories.py`; the DB class is unchanged), fixed income's sector is its indexer (Pré-fixado / Pós-fixado / IPCA+), Registrar provento asks the type first and searches only the assets that can pay it (`lib/proceedsRules.js`), the sale picks its asset by typing (`AssetPicker`), the buy offers ETFs and Tesouro Direto | 2026-10-19 |
 
 ---
 
@@ -1037,4 +1038,26 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   the second saw the flag set and an empty cache, and went to the network. The load now holds a
   lock for its whole duration.
 - The fair comparison is in `CLAUDE.md` ("Rentabilidade compares from the same 0%").
+
+### Asset categories and proventos by type (2026-10-19)
+
+- **Why a category and not a new class.** `assets.asset_class` has a `CHECK` in 003 (and
+  `investments`, `allocation_targets`, `investment_goals` copy it); a new class means rebuilding
+  `assets`, and with `PRAGMA foreign_keys = ON` inside the migration's transaction a `DROP TABLE
+  assets` cascades into seven tables. The category is computed on read instead
+  (`category_fields()`): ACAO/ETF/BDR from `market_listing.tax_kind`, TESOURO from the title type
+  `TESOURO` (new in `FIXED_INCOME_TYPES`, taxed by the regressive table) or a typeless title named
+  "Tesouro…", RENDA_FIXA otherwise. `/api/assets`, `GET /api/investments`
+  (`asset_category_label`), the portfolio positions and the sector rows carry it.
+- **Fixed income's sector** is `rate_kind()`: the BUY's `rate_type`/`indexer` (no rate needed), or
+  the Tesouro title's name. Source `INDEXER`, never written; a manual sector still wins; a title
+  with no remuneration at all stays "Sem setor".
+- **Proventos.** The server refuses only what the class never receives (coupon outside fixed income,
+  dividend/JCP on fixed income, JCP on a FII), and only when the asset or the type changes. The
+  screen is finer: JCP only for ações, dividends for ações/ETFs/BDRs/FIIs, amortization for
+  FIIs/ações/fixed income and the Tesouro titles that pay in installments (Renda+, Educa+), the
+  coupon for fixed income and the Tesouro titles with semiannual coupons (NTN-B/NTN-F); a Tesouro
+  name that says nothing fits both.
+- Two tests changed with the rule: a coupon on a stock is now 400 (it was accepted with IR 0), and
+  the "amount per unit on a CDB" case uses an amortization instead of a dividend.
 
