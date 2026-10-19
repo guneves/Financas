@@ -9,6 +9,8 @@ e `fetch_bcb_series` em `services.fixed_income` (onde cada nome e lido).
 import importlib
 import io
 import json
+import threading
+import time
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -81,6 +83,24 @@ class TestPure:
         assert path[1] == pytest.approx(0.10)
         assert path[2] == pytest.approx(0.21)
         assert path[3] is None
+
+    def test_accumulation_from_zero_starts_each_line_at_zero(self, returns_module):
+        keys = ["2026-01", "2026-02", "2026-03", "2026-04"]
+        # Cobre tudo: 0% no ponto de partida (antes de janeiro).
+        full = returns_module.accumulate_benchmark({key: 0.1 for key in keys}, keys, from_zero=True)
+        assert full[0] == 0.0
+        assert full[1:] == [pytest.approx(0.1), pytest.approx(0.21), pytest.approx(0.331), pytest.approx(0.4641)]
+        # Comeca em marco (IFIX guardado desde entao): 0% no fim de fevereiro.
+        late = returns_module.accumulate_benchmark({"2026-03": 0.1, "2026-04": 0.1}, keys, from_zero=True)
+        assert late == [None, None, 0.0, pytest.approx(0.1), pytest.approx(0.21)]
+        # Sem dado nenhum: nenhuma linha.
+        assert returns_module.accumulate_benchmark({}, keys, from_zero=True) == [None] * 5
+
+    def test_compared_months_start_at_the_first_portfolio_return(self, returns_module):
+        months = [{"return": None}, {"return": None}, {"return": 0.01}, {"return": None}, {"return": 0.02}]
+        assert returns_module.compared_months(months) == months[2:]
+        empty = [{"return": None}, {"return": None}]
+        assert returns_module.compared_months(empty) == empty
 
     def test_summary_complete_and_partial(self, returns_module):
         keys = ["2026-01", "2026-02"]
@@ -198,7 +218,8 @@ class TestEndpoint:
         buy_petr4(client, auth)
         body = returns(client, auth, months=3)
         assert [item["code"] for item in body["benchmarks"]] == ["IPCA", "IBOV", "IFIX", "IDIV"]
-        assert [item["month_key"] for item in body["series"]] == [key(2), key(1), key(0)]
+        # O primeiro ponto e o fim do mes anterior a janela: tudo em 0%.
+        assert [item["month_key"] for item in body["series"]] == [key(3), key(2), key(1), key(0)]
 
         ibov = by_code(body)["IBOV"]
         # 100 -> 110 -> 121 -> 121: +10%, +10%, 0%.
@@ -206,11 +227,87 @@ class TestEndpoint:
         assert ibov["period_percent"] == pytest.approx(21.0)
         assert ibov["difference_pp"] == pytest.approx(body["twr_percent"] - 21.0, abs=0.01)
         path = [item["benchmarks"]["IBOV"]["accumulated_percent"] for item in body["series"]]
-        assert path == [pytest.approx(10.0), pytest.approx(21.0), pytest.approx(21.0)]
-        assert body["series"][0]["benchmarks"]["IBOV"]["return_percent"] == pytest.approx(10.0)
+        assert path == [0.0, pytest.approx(10.0), pytest.approx(21.0), pytest.approx(21.0)]
+        assert body["series"][0]["accumulated_percent"] == 0.0
+        assert body["series"][0]["cdi_accumulated_percent"] == 0.0
+        assert body["series"][1]["benchmarks"]["IBOV"]["return_percent"] == pytest.approx(10.0)
 
         # CDI segue como antes.
         assert body["cdi_available"] is True
+
+    def test_a_portfolio_started_inside_the_window_is_compared_from_its_start(self, client, auth, network):
+        # Compra ha 1 mes numa janela de 3: o Ibovespa conta so desde a compra,
+        # nao os +10% do mes em que a carteira ainda nao existia.
+        response = client.post("/api/investments", headers=auth, json={
+            "asset_class": "STOCKS", "ticker_or_name": "PETR4", "quantity": 100,
+            "average_price": 12.0, "current_price": 12.0, "metadata": {"purchase_date": iso(1)},
+        })
+        assert response.status_code in (200, 201), response.get_data(as_text=True)
+        body = returns(client, auth, months=3)
+        assert body["period"]["start"] == key(2)
+        assert body["comparison"] == {
+            "base_month": key(2), "start": key(1), "end": key(0), "months": 2, "starts_after_window": True,
+        }
+        assert [item["month_key"] for item in body["series"]] == [key(2), key(1), key(0)]
+        ibov = by_code(body)["IBOV"]
+        # 110 -> 121 -> 121: +10% (o mes da compra) e 0%.
+        assert ibov["months_total"] == 2
+        assert ibov["complete"] is True
+        assert ibov["period_percent"] == pytest.approx(10.0)
+        path = [item["benchmarks"]["IBOV"]["accumulated_percent"] for item in body["series"]]
+        assert path == [0.0, pytest.approx(10.0), pytest.approx(10.0)]
+        cdi = [item["cdi_accumulated_percent"] for item in body["series"]]
+        assert cdi[0] == 0.0
+        assert body["cdi_percent"] == pytest.approx(cdi[-1])
+
+    def test_stored_closes_answer_at_once_and_refresh_behind(
+        self, client, auth, network, benchmarks_module, prices_module, monkeypatch,
+    ):
+        buy_petr4(client, auth)
+        assert by_code(returns(client, auth, months=3))["IBOV"]["source"] == "yfinance"
+        assert network.index_calls == 1
+
+        # Depois do TTL, com fechamentos guardados: a resposta nao espera o
+        # provedor (que agora trava) e a busca nova corre em segundo plano.
+        benchmarks_module.reset_fetch_throttle()
+        network.index_history["^BVSP"][key(0)] = 133.1
+        release = threading.Event()
+        fake = benchmarks_module.download_monthly_history
+
+        def blocked(tickers, start_date):
+            release.wait(5)
+            return fake(tickers, start_date)
+
+        monkeypatch.setattr(benchmarks_module, "download_monthly_history", blocked)
+        try:
+            started = time.monotonic()
+            again = by_code(returns(client, auth, months=3))["IBOV"]
+            assert time.monotonic() - started < 2
+            assert again["source"] == "cache"
+            assert again["period_percent"] == pytest.approx(21.0)
+        finally:
+            release.set()
+            prices_module.wait_history_refreshes(timeout=10)
+        assert network.index_calls == 2
+        # A proxima abertura le o que a busca em segundo plano guardou.
+        assert by_code(returns(client, auth, months=3))["IBOV"]["period_percent"] == pytest.approx(33.1)
+
+    def test_old_stored_closes_are_waited_for(self, client, auth, user, network, benchmarks_module):
+        # Guardados ha mais que o limite de "vencido": a tela espera a busca.
+        buy_petr4(client, auth)
+        returns(client, auth, months=3)
+        db = importlib.import_module("db")
+        with db.get_db() as conn:
+            conn.execute(
+                "UPDATE benchmark_closes SET fetched_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?",
+                (user["id"],),
+            )
+        assert benchmarks_module.stored_closes_are_recent(user["id"]) is False
+        benchmarks_module.reset_fetch_throttle()
+        network.index_history["^BVSP"][key(0)] = 133.1
+        assert by_code(returns(client, auth, months=3))["IBOV"]["source"] == "yfinance"
+        assert by_code(returns(client, auth, months=3))["IBOV"]["period_percent"] == pytest.approx(33.1)
+        assert benchmarks_module.stored_closes_are_recent(user["id"]) is True
 
     def test_ipca_accumulates_monthly_and_the_current_month_is_pending(self, client, auth, network):
         buy_petr4(client, auth)

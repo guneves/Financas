@@ -3,7 +3,9 @@
 `download_market_prices()` pergunta ao brapi primeiro (quando ha token) e manda
 ao yfinance so o que faltou. Os caches `_price_cache` / `_history_cache` /
 `_daily_history_cache` sao do processo, protegidos por `_price_cache_lock`;
-`_price_fetch_executor` limita o tempo de espera de um download travado.
+`_price_fetch_executor` limita o tempo de espera de um download travado. O
+historico diario tem copia em disco (`history_store.py`, secao "daily"): um
+reinicio le dela em vez de baixar tudo de novo.
 `record_price_quote()` grava a cotacao em `price_quotes` — e o unico caminho
 que escreve la.
 
@@ -24,6 +26,7 @@ except ImportError:
 
 from asset_classes import CRYPTO_ASSETS, is_quoted_asset
 import brapi_client
+import history_store
 from integrations import record_provider_result
 from config import (
     HISTORY_CACHE_STALE_MAX_SECONDS,
@@ -55,6 +58,10 @@ _price_fetch_executor = ThreadPoolExecutor(max_workers=PRICE_FETCH_WORKERS)
 _history_refresh_executor = ThreadPoolExecutor(max_workers=1)
 _history_refresh_lock = threading.Lock()
 _history_refreshes = {}
+# A copia em disco do historico diario e lida uma vez por processo.
+_persisted_daily_loaded = False
+# Quem chega durante a leitura espera por ela (senao veria o cache vazio e iria a rede).
+_persisted_daily_lock = threading.Lock()
 
 
 def schedule_history_refresh(key, refresh):
@@ -572,6 +579,56 @@ def history_fetch_floor(today=None):
     return subtract_months(today.replace(day=1), HISTORY_FETCH_MONTHS)
 
 
+def load_persisted_daily_history():
+    """Completa `_daily_history_cache` com a copia em disco, uma vez por processo.
+
+    Cada ticker volta com o `updated_at` que tinha: vencido, e servido e
+    baixado de novo em segundo plano, como se nunca tivesse saido da memoria.
+    O que ja esta na memoria nao e trocado."""
+    global _persisted_daily_loaded
+    with _persisted_daily_lock:
+        if _persisted_daily_loaded:
+            return
+        _load_persisted_daily_history()
+        _persisted_daily_loaded = True
+
+
+def _load_persisted_daily_history():
+    section = history_store.read_section("daily")
+    restored = {}
+    for ticker, entry in section.items():
+        try:
+            restored[ticker] = {
+                "from": str(entry["from"]),
+                "prices": {str(day): float(price) for day, price in (entry.get("prices") or {}).items()},
+                "splits": [(str(day), float(ratio)) for day, ratio in entry.get("splits") or []],
+                "updated_at": float(entry["updated_at"]),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+    with _price_cache_lock:
+        for ticker, entry in restored.items():
+            _daily_history_cache.setdefault(ticker, entry)
+
+
+def persist_daily_history():
+    """Agenda a gravacao do historico diario em disco (`history_store.py`)."""
+
+    def build():
+        with _price_cache_lock:
+            return {
+                ticker: {
+                    "from": entry["from"],
+                    "prices": dict(entry["prices"]),
+                    "splits": [list(event) for event in entry["splits"]],
+                    "updated_at": entry["updated_at"],
+                }
+                for ticker, entry in _daily_history_cache.items()
+            }
+
+    return history_store.save_section("daily", build)
+
+
 def get_daily_history(tickers, start_date):
     """`download_daily_history()` com o cache de historico do processo.
 
@@ -585,6 +642,7 @@ def get_daily_history(tickers, start_date):
     if not normalized_tickers:
         return {"prices": {}, "splits": {}}
 
+    load_persisted_daily_history()
     result = {"prices": {}, "splits": {}}
     missing = []
     stale = []
@@ -614,6 +672,7 @@ def get_daily_history(tickers, start_date):
             _daily_history_cache[ticker] = {"from": fetch_from, "prices": prices, "splits": splits, "updated_at": now}
             result["prices"][ticker] = {day: price for day, price in prices.items() if day >= start_date}
             result["splits"][ticker] = [event for event in splits if event[0] >= start_date]
+    persist_daily_history()
     return result
 
 
@@ -639,6 +698,7 @@ def refresh_daily_history(tickers):
                 "splits": list(history["splits"].get(ticker) or []),
                 "updated_at": now,
             }
+    persist_daily_history()
 
 
 # Um evento do Yahoo e o mesmo desdobramento/grupamento registrado quando cai

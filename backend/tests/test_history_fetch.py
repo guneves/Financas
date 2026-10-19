@@ -197,6 +197,99 @@ class TestBcbSeriesCache:
         assert len(calls) == 2
 
 
+class TestDiskCopy:
+    """A copia em disco (history_store.py): um reinicio le o historico dela."""
+
+    @pytest.fixture()
+    def store(self, tmp_path, monkeypatch, prices_module, fixed_income_module, history_cache):
+        history_store = importlib.import_module("history_store")
+        path = tmp_path / "history_cache.json"
+        monkeypatch.setattr(history_store, "HISTORY_CACHE_FILE", str(path))
+        history_store.reset()
+
+        def restart():
+            """O processo cai e volta: a memoria some, o arquivo fica."""
+            history_store.wait_saves(timeout=5)
+            history_store.reset()
+            prices_module._daily_history_cache.clear()
+            fixed_income_module._index_history_cache.clear()
+            prices_module._persisted_daily_loaded = False
+            fixed_income_module._persisted_index_loaded = False
+
+        yield {"path": path, "restart": restart, "module": history_store}
+        history_store.wait_saves(timeout=5)
+        history_store.reset()
+        prices_module._persisted_daily_loaded = True
+        fixed_income_module._persisted_index_loaded = True
+
+    def test_daily_history_survives_a_restart(self, prices_module, store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, calls))
+        start = (date.today() - timedelta(days=200)).isoformat()
+        first = prices_module.get_daily_history(["PETR4", "VALE3"], start)
+        store["restart"]()
+        assert store["path"].exists()
+
+        def down(tickers, start):
+            raise AssertionError("nao devia baixar")
+        monkeypatch.setattr(prices_module, "download_daily_history", down)
+        again = prices_module.get_daily_history(["PETR4", "VALE3"], start)
+        assert again == first
+        assert len(calls) == 1
+
+    def test_a_restored_entry_keeps_its_age(self, prices_module, store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, calls))
+        start = (date.today() - timedelta(days=60)).isoformat()
+        prices_module.get_daily_history(["PETR4"], start)
+        prices_module._daily_history_cache["PETR4"]["updated_at"] -= prices_module.HISTORY_CACHE_TTL_SECONDS + 1
+        prices_module.persist_daily_history()
+        store["restart"]()
+
+        # Vencido no disco: servido na hora e baixado de novo em segundo plano.
+        assert prices_module.get_daily_history(["PETR4"], start)["prices"]["PETR4"]
+        prices_module.wait_history_refreshes(timeout=5)
+        assert len(calls) == 2
+        age = prices_module.time.time() - prices_module._daily_history_cache["PETR4"]["updated_at"]
+        assert age < prices_module.HISTORY_CACHE_TTL_SECONDS
+
+    def test_bcb_series_survive_a_restart(self, fixed_income_module, store, monkeypatch):
+        calls = []
+        monkeypatch.setattr(fixed_income_module, "fetch_bcb_series", lambda code, start, end=None: fake_bcb(code, start, end, calls))
+        year_ago = datetime.now() - timedelta(days=365)
+        first = fixed_income_module.index_history(year_ago, True)
+        store["restart"]()
+
+        def down(code, start, end=None):
+            raise AssertionError("nao devia buscar")
+        monkeypatch.setattr(fixed_income_module, "fetch_bcb_series", down)
+        assert fixed_income_module.index_history(year_ago, True) == first
+        assert len(calls) == 2
+
+    def test_an_unreadable_file_is_ignored(self, prices_module, store, monkeypatch):
+        store["path"].write_text("{nao e json", encoding="utf-8")
+        calls = []
+        monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, calls))
+        prices_module._persisted_daily_loaded = False
+        start = (date.today() - timedelta(days=30)).isoformat()
+        assert prices_module.get_daily_history(["PETR4"], start)["prices"]["PETR4"]
+        assert len(calls) == 1
+        # E a proxima gravacao o substitui por um valido.
+        store["module"].wait_saves(timeout=5)
+        store["restart"]()
+        monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, calls))
+        prices_module.get_daily_history(["PETR4"], start)
+        assert len(calls) == 1
+
+    def test_an_empty_name_writes_nothing(self, prices_module, store, monkeypatch):
+        monkeypatch.setattr(store["module"], "HISTORY_CACHE_FILE", "")
+        calls = []
+        monkeypatch.setattr(prices_module, "download_daily_history", lambda tickers, start: fake_daily(tickers, start, calls))
+        prices_module.get_daily_history(["PETR4"], (date.today() - timedelta(days=30)).isoformat())
+        assert store["module"].save_section("daily", dict) is None
+        assert not store["path"].exists()
+
+
 # --- rota -------------------------------------------------------------------------
 
 @pytest.fixture()

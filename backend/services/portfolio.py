@@ -173,18 +173,24 @@ def position_is_open(position):
     return not (position["class"] == "FIXED_INCOME" and fixed_income_title_closed(position["applied"]))
 
 
-def portfolio_month_positions(investments_data, historical_prices, month_start, index_series, current_month_key):
+def portfolio_month_positions(
+    investments_data, historical_prices, month_start, index_series, current_month_key, movement_dates=None,
+):
     """Cada posicao no fim do mes: {group_key: {ticker, class, applied, gross, net}}.
 
     `gross` e o valor de mercado; `net` desconta o IR estimado da renda fixa.
     So entram as posicoes com quantidade e valor aplicado positivos.
+    `movement_dates` e a data de cada movimentacao, na mesma ordem, quando quem
+    chama avalia varios meses (`iter_portfolio_months()`) e ja as leu.
     """
     target_key = month_key(month_start)
     target_end = month_end(month_start)
     positions = {}
 
-    for investment in investments_data:
-        if investment_movement_date(investment) > target_end:
+    if movement_dates is None:
+        movement_dates = [investment_movement_date(investment) for investment in investments_data]
+    for moved_at, investment in zip(movement_dates, investments_data):
+        if moved_at > target_end:
             continue
         add_movement_to_positions(positions, investment)
 
@@ -252,9 +258,10 @@ def iter_portfolio_months(investments_data, historical_prices, months_back, inde
     E o laco da evolucao; a rentabilidade (services/returns.py) le as posicoes
     uma a uma daqui, para as duas sairem da mesma avaliacao."""
     current_month_key = month_key(datetime.now())
+    movement_dates = [investment_movement_date(investment) for investment in investments_data]
     for month_start in portfolio_evolution_months(months_back):
         yield month_start, portfolio_month_positions(
-            investments_data, historical_prices, month_start, index_series, current_month_key,
+            investments_data, historical_prices, month_start, index_series, current_month_key, movement_dates,
         )
 
 

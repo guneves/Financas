@@ -7,47 +7,66 @@
 
 ---
 
-## Session — 2026-10-19 · Operações edit bugs + fixed-income coupons (040)
+## Session — 2026-10-19 · Investir charts fast + fair index comparison
 
-Cloud session, owner request: (1) a sale shows "-" in Operações › Editar and refuses an edit
-without it; (2) after saving one edit, "Salvar" spins until the screen is left; (3) register
-future coupons and amortizations of fixed income by hand, landing in the account. Scout run
-directly (`subagent_type="session-scout"` worked).
+Cloud session, owner request: "updating every Investir chart (Posição, Rentabilidade) takes 5 s or
+more — optimize, it must be very fast", and "the comparison of the indices with the portfolio is
+unfair: over the observed period both must start at 0%". Docs read directly (no scout: the task was
+given in full).
 
 ### Done
-- (1) `openEditModal()` shows `Math.abs(quantity)`; save sends `-qty` for a sale/resgate. The
-  PATCH keeps the stored operation's sign (`routes/investments.py`), so an old screen or a
-  positive quantity can never turn a sale into a buy. `test_investment_edit_sign.py`.
-- (2) Cause: `handleSaveEdit` awaited `refreshAll()` (every active query) and then
-  `handleUpdateStockPrices()` — `POST /api/investments/update-prices`, yfinance, no timeout —
-  before `setLoading(false)`; the sheet had already closed, and `loading` is the next edit's
-  button. Now the quote refresh runs behind, unawaited (the write already invalidates the cache).
-- (3) Migration **040** rebuilds `investment_proceeds` to allow `INTEREST`. INTEREST/AMORTIZATION
-  take the payment date when no data com is sent; INTEREST's default IR is
-  `interest_tax_rate()` in `routes/proceeds.py` (regressive table from the asset's first BUY up to
-  the payment, 0 for tax-free types or non-fixed-income). `POST /api/investment-proceeds` takes
-  `repeat: {every_months ∈ {1,2,3,6,12}, count ≤ 120}` and answers a list; all or nothing.
-  `proceeds_cash` labels it "Juros"; IR report: INTEREST with IR → 06, without → 12. Proventos'
-  form has a fixed-income mode (Juros (cupom) / Amortização, Pagamento, Valor bruto, IR, Repetir).
-  `test_fixed_income_interest.py`.
-- Clicked through in Chromium against a throwaway DB: sale edit shows 40, saves as "Venda · 30
-  un.", the second edit's Salvar is free; a coupon paid today landed in the Corretora as
-  "Juros: …" with 20% IR, the next scheduled at 17.5%.
+- **Measured first** on a synthetic portfolio (27 tickers, 59 fixed-income titles, 354 operations
+  since 2021) with the network patched and 2–3 s of latency. Four causes: (a) the index closes
+  (yfinance) blocked `/returns` every 15 min; (b) the history caches lived only in memory, so every
+  deploy made the first chart wait for the whole download; (c) opening Investimentos runs the
+  proventos sync, a POST, which invalidated the whole cache — every chart computed twice; (d) CPU:
+  `accrual_factor_until()` looping the CDI per title × month, the per-asset TWR walking all days
+  once per asset, date parsing per day.
+- (a) `load_benchmarks()` reads `benchmark_closes` and refreshes in the background when closes were
+  stored < 7 days ago (`stored_closes_are_recent()`); waits only without them.
+- (b) `backend/history_store.py`: sections "daily" (Yahoo) and "bcb" (CDI/IPCA) in
+  `HISTORY_CACHE_FILE` (`history_cache.json` next to the DB → `/data` on the server), written off
+  the request, read once per process keeping each entry's age. In `.gitignore`/`.dockerignore`.
+- (c) `apiFetch(..., { invalidate: false })` + `notifyMutation()`; the sync notifies only when
+  `created + updated + removed > 0`.
+- (d) `cdi_products()` (cumulative products, bisect), `group_monthly_returns()`, segment memo in
+  `FixedIncomeCurve`, dates parsed once (`daily_group_values`, `iter_portfolio_months`). Outputs
+  compared field by field with the old code: identical. 1A 312 → ~100 ms, 5A 900 → ~300 ms,
+  Evolução 5A 300 → ~90 ms; first Rentabilidade after a restart with a 3 s network: ~150 ms.
+- Fair comparison: `series[0]` is a base point (`base: true`) at 0% for the portfolio, the CDI and
+  every index; months before the first operação leave the series; CDI and index totals,
+  `percent_of_cdi` and `months_total` cover the compared months only; a late index starts at 0% at
+  its own start. New `comparison` block in the response; the screen's hint and description say it.
+- 11 new tests (`TestDiskCopy` ×5, two benchmark route tests for background/old closes, a portfolio
+  started inside the window, two pure ones, the accrual equivalence); 3 tests updated for the base
+  point. 1392 pytest, 122 node, `vite build`. Screenshots in Chromium (1A and 5A, 1280 px).
 
 ### Not done, and why
-- Amortization still does not reduce the title's principal in Posição (it was a provento before
-  040 too); changing that is a modelling decision — in `next-steps.md`.
-- No shortcut from Posição's fixed-income row to "agendar cupom"; the entry point is Proventos.
-- Proventos' list filter still opens on the current year (future-year coupons only in the
-  calendar); editing a coupon keeps its stored IR unless blanked. Both in `next-steps.md`.
-- Not tried on the phone; 040 not run on the owner's data.
+- Not measured against real yfinance/BCB or the owner's data (sandbox network is blocked) —
+  owner check in `next-steps.md` ("Chart speed and the fair comparison").
+- The first compared month counts the whole month for the index but the portfolio from the
+  purchase day (only month-end index closes exist). In `next-steps.md`.
+- No server-side cache of the computed response; ~0.3 s for 5A is pure CPU. In `next-steps.md`.
+- Not tried on the phone.
 
 ### Learned
-- In this container: `python3 -m venv <scratchpad>/venv` + `pip install -r requirements-dev.txt`;
-  `node_modules` was already there; Playwright resolves from `/opt/node-tools/node_modules/playwright`.
-- A throwaway server: `DATABASE_PATH=… DATABASE_BACKUP_DIR=… ATTACHMENTS_DIR=… ALLOW_SIGNUP=1
+- `pkill -f serve.py` from the Bash tool kills the tool's own shell (the pattern is in its command
+  line): exit 144. Stop a background server by its PID instead.
+- The bench harness (patching `download_daily_history`, `fetch_bcb_series`,
+  `download_monthly_history` in place, then `app.app.run`) is a good way to see the screens with
+  benchmarks in this container, where every provider is blocked.
+- cProfile only sees the request thread; the waits on executors show up as `threading.wait`.
+  Wrapping functions with timers was what found the disk-load race.
+
+### Carried from the Operações/040 session (2026-10-19), still open
+- Amortization does not reduce the title's principal in Posição (modelling decision); no
+  "agendar cupom" shortcut from Posição; Proventos' list filter opens on the current year; an
+  edited coupon keeps its stored IR. All in `next-steps.md`. 040 not run on the owner's data; not
+  tried on the phone.
+- Throwaway server: `DATABASE_PATH=… DATABASE_BACKUP_DIR=… ATTACHMENTS_DIR=… ALLOW_SIGNUP=1
   AUTO_BACKUP_ON_BOOT=0 python -c "import app; app.app.run(port=5055)"` from `backend/`, after
-  `vite build`; signup through `POST /api/auth/signup`.
+  `vite build`; signup through `POST /api/auth/signup`. Venv: `python3 -m venv <scratchpad>/venv`
+  + `pip install -r requirements-dev.txt`; `npm ci` in `frontend/`.
 
 ### Carried from the Extrato-delete session (2026-10-19), still open
 - The aporte row itself is still refused by `DELETE /api/transactions/<id>` (409); the Contas menu

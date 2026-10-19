@@ -27,19 +27,24 @@ IPCA guardado.
 """
 
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import calendar
 import threading
 import time
 
 from applog import get_logger
 import brapi_client
-from config import HISTORY_CACHE_TTL_SECONDS, PRICE_FETCH_TIMEOUT_SECONDS
+from config import HISTORY_CACHE_STALE_MAX_SECONDS, HISTORY_CACHE_TTL_SECONDS, PRICE_FETCH_TIMEOUT_SECONDS
 from dates import month_key, month_label, subtract_months
 from db import get_db
 from integrations import record_provider_result
 from services import fixed_income
-from services.prices import _price_fetch_executor, download_monthly_history, history_fetch_floor
+from services.prices import (
+    _price_fetch_executor,
+    download_monthly_history,
+    history_fetch_floor,
+    schedule_history_refresh,
+)
 from validators import safe_float
 
 logger = get_logger(__name__)
@@ -210,16 +215,58 @@ def download_index_closes(start_date, today):
     return closes, sources
 
 
-def refresh_benchmark_closes(current_user_id, start_date, today):
+def latest_stored_fetch(conn, current_user_id):
+    """Quando os fechamentos do usuario foram buscados pela ultima vez (UTC), ou None."""
+    row = conn.execute(
+        "SELECT MAX(fetched_at) AS fetched_at FROM benchmark_closes WHERE user_id = ?",
+        (current_user_id,),
+    ).fetchone()
+    value = row["fetched_at"] if row else None
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00").replace(" ", "T"))
+    except ValueError:
+        return None
+
+
+def stored_closes_are_recent(current_user_id, now_utc=None):
+    """Ha fechamentos guardados, buscados ha menos de HISTORY_CACHE_STALE_MAX_SECONDS.
+
+    E o "servir vencido e atualizar depois" do historico de precos: com eles,
+    a tela le o banco e a busca nova corre em segundo plano."""
+    with get_db() as conn:
+        fetched_at = latest_stored_fetch(conn, current_user_id)
+    if fetched_at is None:
+        return False
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    now_utc = now_utc or datetime.now(timezone.utc)
+    return (now_utc - fetched_at).total_seconds() <= HISTORY_CACHE_STALE_MAX_SECONDS
+
+
+def refresh_benchmark_closes(current_user_id, start_date, today, *, background=False):
     """Busca os fechamentos (no maximo uma vez por TTL) e guarda. Devolve
     {benchmark: fonte} do que veio agora, ou None quando nao buscou/falhou.
 
     Busca desde o piso do historico (`history_fetch_floor()`), nao desde a
-    janela: uma ida por TTL serve a todos os periodos da tela."""
+    janela: uma ida por TTL serve a todos os periodos da tela. Com
+    `background`, a busca vai para `schedule_history_refresh()` e a resposta
+    nao a espera (devolve None)."""
     fetch_from = min(start_date, history_fetch_floor(today))
     key = ("closes", current_user_id, fetch_from.isoformat())
     if not _may_fetch(key):
         return None
+    if background:
+        schedule_history_refresh(
+            ("benchmarks",) + key,
+            lambda: _download_and_store_closes(current_user_id, fetch_from, today, key),
+        )
+        return None
+    return _download_and_store_closes(current_user_id, fetch_from, today, key)
+
+
+def _download_and_store_closes(current_user_id, fetch_from, today, key):
     future = _price_fetch_executor.submit(download_index_closes, fetch_from, today)
     try:
         closes, sources = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
@@ -266,7 +313,10 @@ def load_benchmarks(current_user_id, first_month, now=None):
     # prazo de cada um conta do inicio, nao do fim do outro.
     ipca_future = start_ipca_fetch(date(first_month.year, first_month.month, 1))
     ipca_deadline = time.monotonic() + PRICE_FETCH_TIMEOUT_SECONDS
-    fresh_sources = refresh_benchmark_closes(current_user_id, since, today) or {}
+    # Com fechamentos guardados ha pouco, a tela nao espera o Yahoo: le o banco
+    # e a busca nova corre em segundo plano (vale na proxima abertura).
+    background = stored_closes_are_recent(current_user_id)
+    fresh_sources = refresh_benchmark_closes(current_user_id, since, today, background=background) or {}
 
     result = {}
     try:

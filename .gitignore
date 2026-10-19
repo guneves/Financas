@@ -14,6 +14,8 @@ __pycache__/
 *.db-shm
 *.db-wal
 .jwt_secret
+# Copia em disco do historico dos graficos (backend/history_store.py)
+history_cache.json*
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

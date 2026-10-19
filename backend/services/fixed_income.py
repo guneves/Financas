@@ -9,6 +9,7 @@ downloads no `_index_fetch_executor` (separado do yfinance) e
 Os testes trocam `fetch_bcb_series` e `urllib.request.urlopen` aqui.
 """
 
+from bisect import bisect_left, bisect_right
 import calendar
 from concurrent.futures import ThreadPoolExecutor
 import threading
@@ -21,6 +22,7 @@ import urllib.request
 
 from dates import parse_iso_date
 from db import get_db
+import history_store
 from config import HISTORY_CACHE_TTL_SECONDS
 from money import rounded_money
 from services.prices import (
@@ -423,6 +425,58 @@ def refresh_fixed_income_prices(current_user_id, investments_to_update):
 # inicio da janela, a renda fixa desde a compra mais antiga, os indices o IPCA).
 _index_history_cache = {}
 _index_history_lock = threading.Lock()
+# Copia em disco (`history_store.py`, secao "bcb"), lida uma vez por processo.
+_persisted_index_loaded = False
+# Quem chega durante a leitura espera por ela (senao veria o cache vazio e iria a rede).
+_persisted_index_lock = threading.Lock()
+
+
+def load_persisted_index_history():
+    """Completa `_index_history_cache` com a copia em disco, uma vez por processo.
+
+    O instante do cache e `time.monotonic()`, que nao sobrevive a um reinicio:
+    no disco vai a hora do relogio, e na volta a idade e a mesma."""
+    global _persisted_index_loaded
+    with _persisted_index_lock:
+        if _persisted_index_loaded:
+            return
+        _load_persisted_index_history()
+        _persisted_index_loaded = True
+
+
+def _load_persisted_index_history():
+    section = history_store.read_section("bcb")
+    restored = {}
+    wall_now, monotonic_now = time.time(), time.monotonic()
+    for name, entry in section.items():
+        try:
+            age = max(wall_now - float(entry["fetched_at"]), 0.0)
+            series = [(datetime.fromisoformat(day), float(value)) for day, value in entry["series"]]
+            restored[name] = (monotonic_now - age, datetime.fromisoformat(entry["since"]), series)
+        except (KeyError, TypeError, ValueError):
+            continue
+    with _index_history_lock:
+        for name, entry in restored.items():
+            _index_history_cache.setdefault(name, entry)
+
+
+def persist_index_history():
+    """Agenda a gravacao das series do BCB em disco (`history_store.py`)."""
+
+    def build():
+        with _index_history_lock:
+            entries = dict(_index_history_cache)
+        wall_now, monotonic_now = time.time(), time.monotonic()
+        return {
+            name: {
+                "fetched_at": wall_now - (monotonic_now - stamp),
+                "since": since.isoformat(),
+                "series": [[day.isoformat(), value] for day, value in series],
+            }
+            for name, (stamp, since, series) in entries.items()
+        }
+
+    return history_store.save_section("bcb", build)
 
 
 def _bcb_series_since(name, series_code, start):
@@ -432,6 +486,7 @@ def _bcb_series_since(name, series_code, start):
     (`history_fetch_floor()`): a proxima janela, menor ou maior ate la, le o cache.
     Vencida ha pouco (`history_cache_state()`), serve o cache e busca de novo em
     segundo plano; uma busca que falha deixa o cache como estava."""
+    load_persisted_index_history()
     now = time.monotonic()
     with _index_history_lock:
         cached = _index_history_cache.get(name)
@@ -455,6 +510,7 @@ def _fetch_bcb_into_cache(name, series_code, fetch_from):
         current = _index_history_cache.get(name)
         if not current or fetch_from <= current[1] or now - current[0] >= HISTORY_CACHE_TTL_SECONDS:
             _index_history_cache[name] = (now, fetch_from, series)
+    persist_index_history()
     return series
 
 
@@ -476,17 +532,91 @@ def index_history(start_date, need_ipca):
     }
 
 
+class CdiProducts:
+    """Produtos acumulados de uma serie diaria do CDI, para o fator de qualquer
+    trecho sair de uma divisao em vez de um laco pelos dias.
+
+    A evolucao e a rentabilidade pedem o fator de cada titulo no fim de cada
+    mes: com a serie inteira percorrida a cada pedido, a conta crescia com
+    titulos x meses x dias. `products(r)[k]` e o produto de (1 + taxa x r) dos
+    `k` primeiros dias; o trecho [i, j) vale products[j] / products[i]."""
+
+    def __init__(self, cdi):
+        self.days = [day for day, _ in cdi]
+        self.rates = [rate for _, rate in cdi]
+        self._products = {}
+
+    def products(self, multiplier):
+        cached = self._products.get(multiplier)
+        if cached is None:
+            cached = [1.0]
+            factor = 1.0
+            for rate in self.rates:
+                factor *= 1 + (rate * multiplier)
+                cached.append(factor)
+            self._products[multiplier] = cached
+        return cached
+
+    def span(self, start, end):
+        """Indices [i, j) dos dias com start <= dia <= end."""
+        return bisect_left(self.days, start), bisect_right(self.days, end)
+
+
+# {id(serie): (serie, CdiProducts)}: a serie fica referenciada, entao o id nao
+# e reaproveitado por outra lista enquanto a entrada existe.
+_cdi_products_cache = {}
+_cdi_products_lock = threading.Lock()
+CDI_PRODUCTS_CACHE_SIZE = 8
+
+
+def cdi_products(cdi):
+    """O `CdiProducts` da serie (uma lista [(data, taxa)] em ordem), ou None fora de ordem."""
+    with _cdi_products_lock:
+        entry = _cdi_products_cache.get(id(cdi))
+        if entry is not None and entry[0] is cdi:
+            return entry[1]
+    days = [day for day, _ in cdi]
+    if any(later < earlier for earlier, later in zip(days, days[1:])):
+        return None
+    products = CdiProducts(cdi)
+    with _cdi_products_lock:
+        if len(_cdi_products_cache) >= CDI_PRODUCTS_CACHE_SIZE:
+            _cdi_products_cache.pop(next(iter(_cdi_products_cache)))
+        _cdi_products_cache[id(cdi)] = (cdi, products)
+    return products
+
+
 def accrual_factor_until(metadata, purchase_date, until, series):
     """Fator do titulo da compra ate `until`, com as series ja buscadas.
 
     None quando o titulo nao tem taxa (preco manual) ou a serie falta: quem
-    chama fica com o custo.
+    chama fica com o custo. O mesmo `fixed_income_accrual_factor()` sobre os
+    dias do trecho, pelos produtos acumulados (`cdi_products()`).
     """
     indexer, rate = fixed_income_rate_terms(metadata)
     if indexer is None or not series or series.get("cdi") is None:
         return None
     if indexer == "IPCA" and series.get("ipca") is None:
         return None
-    cdi_daily = [value for day, value in series["cdi"] if purchase_date <= day <= until]
     ipca = [(month, value) for month, value in (series.get("ipca") or []) if month <= until]
-    return fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca, purchase_date)
+    products = cdi_products(series["cdi"])
+    if products is None:
+        cdi_daily = [value for day, value in series["cdi"] if purchase_date <= day <= until]
+        return fixed_income_accrual_factor(indexer, rate, cdi_daily, ipca, purchase_date)
+
+    first, last = products.span(purchase_date, until)
+    business_days = max(last - first, 0)
+    if business_days == 0:
+        return fixed_income_accrual_factor(indexer, rate, [], ipca, purchase_date)
+    if indexer == "CDI":
+        cumulative = products.products(rate)
+        return cumulative[last] / cumulative[first]
+    fixed_part = (1 + rate) ** (business_days / BUSINESS_DAYS_PER_YEAR)
+    if indexer == "PRE":
+        return fixed_part
+    if indexer == "CDI_PLUS":
+        cumulative = products.products(1.0)
+        return cumulative[last] / cumulative[first] * fixed_part
+    if indexer == "IPCA":
+        return ipca_accrual_factor(ipca, purchase_date) * fixed_part
+    raise ValueError(f"Indexador desconhecido: {indexer}")

@@ -121,9 +121,9 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1381 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1392 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
-per-series caches that cover every period, a stale entry served while it refreshes in the background, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
+per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, editing an operation keeps its sign (`test_investment_edit_sign.py`), fixed-income coupons and amortizations typed ahead (`test_fixed_income_interest.py`: 040's `INTEREST`, the coupon's regressive IR, `repeat`, the IR report), bank accounts and transfers, categories, editing a
@@ -175,6 +175,7 @@ The frontend has no test runner installed. Its pure rule modules are tested with
 backend/
   app.py              # Flask app + CORS + blueprint registration + boot (~60 lines)
   config.py           # env / .env, read once at import
+  history_store.py    # disk copy of the chart history caches (history_cache.json next to the DB)
   db.py               # connection, migrations, backups, row helpers
   validators.py       # ValidationError + require_* / parse_* for request payloads
   auth.py             # hand-rolled JWT, token_required
@@ -676,6 +677,36 @@ mobile-docs/
   background. Only past months read it — the current month uses the live quote. A refresh that
   fails or brings a ticker with no closes keeps the old history. Past the stale limit, or a
   ticker never fetched, the request waits as before. Tests wait with `wait_history_refreshes()`.
+  **Both caches have a copy on disk** (2026-10-19, owner: "updating the Investir charts takes 5 s
+  or more"): `history_store.py` writes sections "daily" and "bcb" to `HISTORY_CACHE_FILE`
+  (`history_cache.json` next to the DB, so `/data` on the server; empty disables — `conftest.py`
+  sets it empty, `test_history_fetch.py::TestDiskCopy` patches `history_store.HISTORY_CACHE_FILE`),
+  off the request, and each module reads its section once per process
+  (`load_persisted_daily_history()`, `load_persisted_index_history()`, behind a lock so a second
+  thread waits for the read instead of seeing an empty cache), keeping each entry's age — so a
+  deploy no longer makes the first chart wait for Yahoo and the BCB. It is a cache, not data:
+  unreadable or another `STORE_VERSION` is ignored. **The index closes follow the same rule**:
+  with closes stored less than the stale limit ago (`stored_closes_are_recent()`, `fetched_at`),
+  `load_benchmarks()` reads `benchmark_closes` and the yfinance/brapi fetch goes to
+  `schedule_history_refresh()`; with none (or older), it waits as before. **Proventos' sync does
+  not invalidate the screen's cache unless it changed something** (`invalidate: false` +
+  `notifyMutation()` in `lib/api.js`, `lib/proceedsSync.js`): opening Investimentos used to compute
+  every chart twice. The CPU side: `accrual_factor_until()` reads a cumulative product of the CDI
+  (`cdi_products()`, not a loop over the days per title × month), the TWR of every asset comes from
+  one pass over the days (`group_monthly_returns()`, the same arithmetic as `monthly_chain()` per
+  group), `FixedIncomeCurve` keeps one segment per title × month, and movement dates are parsed
+  once — outputs identical to the old code on a 354-operation, 5-year portfolio.
+- **Rentabilidade compares from the same 0%** (owner, 2026-10-19: "a fair comparison starts both
+  at 0%"). `GET /api/investments/returns` returns `comparison` (`base_month`, `start`, `end`,
+  `months`, `starts_after_window`) and `series[0]` is the base point (`base: true`): the end of the
+  month before the first compared month, every accumulated line at 0%. The compared months are the
+  window from the first month with a portfolio return (`compared_months()`): months before the
+  first operação (of the class, with the filter) leave the series, and the CDI, every benchmark's
+  `period_percent`/`difference_pp`/`months_total` and `percent_of_cdi` cover those same months — the
+  index no longer earns alone while there was no portfolio. A benchmark whose data starts later
+  begins at 0% at the month before its first data (`accumulate_benchmark(from_zero=True)`). The
+  year table and the per-asset TWR still read the whole window. The first compared month still
+  counts the index's whole month, the portfolio from the purchase day (month-end closes only).
 - **TWR is daily and the closes are in the basis of the stored quantities** (2026-10-18,
   `services/returns.py`): each day r = (V1 + sales + proventos) / (V0 + buys) − 1, months are
   products of their days — Investidor10's method. Yahoo records a bonificação as a split and

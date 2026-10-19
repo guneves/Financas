@@ -153,6 +153,7 @@
 | Extrato deletes operações: Contas › an aporte/resgate row ("Pela carteira") › "⋯" › Excluir operação deletes its movement, and Investimentos › each operação (not a bonificação) has the same; `DELETE /api/investments/<id>` already removed the linked lançamento. 122 node | 2026-10-19 |
 | Operações › Editar: a sale shows its quantity without "-" and is saved as a sale (the screen puts the sign back, and `PATCH /api/investments/<id>` keeps the stored operation's sign: a positive quantity on a sale stays a sale, a negative one on a buy stays a buy); "Salvar" no longer waits for the quote refresh, which left it spinning on the next edit until the screen was left. `test_investment_edit_sign.py` (5) | 2026-10-19 |
 | Fixed-income coupons and amortizations typed ahead (040): new provento type `INTEREST` ("Juros (cupom)"; table rebuilt for the CHECK), no data com for INTEREST/AMORTIZATION (payment date used), the coupon's default IR from the regressive table since the title's first purchase (0 if tax-free or not fixed income), `repeat: {every_months, count}` on the POST writes every payment at once (each with its own date's rate), paid ones land in the Corretora as "Juros: <título>", IR report: coupon with IR → 06, without → 12, amortization out. Proventos' form switches to Pagamento / Valor bruto / IR / Repetir for a fixed-income asset. `test_fixed_income_interest.py` (24), 1381 pytest, 122 node; clicked through in Chromium | 2026-10-19 |
+| Investir charts fast and the index comparison fair: history caches copied to disk (`history_store.py`, `history_cache.json` next to the DB) so a deploy no longer waits for Yahoo/BCB; stored index closes served while they refresh in the background; proventos' sync invalidates only when it changed something; `accrual_factor_until()` by cumulative products, one pass for every asset's TWR, outputs identical. Rentabilidade starts the portfolio, the CDI and every index at 0% at the same point (the month before the period, or before the first operação) and the cards cover the same months. 1392 pytest, 122 node; Chromium screenshots | 2026-10-19 |
 
 ---
 
@@ -1014,3 +1015,26 @@ Now only the row's origin decides:
   items in it go to "Outros"/"Receita". No recurrence was in it (owner); one that exists posts a
   plain despesa in the archived category.
 - New users are seeded with nine categories.
+
+
+### Chart speed and the fair comparison — 2026-10-19
+
+Owner: "updating every chart of Investir takes 5 s or more" and "the comparison should start at 0%
+for the portfolio and the index". Measured on a synthetic portfolio (27 tickers, 59 fixed-income
+titles, 354 operations since 2021, `scratchpad` harness with the network patched and 2–3 s latency):
+- Before: Rentabilidade 1A 312 ms / 5A 900 ms of CPU when everything was cached, 2.3 s whenever the
+  15-min TTL of the index closes had passed (a blocking yfinance call), the full download after
+  every restart, and every open of Investimentos computed each chart twice (the proventos sync is a
+  POST, so it invalidated the whole cache).
+- After: 1A ~100 ms, 5A ~300 ms, Evolução 5A ~90 ms; after a restart with a 3 s network the first
+  Rentabilidade answers in ~150 ms. Responses compared field by field with the old code: identical
+  (tolerance 1e-9) for returns 12/60/all/classes and history 60/12-renda-fixa.
+- Where the CPU went: `accrual_factor_until()` re-filtered and re-multiplied the CDI series for
+  every title × month (3.6k calls × ~1.8k days); the per-asset TWR walked all days once per asset
+  (87 × 1.8k); `FixedIncomeCurve.factor()` recomputed month ends per day; `investment_movement_date()`
+  parsed each date once per day/month (26k `strptime`).
+- Found while testing: two threads of one request (CDI and IPCA) loading the disk copy at once —
+  the second saw the flag set and an empty cache, and went to the network. The load now holds a
+  lock for its whole duration.
+- The fair comparison is in `CLAUDE.md` ("Rentabilidade compares from the same 0%").
+
