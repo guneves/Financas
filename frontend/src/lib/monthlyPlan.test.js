@@ -3,6 +3,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   categoryAmountPreview,
+  clampPercent,
+  percentRoom,
+  stepPercent,
   flagText,
   formatPlanPercent,
   incomeReceivedText,
@@ -192,4 +195,29 @@ test('visibleFlags: o dispensado nao volta no mes; um novo, outra meta ou o mes 
   // Mes seguinte: tudo de novo.
   assert.equal(visibleFlags(flags, '2026-11', dismissed).length, 3)
   assert.deepEqual(visibleFlags(undefined, '2026-10', dismissed), [])
+})
+
+test('percentRoom: o que ainda cabe depois dos outros, nunca negativo', () => {
+  assert.equal(percentRoom(60), 40)
+  assert.equal(percentRoom('33.333333'), 66.666667)
+  assert.equal(percentRoom(120), 0)
+  assert.equal(percentRoom(null), 100)
+})
+
+test('clampPercent prende o controle entre 0 e o que cabe', () => {
+  assert.equal(clampPercent(45, 40), 40)
+  assert.equal(clampPercent(-3), 0)
+  assert.equal(clampPercent('25'), 25)
+  assert.equal(clampPercent(Number.NaN), 0)
+  assert.equal(clampPercent(10, -5), 0)
+})
+
+test('stepPercent anda de ponto inteiro em ponto inteiro, sem passar do limite', () => {
+  assert.equal(stepPercent(33.333333, 1), 34)
+  assert.equal(stepPercent(33.333333, -1), 33)
+  assert.equal(stepPercent(20, 1), 21)
+  assert.equal(stepPercent(20, -1), 19)
+  assert.equal(stepPercent(0, -1), 0)
+  assert.equal(stepPercent(66, 1, 66.666667), 66.666667)
+  assert.equal(stepPercent(100, 1), 100)
 })

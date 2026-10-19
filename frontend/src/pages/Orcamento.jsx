@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { budgetsApi, categoriesApi, monthlyPlanApi } from '../lib/dataApi'
 import { formatCurrency, monthKey, monthLabel, shiftMonth } from '../lib/format'
-import { categoryAmountPreview, formatPlanPercent, moneyInputValue, parseMoneyInput } from '../lib/monthlyPlan'
+import { categoryAmountPreview, formatPlanPercent, percentRoom } from '../lib/monthlyPlan'
 import { usePrivateFormatter } from '../lib/privacy'
 import { invalidateServerData, keepPreviousData, useQuery, useReportQueryError } from '../lib/queries'
 import {
@@ -34,6 +34,7 @@ import {
   PageHeader,
   Panel,
   PanelHeader,
+  PercentSlider,
   Skeleton,
   SummaryPanel,
   cx,
@@ -47,20 +48,18 @@ import { confirmAction } from '../lib/confirm'
 import MonthlyPlanPanel, { MonthlyPlanSheet } from '../components/MonthlyPlanPanel'
 import BudgetLines from '../components/BudgetLines'
 
-const emptyBudgetForm = () => ({ category_id: '', planned_percent: '', rollover: false, note: '' })
-
-// "12,5" -> 12.5; vazio ou invalido -> NaN (o servidor tambem recusa).
-const parsePercent = (value) => parseMoneyInput(value) ?? Number.NaN
+// planned_percent e o numero do controle deslizante (PercentSlider).
+const emptyBudgetForm = () => ({ category_id: '', planned_percent: 0, rollover: false, note: '' })
 
 const NO_ITEMS = []
 const NO_CATEGORIES = []
 
-// O R$ de um % digitado, ao lado do campo: "= R$ 350,00".
+// O R$ do % escolhido, ao lado do controle: "R$ 350,00".
 function AmountPreview({ spendAmount, value, className = '' }) {
-  const amount = categoryAmountPreview(spendAmount, parseMoneyInput(value))
+  const amount = categoryAmountPreview(spendAmount, value)
   return (
-    <span className={cx('tabular whitespace-nowrap text-sm font-semibold text-zinc-700', className)} aria-live="polite">
-      = {amount === null ? 'R$ —' : formatCurrency(amount)}
+    <span className={cx('tabular whitespace-nowrap text-sm font-semibold text-zinc-600', className)} aria-live="polite">
+      {amount === null ? 'R$ —' : formatCurrency(amount)}
     </span>
   )
 }
@@ -74,7 +73,7 @@ export default function Orcamento() {
   const [budgetForm, setBudgetForm] = useState(emptyBudgetForm)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
-  const [editValue, setEditValue] = useState('')
+  const [editValue, setEditValue] = useState(0)
   const [openLines, setOpenLines] = useState(() => new Set())
 
   // Modo privado: o Saldo do plano e o Disponivel por dia somem (lib/privacy.js).
@@ -136,7 +135,7 @@ export default function Orcamento() {
       await budgetsApi.create({
         category_id: budgetForm.category_id,
         month,
-        planned_percent: parsePercent(budgetForm.planned_percent),
+        planned_percent: budgetForm.planned_percent,
         rollover: budgetForm.rollover,
         note: budgetForm.note || undefined,
       })
@@ -153,7 +152,7 @@ export default function Orcamento() {
     setSaving(true)
     setError('')
     try {
-      await budgetsApi.update(item.id, { planned_percent: parsePercent(editValue) }, month)
+      await budgetsApi.update(item.id, { planned_percent: editValue }, month)
       setEditingId('')
       await loadAll()
     } catch (requestError) {
@@ -207,6 +206,8 @@ export default function Orcamento() {
   const balance = data?.plan_balance
   const daily = data?.daily_available
   const unassigned = categoryBlock?.unassigned || {}
+  // Quanto uma categoria nova ainda pode levar do Gastar.
+  const newCategoryRoom = percentRoom(categoryTotals.assigned_percent)
 
   return (
     <div className="space-y-6">
@@ -306,19 +307,14 @@ export default function Orcamento() {
                     ))}
                   </select>
                 </Field>
-                <Field label="% do Gastar">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="text" inputMode="decimal" autoComplete="off"
-                      placeholder="0"
-                      value={budgetForm.planned_percent}
-                      onChange={(event) => setBudgetForm({ ...budgetForm, planned_percent: event.target.value })}
-                      className="app-input min-w-0 flex-1"
-                      required
-                    />
-                    <AmountPreview spendAmount={spendAmount} value={budgetForm.planned_percent} />
-                  </div>
-                </Field>
+                <PercentSlider
+                  label="% do Gastar"
+                  value={budgetForm.planned_percent}
+                  onChange={(value) => setBudgetForm((current) => ({ ...current, planned_percent: value }))}
+                  room={newCategoryRoom}
+                  aside={<AmountPreview spendAmount={spendAmount} value={budgetForm.planned_percent} />}
+                  hint={`Livre: ${formatPlanPercent(newCategoryRoom)} do Gastar`}
+                />
                 <Field label="Observação" hint="Opcional">
                   <input
                     type="text"
@@ -388,17 +384,17 @@ export default function Orcamento() {
                   </div>
 
                   {editingId === item.id ? (
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <input
-                        type="text" inputMode="decimal" autoComplete="off"
+                    <div className="mt-3 flex flex-wrap items-end gap-2">
+                      <PercentSlider
+                        label="% do Gastar"
                         value={editValue}
-                        onChange={(event) => setEditValue(event.target.value)}
-                        aria-label="% do Gastar"
-                        className="app-input w-28"
-                        autoFocus
+                        onChange={setEditValue}
+                        // Um mes convertido acima de 100% pode baixar a categoria, nao subir.
+                        room={Math.max(Number(item.planned_percent || 0), percentRoom(Number(categoryTotals.assigned_percent || 0) - Number(item.planned_percent || 0)))}
+                        aside={<AmountPreview spendAmount={spendAmount} value={editValue} />}
+                        className="min-w-0 flex-1 basis-64"
                       />
-                      <AmountPreview spendAmount={spendAmount} value={editValue} />
-                      <div className="ml-auto flex items-center gap-2">
+                      <div className="ml-auto flex items-center gap-2 pb-1">
                         <IconButton label="Salvar" icon={Check} variant="primary" onClick={() => handleSaveEdit(item)} />
                         <IconButton label="Cancelar" icon={X} onClick={() => setEditingId('')} />
                       </div>
@@ -461,7 +457,7 @@ export default function Orcamento() {
                               icon: Pencil,
                               onSelect: () => {
                                 setEditingId(item.id)
-                                setEditValue(moneyInputValue(item.planned_percent))
+                                setEditValue(Number(item.planned_percent || 0))
                               },
                             },
                             { label: 'Remover do mês', icon: Trash2, tone: 'danger', onSelect: () => handleRemoveBudget(item) },

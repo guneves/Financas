@@ -121,9 +121,9 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1343 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1346 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
-per-series caches that cover every period, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
+per-series caches that cover every period, a stale entry served while it refreshes in the background, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
@@ -167,7 +167,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 117 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 120 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -588,6 +588,13 @@ mobile-docs/
   happened) and the net of other people (label by sign, value unsigned, → A receber), all from the
   cash flow's current month (`lib/cashFlow.js`); privacy mode masks every value and Resultado's
   colour. The hero holds only the balance and the accounts.
+- **Orçamento's percentages slide, they are not typed** (2026-10-19, owner): Investir, Gastar and
+  each category's % are a `PercentSlider` (`ui.jsx`: range of 1 point, − and + for the fine step,
+  the R$ beside it). Each stops at what is still free (`percentRoom()` / `clampPercent()` /
+  `stepPercent()` in `lib/monthlyPlan.js`, tested): Investir at 100 − Gastar and back, a category at
+  100% of Gastar − the others (an edit in a month already over 100% may lower, never raise). The
+  income stays typed; Metas (the investing goals) are unchanged. In an old plan without income
+  both start blank ("—") and "Converter os valores antigos" blanks them again.
 - **The plan's flags can be dismissed per device** (`lib/planFlags.js`, localStorage, like
   Início's attention cards): the key is `planFlagKey()` in `lib/monthlyPlan.js` — flag code +
   month (+ `goal_id`) — so the same flag stays gone that month, a new code, another goal or the
@@ -638,6 +645,14 @@ mobile-docs/
   sum to 100% in any class that has one), and `DELETE /api/goals/<id>` is a real delete with no
   guard. Current values, gaps, the contribution split and the goal forecast are computed on read
   from `build_portfolio_snapshot()` (net values) — never stored.
+- **The chart history is served stale and refreshed behind** (2026-10-19, owner: "Evolução de
+  patrimônio is taking too long"). The Yahoo closes (`get_daily_history()`) and the BCB series
+  (`_bcb_series_since()`) are fresh for `HISTORY_CACHE_TTL_SECONDS` (15 min); after that, up to
+  `HISTORY_CACHE_STALE_MAX_SECONDS` (7 days), the request reads the cache at once and
+  `schedule_history_refresh()` (`services/prices.py`, one per key) downloads again in the
+  background. Only past months read it — the current month uses the live quote. A refresh that
+  fails or brings a ticker with no closes keeps the old history. Past the stale limit, or a
+  ticker never fetched, the request waits as before. Tests wait with `wait_history_refreshes()`.
 - **TWR is daily and the closes are in the basis of the stored quantities** (2026-10-18,
   `services/returns.py`): each day r = (V1 + sales + proventos) / (V0 + buys) − 1, months are
   products of their days — Investidor10's method. Yahoo records a bonificação as a split and

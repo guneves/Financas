@@ -7,53 +7,54 @@
 
 ---
 
-## Session — 2026-10-19 · Início's "Resumo do mês"; dismissible plan flags
+## Session — 2026-10-19 · Faster Evolução do Patrimônio; Orçamento's % as sliders
 
-Cloud session; read the docs directly (no scout — the task named the files). Frontend only — no
-backend file, no migration, no financial rule changed. One PR for both tasks.
+Cloud session; read the docs directly (no scout — the task named the screens). No migration, no
+financial rule changed. Owner's ask: "Evolução de patrimônio is taking too long to update; change
+goals under Planejar, keep the investing goals as is, typing percentages to sliding buttons".
 
 ### Done
-- **Início** (`pages/Dashboard.jsx`): the hero lost its month pills (it keeps Saldo em conta, the
-  balance, the accounts; the strip is `mt-auto` so it sits at the bottom when the hero stretches on
-  desktop). New `MonthSummary` card "Resumo do mês" in `DailyTile`'s slot: Resultado do mês,
-  Entrou, Saiu, Investido (only with an aporte or resgate), and the net of other people (label by
-  sign, value unsigned, link "Ver em A receber"). `DailyTile`, `MonthProgress`,
-  `getDaysRemainingInMonth` and Início's `plano-do-mes` query are gone; the skeleton mirrors the
-  new top row. CLAUDE.md's "Disponível por dia" convention now points to Orçamento and describes
-  the card.
-- **Plan flags** (`components/MonthlyPlanPanel.jsx`): an X ("Dispensar") on each; per device in
-  `lib/planFlags.js` (localStorage `@financeMVP:planFlagsDismissed`, try/catch, same shape as
-  `lib/attention.js`, reusing `addDismissed()`); the key rule `planFlagKey()` / `visibleFlags()` in
-  `lib/monthlyPlan.js`, 2 new node tests (117). `AlertMessage` got an optional `dismissLabel`.
-- 1343 pytest, 117 node, `vite build`. Chromium on the seed: Início 390/1440 px, light/dark,
-  without and with a split expense, privacy on; Orçamento 390 px with SPEND_PACE dismissed and
-  INVEST_PENDING still shown (survives a reload). No console errors.
+- **Evolução do Patrimônio** — profiled `GET /api/investments/history` on the three-year seed with a
+  fake Yahoo: ~0.1 s of computation. The wait was the network (Yahoo's 63-month download, BCB),
+  each time the 15-min history cache expired — and every write invalidates the query. Now both
+  caches are stale-while-revalidate: `history_cache_state()` / `schedule_history_refresh()` /
+  `refresh_daily_history()` in `services/prices.py`, `_fetch_bcb_into_cache()` in
+  `services/fixed_income.py`, `HISTORY_CACHE_STALE_MAX_SECONDS` (7 days) in `config.py`. A failed
+  refresh keeps the old history (before, a Yahoo failure cached empty closes for 15 min). Returns,
+  benchmarks and the evolution all share these caches, so Rentabilidade gets faster too.
+- **Orçamento sliders** — `PercentSlider` (`ui.jsx`, CSS `.percent-slider`) replaces the typed %
+  of Investir, Gastar (plan sheet) and each category (add and edit). Rules `percentRoom()`,
+  `clampPercent()`, `stepPercent()` in `lib/monthlyPlan.js`, 3 node tests. Income stays typed.
+  **Metas left as is** — I read "investing goals" as the Metas tab (Patrimônio/Carteira/Classe/Renda).
+- 1346 pytest, 120 node, `vite build`; Chromium at 390 px on the seed (see `done-tasks.md`).
 
 ### Not done, and why
-- Not tried on the phone (open item in `next-steps.md`).
-- The bell does not list plan flags (it never did); dismissing one only affects Orçamento.
+- Not tried on the phone, nor in dark mode (open items in `next-steps.md`).
+- The cold start (first open after the server restarts) still waits for Yahoo/BCB; warming the
+  cache at boot would fix it but costs a download per restart — left for the owner's verdict.
 
 ### Decisions worth knowing
-- **Resultado do mês is `income − |expense|`, not `currentMonth.net`.** The task defines it as
-  "entrou menos saiu, só a sua parte"; `net` also subtracts aportes and adds others' money, and it
-  stays the cash-flow chart's "Resultado". So the card and the chart's last point can differ.
-- **The others row shows when the *net* is non-zero** (task wording); the old hero pill showed when
-  either side was non-zero. A month where paid and received cancel exactly shows no row.
-- **Investido can be negative** (more resgates than aportes) and prints "−R$ X"; the hint shows
-  both sides.
-- **The Gastar bar keeps its colour** after a pace/over flag is dismissed: dismissing hides the
-  message, not the fact.
-- The X keeps `AlertMessage`'s own small button (24 px) rather than a 44 px `IconButton`, so every
-  alert in the app closes the same way; widen it in `ui.jsx` if it is hard to hit on the phone.
+- **Stale is safe only because past months read the history**: the current month uses each
+  asset's live `current_price` (`portfolio_month_positions()`), so a stale cache changes nothing
+  the owner sees today. Don't serve stale for anything that reads today's close from it.
+- **A new plan starts at 0% / 0%**, not blank: a slider at 0 with "—" would block saving and its
+  "−" would be disabled. An old plan without income starts blank (= convert), as before.
+- **Step is 1 point.** A stored fractional % (33,333333 from a conversion) stays until touched;
+  − / + go to the next whole point, and + can reach a fractional limit exactly (66 → 66,67).
+- An edit in a month whose categories are over 100% gets `room = max(own %, free)`: it may lower,
+  never raise, without the thumb jumping down on the first touch.
 
 ### Learned
-- Only the edit sets sharing on a lançamento: `POST /api/transactions` ignores `share_*`
-  (`parse_share()` is read only in the PATCH, `routes/transactions.py`). For a seeded shared
-  expense, create it and then `PATCH /api/transactions/<id>` with `share_mode`,
-  `share_others_amount`, `share_person`.
-- The seed's current month has two flags (SPEND_PACE, INVEST_PENDING) — handy for dismiss tests.
-  The month after has none, so "comes back next month" is covered by the node test only.
-- Login token is `access_token` in the signup/login response; the localStorage auth is that JSON.
+- Login for a scratch DB: `POST /api/auth/signup` with `username`, `email`, `password`; the
+  localStorage key is `@financeMVP:auth` (the whole login JSON).
+- pytest prints no summary line here (quiet config); use the exit code or `--junitxml` for counts.
+- A Playwright `scrollIntoViewIfNeeded()` after opening a `Menu` closes it (the menu closes on
+  scroll) — scroll first, then open.
+
+### Carried from the Início "Resumo do mês" session (2026-10-19), still open
+- Resumo do mês and the plan flags' X not tried on the phone. The bell does not list plan flags.
+  Resultado do mês is `income − |expense|`, not the cash flow's `net`. The flag X is
+  `AlertMessage`'s 24 px button — widen it in `ui.jsx` if it is hard to hit.
 
 ### Carried from the Orçamento redesign session (2026-10-19), still open
 - Orçamento reads only `GET /api/monthly-plan` (query key `['plano-do-mes', month]`); `needs_income`
