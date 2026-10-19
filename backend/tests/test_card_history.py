@@ -104,7 +104,7 @@ def balance(client, auth, account):
 def budget_spent(client, auth, month, category="Alimentação"):
     categories = {item["name"]: item for item in client.get("/api/categories", headers=auth).get_json()}
     client.post("/api/budgets", headers=auth, json={
-        "category_id": categories[category]["id"], "month": month, "planned_amount": 1000,
+        "category_id": categories[category]["id"], "month": month, "planned_percent": 10,
     })
     body = client.get("/api/budgets", headers=auth, query_string={"month": month}).get_json()
     return next(item for item in body["items"] if item["category_name"] == category)["spent"]

@@ -1,9 +1,16 @@
-"""Plano do mes (025): quanto gastar e quanto investir, em reais, e os alertas.
+"""Plano do mes (025, 038): a renda, quanto dela investir e gastar, e os alertas.
 
-A linha guarda so o plano (gasto, aporte e, opcional, a renda esperada). Um
-mes sem linha propria herda o plano mais recente anterior a ele: o usuario
-define uma vez e o plano vale ate ser trocado. Tudo o mais e calculado na
-leitura:
+O plano parte da renda (038). A linha guarda a renda do mes em reais — o unico
+valor digitado, obrigatorio — e dois percentuais dela, Investir e Gastar; as
+categorias de dentro do Gastar sao os orcamentos (budgets), cada uma com o seu %
+do Gastar. "Sem destino" (100% - Investir - Gastar) e "Sem categoria" (100% -
+categorias) sao devolvidos, nunca gravados, e todo valor em reais e calculado
+na leitura sobre a renda *planejada* (services/budgets.py). A renda recebida
+vem so para comparar; nunca muda o plano.
+
+Um mes sem linha propria herda o plano mais recente anterior a ele, categorias
+incluidas: o usuario define uma vez e o plano vale ate ser trocado. O realizado
+e o de sempre, calculado na leitura:
 
 - gasto do mes = saidas das contas (EXPENSE), sem transferencias, sem
   pagamento de fatura e sem aporte (lancamento ligado a uma operacao ou na
@@ -14,17 +21,35 @@ leitura:
 - aporte do mes = aportes - resgates das operacoes da carteira no mes (o
   mesmo fluxo do grafico de Operacoes, `movement_flow()`): dinheiro novo que
   ficou investido. O caixa ligado nao entra, senao o aporte contaria duas vezes;
+- cada categoria: a regra do orcamento (rollover, subcategoria soma no pai);
+- Saldo do plano = Gastar em reais - gasto do mes. E o unico "quanto ainda
+  posso gastar": o `spend_remaining` do progresso e o mesmo numero, e
+  Disponivel por dia e ele / dias que faltam no mes (hoje incluido);
 - alertas (`flags`): cada um e um codigo, um tom (loss, warning, gain, info) e
   os valores de que a tela monta o texto. As metas com data entram como
   alertas por meta, nao somadas: um mesmo aporte alimenta a meta da carteira e
   a do patrimonio, entao somar o necessario de cada uma contaria duas vezes.
+
+Um plano de antes da 038 sem renda nao tem percentuais: `needs_income`, nada e
+calculado dele, e o PUT que traz a renda o converte (e as categorias dos meses
+que ele rege) com as formulas da migration.
 """
 
 import calendar
+from decimal import Decimal
 
 from dates import month_key
-from db import get_db, new_id, row_to_dict, utc_timestamp
-from money import rounded_money
+from db import get_db, new_id, utc_timestamp
+from money import percent_of, rounded_money
+from services.budgets import (
+    HUNDRED,
+    build_budget_month,
+    convert_legacy_budgets,
+    fetch_plan_for_month,
+    materialize_categories,
+    percent_json,
+    plan_figures,
+)
 from services.contributions import movement_flow
 from services.goals import list_goals
 from services.investments import fetch_investments, investment_operation_date
@@ -32,11 +57,13 @@ from services.invoices import local_today, signed_amount_sql
 from services.sharing import own_amount_sql
 from source_types import INVESTMENT_CASH_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
+    ValidationError,
     normalize_month,
     parse_number,
-    parse_optional_number,
+    parse_percent,
     require_month,
     safe_float,
+    to_percent,
 )
 
 INVESTMENT_CATEGORY = "Investimento"
@@ -49,19 +76,6 @@ PACE_TOLERANCE = 1.10
 PACE_MIN_DAY = 8
 # Nos ultimos dias do mes o aporte que falta vira alerta, nao lembrete.
 INVEST_DEADLINE_DAYS = 7
-
-
-def fetch_plan_for_month(conn, current_user_id, month):
-    """O plano que vale em `month`: o do proprio mes ou o mais recente anterior."""
-    return conn.execute(
-        """
-        SELECT * FROM monthly_plans
-        WHERE user_id = ? AND month <= ?
-        ORDER BY month DESC
-        LIMIT 1
-        """,
-        (current_user_id, month),
-    ).fetchone()
 
 
 def month_banking_totals(conn, current_user_id, month):
@@ -125,22 +139,54 @@ def month_period(month, today):
     return "CURRENT"
 
 
-def serialize_plan(row, month):
+def plan_balance(figures, spent):
+    """Saldo do plano: Gastar em reais - gasto do mes. None sem renda no plano."""
+    if not figures:
+        return None
+    return rounded_money(figures["spend_amount"] - spent)
+
+
+def serialize_plan(row, month, figures):
     if not row:
         return None
-    item = row_to_dict(row)
-    spend = rounded_money(row["spend_amount"])
-    invest = rounded_money(row["invest_amount"])
-    income = rounded_money(row["income_amount"]) if row["income_amount"] is not None else None
-    item.update({
-        "spend_amount": spend,
-        "invest_amount": invest,
-        "income_amount": income,
-        "source_month": row["month"],
+    item = {
+        "id": row["id"],
         "month": month,
+        "source_month": row["month"],
         "inherited": row["month"] != month,
-        # O que sobra da renda esperada depois de gastar e investir o planejado.
-        "planned_leftover": rounded_money(income - spend - invest) if income is not None else None,
+        "needs_income": figures is None,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+    if figures is None:
+        # Plano antigo, sem renda: os reais de antes, so para a tela mostrar o
+        # que havia e pedir a renda. Nada e calculado deles.
+        item.update({
+            "income_amount": rounded_money(row["income_amount"]) if row["income_amount"] is not None else None,
+            "invest_percent": None,
+            "spend_percent": None,
+            "unallocated_percent": None,
+            "invest_amount": None,
+            "spend_amount": None,
+            "unallocated_amount": None,
+            "planned_leftover": None,
+            "legacy": {
+                "spend_amount": rounded_money(row["spend_amount"]),
+                "invest_amount": rounded_money(row["invest_amount"]),
+            },
+        })
+        return item
+    item.update({
+        "income_amount": figures["income"],
+        "invest_percent": percent_json(figures["invest_percent"]),
+        "spend_percent": percent_json(figures["spend_percent"]),
+        "unallocated_percent": percent_json(figures["unallocated_percent"]),
+        "invest_amount": figures["invest_amount"],
+        "spend_amount": figures["spend_amount"],
+        "unallocated_amount": figures["unallocated_amount"],
+        # O nome antigo de "Sem destino" (a tela de antes le este).
+        "planned_leftover": figures["unallocated_amount"],
+        "legacy": None,
     })
     return item
 
@@ -183,13 +229,24 @@ def invest_flags(plan, invested, period, day, days_in_month):
 
 
 def income_flags(plan):
-    income = plan["income_amount"]
-    if income is None:
+    """So um plano convertido pela 038 passa de 100%: a API recusa os novos."""
+    if plan["unallocated_percent"] >= 0:
         return []
     committed = rounded_money(plan["spend_amount"] + plan["invest_amount"])
-    if committed > income:
-        return [{"code": "PLAN_OVER_INCOME", "tone": "loss", "amount": rounded_money(committed - income)}]
-    return []
+    return [{"code": "PLAN_OVER_INCOME", "tone": "loss", "amount": rounded_money(committed - plan["income"])}]
+
+
+def category_flags(plan, categories):
+    """Categorias que passam do Gastar (so as convertidas pela 038 chegam aqui)."""
+    totals = categories["totals"]
+    if totals["unassigned_percent"] >= 0:
+        return []
+    return [{
+        "code": "CATEGORIES_OVER_SPEND",
+        "tone": "loss",
+        "amount": rounded_money(totals["planned"] - plan["spend_amount"]),
+        "percent": totals["assigned_percent"],
+    }]
 
 
 def goal_flags(plan, goals):
@@ -212,28 +269,99 @@ def goal_flags(plan, goals):
     return flags
 
 
+def level(percent, amount, realized, remaining):
+    return {
+        "percent": percent_json(percent),
+        "amount": amount,
+        "realized": realized,
+        "remaining": remaining,
+        # Quanto do planejado ja foi realizado, em %.
+        "progress_percent": (
+            rounded_money(max(realized, 0.0) / amount * 100) if amount else None
+        ),
+    }
+
+
+def build_budget_view(conn, current_user_id, month):
+    """GET /api/budgets: as categorias do mes e o Saldo do plano, o mesmo do plano."""
+    result = build_budget_month(conn, current_user_id, month)
+    figures = plan_figures(fetch_plan_for_month(conn, current_user_id, month))
+    spent_accounts, spent_cards, _ = month_banking_totals(conn, current_user_id, month)
+    spent = rounded_money(spent_accounts + spent_cards)
+    result["totals"]["plan_spent"] = spent
+    result["totals"]["plan_balance"] = plan_balance(figures, spent)
+    return result
+
+
 def build_monthly_plan(current_user_id, month):
     today = local_today()
     period = month_period(month, today)
     year, month_number = (int(part) for part in month.split("-"))
     days_in_month = calendar.monthrange(year, month_number)[1]
     day = today.day if period == "CURRENT" else (days_in_month if period == "PAST" else 0)
+    # Dias que faltam, hoje incluido: a base do "Disponivel por dia".
+    days_remaining = {"CURRENT": days_in_month - day + 1, "PAST": 0}.get(period, days_in_month)
 
     with get_db() as conn:
         row = fetch_plan_for_month(conn, current_user_id, month)
         spent_accounts, spent_cards, income = month_banking_totals(conn, current_user_id, month)
+        categories = build_budget_month(conn, current_user_id, month)
     aportes, resgates = month_investment_flow(fetch_investments(current_user_id), month)
 
     spent = rounded_money(spent_accounts + spent_cards)
     invested = rounded_money(aportes - resgates)
-    plan = serialize_plan(row, month)
+    figures = plan_figures(row)
+    balance = plan_balance(figures, spent)
+    daily = rounded_money(balance / days_remaining) if balance is not None and days_remaining else None
+    nothing = {"percent": None, "amount": None}
 
     result = {
         "month": month,
         "period": period,
         "day": day,
         "days_in_month": days_in_month,
-        "plan": plan,
+        "days_remaining": days_remaining,
+        # Ha algo do mes (o plano ou uma categoria) que so vira reais com a renda.
+        "needs_income": (row is not None and figures is None) or categories["needs_income"],
+        "plan": serialize_plan(row, month, figures),
+        "income": {
+            "planned": figures["income"] if figures else None,
+            # Regra de sempre (entradas das contas, sem resgate): so compara.
+            "received": rounded_money(income),
+        },
+        "invest": level(
+            figures["invest_percent"] if figures else None,
+            figures["invest_amount"] if figures else None,
+            invested,
+            rounded_money(max(figures["invest_amount"] - invested, 0.0)) if figures else None,
+        ),
+        "spend": level(
+            figures["spend_percent"] if figures else None,
+            figures["spend_amount"] if figures else None,
+            spent,
+            balance,
+        ),
+        # Sem destino: a renda que nao vai nem para investir nem para gastar.
+        "unallocated": {
+            "percent": percent_json(figures["unallocated_percent"]),
+            "amount": figures["unallocated_amount"],
+        } if figures else nothing,
+        "categories": {
+            "source_month": categories["source_month"],
+            "inherited": categories["inherited"],
+            "needs_income": categories["needs_income"],
+            "items": categories["items"],
+            "assigned_percent": categories["totals"]["assigned_percent"],
+            "assigned_amount": categories["totals"]["planned"],
+            # Sem categoria: o Gastar que nenhuma categoria leva.
+            "unassigned": {
+                "percent": categories["totals"]["unassigned_percent"],
+                "amount": categories["totals"]["unassigned_amount"],
+            },
+            "totals": categories["totals"],
+        },
+        "plan_balance": balance,
+        "daily_available": daily,
         "actual": {
             "spent": spent,
             "spent_accounts": rounded_money(spent_accounts),
@@ -246,14 +374,15 @@ def build_monthly_plan(current_user_id, month):
         "progress": None,
         "flags": [],
     }
-    if not plan:
+    if not figures:
         return result
 
-    spend_planned = plan["spend_amount"]
-    invest_planned = plan["invest_amount"]
+    spend_planned = figures["spend_amount"]
+    invest_planned = figures["invest_amount"]
     result["progress"] = {
         "spend_percent": rounded_money(spent / spend_planned * 100) if spend_planned > 0 else None,
-        "spend_remaining": rounded_money(spend_planned - spent),
+        # O Saldo do plano, o mesmo numero de `plan_balance`.
+        "spend_remaining": balance,
         "invest_percent": rounded_money(max(invested, 0.0) / invest_planned * 100) if invest_planned > 0 else None,
         "invest_remaining": rounded_money(max(invest_planned - invested, 0.0)),
         # Quanto do gasto planejado "cabe" ate hoje, no ritmo uniforme do mes.
@@ -263,60 +392,100 @@ def build_monthly_plan(current_user_id, month):
     }
 
     flags = [
-        *income_flags(plan),
-        *spend_flags(plan, spent, period, day, days_in_month),
-        *invest_flags(plan, invested, period, day, days_in_month),
+        *income_flags(figures),
+        *category_flags(figures, categories),
+        *spend_flags(figures, spent, period, day, days_in_month),
+        *invest_flags(figures, invested, period, day, days_in_month),
     ]
     # As metas olham de hoje para a frente: num mes passado nao ha o que cobrir.
     if period != "PAST":
-        flags.extend(goal_flags(plan, list_goals(current_user_id)))
+        flags.extend(goal_flags(figures, list_goals(current_user_id)))
     result["flags"] = flags
     return result
 
 
+def parse_income(payload):
+    if payload.get("income_amount") in (None, ""):
+        raise ValidationError("Informe a renda do mes: o plano parte dela.")
+    income = rounded_money(parse_number(payload, "income_amount", "Renda do mes", minimum=0))
+    if income <= 0:
+        raise ValidationError("A renda do mes deve ser maior que zero.")
+    return income
+
+
+def legacy_percent(amount, income):
+    """A formula da 038: um valor antigo em reais sobre a renda, em %."""
+    return to_percent(Decimal(str(safe_float(amount))) * HUNDRED / Decimal(str(income)))
+
+
 def save_monthly_plan(current_user_id, payload):
-    """Grava (ou troca) o plano do mes do payload; vale dali para a frente."""
+    """Grava (ou troca) o plano do mes do payload; vale dali para a frente.
+
+    Pede a renda e os dois percentuais. Num mes cujo plano ainda e o antigo, sem
+    renda, os percentuais podem faltar: saem dos reais antigos sobre a renda
+    nova (a conversao da 038). Em qualquer caso as categorias antigas dos meses
+    que este plano rege viram % do novo Gastar.
+    """
     month = require_month(payload, "month", "Mes do plano")
-    spend = rounded_money(parse_number(payload, "spend_amount", "Valor para gastar", minimum=0))
-    invest = rounded_money(parse_number(payload, "invest_amount", "Valor para investir", minimum=0))
-    raw_income = parse_optional_number(payload, "income_amount", "Renda esperada", minimum=0)
-    income = rounded_money(raw_income) if raw_income is not None else None
+    income = parse_income(payload)
+    explicit = any(payload.get(key) not in (None, "") for key in ("invest_percent", "spend_percent"))
 
     with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM monthly_plans WHERE user_id = ? AND month = ?",
-            (current_user_id, month),
-        ).fetchone()
-        if existing:
+        current = fetch_plan_for_month(conn, current_user_id, month)
+        if not explicit and current is not None and current["spend_percent"] is None:
+            invest_percent = legacy_percent(current["invest_amount"], income)
+            spend_percent = legacy_percent(current["spend_amount"], income)
+        else:
+            invest_percent = parse_percent(payload, "invest_percent", "Investir (%)")
+            spend_percent = parse_percent(payload, "spend_percent", "Gastar (%)")
+        if invest_percent + spend_percent > HUNDRED:
+            raise ValidationError(
+                f"Investir e Gastar somam {float(invest_percent + spend_percent):g}%: passam de 100% da renda."
+            )
+
+        values = (income, format(invest_percent, "f"), format(spend_percent, "f"))
+        if current is not None and current["month"] == month:
             conn.execute(
                 """
                 UPDATE monthly_plans
-                SET spend_amount = ?, invest_amount = ?, income_amount = ?, updated_at = ?
+                SET income_amount = ?, invest_percent = ?, spend_percent = ?, updated_at = ?
                 WHERE id = ? AND user_id = ?
                 """,
-                (spend, invest, income, utc_timestamp(), existing["id"], current_user_id),
+                (*values, utc_timestamp(), current["id"], current_user_id),
             )
         else:
+            # O mes deixa de herdar: as categorias herdadas vem junto, senao o
+            # plano novo comecaria sem nenhuma. Os reais antigos ficam 0 (NOT NULL).
+            materialize_categories(conn, current_user_id, month)
             conn.execute(
                 """
-                INSERT INTO monthly_plans (id, user_id, month, spend_amount, invest_amount, income_amount)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO monthly_plans (id, user_id, month, spend_amount, invest_amount,
+                                           income_amount, invest_percent, spend_percent)
+                VALUES (?, ?, ?, 0, 0, ?, ?, ?)
                 """,
-                (new_id(), current_user_id, month, spend, invest, income),
+                (new_id(), current_user_id, month, *values),
             )
+        convert_legacy_budgets(conn, current_user_id, month, percent_of(income, spend_percent))
     return build_monthly_plan(current_user_id, month)
 
 
 def delete_monthly_plan(current_user_id, raw_month):
-    """Apaga o plano gravado *neste* mes; o mes volta a herdar o anterior."""
+    """Apaga o plano gravado *neste* mes, com as categorias dele.
+
+    O mes volta a herdar o plano anterior, inteiro (categorias incluidas).
+    """
     month = normalize_month(raw_month, "Mes do plano")
     with get_db() as conn:
         cursor = conn.execute(
             "DELETE FROM monthly_plans WHERE user_id = ? AND month = ?",
             (current_user_id, month),
         )
-    if cursor.rowcount == 0:
-        return None
+        if cursor.rowcount == 0:
+            return None
+        conn.execute(
+            "DELETE FROM budgets WHERE user_id = ? AND month = ?",
+            (current_user_id, month),
+        )
     return build_monthly_plan(current_user_id, month)
 
 
@@ -324,4 +493,3 @@ def parse_month_arg(raw_month):
     if not raw_month:
         return month_key(local_today())
     return normalize_month(raw_month, "Mes do plano")
-

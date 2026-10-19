@@ -145,6 +145,7 @@
 | Card history no longer disappears (migration 037): deleting a purchase removes only its open installments (the API refuses a paid one, 409); a purchase or refund dated into an already-paid invoice — typed or approved in Aprovar — starts at the first unpaid one; a card with open items is not deleted, one with history is archived (`credit_cards.archived_at`), an empty one is deleted; an invoice payment can be undone (`DELETE /api/cc-expenses/payments/<id>`, Extrato › "⋯" › Desfazer pagamento). `test_card_history.py` (19) | 2026-10-18 |
 | Owner's review, items 4–21: card edit (name, due and closing day); account edit on screen (name, institution, initial balance, default, unlink from the portfolio, reactivate); the default account never lost (archived or turned Corretora → another takes the mark; a 409 no longer clears it; never a Corretora); lançamento of an archived account editable, its name shown; `account_id: ""` on edit refused; a transfer edit across currencies refused; import rules skip paid proventos; CSV type "d"/"Depósito"/"Devolução"; OFX "-42,90", CSV "1.500", a repeated FITID; recurrences skip archived accounts (`blocked`); closing day 29–31 in a short month; old card endpoints (`/status`, `/invoice-status` removed; list POST rounded, no `PAID`, a `client_id` per purchase); dates and months stored zero-padded; no third category level or archived parent; `JWT_SECRET` never the public default (generated into `.jwt_secret`), signup closed once a user exists (`ALLOW_SIGNUP`); Aprovar "Nx de R$" read as the installment; `parseMoneyInput` "1,234.56"/"0.500"; `round()` on quotes; a hand-written button height. `test_card_edit.py`, `test_signup_and_secret.py` and cases in the existing files (1305 pytest), 108 node, 52 JVM | 2026-10-18 |
 | Início's account strip opens at the far left on the phone: `scroll-px-4` on the strip, so `snap-start` stops snapping the first account to 16 px (Chromium, 390 px: `scrollLeft` 0 with 1 and 8 accounts, cold load, back and in-app navigation) | 2026-10-19 |
+| The monthly plan starts from income — backend + migration 038: the plan is Renda (R$, required) + Investir % + Gastar % of it, each category a % of Gastar; every R$ computed on read (`percent_of()`), percentages stored as six-decimal text read as `Decimal`; over 100% refused at both levels; Sem destino / Sem categoria returned; a month inherits the previous plan *with its categories*; Saldo do plano = Gastar − spent (one number in the plan, its progress and the budget) and Disponível por dia; the migration converts plans with income and their months' categories, the rest is `needs_income` until the PUT brings the income. Budget logic moved to `services/budgets.py`. Interim screens only (redesign next). `test_monthly_plan_income.py` (21) + the budget files rewritten (1343 pytest), 108 node | 2026-10-19 |
 
 ---
 
@@ -877,3 +878,49 @@ flush against the block's rounded edge, on every open. Not `lib/scroll.js` (wind
 late width change (same result after the data settled). Fix: `scroll-px-4`, scroll-padding equal to
 the padding; the first snap position is 0 and the next account still snaps 16 px from the edge.
 `sm` and up is a grid with `overflow-visible`, not a scroll container, so it is unchanged.
+
+### The monthly plan starts from income (038) — 2026-10-19
+- **Shape.** `monthly_plans` keeps `income_amount` (the only typed R$) and gains `invest_percent`
+  / `spend_percent`; `budgets` gains `planned_percent` (% of Gastar). Text with six decimals
+  ("33.333333"): Python reads them as `Decimal` (`to_percent()` in `validators.py`), so 33,33 × 3
+  is 99,99 exactly, and six places keep an old plan's R$ to the cent up to R$ 1 million of income.
+  `percent_of()` (`money.py`) is `rounded_money()`'s ROUND_HALF_UP applied to the exact Decimal
+  product. The old R$ columns stay (append-only, NOT NULL): new rows write 0 there and a converted
+  row never reads them.
+- **Levels.** Gastar R$ = income × Gastar %; category R$ = Gastar R$ × its %; Sem destino R$ =
+  income − Investir R$ − Gastar R$ (so the three add up to the income to the cent); Sem categoria
+  = Gastar R$ − the categories' R$. Realizado unchanged: the plan's spent rule, the budget's rule
+  per category (rollover, subcategory into the parent), aportes − resgates.
+- **Inheritance.** A month's plan is the latest plan row ≤ it (as before); its categories come from
+  the latest month ≤ it with a plan row *or* budget rows (`category_source_month()`). Any category
+  write in an inherited month (`POST`, `PATCH`/`DELETE ?month=`, copy) first copies the inherited
+  plan and categories into the month (`materialize_month()`), so the change does not leak back and
+  deleting the last category does not bring the inherited ones back. A PUT that creates a month's
+  plan copies the inherited categories into it. `DELETE /api/monthly-plan` removes the month's
+  plan *and* its categories — the month goes back to the previous plan, whole.
+- **Rollover** reads the previous month's effective category and its own Gastar: the leftover is
+  previous Gastar R$ × previous % − previous spent (one level, never negative, as before).
+- **Saldo do plano** (`plan_balance`) = Gastar R$ − the month's spent; `progress.spend_remaining`
+  and `spend.remaining` are the same number, and `GET /api/budgets` returns it as
+  `totals.plan_balance` (Orçamento's "Saldo do plano" reads it). `totals.remaining` stays the
+  categories' own leftover (Início's budget strip). `daily_available` = Saldo ÷ days left with
+  today (`days_remaining`; 0 and null in a past month, all days in a future one).
+- **Conversion.** 038: a plan with income > 0 → invest% = invest ÷ income, spend% = spend ÷ income;
+  a budget whose month's effective plan has income > 0 and Gastar > 0 → planned% = planned ÷ that
+  Gastar. Anything else stays NULL = `needs_income`: no R$ is computed from it (status
+  `NEEDS_INCOME`, the old R$ in `plan.legacy` / `legacy_amount`). The PUT that brings the income
+  converts the plan (percentages may be omitted then: they come from the old R$) and every NULL
+  category in the months the plan governs (its month up to the next plan row), with the same
+  formulas. A plan converted over 100% is kept and flagged (`PLAN_OVER_INCOME`, and
+  `CATEGORIES_OVER_SPEND` for categories); a later write may lower a category but not raise it.
+- **API.** `PUT /api/monthly-plan` takes `income_amount` (required, > 0), `invest_percent` and
+  `spend_percent` (required, 0–100, sum ≤ 100); `spend_amount`/`invest_amount` are no longer
+  read. `POST/PATCH /api/budgets` take `planned_percent` (no R$ option); PATCH/DELETE/lines take
+  `?month=`. `GET /api/monthly-plan` adds `needs_income`, `income {planned, received}`,
+  `invest`/`spend` `{percent, amount, realized, remaining, progress_percent}`, `unallocated`,
+  `categories {items, assigned_*, unassigned, totals, source_month, inherited}`, `plan_balance`,
+  `daily_available`, `days_remaining`; `plan`, `actual`, `progress` and `flags` keep their old keys.
+- **Checked:** 1343 pytest, 108 node, `vite build`; the three-year seed (now one plan + seven
+  category percentages, inherited) run on a throwaway DB, and Orçamento driven in Chromium on it
+  (save the plan, edit a category's %, Início) with no console error.
+

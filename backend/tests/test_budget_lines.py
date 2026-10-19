@@ -19,11 +19,11 @@ def categories_of(client, headers):
     return {item["name"]: item for item in client.get("/api/categories", headers=headers).get_json()}
 
 
-def create_budget(client, headers, category_id, month, planned_amount=1000):
+def create_budget(client, headers, category_id, month, planned_percent=10):
     response = client.post(
         "/api/budgets",
         headers=headers,
-        json={"category_id": category_id, "month": month, "planned_amount": planned_amount},
+        json={"category_id": category_id, "month": month, "planned_percent": planned_percent},
     )
     assert response.status_code == 201, response.get_data(as_text=True)
     return response.get_json()
@@ -143,7 +143,7 @@ def test_a_subcategory_counts_until_it_has_its_own_budget(client, auth):
     body = assert_lines_add_up(client, auth, "2026-09", budget["id"])
     assert [line["subcategory"] for line in body["lines"]] == [True]
 
-    create_budget(client, auth, child["id"], "2026-09", 100)
+    create_budget(client, auth, child["id"], "2026-09", 5)
     assert lines_of(client, auth, budget["id"])["lines"] == []
 
 
@@ -182,3 +182,21 @@ def test_another_users_budget_does_not_open(client, user, other_user):
 
 def test_lines_require_auth(client):
     assert client.get("/api/budgets/x/lines").status_code == 401
+
+
+def test_an_inherited_month_opens_its_own_lines(client, auth):
+    """Outubro herda a linha de setembro: `?month=` abre os lancamentos de outubro."""
+    cats = categories_of(client, auth)
+    budget = create_budget(client, auth, cats["Alimentação"]["id"], "2026-09")
+    add_entry(client, auth, 30, "2026-09-05", "Alimentação", cats["Alimentação"]["id"], description="setembro")
+    add_entry(client, auth, 45, "2026-10-05", "Alimentação", cats["Alimentação"]["id"], description="outubro")
+
+    response = client.get(f"/api/budgets/{budget['id']}/lines", headers=auth, query_string={"month": "2026-10"})
+    assert response.status_code == 200, response.get_data(as_text=True)
+    body = response.get_json()
+    assert body["month"] == "2026-10"
+    assert [line["description"] for line in body["lines"]] == ["outubro"]
+    assert body["spent"] == screen_spent(client, auth, "2026-10", budget["id"]) == 45
+    # Antes da linha ela nao vale.
+    early = client.get(f"/api/budgets/{budget['id']}/lines", headers=auth, query_string={"month": "2026-08"})
+    assert early.status_code == 404

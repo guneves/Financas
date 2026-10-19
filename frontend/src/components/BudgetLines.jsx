@@ -7,10 +7,10 @@ import { AlertMessage, Skeleton } from './ui'
 // O que soma o realizado de uma categoria do orcamento. As linhas vem de
 // GET /api/budgets/<id>/lines, que usa a mesma lista do total: o que abre aqui
 // sempre fecha com o valor mostrado. So busca quando a categoria esta aberta.
-export default function BudgetLines({ budgetId, categoryName, kind }) {
+export default function BudgetLines({ budgetId, month, categoryName, kind }) {
   const query = useQuery({
-    queryKey: ['orcamento', 'linhas', budgetId],
-    queryFn: () => budgetsApi.lines(budgetId),
+    queryKey: ['orcamento', 'linhas', budgetId, month],
+    queryFn: () => budgetsApi.lines(budgetId, month),
   })
 
   if (query.isPending) {

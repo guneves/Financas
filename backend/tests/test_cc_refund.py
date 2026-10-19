@@ -162,7 +162,7 @@ def test_budget_and_monthly_plan_subtract_the_refund_in_its_month(client, auth, 
         monkeypatch.setattr(importlib.import_module(name), "local_today", lambda: date(2026, 3, 20))
     categories = {item["name"]: item for item in client.get("/api/categories", headers=auth).get_json()}
     client.post("/api/budgets", headers=auth, json={
-        "category_id": categories["Alimentação"]["id"], "month": "2026-03", "planned_amount": 1000,
+        "category_id": categories["Alimentação"]["id"], "month": "2026-03", "planned_percent": 10,
     })
     card = create_card(client, auth)
     purchase(client, auth, card, total=300)

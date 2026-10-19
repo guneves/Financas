@@ -106,7 +106,7 @@ class TestTwoIdenticalRides:
     def test_the_budget_shows_two_lines(self, client, auth, two_rides):
         transporte = next(item for item in client.get("/api/categories", headers=auth).get_json() if item["name"] == "Transporte")
         budget = client.post("/api/budgets", headers=auth, json={
-            "category_id": transporte["id"], "month": "2026-03", "planned_amount": 100,
+            "category_id": transporte["id"], "month": "2026-03", "planned_percent": 10,
         }).get_json()
         lines = client.get(f"/api/budgets/{budget['id']}/lines", headers=auth).get_json()["lines"]
         assert [line["amount"] for line in lines] == [10, 10]

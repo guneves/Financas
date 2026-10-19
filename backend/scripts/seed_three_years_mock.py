@@ -54,6 +54,7 @@ USER_TABLES = [
     "cc_expenses",
     "credit_cards",
     "budgets",
+    "monthly_plans",
     "recurring_transactions",
     "transactions",
     "categories",
@@ -110,6 +111,10 @@ class Api:
     def post(self, path, payload, allow_fail=False):
         response = self.client.post(path, json=payload, headers=self.headers)
         return self._check(response, "POST", path, payload, allow_fail)
+
+    def put(self, path, payload):
+        response = self.client.put(path, json=payload, headers=self.headers)
+        return self._check(response, "PUT", path, payload, False)
 
     def patch(self, path, payload):
         response = self.client.patch(path, json=payload, headers=self.headers)
@@ -433,23 +438,30 @@ def pay_past_invoices(api, cards, accounts):
 
 # ---------------------------------------------------------------- orcamento
 
+# Plano do mes (038): renda, Investir % e Gastar %; cada categoria e um % do
+# Gastar. Gravado uma vez, ha um ano: os meses seguintes herdam.
+PLAN_INCOME = 12000
+PLAN_INVEST_PERCENT = 20
+PLAN_SPEND_PERCENT = 65
 BUDGET_PLAN = {
-    "Moradia": 3300, "Mercado": 350, "Serviços": 480, "Saúde": 700,
-    "Educação": 450, "Lazer": 250, "Transporte": 300,
+    "Moradia": 42, "Mercado": 5, "Serviços": 6, "Saúde": 9,
+    "Educação": 6, "Lazer": 3, "Transporte": 4,
 }
 
 
 def seed_budgets(api, category_ids):
-    count = 0
     budget_start = date(TODAY.year - 1, TODAY.month, 1)
-    for year, month in months_between(budget_start, TODAY):
-        for name, planned in BUDGET_PLAN.items():
-            api.post("/api/budgets", {
-                "category_id": category_ids[name], "month": f"{year:04d}-{month:02d}",
-                "planned_amount": scaled(planned), "rollover": name == "Lazer",
-            })
-            count += 1
-    return count
+    month = f"{budget_start.year:04d}-{budget_start.month:02d}"
+    api.put("/api/monthly-plan", {
+        "month": month, "income_amount": scaled(PLAN_INCOME),
+        "invest_percent": PLAN_INVEST_PERCENT, "spend_percent": PLAN_SPEND_PERCENT,
+    })
+    for name, percent in BUDGET_PLAN.items():
+        api.post("/api/budgets", {
+            "category_id": category_ids[name], "month": month,
+            "planned_percent": percent, "rollover": name == "Lazer",
+        })
+    return len(BUDGET_PLAN)
 
 
 # ---------------------------------------------------------------- investimentos

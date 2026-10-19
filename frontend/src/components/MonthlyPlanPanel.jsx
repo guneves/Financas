@@ -11,6 +11,8 @@ import { BudgetProgressBar } from './BudgetProgress'
 
 const emptyForm = { income: '', spend: '', invest: '' }
 
+const formatPercent = (value) => `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
+
 function PlanRow({ label, done, planned, percent, status, remainingLabel, remaining, remainingTone }) {
   return (
     <div>
@@ -28,8 +30,9 @@ function PlanRow({ label, done, planned, percent, status, remainingLabel, remain
   )
 }
 
-// Plano do mes no topo do Orcamento: quanto gastar e investir, em reais, e os
-// alertas para chegar nas metas. O calculo e todo do servidor.
+// Plano do mes no topo do Orcamento: a renda e quanto dela investir e gastar,
+// em %, e os alertas para chegar nas metas. O calculo e todo do servidor (os
+// reais saem dos %). Versao de transicao: o redesenho da tela vem depois.
 export default function MonthlyPlanPanel({ month }) {
   const [error, setError] = useState('')
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -49,12 +52,14 @@ export default function MonthlyPlanPanel({ month }) {
   const progress = data?.progress || {}
   const flags = sortFlags(data?.flags)
 
+  const needsIncome = Boolean(plan?.needs_income)
+
   const openSheet = () => {
     setForm(plan
       ? {
-          income: moneyInputValue(plan.income_amount),
-          spend: moneyInputValue(plan.spend_amount),
-          invest: moneyInputValue(plan.invest_amount),
+          income: needsIncome ? '' : moneyInputValue(plan.income_amount),
+          spend: moneyInputValue(plan.spend_percent),
+          invest: moneyInputValue(plan.invest_percent),
         }
       : emptyForm)
     setFormError('')
@@ -64,18 +69,29 @@ export default function MonthlyPlanPanel({ month }) {
   const income = parseMoneyInput(form.income)
   const spend = parseMoneyInput(form.spend)
   const invest = parseMoneyInput(form.invest)
-  const leftover = income !== null && !Number.isNaN(income) ? income - (spend || 0) - (invest || 0) : null
+  // Plano antigo sem renda: com os dois % em branco, o servidor converte os
+  // reais de antes sobre a renda informada.
+  const convertLegacy = needsIncome && spend === null && invest === null
+  const leftover = !convertLegacy && spend !== null && invest !== null && !Number.isNaN(spend) && !Number.isNaN(invest)
+    ? 100 - spend - invest
+    : null
 
   const handleSave = async (event) => {
     event.preventDefault()
-    if (spend === null || Number.isNaN(spend) || invest === null || Number.isNaN(invest) || Number.isNaN(income)) {
-      setFormError('Informe valores em reais, como 2.500,00.')
+    if (income === null || Number.isNaN(income) || income <= 0) {
+      setFormError('Informe a renda do mês em reais, como 5.000,00.')
+      return
+    }
+    if (!convertLegacy && (spend === null || Number.isNaN(spend) || invest === null || Number.isNaN(invest))) {
+      setFormError('Informe quanto da renda investir e gastar, em %, como 20 ou 33,33.')
       return
     }
     setSaving(true)
     setFormError('')
     try {
-      await monthlyPlanApi.save({ month, spend_amount: spend, invest_amount: invest, income_amount: income })
+      await monthlyPlanApi.save(convertLegacy
+        ? { month, income_amount: income }
+        : { month, income_amount: income, spend_percent: spend, invest_percent: invest })
       setSheetOpen(false)
       toast(`Plano salvo a partir de ${monthLabel(month)}.`)
     } catch (requestError) {
@@ -88,7 +104,7 @@ export default function MonthlyPlanPanel({ month }) {
   const handleRemove = async () => {
     if (!(await confirmAction({
       title: `Remover o plano de ${monthLabel(month)}?`,
-      message: 'O mês volta a usar o plano anterior, se houver. Nenhum lançamento muda.',
+      message: 'O mês volta a usar o plano anterior, com as categorias dele, se houver. Nenhum lançamento muda.',
       confirmLabel: 'Remover',
     }))) return
     setSaving(true)
@@ -104,13 +120,13 @@ export default function MonthlyPlanPanel({ month }) {
   }
 
   const ownPlan = plan && !plan.inherited
-  const overSpent = Number(progress.spend_remaining) < 0
+  const overSpent = Number(data?.plan_balance) < 0
 
   return (
     <Panel>
       <PanelHeader
         title="Plano do mês"
-        description="Quanto você decidiu gastar e investir por mês, em reais. Vale a partir do mês em que é salvo, até você trocar."
+        description="Da sua renda, quanto investir e quanto gastar. Vale a partir do mês em que é salvo, até você trocar."
         actions={plan ? (
           <Button variant="secondary" icon={SlidersHorizontal} onClick={openSheet}>Editar plano</Button>
         ) : null}
@@ -128,8 +144,15 @@ export default function MonthlyPlanPanel({ month }) {
           <EmptyState
             icon={PiggyBank}
             title="Sem plano para este mês"
-            message="Defina quanto vai gastar e quanto vai investir. O app avisa quando o ritmo sair do plano e se o aporte cobre as suas metas."
+            message="Informe a renda do mês e quanto dela vai investir e gastar. O app avisa quando o ritmo sair do plano e se o aporte cobre as suas metas."
             action={<Button icon={SlidersHorizontal} onClick={openSheet}>Definir plano</Button>}
+          />
+        ) : needsIncome ? (
+          <EmptyState
+            icon={PiggyBank}
+            title="O plano precisa da renda"
+            message={`O plano agora parte da renda do mês. O antigo era gastar ${formatCurrency(plan.legacy?.spend_amount)} e investir ${formatCurrency(plan.legacy?.invest_amount)}: informe a renda para convertê-lo em percentuais.`}
+            action={<Button icon={SlidersHorizontal} onClick={openSheet}>Informar renda</Button>}
           />
         ) : (
           <>
@@ -141,17 +164,17 @@ export default function MonthlyPlanPanel({ month }) {
 
             <div className="grid gap-5 md:grid-cols-2">
               <PlanRow
-                label="Gastar"
+                label={`Gastar · ${formatPercent(plan.spend_percent)}`}
                 done={actual.spent}
                 planned={plan.spend_amount}
                 percent={progress.spend_percent ?? (actual.spent > 0 ? 100 : 0)}
                 status={spendStatus(flags)}
                 remainingLabel={overSpent ? 'Acima do plano:' : 'Ainda pode gastar:'}
-                remaining={Math.abs(Number(progress.spend_remaining || 0))}
+                remaining={Math.abs(Number(data?.plan_balance || 0))}
                 remainingTone={overSpent ? 'loss' : 'neutral'}
               />
               <PlanRow
-                label="Investir"
+                label={`Investir · ${formatPercent(plan.invest_percent)}`}
                 done={actual.invested}
                 planned={plan.invest_amount}
                 percent={progress.invest_percent ?? 0}
@@ -161,14 +184,15 @@ export default function MonthlyPlanPanel({ month }) {
               />
             </div>
 
-            {plan.income_amount !== null ? (
-              <p className="text-sm text-zinc-600">
-                Renda esperada {formatCurrency(plan.income_amount)} · recebido no mês {formatCurrency(actual.income)} · sobra planejada{' '}
-                <span className={cx('font-semibold', plan.planned_leftover < 0 ? 'text-rose-600' : 'text-zinc-900')}>
-                  {formatCurrency(plan.planned_leftover)}
-                </span>
-              </p>
-            ) : null}
+            <p className="text-sm text-zinc-600">
+              Renda do mês {formatCurrency(plan.income_amount)} · recebido {formatCurrency(actual.income)} · sem destino{' '}
+              <span className={cx('font-semibold', plan.unallocated_amount < 0 ? 'text-rose-600' : 'text-zinc-900')}>
+                {formatCurrency(plan.unallocated_amount)} ({formatPercent(plan.unallocated_percent)})
+              </span>
+              {data?.daily_available !== null && data?.daily_available !== undefined
+                ? <> · disponível por dia {formatCurrency(data.daily_available)}</>
+                : null}
+            </p>
 
             {flags.length ? (
               <ul className="space-y-2" aria-label="Alertas do plano">
@@ -204,32 +228,32 @@ export default function MonthlyPlanPanel({ month }) {
       >
         <form id="monthly-plan-form" onSubmit={handleSave} className="space-y-4">
           <AlertMessage message={formError} onDismiss={() => setFormError('')} />
-          <Field label="Quanto vou gastar no mês">
-            <input
-              type="text" inputMode="decimal" autoComplete="off" placeholder="0,00"
-              value={form.spend} onChange={(event) => setForm({ ...form, spend: event.target.value })}
-              className="app-input" required autoFocus
-            />
-          </Field>
-          <Field label="Quanto vou investir no mês">
-            <input
-              type="text" inputMode="decimal" autoComplete="off" placeholder="0,00"
-              value={form.invest} onChange={(event) => setForm({ ...form, invest: event.target.value })}
-              className="app-input" required
-            />
-          </Field>
-          <Field label="Renda esperada no mês" hint="Opcional — avisa se o plano não cabe nela">
+          <Field label="Renda do mês (R$)">
             <input
               type="text" inputMode="decimal" autoComplete="off" placeholder="0,00"
               value={form.income} onChange={(event) => setForm({ ...form, income: event.target.value })}
-              className="app-input"
+              className="app-input" required autoFocus
+            />
+          </Field>
+          <Field label="Investir (% da renda)" hint={needsIncome ? 'Em branco: converte o plano antigo' : undefined}>
+            <input
+              type="text" inputMode="decimal" autoComplete="off" placeholder="0"
+              value={form.invest} onChange={(event) => setForm({ ...form, invest: event.target.value })}
+              className="app-input" required={!needsIncome}
+            />
+          </Field>
+          <Field label="Gastar (% da renda)" hint={needsIncome ? 'Em branco: converte o plano antigo' : undefined}>
+            <input
+              type="text" inputMode="decimal" autoComplete="off" placeholder="0"
+              value={form.spend} onChange={(event) => setForm({ ...form, spend: event.target.value })}
+              className="app-input" required={!needsIncome}
             />
           </Field>
           {leftover !== null ? (
             <p className={cx('text-sm', leftover < 0 ? 'font-semibold text-rose-600' : 'text-zinc-600')}>
               {leftover < 0
-                ? `O plano passa da renda em ${formatCurrency(-leftover)}.`
-                : `Sobra planejada: ${formatCurrency(leftover)}.`}
+                ? `Investir e gastar passam de 100% da renda em ${formatPercent(-leftover)}.`
+                : `Sem destino: ${formatPercent(leftover)} da renda.`}
             </p>
           ) : null}
         </form>

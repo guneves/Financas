@@ -667,12 +667,16 @@ def test_the_generated_transaction_can_be_deleted_and_is_not_recreated(client, a
 
 def test_generated_expenses_count_against_the_budget(client, auth):
     categories = categories_of(client, auth)
+    # Renda 10.000, Gastar 100%: Moradia com 20% do Gastar = 2.000.
+    assert client.put("/api/monthly-plan", headers=auth, json={
+        "month": "2026-01", "income_amount": 10000, "invest_percent": 0, "spend_percent": 100,
+    }).status_code == 200
     assert client.post(
         "/api/budgets",
         json={
             "category_id": categories["Moradia"]["id"],
             "month": "2026-01",
-            "planned_amount": 2000,
+            "planned_percent": 20,
         },
         headers=auth,
     ).status_code == 201

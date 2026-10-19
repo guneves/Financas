@@ -7,31 +7,68 @@
 
 ---
 
-## Session — 2026-10-19 · Início's account strip opened scrolled
+## Session — 2026-10-19 · The monthly plan starts from income (backend + 038)
 
-Cloud session, one bug; read the docs directly (narrow task). One PR.
+Cloud session; read the docs directly. One PR. **The screen redesign is the next session** — this
+one is the backend, the migration and only the frontend changes needed to keep saving and reading.
 
 ### Done
-- **Cause found, not papered over:** the strip under "Saldo em conta" (`BalanceHero`,
-  `pages/Dashboard.jsx`) is `-mx-4 px-4` with `snap-x` and `snap-start` per account. Snap aligns
-  an item with the snapport, which ignores `padding` — so the first account's snap position was
-  `scrollLeft` 16 and Chromium snapped there on layout. Fix: `scroll-px-4` (scroll-padding = the
-  padding). No `scrollLeft = 0` reset was needed.
-- Reproduced and checked in Chromium (Playwright) at 390 px on a throwaway DB: before, 8 accounts
-  → `scrollLeft` 16 on cold load, browser back and in-app navigation; 1 account → 0 (no overflow).
-  After, 0 in all six cases, first account 16 px inside the block; scrolling still snaps the next
-  account 16 px from the edge and reaches the end with a 16 px gap. At 1280 px the list is still the
-  grid (`overflow-visible`). `npm test` 108 passed; `vite build` clean. pytest not run (no backend
-  change).
+- Migration **038**: `monthly_plans.invest_percent` / `spend_percent`, `budgets.planned_percent`
+  (TEXT, six decimals), with the conversion of plans that had income and of the categories of
+  their months. Details and the API shape in `done-tasks.md` ("The monthly plan starts from
+  income (038)").
+- `services/budgets.py` (new): the budget rules moved out of `routes/budgets.py`, plus the plan
+  row of a month, `plan_figures()`, category inheritance (`category_source_month()`,
+  `materialize_month()`) and the legacy conversion. `services/monthly_plan.py` builds the full
+  response on top of it; `routes/budgets.py` only validates and serves.
+- Interim frontend: `MonthlyPlanPanel` (Renda R$ + Investir % + Gastar %; "Informar renda" for a
+  `needs_income` plan, blank % = convert), Orçamento ("% do Gastar", `?month=` on edit/delete/
+  lines, "Saldo do plano" = `totals.plan_balance`), Início (`plan_balance`, null-safe), the
+  `NEEDS_INCOME` status label, the `CATEGORIES_OVER_SPEND` flag text.
+- Seed (`seed_three_years_mock.py`): one plan a year back (income, 20% / 65%) and seven category
+  percentages that the later months inherit; it now also wipes `monthly_plans`.
+- 1343 pytest (21 new in `test_monthly_plan_income.py`, `test_budgets.py` rewritten for
+  inheritance), 108 node, `vite build`. Seed run on a throwaway DB and Orçamento driven in
+  Chromium (save the plan, edit a category %, open Início): right R$, no console errors.
 
 ### Not done, and why
-- Not tried on the phone itself (Android WebView = Chromium, same snap rules, so expected to hold).
-- Screenshots were sent in the session, not committed.
+- **No redesign** of Orçamento / the plan (asked for the next session). The interim screen is
+  functional, not designed: it still lists the plan panel, the summary and the categories
+  separately. The open items are in `next-steps.md` ("Plano do mês a partir da renda — the screen").
+- Not tried on the phone, and 038 not run against the owner's real data (the cloud has none).
+- Início's "Disponível por dia" still divides on the client; the server returns
+  `daily_available` with the same rule.
+
+### Decisions worth knowing
+- **Categories inherit with the plan.** The brief asked for "category percentages included" in
+  inheritance. Before 038 a month with no budget rows showed none; now it shows the categories of
+  the latest month ≤ it with a plan row or budget rows. To keep that sane, any category write in
+  an inherited month first copies the inherited plan and categories into it, a PUT that creates a
+  month's plan copies the categories in, and `DELETE /api/monthly-plan` takes the month's
+  categories with it. So a budget id from an earlier month is valid in a later one only while that
+  month still inherits; once it has its own copy, `?month=` with the old id is 404 (the screen
+  always uses the ids of the month it shows).
+- **"Saldo do plano" is one number** (`plan_balance` = Gastar R$ − the month's spent, all
+  categories). `totals.remaining` on `/api/budgets` was kept as the *categories'* leftover because
+  Início's budget strip compares categories against their own plan; it is no longer labelled
+  "Saldo do plano" anywhere.
+- **The PUT converts more than "that month".** Old categories without % are converted in every
+  month the saved plan governs (its month up to the next plan row), since those months now take
+  their Gastar from it. A category whose month has Gastar 0 stays `needs_income` (no base).
+- **Over 100% after conversion** (an old plan whose spend + invest passed the income, or old
+  categories summing past the spend) is kept and flagged, not clipped; a PATCH may lower a
+  category while the month is still over 100% but not raise it.
+- Old R$ columns are NOT NULL, so new rows write 0 there; nothing reads them once a % exists.
 
 ### Learned
-- `lib/scroll.js` restores only the window's vertical scroll; it never touches a horizontal strip.
-- Any other `snap-x` strip with side padding has the same trap — pair `px-N` with `scroll-px-N`.
-  `grep -rn "snap-x" frontend/src` found only this one today.
+- The Playwright trap from the calculator session hit again: the "⋯" menu near the bottom nav at
+  390 px needs `scrollIntoView({ block: 'center' })` before the click.
+- The seed writes `backend/backups/finance-pre-mock-*.db` even with `DATABASE_BACKUP_DIR` set —
+  delete it after.
+
+### Carried from the account-strip session (2026-10-19), still open
+- The strip fix (`scroll-px-4`) was not tried on the phone. Any other `snap-x` strip with side
+  padding needs `scroll-px-N` too (`grep -rn "snap-x" frontend/src` found only that one).
 
 ### Carried from the owner's review session (2026-10-18 night, later), still open
 - **Item 19 has no real capture behind it** — the parser convention asks for one. The rule only
@@ -53,7 +90,7 @@ Cloud session, one bug; read the docs directly (narrow task). One PR.
 ### Carried from the card-history session (2026-10-18 late night), still open
 - Stuck data is not repaired: an item already open in an autopay-paid invoice stays until the owner
   pays it or undoes the autopay. Undo sends the invoice to `cc_invoice_manual` (autopay never
-  re-debits it). Migration **037** is the latest; no migration in this session.
+  re-debits it). Migration **038** is now the latest (this session).
 - Cartões has no paid-invoice view, so "Desfazer pagamento" is only in the Extrato.
 
 ### Carried from the calculator session (2026-10-18 night), still open
