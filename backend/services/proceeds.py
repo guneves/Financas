@@ -18,7 +18,14 @@ from money import rounded_money
 from validators import ValidationError, require_date, safe_float
 
 
-ALLOWED_PROCEEDS_TYPES = {"DIVIDEND", "JCP", "AMORTIZATION"}
+ALLOWED_PROCEEDS_TYPES = {"DIVIDEND", "JCP", "AMORTIZATION", "INTEREST"}
+
+# Juros (cupom) de renda fixa (040). O IR padrao dele depende do titulo (tabela
+# regressiva desde a aplicacao, ou isento) e e calculado na gravacao, em
+# routes/proceeds.py; aqui a aliquota padrao fica 0, como a da amortizacao.
+INTEREST_TYPE = "INTEREST"
+# Eventos de renda fixa nao tem data com: sem ela, vale a data de pagamento.
+FIXED_INCOME_EVENT_TYPES = {"INTEREST", "AMORTIZATION"}
 
 # IR retido na fonte sobre JCP: 15% ate 2025, 17,5% com data com a partir de
 # 2026 (LC 224/2025) — a mesma regra que o Investidor10 aplica, conferida

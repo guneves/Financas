@@ -63,6 +63,7 @@ PROCEEDS_TYPE_LABELS = {
     "DIVIDEND": "Dividendos",
     "JCP": "JCP",
     "AMORTIZATION": "Amortização",
+    "INTEREST": "Juros (cupom)",
 }
 
 PROCEEDS_STATUS_LABELS = {

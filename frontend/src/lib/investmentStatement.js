@@ -7,7 +7,7 @@
 // resgate e provento entram (+). Bonificacao nao mexe em dinheiro (0).
 // Nada disto e lancamento bancario: o saldo das contas nao muda por aqui.
 
-const PROCEED_LABELS = { DIVIDEND: 'Dividendo', JCP: 'JCP', AMORTIZATION: 'Amortização' }
+const PROCEED_LABELS = { DIVIDEND: 'Dividendo', JCP: 'JCP', AMORTIZATION: 'Amortização', INTEREST: 'Juros' }
 
 function day(value) {
   return String(value || '').slice(0, 10)

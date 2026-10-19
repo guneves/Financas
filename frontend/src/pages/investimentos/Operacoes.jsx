@@ -136,7 +136,9 @@ export default function Operacoes() {
       id: mov.id,
       asset_class: mov.asset_class,
       ticker_or_name: mov.ticker_or_name,
-      quantity: mov.quantity,
+      // A quantidade aparece sem sinal: o tipo (compra, venda, resgate) e da
+      // operacao gravada, e o "-" da venda e posto de volta ao salvar.
+      quantity: Math.abs(Number(mov.quantity)),
       average_price: mov.average_price,
       current_price: mov.current_price,
       metadata: mov.metadata || {},
@@ -160,7 +162,7 @@ export default function Operacoes() {
 
     try {
       const averagePrice = Number(editModal.average_price)
-      const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : Number(editModal.quantity)
+      const finalQuantity = editModal.asset_class === 'FIXED_INCOME' ? 1 : parseNumberInput(editModal.quantity)
       const otherCosts = editModal.other_costs === '' ? 0 : parseNumberInput(editModal.other_costs)
       const metadata = { ...(editModal.metadata || {}) }
 
@@ -176,13 +178,7 @@ export default function Operacoes() {
           throw new Error('Informe um preço de venda válido.')
         }
       }
-      if (
-        !editModal.is_redemption
-        && (
-          !Number.isFinite(finalQuantity)
-          || (editModal.is_sale ? finalQuantity >= 0 : finalQuantity <= 0)
-        )
-      ) {
+      if (!editModal.is_redemption && (!Number.isFinite(finalQuantity) || finalQuantity <= 0)) {
         throw new Error('Informe uma quantidade válida.')
       }
 
@@ -209,7 +205,11 @@ export default function Operacoes() {
       }
 
       await investmentsApi.update(editModal.id, {
-        quantity: editModal.is_redemption ? Number(editModal.quantity) : finalQuantity,
+        // Venda e resgate saem com o "-"; o servidor tambem guarda o sinal da
+        // operacao gravada, entao a quantidade sem sinal nunca vira uma compra.
+        quantity: editModal.is_redemption
+          ? -Math.abs(Number(editModal.quantity))
+          : editModal.is_sale ? -finalQuantity : finalQuantity,
         average_price: averagePrice,
         metadata: metadata
       })
@@ -217,9 +217,10 @@ export default function Operacoes() {
 
       setEditModal(null)
       toast('Operação atualizada.')
-      await refreshAll()
-
-      await handleUpdateStockPrices(true, editModal.id)
+      // A gravacao ja invalidou o cache (lib/api.js). A cotacao vai por tras:
+      // esperar por ela (yfinance) e pela nova busca de toda tela aberta
+      // deixava o "Salvar" girando, e o `loading` e o mesmo da proxima edicao.
+      handleUpdateStockPrices(true, editModal.id)
     } catch (error) {
       const message = 'Erro ao guardar edição: ' + error.message
       if (saved) setDataError(message)
@@ -407,7 +408,7 @@ export default function Operacoes() {
 
             {editModal.asset_class !== 'FIXED_INCOME' && (
               <Field label="Quantidade">
-                <input type="number" step="0.0001" value={editModal.quantity} onChange={(e) => setEditField('quantity', e.target.value)} className="app-input" required />
+                <input type="number" min="0" step="any" inputMode="decimal" value={editModal.quantity} onChange={(e) => setEditField('quantity', e.target.value)} className="app-input" required />
               </Field>
             )}
 

@@ -301,6 +301,22 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
 - [ ] Sales of foreign assets and of "outros" keep a per-sale 15% estimate in Operações; the IR
   tab has the annual (exterior) and GCAP views.
 
+### Operações edit and fixed-income coupons (2026-10-19) — what is left
+- [ ] After the deploy: open Proventos once so 040 runs (it rebuilds `investment_proceeds`; the
+  boot backup is the way back), then register a real coupon. In Operações, edit a sale (the
+  quantity shows without "-") and then another operação straight away: "Salvar" must be free.
+- [ ] **An amortization does not lower the title's value in Posição.** It is a provento (cash in,
+  counted in total return), as it was before 040; the title keeps its full principal accruing. To
+  follow a debênture that amortizes, register the payment and adjust the title (or record the
+  amortization as a partial resgate instead). Modelling amortization as principal returned is an
+  owner decision.
+- [ ] Proventos' history filter opens on the current year: coupons scheduled for later years show
+  in the 180-day calendar but not in the list until "Fim" moves. Consider defaulting "Fim" further.
+- [ ] Editing a coupon sends its stored IR back, so moving its payment date keeps the old IR; blank
+  the IR field to recompute it from the regressive table.
+- [ ] A coupon with IR 0 goes to "12 - Rendimentos de LCI, LCA, CRI e CRA" (the resgate's rule). An
+  incentivized debênture's interest may belong in another isentos line; check with the accountant.
+
 ### Automatic proventos and the investments Extrato (2026-10-16) — what is left
 - [ ] Owner walk-through: Lançamentos → Extrato → "Investimentos" (operações + proventos, search,
   Tudo/Operações/Proventos), and Investimentos → Proventos → "Atualizar". Register a buy with a

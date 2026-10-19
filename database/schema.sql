@@ -390,7 +390,7 @@ CREATE TABLE IF NOT EXISTS investment_proceeds (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-    proceeds_type TEXT NOT NULL CHECK (proceeds_type IN ('DIVIDEND', 'JCP', 'AMORTIZATION')),
+    proceeds_type TEXT NOT NULL CHECK (proceeds_type IN ('DIVIDEND', 'JCP', 'AMORTIZATION', 'INTEREST')),  -- 040
     declared_date TEXT,
     record_date TEXT NOT NULL,
     ex_date TEXT,

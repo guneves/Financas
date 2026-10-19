@@ -121,12 +121,12 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1349 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1381 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
-invoice-month rule), the opt-in investment↔cash link, bank accounts and transfers, categories, editing a
+invoice-month rule), the opt-in investment↔cash link, editing an operation keeps its sign (`test_investment_edit_sign.py`), fixed-income coupons and amortizations typed ahead (`test_fixed_income_interest.py`: 040's `INTEREST`, the coupon's regressive IR, `repeat`, the IR report), bank accounts and transfers, categories, editing a
 transaction, monthly budgets, recurring entries, the monthly plan from income (`test_monthly_plan_income.py`: percentages at both levels, inheritance, Saldo do plano, migration 038 and `needs_income`), statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
@@ -627,6 +627,17 @@ mobile-docs/
   default tax is 15% with data com up to 2025 and 17.5% from 2026; "rendimento tributável" is a
   JCP row with `metadata.kind = TAXABLE_INCOME` at 22.5% (`default_tax_rate()` in
   `services/proceeds.py`).
+- **Coupons and amortizations of fixed income are typed proventos** (owner, 2026-10-19, 040): no
+  source brings them, so the owner registers future payments in Proventos and each lands in the
+  Corretora on its day (`apply_paid_proceeds()`, "Juros: <título>"). `INTEREST` is the coupon;
+  INTEREST/AMORTIZATION take the payment date as data com when none is sent. The coupon's default
+  IR is the regressive table from the asset's first BUY to the payment (`interest_tax_rate()` in
+  `routes/proceeds.py`, 0 for a tax-free type), recomputed when its date moves unless typed. A POST
+  with `repeat: {every_months, count}` writes every payment or none and answers a list. Amortization
+  is still a provento, not principal returned: the title's value in Posição does not drop.
+- **An operation's sign is its type, not the field** (2026-10-19): Operações › Editar shows the
+  quantity without "-", and `PATCH /api/investments/<id>` keeps the stored row's sign (a sale stays
+  a sale, a buy a buy). Saving an edit never awaits the quote refresh.
 - **The Extrato has two views** (`?ver=contas|investimentos`, last choice kept on the device): the
   accounts' lançamentos, and an investments statement of operações + proventos
   (`lib/investmentStatement.js`, tested). Editing stays in Operações and Proventos, but an

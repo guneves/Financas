@@ -39,7 +39,36 @@ const PROCEEDS_TYPES = [
   { value: 'DIVIDEND', label: 'Dividendos' },
   { value: 'JCP', label: 'JCP' },
   { value: 'AMORTIZATION', label: 'Amortização' },
+  { value: 'INTEREST', label: 'Juros (cupom)' },
 ]
+
+// Renda fixa (040): cupom de juros e amortizacao, digitados a mao porque
+// nenhuma fonte os traz. Sem data com nem valor por cota: o valor bruto do
+// pagamento, e o IR do cupom sai da tabela regressiva quando fica em branco.
+const FIXED_INCOME_TYPES = ['INTEREST', 'AMORTIZATION']
+const STOCK_TYPES = ['DIVIDEND', 'JCP', 'AMORTIZATION']
+
+const REPEAT_OPTIONS = [
+  { value: '', label: 'Não repetir' },
+  { value: '1', label: 'Todo mês' },
+  { value: '3', label: 'A cada 3 meses' },
+  { value: '6', label: 'A cada 6 meses' },
+  { value: '12', label: 'Todo ano' },
+]
+
+const isFixedIncomeAsset = (assets, assetId) => (
+  assets.find((asset) => asset.id === assetId)?.asset_class === 'FIXED_INCOME'
+)
+
+// Na ordem da lista: a renda fixa abre em "Juros (cupom)".
+const typesFor = (fixedIncome) => (fixedIncome ? FIXED_INCOME_TYPES : STOCK_TYPES)
+  .map((value) => PROCEEDS_TYPES.find((item) => item.value === value))
+
+// O tipo atual, se vale para o ativo; senao o primeiro que vale.
+const firstTypeFor = (assets, assetId, current) => {
+  const allowed = typesFor(isFixedIncomeAsset(assets, assetId)).map((item) => item.value)
+  return allowed.includes(current) ? current : allowed[0]
+}
 
 const STATUS_ITEMS = [
   { value: 'ALL', label: 'Todos', icon: Filter },
@@ -78,6 +107,8 @@ const blankForm = () => ({
   gross_amount: '',
   tax_amount: '',
   notes: '',
+  repeat_every: '',
+  repeat_count: '',
 })
 
 function proventoMenuItems(item, onEdit, onDelete) {
@@ -108,6 +139,9 @@ function receiptsChartData(byMonth, period) {
   })
   return [...years.values()].map((item) => ({ ...item, net: Math.round(item.net * 100) / 100 }))
 }
+
+// Cupom ou amortizacao de renda fixa: sem data com nem valor por cota.
+const isFixedIncomeEvent = (item) => item.asset?.asset_class === 'FIXED_INCOME'
 
 const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.label || value
 
@@ -198,15 +232,17 @@ export default function Proventos() {
 
   useEffect(() => {
     if (!form.asset_id && assets[0]?.id && !editingId) {
-      setForm((current) => ({ ...current, asset_id: assets[0].id }))
+      setForm((current) => ({ ...current, asset_id: assets[0].id, proceeds_type: firstTypeFor(assets, assets[0].id, current.proceeds_type) }))
     }
   }, [assets, form.asset_id, editingId])
 
   const resetForm = () => {
     setEditingId('')
+    const assetId = assets[0]?.id || ''
     setForm({
       ...blankForm(),
-      asset_id: assets[0]?.id || '',
+      asset_id: assetId,
+      proceeds_type: firstTypeFor(assets, assetId, 'DIVIDEND'),
     })
   }
 
@@ -217,6 +253,32 @@ export default function Proventos() {
     const taxAmount = parseNumberInput(form.tax_amount)
 
     if (!form.asset_id) throw new Error('Selecione um ativo.')
+    if (isFixedIncomeAsset(assets, form.asset_id)) {
+      if (!form.payment_date) throw new Error('Informe a data de pagamento.')
+      if (grossAmount === null || Number.isNaN(grossAmount) || grossAmount <= 0) throw new Error('Informe o valor bruto do pagamento.')
+      if (Number.isNaN(taxAmount)) throw new Error('Informe um IR válido.')
+      const repeatCount = Number(form.repeat_count)
+      if (!editingId && form.repeat_every && (!Number.isInteger(repeatCount) || repeatCount < 1 || repeatCount > 120)) {
+        throw new Error('Informe quantos pagamentos (de 1 a 120).')
+      }
+      return {
+        asset_id: form.asset_id,
+        proceeds_type: form.proceeds_type,
+        declared_date: null,
+        // Sem data com: o servidor usa a de pagamento.
+        record_date: form.payment_date,
+        ex_date: null,
+        payment_date: form.payment_date,
+        amount_per_unit: null,
+        eligible_quantity: null,
+        gross_amount: grossAmount,
+        tax_amount: taxAmount,
+        notes: form.notes,
+        ...(!editingId && form.repeat_every
+          ? { repeat: { every_months: Number(form.repeat_every), count: repeatCount } }
+          : {}),
+      }
+    }
     if (!form.record_date) throw new Error('Informe a data com.')
     if (!form.payment_date) throw new Error('Informe a data de pagamento.')
     if (Number.isNaN(amountPerUnit) || Number.isNaN(eligibleQuantity) || Number.isNaN(grossAmount) || Number.isNaN(taxAmount)) {
@@ -248,8 +310,8 @@ export default function Proventos() {
         await investmentProceedsApi.update(editingId, payload)
         toast('Provento atualizado.')
       } else {
-        await investmentProceedsApi.create(payload)
-        toast('Provento registrado.')
+        const created = await investmentProceedsApi.create(payload)
+        toast(Array.isArray(created) ? `${created.length} pagamentos registrados.` : 'Provento registrado.')
       }
       setFormOpen(false)
       await fetchData()
@@ -274,6 +336,8 @@ export default function Proventos() {
       gross_amount: item.gross_amount ?? '',
       tax_amount: item.tax_amount ?? '',
       notes: item.notes || '',
+      repeat_every: '',
+      repeat_count: '',
     })
     setFormError('')
     setFormOpen(true)
@@ -311,7 +375,7 @@ export default function Proventos() {
     <div className="space-y-6">
       <PageHeader
         title="Proventos"
-        description="Calculados pela sua posição na data com de cada provento; os de ações e FIIs entram sozinhos."
+        description="Calculados pela sua posição na data com de cada provento; os de ações e FIIs entram sozinhos. Cupons e amortizações de renda fixa: registre os pagamentos futuros, que entram na conta da carteira no dia."
         actions={(
           <>
             <Button type="button" variant="secondary" icon={RefreshCw} loading={loading || syncing} onClick={handleSync}>
@@ -356,7 +420,7 @@ export default function Proventos() {
       >
         <div className="space-y-4">
           <AlertMessage tone="danger" message={formError} onDismiss={() => setFormError('')} />
-          <ProventoForm form={form} setForm={setForm} assets={assets} onSubmit={handleSubmit} />
+          <ProventoForm form={form} setForm={setForm} assets={assets} editing={Boolean(editingId)} onSubmit={handleSubmit} />
         </div>
       </Sheet>
 
@@ -518,7 +582,7 @@ export default function Proventos() {
                   <div className="min-w-0">
                     <p className="font-semibold text-zinc-950">{item.asset?.ticker}</p>
                     <p className="text-xs text-zinc-600">
-                      {formatDateBR(item.payment_date)} · com {formatDateBR(item.record_date)} · {ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}
+                      {formatDateBR(item.payment_date)}{isFixedIncomeEvent(item) ? '' : ` · com ${formatDateBR(item.record_date)}`} · {ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}
                     </p>
                   </div>
                   <p className="shrink-0 font-bold tabular text-emerald-700">{formatCurrency(item.net_amount)}</p>
@@ -528,8 +592,8 @@ export default function Proventos() {
                   {item.status === 'PAID' ? '' : <span className="font-medium text-sky-700"> · agendado</span>}
                 </p>
                 <p className="text-xs text-zinc-600 tabular">
-                  {formatUnitCurrency(item.amount_per_unit)}/cota · {Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} cotas ·
-                  {' '}Bruto {formatCurrency(item.gross_amount)} · Imposto {formatCurrency(item.tax_amount)} · YOC {formatPercent(item.yield_on_cost_percent, 4)}
+                  {isFixedIncomeEvent(item) ? '' : `${formatUnitCurrency(item.amount_per_unit)}/cota · ${Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} cotas · `}
+                  Bruto {formatCurrency(item.gross_amount)} · Imposto {formatCurrency(item.tax_amount)} · YOC {formatPercent(item.yield_on_cost_percent, 4)}
                 </p>
                 <div className="flex justify-end">
                   <Menu label={`Ações do provento de ${item.asset?.ticker || 'ativo'}`} size="md" items={proventoMenuItems(item, handleEdit, handleDelete)} />
@@ -570,7 +634,7 @@ export default function Proventos() {
                   <tr key={item.id}>
                     <td>
                       <p className="whitespace-nowrap font-medium text-zinc-800">{formatDateBR(item.payment_date)}</p>
-                      <p className="whitespace-nowrap text-xs text-zinc-500">com {formatDateBR(item.record_date)}</p>
+                      {isFixedIncomeEvent(item) ? null : <p className="whitespace-nowrap text-xs text-zinc-500">com {formatDateBR(item.record_date)}</p>}
                     </td>
                     <td>
                       <p className="truncate font-semibold text-zinc-950" title={ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}>
@@ -681,26 +745,86 @@ function ProceedsByAsset({ items }) {
   )
 }
 
-function ProventoForm({ form, setForm, assets, onSubmit }) {
+function ProventoForm({ form, setForm, assets, editing, onSubmit }) {
+  const fixedIncome = isFixedIncomeAsset(assets, form.asset_id)
+  const types = typesFor(fixedIncome)
+  // Trocar de ativo troca o tipo quando o atual nao vale para ele.
+  const changeAsset = (assetId) => {
+    setForm({
+      ...form,
+      asset_id: assetId,
+      proceeds_type: firstTypeFor(assets, assetId, form.proceeds_type),
+    })
+  }
+
+  const assetField = (
+    <Field label="Ativo">
+      <select value={form.asset_id} onChange={(event) => changeAsset(event.target.value)} className="app-select" required>
+        <option value="">Selecione...</option>
+        {assets.map((asset) => (
+          <option key={asset.id} value={asset.id}>
+            {asset.ticker} - {ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class}
+          </option>
+        ))}
+      </select>
+    </Field>
+  )
+  const typeField = (
+    <Field label="Tipo">
+      <select value={form.proceeds_type} onChange={(event) => setForm({ ...form, proceeds_type: event.target.value })} className="app-select" required>
+        {types.map((item) => (
+          <option key={item.value} value={item.value}>{item.label}</option>
+        ))}
+      </select>
+    </Field>
+  )
+
+  if (fixedIncome) {
+    return (
+      <form id="provento-form" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {assetField}
+        {typeField}
+        <Field label={editing || !form.repeat_every ? 'Pagamento' : 'Primeiro pagamento'}>
+          <input type="date" value={form.payment_date} onChange={(event) => setForm({ ...form, payment_date: event.target.value })} className="app-input" required />
+        </Field>
+        <Field label="Valor bruto (R$)">
+          <input type="text" inputMode="decimal" placeholder="0,00" value={form.gross_amount} onChange={(event) => setForm({ ...form, gross_amount: event.target.value })} className="app-input" required />
+        </Field>
+        <Field
+          label="IR retido (R$)"
+          hint={form.proceeds_type === 'INTEREST'
+            ? 'Em branco: tabela regressiva desde a aplicação (22,5% a 15%), zero em título isento.'
+            : 'A amortização devolve o capital: sem IR.'}
+        >
+          <input type="text" inputMode="decimal" placeholder="auto" value={form.tax_amount} onChange={(event) => setForm({ ...form, tax_amount: event.target.value })} className="app-input" />
+        </Field>
+        {editing ? null : (
+          <>
+            <Field label="Repetir">
+              <select value={form.repeat_every} onChange={(event) => setForm({ ...form, repeat_every: event.target.value })} className="app-select">
+                {REPEAT_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+            </Field>
+            {form.repeat_every ? (
+              <Field label="Nº de pagamentos" hint="Contando o primeiro. Cada um entra na conta da carteira no seu dia; ajuste o valor de cada um depois, se mudar.">
+                <input type="number" min="1" max="120" step="1" inputMode="numeric" value={form.repeat_count} onChange={(event) => setForm({ ...form, repeat_count: event.target.value })} className="app-input" required />
+              </Field>
+            ) : null}
+          </>
+        )}
+        <Field label="Observações" className="sm:col-span-2">
+          <input type="text" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="app-input" />
+        </Field>
+      </form>
+    )
+  }
+
   return (
     <form id="provento-form" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <Field label="Ativo">
-        <select value={form.asset_id} onChange={(event) => setForm({ ...form, asset_id: event.target.value })} className="app-select" required>
-          <option value="">Selecione...</option>
-          {assets.map((asset) => (
-            <option key={asset.id} value={asset.id}>
-              {asset.ticker} - {ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Tipo">
-        <select value={form.proceeds_type} onChange={(event) => setForm({ ...form, proceeds_type: event.target.value })} className="app-select" required>
-          {PROCEEDS_TYPES.map((item) => (
-            <option key={item.value} value={item.value}>{item.label}</option>
-          ))}
-        </select>
-      </Field>
+      {assetField}
+      {typeField}
       <Field label="Data com">
         <input type="date" value={form.record_date} onChange={(event) => setForm({ ...form, record_date: event.target.value })} className="app-input" required />
       </Field>

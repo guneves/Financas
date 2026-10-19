@@ -316,6 +316,19 @@ def income_sections(proceeds, rows, year):
             exclusiva["10 - Juros sobre capital próprio"]["gross"] += gross
             exclusiva["10 - Juros sobre capital próprio"]["withheld"] += tax
             add_source("exclusiva", "10 - Juros sobre capital próprio", item["ticker"], item["asset_name"], gross=gross, withheld=tax)
+        elif kind == "INTEREST":
+            # Cupom de renda fixa (040): a mesma regra do resgate abaixo — sem
+            # IR, isento (LCI, LCA, CRI, CRA); com IR, tributacao exclusiva.
+            # A amortizacao devolve capital e nao e rendimento: fica de fora.
+            if tax == 0:
+                line = "12 - Rendimentos de LCI, LCA, CRI e CRA"
+                isentos[line] += gross
+                add_source("isentos", line, item["ticker"], item["asset_name"], amount=gross)
+            else:
+                line = "06 - Rendimentos de aplicações financeiras"
+                exclusiva[line]["gross"] += gross
+                exclusiva[line]["withheld"] += tax
+                add_source("exclusiva", line, item["ticker"], item["asset_name"], gross=gross, withheld=tax)
         else:
             continue
         details.append({"date": item["payment_date"], "ticker": item["ticker"], "type": kind, "gross": rounded_money(gross), "tax": rounded_money(tax)})

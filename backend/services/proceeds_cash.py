@@ -30,7 +30,7 @@ PORTFOLIO_SINCE_KEY = "portfolio_since"
 # O texto em transactions.category do provento pago (039): rotulo, sem categoria.
 PROCEED_LABEL = "Provento"
 
-PROCEED_LABELS = {"DIVIDEND": "Dividendo", "JCP": "JCP", "AMORTIZATION": "Amortização"}
+PROCEED_LABELS = {"DIVIDEND": "Dividendo", "JCP": "JCP", "AMORTIZATION": "Amortização", "INTEREST": "Juros"}
 
 
 def portfolio_since(account):
