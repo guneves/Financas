@@ -213,7 +213,14 @@ class TestEndpoint:
 
         assert body["basis"] == "gross"
         assert body["twr_percent"] == pytest.approx(20.0)
-        assert len(body["series"]) == 6
+        # Comprado ha 3 meses numa janela de 6: a comparacao comeca na compra,
+        # com o ponto de 0% no fim do mes anterior a ela.
+        assert [item["month_key"] for item in body["series"]] == [key(4), key(3), key(2), key(1), key(0)]
+        assert body["series"][0]["base"] is True
+        assert body["series"][0]["accumulated_percent"] == 0.0
+        assert body["comparison"]["start"] == key(3)
+        assert body["comparison"]["starts_after_window"] is True
+        assert body["period"]["start"] == key(5)
         assert body["series"][-1]["accumulated_percent"] == pytest.approx(20.0)
         assert body["series"][-1]["value"] == pytest.approx(1200.0)
         by_key = {item["month_key"]: item for item in body["series"]}
@@ -308,7 +315,8 @@ class TestEndpoint:
         assert row["total_percent"] == body["ytd_percent"]
 
     def test_months_is_capped_at_sixty(self, client, auth, market):
-        assert len(returns(client, auth, months=500)["series"]) == 60
+        # 60 meses e o ponto de partida (0%) antes do primeiro.
+        assert len(returns(client, auth, months=500)["series"]) == 61
 
     def test_empty_portfolio(self, client, auth, market):
         body = returns(client, auth)

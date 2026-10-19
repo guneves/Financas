@@ -4,7 +4,7 @@ As funcoes sao puras -- recebem as series do BCB ja buscadas -- para que as
 regras sejam testadas sem rede.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import importlib
 
 import pytest
@@ -407,3 +407,36 @@ def test_ir_report_puts_a_tax_free_type_in_the_exempt_code(app_module):
     tax_report = importlib.import_module("services.tax_report")
     assert tax_report.bens_code("FIXED_INCOME", "BRL", {"fixed_income_type": "LIG"})[:2] == ("04", "03")
     assert tax_report.bens_code("FIXED_INCOME", "BRL", {"fixed_income_type": "CDB"})[:2] == ("04", "02")
+
+
+def test_accrual_until_matches_the_day_by_day_product(fixed_income_module):
+    # accrual_factor_until usa produtos acumulados (cdi_products); o fator tem
+    # de ser o mesmo da conta dia a dia sobre o trecho.
+    start = datetime(2024, 1, 1)
+    cdi = [(start + timedelta(days=n), 0.0004 + (n % 5) * 0.00001) for n in range(700) if (start + timedelta(days=n)).weekday() < 5]
+    ipca = [(datetime(2024, month, 1), 0.004) for month in range(1, 13)] + [(datetime(2025, month, 1), 0.003) for month in range(1, 12)]
+    series = {"cdi": cdi, "ipca": ipca}
+    purchase, until = datetime(2024, 3, 15), datetime(2025, 6, 30, 23, 59, 59)
+    titles = [
+        {"rate_type": "POS", "indexer": "CDI", "cdi_percentage": 1.1},
+        {"rate_type": "POS", "indexer": "CDI_PLUS", "annual_rate": 0.02},
+        {"rate_type": "PRE", "indexer": "PRE", "annual_rate": 0.12},
+        {"rate_type": "POS", "indexer": "IPCA", "annual_rate": 0.06},
+    ]
+    for metadata in titles:
+        indexer, rate = fixed_income_module.fixed_income_rate_terms(metadata)
+        expected = fixed_income_module.fixed_income_accrual_factor(
+            indexer, rate,
+            [value for day, value in cdi if purchase <= day <= until],
+            [(month, value) for month, value in ipca if month <= until],
+            purchase,
+        )
+        assert fixed_income_module.accrual_factor_until(metadata, purchase, until, series) == pytest.approx(expected, rel=1e-12)
+    # Uma serie fora de ordem cai na conta dia a dia.
+    shuffled = {"cdi": list(reversed(cdi)), "ipca": ipca}
+    metadata = titles[0]
+    assert fixed_income_module.accrual_factor_until(metadata, purchase, until, shuffled) == pytest.approx(
+        fixed_income_module.accrual_factor_until(metadata, purchase, until, series), rel=1e-12,
+    )
+    # Compra depois do fim do trecho: nenhum dia, fator 1 no CDI.
+    assert fixed_income_module.accrual_factor_until(metadata, datetime(2026, 1, 1), until, series) == 1.0

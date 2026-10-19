@@ -77,6 +77,12 @@ export function setMutationListener(listener) {
   mutationListener = listener
 }
 
+// Para quem gravou com `invalidate: false` e so depois sabe se algo mudou
+// (a sincronizacao de proventos): avisa como uma gravacao comum.
+export function notifyMutation(path) {
+  if (mutationListener) mutationListener(normalizePath(path))
+}
+
 // Metodo que grava, menos as previas (POST que so calcula e nao muda nada).
 function isWrite(method, path) {
   const verb = String(method || 'GET').toUpperCase()
@@ -92,7 +98,9 @@ function isWrite(method, path) {
 const READ_TIMEOUT_MS = 45_000
 
 export async function apiFetch(path, options = {}) {
-  const { auth = true, timeoutMs, ...fetchOptions } = options
+  // `invalidate: false`: uma gravacao que nao invalida o cache sozinha (quem
+  // chama decide, por `notifyMutation()`).
+  const { auth = true, timeoutMs, invalidate = true, ...fetchOptions } = options
   const isRead = !fetchOptions.method || ['GET', 'HEAD'].includes(String(fetchOptions.method).toUpperCase())
   const limit = timeoutMs ?? (isRead ? READ_TIMEOUT_MS : 0)
   const headers = new Headers(fetchOptions.headers || {})
@@ -150,7 +158,7 @@ export async function apiFetch(path, options = {}) {
     throw failure
   }
 
-  if (mutationListener && isWrite(fetchOptions.method, normalizePath(path))) mutationListener(normalizePath(path))
+  if (invalidate && mutationListener && isWrite(fetchOptions.method, normalizePath(path))) mutationListener(normalizePath(path))
   return payload
 }
 

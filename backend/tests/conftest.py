@@ -36,6 +36,9 @@ def app_module():
     os.environ["ALLOW_SIGNUP"] = "1"
     # O backup automatico de boot e exercitado em test_backups.py, com controle explicito.
     os.environ["AUTO_BACKUP_ON_BOOT"] = "0"
+    # Sem copia em disco do historico: cada teste comeca do cache que ele monta.
+    # test_history_fetch.py liga a copia num arquivo proprio.
+    os.environ["HISTORY_CACHE_FILE"] = ""
     os.environ["CORS_ORIGINS"] = "*"
     # Log so no stderr: os testes nao criam backend/logs.
     os.environ["LOG_TO_FILE"] = "0"

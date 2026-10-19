@@ -161,6 +161,9 @@ function BenchmarkToggles({ items, visible, onToggle }) {
   )
 }
 
+// O primeiro ponto da serie (`base`) e o fim do mes anterior ao periodo: a
+// carteira e cada indice partem dali em 0% (GET /api/investments/returns ->
+// comparison), entao a linha mais alta no fim e a que rendeu mais.
 function ReturnsChart({ series, benchmarks, seriesLabel }) {
   const chartAnimation = useChartAnimation()
   const data = useMemo(() => series.map((item) => {
@@ -387,9 +390,13 @@ export default function Rentabilidade() {
     }
   }
 
-  const periodHint = data?.period
-    ? `${shortMonthLabel(data.period.start)} a ${shortMonthLabel(data.period.end)} · TWR, valor bruto`
+  // O periodo comparado: o da janela, ou desde a primeira operacao quando ela
+  // veio depois do inicio da janela.
+  const compared = data?.comparison || data?.period
+  const periodHint = compared
+    ? `${shortMonthLabel(compared.start)} a ${shortMonthLabel(compared.end)}${data?.comparison?.starts_after_window ? ' (desde a 1ª operação)' : ''} · TWR, valor bruto`
     : 'TWR, valor bruto'
+  const baseMonth = data?.comparison?.base_month
   const empty = data && !hasValue(data.twr_percent) && !(data.assets || []).length
   const lastValue = data?.series?.length ? data.series[data.series.length - 1].value : null
   const anyCapped = (data?.assets || []).some((asset) => asset.capped)
@@ -458,7 +465,7 @@ export default function Rentabilidade() {
           <Panel>
             <PanelHeader
               title="Rentabilidade acumulada"
-              description="Carteira e índices de comparação acumulados desde o início da janela. Toque em um índice para mostrar ou esconder a linha."
+              description={`Carteira e índices partem de 0% no mesmo ponto${baseMonth ? ` (fim de ${shortMonthLabel(baseMonth)})` : ''}: a linha mais alta no fim rendeu mais no período. Toque em um índice para mostrar ou esconder a linha.`}
             />
             <div className="p-5" aria-busy={returnsQuery.isFetching}>
               <BenchmarkToggles items={comparisons} visible={visibleBenchmarks} onToggle={toggleBenchmark} />

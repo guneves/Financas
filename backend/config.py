@@ -152,6 +152,14 @@ HISTORY_CACHE_TTL_SECONDS = read_int_env("HISTORY_CACHE_TTL_SECONDS", 900, minim
 HISTORY_CACHE_STALE_MAX_SECONDS = read_int_env(
     "HISTORY_CACHE_STALE_MAX_SECONDS", 7 * 24 * 3600, minimum=60,
 )
+# Copia em disco desses caches (history_store.py), ao lado do banco: um deploy
+# ou reinicio nao faz o primeiro grafico esperar o Yahoo e o BCB. Vazio desliga.
+_RAW_HISTORY_CACHE_FILE = os.getenv("HISTORY_CACHE_FILE")
+HISTORY_CACHE_FILE = (
+    resolve_app_path(os.path.join(os.path.dirname(DATABASE_PATH), "history_cache.json"), BASE_DIR)
+    if _RAW_HISTORY_CACHE_FILE is None
+    else (resolve_app_path(_RAW_HISTORY_CACHE_FILE, BASE_DIR) if _RAW_HISTORY_CACHE_FILE.strip() else "")
+)
 SQLITE_BUSY_TIMEOUT_MS = read_int_env("SQLITE_BUSY_TIMEOUT_MS", 5000, minimum=1000, maximum=60000)
 PRICE_QUOTE_STALE_HOURS = read_int_env("PRICE_QUOTE_STALE_HOURS", 36, minimum=1, maximum=720)
 BACKUP_RETENTION_DAYS = read_int_env("BACKUP_RETENTION_DAYS", 7, minimum=1, maximum=365)

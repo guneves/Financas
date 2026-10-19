@@ -340,14 +340,22 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
   sense against a real month.
 - [ ] Decide whether Início should show a one-line plan strip (spent / invested vs plan).
 
-### Chart loading speed (2026-10-18) — what is left
-- Owner check on the server: open Investimentos › Rentabilidade, switch 6M → 1A → Tudo and a
-  class; after the first load each switch should be instant. Not measured against the real
-  yfinance/BCB, only a 1 s-latency harness.
-- Stale-while-revalidate: after the 15-min TTL the next open pays one round trip (now parallel).
-  Serving the stale daily history, BCB series and index closes while refreshing in the background
-  is safe (past closes don't change; today's value is the stored quote), but must be done in all
-  three places to help, and a failed background download must not overwrite good data.
+### Chart speed and the fair comparison (2026-10-19) — what is left
+- Owner check on the server, after the deploy: open Investimentos › Posição and Rentabilidade twice
+  (the first open after the deploy writes `/data/history_cache.json`; from then on a restart
+  reads it), switch 6M → 1A → 5A → Tudo and a class. Measured only on a synthetic 354-operation,
+  5-year portfolio with a simulated 2–3 s network, not against real yfinance/BCB.
+- Owner check: Rentabilidade's lines all start at 0% on the left; with a class bought after the
+  window's start (e.g. FIIs bought 4 months ago, 1A) the chart starts at that month and the
+  Ibovespa/CDI cards cover the same months ("desde a 1ª operação" in the hint).
+- The first compared month is still not exact: the portfolio counts from the purchase day, the
+  Ibovespa/IFIX/IDIV the whole month (only month-end closes are stored). The CDI could start on the
+  purchase day (it is daily); not done.
+- A ticker past the 7-day stale limit whose download comes back empty still replaces its old
+  history with nothing (as before; the stale path already keeps it).
+- Still CPU-bound on a large portfolio: ~0.1 s for 1A, ~0.3 s for 5A on the harness. If the real
+  portfolio is much larger, the next step is caching the computed response per (user, period,
+  class) keyed by a data version — not built.
 
 ### Compound interest calculator (2026-10-18) — what is left
 - Owner check: Investimentos › Calculadora on the phone (seven tabs now; the row scrolls).

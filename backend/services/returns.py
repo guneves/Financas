@@ -71,6 +71,7 @@ RETURN_NOTES = [
     "Ativos sem cotação (outros, preço manual) ficam no custo; o ganho aparece hoje ou na venda.",
     "Hoje vale a cotação atual: o mesmo valor da Posição.",
     "Índices de comparação: IPCA pela variação mensal do IBGE (BCB); Ibovespa, IFIX e IDIV pelo fechamento do fim de cada mês (índices de retorno total).",
+    "Comparação justa: a carteira, o CDI e cada índice partem de 0% no mesmo ponto — o fim do mês anterior ao período, ou ao mês da primeira operação quando ela veio depois do início do período.",
 ]
 
 # Abaixo disto (em reais) a base do dia e zero: o dia e pulado.
@@ -254,6 +255,9 @@ class FixedIncomeCurve:
         self.index_series = index_series
         self.today_end = today_end
         self.anchors = {}
+        # {(titulo, compra, ano, mes): (inicio, fator no inicio, fator no fim, duracao)}:
+        # os dias de um mes so mudam o peso da interpolacao.
+        self.segments = {}
 
     def anchor(self, metadata, purchase, until):
         key = (id(metadata), purchase, until)
@@ -261,30 +265,40 @@ class FixedIncomeCurve:
             self.anchors[key] = accrual_factor_until(metadata, purchase, until, self.index_series)
         return self.anchors[key]
 
+    def segment(self, metadata, purchase, day_end):
+        key = (id(metadata), purchase, day_end.year, day_end.month)
+        if key not in self.segments:
+            end = min(month_end(day_end), self.today_end)
+            end_factor = self.anchor(metadata, purchase, end)
+            if end_factor is None:
+                self.segments[key] = None
+            else:
+                start = month_end(subtract_months(day_end.replace(day=1), 1))
+                if start < purchase:
+                    start, start_factor = purchase, 1.0
+                else:
+                    start_factor = self.anchor(metadata, purchase, start)
+                self.segments[key] = (start, start_factor, end_factor, (end - start).total_seconds())
+        return self.segments[key]
+
     def factor(self, metadata, purchase, day_end):
         if not self.index_series or purchase is None:
             return None
         purchase = datetime(purchase.year, purchase.month, purchase.day)
         if day_end <= purchase:
             return 1.0
-        end = min(month_end(day_end), self.today_end)
-        end_factor = self.anchor(metadata, purchase, end)
-        if end_factor is None:
+        segment = self.segment(metadata, purchase, day_end)
+        if segment is None:
             return None
-        start = month_end(subtract_months(day_end.replace(day=1), 1))
-        if start < purchase:
-            start, start_factor = purchase, 1.0
-        else:
-            start_factor = self.anchor(metadata, purchase, start)
-        span = (end - start).total_seconds()
+        start, start_factor, end_factor, span = segment
         if not start_factor or start_factor <= 0 or span <= 0:
             return end_factor
         weight = min(max((day_end - start).total_seconds() / span, 0.0), 1.0)
         return start_factor * (end_factor / start_factor) ** weight
 
 
-def position_value_on(position, day_end, is_today, prices, curve):
-    """Valor bruto de uma posicao no fim do dia."""
+def position_value_on(position, day_end, is_today, prices, curve, day_key=None):
+    """Valor bruto de uma posicao no fim do dia (`day_key`: o dia em AAAA-MM-DD)."""
     quantity = position["quantity"]
     applied = position["applied"]
     if is_today:
@@ -293,7 +307,7 @@ def position_value_on(position, day_end, is_today, prices, curve):
             position.get("current_price"), position["metadata"],
         )
     if is_quoted_asset(position["class"], position["ticker"]):
-        price = prices.close_on(position["ticker"], day_end.strftime("%Y-%m-%d"))
+        price = prices.close_on(position["ticker"], day_key or day_end.strftime("%Y-%m-%d"))
         if price is None:
             price = applied / quantity
         return quantity * price
@@ -308,23 +322,28 @@ def daily_group_values(investments, daily_prices, index_series, first_day, now):
     today = datetime(now.year, now.month, now.day)
     prices = PriceHistory(daily_prices)
     curve = FixedIncomeCurve(index_series, today.replace(hour=23, minute=59, second=59))
-    ordered = sorted(investments, key=investment_movement_date)
+    # A data de cada movimentacao, lida uma vez (nao a cada dia do laco).
+    ordered = sorted(
+        ((investment_movement_date(investment), investment) for investment in investments),
+        key=lambda item: item[0],
+    )
     positions = {}
     cursor = 0
     days = []
     day = datetime(first_day.year, first_day.month, first_day.day)
     while day <= today:
         day_end = day.replace(hour=23, minute=59, second=59)
-        while cursor < len(ordered) and investment_movement_date(ordered[cursor]) <= day_end:
-            add_movement_to_positions(positions, ordered[cursor])
+        while cursor < len(ordered) and ordered[cursor][0] <= day_end:
+            add_movement_to_positions(positions, ordered[cursor][1])
             cursor += 1
         is_today = day == today
+        day_key = day.strftime("%Y-%m-%d")
         values = {
-            group: position_value_on(position, day_end, is_today, prices, curve)
+            group: position_value_on(position, day_end, is_today, prices, curve, day_key)
             for group, position in positions.items()
             if position_is_open(position)
         }
-        days.append((day.strftime("%Y-%m-%d"), values))
+        days.append((day_key, values))
         day += timedelta(days=1)
     return days
 
@@ -361,6 +380,41 @@ def monthly_chain(days, group_keys, flows, income):
         totals[key] = (value, net_flow + inflow - outflow, month_income + day_income)
         previous = value
     return {key: factor - 1 for key, factor in factors.items()}, totals
+
+
+def group_monthly_returns(days, groups, flows, income):
+    """{grupo: {AAAA-MM: retorno}} de cada um de `groups`, numa passada so por `days`.
+
+    E o `monthly_chain(days, {grupo}, ...)` de cada grupo (a TWR por ativo),
+    sem percorrer os dias uma vez por ativo."""
+    groups = list(groups)
+    factors = {group: {} for group in groups}
+    if not days:
+        return factors
+    previous = {group: days[0][1].get(group, 0.0) for group in groups}
+    no_flow = (0.0, 0.0)
+    for day, values in days[1:]:
+        key = day[:7]
+        for group in groups:
+            group_flows = flows.get(group)
+            inflow, outflow = group_flows.get(day, no_flow) if group_flows else no_flow
+            value = values.get(group, 0.0)
+            last = previous[group]
+            previous[group] = value
+            # A conta de daily_return, escrita aqui: e o laco mais quente da
+            # rentabilidade (ativos x dias). Sem valor nem compra nao ha base.
+            base = max(last, 0.0) + inflow
+            if base <= EPSILON:
+                continue
+            day_income = 0.0
+            if not PRICES_ARE_DIVIDEND_ADJUSTED:
+                group_income = income.get(group)
+                if group_income:
+                    day_income = group_income.get(day, 0.0)
+            by_month = factors[group]
+            result = (max(value, 0.0) + outflow + day_income) / base - 1
+            by_month[key] = by_month.get(key, 1.0) * (1 + result)
+    return {group: {key: factor - 1 for key, factor in by_month.items()} for group, by_month in factors.items()}
 
 
 def build_investment_returns(
@@ -412,15 +466,44 @@ def build_investment_returns(
 
     benchmarks = benchmarks or {}
     window_keys = [month_key(item["month_start"]) for item in window]
+    # Comparacao justa: a carteira e cada indice partem de 0% no mesmo dia. Os
+    # meses da janela antes da primeira operacao ficam de fora (o indice nao
+    # rende sozinho enquanto a carteira nao existia), e o ponto de partida e o
+    # fim do mes anterior ao primeiro comparado.
+    compared = compared_months(window)
+    compared_keys = [month_key(item["month_start"]) for item in compared]
+    ytd_compared = compared_months(ytd)
+    ytd_keys = [month_key(item["month_start"]) for item in ytd_compared]
+    base_month = subtract_months(compared[0]["month_start"], 1)
+    base_key = month_key(base_month)
+    if base_key in portfolio_totals:
+        base_value = portfolio_totals[base_key][0]
+    else:
+        base_value = sum(days[0][1].values()) if days else 0.0
     benchmark_paths = {
-        code: accumulate_benchmark(entry.get("monthly") or {}, window_keys)
+        code: accumulate_benchmark(entry.get("monthly") or {}, compared_keys, from_zero=True)
         for code, entry in benchmarks.items()
     }
 
-    series = []
+    series = [{
+        "base": True,
+        "benchmarks": {
+            code: {"return_percent": None, "accumulated_percent": percent(path[0])}
+            for code, path in benchmark_paths.items()
+        },
+        "month_key": base_key,
+        "month": month_label(base_month),
+        "return_percent": None,
+        "accumulated_percent": 0.0,
+        "cdi_return_percent": None,
+        "cdi_accumulated_percent": 0.0 if cdi else None,
+        "value": rounded_money(base_value),
+        "net_flow": 0.0,
+        "income": 0.0,
+    }]
     accumulated = 1.0
     cdi_accumulated = 1.0
-    for position, item in enumerate(window):
+    for position, item in enumerate(compared, start=1):
         key = month_key(item["month_start"])
         if item["return"] is not None:
             accumulated *= 1 + item["return"]
@@ -428,6 +511,7 @@ def build_investment_returns(
         if cdi_return is not None:
             cdi_accumulated *= 1 + cdi_return
         series.append({
+            "base": False,
             "benchmarks": {
                 code: {
                     "return_percent": percent((benchmarks[code].get("monthly") or {}).get(key)),
@@ -448,8 +532,8 @@ def build_investment_returns(
 
     twr = chain_returns(item["return"] for item in window)
     ytd_twr = chain_returns(item["return"] for item in ytd)
-    ytd_keys = [month_key(item["month_start"]) for item in ytd]
-    cdi_period = chain_returns(cdi.get(key) for key in window_keys) if cdi else None
+    # O CDI e os indices cobrem os mesmos meses da carteira (`compared`).
+    cdi_period = chain_returns(cdi.get(key) for key in compared_keys) if cdi else None
     cdi_ytd = chain_returns(cdi.get(key) for key in ytd_keys) if cdi else None
 
     # Por ativo: TWR desde a primeira compra, limitado a janela pedida.
@@ -473,8 +557,9 @@ def build_investment_returns(
 
     last_values = days[-1][1] if days else {}
     assets = []
+    all_group_returns = group_monthly_returns(window_days, group_info, flows, income)
     for group, info in group_info.items():
-        group_returns, _ = monthly_chain(window_days, {group}, flows, income)
+        group_returns = all_group_returns[group]
         returns = [group_returns.get(key) for key in window_keys]
         asset_twr = chain_returns(returns)
         if asset_twr is None:
@@ -503,6 +588,16 @@ def build_investment_returns(
         "basis_label": VALUE_BASIS_LABEL,
         "months": months_back,
         "period": {"start": window_keys[0], "end": window_keys[-1]},
+        # Os meses comparados com o CDI e os indices, todos a partir de 0% no
+        # fim de `base_month`; `start` depois do da janela quando a carteira
+        # (ou a classe) comecou dentro dela.
+        "comparison": {
+            "base_month": base_key,
+            "start": compared_keys[0],
+            "end": compared_keys[-1],
+            "months": len(compared_keys),
+            "starts_after_window": compared_keys[0] != window_keys[0],
+        },
         "twr_percent": percent(twr),
         "ytd_percent": percent(ytd_twr),
         "cdi_available": bool(cdi),
@@ -511,7 +606,7 @@ def build_investment_returns(
         "percent_of_cdi": percent_of(twr, cdi_period),
         "ytd_percent_of_cdi": percent_of(ytd_twr, cdi_ytd),
         "benchmarks": [
-            benchmark_summary(code, benchmarks[code], window_keys, ytd_keys, twr)
+            benchmark_summary(code, benchmarks[code], compared_keys, ytd_keys, twr)
             for code in benchmarks
         ],
         "series": series,
@@ -528,19 +623,39 @@ def build_investment_returns(
     }
 
 
-def accumulate_benchmark(monthly, keys):
+def compared_months(months):
+    """Os meses a partir do primeiro com retorno da carteira (todos, se nenhum tem).
+
+    E o trecho em que carteira e indices sao comparados: antes da primeira
+    operacao nao ha carteira, e o indice acumularia sozinho."""
+    for index, item in enumerate(months):
+        if item["return"] is not None:
+            return months[index:]
+    return months
+
+
+def accumulate_benchmark(monthly, keys, *, from_zero=False):
     """Acumulado (fracao) de um indice em cada mes de `keys`.
 
     None no mes sem retorno (antes do primeiro dado, ou o IPCA ainda nao
     divulgado): a linha do grafico some ali em vez de ficar reta. O acumulado
-    segue dos meses que existem."""
+    segue dos meses que existem.
+
+    `from_zero`: um ponto a mais na frente (o fim do mes anterior ao primeiro
+    de `keys`), e a linha parte de 0% no fim do mes anterior ao primeiro dado
+    do indice — o mesmo ponto de partida da carteira quando ele cobre o
+    periodo inteiro."""
     factor = 1.0
-    path = []
+    path = [None] if from_zero else []
+    started = False
     for key in keys:
         value = monthly.get(key)
         if value is None:
             path.append(None)
             continue
+        if from_zero and not started:
+            path[-1] = 0.0
+        started = True
         factor *= 1 + value
         path.append(factor - 1)
     return path
