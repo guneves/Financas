@@ -8,6 +8,8 @@
 //   annual_rate        taxa anual em fracao, 0.065 = 6,5% a.a. (CDI+, IPCA+ e pre)
 // Lancamentos antigos so tem cdi_percentage e sao lidos como pos-fixado em CDI.
 
+export const TREASURY_TYPE = 'TESOURO'
+
 export const FIXED_INCOME_TYPES = [
   { value: 'CDB', label: 'CDB' },
   { value: 'LCI', label: 'LCI' },
@@ -21,7 +23,32 @@ export const FIXED_INCOME_TYPES = [
   { value: 'CRI', label: 'CRI' },
   { value: 'CRA', label: 'CRA' },
   { value: 'CCB', label: 'CCB' },
+  // Tesouro Direto: titulo publico, tabela regressiva. Na tela e uma categoria
+  // propria ("Tesouro Direto" no tipo de ativo, aba em Posicao), separada da
+  // renda fixa; no banco continua FIXED_INCOME com este tipo.
+  { value: TREASURY_TYPE, label: 'Tesouro Direto' },
 ]
+
+// Os titulos vendidos hoje no Tesouro Direto: sugestoes do nome, e a
+// rentabilidade que cada um pede (Selic acompanha o CDI no app).
+export const TREASURY_TITLES = [
+  'Tesouro Selic',
+  'Tesouro Prefixado',
+  'Tesouro Prefixado com Juros Semestrais',
+  'Tesouro IPCA+',
+  'Tesouro IPCA+ com Juros Semestrais',
+  'Tesouro Renda+ Aposentadoria Extra',
+  'Tesouro Educa+',
+]
+
+// Rentabilidade (RATE_MODES) pelo nome do titulo do Tesouro, ou null.
+export function treasuryRateMode(name) {
+  const text = String(name || '').toUpperCase()
+  if (text.includes('SELIC')) return 'POS'
+  if (/IPCA|RENDA ?\+|EDUCA ?\+/.test(text)) return 'IPCA'
+  if (text.includes('PREFIXADO')) return 'PRE'
+  return null
+}
 
 // Isentos de IR para pessoa fisica pela especie do titulo. A isencao nao e
 // escolhida no formulario: segue o tipo (mesma lista de services/fixed_income.py).

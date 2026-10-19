@@ -22,6 +22,7 @@ from services.fixed_income import (
     movement_affects_fixed_income_position,
 )
 from services import market_listing
+from services.asset_categories import category_fields
 from services.investments import asset_display_name, fetch_investments
 from services.prices import (
     get_market_prices_with_status,
@@ -602,6 +603,8 @@ def build_portfolio_snapshot(current_user_id):
             "name": asset_display_name(data["class"], data["original_ticker"], data["original_ticker"]),
             "class": data["class"],
             "market_kind": asset_market_kind(data["class"], data["original_ticker"]),
+            # ETF, Tesouro Direto, indexador da renda fixa (services/asset_categories.py).
+            **category_fields(data["class"], data["original_ticker"], data.get("metadata")),
             "quantity": round(data["total_quantity"], 8),
             "average_price": rounded_money(avg_price_calculated),
             "current_price": rounded_money(display_price),

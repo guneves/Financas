@@ -62,7 +62,7 @@ def test_amount_per_unit_on_a_cdb_uses_the_single_unit(client, auth):
     asset_id = create_cdb(client, auth)
     response = client.post(
         "/api/investment-proceeds",
-        json=proceed(asset_id, proceeds_type="DIVIDEND", amount_per_unit=12.5),
+        json=proceed(asset_id, amount_per_unit=12.5),  # dividendo em CDB agora e recusado
         headers=auth,
     )
     assert response.status_code == 201, response.get_data(as_text=True)

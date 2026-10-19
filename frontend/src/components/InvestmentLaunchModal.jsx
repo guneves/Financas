@@ -4,39 +4,68 @@ import { ArrowDownRight, ArrowUpRight, CalendarDays } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { investmentsApi, marketApi } from '../lib/dataApi'
 import { AlertMessage, Button, Field, SegmentedControl, Sheet } from './ui'
-import { formatCurrency, getLocalDateString } from '../lib/format'
+import { formatCurrency, formatQuantity, getLocalDateString } from '../lib/format'
 import { usePrivateFormatter } from '../lib/privacy'
 import { toast } from '../lib/toast'
 import TickerAutocomplete from './TickerAutocomplete'
+import AssetPicker from './AssetPicker'
 import FixedIncomeFields from './FixedIncomeFields'
 import CashLinkField, { cashLinkMetadata, emptyCashLink } from './CashLinkField'
 import { SaleExemptionNotice } from './ExemptionMeter'
-import { emptyFixedIncomeForm, fixedIncomeMetadataFromForm } from '../lib/fixedIncome'
+import {
+  FIXED_INCOME_TYPES,
+  TREASURY_TITLES,
+  TREASURY_TYPE,
+  emptyFixedIncomeForm,
+  fixedIncomeMetadataFromForm,
+  rateFieldsForMode,
+  rateModeOf,
+  treasuryRateMode,
+} from '../lib/fixedIncome'
 
 // Classes com cotacao na B3: o ativo tem de vir do catalogo, nao de texto livre.
-const CATALOG_ASSET_CLASSES = ['STOCKS', 'REIT']
+const CATALOG_ASSET_TYPES = ['STOCKS', 'ETF', 'REIT']
 
 const ASSET_TYPES = [
   { value: 'STOCKS', label: 'Ações' },
+  { value: 'ETF', label: 'ETFs' },
   { value: 'REIT', label: 'Fundos Imobiliários' },
   { value: 'FIXED_INCOME', label: 'Renda Fixa' },
+  { value: 'TESOURO', label: 'Tesouro Direto' },
   { value: 'BITCOIN', label: 'Bitcoin' },
   { value: 'OTHER', label: 'Outros' },
 ]
 
-// Bitcoin e um tipo so na tela: na API e a classe "Outros" com o ticker BTC,
-// cotado em reais (BTC-BRL) e com o IR de criptoativo.
+// Tipos so da tela (services/asset_categories.py): ETF e a classe "Acoes" com
+// um ticker que a B3 diz ETF; Tesouro Direto e "Renda Fixa" com o tipo de
+// titulo TESOURO; Bitcoin e "Outros" com o ticker BTC, cotado em reais
+// (BTC-BRL) e com o IR de criptoativo.
 const BITCOIN = 'BITCOIN'
 const BITCOIN_TICKER = 'BTC'
+const ETF = 'ETF'
+const TREASURY = 'TESOURO'
+
+const MOVEMENT_CLASS = { [BITCOIN]: 'OTHER', [ETF]: 'STOCKS', [TREASURY]: 'FIXED_INCOME' }
 
 function movementAssetClass(assetType) {
-  return assetType === BITCOIN ? 'OTHER' : assetType
+  return MOVEMENT_CLASS[assetType] || assetType
 }
 
 function assetTypeOf(asset) {
   if (!asset) return 'STOCKS'
-  return asset.market_kind === 'CRIPTO' ? BITCOIN : asset.class
+  if (asset.market_kind === 'CRIPTO') return BITCOIN
+  if (asset.category === 'ETF') return ETF
+  if (asset.category === 'TESOURO') return TREASURY
+  return asset.class
 }
+
+// A compra de renda fixa nao oferece o Tesouro: ele tem o tipo de ativo dele.
+const PRIVATE_FIXED_INCOME_TYPES = FIXED_INCOME_TYPES.filter((type) => type.value !== TREASURY_TYPE)
+const NO_TYPES = []
+
+const fixedIncomeFormFor = (assetType) => (
+  assetType === TREASURY ? { ...emptyFixedIncomeForm(), fixed_income_type: TREASURY_TYPE } : emptyFixedIncomeForm()
+)
 
 const FORM_ID = 'investment-launch-form'
 
@@ -119,16 +148,40 @@ export default function InvestmentLaunchModal({
     return saleAssets.find((asset) => String(asset.id) === String(form.asset_id))
   }, [form.asset_id, saleAssets])
 
-  const quantity = mode === 'BUY' && form.asset_class === 'FIXED_INCOME' ? 1 : parseAmount(form.quantity)
+  const isFixedIncome = movementAssetClass(form.asset_class) === 'FIXED_INCOME'
+  const quantity = mode === 'BUY' && isFixedIncome ? 1 : parseAmount(form.quantity)
   const unitPrice = parseAmount(form.price)
   const otherCosts = parseAmount(form.other_costs)
   const totalValue = mode === 'SELL'
     ? Math.max((quantity * unitPrice) - otherCosts, 0)
-    : form.asset_class === 'FIXED_INCOME'
+    : isFixedIncome
       ? unitPrice + otherCosts
       : (quantity * unitPrice) + otherCosts
 
-  const usesCatalog = mode === 'BUY' && CATALOG_ASSET_CLASSES.includes(form.asset_class)
+  const usesCatalog = mode === 'BUY' && CATALOG_ASSET_TYPES.includes(form.asset_class)
+
+  // Venda: busca entre as posicoes, pelo ticker ou pelo nome.
+  const saleOptions = useMemo(() => saleAssets.map((asset) => ({
+    value: String(asset.id),
+    label: asset.ticker || asset.name,
+    name: asset.name,
+    meta: [
+      asset.category_label,
+      `${formatQuantity(asset.quantity)} ${Number(asset.quantity) === 1 ? 'cota' : 'cotas'}`,
+      asset.name && asset.name !== asset.ticker ? asset.name : null,
+    ].filter(Boolean).join(' · '),
+    aside: privateMoney(asset.current_value),
+  })), [saleAssets, privateMoney])
+
+  // Nome sugerido na renda fixa: os titulos da carteira daquele tipo (e, no
+  // Tesouro, os titulos que o Tesouro vende).
+  const fixedIncomeNames = useMemo(() => {
+    const own = assets
+      .filter((asset) => asset.class === 'FIXED_INCOME' && (asset.category === 'TESOURO') === (form.asset_class === TREASURY))
+      .map((asset) => asset.ticker || asset.name)
+    const names = form.asset_class === TREASURY ? [...own, ...TREASURY_TITLES] : own
+    return [...new Set(names)]
+  }, [assets, form.asset_class])
 
   const updateForm = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }))
@@ -149,7 +202,19 @@ export default function InvestmentLaunchModal({
       asset_class: nextClass,
       ticker_or_name: nextClass === BITCOIN ? BITCOIN_TICKER : '',
       ticker_confirmed: false,
+      fixed_income: fixedIncomeFormFor(nextClass),
     }))
+  }
+
+  // No Tesouro, o nome do titulo ja diz a rentabilidade (Selic, Prefixado, IPCA+).
+  const handleFixedIncomeNameChange = (name) => {
+    setForm((current) => {
+      const mode = current.asset_class === TREASURY ? treasuryRateMode(name) : null
+      const fixedIncome = mode && mode !== rateModeOf(current.fixed_income)
+        ? { ...current.fixed_income, ...rateFieldsForMode(mode), rate: '' }
+        : current.fixed_income
+      return { ...current, ticker_or_name: name, fixed_income: fixedIncome }
+    })
   }
 
   const handleModeChange = (nextMode) => {
@@ -221,11 +286,11 @@ export default function InvestmentLaunchModal({
       await ensureKnownTicker(tickerName)
     }
     if (unitPrice <= 0) throw new Error('Informe um preço válido.')
-    if (form.asset_class !== 'FIXED_INCOME' && quantity <= 0) throw new Error('Informe uma quantidade válida.')
+    if (!isFixedIncome && quantity <= 0) throw new Error('Informe uma quantidade válida.')
 
-    const finalQuantity = form.asset_class === 'FIXED_INCOME' ? 1 : quantity
-    const grossValue = form.asset_class === 'FIXED_INCOME' ? unitPrice : unitPrice * finalQuantity
-    const averagePrice = form.asset_class === 'FIXED_INCOME'
+    const finalQuantity = isFixedIncome ? 1 : quantity
+    const grossValue = isFixedIncome ? unitPrice : unitPrice * finalQuantity
+    const averagePrice = isFixedIncome
       ? grossValue + otherCosts
       : (grossValue + otherCosts) / finalQuantity
 
@@ -234,9 +299,11 @@ export default function InvestmentLaunchModal({
       return currentTicker === tickerName
     })
 
-    const baseMetadata = form.asset_class === 'FIXED_INCOME'
+    const baseMetadata = isFixedIncome
       ? {
-          ...fixedIncomeMetadataFromForm(form.fixed_income),
+          ...fixedIncomeMetadataFromForm(
+            form.asset_class === TREASURY ? { ...form.fixed_income, fixed_income_type: TREASURY_TYPE } : form.fixed_income,
+          ),
           purchase_date: form.transaction_date,
           other_costs: otherCosts,
         }
@@ -348,17 +415,36 @@ export default function InvestmentLaunchModal({
               <TickerAutocomplete
                 value={form.ticker_or_name}
                 onChange={handleTickerChange}
-                assetClass={form.asset_class}
+                assetClass={movementAssetClass(form.asset_class)}
+                kind={form.asset_class === ETF ? ETF : undefined}
+                excludeKind={form.asset_class === 'STOCKS' ? ETF : undefined}
                 walletAssets={assets}
+                placeholder={form.asset_class === ETF ? 'Digite o ticker (ex: BOVA11)' : undefined}
                 required
               />
+            ) : mode === 'BUY' && isFixedIncome ? (
+              <>
+                <input
+                  list="investment-fixed-income-names"
+                  value={form.ticker_or_name}
+                  onChange={(event) => handleFixedIncomeNameChange(event.target.value)}
+                  placeholder={form.asset_class === TREASURY ? 'Ex: Tesouro IPCA+ 2035' : 'Ex: CDB Banco X 2027'}
+                  className="app-input h-11"
+                  required
+                />
+                <datalist id="investment-fixed-income-names">
+                  {fixedIncomeNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </>
             ) : mode === 'BUY' ? (
               <>
                 <input
                   list="investment-assets"
                   value={form.ticker_or_name}
                   onChange={(event) => updateForm('ticker_or_name', event.target.value)}
-                  placeholder={form.asset_class === 'FIXED_INCOME' ? 'Ex: CDB Banco X 2027' : 'Selecionar ou digitar'}
+                  placeholder="Selecionar ou digitar"
                   className="app-input h-11"
                   required
                 />
@@ -369,19 +455,15 @@ export default function InvestmentLaunchModal({
                 </datalist>
               </>
             ) : (
-              <select
+              <AssetPicker
+                id="sale-asset"
                 value={form.asset_id}
-                onChange={(event) => handleSaleAssetChange(event.target.value)}
-                className="app-select h-11"
+                onChange={handleSaleAssetChange}
+                options={saleOptions}
+                placeholder="Digite o ticker ou o nome"
+                emptyMessage="Nenhuma posição para vender."
                 required
-              >
-                <option value="">Selecionar</option>
-                {saleAssets.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {asset.name} - {privateMoney(asset.current_value)}
-                  </option>
-                ))}
-              </select>
+              />
             )}
           </Field>
 
@@ -398,7 +480,7 @@ export default function InvestmentLaunchModal({
             </div>
           </Field>
 
-          {form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? null : (
+          {isFixedIncome && mode === 'BUY' ? null : (
             <Field label="Quantidade">
               <input
                 type="number"
@@ -413,7 +495,7 @@ export default function InvestmentLaunchModal({
             </Field>
           )}
 
-          <Field label={form.asset_class === 'FIXED_INCOME' && mode === 'BUY' ? 'Valor aplicado em R$' : 'Preço em R$'}>
+          <Field label={isFixedIncome && mode === 'BUY' ? 'Valor aplicado em R$' : 'Preço em R$'}>
             <input
               type="number"
               min="0"
@@ -440,10 +522,11 @@ export default function InvestmentLaunchModal({
             />
           </Field>
 
-          {mode === 'BUY' && form.asset_class === 'FIXED_INCOME' ? (
+          {mode === 'BUY' && isFixedIncome ? (
             <FixedIncomeFields
               value={form.fixed_income}
               onChange={(next) => updateForm('fixed_income', next)}
+              types={form.asset_class === TREASURY ? NO_TYPES : PRIVATE_FIXED_INCOME_TYPES}
             />
           ) : null}
         </div>

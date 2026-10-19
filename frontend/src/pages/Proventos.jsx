@@ -1,6 +1,6 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CHART, ChartTooltip, FLOW, axisProps, compactAxis, useChartAnimation } from '../components/charts'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   CalendarDays,
   Coins,
@@ -34,20 +34,21 @@ import { confirmAction } from '../lib/confirm'
 import { usePrivateFormatter } from '../lib/privacy'
 import ExportSheet from '../components/ExportSheet'
 import { syncProceeds, useProceedsSync } from '../lib/proceedsSync'
+import AssetPicker from '../components/AssetPicker'
+import {
+  PROCEEDS_TYPES,
+  TYPE_HINTS,
+  assetsForProceedsType,
+  categoryLabel,
+  proceedsLayout,
+  proceedsTaxField,
+  proceedsTypeFitsAsset,
+  typeLabel,
+} from '../lib/proceedsRules'
 
-const PROCEEDS_TYPES = [
-  { value: 'DIVIDEND', label: 'Dividendos' },
-  { value: 'JCP', label: 'JCP' },
-  { value: 'AMORTIZATION', label: 'Amortização' },
-  { value: 'INTEREST', label: 'Juros (cupom)' },
-]
-
-// Renda fixa (040): cupom de juros e amortizacao, digitados a mao porque
-// nenhuma fonte os traz. Sem data com nem valor por cota: o valor bruto do
-// pagamento, e o IR do cupom sai da tabela regressiva quando fica em branco.
-const FIXED_INCOME_TYPES = ['INTEREST', 'AMORTIZATION']
-const STOCK_TYPES = ['DIVIDEND', 'JCP', 'AMORTIZATION']
-
+// Renda fixa e Tesouro (040): cupom de juros e amortizacao, digitados a mao
+// porque nenhuma fonte os traz. Que ativo recebe que tipo, e que campos cada
+// tipo pede, mora em lib/proceedsRules.js (testado).
 const REPEAT_OPTIONS = [
   { value: '', label: 'Não repetir' },
   { value: '1', label: 'Todo mês' },
@@ -56,32 +57,11 @@ const REPEAT_OPTIONS = [
   { value: '12', label: 'Todo ano' },
 ]
 
-const isFixedIncomeAsset = (assets, assetId) => (
-  assets.find((asset) => asset.id === assetId)?.asset_class === 'FIXED_INCOME'
-)
-
-// Na ordem da lista: a renda fixa abre em "Juros (cupom)".
-const typesFor = (fixedIncome) => (fixedIncome ? FIXED_INCOME_TYPES : STOCK_TYPES)
-  .map((value) => PROCEEDS_TYPES.find((item) => item.value === value))
-
-// O tipo atual, se vale para o ativo; senao o primeiro que vale.
-const firstTypeFor = (assets, assetId, current) => {
-  const allowed = typesFor(isFixedIncomeAsset(assets, assetId)).map((item) => item.value)
-  return allowed.includes(current) ? current : allowed[0]
-}
-
 const STATUS_ITEMS = [
   { value: 'ALL', label: 'Todos', icon: Filter },
   { value: 'PAID', label: 'Pagos', icon: Coins },
   { value: 'SCHEDULED', label: 'Agendados', icon: CalendarDays },
 ]
-
-const ASSET_CLASS_LABELS = {
-  STOCKS: 'Ações',
-  FIXED_INCOME: 'Renda fixa',
-  REIT: 'FIIs',
-  OTHER: 'Outros',
-}
 
 const currentYear = new Date().getFullYear()
 
@@ -141,9 +121,8 @@ function receiptsChartData(byMonth, period) {
 }
 
 // Cupom ou amortizacao de renda fixa: sem data com nem valor por cota.
+// (O Tesouro Direto tambem: e renda fixa no banco.)
 const isFixedIncomeEvent = (item) => item.asset?.asset_class === 'FIXED_INCOME'
-
-const typeLabel = (value) => PROCEEDS_TYPES.find((item) => item.value === value)?.label || value
 
 const NO_ITEMS = []
 
@@ -207,6 +186,9 @@ export default function Proventos() {
   const calendarEvents = proceedsQuery.data?.calendarEvents || NO_ITEMS
   const loading = proceedsQuery.isFetching
   const byAsset = summary?.by_asset || NO_ITEMS
+  // ETF e ETF, Tesouro e Tesouro Direto: a categoria vem de /api/assets.
+  const assetsById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets])
+  const categoryOf = (assetId, fallback) => categoryLabel(assetsById.get(assetId) || fallback)
   const chartData = useMemo(() => receiptsChartData(summary?.by_month, chartPeriod), [summary, chartPeriod])
 
   const fetchData = () => invalidateServerData()
@@ -230,20 +212,10 @@ export default function Proventos() {
     }
   }
 
-  useEffect(() => {
-    if (!form.asset_id && assets[0]?.id && !editingId) {
-      setForm((current) => ({ ...current, asset_id: assets[0].id, proceeds_type: firstTypeFor(assets, assets[0].id, current.proceeds_type) }))
-    }
-  }, [assets, form.asset_id, editingId])
-
+  // O tipo vem primeiro; o ativo e escolhido entre os que podem ter aquele tipo.
   const resetForm = () => {
     setEditingId('')
-    const assetId = assets[0]?.id || ''
-    setForm({
-      ...blankForm(),
-      asset_id: assetId,
-      proceeds_type: firstTypeFor(assets, assetId, 'DIVIDEND'),
-    })
+    setForm(blankForm())
   }
 
   const buildPayload = () => {
@@ -252,11 +224,13 @@ export default function Proventos() {
     const grossAmount = parseNumberInput(form.gross_amount)
     const taxAmount = parseNumberInput(form.tax_amount)
 
-    if (!form.asset_id) throw new Error('Selecione um ativo.')
-    if (isFixedIncomeAsset(assets, form.asset_id)) {
+    if (!form.asset_id) throw new Error('Selecione o ativo na lista.')
+    const asset = assetsById.get(form.asset_id)
+    const taxField = proceedsTaxField(form.proceeds_type)
+    if (proceedsLayout(form.proceeds_type, asset) === 'FIXED') {
       if (!form.payment_date) throw new Error('Informe a data de pagamento.')
       if (grossAmount === null || Number.isNaN(grossAmount) || grossAmount <= 0) throw new Error('Informe o valor bruto do pagamento.')
-      if (Number.isNaN(taxAmount)) throw new Error('Informe um IR válido.')
+      if (taxField && Number.isNaN(taxAmount)) throw new Error('Informe um IR válido.')
       const repeatCount = Number(form.repeat_count)
       if (!editingId && form.repeat_every && (!Number.isInteger(repeatCount) || repeatCount < 1 || repeatCount > 120)) {
         throw new Error('Informe quantos pagamentos (de 1 a 120).')
@@ -272,7 +246,8 @@ export default function Proventos() {
         amount_per_unit: null,
         eligible_quantity: null,
         gross_amount: grossAmount,
-        tax_amount: taxAmount,
+        // Amortizacao devolve capital: sem campo de IR, o servidor grava zero.
+        tax_amount: taxField ? taxAmount : null,
         notes: form.notes,
         ...(!editingId && form.repeat_every
           ? { repeat: { every_months: Number(form.repeat_every), count: repeatCount } }
@@ -281,7 +256,7 @@ export default function Proventos() {
     }
     if (!form.record_date) throw new Error('Informe a data com.')
     if (!form.payment_date) throw new Error('Informe a data de pagamento.')
-    if (Number.isNaN(amountPerUnit) || Number.isNaN(eligibleQuantity) || Number.isNaN(grossAmount) || Number.isNaN(taxAmount)) {
+    if (Number.isNaN(amountPerUnit) || Number.isNaN(eligibleQuantity) || Number.isNaN(grossAmount) || (taxField && Number.isNaN(taxAmount))) {
       throw new Error('Informe valores numéricos válidos.')
     }
 
@@ -295,7 +270,7 @@ export default function Proventos() {
       amount_per_unit: amountPerUnit,
       eligible_quantity: eligibleQuantity,
       gross_amount: grossAmount,
-      tax_amount: taxAmount,
+      tax_amount: taxField ? taxAmount : null,
       notes: form.notes,
     }
   }
@@ -406,7 +381,7 @@ export default function Proventos() {
         open={formOpen}
         onClose={closeForm}
         title={editingId ? 'Editar provento' : 'Registrar provento'}
-        description="Informe datas, tipo e valores para calcular o yield on cost."
+        description="Escolha o tipo e depois o ativo: a busca só mostra os ativos que recebem aquele provento."
         footer={(
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button type="button" variant="secondary" size="lg" onClick={closeForm}>
@@ -420,7 +395,7 @@ export default function Proventos() {
       >
         <div className="space-y-4">
           <AlertMessage tone="danger" message={formError} onDismiss={() => setFormError('')} />
-          <ProventoForm form={form} setForm={setForm} assets={assets} editing={Boolean(editingId)} onSubmit={handleSubmit} />
+          <ProventoForm key={editingId || 'novo'} form={form} setForm={setForm} assets={assets} editingId={editingId} onSubmit={handleSubmit} />
         </div>
       </Sheet>
 
@@ -520,7 +495,7 @@ export default function Proventos() {
         ) : null}
       </div>
 
-      {byAsset.length > 0 ? <ProceedsByAsset items={byAsset} /> : null}
+      {byAsset.length > 0 ? <ProceedsByAsset items={byAsset} categoryOf={categoryOf} /> : null}
 
       <Panel>
         <PanelHeader
@@ -582,7 +557,7 @@ export default function Proventos() {
                   <div className="min-w-0">
                     <p className="font-semibold text-zinc-950">{item.asset?.ticker}</p>
                     <p className="text-xs text-zinc-600">
-                      {formatDateBR(item.payment_date)}{isFixedIncomeEvent(item) ? '' : ` · com ${formatDateBR(item.record_date)}`} · {ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}
+                      {formatDateBR(item.payment_date)}{isFixedIncomeEvent(item) ? '' : ` · com ${formatDateBR(item.record_date)}`} · {categoryOf(item.asset_id, item.asset)}
                     </p>
                   </div>
                   <p className="shrink-0 font-bold tabular text-emerald-700">{formatCurrency(item.net_amount)}</p>
@@ -637,7 +612,7 @@ export default function Proventos() {
                       {isFixedIncomeEvent(item) ? null : <p className="whitespace-nowrap text-xs text-zinc-500">com {formatDateBR(item.record_date)}</p>}
                     </td>
                     <td>
-                      <p className="truncate font-semibold text-zinc-950" title={ASSET_CLASS_LABELS[item.asset?.asset_class] || item.asset?.asset_class}>
+                      <p className="truncate font-semibold text-zinc-950" title={categoryOf(item.asset_id, item.asset)}>
                         {item.asset?.ticker}
                       </p>
                       <p className="truncate text-xs text-zinc-500">
@@ -679,7 +654,7 @@ export default function Proventos() {
 // "12 meses" e a janela movel ate hoje, independente do periodo filtrado; o
 // YOC e o liquido sobre o custo na data com. Valores somem no modo privado,
 // percentuais ficam.
-function ProceedsByAsset({ items }) {
+function ProceedsByAsset({ items, categoryOf }) {
   const money = usePrivateFormatter(formatCurrency)
   return (
     <Panel className="overflow-clip">
@@ -729,7 +704,7 @@ function ProceedsByAsset({ items }) {
               <tr key={item.asset_id}>
                 <td>
                   <p className="truncate font-semibold text-zinc-950">{item.ticker}</p>
-                  <p className="truncate text-xs text-zinc-500">{ASSET_CLASS_LABELS[item.asset_class] || item.asset_class}</p>
+                  <p className="truncate text-xs text-zinc-500">{categoryOf(item.asset_id, item)}</p>
                 </td>
                 <td className="num text-zinc-700">{item.event_count}</td>
                 <td className="num font-semibold text-zinc-950">{money(item.net_amount)}</td>
@@ -745,59 +720,89 @@ function ProceedsByAsset({ items }) {
   )
 }
 
-function ProventoForm({ form, setForm, assets, editing, onSubmit }) {
-  const fixedIncome = isFixedIncomeAsset(assets, form.asset_id)
-  const types = typesFor(fixedIncome)
-  // Trocar de ativo troca o tipo quando o atual nao vale para ele.
-  const changeAsset = (assetId) => {
+// O tipo primeiro: ele decide quais ativos aparecem na busca e quais campos
+// o formulario pede (lib/proceedsRules.js).
+function ProventoForm({ form, setForm, assets, editingId, onSubmit }) {
+  const editing = Boolean(editingId)
+  const asset = assets.find((item) => item.id === form.asset_id) || null
+  const layout = proceedsLayout(form.proceeds_type, asset)
+  const taxField = proceedsTaxField(form.proceeds_type)
+  // Na edicao, o ativo do provento fica na lista mesmo que nao caiba no tipo.
+  const [originalAssetId] = useState(form.asset_id)
+  const eligible = assetsForProceedsType(assets, form.proceeds_type, editing ? originalAssetId : '')
+  const options = eligible.map((item) => ({
+    value: item.id,
+    label: item.ticker,
+    name: item.name,
+    meta: [categoryLabel(item), item.name && item.name !== item.ticker ? item.name : null].filter(Boolean).join(' · '),
+  }))
+
+  // Trocar de tipo tira o ativo que nao recebe aquele tipo.
+  const changeType = (proceedsType) => {
     setForm({
       ...form,
-      asset_id: assetId,
-      proceeds_type: firstTypeFor(assets, assetId, form.proceeds_type),
+      proceeds_type: proceedsType,
+      asset_id: asset && !proceedsTypeFitsAsset(proceedsType, asset) && form.asset_id !== originalAssetId ? '' : form.asset_id,
     })
   }
 
-  const assetField = (
-    <Field label="Ativo">
-      <select value={form.asset_id} onChange={(event) => changeAsset(event.target.value)} className="app-select" required>
-        <option value="">Selecione...</option>
-        {assets.map((asset) => (
-          <option key={asset.id} value={asset.id}>
-            {asset.ticker} - {ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class}
-          </option>
-        ))}
-      </select>
-    </Field>
-  )
   const typeField = (
-    <Field label="Tipo">
-      <select value={form.proceeds_type} onChange={(event) => setForm({ ...form, proceeds_type: event.target.value })} className="app-select" required>
-        {types.map((item) => (
+    <Field label="Tipo de provento" hint={TYPE_HINTS[form.proceeds_type]}>
+      <select value={form.proceeds_type} onChange={(event) => changeType(event.target.value)} className="app-select" required>
+        {PROCEEDS_TYPES.map((item) => (
           <option key={item.value} value={item.value}>{item.label}</option>
         ))}
       </select>
     </Field>
   )
+  const assetField = (
+    <Field label="Ativo">
+      <AssetPicker
+        id="provento-ativo"
+        value={form.asset_id}
+        onChange={(assetId) => setForm({ ...form, asset_id: assetId })}
+        options={options}
+        placeholder="Digite o ticker ou o nome"
+        emptyMessage="Nenhum ativo da carteira recebe este tipo de provento."
+        required
+      />
+    </Field>
+  )
+  const taxInput = taxField ? (
+    <Field label={taxField.label} hint={taxField.hint}>
+      <input type="text" inputMode="decimal" placeholder="auto" value={form.tax_amount} onChange={(event) => setForm({ ...form, tax_amount: event.target.value })} className="app-input" />
+    </Field>
+  ) : null
+  const notesField = (
+    <Field label="Observações" className="sm:col-span-2">
+      <input type="text" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="app-input" />
+    </Field>
+  )
 
-  if (fixedIncome) {
+  if (!asset) {
     return (
       <form id="provento-form" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {assetField}
         {typeField}
+        {assetField}
+        <p className="text-sm text-zinc-500 sm:col-span-2">
+          Escolha o ativo para ver os campos deste provento.
+        </p>
+      </form>
+    )
+  }
+
+  if (layout === 'FIXED') {
+    return (
+      <form id="provento-form" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {typeField}
+        {assetField}
         <Field label={editing || !form.repeat_every ? 'Pagamento' : 'Primeiro pagamento'}>
           <input type="date" value={form.payment_date} onChange={(event) => setForm({ ...form, payment_date: event.target.value })} className="app-input" required />
         </Field>
-        <Field label="Valor bruto (R$)">
+        <Field label="Valor bruto (R$)" hint={form.proceeds_type === 'AMORTIZATION' ? 'Capital devolvido: sem IR.' : undefined}>
           <input type="text" inputMode="decimal" placeholder="0,00" value={form.gross_amount} onChange={(event) => setForm({ ...form, gross_amount: event.target.value })} className="app-input" required />
         </Field>
-        <Field
-          label="IR retido (R$)"
-          hint={form.proceeds_type === 'INTEREST'
-            ? 'Em branco: tabela regressiva desde a aplicação (22,5% a 15%), zero em título isento.'
-            : 'A amortização devolve o capital: sem IR.'}
-        >
-          <input type="text" inputMode="decimal" placeholder="auto" value={form.tax_amount} onChange={(event) => setForm({ ...form, tax_amount: event.target.value })} className="app-input" />
-        </Field>
+        {taxInput}
         {editing ? null : (
           <>
             <Field label="Repetir">
@@ -814,18 +819,16 @@ function ProventoForm({ form, setForm, assets, editing, onSubmit }) {
             ) : null}
           </>
         )}
-        <Field label="Observações" className="sm:col-span-2">
-          <input type="text" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="app-input" />
-        </Field>
+        {notesField}
       </form>
     )
   }
 
   return (
     <form id="provento-form" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {assetField}
       {typeField}
-      <Field label="Data com">
+      {assetField}
+      <Field label="Data com" hint="A quantidade elegível é a sua posição nesta data.">
         <input type="date" value={form.record_date} onChange={(event) => setForm({ ...form, record_date: event.target.value })} className="app-input" required />
       </Field>
       <Field label="Data ex">
@@ -837,21 +840,17 @@ function ProventoForm({ form, setForm, assets, editing, onSubmit }) {
       <Field label="Declaração">
         <input type="date" value={form.declared_date} onChange={(event) => setForm({ ...form, declared_date: event.target.value })} className="app-input" />
       </Field>
-      <Field label="Valor por cota">
+      <Field label="Valor por cota (R$)">
         <input type="text" inputMode="decimal" placeholder="0,00" value={form.amount_per_unit} onChange={(event) => setForm({ ...form, amount_per_unit: event.target.value })} className="app-input" />
       </Field>
       <Field label="Qtd. elegível">
         <input type="text" inputMode="decimal" placeholder="auto" value={form.eligible_quantity} onChange={(event) => setForm({ ...form, eligible_quantity: event.target.value })} className="app-input" />
       </Field>
-      <Field label="Valor bruto">
+      <Field label="Valor bruto (R$)" hint={form.proceeds_type === 'AMORTIZATION' ? 'Capital devolvido: sem IR.' : 'Em branco: valor por cota × quantidade.'}>
         <input type="text" inputMode="decimal" placeholder="auto" value={form.gross_amount} onChange={(event) => setForm({ ...form, gross_amount: event.target.value })} className="app-input" />
       </Field>
-      <Field label="Imposto">
-        <input type="text" inputMode="decimal" placeholder="auto" value={form.tax_amount} onChange={(event) => setForm({ ...form, tax_amount: event.target.value })} className="app-input" />
-      </Field>
-      <Field label="Observações" className="sm:col-span-2">
-        <input type="text" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="app-input" />
-      </Field>
+      {taxInput}
+      {notesField}
     </form>
   )
 }

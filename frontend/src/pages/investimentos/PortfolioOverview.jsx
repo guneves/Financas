@@ -29,7 +29,8 @@ function readStoredPeriod() {
 
 const NO_POINTS = []
 
-// Alocacao por classe (valor bruto de mercado) e evolucao mensal do patrimonio.
+// Alocacao por categoria (valor bruto de mercado: Acoes, ETFs, FIIs, Renda
+// fixa, Tesouro Direto...; `category_label` da posicao) e evolucao mensal do patrimonio.
 // A barra de cada mes e o valor aplicado com o ganho de capital empilhado em
 // cima; num mes de perda, a base vira o patrimonio e a perda (vermelha) completa
 // a barra ate o valor aplicado — a altura total nunca esconde o prejuizo.
@@ -44,7 +45,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
   const allocation = useMemo(() => {
     const byClass = {}
     assets.forEach((asset) => {
-      const label = getClassLabel(asset.class)
+      const label = asset.category_label || getClassLabel(asset.class)
       byClass[label] = (byClass[label] || 0) + Number(asset.current_value || 0)
     })
     return Object.entries(byClass).map(([name, value]) => ({ name, value }))
@@ -93,7 +94,7 @@ export default function PortfolioOverview({ assets, getClassLabel }) {
   return (
     <div className="stagger grid grid-cols-1 gap-6 xl:grid-cols-3">
       <Panel>
-        <PanelHeader title="Alocação" description="Valor de mercado bruto por classe de ativo." />
+        <PanelHeader title="Alocação" description="Valor de mercado bruto por categoria de ativo." />
         <div className="p-5">
           <DonutChart data={allocation} centerLabel="Carteira" height={190} stacked formatter={privateMoney} />
         </div>

@@ -50,6 +50,7 @@ from services.fixed_income import (
     start_fixed_income_refresh,
     validate_fixed_income_metadata,
 )
+from services.asset_categories import categories_by_asset
 from services.investments import (
     CASH_ACCOUNT_KEY,
     delete_investment_cash_transaction,
@@ -241,7 +242,13 @@ def list_assets(current_user_id):
             """,
             (current_user_id,),
         ).fetchall()
-    return jsonify([serialize_metadata_row(row) for row in rows]), 200
+        categories = categories_by_asset(conn, current_user_id)
+    items = []
+    for row in rows:
+        item = serialize_metadata_row(row)
+        item.update(categories.get(item["id"]) or {})
+        items.append(item)
+    return jsonify(items), 200
 
 
 @bp.route("/api/investment-transactions", methods=["GET"])
@@ -331,7 +338,16 @@ def investments(current_user_id):
                 order_by=order_by,
                 direction=direction,
             )
-        return jsonify([serialize_investment(row) for row in rows]), 200
+            categories = categories_by_asset(conn, current_user_id)
+        items = []
+        for row in rows:
+            item = serialize_investment(row)
+            # ETF e ETF, Tesouro Direto e Tesouro Direto (a classe continua a do banco).
+            category = categories.get(item.get("asset_id")) or {}
+            item["asset_category"] = category.get("category")
+            item["asset_category_label"] = category.get("category_label")
+            items.append(item)
+        return jsonify(items), 200
 
     payload = parse_json_body()
     items = payload if isinstance(payload, list) else [payload]

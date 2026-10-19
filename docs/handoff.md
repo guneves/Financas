@@ -7,56 +7,53 @@
 
 ---
 
-## Session — 2026-10-19 · Investir charts fast + fair index comparison
+## Session — 2026-10-19 · Asset categories, proventos by type, asset search
 
-Cloud session, owner request: "updating every Investir chart (Posição, Rentabilidade) takes 5 s or
-more — optimize, it must be very fast", and "the comparison of the indices with the portfolio is
-unfair: over the observed period both must start at 0%". Docs read directly (no scout: the task was
-given in full).
+Cloud session, owner request (in Portuguese): ETFs must show as ETFs, not Ações; Registrar provento
+must ask what fits the type (dividendos, JCP, amortização, cupom) and only offer the assets that can
+pay that type, with a search box that suggests as you type; fixed income's sector should be
+pré-fixado / pós-fixado / IPCA+ instead of "Sem setor"; a Tesouro Direto category separate from
+Renda fixa. Mid-session: the sale's asset select becomes the same search, and "open a PR when done".
+Docs read directly (no scout).
 
 ### Done
-- **Measured first** on a synthetic portfolio (27 tickers, 59 fixed-income titles, 354 operations
-  since 2021) with the network patched and 2–3 s of latency. Four causes: (a) the index closes
-  (yfinance) blocked `/returns` every 15 min; (b) the history caches lived only in memory, so every
-  deploy made the first chart wait for the whole download; (c) opening Investimentos runs the
-  proventos sync, a POST, which invalidated the whole cache — every chart computed twice; (d) CPU:
-  `accrual_factor_until()` looping the CDI per title × month, the per-asset TWR walking all days
-  once per asset, date parsing per day.
-- (a) `load_benchmarks()` reads `benchmark_closes` and refreshes in the background when closes were
-  stored < 7 days ago (`stored_closes_are_recent()`); waits only without them.
-- (b) `backend/history_store.py`: sections "daily" (Yahoo) and "bcb" (CDI/IPCA) in
-  `HISTORY_CACHE_FILE` (`history_cache.json` next to the DB → `/data` on the server), written off
-  the request, read once per process keeping each entry's age. In `.gitignore`/`.dockerignore`.
-- (c) `apiFetch(..., { invalidate: false })` + `notifyMutation()`; the sync notifies only when
-  `created + updated + removed > 0`.
-- (d) `cdi_products()` (cumulative products, bisect), `group_monthly_returns()`, segment memo in
-  `FixedIncomeCurve`, dates parsed once (`daily_group_values`, `iter_portfolio_months`). Outputs
-  compared field by field with the old code: identical. 1A 312 → ~100 ms, 5A 900 → ~300 ms,
-  Evolução 5A 300 → ~90 ms; first Rentabilidade after a restart with a 3 s network: ~150 ms.
-- Fair comparison: `series[0]` is a base point (`base: true`) at 0% for the portfolio, the CDI and
-  every index; months before the first operação leave the series; CDI and index totals,
-  `percent_of_cdi` and `months_total` cover the compared months only; a late index starts at 0% at
-  its own start. New `comparison` block in the response; the screen's hint and description say it.
-- 11 new tests (`TestDiskCopy` ×5, two benchmark route tests for background/old closes, a portfolio
-  started inside the window, two pure ones, the accrual equivalence); 3 tests updated for the base
-  point. 1392 pytest, 122 node, `vite build`. Screenshots in Chromium (1A and 5A, 1280 px).
+- `services/asset_categories.py`: category computed on read (ACAO/ETF/BDR/FII/RENDA_FIXA/TESOURO/
+  CRIPTO/OTHER) and the fixed-income `rate_kind` (PRE/POS/IPCA). On `/api/assets`, positions,
+  movements (`asset_category_label`) and the sector rows. `TESOURO` added to the title types (both
+  sides), not tax-free.
+- Sectors: fixed income grouped by indexer (source `INDEXER`, segment = title type).
+- `routes/proceeds.py`: refuses the type the class never receives, only when asset/type change.
+- Proventos form: type first (with who can pay it), `AssetPicker` filtered by
+  `lib/proceedsRules.js`, fields by type (FIXED: payment, gross, IR only for the coupon, repeat;
+  MARKET: data com/ex, per share, qty, gross, IR except amortization). Lists show the category.
+- Registrar operação: sale picks by typing (`AssetPicker`, with category, quantity, value); buy
+  offers "ETFs" (catalog filtered to ETFs; Ações no longer lists them) and "Tesouro Direto" (title
+  names suggested, Rentabilidade set from the name, no type select).
+- Posição: Tesouro Direto tab grouped by indexer; the donut by category. Operações shows the category.
+- Tests: `test_asset_categories.py` (20), two old tests changed with the rule (see done-tasks);
+  `proceedsRules.test.js`, `fixedIncome.test.js`. 1412 pytest, 131 node, `vite build`. Screens
+  checked in Chromium (390 px and 1280 px) on a throwaway DB.
 
 ### Not done, and why
-- Not measured against real yfinance/BCB or the owner's data (sandbox network is blocked) —
-  owner check in `next-steps.md` ("Chart speed and the fair comparison").
-- The first compared month counts the whole month for the index but the portfolio from the
-  purchase day (only month-end index closes exist). In `next-steps.md`.
-- No server-side cache of the computed response; ~0.3 s for 5A is pure CPU. In `next-steps.md`.
-- Not tried on the phone.
+- No new DB class: rebuilding `assets` cascades into seven tables (see CLAUDE.md). So Alocação ›
+  Por classe, targets, goals and Rentabilidade's class filter still show 4 classes — in
+  `next-steps.md` as an owner decision.
+- Old Tesouro titles typed as CDB stay in Renda fixa until edited (no data migration).
+- The Proventos filter panel's "Ativo" stays a select. Not tried on the phone.
 
 ### Learned
-- `pkill -f serve.py` from the Bash tool kills the tool's own shell (the pattern is in its command
-  line): exit 144. Stop a background server by its PID instead.
-- The bench harness (patching `download_daily_history`, `fetch_bcb_series`,
-  `download_monthly_history` in place, then `app.app.run`) is a good way to see the screens with
-  benchmarks in this container, where every provider is blocked.
-- cProfile only sees the request thread; the waits on executors show up as `threading.wait`.
-  Wrapping functions with timers was what found the disk-load race.
+- A button inside `Field` (a `<label>`) gives the click back to the input: a combobox option must
+  `preventDefault()` or the list reopens after a pick. Fixed in `TickerAutocomplete` too.
+- A floating list inside a `Sheet` on a 390 px screen is clipped by the sheet's scroll; the
+  `AssetPicker` list is in the flow instead.
+- Signup returns `access_token` (not `token`); the screens read it from localStorage
+  `@financeMVP:auth`.
+
+### Carried from the chart-speed session (2026-10-19), still open
+- Chart speed and the fair comparison not measured against real yfinance/BCB or the owner's data;
+  the first compared month counts the whole month for the index; no server cache of the computed
+  response. All in `next-steps.md`. `pkill -f` from the Bash tool kills its own shell — stop a
+  server by PID.
 
 ### Carried from the Operações/040 session (2026-10-19), still open
 - Amortization does not reduce the title's principal in Posição (modelling decision); no

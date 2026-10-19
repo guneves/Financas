@@ -7,7 +7,8 @@ Proventos e entram na conta da carteira no dia do pagamento. O que fica fixo:
 - o tipo INTEREST existe (a tabela foi refeita) e nao pede data com: sem ela,
   vale a data de pagamento — o mesmo para a amortizacao;
 - o IR padrao do cupom e a tabela regressiva desde a aplicacao (Lei
-  11.033/2004, art. 1o), zero no titulo isento e no que nao e renda fixa;
+  11.033/2004, art. 1o), zero no titulo isento; cupom fora da renda fixa e
+  recusado (test_asset_categories.py);
 - "repetir" grava todos os pagamentos de uma vez (ou nenhum), cada um com a
   aliquota da propria data, no mesmo dia do mes (ou no ultimo do mes curto);
 - pago, entra na conta da carteira como "Juros"; agendado, espera o dia;
@@ -149,7 +150,9 @@ class TestTheCouponTax:
         assert response.status_code == 200, response.get_data(as_text=True)
         assert response.get_json()["tax_amount"] == pytest.approx(30.0)
 
-    def test_interest_on_a_stock_presumes_no_tax(self, client, auth):
+    def test_interest_on_a_stock_is_refused(self, client, auth):
+        # Cupom e de renda fixa (owner, 2026-10-19: so os ativos que podem ter
+        # aquele provento); antes passava com IR 0.
         response = client.post(
             "/api/investments", headers=auth,
             json={
@@ -160,7 +163,12 @@ class TestTheCouponTax:
         )
         assert response.status_code == 201, response.get_data(as_text=True)
         asset_id = response.get_json()[0]["asset_id"]
-        assert interest(client, auth, asset_id, "2025-06-01", gross=50.0)["tax_amount"] == 0
+        refused = post_proceed(
+            client, auth,
+            asset_id=asset_id, proceeds_type="INTEREST", payment_date="2025-06-01", gross_amount=50.0,
+        )
+        assert refused.status_code == 400
+        assert "renda fixa" in refused.get_json()["error"]
 
 
 class TestRepeatingPayments:

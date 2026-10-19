@@ -197,7 +197,7 @@ export default function SectorAllocation({ classes = [] }) {
     <Panel className="overflow-clip">
       <PanelHeader
         title="Por setor"
-        description="Valor líquido agrupado pelo setor de cada ativo. Ações e FIIs vêm da brapi; o resto, e o que estiver errado, você define no lápis."
+        description="Valor líquido agrupado pelo setor de cada ativo. Ações e FIIs vêm da brapi; renda fixa e Tesouro, pelo indexador (pré, pós, IPCA+); o resto, e o que estiver errado, você define no lápis."
         actions={(
           <Button type="button" variant="secondary" icon={RefreshCw} loading={refreshing} onClick={handleRefresh}>
             Buscar setores
@@ -265,7 +265,7 @@ export default function SectorAllocation({ classes = [] }) {
                             <td className="py-2">
                               <span className="font-medium text-zinc-900">{asset.ticker}</span>
                               <span className="block text-xs text-zinc-500">
-                                {[asset.class_label, asset.segment, asset.source === 'MANUAL' ? 'manual' : null].filter(Boolean).join(' · ')}
+                                {[asset.category_label || asset.class_label, asset.segment, asset.source === 'MANUAL' ? 'manual' : null].filter(Boolean).join(' · ')}
                               </span>
                             </td>
                             <td className="num py-2 pl-3 text-zinc-700">{privateMoney(asset.value)}</td>
