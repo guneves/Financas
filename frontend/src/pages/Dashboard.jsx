@@ -28,7 +28,7 @@ import {
   Target,
   X,
 } from 'lucide-react'
-import { ccExpensesApi, monthlyPlanApi, recurringApi } from '../lib/dataApi'
+import { ccExpensesApi, recurringApi } from '../lib/dataApi'
 import { dismissAttention, useDismissedAttention, useInicioBudget, useInicioCards, useInicioMovements, useInicioRecurring } from '../lib/attention'
 import {
   attentionItems,
@@ -45,7 +45,7 @@ import {
 import { AttentionCards } from '../components/Attention'
 import { useOutbox } from '../lib/outbox'
 import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../lib/outboxRules'
-import { invalidateServerData, queryErrorMessage, useQuery } from '../lib/queries'
+import { invalidateServerData, queryErrorMessage } from '../lib/queries'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
   BUDGET_STATUS_LABELS,
@@ -90,12 +90,6 @@ const HISTORY_MONTHS = 12
 const INVOICE_MONTHS = 6
 // Meses anteriores que formam a media do "Ritmo de gastos".
 const PACE_MONTHS = 3
-
-const getDaysRemainingInMonth = () => {
-  const today = new Date()
-  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
-  return Math.max(lastDay - today.getDate() + 1, 1)
-}
 
 const parseInstallmentInfo = (value) => {
   if (!value || typeof value !== 'string' || !value.includes('/')) {
@@ -185,8 +179,6 @@ export default function Dashboard() {
   const budgetMonth = monthKey(new Date())
   const budgetQuery = useInicioBudget(budgetMonth)
   const dismissedAttention = useDismissedAttention()
-  // Plano do mes (Orcamento): o "Ainda pode gastar" vira o Disponivel por dia.
-  const planQuery = useQuery({ queryKey: ['plano-do-mes', budgetMonth], queryFn: () => monthlyPlanApi.month(budgetMonth) })
 
   // Lancamentos guardados no aparelho, ainda sem chegar ao servidor
   // (lib/outbox.js): entram nas contas e no mes como em Lancamentos, e o
@@ -532,26 +524,14 @@ export default function Dashboard() {
     return <DashboardSkeleton />
   }
 
-  const daysRemainingInMonth = getDaysRemainingInMonth()
-  // Com plano do mes: o que ainda pode gastar nele, pelos dias que faltam
-  // (hoje incluido). Sem plano: o saldo menos as faturas a pagar — a proxima
-  // de cada cartao e as vencidas, que tambem saem do saldo.
-  // Saldo do plano: null sem plano ou com o plano ainda sem renda.
-  const planBalance = planQuery.data?.plan_balance
-  const planSpendRemaining = planBalance === null || planBalance === undefined ? null : Number(planBalance)
-  const hasSpendPlan = Number.isFinite(planSpendRemaining)
-  const dailyAvailable = (hasSpendPlan ? planSpendRemaining : bankBalance - overdueTotal - nextInvoiceTotal) / daysRemainingInMonth
   const paceMonths = spendingPace.months.length
   const paceDifference = spendingPace.currentToDate - spendingPace.averageToDate
   const spendingVsAverage = paceMonths > 0 ? percentChange(spendingPace.currentToDate, spendingPace.averageToDate) : null
   const paceAverageLabel = paceMonths > 1 ? `Média de ${paceMonths} meses` : `Mês de ${shortMonth(spendingPace.months[0]?.key)}`
-  // O mes atual do fluxo de caixa: receitas menos despesas (o cartao no dia
-  // da compra), menos aportes, mais resgates, com o que foi de outras pessoas
-  // — o "Resultado" do grafico. Aporte, resgate e outras pessoas nao sao
-  // despesa nem receita do dono e aparecem a parte.
+  // O mes atual do fluxo de caixa (o cartao no dia da compra). Aporte,
+  // resgate e outras pessoas nao sao despesa nem receita do dono e aparecem a
+  // parte no "Resumo do mes".
   const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, invested: 0, redeemed: 0, others: 0, othersPaid: 0, othersReceived: 0, net: 0 }
-  const monthIncome = currentMonth.income
-  const monthExpense = -currentMonth.expense
 
   return (
     <div className="space-y-5">
@@ -587,19 +567,14 @@ export default function Dashboard() {
           total={bankBalance}
           accounts={bankingAccounts(accounts)}
           monthName={monthLabel(currentKey)}
-          result={currentMonth.net}
-          income={monthIncome}
-          expense={monthExpense}
-          invested={currentMonth.invested}
-          redeemed={currentMonth.redeemed}
-          others={currentMonth.othersPaid || currentMonth.othersReceived ? currentMonth.others : null}
         />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:col-span-4 xl:grid-cols-1">
-          <DailyTile
-            value={dailyAvailable}
-            day={today.getDate()}
-            daysLeft={daysRemainingInMonth}
-            fromPlan={hasSpendPlan}
+          <MonthSummary
+            income={currentMonth.income}
+            expense={-currentMonth.expense}
+            invested={currentMonth.invested}
+            redeemed={currentMonth.redeemed}
+            others={currentMonth.others}
           />
           <NextInvoiceTile
             total={nextInvoiceTotal}
@@ -1029,27 +1004,18 @@ export default function Dashboard() {
   )
 }
 
-// Bloco do saldo (direcao C): o numero que se abre o app para ver, o movimento
-// do mes e as contas. So a area bancaria — a carteira fica em Investimentos,
-// para o numero daqui ser o dinheiro que existe nas contas. Saldo e contas
-// somem no modo privado; receitas, despesas, aportes e resgates do mes vem dos
-// lancamentos, que ficam visiveis (lib/privacy.js).
-function BalanceHero({ total, accounts, monthName, result, income, expense, invested, redeemed, others = null, className = '' }) {
+// Bloco do saldo (direcao C): o numero que se abre o app para ver e as
+// contas. So a area bancaria — a carteira fica em Investimentos, para o numero
+// daqui ser o dinheiro que existe nas contas. O movimento do mes fica no
+// "Resumo do mes", ao lado. Saldo e contas somem no modo privado.
+function BalanceHero({ total, accounts, monthName, className = '' }) {
   const hidden = useValuesHidden()
   const privateMoney = usePrivateFormatter(formatCurrency)
   const wide = useIsSm()
 
   // No celular o bloco e a primeira coisa que se ve ao abrir o app: numero
-  // menor, o movimento do mes em texto corrido e as contas numa faixa que
-  // rola de lado, para o resto de Inicio aparecer sem rolar.
-  const flow = [
-    ['Receitas', formatCurrency(income)],
-    ['Despesas', formatCurrency(expense)],
-    invested > 0 ? ['Aportes', formatCurrency(invested)] : null,
-    redeemed > 0 ? ['Resgates', formatCurrency(redeemed)] : null,
-    others !== null ? ['Outras pessoas', formatSignedCurrency(others)] : null,
-  ].filter(Boolean)
-
+  // menor e as contas numa faixa que rola de lado, para o resto de Inicio
+  // aparecer sem rolar.
   return (
     <section
       aria-labelledby="saldo-em-conta"
@@ -1060,43 +1026,22 @@ function BalanceHero({ total, accounts, monthName, result, income, expense, inve
         <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-semibold sm:px-3 sm:py-1">{sentenceCase(monthName)}</span>
       </div>
 
-      <div className="flex flex-col gap-2 sm:gap-4">
-        <FitValue
-          measure={hidden ? MASKED_CURRENCY : formatCurrency(total)}
-          baseSize={wide ? 56 : 38}
-          minSize={wide ? 30 : 24}
-          className="font-extrabold tracking-tight"
-        >
-          <AnimatedNumber value={total} format={formatCurrency} masked={hidden} cacheKey="inicio|saldo" />
-        </FitValue>
+      <FitValue
+        measure={hidden ? MASKED_CURRENCY : formatCurrency(total)}
+        baseSize={wide ? 56 : 38}
+        minSize={wide ? 30 : 24}
+        className="font-extrabold tracking-tight"
+      >
+        <AnimatedNumber value={total} format={formatCurrency} masked={hidden} cacheKey="inicio|saldo" />
+      </FitValue>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-2">
-          {/* O resultado do mes some com o olho (decisao 9). A cor sai junto,
-              senao o sinal vaza. */}
-          <span
-            className={cx(
-              'rounded-full px-2.5 py-0.5 text-[13px] font-bold tabular sm:px-3 sm:py-1.5 sm:text-sm',
-              hidden ? 'bg-white/10' : result >= 0 ? 'bg-emerald-400 text-on-accent' : 'bg-rose-200 text-rose-950'
-            )}
-          >
-            {hidden ? MASKED_CURRENCY : formatSignedCurrency(result)} no mês
-          </span>
-          {flow.map(([label, value]) => (
-            <span
-              key={label}
-              className="whitespace-nowrap text-[13px] font-semibold tabular sm:rounded-full sm:bg-white/10 sm:px-3 sm:py-1.5 sm:text-sm"
-            >
-              <span className="font-medium text-brand-soft sm:text-brand-ink">{label}</span> {value}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* scroll-px-4: o snap alinha cada conta a borda da area de snap, que
+      {/* mt-auto: no desktop o bloco estica ate a altura do "Resumo do mes" e
+          as contas descem para o pe dele.
+          scroll-px-4: o snap alinha cada conta a borda da area de snap, que
           ignora o padding; sem ele a primeira conta "encaixa" em 16 px e a
           faixa abre rolada, colada na borda do bloco. */}
       {accounts.length > 0 ? (
-        <ul className="-mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] sm:overflow-visible sm:px-0">
+        <ul className="-mx-4 mt-auto flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] sm:overflow-visible sm:px-0">
           {accounts.map((account) => {
             // Tudo em reais: a conta em moeda estrangeira aparece pelo valor
             // convertido, o mesmo que o total acima soma. Sem cambio hoje ela
@@ -1136,22 +1081,69 @@ function useIsSm() {
 // "setembro de 2026" -> "Setembro de 2026" (o capitalize do CSS pega o "De").
 const sentenceCase = (text = '') => text.charAt(0).toUpperCase() + text.slice(1)
 
-function DailyTile({ value, day, daysLeft, fromPlan }) {
+// O mes em linhas: rotulo, valor e uma dica. Os numeros sao os do fluxo de
+// caixa do mes atual (lib/cashFlow.js) — receitas e despesas so a parte do
+// dono, o cartao no dia da compra. Investido e outras pessoas so aparecem
+// quando houve. No modo privado todos os valores somem, e a cor do resultado
+// sai junto, senao o sinal vaza.
+function MonthSummary({ income, expense, invested, redeemed, others }) {
+  const hidden = useValuesHidden()
   const privateMoney = usePrivateFormatter(formatCurrency)
+  const result = income - expense
+  const rows = [
+    {
+      label: 'Resultado do mês',
+      value: hidden ? MASKED_CURRENCY : formatSignedCurrency(result),
+      tone: hidden ? 'text-zinc-950' : result < 0 ? 'text-rose-600' : 'text-emerald-700',
+      hint: 'Entrou menos saiu, só a sua parte',
+      lead: true,
+    },
+    { label: 'Entrou', value: privateMoney(income), hint: 'Receitas do mês' },
+    { label: 'Saiu', value: privateMoney(expense), hint: 'Despesas e compras no cartão' },
+    invested !== 0 || redeemed !== 0
+      ? {
+          label: 'Investido',
+          value: privateMoney(invested - redeemed),
+          hint: `Aportes ${privateMoney(invested)} · Resgates ${privateMoney(redeemed)}`,
+        }
+      : null,
+    // Liquido: abaixo do zero o dono pagou mais por elas do que recebeu delas.
+    // O rotulo diz o sentido; o valor vai sem sinal.
+    others !== 0
+      ? {
+          label: others < 0 ? 'Você pagou por outras pessoas' : 'Outras pessoas te pagaram',
+          value: privateMoney(Math.abs(others)),
+          hint: (
+            <Link to="/lancamentos/a-receber" className="font-semibold text-emerald-700 underline-offset-2 hover:underline">
+              Ver em A receber
+            </Link>
+          ),
+        }
+      : null,
+  ].filter(Boolean)
+
   return (
-    <Panel className="flex flex-col justify-between gap-4 p-5 sm:p-6">
-      <div>
-        <p className="text-sm font-semibold text-zinc-600">Disponível por dia</p>
-        <p className={cx('mt-1 whitespace-nowrap text-3xl font-extrabold tracking-tight tabular', value < 0 ? 'text-rose-600' : 'text-zinc-950')}>
-          {privateMoney(value)}
-        </p>
-        <p className="mt-1 text-sm text-zinc-500">
-          {fromPlan ? (
-            <>O que resta para gastar no <Link to="/planejamento/orcamento" className="font-semibold underline-offset-2 hover:underline">plano do mês</Link>, por {daysLeft} dia(s)</>
-          ) : `Saldo menos as faturas a pagar, por ${daysLeft} dia(s)`}
-        </p>
-      </div>
-      <MonthProgress day={day} daysLeft={daysLeft} />
+    <Panel className="p-5 sm:p-6">
+      <h2 className="text-sm font-semibold text-zinc-600">Resumo do mês</h2>
+      <dl className="mt-3 divide-y divide-zinc-100">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+            <div className="min-w-0">
+              <dt className="text-sm font-semibold text-zinc-950">{row.label}</dt>
+              <dd className="mt-0.5 text-xs text-zinc-500">{row.hint}</dd>
+            </div>
+            <dd
+              className={cx(
+                'shrink-0 whitespace-nowrap text-right font-bold tabular',
+                row.lead ? 'text-xl font-extrabold tracking-tight' : 'text-[15px]',
+                row.tone || 'text-zinc-950'
+              )}
+            >
+              {row.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </Panel>
   )
 }
@@ -1174,19 +1166,6 @@ function NextInvoiceTile({ total, closingDate, payable, label }) {
         ) : null}
       </div>
     </Panel>
-  )
-}
-
-function MonthProgress({ day, daysLeft }) {
-  const total = day + daysLeft - 1
-  const progress = (day / total) * 100
-  return (
-    <div className="flex items-center gap-3">
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100">
-        <div className="bar-grow h-full rounded-full bg-zinc-800" style={{ width: `${progress}%` }} />
-      </div>
-      <span className="text-xs font-semibold tabular text-zinc-600">{progress.toFixed(0)}% do mês</span>
-    </div>
   )
 }
 
@@ -1308,8 +1287,13 @@ function DashboardSkeleton() {
         <Skeleton className="h-4 w-20" />
         <Skeleton className="h-8 w-56" />
       </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-36" />)}
+      {/* O saldo, o resumo do mes e a proxima fatura, no lugar de cada um. */}
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-12">
+        <Skeleton className="h-56 rounded-3xl xl:col-span-8" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:col-span-4 xl:grid-cols-1">
+          <Skeleton className="h-52" />
+          <Skeleton className="h-24" />
+        </div>
       </div>
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
         <Skeleton className="h-96 xl:col-span-3" />

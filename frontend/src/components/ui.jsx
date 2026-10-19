@@ -657,7 +657,7 @@ const alertTones = {
 }
 
 // O unico banner de aviso/erro do app. `message` ou `children`; nada = nao renderiza.
-export function AlertMessage({ tone = 'danger', message, children, onDismiss, className = '' }) {
+export function AlertMessage({ tone = 'danger', message, children, onDismiss, dismissLabel = 'Fechar aviso', className = '' }) {
   const content = children ?? message
   if (!content) return null
   const { classes, icon: Icon } = alertTones[tone] || alertTones.danger
@@ -666,7 +666,7 @@ export function AlertMessage({ tone = 'danger', message, children, onDismiss, cl
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
       <div className="min-w-0 flex-1">{content}</div>
       {onDismiss ? (
-        <button type="button" onClick={onDismiss} aria-label="Fechar aviso" className="-m-1 rounded p-1 opacity-70 hover:opacity-100">
+        <button type="button" onClick={onDismiss} aria-label={dismissLabel} title={dismissLabel} className="-m-1 rounded p-1 opacity-70 hover:opacity-100">
           <X className="h-4 w-4" />
         </button>
       ) : null}

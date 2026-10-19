@@ -12,9 +12,12 @@ import {
   livePlanTotals,
   moneyInputValue,
   parseMoneyInput,
+  planFlagKey,
   sortFlags,
   spendStatus,
+  visibleFlags,
 } from '../lib/monthlyPlan'
+import { dismissPlanFlag, useDismissedPlanFlags } from '../lib/planFlags'
 import { toast } from '../lib/toast'
 import { confirmAction } from '../lib/confirm'
 import { AlertMessage, Button, Field, Panel, PanelHeader, Sheet, cx } from './ui'
@@ -46,6 +49,9 @@ export default function MonthlyPlanPanel({ data, onEdit }) {
   const actual = data.actual || {}
   const progress = data.progress || {}
   const flags = sortFlags(data.flags)
+  // O X tira o alerta so desta tela e deste aparelho; a barra do Gastar
+  // continua lendo todos.
+  const shownFlags = visibleFlags(flags, data.month, useDismissedPlanFlags())
   const investRemaining = Number(progress.invest_remaining || 0)
   const unallocatedPercent = Number(data.unallocated?.percent || 0)
 
@@ -107,11 +113,17 @@ export default function MonthlyPlanPanel({ data, onEdit }) {
         ) : null}
       </div>
 
-      {flags.length ? (
+      {shownFlags.length ? (
         <ul className="space-y-2 border-t border-zinc-100 px-5 py-4 sm:px-6" aria-label="Alertas do plano">
-          {flags.map((flag) => (
+          {shownFlags.map((flag) => (
             <li key={`${flag.code}-${flag.goal_id || ''}`}>
-              <AlertMessage tone={FLAG_TONES[flag.tone]} message={flagText(flag)} className="animate-none" />
+              <AlertMessage
+                tone={FLAG_TONES[flag.tone]}
+                message={flagText(flag)}
+                onDismiss={() => dismissPlanFlag(planFlagKey(flag, data.month))}
+                dismissLabel="Dispensar"
+                className="animate-none"
+              />
             </li>
           ))}
         </ul>

@@ -147,6 +147,8 @@
 | Início's account strip opens at the far left on the phone: `scroll-px-4` on the strip, so `snap-start` stops snapping the first account to 16 px (Chromium, 390 px: `scrollLeft` 0 with 1 and 8 accounts, cold load, back and in-app navigation) | 2026-10-19 |
 | The monthly plan starts from income — backend + migration 038: the plan is Renda (R$, required) + Investir % + Gastar % of it, each category a % of Gastar; every R$ computed on read (`percent_of()`), percentages stored as six-decimal text read as `Decimal`; over 100% refused at both levels; Sem destino / Sem categoria returned; a month inherits the previous plan *with its categories*; Saldo do plano = Gastar − spent (one number in the plan, its progress and the budget) and Disponível por dia; the migration converts plans with income and their months' categories, the rest is `needs_income` until the PUT brings the income. Budget logic moved to `services/budgets.py`. Interim screens only (redesign next). `test_monthly_plan_income.py` (21) + the budget files rewritten (1343 pytest), 108 node | 2026-10-19 |
 | Planejar › Orçamento redesigned around the income-based plan: Saldo do plano as the headline with Disponível por dia (privacy mode hides both), Renda do mês ("Recebido X de Y esperados") with Investir / Gastar / Sem destino rows (%, R$, realizado, progress, "Falta investir" + "Como dividir" → Alocação), the plan flags, Categorias do mês with % + live R$ and Sem categoria; one "Plano do mês" sheet (Renda, Investir %, Gastar %, live totals, save blocked over 100% or without income) for the empty state, editing and `needs_income`. Only `GET /api/monthly-plan` is read; no financial rule changed. `percentOf()`, `livePlanTotals()`, `unallocatedText()` in `lib/monthlyPlan.js` (115 node), 1343 pytest | 2026-10-19 |
+| Início: the month's movement leaves the hero for its own card "Resumo do mês" (Resultado do mês, Entrou, Saiu, Investido when there was an aporte or resgate, "Você pagou por outras pessoas" / "Outras pessoas te pagaram" → A receber), in the place of "Disponível por dia", which left Início (it lives in Orçamento). Same `currentMonth` numbers, no rule changed; privacy masks every value | 2026-10-19 |
+| Plano do mês: each flag gets an X ("Dispensar"), dismissed per device (`lib/planFlags.js`); the key is `planFlagKey()` (code + month + goal), tested in `monthlyPlan.test.js` (117 node); nothing goes to the server | 2026-10-19 |
 
 ---
 
@@ -954,3 +956,33 @@ the padding; the first snap position is 0 and the next account still snaps 16 px
   (a month before it), `needs_income` (a legacy row inserted by hand) and its conversion on save
   (R$ 40.000 income over the old R$ 8.000 / 30.000 → 20% / 75%, Disponível R$ 967,74 = 30.000 ÷ 31),
   privacy mode; no console errors.
+
+
+### Início's "Resumo do mês" and dismissible plan flags — 2026-10-19
+- **Hero.** `BalanceHero` keeps only "Saldo em conta", the balance and the account strip; the
+  month pills are gone. The strip has `mt-auto`, so on desktop (where the hero stretches to the
+  height of the right column) the accounts sit at the bottom of the block.
+- **"Resumo do mês"** (`MonthSummary`, `pages/Dashboard.jsx`) takes `DailyTile`'s slot, above
+  "Próxima fatura" (side by side from `sm`, stacked in the right column at `xl`). Rows: Resultado do
+  mês = `income − |expense|` of `currentMonth` (signed, emerald/rose); Entrou = income; Saiu =
+  |expense| (despesas + card purchases on the purchase day, the owner's part); Investido = invested
+  − redeemed with "Aportes X · Resgates Y", only when either is non-zero; the others row only when
+  `currentMonth.others` ≠ 0 — below zero "Você pagou por outras pessoas", above "Outras pessoas te
+  pagaram", value `abs()`, hint link "Ver em A receber" (`/lancamentos/a-receber`). Resultado is
+  *not* `currentMonth.net` (that one also subtracts investment and adds others; it stays the cash
+  flow chart's "Resultado"). Privacy mode masks every value (hint amounts included) and drops
+  Resultado's colour.
+- **Removed:** `DailyTile`, `MonthProgress`, `getDaysRemainingInMonth`, the `plano-do-mes` query in
+  Início (it only fed the tile) and the client-side fallback balance − invoices. The skeleton now
+  mirrors the hero + right column.
+- **Plan flags.** `MonthlyPlanPanel` filters `sortFlags(data.flags)` through `visibleFlags(…,
+  data.month, useDismissedPlanFlags())`; each `AlertMessage` gets `onDismiss` and the new
+  `dismissLabel="Dispensar"` prop (`ui.jsx`, default "Fechar aviso"). Keys `plan:<AAAA-MM>:<code>`
+  or `…:<goal_id>` in localStorage `@financeMVP:planFlagsDismissed`, capped by `addDismissed()`
+  (200). `spendStatus()` still reads all flags, so the Gastar bar stays amber after SPEND_PACE is
+  dismissed.
+- Checked in Chromium on the seed: Início at 390 px and 1440 px, light and dark, without and with a
+  split expense (R$ 900, R$ 600 others → Saiu +300, "Você pagou por outras pessoas R$ 600,00"),
+  privacy on; Orçamento at 390 px: X on SPEND_PACE → 2 flags to 1, still 1 after reload. No console
+  errors. 1343 pytest, 117 node, `vite build`.
+
