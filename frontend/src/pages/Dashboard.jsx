@@ -1095,7 +1095,7 @@ function MonthSummary({ income, expense, invested, redeemed, others }) {
       label: 'Resultado do mês',
       value: hidden ? MASKED_CURRENCY : formatSignedCurrency(result),
       tone: hidden ? 'text-zinc-950' : result < 0 ? 'text-rose-600' : 'text-emerald-700',
-      hint: 'Entrou menos saiu, só a sua parte',
+      hint: 'Suas receitas menos suas despesas',
       lead: true,
     },
     { label: 'Entrou', value: privateMoney(income), hint: 'Receitas do mês' },
@@ -1111,7 +1111,7 @@ function MonthSummary({ income, expense, invested, redeemed, others }) {
     // O rotulo diz o sentido; o valor vai sem sinal.
     others !== 0
       ? {
-          label: others < 0 ? 'Você pagou por outras pessoas' : 'Outras pessoas te pagaram',
+          label: others < 0 ? 'Você pagou para outras pessoas' : 'Outras pessoas te pagaram',
           value: privateMoney(Math.abs(others)),
           hint: (
             <Link to="/lancamentos/a-receber" className="font-semibold text-emerald-700 underline-offset-2 hover:underline">
