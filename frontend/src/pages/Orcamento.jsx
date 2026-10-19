@@ -101,7 +101,9 @@ export default function Orcamento() {
   })
   useReportQueryError(planQuery, setError, 'Não foi possível carregar o plano do mês.')
   useReportQueryError(categoriesQuery, setError, 'Não foi possível carregar as categorias.')
-  const data = planQuery.data
+  // Uma resposta sem `invest` e de antes de 038 (veio do cache salvo no
+  // aparelho): o painel quebraria nela, entao espera a que esta chegando.
+  const data = planQuery.data?.invest ? planQuery.data : undefined
   const plan = data?.plan || null
   const hasFigures = Boolean(plan && !plan.needs_income)
   const categoryBlock = data?.categories
@@ -109,7 +111,7 @@ export default function Orcamento() {
   const categoryTotals = categoryBlock?.totals || {}
   const spendAmount = data?.spend?.amount ?? null
   const categories = categoriesQuery.data || NO_CATEGORIES
-  const loading = planQuery.isPending
+  const loading = planQuery.isPending || (!data && planQuery.isFetching)
 
   const loadAll = () => invalidateServerData()
 

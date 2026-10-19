@@ -15,6 +15,9 @@ const SAVE_DELAY_MS = 1000
 // Uma copia mais velha que isto nao e mostrada: um saldo de um mes atras
 // engana mais do que ajuda.
 const MAX_AGE_MS = PERSISTED_CACHE_MAX_AGE_MS
+// A copia guardada por outro build nao volta: a forma de uma resposta pode ter
+// mudado (o Orcamento quebrou numa de antes de 038) e a tela nova leria a velha.
+const BUILD_ID = import.meta.env.VITE_BUILD_ID || ''
 
 const currentUserId = () => getStoredAuth()?.user?.id || ''
 
@@ -23,7 +26,7 @@ export async function restoreQueryCache(queryClient) {
   if (!userId) return false
   try {
     const saved = await storeGet(CACHE_STORE, CACHE_KEY)
-    if (!saved || saved.user_id !== userId) return false
+    if (!saved || saved.user_id !== userId || saved.build_id !== BUILD_ID) return false
     if (Date.now() - saved.saved_at > MAX_AGE_MS) return false
     hydrate(queryClient, saved.state)
     return true
@@ -42,7 +45,7 @@ export function persistQueryCache(queryClient) {
     const state = dehydrate(queryClient, {
       shouldDehydrateQuery: (query) => query.state.status === 'success',
     })
-    storePut(CACHE_STORE, { key: CACHE_KEY, user_id: userId, saved_at: Date.now(), state })
+    storePut(CACHE_STORE, { key: CACHE_KEY, user_id: userId, build_id: BUILD_ID, saved_at: Date.now(), state })
       .catch((error) => console.warn('Nao foi possivel guardar o cache local:', error))
   }
   return queryClient.getQueryCache().subscribe((event) => {
