@@ -167,7 +167,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 118 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 122 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -628,9 +628,11 @@ mobile-docs/
   JCP row with `metadata.kind = TAXABLE_INCOME` at 22.5% (`default_tax_rate()` in
   `services/proceeds.py`).
 - **The Extrato has two views** (`?ver=contas|investimentos`, last choice kept on the device): the
-  accounts' lançamentos, and a read-only investments statement of operações + proventos
-  (`lib/investmentStatement.js`, tested). The investments one writes nothing and never touches an
-  account balance; editing stays in Operações and Proventos.
+  accounts' lançamentos, and an investments statement of operações + proventos
+  (`lib/investmentStatement.js`, tested). Editing stays in Operações and Proventos, but an
+  operação is deleted from either view (owner, 2026-10-19): Investimentos › "⋯" › Excluir operação,
+  and in Contas an aporte/resgate row's "⋯" deletes its movement (`DELETE /api/investments/<id>`,
+  which removes the linked lançamento with it). A bonificação is not offered (the server refuses).
 - **The monthly plan is a plan, like budgets, and starts from income** (025, 038,
   `services/monthly_plan.py`): `PUT /api/monthly-plan` writes one month's `income_amount` (the only
   typed R$, required, > 0 — no plan without income) and `invest_percent` / `spend_percent` of it

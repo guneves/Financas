@@ -24,6 +24,13 @@ test('a compra sai com a taxa, a venda entra pelo liquido, bonificacao e zero', 
   assert.equal(movementEntry(bonus).kind, 'Bonificação')
 })
 
+test('a operacao leva o id para ser excluida; bonificacao nao se exclui', () => {
+  assert.equal(movementEntry(buy).movementId, buy.id)
+  assert.equal(movementEntry(buy).deletable, true)
+  assert.equal(movementEntry(sale).deletable, true)
+  assert.equal(movementEntry(bonus).deletable, false)
+})
+
 test('renda fixa e aporte/resgate, sem quantidade', () => {
   const entry = movementEntry(redemption)
   assert.equal(entry.kind, 'Resgate')

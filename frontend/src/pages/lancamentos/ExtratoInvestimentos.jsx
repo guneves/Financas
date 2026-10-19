@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, TrendingUp } from 'lucide-react'
+import { Search, Trash2, TrendingUp } from 'lucide-react'
 import { investmentProceedsApi, investmentsApi } from '../../lib/dataApi'
 import {
   AlertMessage,
@@ -8,6 +8,7 @@ import {
   Button,
   EmptyState,
   ListSkeleton,
+  Menu,
   Panel,
   PageHeader,
   PanelHeader,
@@ -20,10 +21,12 @@ import { usePrivateFormatter } from '../../lib/privacy'
 import { queryErrorMessage, useQuery } from '../../lib/queries'
 import { useProceedsSync } from '../../lib/proceedsSync'
 import { buildInvestmentStatement, groupEntriesByDay, statementTotals } from '../../lib/investmentStatement'
+import { confirmAction } from '../../lib/confirm'
+import { toast } from '../../lib/toast'
 
 // Extrato de investimentos (Extrato > Investimentos): operacoes da carteira e
-// proventos, so leitura. Editar continua em Investimentos > Operacoes e em
-// Proventos; nada aqui e lancamento bancario nem muda o saldo das contas.
+// proventos. Uma operacao se exclui daqui (com o aporte/resgate dela na
+// conta); editar continua em Investimentos > Operacoes e em Proventos.
 
 const KIND_ITEMS = [
   { value: 'ALL', label: 'Tudo' },
@@ -94,12 +97,33 @@ export default function ExtratoInvestimentos({ viewSwitch }) {
   const days = useMemo(() => groupEntriesByDay(visible), [visible])
   const hiddenCount = entries.length - visible.length
 
+  // Excluir a operacao leva junto o aporte/resgate que ela escreveu na conta
+  // (o servidor apaga o lancamento vinculado no mesmo DELETE).
+  const [deleteError, setDeleteError] = useState('')
+  const handleDeleteMovement = async (entry) => {
+    if (!(await confirmAction({
+      title: `Excluir ${entry.kind.toLowerCase()} de ${entry.title}?`,
+      message: entry.inStatement
+        ? 'A operação sai da carteira e o lançamento dela sai do extrato da conta; o saldo é recalculado.'
+        : 'Só esta operação sai do histórico; as outras do ativo continuam.',
+      confirmLabel: 'Excluir',
+    }))) return
+    setDeleteError('')
+    try {
+      await investmentsApi.remove(entry.movementId)
+      toast('Operação excluída.')
+    } catch (deleteFailure) {
+      setDeleteError(deleteFailure.message || 'Não foi possível excluir a operação.')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Extrato" description="Operações da carteira e proventos recebidos." />
       {viewSwitch}
 
       <AlertMessage tone="warning" message={error ? 'Não foi possível carregar o extrato de investimentos.' : ''} />
+      <AlertMessage tone="warning" message={deleteError} onDismiss={() => setDeleteError('')} />
 
       <SummaryPanel
         lead={{ label: 'Proventos recebidos', value: money(totals.proceeds), tone: 'gain', hint: totals.scheduled > 0 ? `${money(totals.scheduled)} agendados` : undefined }}
@@ -157,6 +181,14 @@ export default function ExtratoInvestimentos({ viewSwitch }) {
                       <p className={cx('shrink-0 whitespace-nowrap font-semibold tabular', amountClass(entry))}>
                         {entry.amount === 0 ? 'sem custo' : signed(entry.amount)}
                       </p>
+                      {entry.deletable ? (
+                        <Menu
+                          label={`Ações de ${entry.kind} ${entry.title}`}
+                          items={[
+                            { label: 'Excluir operação', icon: Trash2, tone: 'danger', onSelect: () => handleDeleteMovement(entry) },
+                          ]}
+                        />
+                      ) : null}
                     </li>
                   ))}
                 </ul>

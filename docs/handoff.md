@@ -7,42 +7,34 @@
 
 ---
 
-## Session — 2026-10-19 · Investimento is no longer a category (039)
+## Session — 2026-10-19 · Delete operações from the Extrato
 
-Cloud session; read the docs directly (follow-up on research done in the same session, no scout).
-The owner asked whether the "Investimento" category should go; the answer was yes, and they chose:
-typed rows become transfers to the Corretora (create one when missing); no recurrence uses it.
+Local session, short owner request ("I can't delete operações at the extrato, contas and
+investments; if I delete an investment buy, delete the aporte correlated to it"). No scout.
 
 ### Done
-- Migration **039** (`039_investment_not_a_category.sql`) and the rules: aporte/resgate/provento is
-  `source_type` (`INVESTMENT_SOURCE_TYPES`) or a bank ↔ Corretora transfer — never a category name.
-  Plan spent/income and `budget_month_lines()` skip those source types; cash rows are labelled
-  "Aporte"/"Resgate"/"Provento" with no `category_id`; seed is nine categories; share guard and
-  Recorrentes' investment label removed. Detail in `done-tasks.md`; convention in CLAUDE.md.
-- Tests: `test_investment_not_a_category.py` (039 on a database stopped at 038, plus the seed),
-  plan test rewritten with real transfers and a "category named Investimento is ordinary" case;
-  node test for `isInvestmentRow()`. 1349 pytest, 118 node, `vite build`.
-- Told the two sessions running in parallel (plan bugs on `claude/compassionate-hawking-3salf9`,
-  Planejar sliders on `claude/magical-cannon-fhhw6f`) that 039 is taken and which queries in
-  `monthly_plan.py` / `budgets.py` changed. No reply had arrived when this was committed.
+- Extrato › Contas: an `INVESTMENT_TRANSACTION` row ("Pela carteira") now has a "⋯" with
+  "Excluir operação" (desktop and phone), which calls `DELETE /api/investments/<source_id>`.
+- Extrato › Investimentos: every operação except a bonificação has "⋯" › "Excluir operação";
+  `movementEntry()` carries `movementId` and `deletable` (tested, 122 node).
+- The backend needed nothing: deleting a movement already runs
+  `delete_investment_cash_transaction()` (`test_deleting_a_linked_buy_removes_its_expense`), and
+  the backing guard (a sale left without its buy → 409) shows as the screen's warning.
 
 ### Not done, and why
-- Not run on the owner's data: how many rows 039 converts, and whether a Corretora gets created,
-  is unknown here. Owner check listed in `next-steps.md`.
-- No screen walk in Chromium: the change is in rules, labels and two frontend predicates; the
-  visible differences are the labels and "Despesa" for every recurrence.
-- The Extrato still shows a bank → Corretora transfer as a transfer (not "Aporte"); imports and
-  Aprovar have no transfer-to-Corretora target. Both open in `next-steps.md`.
+- The aporte row itself is still refused by `DELETE /api/transactions/<id>` (409): deleting cash
+  alone would leave the portfolio saying the money left. The Contas menu deletes the operação.
+- Proventos are not deletable from the Extrato (the owner asked about operações); Proventos'
+  own screen still does it.
+- Not clicked through in a browser; `vite build` and `npm test` pass. A deleted movement's
+  receipt files on the aporte row are left to the boot prune (rows go by cascade), as before.
 
-### Decisions worth knowing
-- Rows 039 cannot convert (already inside the chosen Corretora; non-BRL account) keep the archived
-  category's name and now count as despesa/receita in the plan — a transfer to itself is not
-  possible, and the app is reais-only.
-- Converted rows keep `source_type`/`source_id` (an imported one stays idempotent on re-import).
-- Import rules are switched off, not deleted, so the owner sees what they were.
-- **Possible merge conflict:** `services/monthly_plan.py` (the spent query) and
-  `services/budgets.py` (`budget_month_lines()`) are also being edited by the plan-bugs session;
-  whichever merges second must keep the `INVESTMENT_SOURCE_TYPES` skip.
+### Carried from the 039 session (2026-10-19), still open
+- 039 not run on the owner's data (owner check in `next-steps.md`); the Extrato still shows a
+  bank → Corretora transfer as a transfer; imports/Aprovar have no transfer-to-Corretora target.
+- Rows 039 could not convert keep the archived category's name and count as despesa/receita.
+- If the plan-bugs branch merges after 039, keep the `INVESTMENT_SOURCE_TYPES` skip in
+  `services/monthly_plan.py` and `budget_month_lines()`.
 
 ### Carried from the Orçamento redesign session (2026-10-19), still open
 - Orçamento reads only `GET /api/monthly-plan` (query key `['plano-do-mes', month]`); `needs_income`

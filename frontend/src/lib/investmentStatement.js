@@ -48,6 +48,9 @@ export function movementEntry(movement) {
   return {
     id: `mov:${movement.id}`,
     source: 'movement',
+    movementId: movement.id,
+    // Bonificacao so sai desfazendo o evento (o servidor recusa, 409).
+    deletable: !isBonus,
     date: movementDate(movement),
     title: movement.ticker_or_name || '',
     kind,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, Undo2, X } from 'lucide-react'
-import { ccExpensesApi, transactionsApi } from '../../lib/dataApi'
+import { ccExpensesApi, investmentsApi, transactionsApi } from '../../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
   AlertMessage,
@@ -134,6 +134,13 @@ function isEditableHere(transaction) {
 // O pagamento de uma fatura nao se edita aqui, mas se desfaz (037).
 const isInvoicePayment = (transaction) => !transaction.pending
   && ['CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
+
+// O aporte/resgate de uma operacao nao se edita aqui, mas se exclui junto com
+// ela: o DELETE da operacao apaga o lancamento vinculado.
+const isInvestmentCash = (transaction) => !transaction.pending
+  && transaction.source_type === 'INVESTMENT_TRANSACTION' && Boolean(transaction.source_id)
+
+const hasDerivedMenu = (transaction) => isInvoicePayment(transaction) || isInvestmentCash(transaction)
 
 // "De quem é?" (lib/sharing.js) so vale para despesa e receita comuns:
 // transferencia e investimento nao se dividem com outra pessoa.
@@ -405,16 +412,44 @@ function ExtratoContas({ viewSwitch }) {
     }
   }
 
-  const invoicePaymentMenu = (transaction) => (
-    isInvoicePayment(transaction) ? (
-      <Menu
-        label={`Ações de ${transaction.description || transaction.category}`}
-        items={[
-          { label: 'Desfazer pagamento', icon: Undo2, tone: 'danger', onSelect: () => handleUndoInvoicePayment(transaction) },
-        ]}
-      />
-    ) : null
-  )
+  const handleDeleteInvestmentCash = async (transaction) => {
+    if (!(await confirmAction({
+      title: `Excluir "${transaction.description || transaction.category}"?`,
+      message: 'A operação sai da carteira e este lançamento sai do extrato; o saldo da conta é recalculado.',
+      confirmLabel: 'Excluir operação',
+    }))) return
+    try {
+      await investmentsApi.remove(transaction.source_id)
+      await fetchData()
+      toast('Operação excluída.')
+    } catch (error) {
+      setDataError(error.message || 'Não foi possível excluir a operação.')
+    }
+  }
+
+  const derivedRowMenu = (transaction) => {
+    if (isInvoicePayment(transaction)) {
+      return (
+        <Menu
+          label={`Ações de ${transaction.description || transaction.category}`}
+          items={[
+            { label: 'Desfazer pagamento', icon: Undo2, tone: 'danger', onSelect: () => handleUndoInvoicePayment(transaction) },
+          ]}
+        />
+      )
+    }
+    if (isInvestmentCash(transaction)) {
+      return (
+        <Menu
+          label={`Ações de ${transaction.description || transaction.category}`}
+          items={[
+            { label: 'Excluir operação', icon: Trash2, tone: 'danger', onSelect: () => handleDeleteInvestmentCash(transaction) },
+          ]}
+        />
+      )
+    }
+    return null
+  }
 
   const setEditField = (key) => (event) => setEditForm({ ...editForm, [key]: event.target.value })
 
@@ -488,7 +523,7 @@ function ExtratoContas({ viewSwitch }) {
       <>
         <span className="min-w-0 truncate self-center text-xs text-zinc-500" title={originLabel(transaction)}>{originLabel(transaction)}</span>
         {attachmentsButton(transaction)}
-        {invoicePaymentMenu(transaction)}
+        {derivedRowMenu(transaction)}
       </>
     ) : (
       <div className="flex min-w-0 justify-end gap-1.5 transition-opacity duration-150 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
@@ -803,7 +838,7 @@ function ExtratoContas({ viewSwitch }) {
                       </button>
                     ) : (
                       // Gerado por outra tela: nao edita aqui, mas o toque abre
-                      // os comprovantes; o de fatura tem o "⋯" do desfazer.
+                      // os comprovantes; o de fatura e o da carteira tem o "⋯".
                       <div className="flex items-center">
                         <button
                           type="button"
@@ -813,7 +848,7 @@ function ExtratoContas({ viewSwitch }) {
                         >
                           {content}
                         </button>
-                        {isInvoicePayment(transaction) ? <div className="shrink-0 pr-2">{invoicePaymentMenu(transaction)}</div> : null}
+                        {hasDerivedMenu(transaction) ? <div className="shrink-0 pr-2">{derivedRowMenu(transaction)}</div> : null}
                       </div>
                     )}
                   </li>

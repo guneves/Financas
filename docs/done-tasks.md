@@ -150,6 +150,7 @@
 | Início: the month's movement leaves the hero for its own card "Resumo do mês" (Resultado do mês, Entrou, Saiu, Investido when there was an aporte or resgate, "Você pagou por outras pessoas" / "Outras pessoas te pagaram" → A receber), in the place of "Disponível por dia", which left Início (it lives in Orçamento). Same `currentMonth` numbers, no rule changed; privacy masks every value | 2026-10-19 |
 | Plano do mês: each flag gets an X ("Dispensar"), dismissed per device (`lib/planFlags.js`); the key is `planFlagKey()` (code + month + goal), tested in `monthlyPlan.test.js` (117 node); nothing goes to the server | 2026-10-19 |
 | Investimento is no longer a category (039): aporte/resgate/provento by `source_type` or a bank ↔ Corretora transfer; typed "Investimento" rows became transfers to the Corretora, the category archived, its import rules switched off; 1349 pytest, 118 node | 2026-10-19 |
+| Extrato deletes operações: Contas › an aporte/resgate row ("Pela carteira") › "⋯" › Excluir operação deletes its movement, and Investimentos › each operação (not a bonificação) has the same; `DELETE /api/investments/<id>` already removed the linked lançamento. 122 node | 2026-10-19 |
 
 ---
 
