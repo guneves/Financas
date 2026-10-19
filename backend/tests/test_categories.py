@@ -11,7 +11,6 @@ import pytest
 
 DEFAULT_NAMES = {
     "Receita",
-    "Investimento",
     "Alimentação",
     "Moradia",
     "Transporte",
@@ -45,7 +44,7 @@ def by_name(categories, name):
 # --------------------------------------------------------------------------
 
 
-def test_signup_seeds_the_ten_original_categories(client, auth):
+def test_signup_seeds_the_nine_original_categories(client, auth):
     names = {item["name"] for item in list_categories(client, auth)}
     assert names == DEFAULT_NAMES
 
@@ -53,13 +52,16 @@ def test_signup_seeds_the_ten_original_categories(client, auth):
 def test_receita_is_seeded_as_income_and_the_rest_as_expense(client, auth):
     categories = list_categories(client, auth)
     assert by_name(categories, "Receita")["kind"] == "INCOME"
-    assert by_name(categories, "Investimento")["kind"] == "BOTH"
+    # Investimento deixou de ser categoria (039): aporte e transferencia para a Corretora.
+    assert "Investimento" not in {item["name"] for item in categories}
     assert by_name(categories, "Moradia")["kind"] == "EXPENSE"
 
 
 def test_kind_filter_includes_both(client, auth):
+    response = client.post("/api/categories", headers=auth, json={"name": "Reembolsos", "kind": "BOTH"})
+    assert response.status_code == 201, response.get_data(as_text=True)
     names = {item["name"] for item in list_categories(client, auth, kind="INCOME")}
-    assert names == {"Receita", "Investimento"}
+    assert names == {"Receita", "Reembolsos"}
 
 
 # --------------------------------------------------------------------------

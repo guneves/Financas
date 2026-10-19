@@ -89,7 +89,7 @@ test('other people stay apart from income and expense, but in the result', () =>
       { ...pizza, date: '2026-03-05' },
       { type: 'INCOME', amount: 40.1, date: '2026-03-06', category: 'Pix', share_mode: 'OTHERS', share_person: 'Ana' },
       { type: 'INCOME', amount: 500, date: '2026-03-01', category: 'Salário' },
-      { type: 'EXPENSE', amount: 200, date: '2026-03-02', category: 'Investimento' },
+      { type: 'EXPENSE', amount: 200, date: '2026-03-02', source_type: 'INVESTMENT_TRANSACTION', category: 'Aporte' },
       { type: 'TRANSFER', amount: 999, date: '2026-03-02' },
       { type: 'EXPENSE', amount: 5, date: '2026-01-31' },
     ],

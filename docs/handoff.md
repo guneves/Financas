@@ -7,53 +7,42 @@
 
 ---
 
-## Session — 2026-10-19 · Início's "Resumo do mês"; dismissible plan flags
+## Session — 2026-10-19 · Investimento is no longer a category (039)
 
-Cloud session; read the docs directly (no scout — the task named the files). Frontend only — no
-backend file, no migration, no financial rule changed. One PR for both tasks.
+Cloud session; read the docs directly (follow-up on research done in the same session, no scout).
+The owner asked whether the "Investimento" category should go; the answer was yes, and they chose:
+typed rows become transfers to the Corretora (create one when missing); no recurrence uses it.
 
 ### Done
-- **Início** (`pages/Dashboard.jsx`): the hero lost its month pills (it keeps Saldo em conta, the
-  balance, the accounts; the strip is `mt-auto` so it sits at the bottom when the hero stretches on
-  desktop). New `MonthSummary` card "Resumo do mês" in `DailyTile`'s slot: Resultado do mês,
-  Entrou, Saiu, Investido (only with an aporte or resgate), and the net of other people (label by
-  sign, value unsigned, link "Ver em A receber"). `DailyTile`, `MonthProgress`,
-  `getDaysRemainingInMonth` and Início's `plano-do-mes` query are gone; the skeleton mirrors the
-  new top row. CLAUDE.md's "Disponível por dia" convention now points to Orçamento and describes
-  the card.
-- **Plan flags** (`components/MonthlyPlanPanel.jsx`): an X ("Dispensar") on each; per device in
-  `lib/planFlags.js` (localStorage `@financeMVP:planFlagsDismissed`, try/catch, same shape as
-  `lib/attention.js`, reusing `addDismissed()`); the key rule `planFlagKey()` / `visibleFlags()` in
-  `lib/monthlyPlan.js`, 2 new node tests (117). `AlertMessage` got an optional `dismissLabel`.
-- 1343 pytest, 117 node, `vite build`. Chromium on the seed: Início 390/1440 px, light/dark,
-  without and with a split expense, privacy on; Orçamento 390 px with SPEND_PACE dismissed and
-  INVEST_PENDING still shown (survives a reload). No console errors.
+- Migration **039** (`039_investment_not_a_category.sql`) and the rules: aporte/resgate/provento is
+  `source_type` (`INVESTMENT_SOURCE_TYPES`) or a bank ↔ Corretora transfer — never a category name.
+  Plan spent/income and `budget_month_lines()` skip those source types; cash rows are labelled
+  "Aporte"/"Resgate"/"Provento" with no `category_id`; seed is nine categories; share guard and
+  Recorrentes' investment label removed. Detail in `done-tasks.md`; convention in CLAUDE.md.
+- Tests: `test_investment_not_a_category.py` (039 on a database stopped at 038, plus the seed),
+  plan test rewritten with real transfers and a "category named Investimento is ordinary" case;
+  node test for `isInvestmentRow()`. 1349 pytest, 118 node, `vite build`.
+- Told the two sessions running in parallel (plan bugs on `claude/compassionate-hawking-3salf9`,
+  Planejar sliders on `claude/magical-cannon-fhhw6f`) that 039 is taken and which queries in
+  `monthly_plan.py` / `budgets.py` changed. No reply had arrived when this was committed.
 
 ### Not done, and why
-- Not tried on the phone (open item in `next-steps.md`).
-- The bell does not list plan flags (it never did); dismissing one only affects Orçamento.
+- Not run on the owner's data: how many rows 039 converts, and whether a Corretora gets created,
+  is unknown here. Owner check listed in `next-steps.md`.
+- No screen walk in Chromium: the change is in rules, labels and two frontend predicates; the
+  visible differences are the labels and "Despesa" for every recurrence.
+- The Extrato still shows a bank → Corretora transfer as a transfer (not "Aporte"); imports and
+  Aprovar have no transfer-to-Corretora target. Both open in `next-steps.md`.
 
 ### Decisions worth knowing
-- **Resultado do mês is `income − |expense|`, not `currentMonth.net`.** The task defines it as
-  "entrou menos saiu, só a sua parte"; `net` also subtracts aportes and adds others' money, and it
-  stays the cash-flow chart's "Resultado". So the card and the chart's last point can differ.
-- **The others row shows when the *net* is non-zero** (task wording); the old hero pill showed when
-  either side was non-zero. A month where paid and received cancel exactly shows no row.
-- **Investido can be negative** (more resgates than aportes) and prints "−R$ X"; the hint shows
-  both sides.
-- **The Gastar bar keeps its colour** after a pace/over flag is dismissed: dismissing hides the
-  message, not the fact.
-- The X keeps `AlertMessage`'s own small button (24 px) rather than a 44 px `IconButton`, so every
-  alert in the app closes the same way; widen it in `ui.jsx` if it is hard to hit on the phone.
-
-### Learned
-- Only the edit sets sharing on a lançamento: `POST /api/transactions` ignores `share_*`
-  (`parse_share()` is read only in the PATCH, `routes/transactions.py`). For a seeded shared
-  expense, create it and then `PATCH /api/transactions/<id>` with `share_mode`,
-  `share_others_amount`, `share_person`.
-- The seed's current month has two flags (SPEND_PACE, INVEST_PENDING) — handy for dismiss tests.
-  The month after has none, so "comes back next month" is covered by the node test only.
-- Login token is `access_token` in the signup/login response; the localStorage auth is that JSON.
+- Rows 039 cannot convert (already inside the chosen Corretora; non-BRL account) keep the archived
+  category's name and now count as despesa/receita in the plan — a transfer to itself is not
+  possible, and the app is reais-only.
+- Converted rows keep `source_type`/`source_id` (an imported one stays idempotent on re-import).
+- Import rules are switched off, not deleted, so the owner sees what they were.
+- **Possible merge conflict:** `services/monthly_plan.py` (the spent query) and
+  `services/budgets.py` (`budget_month_lines()`) are also being edited by the plan-bugs session;
+  whichever merges second must keep the `INVESTMENT_SOURCE_TYPES` skip.
 
 ### Carried from the Orçamento redesign session (2026-10-19), still open
 - Orçamento reads only `GET /api/monthly-plan` (query key `['plano-do-mes', month]`); `needs_income`

@@ -4,8 +4,9 @@ O que estes testes fixam (os da 038 — renda, percentuais, Saldo do plano,
 conversao — estao em test_monthly_plan_income.py):
 
 - o gasto do mes soma saidas das contas e compras no cartao (inteiras, no mes
-  da compra), e deixa de fora transferencia, pagamento de fatura e aporte
-  (categoria "Investimento");
+  da compra), e deixa de fora transferencia (o aporte digitado e uma, para a
+  Corretora), pagamento de fatura, o caixa das operacoes e o provento pago;
+  uma categoria chamada "Investimento" e uma categoria como outra (039);
 - o aporte do mes e aportes - resgates das operacoes da carteira;
 - um mes sem plano proprio herda o mais recente anterior; apagar o do mes volta
   a herdar;
@@ -156,15 +157,29 @@ def test_invalid_payload_is_refused(client, auth, payload):
 
 
 def test_spending_excludes_transfers_investments_and_invoice_payments(client, auth):
+    bank = client.post("/api/accounts", headers=auth, json={"name": "Banco", "type": "CHECKING"}).get_json()
+    broker = client.post("/api/accounts", headers=auth, json={"name": "BTG", "type": "BROKERAGE"}).get_json()
     add_entry(client, auth, 300, "2025-12-03")
-    add_entry(client, auth, 1000, "2025-12-04", category="Investimento")
     add_entry(client, auth, 450, "2025-12-05", category="Pagamento Fatura Nubank")
     add_entry(client, auth, 5000, "2025-12-01", kind="INCOME", category="Salario")
-    add_entry(client, auth, 200, "2025-12-06", kind="INCOME", category="Investimento")
     add_entry(client, auth, 999, "2025-11-30")  # outro mes
+    for origin, target in ((bank, broker), (broker, bank)):  # aporte e resgate
+        response = client.post("/api/transfers", headers=auth, json={
+            "amount": 1000, "date": "2025-12-04",
+            "account_id": origin["id"], "transfer_account_id": target["id"],
+        })
+        assert response.status_code == 201, response.get_data(as_text=True)
     body = get_plan(client, auth, "2025-12")
     assert body["actual"]["spent_accounts"] == 300
     assert body["actual"]["income"] == 5000
+
+
+def test_a_category_named_investimento_is_just_a_category(client, auth):
+    response = client.post("/api/categories", headers=auth, json={"name": "Investimento", "kind": "BOTH"})
+    assert response.status_code == 201, response.get_data(as_text=True)
+    add_entry(client, auth, 120, "2025-12-03", category="Investimento")
+    body = get_plan(client, auth, "2025-12")
+    assert body["actual"]["spent_accounts"] == 120
 
 
 def test_card_purchase_counts_in_full_in_purchase_month(client, auth):

@@ -39,7 +39,7 @@ from money import percent_of, rounded_money
 from services.accounts import category_ids_by_name, fetch_category
 from services.invoices import signed_amount_sql
 from services.sharing import own_amount_sql
-from source_types import INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import ValidationError, safe_float, shift_month, to_percent
 
 HUNDRED = Decimal(100)
@@ -296,8 +296,8 @@ def budget_month_lines(conn, current_user_id, month):
     """
     name_to_id = category_ids_by_name(conn, current_user_id)
 
-    invoice_types = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
-    invoice_placeholders = ", ".join("?" for _ in invoice_types)
+    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES)
+    skipped_placeholders = ", ".join("?" for _ in skipped_types)
     rows = conn.execute(
         f"""
         SELECT t.id, t.type, t.category_id, t.category, t.date, t.description,
@@ -308,11 +308,11 @@ def budget_month_lines(conn, current_user_id, month):
         WHERE t.user_id = ?
           AND t.type <> 'TRANSFER'
           AND substr(t.date, 1, 7) = ?
-          AND COALESCE(t.source_type, '') NOT IN ({invoice_placeholders})
+          AND COALESCE(t.source_type, '') NOT IN ({skipped_placeholders})
           AND COALESCE(t.category, '') NOT LIKE 'Pagamento Fatura%'
         ORDER BY t.date, t.created_at, t.id
         """,
-        (current_user_id, month, *invoice_types),
+        (current_user_id, month, *skipped_types),
     ).fetchall()
     card_rows = conn.execute(
         f"""

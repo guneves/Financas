@@ -19,6 +19,11 @@ INVESTMENT_CASH_SOURCE_TYPE = "INVESTMENT_TRANSACTION"
 # (services/proceeds_cash.py, materializado na leitura).
 INVESTMENT_PROCEED_SOURCE_TYPE = "INVESTMENT_PROCEED"
 
+# Dinheiro da carteira (039): o que faz um lancamento ser aporte, resgate ou
+# provento e a origem dele, nunca uma categoria. O aporte digitado e uma
+# transferencia para a conta Corretora.
+INVESTMENT_SOURCE_TYPES = (INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_PROCEED_SOURCE_TYPE)
+
 # Pagamento de fatura: manual (pay-invoice) ou debito automatico (011,
 # source_id = '<cartao>:<AAAA-MM>').
 CC_INVOICE_PAYMENT_SOURCE_TYPE = "CC_INVOICE_PAYMENT"

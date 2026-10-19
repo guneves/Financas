@@ -104,3 +104,15 @@ test('blockedRecurringMessage: a recorrencia numa conta arquivada', () => {
     { description: '', account_name: 'Outra' },
   ]), /^2 recorrências/)
 })
+
+test('investment is the origin of the row, never a category (039)', () => {
+  const typed = { type: 'EXPENSE', amount: 100, category: 'Investimento' }
+  assert.ok(!isInvestmentOutflow(typed))
+  assert.ok(isInvestmentOutflow({ type: 'EXPENSE', amount: 100, source_type: 'INVESTMENT_TRANSACTION', category: 'Aporte' }))
+  assert.ok(isInvestmentInflow({ type: 'INCOME', amount: 10, source_type: 'INVESTMENT_PROCEED', category: 'Provento' }))
+  const [ida] = bankingTransactions(
+    [{ id: 'ida', type: 'TRANSFER', account_id: 'banco', transfer_account_id: 'corretora', amount: 300 }],
+    accounts,
+  )
+  assert.equal(ida.category, 'Aporte')
+})

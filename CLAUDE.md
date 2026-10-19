@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1343 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1349 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, and the fetches running at once), the weighted average cost (`test_average_cost.py`), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -130,7 +130,7 @@ invoice-month rule), the opt-in investment↔cash link, bank accounts and transf
 transaction, monthly budgets, recurring entries, the monthly plan from income (`test_monthly_plan_income.py`: percentages at both levels, inheritance, Saldo do plano, migration 038 and `needs_income`), statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
@@ -167,7 +167,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 117 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 118 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -518,7 +518,7 @@ mobile-docs/
   account** (2026-10-12; portfolio account 2026-10-17). `metadata.cash_account_id` on the movement
   is both the switch and the account:
   present, exactly one linked lançamento exists in that account (`source_type =
-  'INVESTMENT_TRANSACTION'`, `source_id` = the movement id, BRL, category "Investimento"); absent,
+  'INVESTMENT_TRANSACTION'`, `source_id` = the movement id, BRL, labelled "Aporte"/"Resgate"); absent,
   nothing is written. The rule is `investment_cash_account_id()`, checked first in
   `sync_investment_cash_transaction()`; `resolve_investment_cash_account()` validates the account
   (the user's, active, BRL) before any write. On `PATCH` an omitted key keeps the link and `null`
@@ -538,7 +538,7 @@ mobile-docs/
   (PATCH type). **Paid proventos go into it too** (`services/proceeds_cash.py`,
   `apply_paid_proceeds()`, materialized on read next to `apply_due_autopay()` in the accounts and
   transactions reads): each provento with payment date ≤ today and net > 0 is one INCOME row
-  (`source_type = 'INVESTMENT_PROCEED'`, `source_id` = the provento id, category "Investimento"),
+  (`source_type = 'INVESTMENT_PROCEED'`, `source_id` = the provento id, labelled "Provento"),
   locked in the Extrato (409), following its provento (edit, delete, back to scheduled). Only
   proventos paid on or after the account's `metadata.portfolio_since` (set by the PATCH that makes
   it Corretora; `created_at` for one created as Corretora) — earlier ones are already in its
@@ -552,10 +552,20 @@ mobile-docs/
 - **Início is the banking area only, and in reais.** Its headline is the consolidated account
   balance; the portfolio never appears there, so nobody reads invested money as money to spend. A
   foreign-currency account appears only by its converted value (`accountBalanceBrl()` in
-  `lib/transactions.js`, "sem câmbio hoje" when there is no rate) — never in its own currency. A lançamento
-  that is linked, or typed in the category "Investimento", is an aporte (EXPENSE) or a resgate
-  (INCOME), not a despesa or a receita — `isInvestmentOutflow()` / `isInvestmentInflow()` in
-  `lib/transactions.js` — and every banking total (Início, Extrato, Recorrentes) keeps it apart.
+  `lib/transactions.js`, "sem câmbio hoje" when there is no rate) — never in its own currency. A
+  linked lançamento (or, in the banking view, a transfer to/from a Corretora) is an aporte or a
+  resgate, not a despesa or a receita — `isInvestmentOutflow()` / `isInvestmentInflow()` in
+  `lib/transactions.js` — and every banking total (Início, Extrato) keeps it apart.
+- **Investimento is not a category** (owner, 2026-10-19, 039). A row is aporte, resgate or
+  provento by its origin only: `source_type` in `INVESTMENT_SOURCE_TYPES` (`source_types.py`,
+  `lib/transactions.js`), or a transfer between a bank and a Corretora. A typed aporte is a
+  transfer to the Corretora; the cash rows carry a label ("Aporte", "Resgate", "Provento") with
+  no `category_id`, like "Transferencia". The plan's spent/income and the budget's lines skip
+  those source types; nothing compares a category name. 039 turned every typed "Investimento"
+  despesa/receita into such a transfer (creating "Corretora" for a user without one), archived the
+  category, switched off the import rules that chose it and moved pending Aprovar items to the
+  import default. A category someone names "Investimento" now is an ordinary one — don't give a
+  name meaning again.
   "+ Novo" is banking-only (despesa, receita, transferência, cartão); inside `/investimentos` the
   same button opens "Registrar operação".
 - **Whose expense it is** (032, `services/sharing.py`, `lib/sharing.js`): a despesa/receita or a

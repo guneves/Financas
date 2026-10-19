@@ -21,7 +21,7 @@ import {
 } from '../../components/ui'
 import { formatSignedCurrency } from '../../lib/format'
 import { parseMoneyInput } from '../../lib/monthlyPlan'
-import { INVESTMENT_CATEGORY, isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
+import { INVESTMENT_SOURCE_TYPES, isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
 import { shareFormError, shareFormFrom, sharePayload, shareSummary } from '../../lib/sharing'
 import ShareFields from '../../components/ShareFields'
 import { categoryLabel, getNow } from './helpers'
@@ -137,9 +137,8 @@ const isInvoicePayment = (transaction) => !transaction.pending
 
 // "De quem é?" (lib/sharing.js) so vale para despesa e receita comuns:
 // transferencia e investimento nao se dividem com outra pessoa.
-const canShare = (transaction, form) => transaction.type !== 'TRANSFER'
-  && form.category !== INVESTMENT_CATEGORY
-  && !['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED'].includes(transaction.source_type)
+const canShare = (transaction) => transaction.type !== 'TRANSFER'
+  && !INVESTMENT_SOURCE_TYPES.includes(transaction.source_type)
 
 // "Dividida com Ana · sua parte R$ 40,00", embaixo da descricao.
 function ShareMark({ transaction }) {
@@ -338,7 +337,7 @@ function ExtratoContas({ viewSwitch }) {
       setDataError('Informe um valor valido.')
       return
     }
-    const sharing = canShare(transaction, editForm)
+    const sharing = canShare(transaction)
     const shareError = sharing ? shareFormError(editForm.share, amount) : ''
     if (shareError) {
       setDataError(shareError)
@@ -465,7 +464,7 @@ function ExtratoContas({ viewSwitch }) {
         </select>
       ),
       amount: <input type="text" inputMode="decimal" autoComplete="off" value={editForm.amount} onChange={setEditField('amount')} className="app-input" />,
-      share: canShare(transaction, editForm) ? (
+      share: canShare(transaction) ? (
         <ShareFields form={editForm.share} type={editForm.type} onChange={(share) => setEditForm({ ...editForm, share })} />
       ) : null,
       actions: (
