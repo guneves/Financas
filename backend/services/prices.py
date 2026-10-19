@@ -26,6 +26,7 @@ from asset_classes import CRYPTO_ASSETS, is_quoted_asset
 import brapi_client
 from integrations import record_provider_result
 from config import (
+    HISTORY_CACHE_STALE_MAX_SECONDS,
     HISTORY_CACHE_TTL_SECONDS,
     PRICE_CACHE_TTL_SECONDS,
     PRICE_DOWNLOAD_TIMEOUT_SECONDS,
@@ -49,6 +50,50 @@ _history_cache = {}
 _daily_history_cache = {}
 _price_cache_lock = threading.Lock()
 _price_fetch_executor = ThreadPoolExecutor(max_workers=PRICE_FETCH_WORKERS)
+# Atualizacoes de historico vencido (`schedule_history_refresh()`): uma por
+# chave de cada vez, fora do pedido que a disparou.
+_history_refresh_executor = ThreadPoolExecutor(max_workers=1)
+_history_refresh_lock = threading.Lock()
+_history_refreshes = {}
+
+
+def schedule_history_refresh(key, refresh):
+    """Roda `refresh()` em segundo plano, a menos que a mesma `key` ja esteja na fila.
+
+    E o "servir vencido e atualizar depois" dos caches de historico: o grafico
+    nao espera o Yahoo/BCB por dados que so mudam no ultimo dia. Uma falha fica
+    no log e o cache antigo continua servindo."""
+    with _history_refresh_lock:
+        running = _history_refreshes.get(key)
+        if running is not None and not running.done():
+            return running
+
+        def run():
+            try:
+                refresh()
+            except Exception as exc:
+                logger.warning(f"Atualizacao do historico {key} falhou: {exc}")
+
+        future = _history_refresh_executor.submit(run)
+        _history_refreshes[key] = future
+        return future
+
+
+def wait_history_refreshes(timeout=None):
+    """Espera as atualizacoes em segundo plano (para os testes)."""
+    with _history_refresh_lock:
+        futures = list(_history_refreshes.values())
+    for future in futures:
+        future.result(timeout=timeout)
+
+
+def history_cache_state(age_seconds):
+    """"fresh", "stale" (servir e atualizar em segundo plano) ou "expired" (esperar)."""
+    if age_seconds <= HISTORY_CACHE_TTL_SECONDS:
+        return "fresh"
+    if age_seconds <= HISTORY_CACHE_STALE_MAX_SECONDS:
+        return "stale"
+    return "expired"
 
 
 def quote_timestamp(date_value=None):
@@ -533,22 +578,30 @@ def get_daily_history(tickers, start_date):
     O cache e por ticker e guarda desde onde cobre: um pedido que comeca
     depois disso le o cache, recortado em `start_date` (o mesmo que o
     download desde ela devolveria). So os tickers que faltam vao ao Yahoo,
-    desde o piso de `history_fetch_floor()`."""
+    desde o piso de `history_fetch_floor()`. Um ticker vencido ha menos de
+    HISTORY_CACHE_STALE_MAX_SECONDS e servido do cache e baixado de novo em
+    segundo plano (`schedule_history_refresh()`)."""
     normalized_tickers = tuple(sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)}))
     if not normalized_tickers:
         return {"prices": {}, "splits": {}}
 
     result = {"prices": {}, "splits": {}}
     missing = []
+    stale = []
     now = time.time()
     with _price_cache_lock:
         for ticker in normalized_tickers:
             cached = _daily_history_cache.get(ticker)
-            if cached and cached["from"] <= start_date and now - cached["updated_at"] <= HISTORY_CACHE_TTL_SECONDS:
-                result["prices"][ticker] = {day: price for day, price in cached["prices"].items() if day >= start_date}
-                result["splits"][ticker] = [event for event in cached["splits"] if event[0] >= start_date]
-            else:
+            state = history_cache_state(now - cached["updated_at"]) if cached and cached["from"] <= start_date else "expired"
+            if state == "expired":
                 missing.append(ticker)
+                continue
+            if state == "stale":
+                stale.append(ticker)
+            result["prices"][ticker] = {day: price for day, price in cached["prices"].items() if day >= start_date}
+            result["splits"][ticker] = [event for event in cached["splits"] if event[0] >= start_date]
+    if stale:
+        schedule_history_refresh(("daily", tuple(stale)), lambda: refresh_daily_history(stale))
     if not missing:
         return result
 
@@ -562,6 +615,30 @@ def get_daily_history(tickers, start_date):
             result["prices"][ticker] = {day: price for day, price in prices.items() if day >= start_date}
             result["splits"][ticker] = [event for event in splits if event[0] >= start_date]
     return result
+
+
+def refresh_daily_history(tickers):
+    """Baixa de novo o historico vencido de `tickers`, desde onde cada um cobria.
+
+    Um ticker que volta sem nenhum fechamento (Yahoo fora, timeout) mantem o que
+    tinha: o download falho nao apaga um historico bom."""
+    with _price_cache_lock:
+        covered = [_daily_history_cache[ticker]["from"] for ticker in tickers if ticker in _daily_history_cache]
+    fetch_from = min(covered + [history_fetch_floor().isoformat()])
+    history = download_daily_history(list(tickers), fetch_from)
+    now = time.time()
+    with _price_cache_lock:
+        for ticker in tickers:
+            prices = dict(history["prices"].get(ticker) or {})
+            current = _daily_history_cache.get(ticker)
+            if not prices and current and current["prices"]:
+                continue
+            _daily_history_cache[ticker] = {
+                "from": fetch_from,
+                "prices": prices,
+                "splits": list(history["splits"].get(ticker) or []),
+                "updated_at": now,
+            }
 
 
 # Um evento do Yahoo e o mesmo desdobramento/grupamento registrado quando cai

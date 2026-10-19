@@ -23,7 +23,13 @@ from dates import parse_iso_date
 from db import get_db
 from config import HISTORY_CACHE_TTL_SECONDS
 from money import rounded_money
-from services.prices import history_fetch_floor, record_price_quote, ticker_key
+from services.prices import (
+    history_cache_state,
+    history_fetch_floor,
+    record_price_quote,
+    schedule_history_refresh,
+    ticker_key,
+)
 from validators import ValidationError, safe_float
 from applog import get_logger
 from integrations import record_provider_result
@@ -423,14 +429,25 @@ def _bcb_series_since(name, series_code, start):
     """A serie `series_code` desde `start` (meia-noite), pelo cache acima.
 
     Sem cobertura, busca desde o mais cedo entre `start` e o piso do historico
-    (`history_fetch_floor()`): a proxima janela, menor ou maior ate la, le o cache."""
+    (`history_fetch_floor()`): a proxima janela, menor ou maior ate la, le o cache.
+    Vencida ha pouco (`history_cache_state()`), serve o cache e busca de novo em
+    segundo plano; uma busca que falha deixa o cache como estava."""
     now = time.monotonic()
     with _index_history_lock:
         cached = _index_history_cache.get(name)
-        if cached and now - cached[0] < HISTORY_CACHE_TTL_SECONDS and cached[1] <= start:
-            return [item for item in cached[2] if item[0] >= start]
+        state = history_cache_state(now - cached[0]) if cached and cached[1] <= start else "expired"
+    if state != "expired":
+        if state == "stale":
+            schedule_history_refresh(("bcb", name), lambda: _fetch_bcb_into_cache(name, series_code, cached[1]))
+        return [item for item in cached[2] if item[0] >= start]
     floor = history_fetch_floor()
     fetch_from = min(start, datetime(floor.year, floor.month, floor.day))
+    series = _fetch_bcb_into_cache(name, series_code, fetch_from)
+    return [item for item in series if item[0] >= start]
+
+
+def _fetch_bcb_into_cache(name, series_code, fetch_from):
+    now = time.monotonic()
     series = fetch_bcb_series(series_code, fetch_from)
     with _index_history_lock:
         # Duas buscas ao mesmo tempo (o CDI da janela e o da renda fixa): a
@@ -438,7 +455,7 @@ def _bcb_series_since(name, series_code, start):
         current = _index_history_cache.get(name)
         if not current or fetch_from <= current[1] or now - current[0] >= HISTORY_CACHE_TTL_SECONDS:
             _index_history_cache[name] = (now, fetch_from, series)
-    return [item for item in series if item[0] >= start]
+    return series
 
 
 def cdi_since(start_date):

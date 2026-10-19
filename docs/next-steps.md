@@ -11,6 +11,12 @@
 
 ### Plano do mês a partir da renda — what is left
 The backend (038) and the Orçamento redesign are in (see `done-tasks.md`, 2026-10-19). Open:
+- [ ] Owner check on the phone: Orçamento's sliders (plan sheet and categories) — is a 1-point
+  step with − / + fine on the touch screen, and is the "free" part of the track (lighter grey)
+  readable in dark mode? Only tried in Chromium at 390 px, light.
+- [ ] Owner check after the deploy: Evolução do Patrimônio should open at once after the first
+  load of the day (stale history served, refreshed behind). The first open after a server restart
+  still waits for Yahoo/BCB; if that is still too slow, warm the cache at boot.
 - [ ] Owner check on the phone: Início's new "Resumo do mês" card (in place of Disponível por dia)
   against a real month, with a shared expense; dismiss one of Orçamento's plan flags and confirm it
   stays gone until next month. Both only tried in Chromium on the seed.

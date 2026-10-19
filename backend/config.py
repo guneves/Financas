@@ -147,6 +147,11 @@ PRICE_DOWNLOAD_TIMEOUT_SECONDS = read_float_env(
 )
 PRICE_FETCH_WORKERS = read_int_env("PRICE_FETCH_WORKERS", 2, minimum=1, maximum=4)
 HISTORY_CACHE_TTL_SECONDS = read_int_env("HISTORY_CACHE_TTL_SECONDS", 900, minimum=60)
+# Um historico vencido (TTL acima) e servido na hora e atualizado em segundo
+# plano, ate esta idade; mais velho que isso, o pedido espera o download.
+HISTORY_CACHE_STALE_MAX_SECONDS = read_int_env(
+    "HISTORY_CACHE_STALE_MAX_SECONDS", 7 * 24 * 3600, minimum=60,
+)
 SQLITE_BUSY_TIMEOUT_MS = read_int_env("SQLITE_BUSY_TIMEOUT_MS", 5000, minimum=1000, maximum=60000)
 PRICE_QUOTE_STALE_HOURS = read_int_env("PRICE_QUOTE_STALE_HOURS", 36, minimum=1, maximum=720)
 BACKUP_RETENTION_DAYS = read_int_env("BACKUP_RETENTION_DAYS", 7, minimum=1, maximum=365)

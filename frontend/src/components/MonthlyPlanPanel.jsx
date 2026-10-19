@@ -12,6 +12,7 @@ import {
   livePlanTotals,
   moneyInputValue,
   parseMoneyInput,
+  percentRoom,
   planFlagKey,
   sortFlags,
   spendStatus,
@@ -20,7 +21,7 @@ import {
 import { dismissPlanFlag, useDismissedPlanFlags } from '../lib/planFlags'
 import { toast } from '../lib/toast'
 import { confirmAction } from '../lib/confirm'
-import { AlertMessage, Button, Field, Panel, PanelHeader, Sheet, cx } from './ui'
+import { AlertMessage, Button, Field, Panel, PanelHeader, PercentSlider, Sheet, cx } from './ui'
 import { BudgetProgressBar } from './BudgetProgress'
 
 // Uma linha da renda: Investir, Gastar ou Sem destino. % e R$ a esquerda, o
@@ -137,20 +138,24 @@ export default function MonthlyPlanPanel({ data, onEdit }) {
   )
 }
 
+// Investir e Gastar sao numeros (os controles deslizantes); a renda e texto.
+const percentValue = (value) => (value === null || value === undefined || value === '' ? null : Number(value))
+
 const formFromPlan = (plan) => {
-  if (!plan) return { income: '', invest: '', spend: '' }
+  if (!plan) return { income: '', invest: 0, spend: 0 }
   if (plan.needs_income) {
     // Plano antigo: os % ficam em branco para o servidor converter os reais de antes.
-    return { income: moneyInputValue(plan.income_amount), invest: '', spend: '' }
+    return { income: moneyInputValue(plan.income_amount), invest: null, spend: null }
   }
   return {
     income: moneyInputValue(plan.income_amount),
-    invest: moneyInputValue(plan.invest_percent),
-    spend: moneyInputValue(plan.spend_percent),
+    invest: percentValue(plan.invest_percent),
+    spend: percentValue(plan.spend_percent),
   }
 }
 
 // "Plano do mes": Renda, Investir % e Gastar %, nessa ordem, com os R$ ao vivo.
+// Os % deslizam: cada um para onde o outro deixa (os dois somam ate 100%).
 // O mesmo sheet cria o plano, edita e, num plano antigo sem renda, pede a renda
 // para converte-lo. Abre com o foco na renda.
 export function MonthlyPlanSheet({ open, onClose, month, plan }) {
@@ -172,8 +177,8 @@ export function MonthlyPlanSheet({ open, onClose, month, plan }) {
   const needsIncome = Boolean(plan?.needs_income)
   const totals = livePlanTotals({
     income: parseMoneyInput(form.income),
-    invest: parseMoneyInput(form.invest),
-    spend: parseMoneyInput(form.spend),
+    invest: form.invest,
+    spend: form.spend,
     legacy: needsIncome ? plan.legacy : null,
   })
 
@@ -189,7 +194,7 @@ export function MonthlyPlanSheet({ open, onClose, month, plan }) {
       const income = parseMoneyInput(form.income)
       await monthlyPlanApi.save(totals.convert
         ? { month, income_amount: income }
-        : { month, income_amount: income, invest_percent: parseMoneyInput(form.invest), spend_percent: parseMoneyInput(form.spend) })
+        : { month, income_amount: income, invest_percent: form.invest, spend_percent: form.spend })
       onClose()
       toast(`Plano salvo a partir de ${monthLabel(month)}.`)
     } catch (requestError) {
@@ -219,6 +224,10 @@ export function MonthlyPlanSheet({ open, onClose, month, plan }) {
 
   const ownPlan = plan && !plan.inherited
   const set = (key) => (event) => setForm({ ...form, [key]: event.target.value })
+  const setPercent = (key) => (value) => setForm((current) => ({ ...current, [key]: value }))
+  const amountOf = (amount) => (
+    <span className="text-sm font-semibold text-zinc-600">{amount === null ? 'R$ —' : formatCurrency(amount)}</span>
+  )
 
   return (
     <Sheet
@@ -255,22 +264,32 @@ export function MonthlyPlanSheet({ open, onClose, month, plan }) {
             className="app-input h-14 text-2xl font-bold tabular" required autoFocus
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Investir (% da renda)" hint={needsIncome ? 'Em branco: converte' : undefined}>
-            <input
-              type="text" inputMode="decimal" autoComplete="off" placeholder="0"
-              value={form.invest} onChange={set('invest')}
-              className="app-input" required={!needsIncome}
-            />
-          </Field>
-          <Field label="Gastar (% da renda)" hint={needsIncome ? 'Em branco: converte' : undefined}>
-            <input
-              type="text" inputMode="decimal" autoComplete="off" placeholder="0"
-              value={form.spend} onChange={set('spend')}
-              className="app-input" required={!needsIncome}
-            />
-          </Field>
-        </div>
+        <PercentSlider
+          label="Investir (% da renda)"
+          value={form.invest}
+          onChange={setPercent('invest')}
+          room={percentRoom(form.spend)}
+          aside={amountOf(totals.investAmount)}
+          hint={needsIncome && form.invest === null ? 'Em branco: converte o valor antigo' : undefined}
+        />
+        <PercentSlider
+          label="Gastar (% da renda)"
+          value={form.spend}
+          onChange={setPercent('spend')}
+          room={percentRoom(form.invest)}
+          aside={amountOf(totals.spendAmount)}
+          hint={needsIncome && form.spend === null ? 'Em branco: converte o valor antigo' : undefined}
+        />
+        {needsIncome && (form.invest !== null || form.spend !== null) ? (
+          <Button
+            type="button"
+            variant="subtle"
+            size="sm"
+            onClick={() => setForm((current) => ({ ...current, invest: null, spend: null }))}
+          >
+            Converter os valores antigos
+          </Button>
+        ) : null}
         <p
           className={cx('tabular rounded-2xl bg-zinc-50 px-4 py-3 text-sm', totals.over ? 'font-semibold text-rose-600' : 'text-zinc-700')}
           aria-live="polite"

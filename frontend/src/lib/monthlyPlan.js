@@ -237,3 +237,33 @@ export function categoryAmountPreview(spendAmount, percent) {
   if (!isNumber(percent) || percent < 0) return null
   return percentOf(spendAmount, percent)
 }
+
+// Os % do Orcamento sao escolhidos num controle deslizante (PercentSlider), de
+// 1 em 1 ponto. `room` e quanto ainda cabe: o Investir ate 100% menos o Gastar,
+// uma categoria ate 100% do Gastar menos as outras. Um valor fracionado salvo
+// antes (33,333333% de um plano convertido) fica como esta ate ser mexido.
+export const PERCENT_STEP = 1
+
+const sixDecimals = (value) => Math.round(value * 1e6) / 1e6
+
+// 100 - o que os outros ja levam, nunca abaixo de zero.
+export function percentRoom(othersPercent, total = 100) {
+  const others = isNumber(Number(othersPercent)) ? Number(othersPercent) : 0
+  return Math.max(0, sixDecimals(total - others))
+}
+
+// O valor do controle dentro de [0, room].
+export function clampPercent(value, room = 100) {
+  const number = isNumber(Number(value)) ? Number(value) : 0
+  return sixDecimals(Math.min(Math.max(number, 0), Math.max(room, 0)))
+}
+
+// Os botoes - e +: o proximo ponto inteiro na direcao, sem passar de room.
+// 33,33 + 1 -> 34; 33,33 - 1 -> 33; com room 66,67, 66 + 1 -> 66,67.
+export function stepPercent(value, direction, room = 100) {
+  const number = isNumber(Number(value)) ? Number(value) : 0
+  const next = direction > 0
+    ? Math.floor(number + 1e-9) + PERCENT_STEP
+    : Math.ceil(number - 1e-9) - PERCENT_STEP
+  return clampPercent(next, room)
+}
