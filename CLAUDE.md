@@ -121,9 +121,9 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1412 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1448 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
-per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), tax rules and the
+per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
 invoice-month rule), the opt-in investment↔cash link, editing an operation keeps its sign (`test_investment_edit_sign.py`), fixed-income coupons and amortizations typed ahead (`test_fixed_income_interest.py`: 040's `INTEREST`, the coupon's regressive IR, `repeat`, the IR report), bank accounts and transfers, categories, editing a
@@ -133,7 +133,9 @@ multi-currency, the IR report and the monthly exemption meter, allocation target
 proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
-`statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). They run
+`statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). It
+blanks `TESOURO_PRICES_URL`/`TESOURO_PRICES_FILE` too, so no test downloads the Tesouro file; a
+test that needs prices calls `tesouro_client.set_prices(parse_prices_csv(...))` (and `None` after). They run
 against a throwaway SQLite database built by the real migrations — **the real
 `backend/finance.db` is never touched.**
 
@@ -167,7 +169,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`) and `fixedIncome`, 131 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome` and `treasury`, 136 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -203,7 +205,8 @@ backend/
                       # recurring (the recurrences' calendar, /run, Aprovar's settlements),
                       # budgets (categories as % of Gastar, the plan row, inheritance),
                       # monthly_plan (income, Investir/Gastar %, Saldo do plano, flags),
-                      # asset_categories (ETF, Tesouro Direto, the fixed-income indexer; on read)
+                      # asset_categories (ETF, Tesouro Direto, the fixed-income indexer; on read),
+                      # treasury (Tesouro Direto marked to market, grouped, net of custody/IOF/IR)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
@@ -213,6 +216,7 @@ backend/
   export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
   irpf_text.py        # texto para colar no programa do IRPF, sobre o relatorio de IR (funcoes puras)
   statusinvest_client.py # historico de proventos por ticker na StatusInvest (funcoes puras + cache)
+  tesouro_client.py   # precos e taxas do Tesouro Direto (CSV do Tesouro Transparente) + cache em disco
   scripts/            # one-off seeds — destructive, read scripts/README.md first
   tests/              # pytest suite
   .env                # local config, gitignored — .env.example is the template
@@ -745,6 +749,20 @@ mobile-docs/
   new class (seven tables cascade from it). Screens show `category_label` (`/api/assets`,
   positions, `asset_category_label` on movements); Posição has a Tesouro Direto tab; fixed
   income's sector is its indexer (`rate_kind()`, source `INDEXER`) unless set by hand.
+- **Tesouro Direto is marked to market and grouped by title** (owner, 2026-10-19: "o valor exato
+  dos títulos, considerando taxas e marcação a mercado"; `services/treasury.py`,
+  `tesouro_client.py`). The price is the Tesouro Nacional's daily PU (Tesouro Transparente CSV) —
+  the BCB has none. A purchase is still stored as 1 × the amount; its titles are the amount ÷ the
+  purchase day's PU (moved to the contracted rate for a zero-coupon title) or the typed
+  `metadata.treasury_units`; gross = titles × today's PU de venda; net = gross − B3 custody (0.20%
+  a.a. pro rata die from D+1, not before 2025; Selic exempt to R$ 10 mil) − IOF − IR, purchase by
+  purchase. Posição merges the purchases of one title (type + maturity, found from the name) into
+  one row with `lots` and `treasury` (maturity, titles, the rate with the same value at maturity,
+  PU, data base); a grouped redemption is one row per purchase, oldest first (PEPS,
+  `lib/treasury.js`). The evolution and Rentabilidade read the same PU (`market_value_on()`,
+  `build_treasury_positions()`), so their last point is Posição's. A read never waits for the file
+  (`get_prices()` downloads behind; without it the title is on the curve, `valuation: "CURVE"`);
+  "Atualizar cotações" waits and records the market value as the quote (source `tesouro`).
 - **Registrar provento: the type first, then only the assets that can pay it**
   (`lib/proceedsRules.js`, tested): JCP only ações; the coupon only fixed income and Tesouro titles
   with semiannual coupons; amortization of Tesouro only Renda+/Educa+. The server refuses only by
@@ -765,7 +783,8 @@ mobile-docs/
   `prices` ← `fixed_income` ← `fx` ← `investments` ← `corporate_actions` / `realized_results` /
   `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`, `allocation` ←
   `sectors`, `market_listing` ← `asset_categories` (read by `portfolio`, `sectors`
-  and `routes/investments.py`), `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
+  and `routes/investments.py`), `fixed_income`/`asset_categories`/`prices` ← `treasury` (read by
+  `portfolio`, `returns` and `routes/investments.py`), `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
   on top. `inbox` sits on `import_rules`; `inbox_decisions` on `inbox` and `invoices`, and is read
   by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`). `monthly_plan` sits on `budgets` (the plan row, Gastar R$ and the categories live in
   `budgets`; `routes/budgets.py` reads `build_budget_view()` from `monthly_plan`). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports

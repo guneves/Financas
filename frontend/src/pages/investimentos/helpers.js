@@ -31,6 +31,7 @@ export function quoteSourceLabel(source) {
     market: 'Mercado',
     manual: 'Manual',
     cdi: 'Taxa do título',
+    tesouro: 'Tesouro Nacional',
     legacy: 'Legado',
     cache: 'Cache',
     cache_stale: 'Cache antigo',

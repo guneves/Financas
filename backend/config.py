@@ -160,6 +160,20 @@ HISTORY_CACHE_FILE = (
     if _RAW_HISTORY_CACHE_FILE is None
     else (resolve_app_path(_RAW_HISTORY_CACHE_FILE, BASE_DIR) if _RAW_HISTORY_CACHE_FILE.strip() else "")
 )
+# Precos e taxas do Tesouro Direto (tesouro_client.py): o CSV do Tesouro
+# Transparente e uma copia dele ao lado do banco. URL vazia desliga a busca
+# (os testes); arquivo vazio, a copia.
+TESOURO_PRICES_URL = os.getenv(
+    "TESOURO_PRICES_URL",
+    "https://www.tesourotransparente.gov.br/ckan/dataset/df56aa42-484a-4a59-8184-7676580c81e3"
+    "/resource/796d2059-14e9-44e3-80c9-2d9e30b405c1/download/PrecoTaxaTesouroDireto.csv",
+).strip()
+_RAW_TESOURO_PRICES_FILE = os.getenv("TESOURO_PRICES_FILE")
+TESOURO_PRICES_FILE = (
+    resolve_app_path(os.path.join(os.path.dirname(DATABASE_PATH), "tesouro_precos.csv"), BASE_DIR)
+    if _RAW_TESOURO_PRICES_FILE is None
+    else (resolve_app_path(_RAW_TESOURO_PRICES_FILE, BASE_DIR) if _RAW_TESOURO_PRICES_FILE.strip() else "")
+)
 SQLITE_BUSY_TIMEOUT_MS = read_int_env("SQLITE_BUSY_TIMEOUT_MS", 5000, minimum=1000, maximum=60000)
 PRICE_QUOTE_STALE_HOURS = read_int_env("PRICE_QUOTE_STALE_HOURS", 36, minimum=1, maximum=720)
 BACKUP_RETENTION_DAYS = read_int_env("BACKUP_RETENTION_DAYS", 7, minimum=1, maximum=365)

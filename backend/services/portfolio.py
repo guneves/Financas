@@ -22,6 +22,7 @@ from services.fixed_income import (
     movement_affects_fixed_income_position,
 )
 from services import market_listing
+import tesouro_client
 from services.asset_categories import category_fields
 from services.investments import asset_display_name, fetch_investments
 from services.prices import (
@@ -32,6 +33,11 @@ from services.prices import (
     ticker_key,
 )
 from services.proceeds import paid_proceeds_by_asset
+from services.treasury import (
+    build_treasury_positions,
+    is_treasury_title,
+    lot_payload,
+)
 from validators import safe_float
 from applog import get_logger
 
@@ -176,6 +182,7 @@ def position_is_open(position):
 
 def portfolio_month_positions(
     investments_data, historical_prices, month_start, index_series, current_month_key, movement_dates=None,
+    treasury_prices="auto",
 ):
     """Cada posicao no fim do mes: {group_key: {ticker, class, applied, gross, net}}.
 
@@ -183,6 +190,8 @@ def portfolio_month_positions(
     So entram as posicoes com quantidade e valor aplicado positivos.
     `movement_dates` e a data de cada movimentacao, na mesma ordem, quando quem
     chama avalia varios meses (`iter_portfolio_months()`) e ja as leu.
+    `treasury_prices` sao os precos do Tesouro (`tesouro_client.get_prices()`),
+    lidos uma vez por quem avalia varios meses.
     """
     target_key = month_key(month_start)
     target_end = month_end(month_start)
@@ -196,6 +205,7 @@ def portfolio_month_positions(
         add_movement_to_positions(positions, investment)
 
     valued = {}
+    treasury_entries = []
     for group_key, position in positions.items():
         quantity = position["quantity"]
         applied_value = position["applied"]
@@ -233,6 +243,21 @@ def portfolio_month_positions(
         else:
             market_value = applied_value
 
+        # Tesouro Direto: marcado a mercado e liquido como na Posicao, abaixo.
+        if position["class"] == "FIXED_INCOME" and is_treasury_title(position["class"], position["ticker"], position["metadata"]):
+            purchase = parse_iso_date((position["metadata"] or {}).get("purchase_date"))
+            treasury_entries.append({
+                "id": group_key,
+                "asset_id": group_key,
+                "ticker": position["ticker"],
+                "metadata": position["metadata"],
+                "purchase_date": purchase.date() if purchase else None,
+                "applied": applied_value,
+                "original_applied": position["original_applied"],
+                "curve_value": market_value,
+            })
+            continue
+
         net_value = fixed_income_net_value(
             position["class"],
             position["metadata"],
@@ -250,6 +275,18 @@ def portfolio_month_positions(
             "net": net_value,
         }
 
+    if treasury_entries:
+        valuation_day = datetime.now() if target_key == current_month_key else target_end
+        for treasury_position in build_treasury_positions(treasury_entries, valuation_day, treasury_prices):
+            for entry, lot in zip(treasury_position["entries"], treasury_position["lots"]):
+                valued[entry["id"]] = {
+                    "ticker": entry["ticker"],
+                    "class": "FIXED_INCOME",
+                    "applied": entry["applied"],
+                    "gross": lot["gross"],
+                    "net": lot["net"],
+                }
+
     return valued
 
 
@@ -260,9 +297,11 @@ def iter_portfolio_months(investments_data, historical_prices, months_back, inde
     uma a uma daqui, para as duas sairem da mesma avaliacao."""
     current_month_key = month_key(datetime.now())
     movement_dates = [investment_movement_date(investment) for investment in investments_data]
+    treasury_prices = tesouro_client.get_prices()
     for month_start in portfolio_evolution_months(months_back):
         yield month_start, portfolio_month_positions(
             investments_data, historical_prices, month_start, index_series, current_month_key, movement_dates,
+            treasury_prices,
         )
 
 
@@ -472,6 +511,129 @@ def position_proceeds(data, paid_proceeds, claimed_assets):
     return paid_proceeds.get(asset_id) or {"net": 0.0, "net_12m": 0.0}
 
 
+def treasury_entry(data, curve_value):
+    """Uma compra do Tesouro para `build_treasury_positions()`."""
+    metadata = data.get("metadata") or {}
+    purchase = parse_iso_date(metadata.get("purchase_date"))
+    return {
+        "id": data["id"],
+        "asset_id": data.get("asset_id"),
+        "ticker": data["original_ticker"],
+        "metadata": metadata,
+        "purchase_date": purchase.date() if purchase else None,
+        "applied": data["total_invested"],
+        "original_applied": data["original_invested"],
+        "curve_value": curve_value,
+        "quote": data.get("quote") or {},
+        "contributed": data.get("contributed", 0),
+        "sold_cost_basis": data.get("sold_cost_basis", 0),
+        "realized_net_profit": data.get("realized_net_profit", 0),
+    }
+
+
+TREASURY_QUOTE_FRESH_DAYS = 4
+
+
+def treasury_quote(position, entries):
+    """A "cotacao" do titulo: o PU do arquivo do Tesouro, ou a da curva (BCB)."""
+    if position["valuation"] != "MARKET" or not position.get("price_date"):
+        return entries[0].get("quote") or {}
+    price_day = parse_iso_date(position["price_date"])
+    age_days = (datetime.now() - price_day).days if price_day else None
+    status = "fresh" if age_days is not None and age_days <= TREASURY_QUOTE_FRESH_DAYS else "stale"
+    return {
+        "id": None,
+        "source": "tesouro",
+        "quoted_at": f"{position['price_date']}T00:00:00Z",
+        "metadata": {"provider": "tesouro_transparente", "market_rate": position.get("market_rate")},
+        "age_hours": round(age_days * 24, 2) if age_days is not None else None,
+        "stale_after_hours": TREASURY_QUOTE_FRESH_DAYS * 24,
+        "status": status,
+        "is_stale": status != "fresh",
+    }
+
+
+def treasury_position_payload(position, paid_proceeds, claimed_assets):
+    """Uma posicao agrupada do Tesouro, no formato das outras de `assets`."""
+    entries = position["entries"]
+    first = entries[0]
+    asset_ids = []
+    for entry in entries:
+        if entry.get("asset_id") and entry["asset_id"] not in asset_ids:
+            asset_ids.append(entry["asset_id"])
+    proceeds = {"net": 0.0, "net_12m": 0.0}
+    for asset_id in asset_ids:
+        found = position_proceeds({"asset_id": asset_id}, paid_proceeds, claimed_assets)
+        proceeds["net"] += found["net"]
+        proceeds["net_12m"] += found["net_12m"]
+    totals = {
+        key: sum(entry.get(key, 0) for entry in entries)
+        for key in ("contributed", "sold_cost_basis", "realized_net_profit")
+    }
+    invested = position["invested"]
+    gross = position["gross"]
+    net = position["net"]
+    units = position["units"]
+
+    # A taxa media entra no lugar da taxa da compra: a descricao da linha a mostra.
+    metadata = dict(first["metadata"])
+    if position["average_rate"] is not None:
+        indexer = metadata.get("indexer") or "CDI"
+        if metadata.get("rate_type") != "PRE" and indexer == "CDI":
+            metadata["cdi_percentage"] = position["average_rate"]
+        else:
+            metadata["annual_rate"] = position["average_rate"]
+    metadata.pop("treasury_units", None)
+    metadata["purchase_date"] = first["metadata"].get("purchase_date")
+
+    lots = [lot_payload(lot) for lot in position["lots"]]
+    return {
+        "id": f"tesouro:{first['id']}" if len(entries) > 1 else str(first["id"]),
+        "asset_id": first.get("asset_id"),
+        "asset_ids": asset_ids,
+        # A posicao materializada de uma compra so continua com o id dela.
+        "source_transaction_id": str(first["id"]) if len(entries) == 1 else None,
+        "ticker": first["ticker"],
+        "name": asset_display_name("FIXED_INCOME", first["ticker"], first["ticker"]),
+        "class": "FIXED_INCOME",
+        "market_kind": None,
+        **category_fields("FIXED_INCOME", first["ticker"], first["metadata"]),
+        "quantity": round(units, 6) if units else 1,
+        "average_price": rounded_money(invested / units if units else invested),
+        "current_price": rounded_money(position["market_pu"] if position["valuation"] == "MARKET" and position["market_pu"] else gross),
+        "total_invested": rounded_money(invested),
+        "current_value": rounded_money(gross),
+        "net_value": rounded_money(net),
+        "taxes": rounded_money(max(rounded_money(gross) - rounded_money(net), 0)),
+        "is_tax_free": False,
+        "profitability_percent": round((net - invested) / invested * 100, 2) if invested > 0 else 0,
+        "proceeds_net": rounded_money(proceeds["net"]),
+        "proceeds_12m_net": rounded_money(proceeds["net_12m"]),
+        "dividend_yield_12m": round(proceeds["net_12m"] / net * 100, 2) if net > 0 else 0,
+        "total_return_percent": round(asset_total_return(totals, net, proceeds["net"]), 2),
+        "quote": treasury_quote(position, entries),
+        "metadata": metadata,
+        "currency": "BRL",
+        "native_current_price": None,
+        "fx_rate_today": None,
+        "lots": lots,
+        "treasury": {
+            "title_type": position["title_type"],
+            "maturity_date": position["maturity_date"],
+            "units": round(units, 6) if units is not None else None,
+            "average_rate": position["average_rate"],
+            "market_pu": rounded_money(position["market_pu"]) if position["market_pu"] else None,
+            "market_rate": position["market_rate"],
+            "price_date": position["price_date"],
+            "valuation": position["valuation"],
+            "custody": rounded_money(position["custody"]),
+            "iof": rounded_money(position["iof"]),
+            "income_tax": rounded_money(position["income_tax"]),
+            "lot_count": len(lots),
+        },
+    }
+
+
 def build_portfolio_snapshot(current_user_id):
     all_investments = fetch_investments(current_user_id)
     with get_db() as conn:
@@ -551,6 +713,7 @@ def build_portfolio_snapshot(current_user_id):
     current_net_value_all = 0
     distribution = {}
     claimed_proceeds_assets = set()
+    treasury_entries = []
 
     for data in grouped_assets.values():
         if data["total_quantity"] <= 0:
@@ -572,6 +735,11 @@ def build_portfolio_snapshot(current_user_id):
             data["current_price"],
             data.get("metadata"),
         )
+
+        # Tesouro Direto: agrupado por titulo e marcado a mercado depois do laco.
+        if data["class"] == "FIXED_INCOME" and is_treasury_title(data["class"], data["original_ticker"], data.get("metadata")):
+            treasury_entries.append(treasury_entry(data, current_value))
+            continue
 
         net_value = fixed_income_net_value(
             data["class"],
@@ -629,6 +797,14 @@ def build_portfolio_snapshot(current_user_id):
             ),
             "fx_rate_today": data.get("fx_rate_today") if data.get("currency", "BRL") != "BRL" else None,
         })
+
+    for position in build_treasury_positions(treasury_entries):
+        asset = treasury_position_payload(position, paid_proceeds, claimed_proceeds_assets)
+        total_invested_all += position["invested"]
+        current_total_value += position["gross"]
+        current_net_value_all += position["net"]
+        distribution["FIXED_INCOME"] = distribution.get("FIXED_INCOME", 0) + position["net"]
+        processed_assets.append(asset)
 
     for key, value in distribution.items():
         distribution[key] = round((value / current_net_value_all) * 100, 2) if current_net_value_all > 0 else 0

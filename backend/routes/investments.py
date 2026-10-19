@@ -51,6 +51,7 @@ from services.fixed_income import (
     validate_fixed_income_metadata,
 )
 from services.asset_categories import categories_by_asset
+from services.treasury import finish_treasury_refresh, start_treasury_refresh
 from services.investments import (
     CASH_ACCOUNT_KEY,
     delete_investment_cash_transaction,
@@ -857,6 +858,8 @@ def update_stock_prices(current_user_id):
 
         # BCB e yfinance sao buscados ao mesmo tempo; as gravacoes ficam nesta thread.
         fixed_income_plan = start_fixed_income_refresh(investments_to_update)
+        # Tesouro Direto: o arquivo de precos do Tesouro, ao mesmo tempo.
+        treasury_pending = start_treasury_refresh(investments_to_update)
         market_result = refresh_market_prices(
             current_user_id,
             investment_id,
@@ -864,8 +867,15 @@ def update_stock_prices(current_user_id):
             asset_id=asset_id,
             asset_class=asset_class,
         )
+        treasury_result = finish_treasury_refresh(
+            current_user_id, investments_to_update, treasury_pending, fixed_income_plan,
+        )
         fixed_income_result = finish_fixed_income_refresh(current_user_id, fixed_income_plan)
-        updated_assets = market_result.get("updated_assets", []) + fixed_income_result.get("updated_assets", [])
+        updated_assets = (
+            market_result.get("updated_assets", [])
+            + treasury_result["updated_assets"]
+            + fixed_income_result.get("updated_assets", [])
+        )
         failed_assets = market_result.get("failed_assets", []) + fixed_income_result.get("failed_assets", [])
         cached_assets = market_result.get("cached_assets", [])
         updated_count = len(updated_assets)

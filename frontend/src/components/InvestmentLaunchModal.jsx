@@ -74,6 +74,16 @@ const MODE_ITEMS = [
   { value: 'SELL', label: 'Venda', icon: ArrowDownRight },
 ]
 
+// "0,85" -> {treasury_units: 0.85}; vazio, nada. Um numero invalido e erro.
+function treasuryUnitsMetadata(form) {
+  if (form.asset_class !== TREASURY) return {}
+  const raw = String(form.treasury_units ?? '').trim()
+  if (!raw) return {}
+  const units = Number(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw)
+  if (!Number.isFinite(units) || units <= 0) throw new Error('Informe uma quantidade de títulos válida.')
+  return { treasury_units: units }
+}
+
 const initialForm = () => ({
   asset_class: 'STOCKS',
   ticker_or_name: '',
@@ -83,6 +93,9 @@ const initialForm = () => ({
   quantity: '1',
   price: '',
   other_costs: '',
+  // Tesouro: quantos titulos o extrato da corretora mostra (opcional; sem ele,
+  // o servidor divide o valor pelo PU do Tesouro na data).
+  treasury_units: '',
   fixed_income: emptyFixedIncomeForm(),
   // Sai da conta da carteira, a nao ser que o dono marque a caixa (CashLinkField).
   cash_link: emptyCashLink(),
@@ -203,6 +216,7 @@ export default function InvestmentLaunchModal({
       ticker_or_name: nextClass === BITCOIN ? BITCOIN_TICKER : '',
       ticker_confirmed: false,
       fixed_income: fixedIncomeFormFor(nextClass),
+      treasury_units: '',
     }))
   }
 
@@ -306,6 +320,7 @@ export default function InvestmentLaunchModal({
           ),
           purchase_date: form.transaction_date,
           other_costs: otherCosts,
+          ...treasuryUnitsMetadata(form),
         }
       : {
           purchase_date: form.transaction_date,
@@ -521,6 +536,19 @@ export default function InvestmentLaunchModal({
               className="app-input h-11"
             />
           </Field>
+
+          {mode === 'BUY' && form.asset_class === TREASURY ? (
+            <Field label="Quantidade de títulos (opcional)" hint="Como no extrato da corretora. Sem ela, o app usa o preço do Tesouro na data da compra.">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={form.treasury_units}
+                onChange={(event) => updateForm('treasury_units', event.target.value)}
+                placeholder="Ex: 0,85"
+                className="app-input h-11"
+              />
+            </Field>
+          ) : null}
 
           {mode === 'BUY' && isFixedIncome ? (
             <FixedIncomeFields

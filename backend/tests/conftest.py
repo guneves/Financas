@@ -39,6 +39,9 @@ def app_module():
     # Sem copia em disco do historico: cada teste comeca do cache que ele monta.
     # test_history_fetch.py liga a copia num arquivo proprio.
     os.environ["HISTORY_CACHE_FILE"] = ""
+    # Nenhum teste baixa os precos do Tesouro; quem precisa usa tesouro_client.set_prices().
+    os.environ["TESOURO_PRICES_URL"] = ""
+    os.environ["TESOURO_PRICES_FILE"] = ""
     os.environ["CORS_ORIGINS"] = "*"
     # Log so no stderr: os testes nao criam backend/logs.
     os.environ["LOG_TO_FILE"] = "0"
