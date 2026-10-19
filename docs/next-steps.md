@@ -334,6 +334,21 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
 - [ ] The Proventos filter panel's "Ativo" is still a plain select; the search is in the form only.
 - [ ] Not tried on the phone (the asset list now opens in the flow of the sheet, not floating).
 
+### Tesouro Direto marked to market (2026-10-19) — what is left
+- [ ] **Owner, after the deploy:** Ajustes › Integrações shows "Tesouro Transparente" ok (the
+  server must reach `www.tesourotransparente.gov.br`; this cloud session could not, so the download
+  and the resource URL were never tried for real — only a synthetic file). Then compare Posição ›
+  Tesouro Direto with the BTG statement: quantity, Saldo bruto, Saldo líquido. A title that shows
+  "valor segue a curva" has a name without type + year, or the file is missing.
+- [ ] If the quantity differs from BTG's, type "Quantidade de títulos" — only on a new buy today;
+  an edit of an old buy has no field for it (Operações › Editar would need it).
+- [ ] Renda+/Educa+ custody on an early sale: modelled as the regular 0.20% a.a. from D+1 (not
+  before 2025). Confirm with BTG's líquido; if BTG shows less, the rule is different for them.
+- [ ] Names stay upper-case (the asset's ticker); BTG shows "Tesouro IPCA+ 2045 (NTNB Princ...)".
+- [ ] A redemption of a grouped title writes one row per purchase it touches (oldest first) in
+  Operações; the IR report still reads each as a fixed-income sale.
+- [ ] The Investidor10 TWR gap (2026: 14.67% vs 16.64%) was mostly this; re-check after the deploy.
+
 ### Automatic proventos and the investments Extrato (2026-10-16) — what is left
 - [ ] Owner walk-through: Lançamentos → Extrato → "Investimentos" (operações + proventos, search,
   Tudo/Operações/Proventos), and Investimentos → Proventos → "Atualizar". Register a buy with a
@@ -502,12 +517,6 @@ Seen in Investidor10 PRO and not built; each needs the owner's call first.
   exact at each month end and interpolated in between; a ticker with no Yahoo history (delisted:
   GALG11, JBSS3, MALL11, NEOE3) sits at cost; a provento paid while the position is empty is
   dropped. The response's `notes[]` lists these.
-- **Tesouro Direto is valued by accrual, Investidor10 marks it to market.** Each Tesouro purchase
-  is stored as 1 title × the amount paid (the Investidor10 import did that); Investidor10 keeps
-  the fractional quantity (5.95 × R$ 168,02) and the daily PU. On 2026-10-17 our Renda+ 2065 was
-  R$ 8.122 vs R$ 9.365 there, and that is most of the remaining TWR gap (2026: 14.67% vs
-  16.64%). Needs: the fractional quantity (amount ÷ PU of the purchase day, or re-import), and the
-  Tesouro Transparente PU history as the price source for Tesouro titles.
 - **"Últimos 12 meses" differ by definition**: Investidor10 chains 13 calendar months (from the
   start of the month a year ago — Oct/2025–Oct/2026 = 25.46%), our 1A is 12 (Nov–Oct). Decide
   with the owner whether 1A should follow Investidor10.

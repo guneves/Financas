@@ -155,6 +155,7 @@
 | Fixed-income coupons and amortizations typed ahead (040): new provento type `INTEREST` ("Juros (cupom)"; table rebuilt for the CHECK), no data com for INTEREST/AMORTIZATION (payment date used), the coupon's default IR from the regressive table since the title's first purchase (0 if tax-free or not fixed income), `repeat: {every_months, count}` on the POST writes every payment at once (each with its own date's rate), paid ones land in the Corretora as "Juros: <título>", IR report: coupon with IR → 06, without → 12, amortization out. Proventos' form switches to Pagamento / Valor bruto / IR / Repetir for a fixed-income asset. `test_fixed_income_interest.py` (24), 1381 pytest, 122 node; clicked through in Chromium | 2026-10-19 |
 | Investir charts fast and the index comparison fair: history caches copied to disk (`history_store.py`, `history_cache.json` next to the DB) so a deploy no longer waits for Yahoo/BCB; stored index closes served while they refresh in the background; proventos' sync invalidates only when it changed something; `accrual_factor_until()` by cumulative products, one pass for every asset's TWR, outputs identical. Rentabilidade starts the portfolio, the CDI and every index at 0% at the same point (the month before the period, or before the first operação) and the cards cover the same months. 1392 pytest, 122 node; Chromium screenshots | 2026-10-19 |
 | Asset categories, proventos by type, asset search: ETFs are "ETFs" and Tesouro Direto its own category (computed on read, `services/asset_categories.py`; the DB class is unchanged), fixed income's sector is its indexer (Pré-fixado / Pós-fixado / IPCA+), Registrar provento asks the type first and searches only the assets that can pay it (`lib/proceedsRules.js`), the sale picks its asset by typing (`AssetPicker`), the buy offers ETFs and Tesouro Direto | 2026-10-19 |
+| Tesouro Direto marked to market and grouped: the Tesouro Transparente price file (`tesouro_client.py`, cached in memory and as `tesouro_precos.csv` next to the DB, never blocking a read) gives each purchase its number of titles (amount ÷ the purchase day's PU at the contracted rate, or the typed "Quantidade de títulos") and today's PU de venda; purchases of the same title are one position with the rate that gives the same value at maturity; net = gross − B3 custody (0.20% a.a. pro rata die from D+1, not before 2025; Selic exempt to R$ 10 mil) − IOF − IR per purchase (`services/treasury.py`). Evolution, Rentabilidade and "Atualizar cotações" (source `tesouro`) read the same PU; the redemption of a grouped title goes oldest purchase first (PEPS, `lib/treasury.js`). Posição › Tesouro Direto shows Vencimento, Quantidade, PU, Saldo líquido, Saldo bruto and "Detalhes do título". `test_treasury.py` (36), 1448 pytest, 136 node; Chromium screenshots on a synthetic price file | 2026-10-19 |
 
 ---
 
@@ -1060,4 +1061,34 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   name that says nothing fits both.
 - Two tests changed with the rule: a coupon on a stock is now 400 (it was accepted with IR 0), and
   the "amount per unit on a CDB" case uses an amortization instead of a dividend.
+
+### Tesouro Direto marked to market (2026-10-19)
+
+- **Source.** The BCB has no Tesouro Direto prices (SGS carries the CDI, the Selic and the IPCA);
+  the official daily PU and rate of every title since 2002 is the Tesouro Nacional's CSV on Tesouro
+  Transparente ("Taxas dos Títulos Ofertados pelo Tesouro Direto"), read by header (`;`, decimal
+  comma, dd/mm/aaaa). If the direct resource URL answers 403/404/410, the client asks the CKAN
+  package for the CSV's new address. The file is tens of MB: it is downloaded at most every 6 h,
+  in the background on a read (a read never waits — no prices means the curve), synchronously on
+  "Atualizar cotações"; prices older than 10 days are not used.
+- **Titles from purchases.** A purchase stays stored as 1 × the amount (no migration). Titles =
+  (amount − other costs) ÷ PU de compra of the purchase day (the row on or before the date); for a
+  zero-coupon title (IPCA+, Prefixado) the PU is moved from the file's rate to the contracted rate,
+  PU × ((1 + file rate) / (1 + contracted))^(du/252), when they differ by ≤ 1.5 pp — the owner
+  types the rate the broker showed, the file has the morning price. du ≈ weekdays × 252/261. The
+  typed `metadata.treasury_units` wins.
+- **Matching a name.** Type from keywords (Selic/LFT, Prefixado/LTN, NTN-F, IPCA/NTN-B Principal,
+  "com Juros"/NTN-B, IGPM, Renda+, Educa+) and the first year in the name; Renda+ and Educa+ are
+  named by the conversion year and mature 19 and 4 years later (Renda+ 2065 → 15/12/2084).
+- **Average rate.** The t with Σ C_i (1 + t)^T_i = Σ C_i (1 + t_i)^T_i (C remaining cost, T years
+  to maturity): the yield of the whole position held to maturity; slightly above the cost-weighted
+  mean (convexity), equal to it without a maturity.
+- **Custody.** B3 OC 014/2024-VPC: since 31/12/2024 the 0.20% a.a. is provisioned daily from D+1 and
+  charged at the sale, maturity or a coupon; the January 2025 semiannual charge was cancelled, so
+  the provision counts from 01/01/2025 at the earliest. Computed on each day's market value from the
+  file. Tesouro Selic: exempt on the first R$ 10 mil (all Selic titles together). Renda+/Educa+ pay
+  it only on an early sale or above the income limit — a "sell today" net includes it; the exact
+  early-sale rule for those two was not confirmed. IR base is the income after custody and IOF.
+- The evolution's net now matches Posição for Tesouro (same per-purchase calculation at each month
+  end); TWR reads the same daily PU.
 

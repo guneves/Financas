@@ -56,16 +56,18 @@ def fixed_income_net_value(asset_class, metadata, invested_value, market_value, 
         return market_value
 
     days_invested = max((reference_date - purchase_date).days, 0)
-    if days_invested <= 180:
-        tax_rate = 0.225
-    elif days_invested <= 360:
-        tax_rate = 0.200
-    elif days_invested <= 720:
-        tax_rate = 0.175
-    else:
-        tax_rate = 0.150
+    return market_value - (profit * regressive_ir_rate(days_invested))
 
-    return market_value - (profit * tax_rate)
+
+def regressive_ir_rate(days_invested):
+    """Aliquota do IR da renda fixa pelos dias corridos da aplicacao (Lei 11.033/2004)."""
+    if days_invested <= 180:
+        return 0.225
+    if days_invested <= 360:
+        return 0.200
+    if days_invested <= 720:
+        return 0.175
+    return 0.150
 
 
 def movement_affects_fixed_income_position(investment):

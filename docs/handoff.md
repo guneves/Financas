@@ -7,47 +7,61 @@
 
 ---
 
-## Session — 2026-10-19 · Asset categories, proventos by type, asset search
+## Session — 2026-10-19 · Tesouro Direto marked to market, grouped by title
 
-Cloud session, owner request (in Portuguese): ETFs must show as ETFs, not Ações; Registrar provento
-must ask what fits the type (dividendos, JCP, amortização, cupom) and only offer the assets that can
-pay that type, with a search box that suggests as you type; fixed income's sector should be
-pré-fixado / pós-fixado / IPCA+ instead of "Sem setor"; a Tesouro Direto category separate from
-Renda fixa. Mid-session: the sale's asset select becomes the same search, and "open a PR when done".
-Docs read directly (no scout).
+Cloud session, owner request (in Portuguese, with a BTG screenshot: Tesouro IPCA+ 2045 0,85 títulos
+líq. R$ 1.144,07 / bruto R$ 1.188,36; Renda+ 2065 (venc. 15/12/2084) 42,79 títulos líq.
+R$ 8.881,46 / bruto R$ 9.240,47): fix the Tesouro analysis, group the same titles with a proper
+average rate, value them exactly with fees and mark-to-market "from the Banco Central API".
+Scout not used (the first `Agent` call failed on a missing parameter; docs read directly).
 
 ### Done
-- `services/asset_categories.py`: category computed on read (ACAO/ETF/BDR/FII/RENDA_FIXA/TESOURO/
-  CRIPTO/OTHER) and the fixed-income `rate_kind` (PRE/POS/IPCA). On `/api/assets`, positions,
-  movements (`asset_category_label`) and the sector rows. `TESOURO` added to the title types (both
-  sides), not tax-free.
-- Sectors: fixed income grouped by indexer (source `INDEXER`, segment = title type).
-- `routes/proceeds.py`: refuses the type the class never receives, only when asset/type change.
-- Proventos form: type first (with who can pay it), `AssetPicker` filtered by
-  `lib/proceedsRules.js`, fields by type (FIXED: payment, gross, IR only for the coupon, repeat;
-  MARKET: data com/ex, per share, qty, gross, IR except amortization). Lists show the category.
-- Registrar operação: sale picks by typing (`AssetPicker`, with category, quantity, value); buy
-  offers "ETFs" (catalog filtered to ETFs; Ações no longer lists them) and "Tesouro Direto" (title
-  names suggested, Rentabilidade set from the name, no type select).
-- Posição: Tesouro Direto tab grouped by indexer; the donut by category. Operações shows the category.
-- Tests: `test_asset_categories.py` (20), two old tests changed with the rule (see done-tasks);
-  `proceedsRules.test.js`, `fixedIncome.test.js`. 1412 pytest, 131 node, `vite build`. Screens
-  checked in Chromium (390 px and 1280 px) on a throwaway DB.
+- `tesouro_client.py`: the Tesouro Transparente CSV (the BCB publishes no Tesouro PU — only CDI,
+  Selic, IPCA), parsed by header into compact per-title series; title found from the owner's name
+  (type keywords + year; Renda+/Educa+ by conversion year); cache in memory + `tesouro_precos.csv`
+  next to the DB, 6 h fresh, 10 days max; a read never waits; CKAN discovery if the URL moves.
+  Config `TESOURO_PRICES_URL` / `TESOURO_PRICES_FILE` (empty disables; conftest blanks both).
+- `services/treasury.py`: titles per purchase, market value, custody (B3 OC 014/2024), IOF, IR per
+  purchase, the average rate (IRR-to-maturity), grouping, "Atualizar cotações" quotes (source
+  `tesouro`). `regressive_ir_rate()` split out of `fixed_income_net_value()`.
+- `services/portfolio.py`: the snapshot merges Tesouro purchases into one position (`lots`,
+  `treasury`, `asset_ids`); the evolution values Tesouro lots the same way (gross and net match
+  Posição); `services/returns.py` reads the same daily PU. Health: "Tesouro Transparente" (passive,
+  reads the cache — the file is too big for an active probe).
+- Frontend: Posição › Tesouro Direto table/card (Vencimento, Quantidade, PU, Saldo líquido, Saldo
+  bruto), "Detalhes do título" sheet (custody/IOF/IR, PU and data base, market vs your rate, each
+  purchase), grouped redemption oldest first (`lib/treasury.js`, tested), delete of a grouped
+  title by asset, optional "Quantidade de títulos" on a Tesouro buy, quote source "Tesouro
+  Nacional".
+- Tests: `test_treasury.py` (36), `treasury.test.js` (5). 1448 pytest, 136 node, `vite build`.
+  Chromium screenshots (1280 and 390 px) and a real PEPS redemption on a throwaway server with a
+  synthetic price file.
 
 ### Not done, and why
-- No new DB class: rebuilding `assets` cascades into seven tables (see CLAUDE.md). So Alocação ›
-  Por classe, targets, goals and Rentabilidade's class filter still show 4 classes — in
-  `next-steps.md` as an owner decision.
-- Old Tesouro titles typed as CDB stay in Renda fixa until edited (no data migration).
-- The Proventos filter panel's "Ativo" stays a select. Not tried on the phone.
+- **Never downloaded the real file**: this container's proxy refuses tesouro*.gov.br and
+  api.bcb.gov.br, and WebFetch could not resolve them. The URL (CKAN resource
+  `796d2059-…/PrecoTaxaTesouroDireto.csv`) and the header names come from memory of the public
+  dataset; the parser finds columns by keyword, and discovery covers a moved URL — but the first
+  real run is on the server. Owner check in `next-steps.md`.
+- Renda+/Educa+ early-sale custody modelled as the regular 0.20% (sources disagree); BTG's
+  líquido is the check.
+- No field to type the titles on an existing purchase (edit form); no data migration.
 
 ### Learned
+- A redemption of a merged title must point to purchases (`related_id`); the lots carry their ids
+  and gross for that. A position merged from >1 purchase has id `tesouro:<first id>` and no
+  `source_transaction_id`; a single purchase keeps its own id, so old redemptions still match.
+- `Menu` closes on scroll: in Playwright, `scroll_into_view_if_needed()` + a wait before clicking
+  "⋯"; on desktop the hidden mobile list is first in the DOM, so take `.last`.
+- The Posição resgate needs a Corretora account (or the CashLinkField refuses): create one with
+  `POST /api/accounts {"type": "BROKERAGE"}` on a throwaway server.
+
+### Carried from the asset-categories session (2026-10-19), still open
+- No new DB class (Alocação by class, targets, goals, Rentabilidade's filter still 4 classes);
+  old Tesouro titles typed as CDB stay in Renda fixa until edited — and so get no market price.
+  The Proventos filter's "Ativo" is a select. Not tried on the phone.
 - A button inside `Field` (a `<label>`) gives the click back to the input: a combobox option must
-  `preventDefault()` or the list reopens after a pick. Fixed in `TickerAutocomplete` too.
-- A floating list inside a `Sheet` on a 390 px screen is clipped by the sheet's scroll; the
-  `AssetPicker` list is in the flow instead.
-- Signup returns `access_token` (not `token`); the screens read it from localStorage
-  `@financeMVP:auth`.
+  `preventDefault()`. Signup returns `access_token`.
 
 ### Carried from the chart-speed session (2026-10-19), still open
 - Chart speed and the fair comparison not measured against real yfinance/BCB or the owner's data;
@@ -177,7 +191,7 @@ Docs read directly (no scout).
   a guess), same for credit/debit "final", declined, estorno, boleto, BTG Investimentos.
 - Mapping screen (Phase 6 step 5) and raw-text-to-inbox (step 6): not built, on purpose.
 - `schema.sql` still lacks the 028 tables and 031's columns (032, 033 and 035 are in it).
-- TWR: Tesouro mark-to-market, the 12-month window definition (owner to decide), AMER3 not added.
+- TWR: the 12-month window definition (owner to decide), AMER3 not added.
 - `adb` is at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`; the installed app is the
   release build, so `run-as` can't read `financas_notify.db` — captures come from the owner's
   export.

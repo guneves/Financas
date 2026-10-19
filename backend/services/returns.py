@@ -52,6 +52,8 @@ from services.portfolio import (
     position_value_today,
 )
 from services.prices import ticker_key
+from services.treasury import market_value_on
+import tesouro_client
 from validators import safe_float
 
 # O fechamento vem com auto_adjust=False (services/prices.py): o preco NAO
@@ -297,10 +299,20 @@ class FixedIncomeCurve:
         return start_factor * (end_factor / start_factor) ** weight
 
 
-def position_value_on(position, day_end, is_today, prices, curve, day_key=None):
-    """Valor bruto de uma posicao no fim do dia (`day_key`: o dia em AAAA-MM-DD)."""
+def position_value_on(position, day_end, is_today, prices, curve, day_key=None, treasury_prices=None):
+    """Valor bruto de uma posicao no fim do dia (`day_key`: o dia em AAAA-MM-DD).
+
+    Tesouro Direto com os precos do Tesouro (`treasury_prices`): o PU de
+    mercado do dia, como a Posicao e a evolucao."""
     quantity = position["quantity"]
     applied = position["applied"]
+    if treasury_prices is not None and position["class"] == "FIXED_INCOME":
+        value = market_value_on(
+            position["class"], position["ticker"], position["metadata"], applied,
+            position["original_applied"], day_end, treasury_prices,
+        )
+        if value is not None:
+            return value
     if is_today:
         return position_value_today(
             position["class"], quantity, applied, position["original_applied"],
@@ -321,6 +333,7 @@ def daily_group_values(investments, daily_prices, index_series, first_day, now):
     """[(AAAA-MM-DD, {group_key: valor bruto})] no fim de cada dia, de `first_day` a hoje."""
     today = datetime(now.year, now.month, now.day)
     prices = PriceHistory(daily_prices)
+    treasury_prices = tesouro_client.get_prices()
     curve = FixedIncomeCurve(index_series, today.replace(hour=23, minute=59, second=59))
     # A data de cada movimentacao, lida uma vez (nao a cada dia do laco).
     ordered = sorted(
@@ -339,7 +352,7 @@ def daily_group_values(investments, daily_prices, index_series, first_day, now):
         is_today = day == today
         day_key = day.strftime("%Y-%m-%d")
         values = {
-            group: position_value_on(position, day_end, is_today, prices, curve, day_key)
+            group: position_value_on(position, day_end, is_today, prices, curve, day_key, treasury_prices)
             for group, position in positions.items()
             if position_is_open(position)
         }

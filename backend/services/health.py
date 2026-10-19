@@ -1,4 +1,4 @@
-"""Healthcheck das integracoes: yfinance, brapi e BCB.
+"""Healthcheck das integracoes: yfinance, brapi, BCB e o Tesouro.
 
 `check_integrations()` faz um teste ativo em cada provedor (um ticker, uma
 serie curta), com o mesmo limite de tempo das buscas reais, e junta o ultimo
@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 
 import brapi_client
+import tesouro_client
 from applog import get_logger
 from config import PRICE_FETCH_TIMEOUT_SECONDS
 from integrations import provider_snapshot
@@ -81,10 +82,28 @@ def check_bcb():
     return {"status": "ok", "latency_ms": elapsed, "detail": detail}
 
 
+def check_tesouro():
+    """Sem teste ativo: o arquivo tem dezenas de MB. Le o cache (e, sem ele,
+    pede o download em segundo plano) e o ultimo resultado das buscas."""
+    if not tesouro_client.TESOURO_PRICES_URL:
+        return {"status": "not_configured", "detail": "TESOURO_PRICES_URL vazio; o Tesouro Direto fica na curva."}
+    loaded = tesouro_client.get_prices()
+    last = provider_snapshot("tesouro")
+    if loaded is None:
+        if last.get("last_error"):
+            return {"status": "error", "detail": last["last_error"]}
+        return {"status": "stale", "detail": "Preços do Tesouro ainda não baixados; o Tesouro Direto fica na curva."}
+    detail = f"Preços até {loaded.latest_date.strftime('%d/%m/%Y')}" if loaded.latest_date else "Preços sem data"
+    if loaded.latest_date is None or (datetime.now().date() - loaded.latest_date).days > STALE_QUOTE_DAYS:
+        return {"status": "stale", "detail": detail + " (atrasado)"}
+    return {"status": "ok", "detail": detail}
+
+
 CHECKS = {
     "yfinance": ("Yahoo Finance (yfinance)", "Cotações de ações e FIIs", check_yfinance),
     "brapi": ("brapi", "Cotações da B3 (primário quando há token)", check_brapi),
     "bcb": ("Banco Central (SGS)", "CDI e IPCA da renda fixa", check_bcb),
+    "tesouro": ("Tesouro Transparente", "Preço de mercado do Tesouro Direto", check_tesouro),
 }
 
 

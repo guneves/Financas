@@ -16,6 +16,7 @@ __pycache__/
 .jwt_secret
 # Copia em disco do historico dos graficos (backend/history_store.py)
 history_cache.json*
+tesouro_precos.csv*
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
