@@ -10,6 +10,8 @@ import {
   livePlanTotals,
   moneyInputValue,
   parseMoneyInput,
+  planFlagKey,
+  visibleFlags,
   percentOf,
   sortFlags,
   spendStatus,
@@ -168,4 +170,26 @@ test('categoryAmountPreview: o % do Gastar em reais', () => {
   assert.equal(categoryAmountPreview(3500, null), null)
   assert.equal(categoryAmountPreview(3500, Number.NaN), null)
   assert.equal(categoryAmountPreview(null, 10), null)
+})
+
+test('planFlagKey: codigo + mes, e a meta nos alertas de meta', () => {
+  assert.equal(planFlagKey({ code: 'SPEND_PACE', tone: 'warning' }, '2026-10'), 'plan:2026-10:SPEND_PACE')
+  assert.equal(planFlagKey({ code: 'GOAL_SHORT', goal_id: 7 }, '2026-10'), 'plan:2026-10:GOAL_SHORT:7')
+  // O valor do alerta muda todo dia; a chave nao.
+  assert.equal(planFlagKey({ code: 'SPEND_PACE', amount: 10 }, '2026-10'), planFlagKey({ code: 'SPEND_PACE', amount: 99 }, '2026-10'))
+})
+
+test('visibleFlags: o dispensado nao volta no mes; um novo, outra meta ou o mes seguinte voltam', () => {
+  const flags = [
+    { code: 'SPEND_PACE', tone: 'warning', amount: 120 },
+    { code: 'GOAL_SHORT', tone: 'loss', goal_id: 1 },
+    { code: 'GOAL_SHORT', tone: 'loss', goal_id: 2 },
+  ]
+  const dismissed = ['plan:2026-10:SPEND_PACE', 'plan:2026-10:GOAL_SHORT:1']
+  assert.deepEqual(visibleFlags(flags, '2026-10', dismissed).map((flag) => flag.goal_id ?? flag.code), [2])
+  // O ritmo virou estouro: outro codigo, outro alerta.
+  assert.equal(visibleFlags([{ code: 'SPEND_OVER', tone: 'loss' }], '2026-10', dismissed).length, 1)
+  // Mes seguinte: tudo de novo.
+  assert.equal(visibleFlags(flags, '2026-11', dismissed).length, 3)
+  assert.deepEqual(visibleFlags(undefined, '2026-10', dismissed), [])
 })

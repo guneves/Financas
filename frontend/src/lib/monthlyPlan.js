@@ -99,6 +99,20 @@ export function sortFlags(flags = []) {
   return [...flags].sort((a, b) => (TONE_ORDER[a.tone] ?? 9) - (TONE_ORDER[b.tone] ?? 9))
 }
 
+// Dispensar um alerta e por aparelho (lib/planFlags.js), como o "Precisa de
+// atencao" do Inicio. A chave e o caso: codigo + mes (+ meta). O mesmo alerta
+// nao volta neste mes; um alerta novo (outro codigo — o ritmo que vira
+// estouro), outra meta ou o mesmo no mes seguinte voltam.
+export function planFlagKey(flag, month) {
+  const key = `plan:${month}:${flag.code}`
+  return flag.goal_id === undefined || flag.goal_id === null ? key : `${key}:${flag.goal_id}`
+}
+
+export function visibleFlags(flags = [], month, dismissedKeys = []) {
+  const dismissed = new Set(dismissedKeys)
+  return flags.filter((flag) => !dismissed.has(planFlagKey(flag, month)))
+}
+
 // Estado da barra (mesmas cores do orcamento por categoria).
 export function spendStatus(flags = []) {
   if (flags.some((flag) => flag.code === 'SPEND_OVER')) return 'OVER'

@@ -167,7 +167,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 115 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing` and `compoundInterest`, 117 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -580,9 +580,18 @@ mobile-docs/
   refused (409) and its rows ride along with the next invoice's payment (`invoice_open_lines()`).
 - **Budget spent (decision 1):** card purchases count in full in the purchase month (a refund
   subtracts in its month); invoice payments never count.
-- **Início's "Disponível por dia"** is the month plan's Saldo do plano (`plan_balance`) ÷ days left
-  in the month (today included; the server returns the same as `daily_available`); with no plan it falls back to balance − the invoices still to pay (each card's
-  next invoice and any overdue one).
+- **"Disponível por dia" lives in Planejar › Orçamento, not Início** (2026-10-19): the month
+  plan's Saldo do plano (`plan_balance`) ÷ days left in the month, today included, read from the
+  server's `daily_available` — never computed on the client, and no fallback without a plan. In its
+  old place Início has **"Resumo do mês"** (`MonthSummary` in `pages/Dashboard.jsx`): Resultado
+  (receitas − despesas, the owner's part), Entrou, Saiu, Investido (aportes − resgates, when either
+  happened) and the net of other people (label by sign, value unsigned, → A receber), all from the
+  cash flow's current month (`lib/cashFlow.js`); privacy mode masks every value and Resultado's
+  colour. The hero holds only the balance and the accounts.
+- **The plan's flags can be dismissed per device** (`lib/planFlags.js`, localStorage, like
+  Início's attention cards): the key is `planFlagKey()` in `lib/monthlyPlan.js` — flag code +
+  month (+ `goal_id`) — so the same flag stays gone that month, a new code, another goal or the
+  next month comes back. The Gastar bar's colour still reads every flag; nothing goes to the server.
 - **Proventos of ações/FIIs are computed, not typed** (026, `services/proceeds_sync.py`):
   `POST /api/investment-proceeds/sync` takes each event from StatusInvest (`statusinvest_client.py`;
   brapi's dividends need a paid plan) and multiplies its value per share by the position on its

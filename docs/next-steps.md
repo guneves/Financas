@@ -11,11 +11,9 @@
 
 ### Plano do mês a partir da renda — what is left
 The backend (038) and the Orçamento redesign are in (see `done-tasks.md`, 2026-10-19). Open:
-- [ ] **Início's "Disponível por dia" goes (next session).** Orçamento now shows Saldo do plano
-  and Disponível por dia from the API (`plan_balance`, `daily_available`); Início still shows its
-  own tile, computed on the client (`Dashboard.jsx`, `dailyAvailable`, with the fallback balance −
-  invoices when there is no plan). Remove it there, and the "Disponível por dia" rule in
-  `CLAUDE.md` with it — decide what, if anything, Início keeps in its place.
+- [ ] Owner check on the phone: Início's new "Resumo do mês" card (in place of Disponível por dia)
+  against a real month, with a shared expense; dismiss one of Orçamento's plan flags and confirm it
+  stays gone until next month. Both only tried in Chromium on the seed.
 - [ ] Inheritance is new for categories: a month without its own rows now shows the previous
   plan's categories (it used to show none). Editing a category in such a month (`?month=`) makes
   the month its own plan first. Check on the server after the deploy that past months read as
