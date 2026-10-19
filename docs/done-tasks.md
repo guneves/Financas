@@ -144,6 +144,7 @@
 | Investimentos › Calculadora: compound interest simulator (initial amount, monthly contribution at the end or start of the month, rate per year or month by equivalent rate, period in years or months, optional inflation → value in today's reais). Pure rule in `lib/compoundInterest.js`, 12 node tests | 2026-10-18 |
 | Card history no longer disappears (migration 037): deleting a purchase removes only its open installments (the API refuses a paid one, 409); a purchase or refund dated into an already-paid invoice — typed or approved in Aprovar — starts at the first unpaid one; a card with open items is not deleted, one with history is archived (`credit_cards.archived_at`), an empty one is deleted; an invoice payment can be undone (`DELETE /api/cc-expenses/payments/<id>`, Extrato › "⋯" › Desfazer pagamento). `test_card_history.py` (19) | 2026-10-18 |
 | Owner's review, items 4–21: card edit (name, due and closing day); account edit on screen (name, institution, initial balance, default, unlink from the portfolio, reactivate); the default account never lost (archived or turned Corretora → another takes the mark; a 409 no longer clears it; never a Corretora); lançamento of an archived account editable, its name shown; `account_id: ""` on edit refused; a transfer edit across currencies refused; import rules skip paid proventos; CSV type "d"/"Depósito"/"Devolução"; OFX "-42,90", CSV "1.500", a repeated FITID; recurrences skip archived accounts (`blocked`); closing day 29–31 in a short month; old card endpoints (`/status`, `/invoice-status` removed; list POST rounded, no `PAID`, a `client_id` per purchase); dates and months stored zero-padded; no third category level or archived parent; `JWT_SECRET` never the public default (generated into `.jwt_secret`), signup closed once a user exists (`ALLOW_SIGNUP`); Aprovar "Nx de R$" read as the installment; `parseMoneyInput` "1,234.56"/"0.500"; `round()` on quotes; a hand-written button height. `test_card_edit.py`, `test_signup_and_secret.py` and cases in the existing files (1305 pytest), 108 node, 52 JVM | 2026-10-18 |
+| Início's account strip opens at the far left on the phone: `scroll-px-4` on the strip, so `snap-start` stops snapping the first account to 16 px (Chromium, 390 px: `scrollLeft` 0 with 1 and 8 accounts, cold load, back and in-app navigation) | 2026-10-19 |
 
 ---
 
@@ -866,3 +867,13 @@ Three bugs from the owner's review, all reproduced first:
    Pagar button. Refused (409) while the payment has a receipt. A payment whose card was deleted
    before 037 can be undone too (it is only removed). The status PATCHes clear `paid_by`.
 
+### Início's account strip opened scrolled — 2026-10-19
+The strip under "Saldo em conta" is `-mx-4 px-4` (bleeds to the green block's edge, content inset
+16 px) with `snap-x` and `snap-start` on each account. A snap position aligns the item's edge with
+the *snapport*, which is the scroll container minus `scroll-padding` — the ordinary padding does not
+count. So the first account's snap position was `scrollLeft` 16, and Chromium snaps there on layout
+(16 px is inside proximity): with enough accounts to overflow, Início opened with the first account
+flush against the block's rounded edge, on every open. Not `lib/scroll.js` (window only) and not a
+late width change (same result after the data settled). Fix: `scroll-px-4`, scroll-padding equal to
+the padding; the first snap position is 0 and the next account still snaps 16 px from the edge.
+`sm` and up is a grid with `overflow-visible`, not a scroll container, so it is unchanged.

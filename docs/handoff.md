@@ -7,57 +7,48 @@
 
 ---
 
-## Session — 2026-10-18 (night, later) · Owner's review: items 4–21 ("Média" and "Baixa")
+## Session — 2026-10-19 · Início's account strip opened scrolled
 
-Cloud session; read the docs directly (concrete list from the owner). Every item fixed, with a
-test that fails without the fix; one PR.
+Cloud session, one bug; read the docs directly (narrow task). One PR.
 
 ### Done
-- **Cards (4, 11, 13):** `PATCH /api/credit-cards/<id>` takes `name`, `due_day`, `closing_day`
-  (each optional) besides the autopay; Ajustes › Cartões › "⋯" › Editar cartão. Closing day 29–31
-  is clamped to the purchase month in `compute_invoice_start()`. `PATCH /api/cc-expenses/status`
-  and `/invoice-status` **removed** (and from `dataApi.js`); the list `POST /api/cc-expenses`
-  rounds, refuses `PAID` and gives each purchase a `client_id` (installments of one request share
-  it; a repeated installment opens a new purchase).
-- **Accounts (5, 6):** Ajustes › Contas › "⋯": Editar conta (name, institution, initial balance —
-  negative allowed), Tornar padrão, Vincular/Desvincular da carteira, Arquivar; "Arquivadas (n)"
-  with Reativar. The server always has one default (`ensure_default_account()` writes the mark),
-  never a Corretora; the 409 no longer clears it first.
-- **Lançamentos (7, 16, 17):** `keep_or_require_account()`; Extrato sends `account_id` only when
-  changed and lists the archived own account as "(arquivada)"; `accountName` reads all accounts.
-- **Import (8, 9, 12):** `INVESTMENT_PROCEED` out of the rules' reach; `type_says_debit()`;
-  `THOUSANDS_ONLY` (dot only); `ofx_decimal_separator()`; a repeated FITID gets `:1`, `:2`.
-- **Recurrence (10):** `recurring_archived_account()`; `/run` returns `blocked`, Recorrentes and
-  Início show `blockedRecurringMessage()`.
-- **Dates (14), categories (15), security (18), Aprovar (19), money field (20), conventions (21)**:
-  see `CLAUDE.md` (new bullets) and `docs/done-tasks.md`.
-- pytest **1305 passed**; `npm test` **108**; JVM `NotifyParsersTest` + `NotifyPairingTest` **52**
-  (javac + junit 4.13.2 from `/opt/gradle-8.14.3/lib`, org.json/hamcrest jars from Maven Central);
-  `vite build` clean. Clicked through in Chromium on a throwaway DB (390 px Ajustes, desktop
-  Extrato): edit account, negative initial balance, Arquivadas › Reativar, edit card, edit a
-  lançamento of an archived account. No page errors.
+- **Cause found, not papered over:** the strip under "Saldo em conta" (`BalanceHero`,
+  `pages/Dashboard.jsx`) is `-mx-4 px-4` with `snap-x` and `snap-start` per account. Snap aligns
+  an item with the snapport, which ignores `padding` — so the first account's snap position was
+  `scrollLeft` 16 and Chromium snapped there on layout. Fix: `scroll-px-4` (scroll-padding = the
+  padding). No `scrollLeft = 0` reset was needed.
+- Reproduced and checked in Chromium (Playwright) at 390 px on a throwaway DB: before, 8 accounts
+  → `scrollLeft` 16 on cold load, browser back and in-app navigation; 1 account → 0 (no overflow).
+  After, 0 in all six cases, first account 16 px inside the block; scrolling still snaps the next
+  account 16 px from the edge and reaches the end with a 16 px gap. At 1280 px the list is still the
+  grid (`overflow-visible`). `npm test` 108 passed; `vite build` clean. pytest not run (no backend
+  change).
 
 ### Not done, and why
+- Not tried on the phone itself (Android WebView = Chromium, same snap rules, so expected to hold).
+- Screenshots were sent in the session, not committed.
+
+### Learned
+- `lib/scroll.js` restores only the window's vertical scroll; it never touches a horizontal strip.
+- Any other `snap-x` strip with side padding has the same trap — pair `px-N` with `scroll-px-N`.
+  `grep -rn "snap-x" frontend/src` found only this one today.
+
+### Carried from the owner's review session (2026-10-18 night, later), still open
 - **Item 19 has no real capture behind it** — the parser convention asks for one. The rule only
   fires on "Nx de R$ …"; replace the hand-made test texts with a capture when one shows up.
-- Stored dates without the zero are not rewritten (a migration would touch every money table for
-  a case the screens never produced); a one-off SQL check is in `next-steps.md`.
+- Stored dates without the zero are not rewritten; a one-off SQL check is in `next-steps.md`.
 - The list `POST /api/cc-expenses` still takes the invoice month as sent; archived cards still have
   no list/unarchive (both in `next-steps.md`).
 - The recurrence form refuses to save while its account is archived ("Conta esta arquivada") —
   intended: it is the nudge to pick another account.
-- `native-level.txt` not bumped: the Java change is inside the parser, no JS↔Java API changed. The
-  APK job will build a new APK because `frontend/android/` changed.
-
-### Learned / decisions
-- `"10,005"` in a CSV is 10.005 (Brazilian decimal comma), so the thousands rule is dot-only; the
-  first try made it symmetric and `test_commit_rounds_money_half_up` caught it.
-- The test DB is one per session: a test that needs "no user yet" cannot get it; the signup test
-  signs the owner up first and then closes signup.
+- `"10,005"` in a CSV is 10.005 (Brazilian decimal comma), so the thousands rule is dot-only.
+- The test DB is one per session: a test that needs "no user yet" cannot get it.
 - `parseMoneyInput` stays positive-only; Ajustes › Contas wraps it (`parseBalanceInput`) for a
   negative initial balance, and that field has no `inputMode="decimal"` (the keypad has no minus).
-- Making the default a Corretora is refused rather than allowed: the default is where a lançamento
-  with no account lands, and a Corretora's balance is hidden from Início.
+- Making the default a Corretora is refused: the default is where a lançamento with no account
+  lands, and a Corretora's balance is hidden from Início.
+- Throwaway server for screenshots: the backup dir variable is `DATABASE_BACKUP_DIR` (not
+  `BACKUP_DIR`); without it the boot backup lands in `backend/backups/` — delete it after.
 
 ### Carried from the card-history session (2026-10-18 late night), still open
 - Stuck data is not repaired: an item already open in an autopay-paid invoice stays until the owner
