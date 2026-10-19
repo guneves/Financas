@@ -182,7 +182,7 @@ backend/
   validators.py       # ValidationError + require_* / parse_* for request payloads
   auth.py             # hand-rolled JWT, token_required
   money.py            # rounded_money()
-  compression.py      # gzip for API JSON >= 1 KB when the client accepts it (after_request in app.py)
+  gzip_responses.py      # gzip for API JSON >= 1 KB when the client accepts it (after_request in app.py)
   applog.py           # structured JSON logging; every module logs through get_logger(), never print()
   integrations.py     # last success/failure of each external provider (yfinance, brapi, BCB)
   dates.py            # ISO parsing and month arithmetic

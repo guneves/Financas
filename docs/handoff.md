@@ -38,7 +38,7 @@ used (handoff read directly; the task was narrow).
 - **Backend.** Writes and the portfolio/update-prices reads no longer rebuild
   `investment_positions` (its own GET still does; no screen calls it). `replace_realized_results()`
   compares with the stored rows and writes only on a difference (ids are deterministic,
-  `realized:<movement>`). `compression.py`: gzip for API JSON ≥ 1 KB when `Accept-Encoding`
+  `realized:<movement>`). `gzip_responses.py`: gzip for API JSON ≥ 1 KB when `Accept-Encoding`
   allows (`/api/cc-expenses` was 664 KB and `/api/transactions` 490 KB on the 3-year mock).
 - After: POST 22 ms, PATCH 24 ms on 350 operações (81 / 100 ms on 1500).
 - Tests: `test_write_speed.py` (7), one node test; 1466 pytest, 138 node, `vite build`.
@@ -50,6 +50,11 @@ used (handoff read directly; the task was narrow).
   Rentabilidade's daily loop still scales with open positions × days. Both in `next-steps.md`.
 
 ### Learned
+- **Never name a backend module after a stdlib one.** The first version was `compression.py`;
+  Python 3.14 (CI and the image) has a stdlib `compression` package that `gzip`/`zipfile` import,
+  so the module shadowed it and the deploy of PR #24 failed in test collection (this container
+  ran 3.13). Renamed `gzip_responses.py`; the suite now also passes under 3.14 here
+  (`uv python install 3.14`).
 - `queryClient.invalidateQueries()` defaults to `cancelRefetch: true`: calling it twice in a row
   aborts the first round in the browser but not on the server. Await with `cancelRefetch: false`.
 - The werkzeug test client sends no `Accept-Encoding`, so the existing tests see plain JSON; a

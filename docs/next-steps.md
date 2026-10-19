@@ -399,7 +399,7 @@ realized result and Bens e Direitos), ETFs/BDRs without the R$ 20 mil exemption,
   own. Measured only on a synthetic portfolio (350 and 1500 operações) in the test client, without
   the real yfinance/BCB or the home server's CPU.
 - Not built: the frontend's static files (`/assets/*.js`, 384 KB) still go uncompressed when Flask
-  serves them (`routes/frontend.py` uses `send_file`, which `compression.py` skips on purpose). If
+  serves them (`routes/frontend.py` uses `send_file`, which `gzip_responses.py` skips on purpose). If
   the first open on the phone is slow, gzip them at build time or behind `tailscale serve`.
 - Rentabilidade's daily loop (`daily_group_values()` in `services/returns.py`) scales with open
   positions × days: ~0.23 s on 350 operações, ~0.8 s on 1500 with 225 open CDBs. Off the save path
