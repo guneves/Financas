@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db, new_id, serialize_transaction
-from money import rounded_money
+from money import parse_money, rounded_money
 from export_csv import ColumnError
 from responses import export_response, read_export_options
 from services.accounts import (
@@ -46,7 +46,6 @@ from validators import (
     optional_date,
     optional_string,
     parse_json_body,
-    parse_number,
     parse_optional_number,
     require_choice,
     require_date,
@@ -187,7 +186,7 @@ def transactions(current_user_id):
                 if existing["type"] == "TRANSFER":
                     return validation_error(CLIENT_ID_OTHER_KIND_MESSAGE, 409)
                 return jsonify(serialize_transaction(existing)), 200
-            amount = parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
+            amount = parse_money(payload, "amount", "Valor")
             date_value = require_date(payload, "date", "Data")
             description = optional_string(payload, "description")
             transaction_type = require_choice(payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES)
@@ -312,9 +311,7 @@ def update_transaction(current_user_id, item_id):
         updates = {}
         try:
             if "amount" in payload:
-                updates["amount"] = rounded_money(
-                    parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
-                )
+                updates["amount"] = parse_money(payload, "amount", "Valor")
             if "date" in payload:
                 updates["date"] = require_date(payload, "date", "Data")
             if "description" in payload:

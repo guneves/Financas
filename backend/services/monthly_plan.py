@@ -42,7 +42,7 @@ from decimal import Decimal
 
 from dates import month_key
 from db import get_db, new_id, utc_timestamp
-from money import percent_of, rounded_money
+from money import parse_money, percent_of, rounded_money
 from services.budgets import (
     HUNDRED,
     build_budget_month,
@@ -60,7 +60,6 @@ from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
     ValidationError,
     normalize_month,
-    parse_number,
     parse_percent,
     require_month,
     safe_float,
@@ -421,7 +420,7 @@ def build_monthly_plan(current_user_id, month):
 def parse_income(payload):
     if payload.get("income_amount") in (None, ""):
         raise ValidationError("Informe a renda do mes: o plano parte dela.")
-    income = rounded_money(parse_number(payload, "income_amount", "Renda do mes", minimum=0))
+    income = parse_money(payload, "income_amount", "Renda do mes", allow_zero=True)
     if income <= 0:
         raise ValidationError("A renda do mes deve ser maior que zero.")
     return income

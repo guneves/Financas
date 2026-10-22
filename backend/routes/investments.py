@@ -54,6 +54,7 @@ from services.asset_categories import categories_by_asset
 from services.treasury import finish_treasury_refresh, start_treasury_refresh
 from services.investments import (
     CASH_ACCOUNT_KEY,
+    MAX_MOVEMENT_NUMBER,
     delete_investment_cash_transaction,
     fetch_investment_rows,
     fetch_investments,
@@ -73,6 +74,7 @@ from services.investments import (
     sync_investment_cash_transaction,
     validate_asset_transaction_backing,
     validate_investment_movement,
+    validate_movement_metadata,
     with_investment_cash_account,
 )
 from services.portfolio import (
@@ -349,7 +351,7 @@ def investments(current_user_id):
             items.append(item)
         return jsonify(items), 200
 
-    payload = parse_json_body()
+    payload = parse_json_body(allow_list=True)
     items = payload if isinstance(payload, list) else [payload]
     if not items:
         return validation_error("Informe ao menos um investimento.")
@@ -367,15 +369,22 @@ def investments(current_user_id):
 
                 asset_class = require_choice(item, "asset_class", "Tipo de ativo", ALLOWED_ASSET_CLASSES)
                 ticker_or_name = require_string(item, "ticker_or_name", "Ativo")
-                quantity = parse_number(item, "quantity", "Quantidade")
+                quantity = parse_number(
+                    item, "quantity", "Quantidade", minimum=-MAX_MOVEMENT_NUMBER, maximum=MAX_MOVEMENT_NUMBER,
+                )
                 if quantity == 0:
                     raise ValidationError("Quantidade deve ser diferente de zero.")
-                average_price = parse_number(item, "average_price", "Preco medio", minimum=0)
-                current_price = parse_optional_number(item, "current_price", "Preco atual", minimum=0)
+                average_price = parse_number(
+                    item, "average_price", "Preco medio", minimum=0, maximum=MAX_MOVEMENT_NUMBER,
+                )
+                current_price = parse_optional_number(
+                    item, "current_price", "Preco atual", minimum=0, maximum=MAX_MOVEMENT_NUMBER,
+                )
                 metadata = item.get("metadata")
                 if metadata not in (None, "") and not isinstance(metadata, (dict, str)):
                     raise ValidationError("Metadata deve ser um objeto valido.")
                 metadata_dict = investment_metadata_dict(metadata)
+                validate_movement_metadata(metadata_dict)
                 validate_fixed_income_metadata(asset_class, quantity, metadata_dict)
                 currency = read_movement_currency(item, asset_class)
                 if currency == BASE_CURRENCY:
@@ -526,22 +535,26 @@ def investment_detail(current_user_id, investment_id):
 
     try:
         parsed_quantity = (
-            parse_number(payload, "quantity", "Quantidade")
+            parse_number(
+                payload, "quantity", "Quantidade", minimum=-MAX_MOVEMENT_NUMBER, maximum=MAX_MOVEMENT_NUMBER,
+            )
             if "quantity" in payload else None
         )
         if parsed_quantity == 0:
             raise ValidationError("Quantidade deve ser diferente de zero.")
         parsed_average_price = (
-            parse_number(payload, "average_price", "Preco medio", minimum=0)
+            parse_number(payload, "average_price", "Preco medio", minimum=0, maximum=MAX_MOVEMENT_NUMBER)
             if "average_price" in payload else None
         )
         parsed_current_price = (
-            parse_optional_number(payload, "current_price", "Preco atual", minimum=0)
+            parse_optional_number(payload, "current_price", "Preco atual", minimum=0, maximum=MAX_MOVEMENT_NUMBER)
             if "current_price" in payload else None
         )
         parsed_metadata = payload.get("metadata") if "metadata" in payload else None
         if "metadata" in payload and parsed_metadata not in (None, "") and not isinstance(parsed_metadata, (dict, str)):
             raise ValidationError("Metadata deve ser um objeto valido.")
+        if "metadata" in payload:
+            validate_movement_metadata(investment_metadata_dict(parsed_metadata))
     except ValidationError as exc:
         return validation_error(str(exc))
 
@@ -762,7 +775,7 @@ def update_price_by_asset(current_user_id, asset_id):
     payload = parse_json_body()
     try:
         asset_class = require_choice(payload, "asset_class", "Classe do ativo", ALLOWED_ASSET_CLASSES)
-        current_price = parse_number(payload, "current_price", "Preco atual", minimum=0)
+        current_price = parse_number(payload, "current_price", "Preco atual", minimum=0, maximum=MAX_MOVEMENT_NUMBER)
     except ValidationError as exc:
         return validation_error(str(exc))
 

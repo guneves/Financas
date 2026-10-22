@@ -7,57 +7,55 @@
 
 ---
 
-## Session — 2026-10-22 · Hourly quotes, card débito, Flash and the second parser pass
+## Session — 2026-10-22 (later) · Bug hunt by fuzzing
 
-Cloud session, owner request: "auto update renda variável prices every one hour, create the
-function débito when creating a card, support Flash Benefícios notifications, use the JSON
-(capture of 2026-10-22) to improve the other banks". Briefing from `session-scout` (worked by
-`subagent_type`). PR opened at the owner's request.
+Cloud session, owner request: "make a bug run hunt, fix the bugs as you find them", then "create a
+PR when done". No briefing subagent: the handoff and the last commit were read directly.
 
 ### Done
-- **Hourly quotes.** `services/quote_refresh.py`: a daemon thread started in `app.py` calls
-  `refresh_market_prices(user, force=True)` for every user each `QUOTE_AUTO_REFRESH_SECONDS`
-  (3600, first run 60 s after boot; 0 = off, set in `conftest.py`). Quoted assets only (ações,
-  FIIs, ETFs, BDRs, BTC); Tesouro keeps its own thread. `test_quote_auto_refresh.py`.
-- **Card débito (041).** `credit_cards.debit_account_id` + `credit_enabled`. Ajustes › Cartões has
-  "Funções: Crédito / Débito / Os dois" (create and edit); "+ Novo › Cartão" offers Crédito/Débito
-  on a combo card and only débito on a debit-only card; a débito purchase is an EXPENSE in the
-  card's account (outbox kind EXPENSE, so offline works as before). Debit-only cards are out of
-  Cartões/Aprovar's card lists and refused by every credit path (`require_active_card()`). Rules in
-  `lib/cardFunctions.js` (tested). `test_card_debit.py` (21).
-- **Flash.** `br.com.flashapp` in `NotifyRules.APPS`, the manifest `<queries>`,
-  `NotifyPairing.issuerOf()` and the server (`FLASH_APP`, issuer `flash`, alias "meal and
-  voucher"). Aprovar: a purchase on a debit card (`debit_card_for()`) goes to its account; the
-  Flash's purchase arrives as a despesa in the Flash account, confirmed once, then remembered.
-- **Second parser pass** (60 notifications, `RunCapture` harness in the session scratchpad, not
-  committed): Samsung's new format was **never** read before (title = card name, text "<LUGAR>
-  R$ <valor>", U+00A0 after R$) — now PURCHASE with merchant and `card_name`; the server derives
-  Samsung's issuer from the card name so it pairs only with the same bank. BB "Pix Recebido" now
-  names the sender ("Que ótimo! <Nome>, CPF/CNPJ …"). Everything else in the export already parsed
-  right; marketing, BTG portal access and the bitcoin receipt stay ignored. 12 JVM cases added.
-- Checks: pytest 1493 green; `npm test` 144 green; `vite build` ok; JVM notify tests 73 green
-  (compiled with javac + JUnit jars outside Gradle — the container has no Android SDK); Chromium
-  screenshots of Ajustes › Cartões and "+ Novo › Cartão" (a débito save landed in the account).
+- **Fuzzed the API** with two throwaway pytest files (not committed; method in `done-tasks.md`):
+  junk values for every key each blueprint reads, then a valid payload per write route with one
+  field broken at a time. Last run: 3,784 requests, zero 500s. Fixed, each with a test in
+  `tests/test_input_edges.py` (41):
+  - a JSON body that is a list/text/number → `parse_json_body()` returns `{}` (`allow_list=True`
+    for the two routes that take a list: the old `POST /api/cc-expenses` and `POST /api/investments`);
+  - **dates stored that broke later reads**: a refund in 9999 put its invoice in year 10000 and
+    every Cartões read answered 500; now dates/months are 1900–2199 (`MIN_YEAR`/`MAX_YEAR`); the
+    proceeds' `repeat` and Aprovar's date-only field check the range too;
+  - **money**: `rounded_money()` turned ≥ 1e26 into 0.0 (Decimal precision); 0.004 passed "> 0"
+    and was saved as R$ 0,00 (or hit the recurrences' `CHECK amount > 0`: 500). New
+    `parse_money()` in `money.py` (≥ R$ 0,01 after rounding, ≤ R$ 1 trilhão) on every typed amount:
+    lançamento, transfer, card purchase/refund/old list, recurrence, import commit, Aprovar edit,
+    sharing, goals, the monthly plan's income and the initial balance (negative allowed);
+  - **investments**: a quantity or price of 1e308 gave a NaN realized result and from then on
+    *every* operação of the owner failed (NOT NULL); a `metadata` date like "0999-01-01" was stored
+    as "999-01-01" and broke the IR report, and a non-date silently became today. Now
+    `validate_movement_metadata()` (dates in range, numbers finite and ≤ 1e12) and the same cap on
+    quantity/prices in POST/PATCH and the manual price;
+  - `credit_enabled` / `fixed_income_type` / `indexer` as a list or object (unhashable → 500), the
+    invoice year of `pay-invoice` unbounded (overflow), and a purchase with fewer cents than
+    installments (a R$ 0,00 installment) → 400.
+- Checks: pytest 1534 green; `npm test` 144 green (no frontend change).
 
 ### Not done, and why
-- **No Flash app capture**, so no Flash-specific parser and no detection of the benefit credit
-  (monthly deposit). The generic parser covers "compra … R$ … em …" texts. `next-steps.md`.
-- **Flash package unconfirmed** (`br.com.flashapp`, from two third-party listings; Play Store not
-  reachable from here). Ajustes › Notificações shows whether it is installed.
-- A débito purchase does not record which card it was (plain EXPENSE). Not asked; noted.
-- No B3-hours window for the hourly refresh (the owner asked for every hour); brapi quota risk
-  noted in `next-steps.md`.
-- `native-level.txt` not bumped: the screens call no new Java. The CI `apk` job runs anyway
-  (`frontend/android/` changed), so a new APK is offered by "Nova versão disponível".
-- Last sessions' open items (server/phone timing of saves, static files uncompressed,
-  Rentabilidade's daily loop, the Planejar owner check) are still in `next-steps.md`.
+- Rows already stored with such values are not cleaned (none expected in production; the fixes
+  only refuse new ones). `next-steps.md`, "Bug hunt by fuzzing".
+- Not fuzzed: the frontend (no test runner), the Java parsers/listener, CSV/OFX contents, uploads.
+- Proceeds' amounts and corporate-action ratios still have no upper bound (nothing broke).
+- Carried from the previous session, all still open in `next-steps.md`: the owner walk-through of
+  card débito / Flash; no Flash capture (no benefit-credit detection, package `br.com.flashapp`
+  unconfirmed); a débito purchase does not record its card; brapi quota with hourly quotes; the
+  server/phone timing of saves, static files uncompressed, Rentabilidade's daily loop, the Planejar
+  owner check.
 
 ### Learned
-- The test DB is one per session: a test that loops over all users sees the users of earlier
-  tests — assert on your own user's rows, not on totals.
-- Java's `\s` does not match U+00A0; Samsung puts one after "R$". Normalize in `textOf()`.
-- BTG posts "Compra autorizada" twice (~25 ms, different keys); the server's `repeated` rule
-  already folds it.
-- The refund route takes `purchase_date`, not `date` (a 400 for the wrong field looks like the
-  rule you meant to test — assert the message).
-- Never name a backend module after a stdlib one (carried from earlier handoffs).
+- With `TESTING = True` Flask re-raises; to see 500s as responses in a scratch test set
+  `PROPAGATE_EXCEPTIONS = False` and `TESTING = False` (monkeypatch `app.config`) and hook
+  `flask.got_request_exception` for the traceback.
+- `/api/health/integrations`, returns and evolution take ~1.5 s each with no network (gov_http's
+  retry): a fuzz over them is slow, not hung.
+- `pkill -f <pattern>` matches the shell running it when the pattern is in its own command line.
+- Linux `strftime("%Y")` does not zero-pad years < 1000, and Decimal's default context (28 digits)
+  cannot quantize ≥ 1e26 to cents — both are now guarded, but remember them for new code.
+- The test DB is one per session: assert on your own user's rows (carried).
+- Never name a backend module after a stdlib one (carried).

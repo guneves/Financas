@@ -1,9 +1,9 @@
 """Dinheiro: todo valor monetario arredonda por aqui, nunca pelo round() do Python."""
 
 import math
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation, localcontext
 
-from validators import safe_float
+from validators import ValidationError, parse_number, safe_float
 
 
 def rounded_money(value):
@@ -18,9 +18,37 @@ def rounded_money(value):
     if not math.isfinite(numeric):
         return 0.0
     try:
-        return float(Decimal(str(numeric)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        # A precisao padrao do Decimal (28 digitos) nao cabe 1e26 com centavos:
+        # o quantize dava InvalidOperation e o valor virava 0.0 sem aviso.
+        with localcontext() as context:
+            context.prec = 400
+            return float(Decimal(str(numeric)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
     except (InvalidOperation, ValueError):
         return 0.0
+
+
+# Teto de um valor digitado: R$ 1 trilhao. Acima disso e erro de digitacao, e a
+# soma de valores assim deixaria de caber num float com centavos.
+MAX_MONEY = 1_000_000_000_000
+
+
+def parse_money(payload, key, label, *, allow_zero=False, allow_negative=False):
+    """Um valor em reais do pedido, ja arredondado em centavos.
+
+    O "maior que zero" vale depois do arredondamento: 0,004 passava pelo
+    parse_number e era gravado como R$ 0,00 (ou batia no CHECK amount > 0 do
+    banco, um 500).
+    """
+    amount = rounded_money(parse_number(
+        payload, key, label,
+        minimum=None if allow_negative else 0,
+        maximum=MAX_MONEY,
+    ))
+    if allow_negative and amount < -MAX_MONEY:
+        raise ValidationError(f"{label} deve ser maior ou igual a {-MAX_MONEY}.")
+    if not allow_zero and amount == 0:
+        raise ValidationError(f"{label} deve ser de pelo menos R$ 0,01.")
+    return amount
 
 
 CENT = Decimal("0.01")
