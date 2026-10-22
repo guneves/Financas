@@ -103,8 +103,13 @@ def credit_cards(current_user_id):
     payload = parse_json_body()
     try:
         name = require_string(payload, "name", "Nome do cartao")
-        due_day = parse_int_number(payload, "due_day", "Dia de vencimento", minimum=1, maximum=31)
-        closing_day = parse_int_number(payload, "closing_day", "Dia de fechamento", minimum=1, maximum=31)
+        credit_enabled = parse_card_flag(payload, "credit_enabled", "Funcao credito", default=True)
+        if credit_enabled:
+            due_day = parse_int_number(payload, "due_day", "Dia de vencimento", minimum=1, maximum=31)
+            closing_day = parse_int_number(payload, "closing_day", "Dia de fechamento", minimum=1, maximum=31)
+        else:
+            # So debito (041): sem fatura; as colunas NOT NULL guardam 1 e nunca sao lidas.
+            due_day, closing_day = DEBIT_ONLY_DAY, DEBIT_ONLY_DAY
     except ValidationError as exc:
         return validation_error(str(exc))
 
@@ -113,13 +118,16 @@ def credit_cards(current_user_id):
         with get_db() as conn:
             try:
                 autopay_account_id = resolve_autopay_account(conn, current_user_id, payload)
+                debit_account_id = resolve_debit_account(conn, current_user_id, payload)
+                check_card_functions(credit_enabled, debit_account_id, autopay_account_id)
             except ValidationError as exc:
                 return validation_error(str(exc))
             conn.execute(
                 """
                 INSERT INTO credit_cards
-                (id, user_id, name, due_day, closing_day, autopay_account_id, autopay_start_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, user_id, name, due_day, closing_day, autopay_account_id, autopay_start_date,
+                 credit_enabled, debit_account_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -129,6 +137,8 @@ def credit_cards(current_user_id):
                     closing_day,
                     autopay_account_id,
                     local_today().strftime("%Y-%m-%d") if autopay_account_id else None,
+                    1 if credit_enabled else 0,
+                    debit_account_id,
                 ),
             )
             item = conn.execute("SELECT * FROM credit_cards WHERE id = ?", (item_id,)).fetchone()
@@ -138,6 +148,48 @@ def credit_cards(current_user_id):
                 return jsonify({"error": card_name_conflict_message(conn, current_user_id, name)}), 409
         return jsonify({"error": "Nao foi possivel criar o cartao."}), 400
     return jsonify(row_to_dict(item)), 201
+
+
+# As funcoes do cartao (041). Um cartao so debito nao tem fatura: vencimento e
+# fechamento guardam este dia e nada os le.
+DEBIT_ONLY_DAY = 1
+NO_FUNCTION_MESSAGE = "Escolha ao menos uma funcao do cartao: credito ou debito."
+DEBIT_ONLY_AUTOPAY_MESSAGE = "Um cartao so de debito nao tem fatura nem debito automatico."
+CREDIT_OFF_OPEN_MESSAGE = "O cartao ainda tem fatura em aberto: pague ou exclua essas compras antes de tirar a funcao credito."
+DEBIT_BROKERAGE_MESSAGE = "A conta da corretora fica em Investimentos: escolha uma conta do banco para o debito."
+FLAG_VALUES = {True: True, False: False, 1: True, 0: False, "1": True, "0": False, "true": True, "false": False}
+
+
+def parse_card_flag(payload, key, label, default):
+    raw = payload.get(key)
+    if raw is None:
+        return default
+    value = FLAG_VALUES.get(raw.strip().lower() if isinstance(raw, str) else raw)
+    if value is None:
+        raise ValidationError(f"{label} invalida.")
+    return value
+
+
+def resolve_debit_account(conn, current_user_id, payload, current_id=None):
+    """A conta da funcao debito; vazio/None tira o debito. Numa edicao, a conta
+    que o cartao ja tem fica mesmo arquivada; outra tem que ser ativa."""
+    raw = payload.get("debit_account_id")
+    if raw in (None, ""):
+        return None
+    if current_id and str(raw) == current_id:
+        return current_id
+    account = require_account(conn, current_user_id, str(raw), "Conta do debito")
+    if account["type"] == "BROKERAGE":
+        # A Corretora e da carteira (Investimentos): nenhuma compra sai dela.
+        raise ValidationError(DEBIT_BROKERAGE_MESSAGE)
+    return account["id"]
+
+
+def check_card_functions(credit_enabled, debit_account_id, autopay_account_id):
+    if not credit_enabled and not debit_account_id:
+        raise ValidationError(NO_FUNCTION_MESSAGE)
+    if not credit_enabled and autopay_account_id:
+        raise ValidationError(DEBIT_ONLY_AUTOPAY_MESSAGE)
 
 
 def resolve_autopay_account(conn, current_user_id, payload):
@@ -164,9 +216,12 @@ def card_name_conflict_message(conn, current_user_id, name):
 @bp.route("/api/credit-cards/<card_id>", methods=["PATCH"])
 @token_required
 def update_credit_card(current_user_id, card_id):
-    """Corrige o cartao: nome, vencimento, fechamento e debito automatico.
+    """Corrige o cartao: nome, vencimento, fechamento, debito automatico e as
+    funcoes (041: credit_enabled, debit_account_id).
 
-    Cada campo e opcional. Vencimento e fechamento valem para as compras novas
+    Cada campo e opcional. Tirar o credito de um cartao com item em aberto e
+    recusado (409) e desliga o debito automatico; dar credito a um cartao so
+    debito pede vencimento e fechamento no mesmo pedido. Vencimento e fechamento valem para as compras novas
     e para quando cada fatura fecha; as parcelas ja lancadas ficam na fatura em
     que estao. Ligar (ou trocar de conta) o debito automatico grava hoje em
     autopay_start_date: faturas que venceram antes disso continuam para
@@ -185,9 +240,11 @@ def update_credit_card(current_user_id, card_id):
             updates["closing_day"] = parse_int_number(
                 payload, "closing_day", "Dia de fechamento", minimum=1, maximum=31
             )
+        if "credit_enabled" in payload:
+            updates["credit_enabled"] = 1 if parse_card_flag(payload, "credit_enabled", "Funcao credito", True) else 0
     except ValidationError as exc:
         return validation_error(str(exc))
-    if not updates and "autopay_account_id" not in payload:
+    if not updates and "autopay_account_id" not in payload and "debit_account_id" not in payload:
         return validation_error("Informe ao menos um campo para atualizar.")
 
     with get_db() as conn:
@@ -197,11 +254,35 @@ def update_credit_card(current_user_id, card_id):
         ).fetchone()
         if not card or card["archived_at"]:
             return jsonify({"error": "Cartao nao encontrado."}), 404
-        if "autopay_account_id" in payload:
-            try:
+        credit_enabled = bool(updates.get("credit_enabled", card["credit_enabled"]))
+        if credit_enabled and not card["credit_enabled"] and not ("due_day" in updates and "closing_day" in updates):
+            # O cartao so debito ganha a funcao credito: as datas guardadas (1) nao valem.
+            return validation_error("Informe o vencimento e o fechamento para ligar a funcao credito.")
+        if not credit_enabled and card["credit_enabled"]:
+            open_items = conn.execute(
+                "SELECT 1 FROM cc_expenses WHERE user_id = ? AND card_id = ? AND status = 'OPEN' LIMIT 1",
+                (current_user_id, card_id),
+            ).fetchone()
+            if open_items:
+                return jsonify({"error": CREDIT_OFF_OPEN_MESSAGE}), 409
+            # Sem credito nao ha fatura: o debito automatico desliga junto.
+            if "autopay_account_id" not in payload:
+                updates["autopay_account_id"] = None
+                updates["autopay_start_date"] = None
+        try:
+            if "debit_account_id" in payload:
+                updates["debit_account_id"] = resolve_debit_account(
+                    conn, current_user_id, payload, current_id=card["debit_account_id"],
+                )
+            debit_account_id = updates.get("debit_account_id", card["debit_account_id"])
+            if "autopay_account_id" in payload:
                 autopay_account_id = resolve_autopay_account(conn, current_user_id, payload)
-            except ValidationError as exc:
-                return validation_error(str(exc))
+            else:
+                autopay_account_id = updates.get("autopay_account_id", card["autopay_account_id"])
+            check_card_functions(credit_enabled, debit_account_id, autopay_account_id)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+        if "autopay_account_id" in payload:
             if autopay_account_id is None:
                 start_date = None
             elif autopay_account_id == card["autopay_account_id"]:

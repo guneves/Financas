@@ -130,6 +130,104 @@ public class NotifyParsersTest {
         assertNull(NotifyParsers.parse(summary));
     }
 
+    // --- A captura de 2026-10-22 -----------------------------------------------------------
+
+    /** O Samsung de 2026-10: titulo = cartao, texto = lugar + valor, U+00A0 depois do R$. */
+    @Test
+    public void samsungLineWithTheCardInTheTitle() throws Exception {
+        NotifyRules.Captured captured = row(SAMSUNG, "BTG Pactual Banking", "CANTINA DO VALE R$\u00A014,20");
+        captured.extras.put("android.title.big", "BTG Pactual Banking");
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(captured);
+        assertEquals(NotifyParsers.PURCHASE, parsed.kind);
+        assertEquals(1420, parsed.amountCents);
+        assertEquals("CANTINA DO VALE", parsed.merchant);
+        assertEquals("BTG Pactual Banking", parsed.cardName);
+        JSONObject body = NotifyParsers.toDetection(captured, parsed, TimeZone.getTimeZone("America/Bahia"));
+        assertEquals("BTG Pactual Banking", body.getString("card_name"));
+    }
+
+    /** A compra com o Flash pelo Samsung Wallet (2026-10-21, 20:28). */
+    @Test
+    public void samsungMealAndVoucherIsTheBenefitsCard() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(SAMSUNG, "Card used for Meal and Voucher",
+            "DOCEPAOPITUBA R$\u00A046,81"));
+        assertEquals(NotifyParsers.PURCHASE, parsed.kind);
+        assertEquals(4681, parsed.amountCents);
+        assertEquals("DOCEPAOPITUBA", parsed.merchant);
+        assertEquals("Card used for Meal and Voucher", parsed.cardName);
+    }
+
+    @Test
+    public void samsungKeepsTheStoreNumberOfTheMerchant() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(SAMSUNG, "BTG Pactual Banking", "DROGASIL 1439 R$\u00A017,11"));
+        assertEquals(1711, parsed.amountCents);
+        assertEquals("DROGASIL 1439", parsed.merchant);
+    }
+
+    @Test
+    public void samsungRewardsAreNothing() {
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Samsung Wallet",
+            "Você ganhou 10 pontos. Toque aqui para verificar seus pontos do Samsung Rewards.")));
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Samsung Wallet",
+            "Você alcançou o nível Ouro. Toque aqui para verificar seus pontos do Samsung Rewards.")));
+    }
+
+    /** O BB nao diz "de <nome>" num Pix recebido: o nome vem antes do CPF. */
+    @Test
+    public void bancoDoBrasilPixReceivedNamesTheSender() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(BB, "Pix Recebido",
+            "Que ótimo! Fulano R Silva, CPF/CNPJ ***.123.456-** , enviou um Pix de R$  12,77, da Instituição BANCO BTG PACTUAL S., para sua conta Corrente às 13:38."));
+        assertEquals(NotifyParsers.PIX_IN, parsed.kind);
+        assertEquals(1277, parsed.amountCents);
+        assertEquals("Fulano R Silva", parsed.counterparty);
+        assertEquals("123456", parsed.counterpartyDoc);
+        assertEquals("BANCO BTG PACTUAL S", parsed.counterpartyBank);
+        parsed = NotifyParsers.parse(row(BB, "Pix Recebido",
+            "Que ótimo! Beltrano R Souza, CPF/CNPJ ***.654.321-** , enviou um Pix de R$  2.400,00, da Instituição BCO DO BRASIL S.A., para sua conta Corrente às 14:12."));
+        assertEquals(240_000, parsed.amountCents);
+        assertEquals("Beltrano R Souza", parsed.counterparty);
+    }
+
+    @Test
+    public void btgPixConfirmationsAreOutgoing() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(btg("Transação Pix Confirmada",
+            "A transferência Pix de R$ 12,77 foi confirmada."));
+        assertEquals(NotifyParsers.PIX_OUT, parsed.kind);
+        assertEquals(1277, parsed.amountCents);
+        parsed = NotifyParsers.parse(btg("Pagamento Pix Confirmado", "O Pagamento Pix de R$ 5,00 foi confirmado."));
+        assertEquals(NotifyParsers.PIX_OUT, parsed.kind);
+        assertEquals(500, parsed.amountCents);
+    }
+
+    @Test
+    public void btgTransferReceivedNamesTheSender() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(btg("Transferência recebida",
+            "Você recebeu uma transferência de Fulano Neves Silva no valor de R$ 2.400,00."));
+        assertEquals(NotifyParsers.TRANSFER_IN, parsed.kind);
+        assertEquals(240_000, parsed.amountCents);
+        assertEquals("Fulano Neves Silva", parsed.counterparty);
+    }
+
+    @Test
+    public void btgInvestimentosPixReceived() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row("com.btg.pactual.digital.mobile", "Transferência recebida",
+            "Recebemos seu PIX no valor de R$ 2.400,00 e o seu saldo já está disponível."));
+        assertEquals(NotifyParsers.PIX_IN, parsed.kind);
+        assertEquals(240_000, parsed.amountCents);
+    }
+
+    @Test
+    public void marketingAndAccessAreNothing() {
+        assertNull(NotifyParsers.parse(row(BB, "Seu cashback pode chegar a 30% ",
+            "Ainda dá pra subir de nível: somente hoje, 21/10, compre gift card de PlayStation no Shopping BB e aproveite até 30% de cashback com Cartão BB.")));
+        assertNull(NotifyParsers.parse(row("com.btg.pactual.digital.mobile", "Acesso Portal de Clientes",
+            "Precisamos confirmar a sua autenticação no BTG Pactual Portal de Clientes. Deseja prosseguir com o acesso?")));
+        assertNull(NotifyParsers.parse(row("com.btg.pactual.digital.mobile", "Recebimento de BITCOIN confirmado!",
+            "O recebimento de 0.00459551 BITCOIN foi confirmado com sucesso")));
+        assertNull(NotifyParsers.parse(row("com.btg.pactual.digital.mobile", "Depósito pendente",
+            "Você tem um depósito pendente de criptoativos. Complete as informações para concluir. Conferir")));
+    }
+
     // --- O que o plano manda esperar -------------------------------------------------------
 
     @Test

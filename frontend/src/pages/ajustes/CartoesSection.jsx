@@ -12,18 +12,27 @@ import {
   Menu,
   Panel,
   PanelHeader,
+  SegmentedControl,
   Sheet,
 } from '../../components/ui'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
 import { invalidateServerData, useQuery, useReportQueryError } from '../../lib/queries'
+import { CARD_FUNCTION_ITEMS, cardFormPayload, cardFunctionLabel, cardFunctionOf, hasCredit, hasDebit } from '../../lib/cardFunctions'
 
-const emptyCardForm = () => ({ name: '', due_day: '', closing_day: '', autopay_account_id: '' })
+const emptyCardForm = () => ({ name: '', functions: 'CREDIT', due_day: '', closing_day: '', autopay_account_id: '', debit_account_id: '' })
+
+// A conta do debito sai das contas do banco: a Corretora e da carteira.
+const debitAccountsOf = (accounts) => accounts.filter((account) => account.type !== 'BROKERAGE')
 
 const NO_ITEMS = []
 
 // Cartoes de credito: lista, editar, excluir (arquivar, 037) e criar. Veio de Transactions.jsx.
 // As compras e faturas continuam em Lancamentos > Cartoes.
+//
+// Funcoes (041): credito (fatura, vencimento, fechamento), debito (a compra e
+// uma despesa na conta escolhida) ou os dois. Um cartao so debito (o Flash)
+// nao tem fatura nem debito automatico.
 //
 // Debito automatico: com uma conta escolhida, cada fatura e paga sozinha no
 // dia do vencimento, debitando essa conta. So vale para faturas que vencem a
@@ -36,13 +45,15 @@ export default function CartoesSection() {
   const [cardForm, setCardForm] = useState(emptyCardForm)
   // Corrigir um cartao (nome, vencimento, fechamento): antes so restava excluir.
   const [editing, setEditing] = useState(null)
-  const [editForm, setEditForm] = useState({ name: '', due_day: '', closing_day: '' })
+  const [editForm, setEditForm] = useState(emptyCardForm)
 
   const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
   useReportQueryError(cardsQuery, setError, 'Não foi possível carregar os cartões.')
   const cards = cardsQuery.data || NO_ITEMS
   const accounts = accountsQuery.data || NO_ITEMS
+  const debitAccounts = debitAccountsOf(accounts)
+  const accountName = (id) => accounts.find((account) => account.id === id)?.name || 'conta arquivada'
   const loading = cardsQuery.isPending
   const fetchCards = () => invalidateServerData()
 
@@ -58,24 +69,18 @@ export default function CartoesSection() {
 
   const handleCreateCard = async (event) => {
     event.preventDefault()
-    const dueDay = Number(cardForm.due_day)
-    const closingDay = Number(cardForm.closing_day)
-    if (!cardForm.name.trim() || !Number.isInteger(dueDay) || !Number.isInteger(closingDay)) {
-      setError('Preencha os dados do cartão corretamente.')
+    const { payload, error: formError } = cardFormPayload(cardForm)
+    if (formError) {
+      setError(formError)
       return
     }
 
     setSaving(true)
     setError('')
     try {
-      await creditCardsApi.create({
-        name: cardForm.name,
-        due_day: dueDay,
-        closing_day: closingDay,
-        autopay_account_id: cardForm.autopay_account_id || null,
-      })
+      await creditCardsApi.create(payload)
       await fetchCards()
-      toast(`Cartão "${cardForm.name}" criado.`)
+      toast(`Cartão "${payload.name}" criado.`)
       setCardForm(emptyCardForm())
       setFormOpen(false)
     } catch (requestError) {
@@ -104,24 +109,33 @@ export default function CartoesSection() {
 
   const openEdit = (card) => {
     setEditing(card)
-    setEditForm({ name: card.name, due_day: String(card.due_day), closing_day: String(card.closing_day) })
+    // Um cartao so debito guarda 1 nas datas (041): o formulario abre vazio.
+    const credit = hasCredit(card)
+    setEditForm({
+      name: card.name,
+      functions: cardFunctionOf(card),
+      due_day: credit ? String(card.due_day) : '',
+      closing_day: credit ? String(card.closing_day) : '',
+      debit_account_id: card.debit_account_id || '',
+    })
   }
 
   const handleSaveEdit = async (event) => {
     event.preventDefault()
     if (!editing) return
-    const dueDay = Number(editForm.due_day)
-    const closingDay = Number(editForm.closing_day)
-    if (!editForm.name.trim() || !Number.isInteger(dueDay) || !Number.isInteger(closingDay)) {
-      setError('Preencha os dados do cartão corretamente.')
+    // Sem autopay_account_id: o debito automatico se muda na lista. Tirar o
+    // credito o desliga no servidor.
+    const { payload, error: formError } = cardFormPayload(editForm)
+    if (formError) {
+      setError(formError)
       return
     }
     setSaving(true)
     setError('')
     try {
-      await creditCardsApi.update(editing.id, { name: editForm.name, due_day: dueDay, closing_day: closingDay })
+      await creditCardsApi.update(editing.id, payload)
       await fetchCards()
-      toast(`Cartão "${editForm.name}" atualizado.`)
+      toast(`Cartão "${payload.name}" atualizado.`)
       setEditing(null)
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível atualizar o cartão.')
@@ -153,7 +167,7 @@ export default function CartoesSection() {
     <Panel id="cartoes" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Cartões"
-        description="Vencimento e fechamento de cada cartão. Compras e faturas ficam em Lançamentos › Cartões."
+        description="Crédito, débito ou os dois. Compras e faturas do crédito ficam em Lançamentos › Cartões."
         actions={<Badge>{cards.length} cartão(ões)</Badge>}
       />
 
@@ -169,25 +183,33 @@ export default function CartoesSection() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate font-medium text-zinc-900">{card.name}</p>
+                    <Badge>{cardFunctionLabel(card)}</Badge>
                     {card.autopay_account_id ? <Badge>Débito automático</Badge> : null}
                   </div>
-                  <p className="text-sm text-zinc-600">Vence dia {card.due_day} • Fecha dia {card.closing_day}</p>
+                  <p className="text-sm text-zinc-600">
+                    {[
+                      hasCredit(card) ? `Vence dia ${card.due_day} • Fecha dia ${card.closing_day}` : null,
+                      hasDebit(card) ? `Débito em ${accountName(card.debit_account_id)}` : null,
+                    ].filter(Boolean).join(' • ')}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-semibold text-zinc-600 sm:w-56 sm:flex-none">
-                    Débito automático
-                    <select
-                      value={card.autopay_account_id || ''}
-                      disabled={savingAutopayId === card.id}
-                      onChange={(event) => handleAutopayChange(card, event.target.value)}
-                      className="app-input"
-                    >
-                      <option value="">Desligado</option>
-                      {accounts.map((account) => (
-                        <option key={account.id} value={account.id}>{account.name}</option>
-                      ))}
-                    </select>
-                  </label>
+                  {hasCredit(card) ? (
+                    <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-semibold text-zinc-600 sm:w-56 sm:flex-none">
+                      Débito automático
+                      <select
+                        value={card.autopay_account_id || ''}
+                        disabled={savingAutopayId === card.id}
+                        onChange={(event) => handleAutopayChange(card, event.target.value)}
+                        className="app-input"
+                      >
+                        <option value="">Desligado</option>
+                        {accounts.map((account) => (
+                          <option key={account.id} value={account.id}>{account.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                   <Menu
                     label={`Ações do cartão ${card.name}`}
                     size="md"
@@ -201,7 +223,7 @@ export default function CartoesSection() {
             ))}
           </div>
         ) : (
-          <EmptyState icon={CreditCard} title="Nenhum cartão" message="Cadastre um cartão para lançar compras no crédito." className="min-h-40" />
+          <EmptyState icon={CreditCard} title="Nenhum cartão" message="Cadastre um cartão para lançar compras no crédito ou no débito." className="min-h-40" />
         )}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -210,20 +232,37 @@ export default function CartoesSection() {
               <Field label="Nome do cartão">
                 <input type="text" placeholder="Ex: Nubank" value={cardForm.name} onChange={(event) => setCardForm({ ...cardForm, name: event.target.value })} className="app-input" required />
               </Field>
-              <Field label="Vencimento">
-                <input type="number" inputMode="numeric" min="1" max="31" placeholder="Dia" value={cardForm.due_day} onChange={handleDueDayChange} className="app-input" required />
+              <Field label="Funções" hint="Débito: a compra sai direto de uma conta, sem fatura." className="sm:col-span-2 xl:col-span-4">
+                <SegmentedControl items={CARD_FUNCTION_ITEMS} value={cardForm.functions} onChange={(functions) => setCardForm({ ...cardForm, functions })} />
               </Field>
-              <Field label="Fechamento" hint="Preenchido 7 dias antes; ajuste se precisar.">
-                <input type="number" inputMode="numeric" min="1" max="31" placeholder="Dia" value={cardForm.closing_day} onChange={(event) => setCardForm({ ...cardForm, closing_day: event.target.value })} className="app-input" required />
-              </Field>
-              <Field label="Débito automático" hint="Paga a fatura no vencimento com o saldo da conta.">
-                <select value={cardForm.autopay_account_id} onChange={(event) => setCardForm({ ...cardForm, autopay_account_id: event.target.value })} className="app-input">
-                  <option value="">Desligado</option>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>{account.name}</option>
-                  ))}
-                </select>
-              </Field>
+              {cardForm.functions !== 'DEBIT' ? (
+                <>
+                  <Field label="Vencimento">
+                    <input type="number" inputMode="numeric" min="1" max="31" placeholder="Dia" value={cardForm.due_day} onChange={handleDueDayChange} className="app-input" required />
+                  </Field>
+                  <Field label="Fechamento" hint="Preenchido 7 dias antes; ajuste se precisar.">
+                    <input type="number" inputMode="numeric" min="1" max="31" placeholder="Dia" value={cardForm.closing_day} onChange={(event) => setCardForm({ ...cardForm, closing_day: event.target.value })} className="app-input" required />
+                  </Field>
+                  <Field label="Débito automático" hint="Paga a fatura no vencimento com o saldo da conta.">
+                    <select value={cardForm.autopay_account_id} onChange={(event) => setCardForm({ ...cardForm, autopay_account_id: event.target.value })} className="app-input">
+                      <option value="">Desligado</option>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>{account.name}</option>
+                      ))}
+                    </select>
+                  </Field>
+                </>
+              ) : null}
+              {cardForm.functions !== 'CREDIT' ? (
+                <Field label="Conta do débito" hint="De onde sai a compra no débito.">
+                  <select value={cardForm.debit_account_id} onChange={(event) => setCardForm({ ...cardForm, debit_account_id: event.target.value })} className="app-input" required>
+                    <option value="">Selecione...</option>
+                    {debitAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>{account.name}</option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
               <div className="flex items-end">
                 <Button type="submit" loading={saving} className="w-full">Salvar</Button>
               </div>
@@ -241,7 +280,7 @@ export default function CartoesSection() {
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
         title={editing ? `Editar "${editing.name}"` : ''}
-        description="Vencimento e fechamento valem para as próximas compras e para quando cada fatura fecha. As parcelas já lançadas ficam na fatura em que estão."
+        description="Vencimento e fechamento valem para as próximas compras e para quando cada fatura fecha. As parcelas já lançadas ficam na fatura em que estão. Tirar o crédito desliga o débito automático; com fatura em aberto, não dá."
         footer={(
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button type="button" variant="secondary" size="lg" onClick={() => setEditing(null)}>Cancelar</Button>
@@ -253,12 +292,32 @@ export default function CartoesSection() {
           <Field label="Nome do cartão" className="sm:col-span-3">
             <input type="text" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} className="app-input" required />
           </Field>
-          <Field label="Vencimento">
-            <input type="number" inputMode="numeric" min="1" max="31" value={editForm.due_day} onChange={(event) => setEditForm({ ...editForm, due_day: event.target.value })} className="app-input" required />
+          <Field label="Funções" className="sm:col-span-3">
+            <SegmentedControl items={CARD_FUNCTION_ITEMS} value={editForm.functions} onChange={(functions) => setEditForm({ ...editForm, functions })} />
           </Field>
-          <Field label="Fechamento">
-            <input type="number" inputMode="numeric" min="1" max="31" value={editForm.closing_day} onChange={(event) => setEditForm({ ...editForm, closing_day: event.target.value })} className="app-input" required />
-          </Field>
+          {editForm.functions !== 'DEBIT' ? (
+            <>
+              <Field label="Vencimento">
+                <input type="number" inputMode="numeric" min="1" max="31" value={editForm.due_day} onChange={(event) => setEditForm({ ...editForm, due_day: event.target.value })} className="app-input" required />
+              </Field>
+              <Field label="Fechamento">
+                <input type="number" inputMode="numeric" min="1" max="31" value={editForm.closing_day} onChange={(event) => setEditForm({ ...editForm, closing_day: event.target.value })} className="app-input" required />
+              </Field>
+            </>
+          ) : null}
+          {editForm.functions !== 'CREDIT' ? (
+            <Field label="Conta do débito" className={editForm.functions === 'DEBIT' ? 'sm:col-span-3' : ''}>
+              <select value={editForm.debit_account_id} onChange={(event) => setEditForm({ ...editForm, debit_account_id: event.target.value })} className="app-input" required>
+                <option value="">Selecione...</option>
+                {editing?.debit_account_id && !debitAccounts.some((account) => account.id === editing.debit_account_id) ? (
+                  <option value={editing.debit_account_id}>{accountName(editing.debit_account_id)}</option>
+                ) : null}
+                {debitAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>{account.name}</option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
         </form>
       </Sheet>
     </Panel>

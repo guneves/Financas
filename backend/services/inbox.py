@@ -61,6 +61,10 @@ DECLINED_ROLE = "DECLINED"
 CANCELLED = "CANCELLED"
 
 SAMSUNG_WALLET = "com.samsung.android.spay"
+# Flash Beneficios (dono, 2026-10-22): o cartao de beneficios. O pacote vem das
+# listagens do app (nenhuma notificacao dele capturada ainda); a compra com ele
+# no Samsung Wallet chega como "Card used for Meal and Voucher".
+FLASH_APP = "br.com.flashapp"
 # Mesma janela de NotifyPairing.DEFAULT_WINDOW_MS (10 min, inclusiva), a ser
 # ajustada pelo atraso que a captura do dono mostrar.
 NOTIFY_WINDOW_MS = 10 * 60 * 1000
@@ -78,6 +82,7 @@ APP_LABELS = {
     "br.com.bb.android": "Banco do Brasil",
     "com.btg.pactual.banking": "BTG Pactual",
     "com.btg.pactual.digital.mobile": "BTG Investimentos",
+    FLASH_APP: "Flash",
     SAMSUNG_WALLET: "Samsung Wallet",
     "com.android.shell": "Teste (adb)",
 }
@@ -90,12 +95,16 @@ ISSUER_OF_APP = {
     "br.com.bb.android": "bb",
     "com.btg.pactual.banking": "btg",
     "com.btg.pactual.digital.mobile": "btg",
+    FLASH_APP: "flash",
 }
 # Como o emissor aparece no nome de uma conta ou cartao do dono.
 ISSUER_ALIASES = {
     "itau": ("itau",),
     "bb": ("banco do brasil", "bb", "ourocard"),
     "btg": ("btg",),
+    # "Meal and Voucher" e como o Samsung Wallet chama o cartao de beneficios
+    # (captura de 2026-10-21); o unico do dono e o Flash.
+    "flash": ("flash", "meal and voucher"),
 }
 
 # kind do parser -> (direcao, tipo de lancamento, metodo da chave lembrada).
@@ -483,6 +492,11 @@ def parse_detection(raw):
     issuer = str(raw.get("issuer") or "").strip().lower() or None
     if issuer and not re.match(r"^[a-z0-9_-]{1,20}$", issuer):
         raise ValidationError("Emissor invalido.")
+    card_name = _short_text(raw, "card_name", 80)
+    if not issuer and app == SAMSUNG_WALLET:
+        # O Samsung Wallet poe o nome do cartao no titulo ("BTG Pactual Banking"):
+        # dele sai o emissor, que impede parear a compra com a de outro banco.
+        issuer = issuer_of_institution(card_name)
     installments = raw.get("installments")
     installments = 1 if installments in (None, "") else _int(installments, "Parcelas", minimum=1, maximum=72)
     counterparty_doc = re.sub(r"\D", "", str(raw.get("counterparty_doc") or "")) or None
@@ -499,7 +513,7 @@ def parse_detection(raw):
         "posted_at": local_timestamp(posted_ms, offset),
         "merchant": _short_text(raw, "merchant", 200),
         "card_last4": last4,
-        "card_name": _short_text(raw, "card_name", 80),
+        "card_name": card_name,
         "issuer": issuer,
         "installments": installments,
         "counterparty": _short_text(raw, "counterparty", 120) if kind in MOVEMENT_KINDS else None,
@@ -549,8 +563,26 @@ def _active_accounts(conn, current_user_id):
 
 
 def _cards(conn, current_user_id):
+    """Os cartoes onde uma compra pode ir para a fatura: ativos e com credito (041)."""
     return conn.execute(
-        "SELECT id, name FROM credit_cards WHERE user_id = ? AND archived_at IS NULL ORDER BY name",
+        """
+        SELECT id, name FROM credit_cards
+        WHERE user_id = ? AND archived_at IS NULL AND credit_enabled = 1
+        ORDER BY name
+        """,
+        (current_user_id,),
+    ).fetchall()
+
+
+def _debit_cards(conn, current_user_id):
+    """Os cartoes com a funcao debito (041), cuja conta ainda esta ativa."""
+    return conn.execute(
+        """
+        SELECT c.id, c.name, c.credit_enabled, c.debit_account_id
+        FROM credit_cards c JOIN accounts a ON a.id = c.debit_account_id AND a.user_id = c.user_id
+        WHERE c.user_id = ? AND c.archived_at IS NULL AND a.archived_at IS NULL
+        ORDER BY c.name
+        """,
         (current_user_id,),
     ).fetchall()
 
@@ -570,7 +602,10 @@ def _hint_usable(conn, current_user_id, hint):
         return False
     if hint["entry_type"] == "CARD":
         return bool(hint["card_id"]) and conn.execute(
-            "SELECT 1 FROM credit_cards WHERE id = ? AND user_id = ? AND archived_at IS NULL",
+            """
+            SELECT 1 FROM credit_cards
+            WHERE id = ? AND user_id = ? AND archived_at IS NULL AND credit_enabled = 1
+            """,
             (hint["card_id"], current_user_id),
         ).fetchone() is not None
     for account_id in (hint["account_id"], hint["transfer_account_id"]):
@@ -625,7 +660,12 @@ def _mentions(row_text, aliases):
 
 
 def guess_card(conn, current_user_id, detection):
-    cards = _cards(conn, current_user_id)
+    return pick_card(_cards(conn, current_user_id), detection)
+
+
+def pick_card(cards, detection, only_one_counts=True):
+    """O cartao que a notificacao nomeia: o final no nome do cartao, o nome que
+    o Samsung Wallet mostrou, o emissor; com `only_one_counts`, o unico cartao."""
     issuer = issuer_of(detection)
     if detection.get("card_last4"):
         by_digits = [card for card in cards if detection["card_last4"] in (card["name"] or "")]
@@ -640,9 +680,20 @@ def guess_card(conn, current_user_id, detection):
         by_issuer = [card for card in cards if _mentions(card["name"], ISSUER_ALIASES[issuer])]
         if len(by_issuer) == 1:
             return by_issuer[0]["id"]
-    if len(cards) == 1:
+    if only_one_counts and len(cards) == 1:
         return cards[0]["id"]
     return None
+
+
+def debit_card_for(conn, current_user_id, detection):
+    """O cartao com debito (041) que esta compra nomeia, ou None. So pelo final,
+    pelo nome ou pelo emissor: o unico cartao do dono nao basta, porque a compra
+    pode ter sido no credito de outro banco."""
+    if detection.get("kind") not in PURCHASE_KINDS:
+        return None
+    cards = _debit_cards(conn, current_user_id)
+    card_id = pick_card(cards, detection, only_one_counts=False)
+    return next((card for card in cards if card["id"] == card_id), None)
 
 
 def _usable_accounts(conn, current_user_id, app):
@@ -702,6 +753,18 @@ def resolve_detection(conn, current_user_id, detection):
                 "remembered": True,
             })
             return draft
+    # Um cartao com a funcao debito (041) que a notificacao nomeia: a compra no
+    # debito sai da conta dele. So debito (o Flash), a compra sem metodo ja e
+    # despesa nessa conta; com os dois, a conta fica pronta para quando o dono
+    # disser debito. Palpite marcado: o dono confirma uma vez, depois fica lembrado.
+    debit_card = None
+    if entry_type in (None, "EXPENSE"):
+        debit_card = debit_card_for(conn, current_user_id, detection)
+    if debit_card is not None:
+        if entry_type is None and not debit_card["credit_enabled"]:
+            entry_type = draft["entry_type"] = "EXPENSE"
+        draft["account_id"] = debit_card["debit_account_id"]
+        draft["guessed"].append("account")
     # Sem metodo (o dono ainda vai dizer credito ou debito), os dois palpites
     # ficam prontos: escolhido o metodo, o cartao ou a conta ja esta la.
     # Ambiguo (mais de um no banco, sem o final): nem palpite, o dono escolhe.
@@ -709,7 +772,7 @@ def resolve_detection(conn, current_user_id, detection):
         draft["card_id"] = guess_card(conn, current_user_id, detection)
         if draft["card_id"]:
             draft["guessed"].append("card")
-    if entry_type in (None, "EXPENSE", "INCOME") and not ambiguous_target(
+    if debit_card is None and entry_type in (None, "EXPENSE", "INCOME") and not ambiguous_target(
         conn, current_user_id, key, entry_type or "EXPENSE",
     ):
         draft["account_id"] = guess_account(conn, current_user_id, detection)

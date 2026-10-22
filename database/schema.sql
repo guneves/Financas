@@ -430,6 +430,8 @@ CREATE TABLE IF NOT EXISTS credit_cards (
     autopay_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,  -- 011
     autopay_start_date TEXT,                                              -- 011
     archived_at TEXT,                                                     -- 037: excluido com historico
+    debit_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,    -- 041: funcao debito
+    credit_enabled INTEGER NOT NULL DEFAULT 1 CHECK (credit_enabled IN (0, 1)),  -- 041: 0 = so debito
     UNIQUE(user_id, name)
 );
 

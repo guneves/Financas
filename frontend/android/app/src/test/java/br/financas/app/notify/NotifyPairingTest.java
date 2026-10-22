@@ -405,6 +405,7 @@ public class NotifyPairingTest {
         assertEquals("itau", NotifyPairing.issuerOf("com.itau"));
         assertEquals("bb", NotifyPairing.issuerOf("br.com.bb.android"));
         assertEquals("btg", NotifyPairing.issuerOf("com.btg.pactual.banking"));
+        assertEquals("flash", NotifyPairing.issuerOf("br.com.flashapp"));
         assertEquals(null, NotifyPairing.issuerOf(SAMSUNG));
         assertEquals(null, NotifyPairing.issuerOf("com.btg.pactual.digital.mobile"));
     }

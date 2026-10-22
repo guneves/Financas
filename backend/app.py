@@ -12,6 +12,7 @@ from flask import Flask, request
 from flask_cors import CORS
 
 import tesouro_client
+from services import quote_refresh
 from gzip_responses import compress_response
 from applog import configure_logging
 from config import CORS_ORIGINS
@@ -83,6 +84,8 @@ run_startup_backup()
 prune_orphan_attachment_files()
 # Precos do Tesouro Direto baixados no boot e conferidos de hora em hora.
 tesouro_client.start_auto_refresh()
+# Cotacoes da renda variavel de hora em hora (QUOTE_AUTO_REFRESH_SECONDS).
+quote_refresh.start_auto_refresh()
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG") == "1", port=5000)

@@ -35,7 +35,10 @@ import java.util.regex.Pattern;
  *
  * O Samsung Wallet so trata pagamento com cartao (dono, 2026-10-17): dele saem compras e
  * negadas, nunca Pix, transferencia ou estorno. Quando o banco tambem notifica a compra, o
- * servidor fica com a do banco (o pareamento de services/inbox.py).
+ * servidor fica com a do banco (o pareamento de services/inbox.py). Na captura de 2026-10-22 o
+ * formato e outro: o titulo e o nome do cartao ("BTG Pactual Banking", "Card used for Meal and
+ * Voucher" = o Flash) e o texto e so "<LUGAR> R$ <valor>", com um espaco sem quebra (U+00A0)
+ * depois do R$. O nome do cartao vai como card_name; o servidor tira dele o emissor.
  */
 public final class NotifyParsers {
 
@@ -61,6 +64,8 @@ public final class NotifyParsers {
         public String counterparty;
         public String counterpartyDoc;
         public String counterpartyBank;
+        /** O nome do cartao que a notificacao mostra (o titulo do Samsung Wallet). */
+        public String cardName;
     }
 
     private static final Pattern AMOUNT = Pattern.compile("R\\$\\s*(\\d{1,3}(?:\\.\\d{3})*|\\d+),(\\d{2})");
@@ -71,6 +76,12 @@ public final class NotifyParsers {
         "(\\d{1,2})\\s*[xX]\\s*(?:de\\s+)?(R\\$\\s*(?:\\d{1,3}(?:\\.\\d{3})*|\\d+),\\d{2})");
     /** CPF mascarado: ***.378.195-** ou XXX.378.195-XX. Os seis do meio sao o que se ve. */
     private static final Pattern MASKED_CPF = Pattern.compile("[\\dXx*•]{3}\\.(\\d{3})\\.(\\d{3})-[\\dXx*•]{2}");
+    /** O Samsung Wallet de 2026-10: "CANTINA DO VALE R$ 14,20", uma linha so. */
+    private static final Pattern SAMSUNG_LINE = Pattern.compile(
+        "^(.+?)\\s+R\\$\\s*(?:\\d{1,3}(?:\\.\\d{3})*|\\d+),\\d{2}\\s*$");
+    /** "Que ótimo! Fulano R Silva, CPF/CNPJ ***.123.456-** , enviou um Pix" (BB, Pix recebido). */
+    private static final Pattern NAME_BEFORE_DOC = Pattern.compile(
+        "(?:^|[!?:]\\s+|\\.\\s+|\\n)([a-z][^,!?:.\\n]{1,80}?),\\s*(?:cpf|cnpj)\\b");
     private static final Pattern INSTITUTION = Pattern.compile(
         "institui[cç][aã]o:?\\s+([^,\\n]+?)(?=,|\\s+[aà]s\\s+\\d|\\.?\\s*$|\\n)",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
@@ -90,9 +101,12 @@ public final class NotifyParsers {
         if (text.isEmpty()) return null;
         String folded = fold(text);
 
-        String kind = kindOf(folded);
-        if (kind == null) return null;
         boolean samsung = NotifyPairing.SAMSUNG_WALLET.equals(row.packageName);
+        String kind = kindOf(folded);
+        // O Samsung de 2026-10 nao diz "compra": o texto e so lugar e valor.
+        String samsungLine = samsung ? samsungLineMerchant(row) : null;
+        if (kind == null && samsungLine != null) kind = PURCHASE;
+        if (kind == null) return null;
         if (samsung && !isCardKind(kind)) return null;
 
         // "Compra em 3x de R$ 50,00": o R$ e o da parcela. Sem outro valor no texto, a compra e
@@ -122,7 +136,12 @@ public final class NotifyParsers {
         parsed.amountCents = cents;
         parsed.cardLast4 = group(CARD_LAST4, folded, 1);
         if (isCardKind(kind) || REFUND.equals(kind)) {
-            parsed.merchant = merchantOf(text, folded);
+            if (samsungLine != null) {
+                parsed.merchant = samsungLine;
+                parsed.cardName = samsungCardName(row);
+            } else {
+                parsed.merchant = merchantOf(text, folded);
+            }
             if (parsed.merchant == null && samsung) parsed.merchant = samsungMerchant(row);
             Matcher installments = INSTALLMENTS.matcher(folded);
             if (perInstallmentCount > 0) {
@@ -156,6 +175,7 @@ public final class NotifyParsers {
             out.put("utc_offset_minutes", zone.getOffset(row.postedAt) / 60000);
             putIf(out, "merchant", parsed.merchant);
             putIf(out, "card_last4", parsed.cardLast4);
+            putIf(out, "card_name", parsed.cardName);
             if (parsed.installments > 1) out.put("installments", parsed.installments);
             putIf(out, "counterparty", parsed.counterparty);
             putIf(out, "counterparty_doc", parsed.counterpartyDoc);
@@ -181,7 +201,8 @@ public final class NotifyParsers {
 
     private static void add(Set<String> parts, String value) {
         if (value == null) return;
-        String trimmed = value.trim();
+        // O espaco sem quebra (U+00A0, U+202F) vira espaco: o Samsung o poe depois do R$.
+        String trimmed = value.replace('\u00A0', ' ').replace('\u202F', ' ').trim();
         if (!trimmed.isEmpty()) parts.add(trimmed);
     }
 
@@ -291,6 +312,21 @@ public final class NotifyParsers {
         return null;
     }
 
+    /** O lugar de "CANTINA DO VALE R$ 14,20" (o texto do Samsung de 2026-10), ou null. */
+    static String samsungLineMerchant(NotifyRules.Captured row) {
+        String body = NotifyRules.bestText(row.text, row.bigText);
+        if (body == null) return null;
+        Matcher line = SAMSUNG_LINE.matcher(body.replace('\u00A0', ' ').replace('\u202F', ' ').trim());
+        return line.matches() ? clean(line.group(1)) : null;
+    }
+
+    /** O titulo do Samsung e o nome do cartao; "Samsung Wallet" (os pontos, a instalacao) nao. */
+    private static String samsungCardName(NotifyRules.Captured row) {
+        String title = clean(row.title);
+        if (title == null || fold(title).contains("samsung")) return null;
+        return title;
+    }
+
     /** O Samsung Wallet costuma por o lugar no titulo; "Samsung Wallet" nao e lugar. */
     private static String samsungMerchant(NotifyRules.Captured row) {
         String title = clean(row.title);
@@ -315,6 +351,12 @@ public final class NotifyParsers {
             // "Pix de R$ 0,01 enviado da conta Corrente para..." tem um "de" antes do valor.
             if (plain.startsWith("r$") || plain.matches("^\\d.*")) continue;
             return value;
+        }
+        // Sem "para"/"de": o nome logo antes do CPF ("Que ótimo! Fulano, CPF/CNPJ ..., enviou").
+        Matcher beforeDoc = NAME_BEFORE_DOC.matcher(folded);
+        while (beforeDoc.find()) {
+            String value = clean(text.substring(beforeDoc.start(1), beforeDoc.end(1)));
+            if (value != null && !fold(value).matches("^(voce|sua|seu)\\b.*")) return value;
         }
         return null;
     }

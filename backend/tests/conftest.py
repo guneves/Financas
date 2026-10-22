@@ -42,6 +42,8 @@ def app_module():
     # Nenhum teste baixa os precos do Tesouro; quem precisa usa tesouro_client.set_prices().
     os.environ["TESOURO_PRICES_URL"] = ""
     os.environ["TESOURO_PRICES_FILE"] = ""
+    # Nem a thread que atualiza as cotacoes de hora em hora (services/quote_refresh.py).
+    os.environ["QUOTE_AUTO_REFRESH_SECONDS"] = "0"
     os.environ["CORS_ORIGINS"] = "*"
     # Log so no stderr: os testes nao criam backend/logs.
     os.environ["LOG_TO_FILE"] = "0"

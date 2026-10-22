@@ -344,6 +344,7 @@ notification.
 | Ourocard | `br.com.bb.oewallet` | No, since 2026-10-17 (owner: duplicates `br.com.bb.android`). |
 | BTG Pactual Banking | `com.btg.pactual.banking` | Yes. Card and account notifications come from here. |
 | BTG Pactual Investimentos | `com.btg.pactual.digital.mobile` | Yes, since 2026-10-17 (owner: operations must be recorded from it too). Excluded at first; see "Brokerage notifications" below. |
+| Flash Benefícios | `br.com.flashapp` | Yes, since 2026-10-22 (owner). Package from third-party listings, to confirm on the phone; generic parser until a capture. Its purchases through Samsung Wallet arrive as "Card used for Meal and Voucher". |
 
 The list lives in `NotifyRules.APPS` and in the manifest's `<queries>` (so the screen can tell
 whether each app is installed); a JVM test fails when the two differ.

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, BellRing, CheckCheck, Inbox, Pencil, Repeat, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
 import { accountsApi, categoriesApi, creditCardsApi, inboxApi } from '../../lib/dataApi'
+import { creditCards } from '../../lib/cardFunctions'
 import {
   AlertMessage,
   Badge,
@@ -450,7 +451,8 @@ export default function Aprovar() {
     () => (accountsQuery.data || NO_ITEMS).filter((account) => !account.archived_at),
     [accountsQuery.data]
   )
-  const cards = cardsQuery.data || NO_ITEMS
+  // So os de credito (041): a compra num cartao so debito vira despesa na conta dele.
+  const cards = useMemo(() => creditCards(cardsQuery.data || NO_ITEMS), [cardsQuery.data])
   const categoryOptions = useMemo(() => buildCategoryOptions(categoriesQuery.data || NO_ITEMS), [categoriesQuery.data])
   const hints = hintsQuery.data || NO_ITEMS
   const ready = view === 'pending' ? readyIds(items) : NO_ITEMS
