@@ -243,7 +243,8 @@ docs/
   done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
 frontend/android/      # Capacitor's Android project (committed); native code in
-                      # app/src/main/java/br/financas/app/ (outbox/ = the native queue and sender,
+                      # app/src/main/java/br/financas/app/ (ui/ = the native Kotlin/Compose screens
+                      # and theme, mobile-docs/native-app.md; outbox/ = the native queue and sender,
                       # bundle/ = the screen self-update, notify/ = the bank-notification
                       # listener and NotifyPairing, the bank × Samsung rule); app/src/debug/ = the test APK's name
 frontend/native-level.txt   # the APK's native level; a screen goes only to an APK at or above its level
@@ -253,6 +254,7 @@ mobile/
   new-keystore.ps1    # creates the release key outside the repo; run once, back it up
 mobile-docs/
   steps-to-production.md  # the Android app plan: decisions, phases and their status
+  native-app.md           # native phone screens (Kotlin + Compose) and the desktop redesign
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
 ```
@@ -424,6 +426,15 @@ mobile-docs/
   items is labelled an estimate. In the APK the queue and the sender are Java
   (`frontend/android/.../outbox/`, swapped in by `lib/nativeApp.js`), and `OutboxRules.java` is a
   port of `outboxRules.js`: change one, change the other, with a test on each side.
+- **The phone goes native, the desktop gets its own interface** (owner, 2026-10-22,
+  `mobile-docs/native-app.md`): Kotlin + Jetpack Compose in `frontend/android`, one screen at a
+  time in the order of daily use, a screen not migrated yet still opening in the WebView; the
+  desktop stays React, redesigned for a wide screen. The server and its money rules do not change;
+  a frontend rule a native screen needs goes behind an endpoint or is ported with the same test
+  cases. Native colours are `ui/theme/Tokens.kt`, the names and values of `index.css`
+  (`TokensTest` reads the CSS), and the theme follows Ajustes › Aparência through `ShellPrefs`.
+  Sessions cannot build an APK (`dl.google.com` blocked): `android-check.yml` compiles the debug
+  APK and runs the JVM tests on every branch push that touches Android.
 - **The APK's screens come from the server** (2026-10-17, `services/app_bundle.py`,
   `android/.../bundle/`, `lib/appBundle.js`). The image builds the frontend for the APK into
   `frontend/dist-android` with a `bundle.json` (content-hash version, native level, API address);

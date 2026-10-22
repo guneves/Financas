@@ -11,7 +11,7 @@ the end). The status of each phase is in its heading.
 
 | Topic | Decision |
 |---|---|
-| Shape | Capacitor wraps the existing React frontend into an APK. Same repo, same UI code. No native rewrite. |
+| Shape | Capacitor wraps the existing React frontend into an APK. Same repo, same UI code. **Superseded 2026-10-22:** the phone becomes native (Kotlin + Compose) screen by screen and the desktop gets its own interface — `mobile-docs/native-app.md`. |
 | Connection | Tailscale between phone and PC. The backend stays on the PC; HTTPS comes from `tailscale serve`. |
 | Offline scope | Creating a despesa, receita, transferência and card purchase works offline. Edits, deletes, investments, invoice payment and imports stay online-only. |
 | Sync | One direction: an outbox on the phone replays creations to the server. The server is the only source of truth; the phone refetches after each run. |

@@ -118,6 +118,21 @@ Items 4–21 of the review were fixed in one PR (see `docs/done-tasks.md`). Open
   field lands for accounts and cards (a `bank` column), `bank_of_row()` already reads it first;
   check that its values name the bank in a way `issuer_of_institution()` recognizes.
 
+### Native phone app and the desktop redesign (owner, 2026-10-22)
+Plan and decisions in `mobile-docs/native-app.md`. Step 0 (Kotlin + Compose in the Android
+project, the native theme from the web's tokens, `android-check.yml`) is done. Open, in order:
+- [ ] **Step 1 — "+ Novo" native**: `NewEntryActivity` in Compose with the four forms, writing into
+  the native outbox; accounts/categories/cards cached on the phone; `NativeScreens.open()` from the
+  WebView's button; bump `native-level.txt`. Ported rules with JVM tests.
+- [ ] Steps 2–8 (Aprovar, Início, Extrato/Cartões, planning screens, Ajustes, Investimentos, then
+  remove the WebView), one per APK, each checked by the owner with the debug APK first.
+- [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
+  screen here before it starts.
+- [ ] **Session containers cannot build an APK**: `dl.google.com` is blocked by the environment's
+  network policy. The owner can allow it (environment settings › Network access › Allowed
+  domains); until then every native change is first compiled by `android-check.yml` on the branch.
+- [ ] Plus Jakarta Sans in the native screens (needs the `.ttf` in `res/font`; the web ships woff2).
+
 ### Mobile app — an Android APK with offline entry and bank notifications
 The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
 Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2
