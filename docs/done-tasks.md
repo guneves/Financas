@@ -162,6 +162,7 @@
 | Renda variável quotes refreshed by the server every hour (`services/quote_refresh.py`, `QUOTE_AUTO_REFRESH_SECONDS`, 0 = off; the same `refresh_market_prices(force=True)` as "Atualizar cotações", for every user; started in `app.py` next to the Tesouro thread). `test_quote_auto_refresh.py` | 2026-10-22 |
 | Card débito function (041: `credit_cards.debit_account_id`, `credit_enabled`): a card is Crédito, Débito or Os dois; a débito purchase in "+ Novo › Cartão" is an EXPENSE in the card's account; a debit-only card (the Flash) has no invoice, installments, refund or autopay and stays out of Cartões and Aprovar's card list; Aprovar sends a purchase on a debit card to its account (`debit_card_for()` in `services/inbox.py`). `test_card_debit.py` (21), `lib/cardFunctions.js` + test | 2026-10-22 |
 | Flash Benefícios and the second parser pass (capture of 2026-10-22, 60 notifications): `br.com.flashapp` in the allow-list and the server's issuers; Samsung Wallet's "<LUGAR> R$ <valor>" with the card name as title (card_name → issuer; "Card used for Meal and Voucher" = the Flash) and its U+00A0; BB's "Pix Recebido" names the sender. 12 new `NotifyParsersTest` cases from the capture | 2026-10-22 |
+| Bug hunt by fuzzing every route (about 7,000 odd requests): a JSON body that is not an object, a date or month outside 1900–2199, an amount that rounds to 0 or above R$ 1 trilhão, `credit_enabled`/`fixed_income_type` as a list or object, an invoice year out of range, an operation's quantity/price of 1e308 or a bad date in its `metadata`, and a purchase with fewer cents than installments are a 400 now — before, a 500, a wrong value stored, or a row that broke later reads (Cartões, the IR report, every later operação). `rounded_money()` no longer turns ≥ 1e26 into 0. `parse_money()` in `money.py`; `test_input_edges.py` (41) | 2026-10-22 |
 | A new APK on every deploy (owner: "preciso apenas poder baixar o app a cada deploy automaticamente"): the `apk` job of `deploy.yml` no longer depends on `frontend/android/`, `native-level.txt` or `capacitor.config.json` changing (the change-detection step and the `apk` input of `workflow_dispatch` removed); every push to `main` publishes a signed APK with a higher versionCode, offered by "Nova versão disponível". DEPLOY.md, CLAUDE.md and the mobile plan updated. Phone check open (next-steps) | 2026-10-22 |
 | Native phone app, step 0 (owner: phone native, desktop its own interface; `mobile-docs/native-app.md`): Kotlin Gradle plugin + Compose compiler plugin (2.3.20), Compose BOM, Material 3 and `activity-compose` in the Android project, JVM target 21; `ui/theme/Tokens.kt` (the web's colour tokens by CSS name) + `Theme.kt` (`FinancasTheme`, `Palette`, `ShellPrefs`); `ShellPlugin.setTheme` stores the web's theme for native screens; `TokensTest` reads `index.css`; `.github/workflows/android-check.yml` builds the debug APK and runs the JVM tests on branch pushes. No screen yet, no native-level bump | 2026-10-22 |
 | Native migration documentation (owner: "faça toda a documentação para o novo projeto"): `mobile-docs/native/` — README (index, status), architecture (packages, native beside the WebView through a `NativeScreens` plugin, session, cache/offline, mirrored settings, an in-house Compose chart kit), conventions, build-and-test (the CI loop from a session), migration-order (steps 0–9 + desktop, what runs in parallel), rules-port (every `lib/` module: port or endpoint), findings (endpoints to add, inconsistencies, possible bugs), desktop (principles, layout, plan per screen), agents (workflow, parallel rules, prompts) and 16 screen specs from one template, written by four parallel agents against the code. Six agents in `.claude/agents/`: `screen-spec-writer`, `rule-porter`, `native-screen-builder`, `native-parity-reviewer`, `android-ci-watcher`, `desktop-screen-builder` | 2026-10-22 |
@@ -1122,3 +1123,26 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   "CANTINA DO VALE R$ 14,20", and Java's `\s` does not match the U+00A0 after "R$". Fixed by
   normalizing U+00A0/U+202F to a space in `textOf()` and a Samsung-only line pattern.
 
+
+### Bug hunt by fuzzing — 2026-10-22
+
+- **How.** Two throwaway pytest files (not committed): one sent ~13 junk values for every key a
+  blueprint reads, alone, to every route; the other took a valid payload per write route (36 of
+  them, investments and Aprovar included) and broke one field at a time, nested `metadata` too, then
+  read every screen's endpoint. Network was patched out (`urlopen`, `yf`). A 500 was logged with its
+  traceback through `flask.got_request_exception` with `PROPAGATE_EXCEPTIONS` off. The final run of
+  the second: 3,784 requests, no 500.
+- **What was really wrong, beyond the 500s.** Three inputs were *stored* and broke reads later:
+  a refund dated 9999-12-31 (its invoice is year 10000, so every `GET /api/cc-expenses` and card
+  PATCH answered 500), an operation with quantity or price 1e308 (cost infinite → realized result
+  NaN → SQLite stores NULL → the `NOT NULL` refused the rewrite of the realized results, so *every
+  later operação* of the owner failed), and an operation dated "0999-01-01" (Linux's `strftime`
+  writes "999-01-01"; the IR report's `int(date[:4])` failed). Silent wrong values: `rounded_money()`
+  returned 0.0 for ≥ 1e26 (Decimal's default 28-digit precision), an amount of 0.004 passed "> 0"
+  and was stored as R$ 0,00, and an operation date that was not a date became today's.
+- **The rules now.** Every typed date and month is in 1900–2199 (`MIN_YEAR`/`MAX_YEAR` in
+  `validators.py`; Aprovar's date-only field also checks its 2000–2100); every typed amount goes
+  through `parse_money()` (rounded first, then ≥ R$ 0,01 unless zero is allowed, ≤ `MAX_MONEY` =
+  R$ 1 trilhão; the initial balance may be negative); an operation's quantity and prices and the
+  numbers in its `metadata` are finite and ≤ 1e12 (`validate_movement_metadata()`); a card purchase
+  must have at least one cent per installment.

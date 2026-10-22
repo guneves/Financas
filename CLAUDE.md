@@ -130,7 +130,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1493 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1534 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -139,7 +139,7 @@ invoice-month rule), the opt-in investment↔cash link, editing an operation kee
 transaction, monthly budgets, recurring entries, the monthly plan from income (`test_monthly_plan_income.py`: percentages at both levels, inheritance, Saldo do plano, migration 038 and `needs_income`), statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), the card's débito function and the Flash in Aprovar (`test_card_debit.py`), the hourly quote refresh (`test_quote_auto_refresh.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), saving and editing without extra work (`test_write_speed.py`: gzip, realized results rewritten only when changed, positions left to their read), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), the card's débito function and the Flash in Aprovar (`test_card_debit.py`), the hourly quote refresh (`test_quote_auto_refresh.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), saving and editing without extra work (`test_write_speed.py`: gzip, realized results rewritten only when changed, positions left to their read), odd input refused with a 400 instead of a 500 or a wrong row (`test_input_edges.py`: a non-object body, years outside 1900–2199, amounts that round to 0 or exceed R$ 1 trilhão, a 1e308 operação), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). It
@@ -276,7 +276,13 @@ mobile-docs/
 
 - **Money.** Always round through `rounded_money()` (`backend/money.py`) — it is ROUND_HALF_UP via
   `Decimal`. Python's built-in `round()` is banker's rounding and is wrong for currency. Never
-  introduce a bare `round()` on a monetary value.
+  introduce a bare `round()` on a monetary value. An amount from a request is read with
+  `parse_money()` (same file): rounded first, then at least R$ 0,01 (unless `allow_zero`) and at
+  most `MAX_MONEY` — `parse_number()` + "> 0" let 0,004 through as R$ 0,00.
+- **Typed dates and months are 1900–2199** (`MIN_YEAR`/`MAX_YEAR` in `validators.py`, applied by
+  `require_date()` / `normalize_month()`): a 9999 date was stored, its invoice landed in year
+  10000 and every Cartões read answered 500. A date read from `metadata` (investments) goes
+  through `validate_movement_metadata()`.
 - **`user_id` on everything.** Every table carries it and every query must filter on it. There are
   tests asserting this; do not add an endpoint that skips it.
 - **Transfers are one row, not two.** A `TRANSFER` leaves `account_id` and arrives at

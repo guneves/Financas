@@ -294,6 +294,15 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   month × tickers). If brapi's monthly limit is reached, raise the interval in the server's `.env`
   or skip runs outside B3 hours (not built: the owner asked for every hour).
 
+### Bug hunt by fuzzing (2026-10-22) — what is left
+- [ ] **Rows already stored with absurd values are not cleaned.** The fixes refuse new ones; a
+  production row with a year outside 1900–2199, an amount of 0 or a 1e308 operation (none expected)
+  would still break its reads. If a screen ever answers 500, look for such a row first.
+- [ ] **Not fuzzed:** the frontend (no runner), the Java listener and parsers, the import's CSV/OFX
+  content itself (only the route's fields), and the file uploads (receipts, app bundle).
+- [ ] **The proceeds' amounts** (`gross_amount`, `tax_amount`, `amount_per_unit`) and the corporate
+  action ratios have no upper bound; nothing broke in the run, so they were left alone.
+
 ### Investments separate from banking — what is left
 Built on 2026-10-12 and 2026-10-17 (see `docs/done-tasks.md`): every operation comes out of the
 portfolio account (a Corretora account) unless "Não descontar de nenhuma conta" is ticked,

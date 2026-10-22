@@ -130,6 +130,11 @@ def parse_int_number(payload, key, label, *, minimum=None, maximum=None):
 
 
 DATE_PATTERN = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
+# Anos aceitos numa data ou mes digitado. 9999-12-31 + um mes (a fatura, a
+# proxima ocorrencia) estourava o datetime, e a compra gravada derrubava toda
+# leitura de Cartoes depois dela; antes de 1000 o strftime do Linux nem
+# completa o ano com zeros ("0999" virava "999").
+MIN_YEAR, MAX_YEAR = 1900, 2199
 MONTH_PATTERN = re.compile(r"^\d{4}-\d{1,2}$")
 
 
@@ -143,9 +148,12 @@ def require_date(payload, key, label):
     try:
         if not DATE_PATTERN.match(value):
             raise ValueError(value)
-        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
+        parsed = datetime.strptime(value, "%Y-%m-%d")
+        if not MIN_YEAR <= parsed.year <= MAX_YEAR:
+            raise ValueError(value)
     except ValueError:
         raise ValidationError(f"{label} deve estar no formato AAAA-MM-DD.")
+    return parsed.strftime("%Y-%m-%d")
 
 
 def optional_date(payload, key, label):
@@ -165,9 +173,12 @@ def normalize_month(value, label="Mes"):
     try:
         if not MONTH_PATTERN.match(text):
             raise ValueError(text)
-        return datetime.strptime(text, "%Y-%m").strftime("%Y-%m")
+        parsed = datetime.strptime(text, "%Y-%m")
+        if not MIN_YEAR <= parsed.year <= MAX_YEAR:
+            raise ValueError(text)
     except ValueError:
         raise ValidationError(f"{label} deve estar no formato AAAA-MM.")
+    return parsed.strftime("%Y-%m")
 
 
 def shift_month(month, offset):
@@ -188,5 +199,14 @@ def require_id_list(payload, key="ids"):
     return ids
 
 
-def parse_json_body():
-    return request.get_json(silent=True) or {}
+def parse_json_body(allow_list=False):
+    """O corpo JSON do pedido: um objeto, ou {} quando nao ha um.
+
+    Um corpo que e lista, texto ou numero chegava ate `payload.get()` e virava
+    500; agora cai na validacao do campo (400). `allow_list` deixa passar a
+    lista das duas rotas que gravam varios itens de uma vez.
+    """
+    body = request.get_json(silent=True)
+    if isinstance(body, dict) or (allow_list and isinstance(body, list)):
+        return body
+    return {}

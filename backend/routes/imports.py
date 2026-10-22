@@ -16,7 +16,7 @@ from flask import Blueprint, jsonify, request
 import statement_import
 from auth import token_required
 from db import get_db, new_id, row_to_dict, utc_timestamp
-from money import rounded_money
+from money import parse_money, rounded_money
 from services.accounts import require_account, resolve_account_id, resolve_category
 from services.import_rules import (
     count_rule_hits,
@@ -545,7 +545,7 @@ def import_commit(current_user_id):
             if not isinstance(raw, dict):
                 return validation_error(f"Linha {index + 1}: formato invalido.")
             try:
-                amount = parse_number(raw, "amount", "Valor", minimum=0, allow_zero=False)
+                amount = parse_money(raw, "amount", "Valor")
                 date_value = require_date(raw, "date", "Data")
                 transaction_type = require_choice(raw, "type", "Tipo", ALLOWED_IMPORT_TYPES)
                 description = optional_string(raw, "description")

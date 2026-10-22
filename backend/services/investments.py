@@ -39,7 +39,7 @@ from services import market_listing
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from services.prices import ticker_key
 from source_types import INVESTMENT_CASH_SOURCE_TYPE
-from validators import ValidationError, safe_float
+from validators import MAX_YEAR, MIN_YEAR, ValidationError, safe_float
 
 
 # O texto em transactions.category do caixa de uma operacao (039): um rotulo,
@@ -90,6 +90,38 @@ def investment_transaction_date(metadata, created_at=None):
     if parsed_created_at:
         return parsed_created_at.strftime("%Y-%m-%d")
     return datetime.now().strftime("%Y-%m-%d")
+
+
+MOVEMENT_DATE_KEYS = ("redemption_date", "sale_date", "purchase_date")
+# Teto de quantidade e de preco de uma operacao: acima disso e digitacao, e o
+# custo (quantidade x preco) virava infinito, o resultado realizado NaN e o
+# banco recusava a gravacao — de toda operacao seguinte do dono.
+MAX_MOVEMENT_NUMBER = 1_000_000_000_000
+MOVEMENT_NUMBER_KEYS = ("other_costs", "sale_price", "treasury_units", "fx_rate")
+
+
+def validate_movement_metadata(metadata):
+    """As datas e os valores do metadata de uma operacao, antes de gravar.
+
+    A data vinha sem validacao: um texto qualquer virava a data de hoje sem
+    aviso, e "0999-01-01" era gravado como "999-01-01" (o strftime do Linux),
+    o que derrubava o relatorio de IR.
+    """
+    metadata = metadata or {}
+    for key in MOVEMENT_DATE_KEYS:
+        value = metadata.get(key)
+        if value in (None, ""):
+            continue
+        parsed = parse_iso_date(value) if isinstance(value, str) else None
+        if not parsed or not MIN_YEAR <= parsed.year <= MAX_YEAR:
+            raise ValidationError("Data da operacao deve estar no formato AAAA-MM-DD.")
+    for key in MOVEMENT_NUMBER_KEYS:
+        value = metadata.get(key)
+        if value in (None, ""):
+            continue
+        number = safe_float(value, None) if not isinstance(value, bool) else None
+        if number is None or not math.isfinite(number) or abs(number) > MAX_MOVEMENT_NUMBER:
+            raise ValidationError("Valor invalido na operacao.")
 
 
 def investment_movement_type(quantity, metadata):

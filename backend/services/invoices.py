@@ -127,6 +127,9 @@ def build_installment_rows(purchase, card, start=None):
         card["closing_day"],
     )
     amounts = split_installments(purchase["total_amount"], purchase["installments"])
+    if not all(amounts):
+        # R$ 0,02 em 3x deixava uma parcela de R$ 0,00 na fatura.
+        raise ValidationError("Cada parcela precisa ser de pelo menos R$ 0,01: diminua o numero de parcelas.")
 
     rows = []
     for index, amount in enumerate(amounts):

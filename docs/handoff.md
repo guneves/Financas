@@ -59,6 +59,25 @@ briefing subagent: the docs were read directly.
 - Carried, still open in `next-steps.md`: the card débito/Flash walk-through, no Flash capture,
   Flash package unconfirmed, brapi quota with hourly quotes, the older items.
 
+### From the parallel session merged before this one (bug hunt by fuzzing, PR #29)
+Merged into this branch from `main`; its own entry is in git history (`git log -p docs/handoff.md`).
+It fixed every 500 a fuzz of the API found (`parse_money()`, dates 1900–2199, investment metadata
+and caps; `test_input_edges.py`, pytest 1534). Still open from it:
+- Rows already stored with such values are not cleaned (none expected in production; the fixes
+  only refuse new ones). `next-steps.md`, "Bug hunt by fuzzing".
+- Not fuzzed: the frontend (no test runner), the Java parsers/listener, CSV/OFX contents, uploads.
+- Proceeds' amounts and corporate-action ratios still have no upper bound (nothing broke).
+
+Learned there (still true):
+- With `TESTING = True` Flask re-raises; to see 500s as responses in a scratch test set
+  `PROPAGATE_EXCEPTIONS = False` and `TESTING = False` (monkeypatch `app.config`) and hook
+  `flask.got_request_exception` for the traceback.
+- `/api/health/integrations`, returns and evolution take ~1.5 s each with no network (gov_http's
+  retry): a fuzz over them is slow, not hung.
+- `pkill -f <pattern>` matches the shell running it when the pattern is in its own command line.
+- Linux `strftime("%Y")` does not zero-pad years < 1000, and Decimal's default context (28 digits)
+  cannot quantize ≥ 1e26 to cents — both are now guarded, but remember them for new code.
+
 ### Next session
 Step 1 of `mobile-docs/native/migration-order.md` ("+ Novo"), with the prompt in
 `mobile-docs/native/agents.md`, "Step 1". Before step 3, the rule decisions (`rules-port.md`).

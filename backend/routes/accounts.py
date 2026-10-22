@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
-from money import rounded_money
+from money import parse_money, rounded_money
 from services.accounts import (
     CLIENT_ID_OTHER_KIND_MESSAGE,
     TRANSFER_CURRENCY_MESSAGE,
@@ -38,7 +38,6 @@ from validators import (
     optional_client_id,
     optional_string,
     parse_json_body,
-    parse_number,
     parse_optional_number,
     require_choice,
     require_date,
@@ -183,8 +182,8 @@ def account_detail(current_user_id, account_id):
             if "institution" in payload:
                 updates["institution"] = optional_string(payload, "institution", max_length=255) or None
             if "initial_balance" in payload:
-                updates["initial_balance"] = rounded_money(
-                    parse_number(payload, "initial_balance", "Saldo inicial")
+                updates["initial_balance"] = parse_money(
+                    payload, "initial_balance", "Saldo inicial", allow_zero=True, allow_negative=True
                 )
             if "archived_at" in payload and payload.get("archived_at") in (None, ""):
                 updates["archived_at"] = None
@@ -257,9 +256,7 @@ def create_transfer(current_user_id):
                 if existing["type"] != "TRANSFER":
                     return validation_error(CLIENT_ID_OTHER_KIND_MESSAGE, 409)
                 return jsonify(serialize_transaction(existing)), 200
-            amount = rounded_money(
-                parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
-            )
+            amount = parse_money(payload, "amount", "Valor")
             date_value = require_date(payload, "date", "Data")
             description = optional_string(payload, "description")
             origin = require_account(

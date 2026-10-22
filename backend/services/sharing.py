@@ -13,9 +13,9 @@ a pessoa manda e um lancamento proprio.
 """
 
 from db import row_to_dict, utc_timestamp
-from money import rounded_money
+from money import parse_money, rounded_money
 from services.attachments import cc_purchase_expense_ids
-from validators import ValidationError, parse_number, safe_float
+from validators import ValidationError, safe_float
 
 SHARE_MODES = {"OTHERS", "SPLIT"}
 SHARE_FIELDS = ("share_mode", "share_others_amount", "share_person")
@@ -68,9 +68,7 @@ def parse_share(payload, amount):
 
     others = None
     if raw_mode == "SPLIT":
-        others = rounded_money(
-            parse_number(payload, "share_others_amount", "Parte da outra pessoa", minimum=0, allow_zero=False)
-        )
+        others = parse_money(payload, "share_others_amount", "Parte da outra pessoa")
         if others >= rounded_money(amount):
             raise ValidationError(
                 "A parte da outra pessoa deve ser menor que o valor. Se e tudo dela, escolha \"De outra pessoa\"."

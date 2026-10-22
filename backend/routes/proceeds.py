@@ -37,6 +37,8 @@ from services.proceeds import (
     trailing_net_by_asset,
 )
 from validators import (
+    MAX_YEAR,
+    MIN_YEAR,
     ValidationError,
     optional_date,
     optional_string,
@@ -239,7 +241,9 @@ def normalize_proceed_payload(conn, current_user_id, payload, existing=None):
 def shifted_date(value, months):
     """A data `months` meses depois, no mesmo dia (ou no ultimo do mes curto)."""
     parsed = parse_iso_date(value) if value not in (None, "") else None
-    if not parsed or not months:
+    # Fora da faixa de anos a data volta como veio e a validacao a recusa:
+    # 9999-12-31 + 1 mes estourava o datetime (500).
+    if not parsed or not months or not MIN_YEAR <= parsed.year <= MAX_YEAR:
         return value
     index = parsed.year * 12 + parsed.month - 1 + months
     return clamped_date(index // 12, index % 12 + 1, parsed.day).isoformat()
