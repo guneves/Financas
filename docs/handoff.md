@@ -28,7 +28,8 @@ briefing subagent: the docs were read directly.
   `Palette`, `LocalPalette`, `ShellPrefs`), `TokensTest.kt` (reads `index.css`). `ShellPlugin`
   stores the theme in `ShellPrefs`. Tokens cross-checked against the CSS with a Python script here.
 - **`android-check.yml`**: debug APK + `testDebugUnitTest` on branch pushes that touch Android.
-  First run (22338aa) was still building when this was committed; see the next commit.
+  First run green on 22338aa (run 39824479133: `testDebugUnitTest assembleDebug`, BUILD SUCCESSFUL in
+  1m 55s, TokensTest included).
 
 ### Not done, and why
 - **No native screen yet.** Step 1 ("+ Novo") is next, detailed in `native-app.md`. No
