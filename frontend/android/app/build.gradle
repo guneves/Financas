@@ -1,4 +1,7 @@
 apply plugin: 'com.android.application'
+// As telas nativas (mobile-docs/native-app.md): Kotlin ao lado do Java de sempre, e o Compose.
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
 // A chave de assinatura mora fora do repositorio (mobile/new-keystore.ps1 cria as duas
 // coisas): o .jks e um keystore.properties com storeFile, storePassword, keyAlias e
@@ -53,6 +56,7 @@ android {
     }
     buildFeatures {
         buildConfig = true
+        compose = true
     }
     buildTypes {
         // O APK de teste: outro pacote (br.financas.app.debug), instalado ao lado do de verdade e
@@ -76,6 +80,13 @@ android {
     }
 }
 
+// O mesmo alvo do Java (capacitor.build.gradle): Kotlin e Java tem de concordar.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
@@ -90,6 +101,13 @@ dependencies {
     implementation project(':capacitor-android')
     // O envio da fila com o app fechado (outbox/OutboxWorker.java).
     implementation "androidx.work:work-runtime:$androidxWorkVersion"
+    // As telas nativas (ui/).
+    implementation platform("androidx.compose:compose-bom:$composeBomVersion")
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.ui:ui-tooling-preview"
+    implementation "androidx.activity:activity-compose:$androidxActivityVersion"
+    debugImplementation "androidx.compose.ui:ui-tooling"
     testImplementation "junit:junit:$junitVersion"
     // O org.json do Android e so um esboco na JVM; os testes de OutboxRules usam o real.
     testImplementation "org.json:json:20250517"
