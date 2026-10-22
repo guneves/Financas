@@ -1,6 +1,6 @@
 # Push to main: test, build the image into GHCR, deploy it on guilhermeserver.
 # The server only pulls: /srv/apps/financas holds compose.yaml and .env (never touched here).
-# When the native app changed, the "apk" job also builds the signed APK and publishes it,
+# On every deploy the "apk" job also builds the signed APK and publishes it,
 # with apk/version.json, in /srv/apps/financas/apk (served on the tailnet by tailscale serve),
 # next to the test APK (financas-debug.apk, package br.financas.app.debug, never in version.json).
 name: deploy
@@ -9,11 +9,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      apk:
-        description: Build and publish the APK even without native changes
-        type: boolean
-        default: false
 
 concurrency:
   group: deploy
@@ -28,28 +23,8 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    outputs:
-      native: ${{ steps.native.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      # A new APK only when what lives in it changed: the Android project, the native level
-      # (bumped with any Java/plugin/Capacitor change the screens depend on) or Capacitor's
-      # config. Screens alone reach the phone as a bundle, with no APK.
-      - name: Did the native app change?
-        id: native
-        env:
-          BEFORE: ${{ github.event.before }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.apk }}
-        run: |
-          paths="frontend/android frontend/native-level.txt frontend/capacitor.config.json"
-          if [ "$FORCE" = "true" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null \
-             || ! git diff --quiet "$BEFORE" HEAD -- $paths; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
@@ -115,8 +90,10 @@ jobs:
         run: |
           ssh "$SERVER" "cd $APP_DIR && sudo docker compose pull && sudo docker compose up -d && sudo docker image prune -f > /dev/null && sudo docker compose ps"
 
-  # The signed APK, only on native changes. The key exists on the runner only between the
-  # decode and the delete steps; the secrets reach gradle as environment variables (masked).
+  # The signed APK, on every deploy (owner, 2026-10-22: a new APK to download after each one,
+  # whatever changed; the screen bundle still reaches the phone without it). The key exists on
+  # the runner only between the decode and the delete steps; the secrets reach gradle as
+  # environment variables (masked).
   # The certificate is checked against mobile/release-cert-sha256.txt, the key on the phone:
   # an APK signed with another key would not install over it. Never published to GitHub.
   # It runs alongside build/deploy (gradle outlasts the deploy, so the APK lands after it).
@@ -125,7 +102,6 @@ jobs:
   # financas-debug.apk and left out of version.json, so no phone is ever offered it.
   apk:
     needs: test
-    if: needs.test.outputs.native == 'true'
     runs-on: ubuntu-latest
     environment: android-release
     env:

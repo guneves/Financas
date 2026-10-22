@@ -239,6 +239,10 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   account; `POST /api/investments` needs a `client_id` first. The owner needs a BRL account for
   the brokerage in Ajustes › Contas.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
+- [ ] **APK on every deploy — phone check** (2026-10-22): after the next push to `main`, the
+  `apk` job must run even with no change under `frontend/android/` (Actions › deploy), and the
+  phone must show "Nova versão disponível" and install it from the app, data kept. Each deploy now
+  adds ~5 min of runner time and a new `financas-<code>.apk` (the last three stay on the server).
 
 ### Card débito and hourly quotes (2026-10-22) — what is left
 - [ ] **Owner walk-through.** Ajustes › Cartões: create the Flash as "Débito" with a "Flash" account

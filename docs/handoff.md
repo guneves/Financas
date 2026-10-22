@@ -7,57 +7,37 @@
 
 ---
 
-## Session — 2026-10-22 · Hourly quotes, card débito, Flash and the second parser pass
+## Session — 2026-10-22 (evening) · A new APK on every deploy
 
-Cloud session, owner request: "auto update renda variável prices every one hour, create the
-function débito when creating a card, support Flash Benefícios notifications, use the JSON
-(capture of 2026-10-22) to improve the other banks". Briefing from `session-scout` (worked by
-`subagent_type`). PR opened at the owner's request.
+Cloud session. The owner first asked how to make the APK "native"; after the options (targeted
+native pieces, React Native, Kotlin + Compose) the real need came out: "preciso apenas poder baixar
+o app a cada deploy automaticamente". No briefing subagent: a short, workflow-only task, docs read
+directly.
 
 ### Done
-- **Hourly quotes.** `services/quote_refresh.py`: a daemon thread started in `app.py` calls
-  `refresh_market_prices(user, force=True)` for every user each `QUOTE_AUTO_REFRESH_SECONDS`
-  (3600, first run 60 s after boot; 0 = off, set in `conftest.py`). Quoted assets only (ações,
-  FIIs, ETFs, BDRs, BTC); Tesouro keeps its own thread. `test_quote_auto_refresh.py`.
-- **Card débito (041).** `credit_cards.debit_account_id` + `credit_enabled`. Ajustes › Cartões has
-  "Funções: Crédito / Débito / Os dois" (create and edit); "+ Novo › Cartão" offers Crédito/Débito
-  on a combo card and only débito on a debit-only card; a débito purchase is an EXPENSE in the
-  card's account (outbox kind EXPENSE, so offline works as before). Debit-only cards are out of
-  Cartões/Aprovar's card lists and refused by every credit path (`require_active_card()`). Rules in
-  `lib/cardFunctions.js` (tested). `test_card_debit.py` (21).
-- **Flash.** `br.com.flashapp` in `NotifyRules.APPS`, the manifest `<queries>`,
-  `NotifyPairing.issuerOf()` and the server (`FLASH_APP`, issuer `flash`, alias "meal and
-  voucher"). Aprovar: a purchase on a debit card (`debit_card_for()`) goes to its account; the
-  Flash's purchase arrives as a despesa in the Flash account, confirmed once, then remembered.
-- **Second parser pass** (60 notifications, `RunCapture` harness in the session scratchpad, not
-  committed): Samsung's new format was **never** read before (title = card name, text "<LUGAR>
-  R$ <valor>", U+00A0 after R$) — now PURCHASE with merchant and `card_name`; the server derives
-  Samsung's issuer from the card name so it pairs only with the same bank. BB "Pix Recebido" now
-  names the sender ("Que ótimo! <Nome>, CPF/CNPJ …"). Everything else in the export already parsed
-  right; marketing, BTG portal access and the bitcoin receipt stay ignored. 12 JVM cases added.
-- Checks: pytest 1493 green; `npm test` 144 green; `vite build` ok; JVM notify tests 73 green
-  (compiled with javac + JUnit jars outside Gradle — the container has no Android SDK); Chromium
-  screenshots of Ajustes › Cartões and "+ Novo › Cartão" (a débito save landed in the account).
+- **`apk` job on every deploy.** `.github/workflows/deploy.yml`: the "Did the native app change?"
+  step, the `test` job's `native` output, its `fetch-depth: 0` and the `apk` input of
+  `workflow_dispatch` are gone; `apk` keeps `needs: test` with no `if:`. Every push to `main` (and
+  every manual run) builds, signs, checks and publishes `financas-<10000 + run>.apk` and
+  `version.json`, so the app offers "Nova versão disponível" after each deploy.
+- Docs: DEPLOY.md (everyday flow step 4, "A new APK from CI, on every deploy"), CLAUDE.md's
+  convention, `mobile-docs/steps-to-production.md` step 7. YAML parses.
 
 ### Not done, and why
-- **No Flash app capture**, so no Flash-specific parser and no detection of the benefit credit
-  (monthly deposit). The generic parser covers "compra … R$ … em …" texts. `next-steps.md`.
-- **Flash package unconfirmed** (`br.com.flashapp`, from two third-party listings; Play Store not
-  reachable from here). Ajustes › Notificações shows whether it is installed.
-- A débito purchase does not record which card it was (plain EXPENSE). Not asked; noted.
-- No B3-hours window for the hourly refresh (the owner asked for every hour); brapi quota risk
-  noted in `next-steps.md`.
-- `native-level.txt` not bumped: the screens call no new Java. The CI `apk` job runs anyway
-  (`frontend/android/` changed), so a new APK is offered by "Nova versão disponível".
-- Last sessions' open items (server/phone timing of saves, static files uncompressed,
-  Rentabilidade's daily loop, the Planejar owner check) are still in `next-steps.md`.
+- **Not run in CI from here**: the job only runs on `main`, and this branch is not merged. The
+  phone check after the first deploy is in `next-steps.md`.
+- **No rewrite of the screens in Kotlin/Compose.** Discussed and dropped: the owner only needed the
+  download. The WebView, the bundle self-update and `native-level.txt` stay as they were — the
+  bundle still updates the screens without installing, the APK is now an extra every time.
+- Carried from the previous session, still open in `next-steps.md`: the card débito/Flash owner
+  walk-through, no Flash capture (no Flash-specific parser, no benefit-credit detection), the
+  Flash package unconfirmed, brapi quota with hourly quotes, and the older items (server/phone
+  timing of saves, static files uncompressed, Rentabilidade's daily loop, the Planejar check).
 
 ### Learned
-- The test DB is one per session: a test that loops over all users sees the users of earlier
-  tests — assert on your own user's rows, not on totals.
-- Java's `\s` does not match U+00A0; Samsung puts one after "R$". Normalize in `textOf()`.
-- BTG posts "Compra autorizada" twice (~25 ms, different keys); the server's `repeated` rule
-  already folds it.
-- The refund route takes `purchase_date`, not `date` (a 400 for the wrong field looks like the
-  rule you meant to test — assert the message).
-- Never name a backend module after a stdlib one (carried from earlier handoffs).
+- The container has Java 21 and Gradle but no Android SDK: an APK can only be built by CI or on
+  the owner's PC.
+- Each deploy now costs the `apk` job's runner time (Gradle + two builds) and adds an APK on the
+  server; the publish step keeps only the last three.
+- From the previous session, still true: the test DB is one per session (assert on your own
+  user's rows); Java's `\s` does not match U+00A0; never name a backend module after a stdlib one.

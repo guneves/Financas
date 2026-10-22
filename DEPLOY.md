@@ -28,8 +28,8 @@ Push to `main`. `.github/workflows/deploy.yml` then:
 2. builds the image for linux/amd64 and pushes it to GHCR as `latest` and `<sha>` (buildx cache);
 3. joins the tailnet as `tag:ci`, copies `compose.yaml` to the server (never `.env`) and runs
    `sudo docker compose pull && sudo docker compose up -d` in `/srv/apps/financas`.
-4. only when the native app changed: builds the signed APK and publishes it for the phone
-   ("Updating the phone", below).
+4. builds the signed APK and publishes it for the phone, on every deploy ("Updating the phone",
+   below).
 
 Migrations run when the new container boots. A failed test stops the deploy before anything is
 pushed. It can also be started by hand from the Actions tab (`workflow_dispatch`).
@@ -202,11 +202,13 @@ sees a different version and goes back to it at its next check, or to the built-
 is what the old image serves. On the phone itself, Ajustes › Versão do app › "Voltar à versão do
 APK" drops the downloaded screen at once.
 
-### Native code: a new APK from CI
+### A new APK from CI, on every deploy
 
-When a push changes `frontend/android/`, `frontend/native-level.txt` or
-`frontend/capacitor.config.json` (or the workflow is run by hand with **apk** ticked), the `apk`
-job runs alongside build and deploy, after the tests, in the `android-release` environment (main only):
+On every push to `main` (and every run by hand), the `apk` job runs alongside build and deploy,
+after the tests, in the `android-release` environment (main only). Until 2026-10-22 it ran only
+when `frontend/android/`, `native-level.txt` or `capacitor.config.json` changed; the owner wants a
+new APK to download after every deploy, so each one gets a higher versionCode and the app offers
+it, whatever changed. The screen bundle (above) still reaches the phone without installing:
 
 1. builds the screens for the APK (the same content hash as the image's bundle) and `cap sync`;
 2. decodes `ANDROID_KEYSTORE_BASE64` into `$RUNNER_TEMP`, builds `assembleRelease` with
@@ -231,8 +233,7 @@ owner comes back. The installer replaces the app in place, so the queue, the log
 stay. The new APK drops downloaded screens and starts on its own.
 
 When to bump `native-level.txt`: in the same commit as any Java/plugin/Capacitor change the screens
-call (CLAUDE.md). A native change the screens do not depend on (a Java bug fix) still produces a new
-APK, with no bump.
+call (CLAUDE.md). A native change the screens do not depend on (a Java bug fix) needs no bump.
 
 **Rolling back the APK:** Android never installs a lower versionCode over a higher one without
 uninstalling, which deletes the offline queue. So an APK rollback goes forward: `git revert` the

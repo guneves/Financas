@@ -436,8 +436,8 @@ mobile-docs/
   not have, and never remove a Java method that lower-level screens still call (a newer APK runs
   them). `GET /api/app-bundle*` is public on purpose (the same frontend `/` serves).
 - **A new APK comes from CI, never from GitHub Releases** (2026-10-17). The `apk` job of
-  `deploy.yml` runs only when `frontend/android/`, `native-level.txt` or `capacitor.config.json`
-  changed. It signs with the `android-release` environment's key (checked against
+  `deploy.yml` runs on every deploy (owner, 2026-10-22: a new APK to download after each one,
+  whatever changed). It signs with the `android-release` environment's key (checked against
   `mobile/release-cert-sha256.txt`), uses `versionCode = 10000 + run number`, and copies the APK and
   `version.json` to `/srv/apps/financas/apk/`, served at `/apk/` by `tailscale serve`. The app
   (`android/.../update/ApkUpdatePlugin.java`, `ApkUpdateBanner.jsx`) offers "Nova versão
