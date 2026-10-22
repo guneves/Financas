@@ -134,6 +134,18 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   network policy. The owner can allow it (environment settings › Network access › Allowed
   domains); until then every native change is first compiled by `android-check.yml` on the branch.
 - [ ] Plus Jakarta Sans in the native screens (needs the `.ttf` in `res/font`; the web ships woff2).
+- [ ] **Triage `mobile-docs/native/findings.md`** (found while specifying every screen, nothing
+  changed yet): possible bugs — Metas refuses any edit once the target month arrives; Recorrentes'
+  "escolha outra conta" with no account field in the edit; the Extrato cannot change a transfer's
+  destination; `investmentStatement.js` same-day order contradicts its comment; the refund prefill's
+  rounding cents; A receber's "pago em" from a UTC timestamp; a grouped Tesouro delete is not
+  atomic. Inconsistencies — Corretora accounts offered in banking forms and autopay; Início groups
+  categories by name; privacy mode uneven across screens; the Extrato vs Início classification of a
+  transfer to the Corretora. Stale texts (login "FinanceMVP"/"Cadastrar", Metas, Integrações,
+  Notificações, `CASH_WITHOUT_AMOUNT_MESSAGE`). Each fix gets a reproducing test first.
+- [ ] **`client_id` on investment creations** (`POST /api/investments`, `/api/investment-proceeds`,
+  `/api/corporate-actions`) if native should queue them offline; until then native refuses them
+  offline (`findings.md`, Investimentos).
 - [ ] **Decide the client rules before step 3** (`mobile-docs/native/rules-port.md`): endpoint or
   port for `transactions.js` (balances), `cashFlow.js` (no tests today) and `attentionRules.js`.
 - [ ] **Owner decision**: may `android-check.yml` upload a branch's debug APK as a workflow

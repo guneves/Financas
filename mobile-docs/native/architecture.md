@@ -42,8 +42,10 @@ to exist and be at least two weeks old): Navigation Compose, `lifecycle-viewmode
 `kotlinx-coroutines-android`, `kotlinx-serialization-json` (plus its Gradle plugin), OkHttp. No
 dependency-injection framework: one `AppGraph` object builds the client, the cache and the
 repositories. No Room until a screen needs to query offline data; a JSON file per cached request is
-enough for "show the last thing seen". Charts (step 7): a Compose chart library (Vico is the usual
-choice) — decide in the Investimentos specs.
+enough for "show the last thing seen". Charts (step 7): a small in-house Compose `Canvas` kit
+(`ui/charts/`: donut, bars above and below zero, lines that break on gaps, sparkline) rather than a
+library — Vico, the usual choice, has no pie/donut chart, and the app needs only those four shapes
+(`screens/14-investimentos-rentabilidade.md`). Revisit if the needs grow.
 
 ## Native and WebView side by side
 

@@ -47,7 +47,10 @@ React screen, it applies to its native replacement with the same meaning.
 
 - Colours only from `LocalPalette` / `MaterialTheme.colorScheme`, which come from
   `ui/theme/Tokens.kt` (the web's tokens; `TokensTest` keeps them equal). A new colour enters
-  `Tokens.kt` under its CSS name, never as a hex literal in a screen.
+  `Tokens.kt` under its CSS name, never as a hex literal in a screen. Chart colours too: the web's
+  `SERIES` list and `FLOW` in `components/charts.jsx` are hex literals today, so step 7 first moves
+  them into `index.css` variables (as CLAUDE.md already says they are) and then into `Tokens.kt`,
+  where `TokensTest` covers them.
 - The web's visual rules hold: green/red/amber/sky only for gain/loss/warning/info; a signed amount
   through the signed formatter; numbers right-aligned in lists; big values shrink to fit rather than
   being cut.

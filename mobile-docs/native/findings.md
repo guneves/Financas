@@ -76,6 +76,29 @@ spec named on each line.
   — CLAUDE.md says 180 days are configured on the server). A native login must also write the
   WebView's stored auth while both exist (`00-shell.md`).
 
+## Investimentos
+
+- **No idempotent creation**: `POST /api/investments`, `/api/investment-proceeds` and
+  `/api/corporate-actions` take no `client_id`. Native must refuse them offline and never resend
+  after a timeout (unlike "+ Novo"). Adding `client_id` (as migration 024 did for "+ Novo") would
+  allow queueing (`13-investimentos-operacoes.md`).
+- **Money computed on the client** that belongs on the server: the redemption cost split across
+  Tesouro purchases (`allocateTreasuryRedemption()`, PEPS) and the proportional cost of a single
+  title (a redemption endpoint would own it); Operações' summary summing floats while
+  `portfolio.realized_result` already holds the totals; Proventos' yearly totals; the IR tab's
+  tributação exclusiva net (`gross − withheld`, unrounded); the CDI comparison card, which belongs in
+  `benchmarks[]` (`12`–`16`).
+- No tests: position grouping and `describeMovement()`; `typeForAsset()` is tested but unused.
+- Privacy mode masks Aportes and "Por ativo" but not Operações' list and summary or Proventos'
+  summary and history.
+- `CASH_WITHOUT_AMOUNT_MESSAGE` still says "desmarque 'Lancar no extrato'"; that checkbox is gone.
+- Deleting a grouped Tesouro position sends several separate DELETEs; a failure halfway leaves it
+  half-deleted (a grouped delete endpoint would make it atomic).
+- `/api/investments/history` returns `historical_prices`, which nothing reads.
+- `profitability_percent` is net of IR for fixed income and gross for variable income.
+- Chart colours: `SERIES` (and part of `FLOW`) in `components/charts.jsx` are hex literals, not CSS
+  variables as CLAUDE.md says; native needs them in `Tokens.kt` (`14-investimentos-rentabilidade.md`).
+
 ## Stale texts
 
 - Login says "FinanceMVP" and offers "Cadastrar", but signup is closed (`00-shell.md`).

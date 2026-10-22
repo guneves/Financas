@@ -27,6 +27,14 @@ briefing subagent: the docs were read directly.
   Kotlin JVM target 21 in `app/build.gradle`. `ui/theme/Tokens.kt`, `Theme.kt` (`FinancasTheme`,
   `Palette`, `LocalPalette`, `ShellPrefs`), `TokensTest.kt` (reads `index.css`). `ShellPlugin`
   stores the theme in `ShellPrefs`. Tokens cross-checked against the CSS with a Python script here.
+- **The migration's documentation** (owner: "faça toda a documentação para o novo projeto, sugira
+  prompts com agents"): `mobile-docs/native/` (README, architecture, conventions, build-and-test,
+  migration-order, rules-port, findings, desktop, agents with prompts) and 16 specs in `screens/`
+  from `_template.md`. The specs were written by four parallel `general-purpose` agents (shell +
+  "+ Novo" + Início; Lançamentos; Planejar + Ajustes; Investimentos), each reading the React code
+  and the backend; their cross-cutting findings are in `findings.md`. Six agent definitions in
+  `.claude/agents/` (listed in CLAUDE.md, "The native migration's agents"); they were discovered by
+  the harness in this same session.
 - **`android-check.yml`**: debug APK + `testDebugUnitTest` on branch pushes that touch Android.
   First run green on 22338aa (run 39824479133: `testDebugUnitTest assembleDebug`, BUILD SUCCESSFUL in
   1m 55s, TokensTest included).
@@ -38,13 +46,26 @@ briefing subagent: the docs were read directly.
   `maven.google.com` redirects there) is blocked by the environment's network policy. Told the
   owner how to allow it. Until then, compile on the branch through `android-check.yml` and read
   the run with the GitHub MCP tools (`actions_list`, `get_job_logs`).
-- Desktop redesign not started (plan in `native-app.md`, per-screen plan goes in next-steps first).
+- Desktop redesign not started (plan in `mobile-docs/native/desktop.md`; a per-screen plan goes in
+  next-steps first).
+- **Nothing in `findings.md` was fixed**: possible bugs (Metas edit after the target month,
+  Recorrentes' account, transfer destination in the Extrato, refund cents, UTC "pago em", grouped
+  Tesouro delete), inconsistencies and stale texts are listed for triage in `next-steps.md`.
+- The specs were checked for structure (every one has the template's ten sections) and "+ Novo"
+  was read in full; the others were not re-verified line by line — a builder agent reads the React
+  code anyway and fixes the spec where it disagrees (`native-screen-builder.md`).
 - Plus Jakarta Sans is not in the native theme (needs a `.ttf` in `res/font`).
 - The phone check of "APK on every deploy" waits for the merge to main (next-steps).
 - Carried, still open in `next-steps.md`: the card débito/Flash walk-through, no Flash capture,
   Flash package unconfirmed, brapi quota with hourly quotes, the older items.
 
+### Next session
+Step 1 of `mobile-docs/native/migration-order.md` ("+ Novo"), with the prompt in
+`mobile-docs/native/agents.md`, "Step 1". Before step 3, the rule decisions (`rules-port.md`).
+
 ### Learned
+- `components/charts.jsx`'s `SERIES` is a list of hex literals, not CSS variables as CLAUDE.md's
+  "Theme and tokens" says; step 7 must move them into `index.css` before `Tokens.kt`.
 - Maven Central rate-limits this container quickly (429 after a few directory listings): don't
   probe versions by listing directories; `kotlin-gradle-plugin` 2.3.20 is dated 2026-03-16.
 - Kotlin's JVM target must equal Java's (21, set by Capacitor's generated

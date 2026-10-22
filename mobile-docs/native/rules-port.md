@@ -34,7 +34,8 @@ portfolio); the client rules below are the remaining ones.
 | `portfolioAccount.js` | yes | "Registrar operação", Ajustes › Contas, Posição | **Port** (step 7) | Which account is the Corretora, the cash-link metadata. |
 | `proceedsRules.js` | yes | Proventos | **Port** (step 7) | Which types fit which assets, the form layout. |
 | `fixedIncome.js` | yes | "Registrar operação" (renda fixa), Posição | **Port** (step 7) | Form ↔ metadata mapping, labels. |
-| `treasury.js` | yes | Posição (Tesouro), Operações | **Port** (step 7) | `allocateTreasuryRedemption` (PEPS split of a grouped redemption) is money: keep the same test cases exactly. |
+| `treasury.js` | yes | Posição (Tesouro), Operações | **Port** the labels (`treasuryRateText`, `treasuryRateLabel`, `isMarketValued`, `parseTreasuryUnits`); **endpoint** for `allocateTreasuryRedemption` (PEPS split of a grouped redemption — money; a redemption endpoint would own it with the proportional cost of a single title) | Until the endpoint exists, a port must keep the same test cases exactly. |
+| Operações / Proventos / IR summaries (inline) | no | Operações, Proventos, IR | **Endpoint** | Float sums of totals the server already has (`portfolio.realized_result`) or can return (yearly proventos, tributação exclusiva net). `findings.md`, Investimentos. |
 | `compoundInterest.js` | yes | Calculadora | **Port** if the Calculadora goes native | Pure math; no server data. |
 | `assetSearch.js` | no | asset pickers | **Port** with new tests | Text normalization + filter. |
 | `notifyRules.js` | yes | Ajustes › Notificações | **Port** when that section goes native | Texts about the listener's state; the rules themselves are in Java already. |
