@@ -6,6 +6,10 @@ platforms". The phone becomes a native Android app (Kotlin + Jetpack Compose); t
 React and is redesigned for a wide screen. Earlier in the same conversation the owner accepted
 installing a new APK after each deploy, and `deploy.yml`'s `apk` job now publishes one every time.
 
+The project documentation — architecture, conventions, build, the order, one spec per screen, the
+desktop plan and how to run the work with agents — is in `mobile-docs/native/` (start at its
+`README.md`). This file keeps the decisions.
+
 This replaces the "No native rewrite" decision of `steps-to-production.md` (its table, "Shape").
 Everything else there — the native outbox, the notification listener, Aprovar, Tailscale, the
 key — stays and is reused.

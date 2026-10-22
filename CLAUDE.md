@@ -79,6 +79,15 @@ Agent(subagent_type="general-purpose",
 
 If the fallback is what you used, say so in the handoff.
 
+### The native migration's agents
+
+Six more agents in `.claude/agents/` run the phone's native migration and the desktop redesign:
+`screen-spec-writer`, `rule-porter`, `native-screen-builder`, `native-parity-reviewer`,
+`android-ci-watcher` and `desktop-screen-builder`. What each does, the rules for running them in
+parallel (one writer per branch, worktrees, one owner of the shared Android files per round) and
+ready-to-paste prompts are in `mobile-docs/native/agents.md`. The same fallback applies if one is
+"not found".
+
 ## What this is
 
 A personal finance manager, single-user, running locally. Income and expenses, credit cards with
@@ -254,9 +263,13 @@ mobile/
   new-keystore.ps1    # creates the release key outside the repo; run once, back it up
 mobile-docs/
   steps-to-production.md  # the Android app plan: decisions, phases and their status
-  native-app.md           # native phone screens (Kotlin + Compose) and the desktop redesign
+  native-app.md           # native phone screens (Kotlin + Compose) and the desktop redesign: decisions
+  native/                 # the migration's docs: architecture, conventions, build, order, rules,
+                          # screens/ (one spec per screen), desktop.md, agents.md (agents + prompts)
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
+  screen-spec-writer.md, rule-porter.md, native-screen-builder.md, native-parity-reviewer.md,
+  android-ci-watcher.md, desktop-screen-builder.md   # the native migration's agents (mobile-docs/native/agents.md)
 ```
 
 ## Conventions
