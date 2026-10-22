@@ -13,7 +13,7 @@ from flask import Blueprint, jsonify, request
 from auth import token_required
 from dates import parse_iso_date
 from db import get_db, new_id, utc_timestamp
-from money import rounded_money
+from money import parse_money
 from services.accounts import resolve_account_id, resolve_category
 from services.recurring import (
     ALLOWED_RECURRENCE_FREQUENCIES,
@@ -40,7 +40,6 @@ from validators import (
     optional_string,
     parse_int_number,
     parse_json_body,
-    parse_number,
     require_choice,
     require_date,
     validation_error,
@@ -55,9 +54,7 @@ def read_recurring_payload(conn, current_user_id, payload, existing=None):
     is_new = existing is None
 
     if is_new or "amount" in payload:
-        fields["amount"] = rounded_money(
-            parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False)
-        )
+        fields["amount"] = parse_money(payload, "amount", "Valor")
     if is_new or "type" in payload:
         transaction_type = require_choice(payload, "type", "Tipo", ALLOWED_RECURRING_TYPES)
         fields["type"] = transaction_type

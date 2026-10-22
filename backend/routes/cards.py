@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
-from money import rounded_money
+from money import parse_money, rounded_money
 from services.accounts import (
     category_id_for_name,
     fetch_account,
@@ -50,12 +50,12 @@ from services.invoices import (
 )
 from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
+    MAX_YEAR,
     ValidationError,
     optional_client_id,
     optional_date,
     parse_int_number,
     parse_json_body,
-    parse_number,
     require_date,
     require_id_list,
     require_string,
@@ -164,7 +164,10 @@ def parse_card_flag(payload, key, label, default):
     raw = payload.get(key)
     if raw is None:
         return default
-    value = FLAG_VALUES.get(raw.strip().lower() if isinstance(raw, str) else raw)
+    if isinstance(raw, str):
+        raw = raw.strip().lower()
+    # Lista ou objeto nao e flag (e nem entra num dict: era um 500).
+    value = FLAG_VALUES.get(raw) if isinstance(raw, (str, int, float)) else None
     if value is None:
         raise ValidationError(f"{label} invalida.")
     return value
@@ -452,7 +455,7 @@ def cc_expenses(current_user_id):
         remove_attachment_files(current_user_id, stored_names)
         return jsonify({"deleted": cursor.rowcount}), 200
 
-    payload = parse_json_body()
+    payload = parse_json_body(allow_list=True)
     items = payload if isinstance(payload, list) else [payload]
     if not items:
         return validation_error("Informe ao menos uma fatura.")
@@ -472,10 +475,10 @@ def cc_expenses(current_user_id):
                 require_active_card(conn, current_user_id, card_id)
                 category, category_id = resolve_category(conn, current_user_id, item)
                 description = require_string(item, "description", "Descricao", max_length=500)
-                amount = rounded_money(parse_number(item, "amount", "Valor", minimum=0, allow_zero=False))
+                amount = parse_money(item, "amount", "Valor")
                 purchase_date = require_date(item, "purchase_date", "Data da compra")
                 invoice_month = parse_int_number(item, "invoice_month", "Mes da fatura", minimum=1, maximum=12)
-                invoice_year = parse_int_number(item, "invoice_year", "Ano da fatura", minimum=2000)
+                invoice_year = parse_int_number(item, "invoice_year", "Ano da fatura", minimum=2000, maximum=MAX_YEAR)
                 installment_info = require_string(item, "installment_info", "Parcela", max_length=20)
                 status_value = str(item.get("status", "OPEN") or "OPEN").strip().upper()
                 if status_value not in ALLOWED_CC_STATUS:
@@ -559,7 +562,7 @@ def create_cc_purchase(current_user_id):
         purchase = {
             "card_id": card_id,
             "description": require_string(payload, "description", "Descricao", max_length=500),
-            "total_amount": parse_number(payload, "total_amount", "Valor total", minimum=0, allow_zero=False),
+            "total_amount": parse_money(payload, "total_amount", "Valor total"),
             "purchase_date": require_date(payload, "purchase_date", "Data da compra"),
             "installments": parse_int_number(payload, "installments", "Parcelas", minimum=1, maximum=72),
         }
@@ -651,7 +654,7 @@ def create_cc_refund(current_user_id):
             return jsonify(row_to_dict(existing[0])), 200
 
         card_id = require_string(payload, "card_id", "Cartao")
-        amount = rounded_money(parse_number(payload, "amount", "Valor do estorno", minimum=0, allow_zero=False))
+        amount = parse_money(payload, "amount", "Valor do estorno")
         refund_date = require_date(payload, "purchase_date", "Data do estorno")
         description = require_string(payload, "description", "Descricao", max_length=500)
         refund_of = str(payload.get("refund_of") or "").strip() or None
@@ -813,7 +816,7 @@ def pay_invoice(current_user_id):
     try:
         card_id = require_string(payload, "card_id", "Cartao")
         invoice_month = parse_int_number(payload, "invoice_month", "Mes da fatura", minimum=1, maximum=12)
-        invoice_year = parse_int_number(payload, "invoice_year", "Ano da fatura", minimum=2000)
+        invoice_year = parse_int_number(payload, "invoice_year", "Ano da fatura", minimum=2000, maximum=MAX_YEAR)
         payment_date = optional_date(payload, "date", "Data do pagamento") or local_today().strftime("%Y-%m-%d")
     except ValidationError as exc:
         return validation_error(str(exc))

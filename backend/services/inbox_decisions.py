@@ -23,12 +23,12 @@ import sqlite3
 from config import INBOX_MATCH_DAYS
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
-from money import rounded_money
+from money import parse_money, rounded_money
 from services import inbox, recurring
 from services.accounts import category_id_for_name, fetch_category, fetch_transaction_by_client_id
 from services.import_rules import DEFAULT_IMPORT_CATEGORIES
 from services.invoices import build_installment_rows, purchase_invoice_start, require_active_card
-from validators import ValidationError, parse_number
+from validators import ValidationError
 
 EDITABLE_FIELDS = (
     "entry_type", "amount", "occurred_at", "description", "category", "category_id",
@@ -108,7 +108,7 @@ def parse_changes(conn, current_user_id, item, payload):
             if value not in inbox.ENTRY_TYPES:
                 raise ValidationError("Tipo invalido.")
         elif field == "amount":
-            value = rounded_money(parse_number(payload, "amount", "Valor", minimum=0, allow_zero=False))
+            value = parse_money(payload, "amount", "Valor")
         elif field == "occurred_at":
             fallback = inbox.offset_of(item["occurred_at"]) or inbox.offset_of(item["source_occurred_at"])
             value = inbox.normalize_occurred_at(value, fallback)

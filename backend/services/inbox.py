@@ -225,9 +225,12 @@ def normalize_occurred_at(value, fallback_offset=None):
     if not text:
         raise ValidationError("Informe a data.")
     if len(text) == 10:
-        if not parse_iso_date(text):
+        day = parse_iso_date(text)
+        # A mesma faixa da data com hora, abaixo: 9999-12-31 estourava a janela
+        # de dias da procura de lancamentos parecidos.
+        if not day or not (2000 <= day.year <= 2100):
             raise ValidationError("Data invalida.")
-        return text
+        return day.strftime("%Y-%m-%d")
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:

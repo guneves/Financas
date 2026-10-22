@@ -19,7 +19,7 @@ desejada). Tudo o que depende do mercado e calculado na leitura:
 from asset_classes import ALLOWED_ASSET_CLASSES, ASSET_CLASS_LABELS
 from dates import month_key
 from db import get_db, new_id, row_to_dict, utc_timestamp
-from money import rounded_money
+from money import parse_money, rounded_money
 from services.accounts import account_balance_rows
 from services.fx import FxUnavailable, normalize_currency, rate_on, BASE_CURRENCY
 from services.invoices import local_today
@@ -28,7 +28,6 @@ from services.proceeds import paid_proceeds_by_asset
 from validators import (
     ValidationError,
     optional_date,
-    parse_number,
     parse_optional_number,
     require_choice,
     require_string,
@@ -221,12 +220,12 @@ def normalize_goal_payload(payload, existing=None):
         asset_class = str(merged.get("asset_class") or "").strip().upper()
         if asset_class not in ALLOWED_ASSET_CLASSES:
             raise ValidationError("Escolha a classe de ativo da meta.")
-    target_amount = rounded_money(parse_number(merged, "target_amount", "Valor da meta", minimum=0, allow_zero=False))
+    target_amount = parse_money(merged, "target_amount", "Valor da meta")
     if target_amount <= 0:
         raise ValidationError("Valor da meta deve ser maior que zero.")
-    contribution = rounded_money(
-        parse_number(merged, "monthly_contribution", "Aporte mensal", minimum=0)
-        if merged.get("monthly_contribution") not in (None, "") else 0
+    contribution = (
+        parse_money(merged, "monthly_contribution", "Aporte mensal", allow_zero=True)
+        if merged.get("monthly_contribution") not in (None, "") else 0.0
     )
     annual_return = parse_optional_number(
         merged, "annual_return_percent", "Rentabilidade anual esperada", minimum=-99, maximum=100

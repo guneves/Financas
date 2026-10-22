@@ -175,14 +175,17 @@ def validate_fixed_income_metadata(asset_class, quantity, metadata):
         return
 
     fixed_income_type = metadata.get("fixed_income_type")
-    if fixed_income_type not in (None, "") and fixed_income_type not in FIXED_INCOME_TYPES:
+    # Lista ou objeto nao entra no `in` de um set (era um 500): so texto vale.
+    if fixed_income_type not in (None, "") and (
+        not isinstance(fixed_income_type, str) or fixed_income_type not in FIXED_INCOME_TYPES
+    ):
         raise ValidationError("Tipo de titulo de renda fixa invalido.")
     rate_type = metadata.get("rate_type")
     if rate_type not in (None, "", "POS", "PRE"):
         raise ValidationError("Remuneracao deve ser pos-fixada ou pre-fixada.")
     if rate_type != "PRE":
         indexer = metadata.get("indexer") or "CDI"
-        if indexer not in FIXED_INCOME_INDEXERS:
+        if not isinstance(indexer, str) or indexer not in FIXED_INCOME_INDEXERS:
             raise ValidationError("Indexador deve ser CDI, CDI+ ou IPCA+.")
     indexer, _ = fixed_income_rate_terms(metadata)
     if indexer is None:
