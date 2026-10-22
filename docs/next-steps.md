@@ -191,15 +191,25 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   as a despesa "Pix para …", the third with "crédito ou débito?"). The first own-account Pix must
   have **both** banks notify (or be approved as a transfer once) before a single-leg Pix to
   yourself is recognised: the "it's me" CPF digits are learned, never typed.
-- [ ] **Keep capturing, then a second parser pass.** The parsers were written against 10
-  notifications (BB Pix out, Itaú Pix in/out, BTG Pix in, one BTG purchase, Samsung noise).
-  Still unseen: any **Samsung Wallet** purchase text (its parser is generic: an amount plus
-  "compra/aprovada", merchant from the title), a credit/debit purchase with "final 1234", Itaú
-  and BB purchases, an estorno, a declined purchase, a boleto payment, BTG Investimentos' buy
-  and sell (only its "Transferência recebida" has been seen). Keep
-  capture on and bring a new "Exportar JSON"; anything mis-read becomes a `NotifyParsersTest`
-  case first. Not answered by the export either: whether a bank *updates* a notification (new
-  posted time, same key).
+- [ ] **Keep capturing, then a third parser pass.** The second pass (2026-10-22, 60 notifications)
+  fixed the Samsung Wallet purchase ("<LUGAR> R$ <valor>" with the card name as the title, never
+  read before) and BB's "Pix Recebido" sender name. Still unseen: any **Flash** app notification
+  (the app was added to the allow-list on 2026-10-22 and its texts go through the generic parser —
+  capture one purchase and one benefit credit, "você recebeu R$ … de benefício" is not a detection
+  today), a credit/debit purchase with "final 1234", Itaú and BB purchases, an estorno, a declined
+  purchase, a boleto payment, BTG Investimentos' buy and sell. Keep capture on and bring a new
+  "Exportar JSON"; anything mis-read becomes a `NotifyParsersTest` case first. Not answered by the
+  export either: whether a bank *updates* a notification (new posted time, same key) — BTG posts
+  "Compra autorizada" twice, ~25 ms apart, with different keys; the server folds them as `repeated`.
+- [ ] **Confirm the Flash package name** (owner). `br.com.flashapp` comes from two third-party app
+  listings (the Play Store page could not be opened from the cloud session). Ajustes › Notificações
+  dos bancos shows whether "Flash" is installed: if it says not installed while the app is on the
+  phone, the package is different — fix `NotifyRules.APPS`, the manifest `<queries>`,
+  `NotifyPairing.issuerOf()` and `FLASH_APP` in `services/inbox.py` together.
+- [ ] **"Card used for Meal and Voucher" is assumed to be the Flash.** Samsung Wallet's generic
+  label for a meal/voucher card maps to the issuer `flash` (`ISSUER_ALIASES`). If the owner ever
+  adds a second benefits card (Alelo, VR…) to Samsung Wallet, both would read as the Flash: then
+  the label stops being enough and the pick goes to the hint (the owner chooses once per card name).
 - [ ] **Card estorno from Aprovar.** A card refund exists now (033, `POST /api/cc-expenses/refunds`),
   but an estorno detection still drafts an INCOME lançamento. Once a real estorno capture shows
   the card final, approve it as a card refund instead.
@@ -229,6 +239,23 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   account; `POST /api/investments` needs a `client_id` first. The owner needs a BRL account for
   the brokerage in Ajustes › Contas.
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
+
+### Card débito and hourly quotes (2026-10-22) — what is left
+- [ ] **Owner walk-through.** Ajustes › Cartões: create the Flash as "Débito" with a "Flash" account
+  (any type but Corretora), give the BTG card "Os dois" with BTG Banking as the debit account. Then
+  "+ Novo › Cartão": the BTG card offers Crédito/Débito, the Flash is débito only; a débito
+  purchase must land in the account (Extrato), never in Cartões. In Aprovar, the Samsung "Card used
+  for Meal and Voucher" purchase must arrive as a despesa in the Flash account, confirmed once.
+- [ ] **A débito purchase does not remember its card.** It is a plain EXPENSE in the card's account
+  (`transactions` has no card column); the Extrato shows the account, not "Flash". Add a
+  `metadata.card_id` (or a column) only if the owner wants to filter by card.
+- [ ] **Benefit credits of the Flash** (the monthly VR/VA deposit) are not detected: no capture yet.
+  Until then, register the deposit as a receita in the Flash account (or a recurrence).
+- [ ] **Hourly quotes and brapi's quota.** `services/quote_refresh.py` runs every
+  `QUOTE_AUTO_REFRESH_SECONDS` (3600) around the clock, weekends included (crypto moves). With
+  `BRAPI_MAX_SYMBOLS_PER_REQUEST=1` each run costs one brapi request per held ticker (~720 runs a
+  month × tickers). If brapi's monthly limit is reached, raise the interval in the server's `.env`
+  or skip runs outside B3 hours (not built: the owner asked for every hour).
 
 ### Investments separate from banking — what is left
 Built on 2026-10-12 and 2026-10-17 (see `docs/done-tasks.md`): every operation comes out of the

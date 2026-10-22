@@ -109,6 +109,7 @@ public final class NotifyPairing {
         if ("com.itau".equals(packageName)) return "itau";
         if ("br.com.bb.android".equals(packageName)) return "bb";
         if ("com.btg.pactual.banking".equals(packageName)) return "btg";
+        if ("br.com.flashapp".equals(packageName)) return "flash";
         return null;
     }
 

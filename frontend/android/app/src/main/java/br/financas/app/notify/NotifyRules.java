@@ -59,7 +59,10 @@ public final class NotifyRules {
         new App("com.itau", "Itaú"),
         new App("br.com.bb.android", "Banco do Brasil"),
         new App("com.btg.pactual.banking", "BTG Pactual"),
-        new App("com.btg.pactual.digital.mobile", "BTG Investimentos")
+        new App("com.btg.pactual.digital.mobile", "BTG Investimentos"),
+        // Flash Beneficios (dono, 2026-10-22): o cartao de beneficios. Pacote das listagens do
+        // app; nenhuma notificacao dele capturada ainda, entao o parser e o geral.
+        new App("br.com.flashapp", "Flash")
     ));
 
     /** Os extras que o texto da exportacao ja mostra pelo nome (titulo, texto, texto longo). */

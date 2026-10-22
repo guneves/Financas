@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { creditCards } from '../../lib/cardFunctions'
 import {
   accountsApi,
   categoriesApi,
@@ -30,7 +31,8 @@ async function fetchLancamentos() {
   ])
   return {
     transactions: transactions || [],
-    cards: cards || [],
+    // So os de credito (041): um cartao so debito nao tem fatura.
+    cards: creditCards(cards),
     ccExpenses: ccExpenses || [],
     allAccounts: accounts || [],
     categories: categories || [],

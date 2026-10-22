@@ -12,12 +12,13 @@ import {
   parseLocalDate,
   pickDefaultAccountId,
 } from '../pages/lancamentos/helpers'
-import { AlertMessage, Button, cx, EmptyState, Field, Sheet } from './ui'
+import { AlertMessage, Button, cx, EmptyState, Field, SegmentedControl, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
 import { parseMoneyInput } from '../lib/monthlyPlan'
 import { matchedInboxNotice } from '../lib/inboxRules'
 import { toast } from '../lib/toast'
 import { useQuery } from '../lib/queries'
+import { cardMethods, debitPurchasePayload, hasCredit, resolveCardMethod } from '../lib/cardFunctions'
 
 const FORM_ID = 'new-entry-form'
 
@@ -72,7 +73,12 @@ const NO_ITEMS = []
 
 const emptyBankForm = (type, accountId) => ({ amount: '', date: getLocalDateString(), category_id: '', description: '', type, account_id: accountId })
 const emptyTransferForm = (accountId) => ({ amount: '', date: getLocalDateString(), account_id: accountId, transfer_account_id: '', description: '' })
-const emptyExpenseForm = (cardId) => ({ card_id: cardId, category_id: '', description: '', total_amount: '', purchase_date: getLocalDateString(), installments: '1' })
+const emptyExpenseForm = (cardId) => ({ card_id: cardId, method: 'CREDIT', category_id: '', description: '', total_amount: '', purchase_date: getLocalDateString(), installments: '1' })
+
+const CARD_METHOD_ITEMS = [
+  { value: 'CREDIT', label: 'Crédito' },
+  { value: 'DEBIT', label: 'Débito' },
+]
 
 // O "+ Novo": todos os formularios de lancamento num lugar so. Os handlers de
 // envio vieram de Transactions.jsx (banco, transferencia) e de Carteira.jsx
@@ -107,6 +113,10 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   const [expenseForm, setExpenseForm] = useState(() => emptyExpenseForm(''))
 
   const defaultAccountId = useMemo(() => pickDefaultAccountId(accounts), [accounts])
+  // Funcao debito (041): no cartao com debito, a compra no debito e uma
+  // despesa na conta dele (POST /api/transactions), sem fatura nem parcelas.
+  const selectedCard = cards.find((card) => card.id === expenseForm.card_id)
+  const cardMethod = resolveCardMethod(selectedCard, expenseForm.method)
   const categoryOptions = useMemo(() => buildCategoryOptions(categories), [categories])
 
   // Ao abrir: tipo pedido e formularios limpos com a data de hoje.
@@ -253,9 +263,8 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   const handleCCExpenseSubmit = async (event) => {
     event.preventDefault()
     const totalAmount = parseMoneyInput(expenseForm.total_amount)
-    const installmentsCount = Number(expenseForm.installments)
+    const installmentsCount = cardMethod === 'DEBIT' ? 1 : Number(expenseForm.installments)
     const purchaseDate = parseLocalDate(expenseForm.purchase_date)
-    const selectedCard = cards.find((card) => card.id === expenseForm.card_id)
 
     if (!selectedCard || !purchaseDate || Number.isNaN(purchaseDate.getTime()) || !Number.isFinite(totalAmount) || totalAmount <= 0 || !Number.isInteger(installmentsCount) || installmentsCount <= 0) {
       setError('Preencha a compra no cartão com valores válidos.')
@@ -264,6 +273,22 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
 
     setSaving(true)
     setError('')
+    if (cardMethod === 'DEBIT') {
+      try {
+        await submitEntry('EXPENSE', debitPurchasePayload(selectedCard, {
+          amount: totalAmount,
+          date: expenseForm.purchase_date,
+          categoryId: expenseForm.category_id,
+          category: categoryNameOf(categoryOptions, expenseForm.category_id),
+          description: expenseForm.description,
+        }), `Compra no débito de ${formatCurrency(totalAmount)}`)
+      } catch (submitError) {
+        setError(submitError.message || 'Não foi possível registrar a compra no débito.')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
     try {
       // O parcelamento e a fatura de cada parcela sao calculados no backend
       // (POST /api/cc-expenses/purchases), junto do cartao que define a regra.
@@ -376,14 +401,17 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
         />
       )
     }
+    const debit = cardMethod === 'DEBIT'
     return (
       <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-x-3 gap-y-4">
-        <Field label="Valor total" className="min-w-0">
+        <Field label={debit ? 'Valor' : 'Valor total'} className={cx('min-w-0', debit && 'col-span-2')}>
           <input type="text" inputMode="decimal" autoComplete="off" placeholder="0,00" value={expenseForm.total_amount} onChange={(event) => setExpenseForm({ ...expenseForm, total_amount: event.target.value })} className={AMOUNT_INPUT} required autoFocus />
         </Field>
-        <Field label="Parcelas">
-          <input type="number" inputMode="numeric" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className={cx(AMOUNT_INPUT, 'text-center')} required />
-        </Field>
+        {debit ? null : (
+          <Field label="Parcelas">
+            <input type="number" inputMode="numeric" min="1" max="48" value={expenseForm.installments} onChange={(event) => setExpenseForm({ ...expenseForm, installments: event.target.value })} className={cx(AMOUNT_INPUT, 'text-center')} required />
+          </Field>
+        )}
         <Field label="Categoria" className="col-span-2">
           <select value={expenseForm.category_id} onChange={(event) => setExpenseForm({ ...expenseForm, category_id: event.target.value })} className="app-select" required>
             <option value="">Selecione...</option>
@@ -398,8 +426,20 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
         <Field label="Cartão" className="col-span-2">
           <select value={expenseForm.card_id} onChange={(event) => setExpenseForm({ ...expenseForm, card_id: event.target.value })} className="app-select" required>
             <option value="">Selecione...</option>
-            {cards.map((card) => <option key={card.id} value={card.id}>{card.name} (vence dia {card.due_day})</option>)}
+            {cards.map((card) => (
+              <option key={card.id} value={card.id}>
+                {card.name} ({hasCredit(card) ? `vence dia ${card.due_day}` : 'débito'})
+              </option>
+            ))}
           </select>
+          {cardMethods(selectedCard).length > 1 ? (
+            <SegmentedControl items={CARD_METHOD_ITEMS} value={cardMethod} onChange={(method) => setExpenseForm({ ...expenseForm, method })} className="mt-2" />
+          ) : null}
+          {debit ? (
+            <span className="mt-1 block text-sm text-zinc-600">
+              Sai de {accounts.find((account) => account.id === selectedCard?.debit_account_id)?.name || 'a conta do cartão'}, sem fatura.
+            </span>
+          ) : null}
         </Field>
         <Field label="Data da compra" className="col-span-2">
           <input type="date" value={expenseForm.purchase_date} onChange={(event) => setExpenseForm({ ...expenseForm, purchase_date: event.target.value })} className="app-input" required />

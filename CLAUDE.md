@@ -121,7 +121,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1468 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1493 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -130,7 +130,7 @@ invoice-month rule), the opt-in investment↔cash link, editing an operation kee
 transaction, monthly budgets, recurring entries, the monthly plan from income (`test_monthly_plan_income.py`: percentages at both levels, inheritance, Saldo do plano, migration 038 and `needs_income`), statement import and its rules (including applying
 them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
 multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), saving and editing without extra work (`test_write_speed.py`: gzip, realized results rewritten only when changed, positions left to their read), and backup
+proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), the card's débito function and the Flash in Aprovar (`test_card_debit.py`), the hourly quote refresh (`test_quote_auto_refresh.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), saving and editing without extra work (`test_write_speed.py`: gzip, realized results rewritten only when changed, positions left to their read), and backup
 retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
 unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
 `statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). It
@@ -169,7 +169,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome` and `treasury`, 138 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome`, `treasury` and `cardFunctions`, 144 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -207,7 +207,8 @@ backend/
                       # budgets (categories as % of Gastar, the plan row, inheritance),
                       # monthly_plan (income, Investir/Gastar %, Saldo do plano, flags),
                       # asset_categories (ETF, Tesouro Direto, the fixed-income indexer; on read),
-                      # treasury (Tesouro Direto marked to market, grouped, net of custody/IOF/IR)
+                      # treasury (Tesouro Direto marked to market, grouped, net of custody/IOF/IR),
+                      # quote_refresh (renda variavel quotes every hour, a thread started in app.py)
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
@@ -379,6 +380,14 @@ mobile-docs/
   Início's "Próxima fatura", its "Pagar fatura", the projection and the bell;
   `nearestOpenInvoice()` (overdue first) is the one Cartões opens and pays from its header. Overdue
   means after the due day (`isPastDue()`), on every screen.
+- **A card has functions: crédito, débito or both** (041, owner 2026-10-22). `debit_account_id` is
+  the débito: a débito purchase is a plain EXPENSE in that account (`lib/cardFunctions.js`,
+  "+ Novo › Cartão" offers Crédito/Débito), never a `cc_expenses` row. `credit_enabled = 0` is a
+  debit-only card (the Flash): `require_active_card()` refuses it on every credit path, it has no
+  autopay, its stored `due_day`/`closing_day` (1) are never read, and the screens list only
+  `creditCards()` where an invoice is involved (Cartões, Aprovar's card choice). The debit account
+  is never a Corretora. Aprovar sends a purchase on a debit card to its account
+  (`debit_card_for()`: by final, Samsung card name or issuer — never "the only card").
 - **Débito automático** (`credit_cards.autopay_account_id`, migration 011) is materialized on read
   by `apply_due_autopay()`, dated on the due day, with `source_type = 'CC_AUTOPAY'` and
   `source_id = '<card>:<AAAA-MM>'` — same idempotency shape as recurrences. Only invoices due on or
@@ -453,7 +462,11 @@ mobile-docs/
   `notify/NotifyPairing.java` is the same rule, JVM-tested, and stays unwired because the phone
   sends every detection at once. Itaú Cartões and Ourocard stay off (they repeat the bank apps),
   so don't add them back. Parsers are written against exported captures, never against examples
-  from the web.
+  from the web. Samsung's 2026-10 format is title = the card's name, text = "<LUGAR> R$ <valor>"
+  with a U+00A0 after "R$" (normalized in `textOf()`); the name goes as `card_name` and the server
+  takes the issuer from it, so Samsung pairs only with the same bank. **Flash Benefícios**
+  (`br.com.flashapp`, issuer `flash`, 2026-10-22) is heard, generic parser until a capture;
+  Samsung's "Card used for Meal and Voucher" is read as the Flash.
 - **Every money notification goes to Aprovar, as parsed fields only** (2026-10-17). The listener
   hands every allowed notification to `notify/NotifyParsers.java` (pure, `NotifyParsersTest`),
   capture on or off; a detection (kind, amount in cents, merchant, card final, installments, and
@@ -678,6 +691,10 @@ mobile-docs/
   sum to 100% in any class that has one), and `DELETE /api/goals/<id>` is a real delete with no
   guard. Current values, gaps, the contribution split and the goal forecast are computed on read
   from `build_portfolio_snapshot()` (net values) — never stored.
+- **Renda variável quotes refresh every hour on their own** (owner, 2026-10-22,
+  `services/quote_refresh.py`): a thread started in `app.py` calls `refresh_market_prices(force=True)`
+  for every user each `QUOTE_AUTO_REFRESH_SECONDS` (3600; 0 = off, as in `conftest.py`), first run
+  60 s after boot. Same provider rules as "Atualizar cotações"; one gunicorn worker, so one thread.
 - **The chart history is served stale and refreshed behind** (2026-10-19, owner: "Evolução de
   patrimônio is taking too long"). The Yahoo closes (`get_daily_history()`) and the BCB series
   (`_bcb_series_since()`) are fresh for `HISTORY_CACHE_TTL_SECONDS` (15 min); after that, up to

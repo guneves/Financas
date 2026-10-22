@@ -146,6 +146,10 @@ PRICE_DOWNLOAD_TIMEOUT_SECONDS = read_float_env(
     maximum=30.0,
 )
 PRICE_FETCH_WORKERS = read_int_env("PRICE_FETCH_WORKERS", 2, minimum=1, maximum=4)
+# De quanto em quanto tempo o servidor atualiza sozinho as cotacoes da renda
+# variavel (acoes, FIIs, ETFs, BDRs, cripto) de cada usuario
+# (services/quote_refresh.py). 0 desliga (os testes).
+QUOTE_AUTO_REFRESH_SECONDS = read_int_env("QUOTE_AUTO_REFRESH_SECONDS", 3600, minimum=0)
 HISTORY_CACHE_TTL_SECONDS = read_int_env("HISTORY_CACHE_TTL_SECONDS", 900, minimum=60)
 # Um historico vencido (TTL acima) e servido na hora e atualizado em segundo
 # plano, ate esta idade; mais velho que isso, o pedido espera o download.

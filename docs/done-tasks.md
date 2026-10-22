@@ -159,6 +159,9 @@
 | BCB and Tesouro downloads through `gov_http.py` (verified chain without Python 3.13+'s strict X.509 mode, one retry on timeouts/429/5xx, the cause named in the error), the BCB health probe waits 30 s instead of 6 s, Tesouro prices downloaded at boot and checked hourly (`tesouro_client.start_auto_refresh()`), "Quantidade de títulos" editable on an existing Tesouro purchase | 2026-10-19 |
 | Saving and editing an operação without waiting: "Registrar operação" closes as soon as the POST answers (the quote refresh runs behind, `refreshQuotes()` in `lib/dataApi.js`, and refreshes the screens only when a quote changed); a screen's `invalidateServerData()` joins the refetches a write already started instead of restarting them (`cancelRefetch: false`; the write's own listener still cancels); quote writes no longer schedule the proventos sync (`changesPositions()` in `lib/proceedsRules.js`); writes no longer rebuild `investment_positions` (only its own GET does) and `investment_realized_results` is rewritten only when it changed; JSON responses ≥ 1 KB go gzip when accepted (`gzip_responses.py`). POST 61 → 22 ms, PATCH 67 → 24 ms on a synthetic 350-operation portfolio; `test_write_speed.py` | 2026-10-19 |
 | Planejar's "Investir" realized = Início's "Investido": money that left the accounts for the Corretora (transfers, or a movement's cash in a non-Corretora account) minus what came back, instead of the portfolio's buys − sales; a buy paid from cash already in the Corretora no longer counts (`month_investment_flow()` in `services/monthly_plan.py`, tests in `test_monthly_plan.py`) | 2026-10-19 |
+| Renda variável quotes refreshed by the server every hour (`services/quote_refresh.py`, `QUOTE_AUTO_REFRESH_SECONDS`, 0 = off; the same `refresh_market_prices(force=True)` as "Atualizar cotações", for every user; started in `app.py` next to the Tesouro thread). `test_quote_auto_refresh.py` | 2026-10-22 |
+| Card débito function (041: `credit_cards.debit_account_id`, `credit_enabled`): a card is Crédito, Débito or Os dois; a débito purchase in "+ Novo › Cartão" is an EXPENSE in the card's account; a debit-only card (the Flash) has no invoice, installments, refund or autopay and stays out of Cartões and Aprovar's card list; Aprovar sends a purchase on a debit card to its account (`debit_card_for()` in `services/inbox.py`). `test_card_debit.py` (21), `lib/cardFunctions.js` + test | 2026-10-22 |
+| Flash Benefícios and the second parser pass (capture of 2026-10-22, 60 notifications): `br.com.flashapp` in the allow-list and the server's issuers; Samsung Wallet's "<LUGAR> R$ <valor>" with the card name as title (card_name → issuer; "Card used for Meal and Voucher" = the Flash) and its U+00A0; BB's "Pix Recebido" names the sender. 12 new `NotifyParsersTest` cases from the capture | 2026-10-22 |
 
 ---
 
@@ -1094,4 +1097,25 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   early-sale rule for those two was not confirmed. IR base is the income after custody and IOF.
 - The evolution's net now matches Posição for Tesouro (same per-purchase calculation at each month
   end); TWR reads the same daily PU.
+
+### Card débito, Flash and hourly quotes — 2026-10-22
+
+- **Why a function, not a card type.** Brazilian cards are often "múltiplo" (crédito + débito), so
+  the débito is a property of the card: the account it debits (`debit_account_id`). A card without
+  credit (`credit_enabled = 0`) is the benefits card or a pure debit card; its `due_day` and
+  `closing_day` (NOT NULL since the original table) store 1 and are never read. No table rebuild.
+- **Gates.** `require_active_card()` (every credit path: purchase, the old list POST, refund,
+  Aprovar's CARD approval) refuses a debit-only card. The POST/PATCH refuse a card with no function,
+  autopay on a debit-only card, a Corretora as the debit account, and removing credit while an
+  `OPEN` item exists (409); removing credit turns autopay off; giving credit back needs both dates.
+- **Aprovar.** `debit_card_for()` picks a debit card the notification names (card final, the
+  Samsung card name, the issuer — never "the only card"). A debit-only card turns a method-less
+  PURCHASE into an EXPENSE in its account; a combo card prefills its debit account and still asks
+  "crédito ou débito?". The account is a guess the owner confirms once; then the hint remembers.
+- **Samsung's issuer** comes from the card name in `parse_detection()` (`issuer_of_institution()`),
+  so a Flash purchase and a BTG purchase of the same amount no longer pair, while Samsung + BTG of
+  the same purchase still do.
+- **The capture** showed the old Samsung parser read *no* purchase: the text has no "compra", only
+  "CANTINA DO VALE R$ 14,20", and Java's `\s` does not match the U+00A0 after "R$". Fixed by
+  normalizing U+00A0/U+202F to a space in `textOf()` and a Samsung-only line pattern.
 

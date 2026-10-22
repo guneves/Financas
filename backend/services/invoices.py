@@ -36,7 +36,8 @@ def ensure_credit_card_owner(conn, current_user_id, card_id):
 
 
 def require_active_card(conn, current_user_id, card_id):
-    """O cartao, para lancar nele: do dono e nao arquivado (037)."""
+    """O cartao, para lancar no credito: do dono, nao arquivado (037) e com a
+    funcao credito (041)."""
     card = conn.execute(
         "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?",
         (card_id, current_user_id),
@@ -45,6 +46,11 @@ def require_active_card(conn, current_user_id, card_id):
         raise ValidationError("Cartao nao encontrado.")
     if card["archived_at"]:
         raise ValidationError(f"O cartao {card['name']} foi excluido; ele nao recebe lancamentos novos.")
+    if not card["credit_enabled"]:
+        # So debito (041): a compra e uma despesa na conta do cartao, nunca um item de fatura.
+        raise ValidationError(
+            f"O cartao {card['name']} so tem a funcao debito: lance a compra como despesa na conta dele."
+        )
     return card
 
 
