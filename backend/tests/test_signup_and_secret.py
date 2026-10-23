@@ -62,3 +62,15 @@ def test_a_real_secret_from_the_environment_wins(app_module, monkeypatch, tmp_pa
     monkeypatch.setenv("JWT_SECRET", "uma-chave-longa-de-verdade")
     assert config.load_jwt_secret() == "uma-chave-longa-de-verdade"
     assert not (tmp_path / ".jwt_secret").exists()
+
+
+def test_the_login_screen_can_ask_whether_signup_is_open(client, app_module, monkeypatch):
+    # A tela de login so oferece "Criar acesso" quando o cadastro esta aberto.
+    auth_routes = importlib.import_module("routes.auth")
+    monkeypatch.setattr(auth_routes, "ALLOW_SIGNUP", False)
+    assert signup(client, "primeiro@example.com").status_code in (201, 403)
+    closed = client.get("/api/auth/signup")
+    assert closed.status_code == 200
+    assert closed.get_json() == {"open": False}
+    monkeypatch.setattr(auth_routes, "ALLOW_SIGNUP", True)
+    assert client.get("/api/auth/signup").get_json() == {"open": True}

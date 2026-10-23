@@ -20,8 +20,17 @@ from validators import parse_json_body
 bp = Blueprint("auth", __name__)
 
 
-@bp.route("/api/auth/signup", methods=["POST"])
+def signup_open(conn):
+    """Aberto com ALLOW_SIGNUP ou enquanto o banco nao tem usuario (o primeiro cadastro)."""
+    return ALLOW_SIGNUP or not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone()
+
+
+@bp.route("/api/auth/signup", methods=["GET", "POST"])
 def signup():
+    if request.method == "GET":
+        # Publico: a tela de login so oferece o cadastro quando ele esta aberto.
+        with get_db() as conn:
+            return jsonify({"open": bool(signup_open(conn))})
     payload = parse_json_body()
     email = str(payload.get("email", "")).strip().lower()
     password = str(payload.get("password", ""))
@@ -36,7 +45,7 @@ def signup():
     user_id = new_id()
     try:
         with get_db() as conn:
-            if not ALLOW_SIGNUP and conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+            if not signup_open(conn):
                 return jsonify({
                     "error": "O cadastro esta fechado neste servidor. Entre com a conta existente."
                 }), 403

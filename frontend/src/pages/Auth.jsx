@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowRight, LockKeyhole, Mail, ShieldCheck, UserPlus, UserRound, Wallet } from 'lucide-react'
-import { signIn, signUp } from '../lib/auth'
+import { signIn, signUp, signupOpen } from '../lib/auth'
 import { Button, SegmentedControl } from '../components/ui'
 
 export default function Auth() {
@@ -10,6 +10,19 @@ export default function Auth() {
   const [loading, setLoading] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
   const [error, setError] = useState('')
+  // "Criar acesso" so aparece com o cadastro aberto: num servidor que ja tem
+  // o seu usuario ele esta fechado (403), e oferecer o botao so confundia.
+  const [canSignUp, setCanSignUp] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    signupOpen().then((open) => {
+      if (!active) return
+      setCanSignUp(open)
+      if (!open) setIsLogin(true)
+    })
+    return () => { active = false }
+  }, [])
 
   const handleAuth = async (event) => {
     event.preventDefault()
@@ -38,7 +51,7 @@ export default function Auth() {
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white text-zinc-950">
                 <Wallet className="h-6 w-6" />
               </div>
-              <h1 className="mt-6 text-3xl font-bold">FinanceMVP</h1>
+              <h1 className="mt-6 text-3xl font-bold">Finanças</h1>
               <p className="mt-3 max-w-sm text-sm leading-6 text-zinc-300">
                 Controle operacional para contas, cartões, carteira e investimentos.
               </p>
@@ -59,24 +72,26 @@ export default function Auth() {
                 <Wallet className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-bold text-zinc-950">FinanceMVP</p>
+                <p className="font-bold text-zinc-950">Finanças</p>
                 <p className="text-xs text-zinc-500">Painel financeiro</p>
               </div>
             </div>
 
-            <SegmentedControl
-              value={isLogin ? 'login' : 'signup'}
-              onChange={(value) => {
-                setIsLogin(value === 'login')
-                setError('')
-              }}
-              items={[
-                { value: 'login', label: 'Entrar', icon: ArrowRight },
-                { value: 'signup', label: 'Cadastrar', icon: UserPlus },
-              ]}
-            />
+            {canSignUp ? (
+              <SegmentedControl
+                value={isLogin ? 'login' : 'signup'}
+                onChange={(value) => {
+                  setIsLogin(value === 'login')
+                  setError('')
+                }}
+                items={[
+                  { value: 'login', label: 'Entrar', icon: ArrowRight },
+                  { value: 'signup', label: 'Criar acesso', icon: UserPlus },
+                ]}
+              />
+            ) : null}
 
-            <div className="mt-8">
+            <div className={canSignUp ? 'mt-8' : ''}>
               <h2 className="text-2xl font-bold text-zinc-950">
                 {isLogin ? 'Acesse sua conta' : 'Crie seu acesso'}
               </h2>
@@ -150,7 +165,7 @@ export default function Auth() {
                 icon={isLogin ? ArrowRight : UserPlus}
                 loading={loading}
               >
-                {isLogin ? 'Entrar' : 'Cadastrar'}
+                {isLogin ? 'Entrar' : 'Criar acesso'}
               </Button>
             </form>
           </div>
