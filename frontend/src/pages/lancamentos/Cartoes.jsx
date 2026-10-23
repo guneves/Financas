@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle, ChevronDown, CreditCard, Paperclip, Plus, Trash2, Undo2, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { ccExpensesApi } from '../../lib/dataApi'
+import { ccExpensesApi, ccInvoicesApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
 import {
   AlertMessage,
@@ -16,29 +16,68 @@ import {
   cx,
 } from '../../components/ui'
 import { formatCurrency, formatSignedCurrency } from '../../lib/format'
-import { cardSignedAmount, isCardRefund } from '../../lib/transactions'
-import { isPastDue, nearestOpenInvoice } from '../../lib/attentionRules'
-import {
-  formatDateBR,
-  formatInvoiceLabel,
-  getLocalDateString,
-  getPurchaseGroupKey,
-  parseInstallmentInfo,
-} from './helpers'
+import { formatDateBR, formatInvoiceLabel } from './helpers'
 import ProjectionHeader from './ProjectionHeader'
 import PayInvoiceSheet from '../../components/PayInvoiceSheet'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import CardShareSheet from './CardShareSheet'
 import CardRefundSheet from './CardRefundSheet'
-import { purchaseInstallments } from '../../lib/cardPurchase'
 import { shareSummary } from '../../lib/sharing'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
+import { useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
 
-function invoiceDueDate(invoice, dueDay) {
-  return new Date(invoice.invoiceYear, invoice.invoiceMonth - 1, dueDay || 1)
+// Uma compra de GET /api/cc-invoices como a tela e os sheets a leem.
+function purchaseRow(purchase, cardId) {
+  return {
+    purchaseKey: purchase.id,
+    id: purchase.id,
+    client_id: purchase.client_id || null,
+    attachmentCount: Number(purchase.attachment_count || 0),
+    card_id: cardId,
+    description: purchase.description,
+    category: purchase.category || 'Outros',
+    category_raw: purchase.category,
+    purchase_date: purchase.purchase_date,
+    amount: purchase.amount,
+    refund: purchase.kind === 'REFUND',
+    installmentCurrent: purchase.installment_current,
+    installmentTotal: purchase.installment_total,
+    installmentsOpen: purchase.installments_open,
+    installmentsPaid: purchase.installments_paid,
+    // A parcela desta fatura: "Dividida com Ana · sua parte" e da parcela.
+    shareText: shareSummary(purchase),
+  }
 }
+
+// As faturas de um cartao, com as flags do servidor (services/card_invoices.py).
+function cardGroupOf(card) {
+  return {
+    cardId: card.card_id,
+    cardName: card.card_name,
+    dueDay: card.due_day,
+    closingDay: card.closing_day,
+    autopayAccountId: card.autopay_account_id || null,
+    total: card.total,
+    invoices: card.invoices.map((invoice) => ({
+      invoiceKey: invoice.key,
+      invoiceMonth: invoice.invoice_month,
+      invoiceYear: invoice.invoice_year,
+      closed: invoice.closed,
+      closingDate: invoice.closing_date,
+      dueDate: invoice.due_date,
+      pastDue: invoice.past_due,
+      payable: invoice.payable,
+      nearest: invoice.nearest,
+      future: invoice.future,
+      total: invoice.total,
+      purchases: invoice.purchases.map((purchase) => purchaseRow(purchase, card.card_id)),
+    })),
+  }
+}
+
+const NO_CARDS = []
 
 export default function Cartoes() {
   const { openNewEntry } = useNewEntry()
@@ -50,7 +89,6 @@ export default function Cartoes() {
     balance,
     cards,
     accounts,
-    ccExpenses,
     projectedBalanceGlobal,
     projectedBalanceNextMonth,
     accountName,
@@ -70,91 +108,21 @@ export default function Cartoes() {
   // Cartoes com as faturas futuras desdobradas, por card_id.
   const [showFuture, setShowFuture] = useState({})
 
-  const openInvoicesByCard = useMemo(() => {
-    const groupedByCard = ccExpenses.reduce((acc, expense) => {
-      const cardKey = expense.card_id || 'sem-cartao'
-      const invoiceKey = `${expense.invoice_year}-${String(expense.invoice_month).padStart(2, '0')}`
-      const card = cards.find((item) => item.id === expense.card_id)
+  // As faturas em aberto por cartao, somadas no servidor (GET /api/cc-invoices):
+  // a mesma regra da proxima fatura do Inicio e do sino.
+  const invoicesQuery = useQuery({ queryKey: ['cartoes', 'faturas'], queryFn: () => ccInvoicesApi.list() })
+  const invoiceData = invoicesQuery.data
+  const openInvoicesByCard = useMemo(() => (invoiceData?.cards || NO_CARDS).map(cardGroupOf), [invoiceData])
 
-      if (!acc[cardKey]) {
-        acc[cardKey] = {
-          cardId: expense.card_id,
-          cardName: expense.credit_cards?.name || card?.name || 'Cartão',
-          dueDay: expense.credit_cards?.due_day || card?.due_day,
-          closingDay: expense.credit_cards?.closing_day || card?.closing_day,
-          autopayAccountId: card?.autopay_account_id || null,
-          invoices: {},
-        }
-      }
-
-      if (!acc[cardKey].invoices[invoiceKey]) {
-        acc[cardKey].invoices[invoiceKey] = {
-          invoiceKey,
-          invoiceMonth: expense.invoice_month,
-          invoiceYear: expense.invoice_year,
-          // Vem do servidor, que e onde mora a regra do fechamento.
-          closed: expense.invoice_closed === true,
-          closingDate: expense.invoice_closing_date,
-          dueDate: expense.invoice_due_date,
-          total: 0,
-          purchases: {},
-        }
-      }
-
-      // Um estorno (033) abate a fatura.
-      acc[cardKey].invoices[invoiceKey].total += cardSignedAmount(expense)
-
-      const purchaseKey = getPurchaseGroupKey(expense)
-      const installment = parseInstallmentInfo(expense.installment_info)
-
-      if (!acc[cardKey].invoices[invoiceKey].purchases[purchaseKey]) {
-        acc[cardKey].invoices[invoiceKey].purchases[purchaseKey] = {
-          purchaseKey,
-          id: expense.id,
-          client_id: expense.client_id || null,
-          attachmentCount: Number(expense.attachment_count || 0),
-          card_id: expense.card_id,
-          description: expense.description,
-          category: expense.category || 'Outros',
-          category_raw: expense.category,
-          purchase_date: expense.purchase_date,
-          amount: parseFloat(expense.amount),
-          refund: isCardRefund(expense),
-          installmentCurrent: installment.current,
-          installmentTotal: installment.total,
-          // A parcela desta fatura: "Dividida com Ana · sua parte" e da parcela.
-          shareText: shareSummary(expense),
-        }
-      }
-      return acc
-    }, {})
-
-    return Object.values(groupedByCard)
-      .map((cardGroup) => ({
-        ...cardGroup,
-        invoices: Object.values(cardGroup.invoices).sort((a, b) => {
-          if (a.invoiceYear !== b.invoiceYear) return a.invoiceYear - b.invoiceYear
-          return a.invoiceMonth - b.invoiceMonth
-        }).map((invoice) => ({
-          ...invoice,
-          purchases: Object.values(invoice.purchases).sort((a, b) => a.description.localeCompare(b.description)),
-        })),
-      }))
-      .sort((a, b) => a.cardName.localeCompare(b.cardName))
-  }, [ccExpenses, cards])
-
-  // A fatura em aberto com o vencimento mais proximo (atrasadas primeiro): a
-  // regra de lib/attentionRules.js, a mesma da proxima fatura do Inicio e do
-  // sino.
-  const todayText = getLocalDateString()
+  // A fatura em aberto com o vencimento mais proximo (atrasadas primeiro),
+  // marcada pelo servidor: a tela a abre e o "Pagar fatura" do topo a paga.
   const nearestInvoice = useMemo(() => {
-    const nearest = nearestOpenInvoice(ccExpenses, todayText)
-    if (!nearest) return null
-    const invoiceKey = `${nearest.invoice_year}-${String(nearest.invoice_month).padStart(2, '0')}`
-    const cardGroup = openInvoicesByCard.find((group) => group.cardId === nearest.card_id)
-    const invoice = cardGroup?.invoices.find((entry) => entry.invoiceKey === invoiceKey)
-    return invoice ? { invoice, cardGroup, key: `${cardGroup.cardId}|${invoiceKey}` } : null
-  }, [ccExpenses, openInvoicesByCard, todayText])
+    for (const cardGroup of openInvoicesByCard) {
+      const invoice = cardGroup.invoices.find((entry) => entry.nearest)
+      if (invoice) return { invoice, cardGroup, key: `${cardGroup.cardId}|${invoice.invoiceKey}` }
+    }
+    return null
+  }, [openInvoicesByCard])
 
   const isInvoiceExpanded = (key) => (
     key in toggledInvoices ? toggledInvoices[key] : key === nearestInvoice?.key
@@ -206,7 +174,7 @@ export default function Cartoes() {
   const handleDeleteRefund = async (purchase) => {
     if (!(await confirmAction({ title: `Excluir o estorno "${purchase.description}"?`, message: 'O crédito sai da fatura.', confirmLabel: 'Excluir estorno' }))) return
     try {
-      await ccExpensesApi.removeMany([purchase.id])
+      await ccExpensesApi.removePurchase(purchase.id)
       await fetchData()
     } catch (error) {
       setDataError(error.message || 'Não foi possível excluir o estorno.')
@@ -214,27 +182,14 @@ export default function Cartoes() {
   }
 
   const handleDeleteCCPurchase = async (purchase) => {
-    // As parcelas desta compra, pelo id dela (o client_id, 035): uma compra
-    // igual no mesmo dia (outra corrida de Uber) e outra compra e fica.
-    let candidates = []
-    try {
-      candidates = await ccExpensesApi.candidates({ id: purchase.id })
-    } catch (error) {
-      setDataError(error.message || 'Não foi possível localizar as faturas da compra.')
-      return
-    }
-    const installments = purchaseInstallments(candidates, purchase)
-    // So as em aberto saem: uma parcela paga foi junto com o pagamento da
-    // fatura, e o servidor recusa (409) apaga-la.
-    const idsToDelete = installments.filter((item) => item.status === 'OPEN').map((item) => item.id)
-    const paidCount = installments.length - idsToDelete.length
+    // As parcelas desta compra, pelo id dela (o client_id, 035), contadas no
+    // servidor: uma compra igual no mesmo dia (outra corrida de Uber) e outra
+    // compra e fica. So as em aberto saem: uma parcela paga foi junto com o
+    // pagamento da fatura, e o servidor a mantem.
+    const openCount = purchase.installmentsOpen
+    const paidCount = purchase.installmentsPaid
 
-    if (idsToDelete.length === 0) {
-      setDataError('Nenhuma parcela em aberto foi encontrada para essa compra.')
-      return
-    }
-
-    const openText = idsToDelete.length === 1 ? 'A parcela em aberto sai da fatura.' : `As ${idsToDelete.length} parcelas em aberto saem das faturas.`
+    const openText = openCount === 1 ? 'A parcela em aberto sai da fatura.' : `As ${openCount} parcelas em aberto saem das faturas.`
     const paidText = paidCount === 1
       ? 'A parcela já paga fica: saiu com o pagamento da fatura. Para tirá-la também, desfaça esse pagamento no Extrato.'
       : `As ${paidCount} parcelas já pagas ficam: saíram com o pagamento das faturas. Para tirá-las também, desfaça esses pagamentos no Extrato.`
@@ -242,7 +197,7 @@ export default function Cartoes() {
     if (!(await confirmAction({ title: `Excluir a compra "${purchase.description}"?`, message, confirmLabel: 'Excluir compra' }))) return
 
     try {
-      await ccExpensesApi.removeMany(idsToDelete)
+      await ccExpensesApi.removePurchase(purchase.id)
       await fetchData()
     } catch (error) {
       setDataError(error.message || 'Não foi possível excluir a compra.')
@@ -250,10 +205,9 @@ export default function Cartoes() {
   }
 
   // Em atraso so depois do dia do vencimento, como no Inicio e no sino: no
-  // proprio dia a fatura ainda se paga em dia.
-  const getInvoiceStatus = (invoice, dueDay) => {
-    const dueDate = invoice.dueDate || getLocalDateString(invoiceDueDate(invoice, dueDay))
-    if (isPastDue(dueDate, todayText)) return <Badge tone="danger">Em atraso</Badge>
+  // proprio dia a fatura ainda se paga em dia (`past_due`, do servidor).
+  const getInvoiceStatus = (invoice) => {
+    if (invoice.pastDue) return <Badge tone="danger">Em atraso</Badge>
     if (invoice.closed) return <Badge tone="warning">Fechada</Badge>
     return <Badge>Aberta</Badge>
   }
@@ -274,10 +228,7 @@ export default function Cartoes() {
     return null
   }
 
-  const openCreditTotal = openInvoicesByCard.reduce(
-    (acc, cardGroup) => acc + cardGroup.invoices.reduce((sum, invoice) => sum + invoice.total, 0),
-    0
-  )
+  const openCreditTotal = invoiceData?.open_total || 0
 
   // "Pagar fatura" no cabecalho so quando a fatura mais proxima pode ser paga;
   // um botao cinza ali so repetia "ainda nao".
@@ -320,7 +271,7 @@ export default function Cartoes() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <p className="font-semibold text-zinc-950">{formatInvoiceLabel(invoice.invoiceMonth, invoice.invoiceYear)}</p>
-                {invoice.total < 0 ? <Badge tone="success">Crédito</Badge> : future ? null : getInvoiceStatus(invoice, cardGroup.dueDay)}
+                {invoice.total < 0 ? <Badge tone="success">Crédito</Badge> : future ? null : getInvoiceStatus(invoice)}
                 {isNearest ? <Badge>Próxima</Badge> : null}
               </div>
               {/* No celular o valor desce para baixo do rotulo: ao lado, com o
@@ -330,7 +281,7 @@ export default function Cartoes() {
             </div>
           </button>
           <p className="num hidden whitespace-nowrap font-semibold text-zinc-950 sm:block">{formatCurrency(invoice.total)}</p>
-          {invoice.closed && invoice.total >= 0 ? (
+          {invoice.payable ? (
             <Button
               type="button"
               size="sm"
@@ -461,7 +412,7 @@ export default function Cartoes() {
         projectedBalanceGlobal={projectedBalanceGlobal}
       />
 
-      {loading ? (
+      {loading || invoicesQuery.isPending ? (
         <Panel className="overflow-clip">
           <ListSkeleton rows={4} />
         </Panel>
@@ -477,14 +428,13 @@ export default function Cartoes() {
       ) : openInvoicesByCard.length > 0 ? (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-2 xl:items-start">
           {openInvoicesByCard.map((cardGroup) => {
-            const cardTotal = cardGroup.invoices.reduce((acc, invoice) => acc + invoice.total, 0)
+            const cardTotal = cardGroup.total
             // A fatura e a unidade: ficam a mostra as que pedem algo (em atraso
-            // ou fechadas) e a que esta correndo; as futuras, que so repetem as
-            // parcelas, ficam dobradas com o total delas.
-            const firstOpenIndex = cardGroup.invoices.findIndex((invoice) => !invoice.closed)
-            const splitAt = firstOpenIndex === -1 ? cardGroup.invoices.length : firstOpenIndex + 1
-            const current = cardGroup.invoices.slice(0, splitAt)
-            const future = cardGroup.invoices.slice(splitAt)
+            // ou fechadas) e a que esta correndo; as futuras (`future`, depois
+            // da primeira ainda aberta), que so repetem as parcelas, ficam
+            // dobradas com o total delas.
+            const current = cardGroup.invoices.filter((invoice) => !invoice.future)
+            const future = cardGroup.invoices.filter((invoice) => invoice.future)
             const futureTotal = future.reduce((acc, invoice) => acc + invoice.total, 0)
             const futureOpen = Boolean(showFuture[cardGroup.cardId])
             const lastFuture = future[future.length - 1]

@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta
 
 from applog import get_logger
 from dates import parse_iso_date
+from money import rounded_money
 from services.fixed_income import fetch_bcb_window
 from validators import safe_float
 
@@ -163,3 +164,23 @@ def monthly_rates(conn, current_user_id, currency, month_keys):
         row = _stored_rate(conn, current_user_id, currency, month_end)
         rates[key] = safe_float(row["rate"]) if row else None
     return rates
+
+
+def with_balance_in_brl(conn, current_user_id, item):
+    """Conta em moeda estrangeira: saldo tambem em reais, pela PTAX de hoje.
+
+    O consolidado soma balance_brl; sem cambio disponivel, ele fica de fora
+    (None) e a tela avisa, em vez de somar dolar como real.
+    """
+    currency = normalize_currency(item.get("currency"))
+    if currency == BASE_CURRENCY:
+        item["balance_brl"] = item.get("balance")
+        return item
+    try:
+        rate = rate_on(conn, current_user_id, currency)
+        item["fx_rate"] = rate
+        item["balance_brl"] = rounded_money(safe_float(item.get("balance")) * rate)
+    except FxUnavailable:
+        item["fx_rate"] = None
+        item["balance_brl"] = None
+    return item

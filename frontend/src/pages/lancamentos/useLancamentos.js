@@ -10,7 +10,8 @@ import {
 import { useOutbox } from '../../lib/outbox'
 import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage, useQuery } from '../../lib/queries'
-import { activeAccounts, cardSignedAmount, consolidatedBalance } from '../../lib/transactions'
+import { useHome } from '../../lib/attention'
+import { activeAccounts, cardSignedAmount } from '../../lib/transactions'
 import {
   buildCategoryOptions,
   filterCategoryOptions,
@@ -99,9 +100,10 @@ export default function useLancamentos() {
     [pending]
   )
   const accounts = useMemo(() => activeAccounts(allAccounts), [allAccounts])
-  // A soma dos saldos por conta (lib/transactions.js): inclui o saldo
-  // inicial de cada conta, que a soma dos lancamentos deixava de fora.
-  const balance = useMemo(() => consolidatedBalance(allAccounts), [allAccounts])
+  // Saldo em contas: o do Inicio (GET /api/home, sem a Corretora), com os
+  // pendentes do aparelho por cima — o mesmo numero nas duas telas.
+  const home = useHome()
+  const balance = home.data?.consolidated_balance || 0
   const { projectedBalanceGlobal, projectedBalanceNextMonth } = useMemo(
     () => projections(balance, ccExpenses),
     [balance, ccExpenses]
@@ -119,7 +121,7 @@ export default function useLancamentos() {
   }, [allAccounts])
 
   return {
-    loading: query.isPending,
+    loading: query.isPending || home.isPending,
     dataError,
     setDataError,
     reloadCount,

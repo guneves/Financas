@@ -53,7 +53,7 @@ from services.budgets import (
     plan_figures,
 )
 from services.goals import list_goals
-from services.investments import PORTFOLIO_ACCOUNT_TYPE
+from services.home import investment_flow_sql
 from services.invoices import local_today, signed_amount_sql
 from services.sharing import own_amount_sql
 from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
@@ -118,27 +118,19 @@ def month_investment_flow(conn, current_user_id, month):
     nao e Corretora e aporte na saida e resgate na entrada. O que acontece
     dentro da Corretora fica de fora.
     """
-    placeholders = ", ".join("?" for _ in INVESTMENT_SOURCE_TYPES)
-    from_bank = f"COALESCE(origin.type, '') != '{PORTFOLIO_ACCOUNT_TYPE}'"
-    to_portfolio = f"COALESCE(target.type, '') = '{PORTFOLIO_ACCOUNT_TYPE}'"
-    portfolio_cash = f"COALESCE(t.source_type, '') IN ({placeholders})"
+    # A mesma condicao do "Investido" do Inicio (services/home.py).
+    cases = investment_flow_sql()
     row = conn.execute(
         f"""
         SELECT
-          SUM(CASE
-                WHEN t.type = 'TRANSFER' AND {from_bank} AND {to_portfolio} THEN t.amount
-                WHEN t.type = 'EXPENSE' AND {from_bank} AND {portfolio_cash} THEN t.amount
-                ELSE 0 END) AS aportes,
-          SUM(CASE
-                WHEN t.type = 'TRANSFER' AND NOT {from_bank} AND NOT {to_portfolio} THEN t.amount
-                WHEN t.type = 'INCOME' AND {from_bank} AND {portfolio_cash} THEN t.amount
-                ELSE 0 END) AS resgates
+          SUM(CASE WHEN {cases['aporte']} THEN t.amount ELSE 0 END) AS aportes,
+          SUM(CASE WHEN {cases['resgate']} THEN t.amount ELSE 0 END) AS resgates
         FROM transactions t
         LEFT JOIN accounts origin ON origin.id = t.account_id
         LEFT JOIN accounts target ON target.id = t.transfer_account_id
         WHERE t.user_id = ? AND substr(t.date, 1, 7) = ?
         """,
-        (*INVESTMENT_SOURCE_TYPES, *INVESTMENT_SOURCE_TYPES, current_user_id, month),
+        (current_user_id, month),
     ).fetchone()
     return rounded_money(safe_float(row["aportes"])), rounded_money(safe_float(row["resgates"]))
 

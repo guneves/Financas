@@ -28,7 +28,7 @@ from services.accounts import (
     seed_default_categories,
     serialize_account,
 )
-from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
+from services.fx import normalize_currency, with_balance_in_brl
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.investments import PORTFOLIO_ACCOUNT_TYPE
@@ -42,7 +42,6 @@ from validators import (
     require_choice,
     require_date,
     require_string,
-    safe_float,
     validation_error,
 )
 
@@ -52,26 +51,6 @@ bp = Blueprint("accounts", __name__)
 ALLOWED_ACCOUNT_TYPES = {"CHECKING", "SAVINGS", "BROKERAGE", "CASH", "OTHER"}
 ALLOWED_CATEGORY_KINDS = {"INCOME", "EXPENSE", "BOTH"}
 TRANSFER_CATEGORY = "Transferencia"
-
-
-def with_balance_in_brl(conn, current_user_id, item):
-    """Conta em moeda estrangeira: saldo tambem em reais, pela PTAX de hoje.
-
-    O consolidado soma balance_brl; sem cambio disponivel, ele fica de fora
-    (None) e a tela avisa, em vez de somar dolar como real.
-    """
-    currency = normalize_currency(item.get("currency"))
-    if currency == BASE_CURRENCY:
-        item["balance_brl"] = item.get("balance")
-        return item
-    try:
-        rate = rate_on(conn, current_user_id, currency)
-        item["fx_rate"] = rate
-        item["balance_brl"] = rounded_money(safe_float(item.get("balance")) * rate)
-    except FxUnavailable:
-        item["fx_rate"] = None
-        item["balance_brl"] = None
-    return item
 
 
 @bp.route("/api/accounts", methods=["GET", "POST"])

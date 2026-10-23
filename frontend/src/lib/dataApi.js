@@ -216,6 +216,9 @@ export const ccExpensesApi = {
     method: 'PATCH',
     body: JSON.stringify(payload)
   }),
+  // As parcelas em aberto da compra de `id` (qualquer parcela, ou um estorno),
+  // num pedido so; a paga fica com a fatura dela (037).
+  removePurchase: (id) => apiFetch(`/api/cc-expenses/purchases/${id}`, { method: 'DELETE' }),
   removeMany: (ids) => apiFetch('/api/cc-expenses', {
     method: 'DELETE',
     body: JSON.stringify({ ids })
@@ -229,6 +232,19 @@ export const ccExpensesApi = {
   // Desfaz um pagamento de fatura (037): o lancamento sai e os itens reabrem.
   // O debito automatico nao paga essa fatura de novo; ela volta ao Pagar.
   undoPayment: (transactionId) => apiFetch(`/api/cc-expenses/payments/${transactionId}`, { method: 'DELETE' })
+}
+
+// Inicio, avisos e faturas, somados no servidor (proposta home-attention-invoices.md).
+export const homeApi = {
+  get: (params = {}) => apiFetch(`/api/home${queryString(params)}`)
+}
+
+export const attentionApi = {
+  list: () => apiFetch('/api/attention')
+}
+
+export const ccInvoicesApi = {
+  list: () => apiFetch('/api/cc-invoices')
 }
 
 export const investmentsApi = {

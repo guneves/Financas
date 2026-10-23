@@ -1,6 +1,6 @@
 // Port: mudou um, muda o outro, com um teste de cada lado.
 // Os casos de frontend/src/lib/outboxRules.test.js que tocam sendOrder, pendingAccountDeltas,
-// applyPendingToAccounts, pendingAsTransactions e countByStatus, na mesma ordem; o nome do
+// applyPendingToAccounts, pendingAsTransactions, countByStatus e applyPendingToHome, na mesma ordem; o nome do
 // teste do node vai no comentario de cada um. Os de envio (endpointFor, buildItem, outcomeOf,
 // deliveredDiffers...) estao em outbox/OutboxRulesTest.java.
 package br.financas.app.rules
@@ -8,6 +8,7 @@ package br.financas.app.rules
 import br.financas.app.rules.OutboxPending.NEEDS_ATTENTION
 import br.financas.app.rules.OutboxPending.PENDING
 import br.financas.app.rules.OutboxPending.applyPendingToAccounts
+import br.financas.app.rules.OutboxPending.applyPendingToHome
 import br.financas.app.rules.OutboxPending.countByStatus
 import br.financas.app.rules.OutboxPending.pendingAccountDeltas
 import br.financas.app.rules.OutboxPending.pendingAsTransactions
@@ -164,5 +165,107 @@ class OutboxPendingTest {
             mapOf(PENDING to 2, NEEDS_ATTENTION to 1),
             countByStatus(listOf(item("EXPENSE"), item("EXPENSE"), item("EXPENSE", status = NEEDS_ATTENTION))),
         )
+    }
+
+    // /api/home com os pendentes por cima (proposta home-attention-invoices.md, B1).
+    private val homeAccounts = listOf(
+        PendingAccount(id = "banco", type = "CHECKING", currency = "BRL", isDefault = true, balance = money("1000"), balanceBrl = money("1000")),
+        PendingAccount(id = "poupanca", type = "SAVINGS", currency = "BRL", balance = money("500"), balanceBrl = money("500")),
+        PendingAccount(id = "corretora", type = "BROKERAGE", currency = "BRL", balance = money("7000"), balanceBrl = money("7000")),
+        PendingAccount(id = "dolar", type = "CHECKING", currency = "USD", balance = money("10"), balanceBrl = money("50")),
+    )
+
+    private fun home() = HomeData(
+        consolidatedBalance = money("1550"),
+        accounts = homeAccounts,
+        summary = HomeSummary(income = money("100"), expense = money("40"), result = money("60")),
+        flow = listOf(
+            HomeMonth(month = "2026-09", balance = money("1490")),
+            HomeMonth(month = "2026-10", income = money("100"), expense = money("40"), net = money("60"), balance = money("1550")),
+        ),
+    )
+
+    private fun assertMoney(expected: String, actual: BigDecimal) = assertEquals(0, money(expected).compareTo(actual))
+
+    // node: 'home: sem pendentes volta o mesmo objeto'
+    @Test
+    fun homeWithoutPendingItemsComesBackTheSame() {
+        val base = home()
+        assertSame(base, applyPendingToHome(base, emptyList()))
+        assertSame(base, applyPendingToHome(base, listOf(item("CARD", PendingPayload(totalAmount = money("90"), date = "2026-10-12")))))
+        assertSame(base, applyPendingToHome(base, listOf(item("EXPENSE", PendingPayload(amount = money("5"), date = "2026-10-12"), status = NEEDS_ATTENTION))))
+    }
+
+    // node: 'home: despesa pendente baixa a conta, o saldo em contas e entra no Saiu do mes'
+    @Test
+    fun homePendingExpenseLowersAccountBalanceAndMonth() {
+        val result = applyPendingToHome(home(), listOf(
+            item("EXPENSE", PendingPayload(amount = money("0.1"), date = "2026-10-12")),
+            item("EXPENSE", PendingPayload(amount = money("0.2"), date = "2026-10-13")),
+        ))
+        assertMoney("1549.7", result.consolidatedBalance)
+        assertMoney("999.7", result.accounts.first { it.id == "banco" }.balance!!)
+        assertMoney("40.3", result.summary.expense)
+        assertMoney("59.7", result.summary.result)
+        assertMoney("59.7", result.flow[1].net)
+        assertMoney("1549.7", result.flow[1].balance)
+        assertMoney("1490", result.flow[0].balance)
+        assertTrue(result.balanceEstimated)
+    }
+
+    // node: 'home: receita entra inteira; "Pagamento Fatura" mexe no saldo, nao no Saiu'
+    @Test
+    fun homeIncomeCountsInvoicePaymentOnlyMovesBalance() {
+        val result = applyPendingToHome(home(), listOf(
+            item("INCOME", PendingPayload(amount = money("30"), date = "2026-10-12", accountId = "poupanca")),
+            item("EXPENSE", PendingPayload(amount = money("20"), date = "2026-10-12", category = "Pagamento Fatura Nubank")),
+        ))
+        assertMoney("130", result.summary.income)
+        assertMoney("40", result.summary.expense)
+        assertMoney("1560", result.consolidatedBalance)
+        assertMoney("1560", result.flow[1].balance)
+    }
+
+    // node: 'home: transferencia para a Corretora e aporte, de volta resgate, entre bancos nada'
+    @Test
+    fun homeTransferToCorretoraIsAporteBackIsResgate() {
+        val result = applyPendingToHome(home(), listOf(
+            item("TRANSFER", PendingPayload(amount = money("300"), date = "2026-10-12", accountId = "banco", transferAccountId = "corretora")),
+            item("TRANSFER", PendingPayload(amount = money("100"), date = "2026-10-13", accountId = "corretora", transferAccountId = "poupanca")),
+            item("TRANSFER", PendingPayload(amount = money("50"), date = "2026-10-14", accountId = "banco", transferAccountId = "poupanca")),
+        ))
+        assertMoney("300", result.summary.invested)
+        assertMoney("100", result.summary.redeemed)
+        assertMoney("200", result.summary.investmentNet)
+        assertMoney("40", result.summary.expense)
+        assertMoney("1350", result.consolidatedBalance)
+        assertMoney("1350", result.flow[1].balance)
+    }
+
+    // node: 'home: linha numa Corretora fica de fora; conta em dolar nao muda o saldo em contas'
+    @Test
+    fun homeCorretoraRowStaysOutDollarAccountKeepsTotal() {
+        val result = applyPendingToHome(home(), listOf(
+            item("EXPENSE", PendingPayload(amount = money("70"), date = "2026-10-12", accountId = "corretora")),
+            item("EXPENSE", PendingPayload(amount = money("3"), date = "2026-10-12", accountId = "dolar")),
+        ))
+        assertMoney("43", result.summary.expense)
+        assertMoney("1550", result.consolidatedBalance)
+        assertMoney("6930", result.accounts.first { it.id == "corretora" }.balance!!)
+    }
+
+    // node: 'home: pendente de um mes anterior muda aquele mes e o saldo dali em diante'
+    @Test
+    fun homeEarlierMonthPendingMovesThatMonthAndLaterBalances() {
+        val result = applyPendingToHome(home(), listOf(
+            item("EXPENSE", PendingPayload(amount = money("10"), date = "2026-09-30")),
+            item("INCOME", PendingPayload(amount = money("1"), date = "2026-08-01")),
+            item("EXPENSE", PendingPayload(amount = money("99"), date = "2026-11-01")),
+        ))
+        assertMoney("10", result.flow[0].expense)
+        assertMoney("1481", result.flow[0].balance)
+        assertMoney("40", result.flow[1].expense)
+        assertMoney("1541", result.flow[1].balance)
+        assertMoney("1442", result.consolidatedBalance)
     }
 }

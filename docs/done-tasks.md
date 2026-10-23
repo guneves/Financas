@@ -170,6 +170,7 @@
 | Native "+ Novo" (step 1's screen): `ui/newentry/` (`NewEntryActivity`, a translucent Compose bottom sheet with despesa, receita, transferência and cartão crédito/débito, amount first; Corrigir from Pendentes too), the save of `createEntry()` with the item kept in the outbox during the POST, `buildItem`/`newClientId`/`editedItem` in `OutboxRules.java` (+ `editedItem` in `outboxRules.js`), `rules/EntryOptions.kt`, `rules/InboxNotice.kt`, the first `ui/components/`; `NativeScreens` lists `new-entry`, the React layout opens it when listed (`lib/nativeScreens.js`, `nativeScreensRules.js`), `native-level.txt` 3. 51 JVM tests, web 144 → 150. Owner's phone check open | 2026-10-22 |
 | `findings.md` triage, possible bugs and stale texts (web and backend): Metas edit after the target month, Recorrentes account edit, Extrato transfer destination, investment statement same-day order, refund prefill cents, A receber "pago em" local day — each reproduced by a test, then fixed; login "Finanças" + "Criar acesso" only when `GET /api/auth/signup` says open; Metas/Integrações/Notificações texts, `CASH_WITHOUT_AMOUNT_MESSAGE`, `Orcamento.jsx` comment | 2026-10-23 |
 | Native migration session 5: the proposal `mobile-docs/native/proposals/home-attention-invoices.md` (home, attention, invoices, purchase delete, transactions paging; routes, JSON, reused functions, web switch, pytest cases for every `transactions.test.js` / `attentionRules.test.js` case plus 18 new for `cashFlow.js`, behaviour changes B1–B9) — proposal only, nothing implemented; the pending-balance rules of `outboxRules.js` (`pendingAccountDeltas`, `applyPendingToAccounts`, `pendingAsTransactions`, `countByStatus`) ported to `rules/OutboxPending.kt`, 11 JVM tests, android-check green | 2026-10-23 |
+| Native migration session 6: the proposal's §1–4 built — `GET /api/home` (`services/home.py`), `GET /api/attention` (`services/attention.py`), `GET /api/cc-invoices` (`services/card_invoices.py`), `DELETE /api/cc-expenses/purchases/<id>`; Início, the bell, the Extrato's "Saldo em contas" and Cartões switched with no visible change; `applyPendingToHome()` in `outboxRules.js` and `rules/OutboxPending.kt`; `cashFlow.js`, the rule half of `attentionRules.js` and `consolidatedBalance`/`openingBalanceTotal` deleted, their node cases moved to pytest. pytest 1536 → 1603, node 164 → 160 | 2026-10-23 |
 
 ---
 
@@ -1210,3 +1211,31 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
 - `GET /api/auth/signup` is public and answers `{open}` (`signup_open()` in `routes/auth.py`, the
   same rule the POST uses); the login hides "Criar acesso" when closed or unreachable.
 - pytest 1536 (was 1534), `npm test` 164 (was 150).
+
+### Home, attention and invoice endpoints — 2026-10-23 (native session 6)
+
+- **One rule for three screens.** `services/card_invoices.py` (`open_invoices()`) groups the
+  open rows per card and invoice in `Decimal` (refunds subtract), and flags `past_due`, `closed`,
+  `payable`, `next`, `nearest` and `future`. `/api/home` takes its `next` invoices, `/api/attention`
+  its overdue and payable ones, `/api/cc-invoices` all of it. Lists keep the old client's order (the
+  rows' order, then a stable sort by due date), so ties land where they used to.
+- **The flow in integer cents.** `services/home.py` sums `CAST(ROUND(x * 100) AS INTEGER)` per row
+  in SQL, the client's `Math.round(x * 100)`. Others' part is rounded on its own and subtracted, as
+  `ownAmount()` did. The "Pagamento Fatura" prefix is compared with `substr()`, case-sensitive like
+  `startsWith`, not with `LIKE` as `month_banking_totals()` does.
+- **The keys did not change**: `fatura-vencida:<card>|2026-9` keeps the unpadded month, so the
+  dismissals stored on devices still match (`test_overdue_key_month_is_not_zero_padded`).
+- **Parity check**: a database seeded through the API (accounts with a Corretora and an archived
+  one, 12 months of rows, transfers both ways, shared rows, two cards with overdue, closed, paid,
+  installment, refund and autopay-shortfall cases, a pending recurrence, two over-budget
+  categories). Chromium captured Início, the bell, Extrato and Cartões at 1440 px and 390 px before
+  and after on copies of it. The page text was identical on all eight, and six screenshots were
+  pixel-identical. Two differed in about 110 anti-aliased pixels, at most 2/255.
+- **Moved, not deleted**: the 11 rule cases of `attentionRules.test.js` and the
+  `consolidatedBalance`/`openingBalanceTotal` asserts of `transactions.test.js` have the pytest
+  twins named in the proposal. The two `buildMonthlyFlow` cases of `sharing.test.js` are
+  `test_home.py::test_from_sharing_*`. The node files keep the dismissals,
+  `overdueDetail`, `isPastDue`, `isInvoicePayment` and the banking-view predicates.
+- **Not built**: paging (§5), by the proposal's own order. Início's history panels need
+  `home-panels.md` (next-steps).
+

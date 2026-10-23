@@ -6,11 +6,10 @@ import {
   bankingTransactions,
   cardPurchaseKey,
   cardSignedAmount,
-  consolidatedBalance,
+  isInvoicePayment,
   isCardRefund,
   isInvestmentInflow,
   isInvestmentOutflow,
-  openingBalanceTotal,
 } from './transactions.js'
 
 const accounts = [
@@ -19,9 +18,10 @@ const accounts = [
   { id: 'corretora', type: 'BROKERAGE', balance: 7000, initial_balance: 5000 },
 ]
 
-test('a Corretora account is not saldo em conta', () => {
-  assert.equal(consolidatedBalance(accounts), 1500)
-  assert.equal(openingBalanceTotal(accounts), 1300)
+// O saldo em contas e o saldo inicial sem a Corretora (consolidatedBalance,
+// openingBalanceTotal) sao do servidor: backend/tests/test_home.py,
+// test_corretora_is_not_saldo_em_conta, com estas mesmas contas.
+test('a Corretora account is not a banking account', () => {
   assert.deepEqual(bankingAccounts(accounts).map((account) => account.id), ['banco', 'poupanca'])
 })
 
@@ -115,4 +115,12 @@ test('investment is the origin of the row, never a category (039)', () => {
     accounts,
   )
   assert.equal(ida.category, 'Aporte')
+})
+
+test('an invoice payment is never an expense (by origin or by the typed category)', () => {
+  assert.ok(isInvoicePayment({ type: 'EXPENSE', source_type: 'CC_INVOICE_PAYMENT' }))
+  assert.ok(isInvoicePayment({ type: 'EXPENSE', source_type: 'CC_AUTOPAY' }))
+  assert.ok(isInvoicePayment({ type: 'EXPENSE', category: 'Pagamento Fatura Nubank' }))
+  assert.ok(!isInvoicePayment({ type: 'EXPENSE', category: 'pagamento fatura' }))
+  assert.ok(!isInvoicePayment({ type: 'EXPENSE', category: 'Mercado' }))
 })

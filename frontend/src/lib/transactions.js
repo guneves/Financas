@@ -35,6 +35,13 @@ export function cardPurchaseKey(expense) {
   ].join('|')
 }
 
+// Pagamento de fatura: nunca e despesa (e a soma de compras ja contadas), mas
+// sai da conta. A mesma regra de services/home.py.
+const INVOICE_SOURCE_TYPES = ['CC_INVOICE_PAYMENT', 'CC_AUTOPAY']
+
+export const isInvoicePayment = (transaction) =>
+  INVOICE_SOURCE_TYPES.includes(transaction?.source_type) || Boolean(transaction?.category?.startsWith('Pagamento Fatura'))
+
 const isInvestmentRow = (transaction) =>
   INVESTMENT_SOURCE_TYPES.includes(transaction?.source_type) || Boolean(transaction?.portfolio_transfer)
 
@@ -44,21 +51,6 @@ export const isInvestmentOutflow = (transaction) =>
 export const isInvestmentInflow = (transaction) =>
   transaction?.type === 'INCOME' && isInvestmentRow(transaction)
 
-// Saldo consolidado das contas: a soma dos saldos que /api/accounts devolve
-// (saldo inicial + movimentacoes, calculado no servidor). Passe a lista COM
-// as arquivadas (`include_archived`): o lancamento de uma conta arquivada
-// continua existindo e continua no consolidado. Somar `transactions` direto
-// deixava o saldo inicial das contas de fora.
-//
-// Conta em moeda estrangeira entra pelo `balance_brl` (PTAX de hoje, no
-// servidor); sem cambio disponivel ela fica de fora em vez de somar dolar
-// como real.
-//
-// Conta Corretora fica de fora (dono, 2026-10-17): o dinheiro parado na
-// corretora e da carteira, nao "saldo em conta" (bankingAccounts).
-export const consolidatedBalance = (accounts = []) =>
-  bankingAccounts(accounts).reduce((acc, account) => acc + (accountBalanceBrl(account) || 0), 0)
-
 // Saldo de uma conta em reais — o app e em reais, e o saldo de uma conta em
 // moeda estrangeira so aparece convertido. Devolve null quando nao ha cambio
 // hoje: quem mostra avisa, quem soma deixa de fora.
@@ -67,14 +59,12 @@ export function accountBalanceBrl(account) {
   return value === null || value === undefined ? null : Number(value) || 0
 }
 
-export const openingBalanceTotal = (accounts = []) =>
-  bankingAccounts(accounts).reduce((acc, account) => acc + (Number(account.initial_balance) || 0), 0)
-
 export const activeAccounts = (accounts = []) => accounts.filter((account) => !account.archived_at)
 
 // A conta da carteira (lib/portfolioAccount.js) e toda conta Corretora: o que
 // esta nela e da area de investimentos. A area bancaria (Inicio, o "Saldo em
-// contas" do Extrato) le so as outras.
+// contas" do Extrato) le so as outras; o saldo em contas e o fluxo do mes sao
+// somados no servidor (GET /api/home, services/home.py).
 export const isPortfolioAccount = (account) => account?.type === 'BROKERAGE'
 
 export const bankingAccounts = (accounts = []) => accounts.filter((account) => !isPortfolioAccount(account))

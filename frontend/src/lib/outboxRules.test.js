@@ -5,6 +5,7 @@ import {
   NEEDS_ATTENTION,
   PENDING,
   applyPendingToAccounts,
+  applyPendingToHome,
   buildItem,
   countByStatus,
   deliveredDiffers,
@@ -196,4 +197,88 @@ test('contagem por estado', () => {
     countByStatus([item('EXPENSE', {}), item('EXPENSE', {}), item('EXPENSE', {}, { status: NEEDS_ATTENTION })]),
     { [PENDING]: 2, [NEEDS_ATTENTION]: 1 }
   )
+})
+
+// /api/home com os pendentes por cima (proposta home-attention-invoices.md, B1).
+const homeAccounts = [
+  { id: 'banco', type: 'CHECKING', currency: 'BRL', is_default: true, balance: 1000, balance_brl: 1000 },
+  { id: 'poupanca', type: 'SAVINGS', currency: 'BRL', balance: 500, balance_brl: 500 },
+  { id: 'corretora', type: 'BROKERAGE', currency: 'BRL', balance: 7000, balance_brl: 7000 },
+  { id: 'dolar', type: 'CHECKING', currency: 'USD', balance: 10, balance_brl: 50 },
+]
+const flowMonth = (month, balance, extra = {}) => ({
+  month, income: 0, expense: 0, invested: 0, redeemed: 0, others_paid: 0, others_received: 0, net: 0, balance, ...extra,
+})
+const home = () => ({
+  today: '2026-10-20',
+  month: '2026-10',
+  consolidated_balance: 1550,
+  accounts: homeAccounts,
+  summary: { income: 100, expense: 40, result: 60, invested: 0, redeemed: 0, investment_net: 0, others_paid: 0, others_received: 0, others_net: 0 },
+  flow: [flowMonth('2026-09', 1490), flowMonth('2026-10', 1550, { income: 100, expense: 40, net: 60 })],
+})
+
+test('home: sem pendentes volta o mesmo objeto', () => {
+  const base = home()
+  assert.equal(applyPendingToHome(base, []), base)
+  assert.equal(applyPendingToHome(base, [item('CARD', { total_amount: 90, purchase_date: '2026-10-12' })]), base)
+  assert.equal(applyPendingToHome(base, [item('EXPENSE', { amount: 5, date: '2026-10-12' }, { status: NEEDS_ATTENTION })]), base)
+})
+
+test('home: despesa pendente baixa a conta, o saldo em contas e entra no Saiu do mes', () => {
+  const result = applyPendingToHome(home(), [item('EXPENSE', { amount: 0.1, date: '2026-10-12' }), item('EXPENSE', { amount: 0.2, date: '2026-10-13' })])
+  assert.equal(result.consolidated_balance, 1549.7)
+  assert.equal(result.accounts.find((account) => account.id === 'banco').balance, 999.7)
+  assert.equal(result.summary.expense, 40.3)
+  assert.equal(result.summary.result, 59.7)
+  assert.equal(result.flow[1].net, 59.7)
+  assert.equal(result.flow[1].balance, 1549.7)
+  assert.equal(result.flow[0].balance, 1490)
+  assert.equal(result.balance_estimated, true)
+})
+
+test('home: receita entra inteira; "Pagamento Fatura" mexe no saldo, nao no Saiu', () => {
+  const result = applyPendingToHome(home(), [
+    item('INCOME', { amount: 30, date: '2026-10-12', account_id: 'poupanca' }),
+    item('EXPENSE', { amount: 20, date: '2026-10-12', category: 'Pagamento Fatura Nubank' }),
+  ])
+  assert.equal(result.summary.income, 130)
+  assert.equal(result.summary.expense, 40)
+  assert.equal(result.consolidated_balance, 1560)
+  assert.equal(result.flow[1].balance, 1560)
+})
+
+test('home: transferencia para a Corretora e aporte, de volta resgate, entre bancos nada', () => {
+  const result = applyPendingToHome(home(), [
+    item('TRANSFER', { amount: 300, date: '2026-10-12', account_id: 'banco', transfer_account_id: 'corretora' }),
+    item('TRANSFER', { amount: 100, date: '2026-10-13', account_id: 'corretora', transfer_account_id: 'poupanca' }),
+    item('TRANSFER', { amount: 50, date: '2026-10-14', account_id: 'banco', transfer_account_id: 'poupanca' }),
+  ])
+  assert.deepEqual([result.summary.invested, result.summary.redeemed, result.summary.investment_net], [300, 100, 200])
+  assert.equal(result.summary.expense, 40)
+  assert.equal(result.consolidated_balance, 1350)
+  assert.equal(result.flow[1].balance, 1350)
+})
+
+test('home: linha numa Corretora fica de fora; conta em dolar nao muda o saldo em contas', () => {
+  const result = applyPendingToHome(home(), [
+    item('EXPENSE', { amount: 70, date: '2026-10-12', account_id: 'corretora' }),
+    item('EXPENSE', { amount: 3, date: '2026-10-12', account_id: 'dolar' }),
+  ])
+  assert.equal(result.summary.expense, 43)
+  assert.equal(result.consolidated_balance, 1550)
+  assert.equal(result.accounts.find((account) => account.id === 'corretora').balance, 6930)
+})
+
+test('home: pendente de um mes anterior muda aquele mes e o saldo dali em diante', () => {
+  const result = applyPendingToHome(home(), [
+    item('EXPENSE', { amount: 10, date: '2026-09-30' }),
+    item('INCOME', { amount: 1, date: '2026-08-01' }),
+    item('EXPENSE', { amount: 99, date: '2026-11-01' }),
+  ])
+  assert.equal(result.flow[0].expense, 10)
+  assert.equal(result.flow[0].balance, 1481)
+  assert.equal(result.flow[1].expense, 40)
+  assert.equal(result.flow[1].balance, 1541)
+  assert.equal(result.consolidated_balance, 1442)
 })
