@@ -16,6 +16,29 @@ const NEW_ENTRY_TYPES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD']
 // (native-level 4 em diante; um APK abaixo nao lista e a React abre).
 export const INBOX_SCREEN = 'inbox'
 
+// Inicio (e o sino): ui/home/ no APK, uma pagina da NativeActivity
+// (native-level 5 em diante). A rota /inicio abre a nativa e a WebView fica
+// parada nela por baixo (NativePage com `stay`): os links da nativa voltam
+// para a WebView pelo evento "navigate".
+export const HOME_SCREEN = 'home'
+
+// O Inicio da web, sem abrir a nativa: a nativa leva para ca os paineis que o
+// servidor ainda nao serve (categorias, ritmo de gastos, parcelamentos,
+// proximas faturas).
+export const WEB_PAGE_PARAM = 'web'
+export const HOME_WEB_ROUTE = `/inicio?${WEB_PAGE_PARAM}=1`
+
+// A rota pediu a versao web da pagina (?web=1): a nativa nao abre.
+export function wantsWebPage(search = '') {
+  return new URLSearchParams(search || '').get(WEB_PAGE_PARAM) === '1'
+}
+
+// O modo privado guardado no APK (Shell.getValuesHidden()): true/false, ou
+// null quando o APK ainda nao guardou nenhum (ou nao tem o metodo).
+export function privacyFromNative(result) {
+  return typeof result?.hidden === 'boolean' ? result.hidden : null
+}
+
 // Para onde a WebView volta depois de abrir uma pagina nativa: a tela de
 // antes (a nativa fica por cima dela) ou, sem historico, o Extrato.
 export const NATIVE_PAGE_FALLBACK_ROUTE = '/lancamentos/extrato'

@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  HOME_SCREEN,
+  HOME_WEB_ROUTE,
   INBOX_SCREEN,
   NATIVE_PAGE_FALLBACK_ROUTE,
   NEW_ENTRY_SCREEN,
@@ -9,8 +11,10 @@ import {
   nativePageOpenRequest,
   newEntryOpenRequest,
   noticeFrom,
+  privacyFromNative,
   routeFrom,
   routesFrom,
+  wantsWebPage,
 } from './nativeScreensRules.js'
 
 test('rotas nativas: so a lista de textos; APK antigo ou resposta estranha e nenhuma', () => {
@@ -68,4 +72,26 @@ test('depois de abrir a nativa, a WebView volta para a tela de antes (ou o Extra
   assert.deepEqual(nativePageExit({ hasHistory: true }), { back: true, route: '' })
   assert.deepEqual(nativePageExit({ hasHistory: false }), { back: false, route: NATIVE_PAGE_FALLBACK_ROUTE })
   assert.deepEqual(nativePageExit(), { back: false, route: '/lancamentos/extrato' })
+})
+
+test('Inicio abre a pagina nativa; ?web=1 fica na web', () => {
+  assert.equal(HOME_SCREEN, 'home')
+  assert.deepEqual(nativePageOpenRequest(HOME_SCREEN), { screen: 'home', params: {} })
+  assert.deepEqual(routesFrom({ routes: ['new-entry', 'inbox', 'home'] }), ['new-entry', 'inbox', HOME_SCREEN])
+  assert.equal(HOME_WEB_ROUTE, '/inicio?web=1')
+  assert.equal(wantsWebPage('?web=1'), true)
+  assert.equal(wantsWebPage('?a=2&web=1'), true)
+  assert.equal(wantsWebPage(''), false)
+  assert.equal(wantsWebPage('?web=0'), false)
+  assert.equal(wantsWebPage(undefined), false)
+  // O link da nativa para o Inicio da web e uma rota da propria web.
+  assert.equal(routeFrom({ route: HOME_WEB_ROUTE }), HOME_WEB_ROUTE)
+})
+
+test('o modo privado do APK: so true/false; o resto e "nada guardado"', () => {
+  assert.equal(privacyFromNative({ hidden: true }), true)
+  assert.equal(privacyFromNative({ hidden: false }), false)
+  assert.equal(privacyFromNative({}), null)
+  assert.equal(privacyFromNative({ hidden: 'true' }), null)
+  assert.equal(privacyFromNative(null), null)
 })

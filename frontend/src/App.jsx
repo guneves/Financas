@@ -7,7 +7,7 @@ import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
 import Layout from './components/Layout'
 import NativePage from './components/NativePage'
-import { INBOX_SCREEN } from './lib/nativeScreensRules'
+import { HOME_SCREEN, INBOX_SCREEN } from './lib/nativeScreensRules'
 
 // Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
 // mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
@@ -93,7 +93,9 @@ export default function App() {
 
         {session && (
           <Route element={<Layout />}>
-            <Route path="/inicio" element={<Dashboard />} />
+            {/* No APK com o Inicio nativo (native-level 5), a rota abre a tela em
+                Kotlin e a WebView espera parada aqui; /inicio?web=1 e a React. */}
+            <Route path="/inicio" element={<NativePage screen={HOME_SCREEN} stay><Dashboard /></NativePage>} />
 
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
             <Route path="/lancamentos/extrato" element={<Extrato />} />

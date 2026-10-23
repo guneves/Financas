@@ -68,15 +68,8 @@ export const axisProps = {
   axisLine: false,
 }
 
-// Eixo de valores: sem o "R$" (o titulo do grafico ja diz que e dinheiro), para
-// o rotulo caber numa linha — "R$ 900 mil" quebrava em duas na largura do eixo.
-export function compactAxis(value) {
-  const numeric = Number(value || 0)
-  const absolute = Math.abs(numeric)
-  const sign = numeric < 0 ? '\u2212' : ''
-  if (absolute >= 1_000_000) {
-    return `${sign}${(absolute / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`
-  }
+// Eixo de valores (sem o "R$"): a regra mora em lib/chartFormat.js, testada.
+export { compactAxis } from '../lib/chartFormat'
   if (absolute >= 1000) {
     return `${sign}${(absolute / 1000).toLocaleString('pt-BR', { maximumFractionDigits: absolute >= 10000 ? 0 : 1 })} mil`
   }

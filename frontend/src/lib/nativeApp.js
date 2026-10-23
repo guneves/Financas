@@ -8,6 +8,8 @@
 //   saem no logout (o evento finance-auth-change de lib/api.js).
 // - O botao voltar do Android fecha o que estiver aberto, depois volta de tela.
 // - As barras do sistema seguem o tema do app (lib/theme.js).
+// - O modo privado (o olho) e um so com as telas nativas: cada troca vai para o
+//   Java, e ao voltar para a WebView vale o que a nativa deixou.
 // - Telas nativas (lib/nativeScreens.js): o "+ Novo" abre em Kotlin quando o
 //   APK o lista; ao gravar, o APK avisa ("dataChanged") e aqui a fila e os
 //   dados sao relidos, com o toast que a tela nativa mandou.
@@ -18,7 +20,8 @@ import { reloadOutbox, setOutboxBackend } from './outbox'
 import { invalidateServerData } from './queries'
 import { closeTopLayer } from './layers'
 import { onNativeEvent, startNativeScreens } from './nativeScreens'
-import { noticeFrom } from './nativeScreensRules'
+import { noticeFrom, privacyFromNative } from './nativeScreensRules'
+import { onValuesHiddenChange, setValuesHidden, valuesHiddenNow } from './privacy'
 import { toast } from './toast'
 
 const Outbox = registerPlugin('Outbox')
@@ -53,6 +56,25 @@ function syncSession() {
 function applyTheme() {
   const dark = document.documentElement.classList.contains('dark')
   Shell.setTheme({ dark, background: dark ? '#0B1210' : '#EFF2ED' }).catch(() => {})
+}
+
+// O modo privado no APK (native-level 5): o Java guarda a ultima escolha, de
+// qualquer um dos lados. Um APK sem os metodos recusa a chamada e o modo fica
+// so na web, como antes.
+function pushValuesHidden() {
+  Shell.setValuesHidden({ hidden: valuesHiddenNow() }).catch(() => {})
+}
+
+async function pullValuesHidden() {
+  let stored = null
+  try {
+    stored = privacyFromNative(await Shell.getValuesHidden())
+  } catch {
+    return
+  }
+  // Nada guardado ainda (primeira abertura neste APK): vale o da web.
+  if (stored === null) pushValuesHidden()
+  else if (stored !== valuesHiddenNow()) setValuesHidden(stored)
 }
 
 // Algo aberto por cima da tela (sheet, confirmacao, menu)? O voltar fecha so o
@@ -94,5 +116,10 @@ export async function startNativeApp() {
   await startNativeScreens()
   applyTheme()
   window.addEventListener('finance-theme-change', applyTheme)
+  // O olho: o que esta guardado no APK vale na abertura e ao voltar de uma
+  // tela nativa (que pode ter trocado o modo); cada troca daqui vai para la.
+  await pullValuesHidden()
+  onValuesHiddenChange(pushValuesHidden)
+  App.addListener('resume', () => { pullValuesHidden() })
   App.addListener('backButton', onBackButton)
 }

@@ -31,6 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -39,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import br.financas.app.ui.theme.LocalPalette
 
 /** Os tons do Badge de components/ui.jsx. */
-enum class BadgeTone { NEUTRAL, WARNING, INFO }
+enum class BadgeTone { NEUTRAL, WARNING, INFO, DANGER }
 
 /** O Badge da web: uma etiqueta pequena. Cor so quando significa aviso ou informacao. */
 @Composable
@@ -49,6 +53,7 @@ fun Badge(text: String, tone: BadgeTone = BadgeTone.NEUTRAL) {
         BadgeTone.NEUTRAL -> palette["zinc-100"] to palette["zinc-700"]
         BadgeTone.WARNING -> palette["amber-50"] to palette.warning
         BadgeTone.INFO -> palette["sky-50"] to palette.info
+        BadgeTone.DANGER -> palette["rose-50"] to palette.loss
     }
     Surface(shape = RoundedCornerShape(50), color = fill, contentColor = ink) {
         Text(
@@ -178,4 +183,56 @@ fun EmptyState(title: String, message: String? = null, modifier: Modifier = Modi
             }
         }
     }
+}
+
+/** O Panel de components/ui.jsx: a superficie branca com borda de cada bloco da tela. */
+@Composable
+fun Panel(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    val palette = LocalPalette.current
+    val shape = RoundedCornerShape(20.dp)
+    val border = BorderStroke(1.dp, palette.border)
+    if (onClick != null) {
+        Surface(onClick = onClick, modifier = modifier.fillMaxWidth(), shape = shape, color = palette.surface, border = border) {
+            content()
+        }
+    } else {
+        Surface(modifier = modifier.fillMaxWidth(), shape = shape, color = palette.surface, border = border) {
+            content()
+        }
+    }
+}
+
+/**
+ * O FitValue da web: um valor grande que encolhe para caber na linha, em vez de ser cortado.
+ * Comeca em [maxSize] e desce ate [minSize]; abaixo disso, corta.
+ */
+@Composable
+fun FitText(
+    text: String,
+    maxSize: TextUnit,
+    minSize: TextUnit,
+    color: Color,
+    modifier: Modifier = Modifier,
+    fontWeight: FontWeight = FontWeight.ExtraBold,
+) {
+    var size by remember(text, maxSize) { mutableStateOf(maxSize) }
+    Text(
+        text = text,
+        color = color,
+        fontSize = size,
+        fontWeight = fontWeight,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
+        modifier = modifier,
+        onTextLayout = { layout ->
+            if (layout.didOverflowWidth && size.value > minSize.value) {
+                size = (size.value - 2f).coerceAtLeast(minSize.value).sp
+            }
+        },
+    )
 }

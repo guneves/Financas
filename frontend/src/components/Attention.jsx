@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Bell, ChevronRight, CreditCard, Repeat, Target, Wallet } from 'lucide-react'
 import { useAttentionItems } from '../lib/attention'
-import { overdueDetail } from '../lib/attentionRules'
-import { formatCurrency, formatDateBR } from '../lib/format'
+import { attentionLink, attentionText, bellBadge, bellLabel } from '../lib/attentionRules'
+import { formatCurrency } from '../lib/format'
 import { useLayer } from '../lib/layers'
 import { usePrivateFormatter } from '../lib/privacy'
 import { cx } from './ui'
@@ -26,38 +26,11 @@ const ICONS = {
   OVER_BUDGET: Target,
 }
 
-// Para onde cada aviso leva quando nao ha uma acao na propria tela.
-const LINKS = {
-  INVOICE_OVERDUE: { to: '/lancamentos/cartoes', label: 'Ver faturas' },
-  INVOICE_PAYABLE: { to: '/lancamentos/cartoes', label: 'Ver faturas' },
-  AUTOPAY_SHORTFALL: { to: '/lancamentos/cartoes', label: 'Ver faturas' },
-  RECURRING: { to: '/planejamento/recorrentes', label: 'Ver recorrentes' },
-  OVER_BUDGET: { to: '/planejamento/orcamento', label: 'Ver orçamento' },
-}
-
-// Titulo e detalhe de um aviso. O saldo da conta (e o que falta, que o
-// revela) somem no modo privado.
+// Titulo e detalhe de um aviso (lib/attentionRules.js). O saldo da conta (e o
+// que falta, que o revela) somem no modo privado.
 function useAttentionText() {
   const privateMoney = usePrivateFormatter(formatCurrency)
-  return (item) => {
-    switch (item.kind) {
-      case 'INVOICE_OVERDUE':
-        return { title: `Fatura vencida: ${formatCurrency(item.total)}`, detail: `${overdueDetail(item.invoices || [])} · ${item.item_count} lançamento(s)` }
-      case 'INVOICE_PAYABLE':
-        return { title: `Fatura fechada: ${formatCurrency(item.total)}`, detail: 'O pagamento já está liberado.' }
-      case 'AUTOPAY_SHORTFALL':
-        return {
-          title: `Débito automático sem saldo: faltam ${privateMoney(item.missing)}`,
-          detail: `${item.account_name} tem ${privateMoney(item.balance)} para ${formatCurrency(item.total)} a debitar · o primeiro em ${formatDateBR(item.first_due)}`,
-        }
-      case 'RECURRING':
-        return { title: `${item.count} ${item.count === 1 ? 'recorrência vencida' : 'recorrências vencidas'}`, detail: '' }
-      case 'OVER_BUDGET':
-        return { title: `${item.category_name} passou do orçamento`, detail: `${formatCurrency(item.spent)} de ${formatCurrency(item.available)}` }
-      default:
-        return { title: '', detail: '' }
-    }
-  }
+  return (item) => attentionText(item, privateMoney)
 }
 
 export function AttentionLink({ to, children, onClick }) {
@@ -87,7 +60,7 @@ export function AttentionCards({ items, actions = {} }) {
     <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {items.map((item) => {
         const { title, detail } = text(item)
-        const link = LINKS[item.kind]
+        const link = attentionLink(item.kind)
         const action = actions[item.kind]
         const linkElement = link ? <AttentionLink to={link.to}>{link.label}</AttentionLink> : null
         return (
@@ -132,7 +105,7 @@ export function AttentionBell() {
     buttonRef.current?.focus()
   })
 
-  const label = count ? `Precisa de atenção: ${count} ${count === 1 ? 'aviso' : 'avisos'}` : 'Precisa de atenção: nenhum aviso'
+  const label = bellLabel(count)
 
   return (
     <div ref={rootRef} className="relative">
@@ -152,7 +125,7 @@ export function AttentionBell() {
         <Bell className="h-5 w-5" />
         {count ? (
           <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border border-white bg-amber-100 px-1 text-[11px] font-bold leading-none text-amber-800">
-            {count > 9 ? '9+' : count}
+            {bellBadge(count)}
           </span>
         ) : null}
       </button>
@@ -169,7 +142,7 @@ export function AttentionBell() {
             <ul className="space-y-1">
               {items.map((item) => {
                 const { title, detail } = text(item)
-                const link = LINKS[item.kind]
+                const link = attentionLink(item.kind)
                 return (
                   <li key={item.key}>
                     <Link

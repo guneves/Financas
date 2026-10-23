@@ -81,11 +81,12 @@ private fun colorScheme(p: Palette, dark: Boolean): ColorScheme {
 /**
  * O tema escolhido na web, guardado para as telas nativas. A escolha mora no localStorage da
  * WebView (lib/theme.js), que o Kotlin nao le; o ShellPlugin recebe cada troca (setTheme) e a
- * grava aqui.
+ * grava aqui. O modo privado tambem mora aqui, nos dois sentidos (ver saveValuesHidden).
  */
 object ShellPrefs {
     private const val PREFS = "financas_shell"
     private const val DARK = "dark"
+    private const val VALUES_HIDDEN = "values_hidden"
 
     @JvmStatic
     fun saveDark(context: Context, dark: Boolean) {
@@ -96,6 +97,23 @@ object ShellPrefs {
     fun dark(context: Context): Boolean? {
         val prefs = prefs(context)
         return if (prefs.contains(DARK)) prefs.getBoolean(DARK, false) else null
+    }
+
+    /**
+     * O modo privado (o olho): o mesmo nas duas interfaces. A web grava cada troca
+     * (ShellPlugin.setValuesHidden, lib/nativeApp.js) e le a ultima ao voltar para a WebView
+     * (getValuesHidden); o Inicio nativo grava a dele aqui.
+     */
+    @JvmStatic
+    fun saveValuesHidden(context: Context, hidden: Boolean) {
+        prefs(context).edit().putBoolean(VALUES_HIDDEN, hidden).apply()
+    }
+
+    /** O modo privado guardado; null antes da primeira escolha (vale o da web). */
+    @JvmStatic
+    fun valuesHidden(context: Context): Boolean? {
+        val prefs = prefs(context)
+        return if (prefs.contains(VALUES_HIDDEN)) prefs.getBoolean(VALUES_HIDDEN, false) else null
     }
 
     private fun prefs(context: Context) =

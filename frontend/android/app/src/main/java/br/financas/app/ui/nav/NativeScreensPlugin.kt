@@ -18,7 +18,8 @@ import com.getcapacitor.annotation.CapacitorPlugin
  * - open({ screen, params }): abre a tela nativa. "new-entry": o "+ Novo"
  *   (params.type = EXPENSE | INCOME | TRANSFER | CARD; params.client_id = um item da fila a
  *   corrigir, Pendentes › Corrigir). "inbox": Lancamentos › Aprovar (ui/inbox/, numa
- *   NativeActivity; frontend/native-level.txt 4 em diante). Tela desconhecida: rejeita com
+ *   NativeActivity; frontend/native-level.txt 4 em diante). "home": Inicio e o sino (ui/home/,
+ *   native-level 5; a WebView fica parada em /inicio por baixo). Tela desconhecida: rejeita com
  *   "UNIMPLEMENTED".
  *
  * Eventos (escutados pela web com addListener):
@@ -73,13 +74,14 @@ class NativeScreensPlugin : Plugin() {
                 }
                 call.resolve()
             }
-            SCREEN_INBOX -> {
+            SCREEN_INBOX, SCREEN_HOME -> {
                 val host = activity
                 if (host == null) {
                     call.reject("Tela nativa indisponível agora.", CODE_UNAVAILABLE)
                     return
                 }
-                val intent = NativeActivity.intent(host, NativeRoutes.INBOX)
+                val route = if (screen == SCREEN_HOME) NativeRoutes.HOME else NativeRoutes.INBOX
+                val intent = NativeActivity.intent(host, route)
                 host.runOnUiThread { host.startActivity(intent) }
                 call.resolve()
             }
@@ -103,8 +105,11 @@ class NativeScreensPlugin : Plugin() {
         /** Lancamentos › Aprovar (ui/inbox/), uma pagina da NativeActivity. */
         const val SCREEN_INBOX = "inbox"
 
+        /** Inicio e o sino (ui/home/), a pagina de partida da NativeActivity (native-level 5). */
+        const val SCREEN_HOME = "home"
+
         /** As rotas nativas deste APK (o NativeScreens.routes() da web). */
-        val ROUTES: List<String> = listOf(SCREEN_NEW_ENTRY, SCREEN_INBOX)
+        val ROUTES: List<String> = listOf(SCREEN_NEW_ENTRY, SCREEN_INBOX, SCREEN_HOME)
 
         @Volatile
         private var current: NativeScreensPlugin? = null
