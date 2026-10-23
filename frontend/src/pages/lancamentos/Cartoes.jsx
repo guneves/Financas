@@ -30,6 +30,7 @@ import PayInvoiceSheet from '../../components/PayInvoiceSheet'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import CardShareSheet from './CardShareSheet'
 import CardRefundSheet from './CardRefundSheet'
+import { purchaseInstallments } from '../../lib/cardPurchase'
 import { shareSummary } from '../../lib/sharing'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
@@ -222,15 +223,7 @@ export default function Cartoes() {
       setDataError(error.message || 'Não foi possível localizar as faturas da compra.')
       return
     }
-    // Uma linha sem client_id (do caminho antigo) cai na chave antiga no
-    // servidor; ai valor e parcelas ainda separam compras diferentes. As
-    // parcelas de uma compra diferem em ate 1 centavo (100/3 = 33,34 + 33,33...).
-    const purchaseCents = Math.round(parseFloat(purchase.amount) * 100)
-    const installments = (candidates || []).filter((item) => {
-      const installment = parseInstallmentInfo(item.installment_info)
-      return Math.abs(Math.round(parseFloat(item.amount) * 100) - purchaseCents) <= 1
-        && installment.total === purchase.installmentTotal
-    })
+    const installments = purchaseInstallments(candidates, purchase)
     // So as em aberto saem: uma parcela paga foi junto com o pagamento da
     // fatura, e o servidor recusa (409) apaga-la.
     const idsToDelete = installments.filter((item) => item.status === 'OPEN').map((item) => item.id)

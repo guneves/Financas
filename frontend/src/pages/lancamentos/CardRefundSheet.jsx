@@ -3,6 +3,7 @@ import { ccExpensesApi } from '../../lib/dataApi'
 import { formatCurrency, getLocalDateString } from '../../lib/format'
 import { parseMoneyInput } from '../../lib/monthlyPlan'
 import { newClientId } from '../../lib/outboxRules'
+import { refundPrefillAmount } from '../../lib/cardPurchase'
 import { toast } from '../../lib/toast'
 import { AlertMessage, Button, Field, Sheet } from '../../components/ui'
 
@@ -22,18 +23,29 @@ export default function CardRefundSheet({ target, cards = [], onClose, onSaved }
   const purchase = target?.purchase || null
 
   useEffect(() => {
-    if (!target) return
-    const total = purchase
-      ? Math.round(Number(purchase.amount) * (purchase.installmentTotal || 1) * 100) / 100
-      : ''
+    if (!target) return undefined
+    const amountText = (value) => String(value).replace('.', ',')
     setForm({
       card_id: purchase?.card_id || cards[0]?.id || '',
-      amount: total === '' ? '' : String(total).replace('.', ','),
+      amount: purchase ? amountText(refundPrefillAmount(purchase, [])) : '',
       purchase_date: getLocalDateString(),
       description: purchase ? `Estorno · ${purchase.description}` : '',
     })
     setClientId(newClientId())
     setError('')
+    // Parcelada, o total e a soma das parcelas (a primeira leva o centavo da
+    // divisao); ate a resposta fica a estimativa, e o que o dono digitou fica.
+    if (!purchase || (purchase.installmentTotal || 1) <= 1) return undefined
+    let cancelled = false
+    const estimate = amountText(refundPrefillAmount(purchase, []))
+    ccExpensesApi.candidates({ id: purchase.id })
+      .then((candidates) => {
+        if (cancelled) return
+        const total = amountText(refundPrefillAmount(purchase, candidates))
+        setForm((current) => (current.amount === estimate ? { ...current, amount: total } : current))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [target]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async (event) => {
