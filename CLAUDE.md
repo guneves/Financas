@@ -130,7 +130,7 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1534 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+1536 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
 and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
@@ -178,7 +178,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome`, `treasury`, `cardFunctions` and `nativeScreensRules`, 150 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome`, `treasury`, `cardFunctions`, `nativeScreensRules`, `recurring`, `transactionEdit` and `cardPurchase`, 164 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 

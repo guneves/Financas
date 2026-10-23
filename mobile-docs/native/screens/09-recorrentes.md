@@ -75,9 +75,9 @@ arquivada.", "Informe ao menos um campo para atualizar.", 404 "Recorrencia nao e
 `blockedRecurringMessage()`: one → `A recorrência "<desc>" (<conta>) está numa conta arquivada e não
 foi lançada. Edite a recorrência e escolha outra conta.`; several → `N recorrências estão em contas
 arquivadas e não foram lançadas: "<a>" (<x>), "<b>" (<y>). Edite cada uma e escolha outra conta.`
-**Gap**: the screen has no way to change a template's account (only amount, pause, delete), although
-`PATCH /api/recurring/<id>` accepts `account_id`. Native should add "Trocar conta" (active accounts
-only) — it is the only way out of `blocked` short of deleting.
+"⋯" › "Editar valor e conta" (2026-10-23) edits the amount and the account inline: active accounts,
+the archived current one shown disabled; the PATCH carries only what changed
+(`recurringEditPatch()` in `lib/recurring.js`, tested). It is the way out of `blocked`.
 
 ## Data
 - One query, key `['recorrentes']`, fetching four endpoints in parallel:

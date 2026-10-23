@@ -2,8 +2,8 @@
 
 Writing the specs meant reading every screen against the backend. These are the cross-cutting
 findings: endpoints that would make native simpler, inconsistencies and possible bugs in today's
-app, and decisions to put to the owner. **None of them was changed** — each needs its own task
-(and, for the bugs, a test that reproduces it first). Details and file references are in the
+app, and decisions to put to the owner. The possible bugs and the stale texts were fixed on 2026-10-23 (below); the rest is still open,
+each its own task. Details and file references are in the
 spec named on each line.
 
 ## Endpoints that would simplify native (and the web)
@@ -60,21 +60,18 @@ spec named on each line.
 
 ## Possible bugs
 
-- **Metas**: the server re-checks the stored `target_date` on every edit, so once the target month
-  arrives even a rename is refused ("A data desejada precisa ser depois deste mes.") (`10-metas.md`).
-- **Recorrentes**: a recurrence blocked by an archived account says "Edite a recorrência e escolha
-  outra conta", but the edit form cannot change the account (the API accepts `account_id`)
-  (`09-recorrentes.md`).
-- **Extrato**: the edit form cannot change a transfer's destination account (`04-extrato.md`).
-- **`investmentStatement.js`**: its comment says operações sort before proventos on the same day; the
-  code does the opposite, and no test covers it (`04-extrato.md`).
-- **Card refund prefill** (one installment × count) can be off by the rounding cents
-  (`05-cartoes.md`).
-- **A receber**: "pago em" is cut from a UTC timestamp, so late at night it can show the next day
-  (`06-a-receber.md`).
-- **401**: the native sender never clears `Session` on a 401; there is no refresh token (30-day JWT
-  — CLAUDE.md says 180 days are configured on the server). A native login must also write the
-  WebView's stored auth while both exist (`00-shell.md`).
+Triaged 2026-10-23 (branch `claude/mobile-docs-bugs-stale-text-u8ylzb`): each got a test that
+reproduced it first; every one reproduced, so every one is fixed, with the test kept in the suite.
+
+| Finding | Outcome |
+|---|---|
+| **Metas**: the stored `target_date` re-checked on every edit, so once its month arrived even a rename was refused (`10-metas.md`) | **Real, fixed.** Only a *new* date must be after this month (`normalize_goal_payload()`); `test_goals.py::test_an_edit_keeps_a_target_date_that_has_since_arrived` |
+| **Recorrentes**: "Edite a recorrência e escolha outra conta", but the edit could change only the amount (`09-recorrentes.md`) | **Real, fixed.** "Editar valor e conta" has an account select; the PATCH is `recurringEditPatch()` in `lib/recurring.js` (`recurring.test.js`). The server side was already tested (`test_recurring.py`, archived account) |
+| **Extrato**: the edit could not change a transfer's destination (`04-extrato.md`) | **Real, fixed.** De/Para selects; the form and the PATCH moved to `lib/transactionEdit.js` (`transactionEdit.test.js`). The server already accepted `transfer_account_id` |
+| **`investmentStatement.js`**: same day, the comment says operações first, the code put proventos first (`04-extrato.md`) | **Real, fixed** (the code, to match the comment); `investmentStatement.test.js` same-day case |
+| **Card refund prefill**: one installment × count off by the split's cent (`05-cartoes.md`) | **Real, fixed.** R$ 100 in 3x opened from 2/3 prefilled 99,99. The sheet sums the purchase's installments in cents (`refundPrefillAmount()` in `lib/cardPurchase.js`, `cardPurchase.test.js`); the estimate stays until the answer, and a typed value is kept |
+| **A receber**: "pago em" cut from a UTC timestamp (`06-a-receber.md`) | **Real, fixed.** `localDateOfTimestamp()` in `lib/format.js`, tested under `America/Sao_Paulo` (01:30Z is the previous local day) |
+| **401**: the native sender never clears `Session` on a 401; no refresh token (`00-shell.md`) | **Not in this session's scope (native).** Correction: the server default is 30 days (`JWT_EXP_DAYS` in `config.py`); 180 is the value `.env.example` sets for the owner's server. Open for the native shell |
 
 ## Investimentos
 
@@ -91,7 +88,6 @@ spec named on each line.
 - No tests: position grouping and `describeMovement()`; `typeForAsset()` is tested but unused.
 - Privacy mode masks Aportes and "Por ativo" but not Operações' list and summary or Proventos'
   summary and history.
-- `CASH_WITHOUT_AMOUNT_MESSAGE` still says "desmarque 'Lancar no extrato'"; that checkbox is gone.
 - Deleting a grouped Tesouro position sends several separate DELETEs; a failure halfway leaves it
   half-deleted (a grouped delete endpoint would make it atomic).
 - `/api/investments/history` returns `historical_prices`, which nothing reads.
@@ -101,11 +97,11 @@ spec named on each line.
 
 ## Stale texts
 
-- Login says "FinanceMVP" and offers "Cadastrar", but signup is closed (`00-shell.md`).
-- Metas' NET_WORTH hint says "o número do Início", which no longer shows the portfolio; Integrações
-  mentions "extrato dos bancos" (there is no bank API); Notificações says it "só guarda os textos",
-  though the parsers and Aprovar exist; a comment in `Orcamento.jsx` names the wrong query key
-  (`08`, `10`, `11`).
+All fixed 2026-10-23: the login says "Finanças" and offers "Criar acesso" only when the server's
+signup is open (new public `GET /api/auth/signup` → `{open}`); Metas' Patrimônio hint, Integrações
+(the Tesouro prices, no bank API), Notificações (what goes to Aprovar, what capture keeps),
+`CASH_WITHOUT_AMOUNT_MESSAGE` ("Não descontar de nenhuma conta") and the `Orcamento.jsx` comment
+(no other screen reads `['plano-do-mes', month]`).
 
 ## Notes for building native
 

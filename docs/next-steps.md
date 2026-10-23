@@ -123,13 +123,11 @@ Decisions in `mobile-docs/native-app.md`; the project docs (architecture, conven
 order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/native/`. Step 0
 (Kotlin + Compose in the Android project, the native theme from the web's tokens,
 `android-check.yml`) is done. Open, in order:
-- [ ] **Step 1 — "+ Novo" native, owner's phone check** (built 2026-10-22, branch
-  `claude/native-novo`, `done-tasks.md`): the spec's Acceptance list (`screens/01-novo.md`) with the
-  debug APK, online and in airplane mode, each of the four kinds, light and dark. Nothing has run
-  on a device yet. Watch especially: the keyboard on "Valor" at open, the toast reaching the
-  WebView while the sheet is on top, and an interrupted save showing as "1 pendente" after a
-  restart. Then merge. Known, minor: an item left by a save killed mid-POST is sent on the next
-  app open (`OutboxPlugin.load()` schedules the worker), not while the app stays closed.
+- [ ] **Steps 1–2 — "+ Novo" and Aprovar native, owner's phone check**: both are merged (PRs #32
+  and #33) but no session recorded a phone check. Run each spec's Acceptance list
+  (`screens/01-novo.md`, `screens/02-aprovar.md`) on the debug APK, online and in airplane mode,
+  light and dark. Known, minor: an item left by a save killed mid-POST is sent on the next app open
+  (`OutboxPlugin.load()` schedules the worker), not while the app stays closed.
 - [ ] **The web's `createEntry()` can still duplicate after a killed tab**: it queues only after
   the failure, so a page closed mid-POST and a second Salvar make two lançamentos under two
   `client_id`s. Native now writes the item to the outbox before the POST and removes it on an
@@ -147,7 +145,7 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   (`assert 0 == 1`) — at that hour UTC is already the next day, so the test's `days(0)` and
   `apply_paid_proceeds()`'s "today" disagree. Seen 2026-10-22 21:43 local; find which side uses
   UTC and make both the local date, as everything else does.
-- [ ] Steps 2–8 (Aprovar, Início, Extrato/Cartões, planning screens, Ajustes, Investimentos, then
+- [ ] Steps 3–8 (Início, Extrato/Cartões, planning screens, Ajustes, Investimentos, then
   remove the WebView), one per APK, each checked by the owner with the debug APK first.
 - [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
   screen here before it starts.
@@ -155,15 +153,14 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   network policy. The owner can allow it (environment settings › Network access › Allowed
   domains); until then every native change is first compiled by `android-check.yml` on the branch.
 - [ ] Plus Jakarta Sans in the native screens (needs the `.ttf` in `res/font`; the web ships woff2).
-- [ ] **Triage `mobile-docs/native/findings.md`** (found while specifying every screen, nothing
-  changed yet): possible bugs — Metas refuses any edit once the target month arrives; Recorrentes'
-  "escolha outra conta" with no account field in the edit; the Extrato cannot change a transfer's
-  destination; `investmentStatement.js` same-day order contradicts its comment; the refund prefill's
-  rounding cents; A receber's "pago em" from a UTC timestamp; a grouped Tesouro delete is not
-  atomic. Inconsistencies — Corretora accounts offered in banking forms and autopay; Início groups
-  categories by name; privacy mode uneven across screens; the Extrato vs Início classification of a
-  transfer to the Corretora. Stale texts (login "FinanceMVP"/"Cadastrar", Metas, Integrações,
-  Notificações, `CASH_WITHOUT_AMOUNT_MESSAGE`). Each fix gets a reproducing test first.
+- [ ] **`findings.md`, what is left** (its possible bugs and stale texts were fixed 2026-10-23,
+  `done-tasks.md`): a grouped Tesouro delete is not atomic (several DELETEs; needs a grouped
+  endpoint); the native shell's 401 handling (`00-shell.md`). Inconsistencies waiting on the owner
+  (questions in `docs/handoff.md`): Corretora accounts offered in banking forms and autopay; Início
+  groups categories by name; privacy mode uneven across screens; the Extrato vs Início
+  classification of a transfer to the Corretora; a débito purchase reopened as Despesa by
+  Corrigir; 48 vs 72 installments and the required description; the two `/api/credit-cards`
+  cache keys; cards without a bank field.
 - [ ] **`client_id` on investment creations** (`POST /api/investments`, `/api/investment-proceeds`,
   `/api/corporate-actions`) if native should queue them offline; until then native refuses them
   offline (`findings.md`, Investimentos).

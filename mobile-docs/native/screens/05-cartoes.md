@@ -112,8 +112,10 @@ Extrato.". Refund: "Compra estornada nao encontrada neste cartao.", archived/deb
 - Delete-purchase filter (inline): installments within 1 cent and same total count, only `OPEN` ones.
   **Endpoint** preferred: a `DELETE /api/cc-expenses/purchases/<id>` that deletes the purchase's open
   installments server-side.
-- Refund prefill (inline): installment amount × installment count, comma decimal; description "Estorno ·
-  <desc>". **Port.**
+- Refund prefill: the sum of the purchase's installments in cents from `GET /api/cc-expenses/candidates`
+  (`refundPrefillAmount()` in `lib/cardPurchase.js`, tested; installment × count was off by the split's
+  cent), the estimate until the answer, comma decimal; description "Estorno · <desc>". The delete's
+  installment filter is `purchaseInstallments()` in the same module. **Port.**
 - `parseInstallmentInfo()`, `formatInvoiceLabel()` (`helpers.js`, untested). **Port.**
 - `shareFormFrom()` / `shareFormError()` / `sharePayload()` / `othersAmount()` (`lib/sharing.js`, tested).
   **Port.** The share sheet sums installments in cents.

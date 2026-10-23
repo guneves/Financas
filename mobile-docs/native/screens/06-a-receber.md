@@ -31,8 +31,8 @@ arrives is its own lançamento.
    - Action "Tudo pago" when more than one item is open.
    - **Item row**: card icon for `kind === 'CARD_PURCHASE'`; description (server falls back to the category);
      detail "dd/mm/aaaa" + " · <card_name>" + " · dividida, total R$ <amount>" for `share_mode === 'SPLIT'` +
-     " · pago em dd/mm/aaaa" (from `settled_at`, first 10 chars — a UTC timestamp, so the date can be one day
-     off late at night; unverified in practice). Amount `others_amount` (struck through and grey when
+     " · pago em dd/mm/aaaa" (from `settled_at`, a UTC timestamp, read as the local day by
+     `localDateOfTimestamp()` in `lib/format.js`, 2026-10-23). Amount `others_amount` (struck through and grey when
      settled). Button "Pago" (pending) or an undo icon "Voltar para pendente" (settled).
 
 ## Actions

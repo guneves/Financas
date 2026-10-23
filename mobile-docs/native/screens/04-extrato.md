@@ -78,7 +78,7 @@ view's filters.
 
 | Action | Where | Request | Confirmation | Offline |
 |---|---|---|---|---|
-| Edit lançamento | tap row (phone) / "⋯" › "Editar lançamento" | `PATCH /api/transactions/<id>` `{amount, date, description}` + `type` and `category_id` (only when changed; not for transfers) + `account_id` (only when changed) + `share_mode/share_person/share_others_amount` (only when the share form changed; `sharePayload()`) | none (list refreshes) | refused (edits are never queued) |
+| Edit lançamento | tap row (phone) / "⋯" › "Editar lançamento" | `PATCH /api/transactions/<id>` `{amount, date, description}` + `type` and `category_id` (only when changed; not for transfers) + `account_id` and, for a transfer, `transfer_account_id` (each only when changed; `transactionEditPayload()` in `lib/transactionEdit.js`, tested — a transfer's edit shows De/Para since 2026-10-23) + `share_mode/share_person/share_others_amount` (only when the share form changed; `sharePayload()`) | none (list refreshes) | refused (edits are never queued) |
 | Delete lançamento | edit form "Excluir" / "⋯" | `DELETE /api/transactions/<id>` | confirmAction "Excluir este lançamento?" / "O saldo da conta é recalculado." / "Excluir" | refused |
 | Undo invoice payment | "⋯" on a CC_INVOICE_PAYMENT / CC_AUTOPAY row | `DELETE /api/cc-expenses/payments/<transaction id>` | confirmAction "Desfazer \"<desc>\"?" / "O pagamento sai do extrato, o valor volta para o saldo da conta e a fatura fica em aberto de novo em Cartões. O débito automático não a paga outra vez: pague-a pelo botão Pagar." / "Desfazer pagamento"; toast "Pagamento desfeito. A fatura está em aberto em Cartões." | refused |
 | Delete operation (Contas) | "⋯" on an INVESTMENT_TRANSACTION row with `source_id` | `DELETE /api/investments/<source_id>` | confirmAction "Excluir \"<desc>\"?" / "A operação sai da carteira e este lançamento sai do extrato; o saldo da conta é recalculado." / "Excluir operação"; toast "Operação excluída." | refused |
@@ -143,7 +143,7 @@ payment 409 "Este pagamento tem comprovante. Remova o comprovante antes de desfa
 - `shareSummary()`, `shareFormFrom()`, `shareFormError()`, `sharePayload()` (`lib/sharing.js`,
   `sharing.test.js`). **Port.**
 - `buildInvestmentStatement()`, `movementEntry()`, `proceedEntry()`, `statementTotals()`,
-  `groupEntriesByDay()` (`lib/investmentStatement.js`, `investmentStatement.test.js`, 7 tests) — computes
+  `groupEntriesByDay()` (`lib/investmentStatement.js`, `investmentStatement.test.js`, 8 tests; same day, operações before proventos) — computes
   each movement's cash amount (quantity × price ± fees, float). **Endpoint** preferred (money); else port.
 - `pendingAsTransactions()` / `applyPendingToAccounts()` (`lib/outboxRules.js`, mirrored in
   `OutboxRules.java`). Reuse the Java port.
