@@ -38,7 +38,7 @@ class FormatTest {
         // 1 / 3 no JS e o double 0.3333333333333333.
         assertEquals("0,33333333", formatQuantity(bd("0.3333333333333333")))
         assertEquals("0,00012345", formatQuantity(bd("0.00012345")))
-        assertEquals("−5", formatQuantity(bd("-5")))
+        assertEquals("\u22125", formatQuantity(bd("-5")))
         assertEquals("0", formatQuantity(null))
     }
 
@@ -46,47 +46,47 @@ class FormatTest {
 
     @Test
     fun nativeOnlyFormatCurrency() {
-        assertEquals("R$ 0,00", formatCurrency(BigDecimal.ZERO))
-        assertEquals("R$ 1.234,56", formatCurrency(bd("1234.56")))
-        assertEquals("−R$ 1.234,56", formatCurrency(bd("-1234.56")))
-        assertEquals("R$ 1.234.567,89", formatCurrency(bd("1234567.891")))
-        assertEquals("R$ 0,01", formatCurrency(bd("0.005")))
-        assertEquals("−R$ 0,00", formatCurrency(bd("-0.004")))
-        assertEquals("−R$ 0,01", formatCurrency(bd("-0.005")))
-        assertEquals("R$ 2,68", formatCurrency(bd("2.675")))
-        assertEquals("R$ 1.000,00", formatCurrency(bd("1000")))
-        assertEquals("R$ 1.000,00", formatCurrency(bd("999.995")))
-        assertEquals("R$ 0,00", formatCurrency(null))
-        assertEquals("R$ 12,50", formatCurrency(bd("12.5")))
-        assertEquals("R$ 1.000.000.000.000.000,00", formatCurrency(bd("1000000000000000")))
+        assertEquals("R$\u00A00,00", formatCurrency(BigDecimal.ZERO))
+        assertEquals("R$\u00A01.234,56", formatCurrency(bd("1234.56")))
+        assertEquals("\u2212R$\u00A01.234,56", formatCurrency(bd("-1234.56")))
+        assertEquals("R$\u00A01.234.567,89", formatCurrency(bd("1234567.891")))
+        assertEquals("R$\u00A00,01", formatCurrency(bd("0.005")))
+        assertEquals("\u2212R$\u00A00,00", formatCurrency(bd("-0.004")))
+        assertEquals("\u2212R$\u00A00,01", formatCurrency(bd("-0.005")))
+        assertEquals("R$\u00A02,68", formatCurrency(bd("2.675")))
+        assertEquals("R$\u00A01.000,00", formatCurrency(bd("1000")))
+        assertEquals("R$\u00A01.000,00", formatCurrency(bd("999.995")))
+        assertEquals("R$\u00A00,00", formatCurrency(null))
+        assertEquals("R$\u00A012,50", formatCurrency(bd("12.5")))
+        assertEquals("R$\u00A01.000.000.000.000.000,00", formatCurrency(bd("1000000000000000")))
     }
 
     @Test
     fun nativeOnlyFormatSignedCurrency() {
-        assertEquals("+R$ 8.500,00", formatSignedCurrency(bd("8500")))
-        assertEquals("−R$ 1.048,22", formatSignedCurrency(bd("-1048.22")))
-        assertEquals("−R$ 100,00", formatSignedCurrency(bd("100"), -1))
-        assertEquals("+R$ 100,00", formatSignedCurrency(bd("100"), 1))
-        assertEquals("R$ 100,00", formatSignedCurrency(bd("100"), 0))
-        assertEquals("R$ 0,00", formatSignedCurrency(BigDecimal.ZERO, 1))
-        assertEquals("−R$ 0,00", formatSignedCurrency(bd("-0.001")))
-        assertEquals("+R$ 0,00", formatSignedCurrency(bd("0.004"), 1))
+        assertEquals("+R$\u00A08.500,00", formatSignedCurrency(bd("8500")))
+        assertEquals("\u2212R$\u00A01.048,22", formatSignedCurrency(bd("-1048.22")))
+        assertEquals("\u2212R$\u00A0100,00", formatSignedCurrency(bd("100"), -1))
+        assertEquals("+R$\u00A0100,00", formatSignedCurrency(bd("100"), 1))
+        assertEquals("R$\u00A0100,00", formatSignedCurrency(bd("100"), 0))
+        assertEquals("R$\u00A00,00", formatSignedCurrency(BigDecimal.ZERO, 1))
+        assertEquals("\u2212R$\u00A00,00", formatSignedCurrency(bd("-0.001")))
+        assertEquals("+R$\u00A00,00", formatSignedCurrency(bd("0.004"), 1))
     }
 
     @Test
     fun nativeOnlyFormatUnitCurrency() {
-        assertEquals("R$ 0,000001", formatUnitCurrency(bd("0.000001")))
-        assertEquals("R$ 12,50", formatUnitCurrency(bd("12.5")))
-        assertEquals("R$ 1.234,123457", formatUnitCurrency(bd("1234.1234567")))
-        assertEquals("−R$ 3,00", formatUnitCurrency(bd("-3")))
-        assertEquals("R$ 0,00", formatUnitCurrency(bd("0.0000004")))
-        assertEquals("−R$ 0,00", formatUnitCurrency(bd("-0.0000004")))
+        assertEquals("R$\u00A00,000001", formatUnitCurrency(bd("0.000001")))
+        assertEquals("R$\u00A012,50", formatUnitCurrency(bd("12.5")))
+        assertEquals("R$\u00A01.234,123457", formatUnitCurrency(bd("1234.1234567")))
+        assertEquals("\u2212R$\u00A03,00", formatUnitCurrency(bd("-3")))
+        assertEquals("R$\u00A00,00", formatUnitCurrency(bd("0.0000004")))
+        assertEquals("\u2212R$\u00A00,00", formatUnitCurrency(bd("-0.0000004")))
     }
 
     @Test
     fun nativeOnlyFormatQuantity() {
         assertEquals("1.234.567,12345679", formatQuantity(bd("1234567.123456789")))
-        assertEquals("−0", formatQuantity(bd("-0.000000001")))
+        assertEquals("\u22120", formatQuantity(bd("-0.000000001")))
         assertEquals("0,5", formatQuantity(bd("0.5")))
     }
 
@@ -94,9 +94,9 @@ class FormatTest {
     fun nativeOnlyFormatPercent() {
         assertEquals("12,50%", formatPercent(bd("12.5")))
         assertEquals("+12,50%", formatPercent(bd("12.5"), 2, signed = true))
-        assertEquals("−3,5%", formatPercent(bd("-3.456"), 1, signed = true))
+        assertEquals("\u22123,5%", formatPercent(bd("-3.456"), 1, signed = true))
         assertEquals("+0,00%", formatPercent(bd("0.001"), 2, signed = true))
-        assertEquals("−0,00%", formatPercent(bd("-0.001"), 2))
+        assertEquals("\u22120,00%", formatPercent(bd("-0.001"), 2))
         assertEquals("1.235%", formatPercent(bd("1234.5"), 0))
         assertEquals("0,00%", formatPercent(BigDecimal.ZERO, 2, signed = true))
         assertEquals("3%", formatPercent(bd("2.5"), 0))

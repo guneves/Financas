@@ -13,10 +13,10 @@ import java.math.RoundingMode
 import java.time.LocalDate
 
 /** Sinal de menos de verdade (U+2212), como em format.js. */
-const val MINUS: String = "−"
+const val MINUS: String = "\u2212"
 
 /** O espaco depois do "R$" no Intl do pt-BR: inquebravel, sinal e numero nunca se separam. */
-const val NBSP: String = " "
+const val NBSP: String = "\u00A0"
 
 private val MONTHS_LONG = listOf(
     "janeiro", "fevereiro", "março", "abril", "maio", "junho",
@@ -31,11 +31,11 @@ private val MONTHS_SHORT = listOf(
 // O que o Intl escreve para uma data invalida (new Date(NaN).toLocaleDateString()).
 private const val INVALID_DATE = "Invalid Date"
 
-/** "R$ 1.234,56"; negativo "−R$ 1.234,56"; null vale 0. Duas casas, HALF_UP. */
+/** "R$ 1.234,56"; negativo "\u2212R$ 1.234,56"; null vale 0. Duas casas, HALF_UP. */
 fun formatCurrency(value: BigDecimal?): String = currency(value ?: BigDecimal.ZERO, 2, 2)
 
 /**
- * Valor com sinal explicito, para listas de entradas e saidas: "+R$ 8.500,00", "−R$ 1.048,22".
+ * Valor com sinal explicito, para listas de entradas e saidas: "+R$ 8.500,00", "\u2212R$ 1.048,22".
  * `sign` (1, -1 ou 0) vale quando o valor vem sempre positivo e o sentido esta no tipo do
  * lancamento; null usa o sinal do valor. Zero sai sem sinal (um valor que so arredonda para zero,
  * como 0,004, ainda leva o sinal, como no JS).
@@ -161,7 +161,7 @@ fun maskEmail(email: String?): String {
 private fun currency(value: BigDecimal, minFraction: Int, maxFraction: Int): String =
     signPrefix(value) + "R$" + NBSP + grouped(value.abs(), minFraction, maxFraction)
 
-// O sinal sai do valor antes do arredondamento: o Intl escreve "−R$ 0,00" para -0,004.
+// O sinal sai do valor antes do arredondamento: o Intl escreve "\u2212R$ 0,00" para -0,004.
 private fun signPrefix(value: BigDecimal): String = if (value.signum() < 0) MINUS else ""
 
 // Valor nao negativo -> "1.234.567,89": HALF_UP em maxFraction casas, zeros finais cortados ate
@@ -195,8 +195,8 @@ private fun pad2(value: Int): String = value.toString().padStart(2, '0')
 internal object Js {
     // \s e o trim() do JS: estes, e nao os de Char.isWhitespace do Kotlin.
     private const val WHITESPACE =
-        "\t\n\u000B\u000C\r            " +
-            "      　﻿"
+        "\t\n\u000B\u000C\r \u00A0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008" +
+            "\u2009\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF"
 
     val whitespaceClass: String = "[" + WHITESPACE.map { "\\u%04X".format(it.code) }.joinToString("") + "]"
 

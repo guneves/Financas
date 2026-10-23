@@ -56,9 +56,9 @@ class MoneyInputTest {
     // "+", zero, texto com zeros finais).
     @Test
     fun nativeOnlyEdgesMatchNode() {
-        assertEquals(amount("1234.56"), parseMoneyInput("R$ 1.234,56"))
+        assertEquals(amount("1234.56"), parseMoneyInput("R$\u00A01.234,56"))
         assertEquals(amount("1234.56"), parseMoneyInput("1 234,56"))
-        assertEquals(amount("1234"), parseMoneyInput(" 1234"))
+        assertEquals(amount("1234"), parseMoneyInput("\u20091234"))
         assertEquals(MoneyInput.Invalid, parseMoneyInput("+5"))
         assertEquals(MoneyInput.Empty, parseMoneyInput(null))
         assertEquals("0", moneyInputValue(BigDecimal.ZERO))
