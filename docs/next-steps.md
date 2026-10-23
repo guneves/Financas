@@ -123,13 +123,20 @@ Decisions in `mobile-docs/native-app.md`; the project docs (architecture, conven
 order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/native/`. Step 0
 (Kotlin + Compose in the Android project, the native theme from the web's tokens,
 `android-check.yml`) is done. Open, in order:
-- [ ] **Step 1 — "+ Novo" native**: its foundation is in (2026-10-22: `core/`, `rules/`, `data/`,
-  the `NativeScreens` plugin; `done-tasks.md`). Left: `NewEntryActivity` in Compose with the four
-  forms (`screens/01-novo.md`), writing into the native outbox through the repositories already in
-  `data/`; `NativeScreens.routes()` listing it and `open()` starting it; the React layout asking
-  `routes()` and calling `open()`; bump `native-level.txt` in that commit (the plugin itself
-  shipped without a bump because the web does not call it yet). Native "+ Novo" also needs
-  `buildItem`/`newClientId` of `outboxRules.js` (rules-port.md).
+- [ ] **Step 1 — "+ Novo" native, owner's phone check** (built 2026-10-22, branch
+  `claude/native-novo`, `done-tasks.md`): the spec's Acceptance list (`screens/01-novo.md`) with the
+  debug APK, online and in airplane mode, each of the four kinds, light and dark. Nothing has run
+  on a device yet. Watch especially: the keyboard on "Valor" at open, the toast reaching the
+  WebView while the sheet is on top, and an interrupted save showing as "1 pendente" after a
+  restart. Then merge. Known, minor: an item left by a save killed mid-POST is sent on the next
+  app open (`OutboxPlugin.load()` schedules the worker), not while the app stays closed.
+- [ ] **The web's `createEntry()` can still duplicate after a killed tab**: it queues only after
+  the failure, so a page closed mid-POST and a second Salvar make two lançamentos under two
+  `client_id`s. Native now writes the item to the outbox before the POST and removes it on an
+  answer (`EntrySaver.kt`); do the same in `lib/outbox.js` (IndexedDB), with a node test.
+- [ ] "+ Novo" leftovers: the launcher shortcut "Novo lançamento" (and later a Quick Settings tile);
+  Corrigir on an item the worker already sent still says "pendente atualizada" (web and native
+  alike; say "já foi enviado" instead).
 - [ ] **The sharing form refuses a comma** (found by the port, same on web and native):
   `shareFormError()` reads the other person's part with `Number()`, so "12,5" gets "Informe a
   parte…" while every other money field takes a comma (`parseMoneyInput()`). Fix both sides with a
