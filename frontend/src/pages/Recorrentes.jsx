@@ -14,6 +14,7 @@ import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../lib/format'
 import { invalidateServerData, useQuery, useReportQueryError } from '../lib/queries'
 import { blockedRecurringMessage } from '../lib/transactions'
+import { recurringAccountOptions, recurringEditPatch } from '../lib/recurring'
 import {
   AlertMessage,
   Badge,
@@ -79,7 +80,7 @@ export default function Recorrentes() {
   const [form, setForm] = useState(emptyForm)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
-  const [editValue, setEditValue] = useState('')
+  const [editDraft, setEditDraft] = useState({ amount: '', account_id: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -177,16 +178,20 @@ export default function Recorrentes() {
     }
   }
 
-  const handleSaveAmount = async (item) => {
+  const handleSaveEdit = async (item) => {
+    const patch = recurringEditPatch(item, editDraft)
+    if (!Object.keys(patch).length) {
+      setEditingId('')
+      return
+    }
     setSaving(true)
     setError('')
     try {
-      await recurringApi.update(item.id, { amount: Number(editValue) })
+      await recurringApi.update(item.id, patch)
       setEditingId('')
-      setEditValue('')
       await loadAll()
     } catch (requestError) {
-      setError(requestError.message || 'Não foi possível atualizar o valor.')
+      setError(requestError.message || 'Não foi possível atualizar a recorrência.')
     } finally {
       setSaving(false)
     }
@@ -414,16 +419,30 @@ export default function Recorrentes() {
                         type="number" inputMode="decimal"
                         step="0.01"
                         min="0"
-                        value={editValue}
-                        onChange={(event) => setEditValue(event.target.value)}
+                        value={editDraft.amount}
+                        onChange={(event) => setEditDraft({ ...editDraft, amount: event.target.value })}
                         aria-label="Valor"
                         className="app-input w-32"
                       />
+                      <select
+                        value={editDraft.account_id}
+                        onChange={(event) => setEditDraft({ ...editDraft, account_id: event.target.value })}
+                        aria-label="Conta"
+                        className="app-select w-44"
+                      >
+                        {!editDraft.account_id ? <option value="">Conta padrão</option> : null}
+                        {recurringAccountOptions(item, accounts).map((option) => (
+                          <option key={option.id} value={option.id} disabled={option.disabled}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                       <IconButton
-                        label="Salvar valor"
+                        label="Salvar"
                         icon={Check}
                         variant="primary"
-                        onClick={() => handleSaveAmount(item)}
+                        disabled={saving}
+                        onClick={() => handleSaveEdit(item)}
                       />
                       <IconButton label="Cancelar" icon={X} onClick={() => setEditingId('')} />
                     </>
@@ -443,11 +462,11 @@ export default function Recorrentes() {
                         size="md"
                         items={[
                           {
-                            label: 'Editar valor',
+                            label: 'Editar valor e conta',
                             icon: Pencil,
                             onSelect: () => {
                               setEditingId(item.id)
-                              setEditValue(String(item.amount ?? ''))
+                              setEditDraft({ amount: String(item.amount ?? ''), account_id: item.account_id || '' })
                             },
                           },
                           {
