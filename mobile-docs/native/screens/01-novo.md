@@ -279,6 +279,15 @@ creation: the three POSTs ignore them; sharing is set later by `PATCH /api/trans
   on `IOException`/timeout or a 2xx that fails `isCreationResponse()` → queue (safe thanks to the
   `client_id`). Writing to the queue and waiting for the worker would lose the `matched_inbox` toast
   and the immediate "registrada".
+- Built (2026-10-22, parity review): the native save **writes the `buildItem()` item to
+  `OutboxStore` before the first POST**, without scheduling the worker. A 2xx creation, a
+  4xx/5xx refusal or a 401 removes it. No network, a timeout, a 3xx (captive portal) or a
+  non-creation 2xx keeps it and schedules `OutboxWorker`. So an app killed mid-POST leaves a
+  pending item with the same `client_id`, which `OutboxPlugin.load()` schedules on the next start.
+  No session (no `user_id`) is refused as session expired, never queued. The save runs in
+  `AppGraph.appScope`: Cancelar/voltar during a save does not cancel it, and its toast and
+  `dataChanged` still arrive (a refusal after closing is an Android toast). The web's
+  `createEntry()` still queues only after the failure (gap noted in next-steps).
 - After saving or closing, notify the WebView so it reloads the outbox and invalidates its cache
   (today `OutboxEvents.changed()` is package-private and only the sender fires it; add an event).
 - Haptic on save; keep the keyboard up between saves ("Salvar e novo" is optional, not in the web).

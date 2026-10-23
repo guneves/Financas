@@ -78,15 +78,32 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
     private var pendingCategoryName = ""
     private var listErrorShown = false
 
+    /** A tela ja fechou (Cancelar, voltar, fundo): o resultado de um Salvar vai direto ao aviso. */
+    private var cleared = false
+
     private val saver = EntrySaver(
         hasNetwork = { OutboxPlugin.hasRealNetwork(app) },
         post = { path, body -> graph.creationApi.send("POST", path, body) },
-        enqueue = { item ->
-            OutboxStore.get(app).put(item)
-            OutboxWorker.schedule(app)
+        queue = object : EntryQueue {
+            override fun put(item: org.json.JSONObject) = OutboxStore.get(app).put(item)
+            override fun remove(clientId: String) = OutboxStore.get(app).remove(clientId)
+            override fun schedule() = OutboxWorker.schedule(app)
         },
         userId = { graph.sessionUserId() },
     )
+
+    /**
+     * A tela vai fechar: um Salvar ainda no ar avisa direto (EntryDelivery) em vez de esperar a
+     * tela, que nao vai mais ler [finished]. Chamado pela Activity no finish().
+     */
+    fun detach() {
+        cleared = true
+    }
+
+    override fun onCleared() {
+        cleared = true
+        super.onCleared()
+    }
 
     val categoryOptions: List<CategoryOption>
         get() = EntryOptions.buildCategoryOptions(lists.categories ?: emptyList())
@@ -229,17 +246,20 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
         val ready = submission as Submission.Ready
         saving = true
         error = ""
-        viewModelScope.launch {
+        val clientId = editingClientId
+        // No escopo do app, nao no da tela: fechar o sheet no meio do envio nao cancela o POST
+        // (o servidor pode ja ter gravado); o resultado chega aqui ou, com a tela fechada, ao
+        // aviso direto (EntryDelivery).
+        graph.appScope.launch {
             try {
-                val clientId = editingClientId
                 if (clientId != null) {
                     updatePending(clientId, ready)
-                    finished = NewEntryForms.updatedNotice(ready.label)
+                    finish(NewEntryForms.updatedNotice(ready.label))
                 } else {
                     handle(withContext(Dispatchers.IO) { saver.create(ready.kind, ready.payload) }, ready)
                 }
             } catch (failure: Exception) {
-                error = failure.message?.takeIf { it.isNotBlank() } ?: ready.fallbackError
+                fail(failure.message?.takeIf { it.isNotBlank() } ?: ready.fallbackError)
             } finally {
                 saving = false
             }
@@ -248,18 +268,30 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
 
     private fun handle(result: SaveResult, ready: Submission.Ready) {
         when (result) {
-            is SaveResult.Queued -> finished = NewEntryForms.queuedNotice(ready.label)
+            is SaveResult.Queued -> finish(NewEntryForms.queuedNotice(ready.label))
             is SaveResult.Saved -> {
                 // O mesmo movimento esperava em Aprovar: o servidor fechou aquele item com este.
                 val matched = InboxNotice.matchedInboxNotice(result.data, ready.label)
-                finished = if (matched.isNotEmpty()) NewEntryForms.matchedNotice(matched) else NewEntryForms.savedNotice(ready.label)
+                finish(if (matched.isNotEmpty()) NewEntryForms.matchedNotice(matched) else NewEntryForms.savedNotice(ready.label))
             }
-            is SaveResult.Refused -> error = result.message ?: ready.fallbackError
+            is SaveResult.Refused -> fail(result.message ?: ready.fallbackError)
             is SaveResult.SessionExpired -> {
+                if (cleared) {
+                    EntryDelivery.dataChanged()
+                    return
+                }
                 sessionExpired = true
                 error = result.message ?: app.getString(R.string.data_session_expired)
             }
         }
+    }
+
+    private fun finish(notice: EntryNotice) {
+        if (cleared) EntryDelivery.notice(app, notice) else finished = notice
+    }
+
+    private fun fail(message: String) {
+        if (cleared) EntryDelivery.error(app, message) else error = message
     }
 
     // Pendentes › Corrigir: o mesmo client_id, de volta a pendente (OutboxRules.editedItem, o

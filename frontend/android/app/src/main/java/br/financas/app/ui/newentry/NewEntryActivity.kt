@@ -3,7 +3,6 @@ package br.financas.app.ui.newentry
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
@@ -34,7 +33,7 @@ class NewEntryActivity : ComponentActivity() {
                 }
                 LaunchedEffect(viewModel.sessionExpired) {
                     // 401: a WebView relê os dados, recebe o 401 e mostra o login.
-                    if (viewModel.sessionExpired) NativeScreensPlugin.emitDataChanged()
+                    if (viewModel.sessionExpired) EntryDelivery.dataChanged()
                 }
                 NewEntryScreen(
                     viewModel = viewModel,
@@ -49,15 +48,14 @@ class NewEntryActivity : ComponentActivity() {
     }
 
     private fun finishWith(notice: EntryNotice) {
-        val delivered = NativeScreensPlugin.emitDataChanged(notice.message, notice.tone, notice.durationMs)
-        if (!delivered) {
-            val length = if (notice.durationMs > EntryNotice.DEFAULT_DURATION_MS) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
-            Toast.makeText(applicationContext, notice.message, length).show()
-        }
+        EntryDelivery.notice(this, notice)
         finish()
     }
 
     override fun finish() {
+        // Um Salvar que ainda esta no ar (fechou pelo Cancelar, voltar ou fundo) termina no
+        // escopo do app e avisa sozinho.
+        if (::viewModel.isInitialized) viewModel.detach()
         super.finish()
         // O sheet ja animou a saida; sem a transicao da janela.
         @Suppress("DEPRECATION")
