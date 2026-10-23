@@ -19,11 +19,14 @@ transcript; nothing was lost.
 - **Native Início and the bell** (step 3, native-level 4 → 5): `ui/home/`, `ui/charts/`, the
   rules ports, privacy mirrored both ways, the web Início tab opening native. Details in
   `docs/done-tasks.md` (session 7 note) and `mobile-docs/native/screens/03-inicio.md`.
-- **CI**: `android-check.yml` run 39959748862 on `cfb68e2` **green** (JVM tests + debug APK),
-  checked from here. `npm test` 175 (was 160), both vite builds (normal and android) pass.
+- **CI**: `android-check.yml` run 39960549681 on `cc5df2d` (the last code commit) **green** (JVM
+  tests + debug APK), checked from here. `npm test` 176 (was 160; re-run here), both vite builds
+  (normal and android) pass.
   pytest not run: no backend change.
-- **Parity review**: no blockers; two majors and four minors fixed in one round (`779d1e3`),
-  then re-verified by a second reviewer pass.
+- **Parity review**: no blockers; two majors and four minors fixed in one round (`779d1e3`). The
+  re-verification found three minors (the info toast drawn sky instead of the web's dark surface,
+  a stale start route kept in the web's memory, the route expiry untested); fixed in `cc5df2d`
+  (`PendingRoute.kt` + `PendingRouteTest`, `pendingStartRoute()` + a node test).
 - **Comparing native and web**: `mobile/inicio-snapshot.py` (stdlib, GETs only) prints Início's
   numbers from the server with the screen's labels; the steps are in `03-inicio.md`, "Comparing
   native and web". Tried against a local server on a scratch database.
