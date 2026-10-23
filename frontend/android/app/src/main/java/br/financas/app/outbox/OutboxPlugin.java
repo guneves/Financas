@@ -85,23 +85,21 @@ public class OutboxPlugin extends Plugin {
      */
     @PluginMethod
     public void hasNetwork(PluginCall call) {
-        boolean online = false;
-        ConnectivityManager manager = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (manager != null) {
-            for (Network network : manager.getAllNetworks()) {
-                NetworkCapabilities caps = manager.getNetworkCapabilities(network);
-                if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
-                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                    online = true;
-                    break;
-                }
-            }
-        } else {
-            online = true;
-        }
         JSObject result = new JSObject();
-        result.put("online", online);
+        result.put("online", hasRealNetwork(getContext()));
         call.resolve(result);
+    }
+
+    /** A mesma checagem para o "+ Novo" nativo (ui/newentry/), sem passar pela WebView. */
+    public static boolean hasRealNetwork(Context context) {
+        ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (manager == null) return true;
+        for (Network network : manager.getAllNetworks()) {
+            NetworkCapabilities caps = manager.getNetworkCapabilities(network);
+            if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return true;
+        }
+        return false;
     }
 
     /** "Sincronizar agora" e os gatilhos da tela: uma rodada ja, com o resumo de volta. */

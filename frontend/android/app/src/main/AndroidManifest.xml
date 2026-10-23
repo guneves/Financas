@@ -24,6 +24,15 @@
 
         </activity>
 
+        <!-- O "+ Novo" nativo (ui/newentry/), aberto pela WebView (NativeScreens.open): um sheet
+             do Compose por cima dela, com o teclado no Valor. -->
+        <activity
+            android:name=".ui.newentry.NewEntryActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/AppTheme.NativeSheet"
+            android:windowSoftInputMode="adjustResize|stateVisible" />
+
         <!-- O leitor de notificacoes dos bancos (notify/). O Android so o liga depois que o dono
              permite o acesso em Ajustes do Android; a tela leva ate la (Ajustes › Notificações). -->
         <service

@@ -126,6 +126,21 @@ class ApiClient(
         const val READ_TIMEOUT_SECONDS = 45L
         const val CONNECT_TIMEOUT_SECONDS = 15L
 
+        /**
+         * Uma criacao do "+ Novo" espera 6 s, como na web (lib/outbox.js, CREATE_TIMEOUT_MS):
+         * sem resposta nesse prazo vai para a fila, e o client_id torna o reenvio seguro.
+         */
+        const val CREATE_TIMEOUT_SECONDS = 6L
+
+        fun creationHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+
         fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)

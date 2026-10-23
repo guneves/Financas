@@ -3,10 +3,19 @@ package br.financas.app.outbox;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import org.json.JSONException;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.TimeZone;
+import java.util.UUID;
 
 /**
+ * Port: mudou um, muda o outro, com um teste de cada lado.
  * As regras da fila, as mesmas de frontend/src/lib/outboxRules.js (que tem os testes
  * do lado web). Mudou uma, muda a outra. Funcoes puras: os testes de JVM
  * (OutboxRulesTest) rodam no PC, sem aparelho.
@@ -18,6 +27,8 @@ public final class OutboxRules {
     public static final String ALREADY_DELIVERED_MESSAGE =
         "Este lançamento já tinha chegado ao servidor antes da correção, com os valores antigos. "
             + "Corrija-o na tela de lançamentos e descarte este pendente.";
+
+    public static final String PENDING = "pending";
 
     public static final String REFUSED_MESSAGE = "O servidor recusou este lançamento.";
 
@@ -41,6 +52,77 @@ public final class OutboxRules {
             default:
                 return null;
         }
+    }
+
+    /**
+     * O client_id de um envio novo: UUID v4, como o crypto.randomUUID() da web. Cabe no padrao
+     * do servidor (^[A-Za-z0-9][A-Za-z0-9_.:-]{7,63}$).
+     */
+    public static String newClientId() {
+        return UUID.randomUUID().toString();
+    }
+
+    /**
+     * O item da fila, no formato que lib/outboxRules.js buildItem() grava: client_id, user_id,
+     * kind, payload (com o client_id dentro), status, last_error, created_at. Um client_id que
+     * ja veio no payload e mantido (e ele que torna o reenvio seguro). Tipo desconhecido:
+     * IllegalArgumentException, como o throw do endpointFor do JS.
+     */
+    public static JSONObject buildItem(String kind, JSONObject payload, String userId, long nowMillis) throws JSONException {
+        if (endpointFor(kind) == null) throw new IllegalArgumentException("Tipo de lancamento desconhecido: " + kind);
+        String existing = payload == null ? "" : payload.optString("client_id", "");
+        String clientId = existing.isEmpty() ? newClientId() : existing;
+        JSONObject body = copy(payload);
+        body.put("client_id", clientId);
+        JSONObject item = new JSONObject();
+        item.put("client_id", clientId);
+        item.put("user_id", userId == null ? "" : userId);
+        item.put("kind", kind);
+        item.put("payload", body);
+        item.put("status", PENDING);
+        item.put("last_error", "");
+        item.put("created_at", isoInstant(nowMillis));
+        return item;
+    }
+
+    /**
+     * Um item da fila corrigido ("Corrigir" em Pendentes), como editedItem() do JS: o mesmo
+     * client_id (trocar duplicaria um envio que ja chegou), o payload novo com ele dentro, de
+     * volta a pendente, sem erro, e edited = true para o envio conferir o que o servidor gravou
+     * (deliveredDiffers). user_id e created_at ficam os do item.
+     */
+    public static JSONObject editedItem(JSONObject current, String kind, JSONObject payload) throws JSONException {
+        String clientId = current.optString("client_id");
+        String nextKind = kind == null || kind.isEmpty() ? current.optString("kind") : kind;
+        if (endpointFor(nextKind) == null) throw new IllegalArgumentException("Tipo de lancamento desconhecido: " + nextKind);
+        JSONObject next = copy(current);
+        JSONObject body = copy(payload);
+        body.put("client_id", clientId);
+        next.put("kind", nextKind);
+        next.put("payload", body);
+        next.put("status", PENDING);
+        next.put("last_error", "");
+        next.put("edited", true);
+        return next;
+    }
+
+    /** O toISOString() do JS: UTC, milissegundos, "Z" ("2026-10-22T14:03:11.512Z"). */
+    public static String isoInstant(long millis) {
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+        format.setTimeZone(TimeZone.getTimeZone("UTC"));
+        return format.format(new Date(millis));
+    }
+
+    // Copia rasa (o { ...payload } do JS).
+    private static JSONObject copy(JSONObject source) throws JSONException {
+        JSONObject target = new JSONObject();
+        if (source == null) return target;
+        Iterator<String> keys = source.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            target.put(key, source.get(key));
+        }
+        return target;
     }
 
     /**

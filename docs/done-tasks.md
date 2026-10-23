@@ -167,6 +167,7 @@
 | Native phone app, step 0 (owner: phone native, desktop its own interface; `mobile-docs/native-app.md`): Kotlin Gradle plugin + Compose compiler plugin (2.3.20), Compose BOM, Material 3 and `activity-compose` in the Android project, JVM target 21; `ui/theme/Tokens.kt` (the web's colour tokens by CSS name) + `Theme.kt` (`FinancasTheme`, `Palette`, `ShellPrefs`); `ShellPlugin.setTheme` stores the web's theme for native screens; `TokensTest` reads `index.css`; `.github/workflows/android-check.yml` builds the debug APK and runs the JVM tests on branch pushes. No screen yet, no native-level bump | 2026-10-22 |
 | Native migration documentation (owner: "faça toda a documentação para o novo projeto"): `mobile-docs/native/` — README (index, status), architecture (packages, native beside the WebView through a `NativeScreens` plugin, session, cache/offline, mirrored settings, an in-house Compose chart kit), conventions, build-and-test (the CI loop from a session), migration-order (steps 0–9 + desktop, what runs in parallel), rules-port (every `lib/` module: port or endpoint), findings (endpoints to add, inconsistencies, possible bugs), desktop (principles, layout, plan per screen), agents (workflow, parallel rules, prompts) and 16 screen specs from one template, written by four parallel agents against the code. Six agents in `.claude/agents/`: `screen-spec-writer`, `rule-porter`, `native-screen-builder`, `native-parity-reviewer`, `android-ci-watcher`, `desktop-screen-builder` | 2026-10-22 |
 | Native step 1's foundation (no screen): `core/Format.kt` + `MoneyInput.kt` (all of format.js, `parseMoneyInput`/`moneyInputValue`), `rules/CardFunctions.kt` (all of cardFunctions.js), `rules/Sharing.kt` (`shareFormFrom`/`shareFormError`/`sharePayload`), each with the node cases; `data/` (ApiClient on OkHttp + kotlinx.serialization with the token from `Session`, ReadCache, repositories for accounts/categories/cards, AppGraph); the `NativeScreens` plugin registered (`routes()` empty, `open()` a stub, `dataChanged`/`navigate` declared). 64 new JVM tests; no native-level bump | 2026-10-22 |
+| Native "+ Novo" (step 1's screen): `ui/newentry/` (`NewEntryActivity`, a translucent Compose bottom sheet with despesa, receita, transferência and cartão crédito/débito, amount first; Corrigir from Pendentes too), the save of `createEntry()` with the item kept in the outbox during the POST, `buildItem`/`newClientId`/`editedItem` in `OutboxRules.java` (+ `editedItem` in `outboxRules.js`), `rules/EntryOptions.kt`, `rules/InboxNotice.kt`, the first `ui/components/`; `NativeScreens` lists `new-entry`, the React layout opens it when listed (`lib/nativeScreens.js`, `nativeScreensRules.js`), `native-level.txt` 3. 51 JVM tests, web 144 → 150. Owner's phone check open | 2026-10-22 |
 
 ---
 
@@ -1172,3 +1173,26 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
 - Libraries (`variables.gradle`): OkHttp 4.12.0 (+ mockwebserver), kotlinx-serialization-json 1.9.0
   with the serialization Gradle plugin at the project's Kotlin 2.3.20, kotlinx-coroutines-android
   1.10.2 (+ -test), lifecycle-viewmodel-compose 2.9.2.
+
+### Native "+ Novo" — 2026-10-22
+- Branch `claude/native-novo`, built by `native-screen-builder` in two rounds, both green on
+  `android-check.yml` the first time (39884267832 on `e641424`, 39884996021 on `4144bf8`), reviewed
+  by `native-parity-reviewer` between them and again after.
+- **The save** (`ui/newentry/EntrySaver.kt`) follows `createEntry()`: one `client_id` per Salvar;
+  no real network (`OutboxPlugin.hasRealNetwork()`, the outbox's own check) queues at once; else a
+  6 s POST with no redirects. It differs on purpose in two places, both from the review:
+  - the `buildItem()` item is written to `OutboxStore` **before** the POST (worker not scheduled)
+    and removed on a creation 2xx, a refusal or a 401; it stays and the worker is scheduled on a
+    network error, a timeout, a 3xx (captive portal) or a 2xx that is not the creation. A process
+    killed mid-POST leaves a pending item that `OutboxPlugin.load()` sends on the next start with
+    the same `client_id`, instead of the owner retyping it under a new one.
+  - the save runs in `AppGraph.appScope`, not the ViewModel's, so closing the sheet mid-save
+    never cancels the request; a result after the sheet closed goes through `EntryDelivery.kt`
+    (to the WebView as `dataChanged` with its toast, or an Android Toast).
+- **The bridge**: `dataChanged` can carry a toast; the web (`nativeApp.js`) reloads the outbox,
+  so the pill updates, calls `invalidateServerData()` and shows it. An APK without the plugin or
+  with an empty `routes()` keeps the React sheet (`routesFrom()` falls back on a rejection).
+- **Required fields**: the web relies on the browser's `required` popup; native says "Preencha este
+  campo: Descrição." / "Selecione um item na lista: Categoria." in the error box (in the spec).
+- Rule and toast texts are Kotlin constants (the `CardFunctions` pattern, so tests check the exact
+  wording); screen labels are in `strings.xml` (`newentry_*`).

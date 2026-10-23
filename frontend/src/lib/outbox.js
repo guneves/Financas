@@ -18,6 +18,7 @@ import {
   PENDING,
   buildItem,
   deliveredDiffers,
+  editedItem,
   endpointFor,
   newClientId,
   outcomeOf,
@@ -137,21 +138,12 @@ export async function enqueue({ kind, payload }) {
   return item
 }
 
-// Editar um item da fila: o mesmo client_id, de volta a pendente.
+// Editar um item da fila: o mesmo client_id, de volta a pendente (editedItem,
+// em outboxRules.js; o "+ Novo" nativo grava o mesmo item pelo OutboxRules.java).
 export async function updateItem(clientId, { kind, payload }) {
   const current = items.find((entry) => entry.client_id === clientId)
   if (!current) return null
-  const next = {
-    ...current,
-    kind: kind || current.kind,
-    payload: { ...payload, client_id: clientId },
-    status: PENDING,
-    last_error: '',
-    // O id continua o mesmo (trocar duplicaria um envio que ja chegou), entao
-    // o envio precisa conferir se o servidor ficou com esta versao: ver flush().
-    edited: true,
-  }
-  endpointFor(next.kind)
+  const next = editedItem(current, { kind, payload })
   await save(next)
   return next
 }

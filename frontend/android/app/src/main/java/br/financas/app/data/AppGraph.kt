@@ -4,6 +4,9 @@ import android.content.Context
 import br.financas.app.outbox.LoginNotifier
 import br.financas.app.outbox.OutboxStore
 import br.financas.app.outbox.Session
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +43,22 @@ class AppGraph private constructor(context: Context) {
         session = { currentSession().also { if (it != null) _sessionExpired.value = false } },
         onUnauthorized = ::handleUnauthorized,
     )
+
+    /** O POST de uma criacao do "+ Novo" (ui/newentry/): o mesmo cliente, com o prazo de 6 s. */
+    val creationApi: ApiClient = ApiClient(
+        session = { currentSession().also { if (it != null) _sessionExpired.value = false } },
+        http = ApiClient.creationHttpClient(),
+        onUnauthorized = ::handleUnauthorized,
+    )
+
+    /**
+     * Trabalho que nao pode morrer com a tela: um Salvar ja comecado termina (e avisa) mesmo que o
+     * dono feche o sheet ou a Activity acabe. Vive o processo inteiro; roda na thread da tela.
+     */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** O usuario da sessao (o user_id de um item da fila), ou null sem login. */
+    fun sessionUserId(): String? = Session.load(appContext)?.userId
 
     val cache: ReadCache = FileReadCache(File(appContext.filesDir, CACHE_DIR))
 
