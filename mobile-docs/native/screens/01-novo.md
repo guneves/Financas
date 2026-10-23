@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 1 (see `../migration-order.md`) |
-| Status | Not started |
+| Status | Built 2026-10-22 on `claude/native-novo` (`ui/newentry/`, `NativeScreens` lists `new-entry`, `native-level.txt` 3, Corrigir native too); waiting for the owner's phone check (Acceptance) and the merge |
 | React source | `frontend/src/components/NewEntrySheet.jsx`, `components/Layout.jsx` (host, `openNewEntry()`, edit from Pendentes), `components/PendingSheet.jsx` ("Corrigir"), `lib/newEntry.js`, `lib/outbox.js`, `lib/outboxRules.js`, `lib/cardFunctions.js`, `lib/api.js` (`ApiNetworkError`, timeouts), `lib/nativeApp.js` (native outbox backend), `lib/inboxRules.js` (`matchedInboxNotice()`), `lib/monthlyPlan.js` (`parseMoneyInput()`), `pages/lancamentos/helpers.js` (`buildCategoryOptions`, `categoryLabel`, `categoryIdForName`, `categoryNameOf`, `filterCategoryOptions`, `pickDefaultAccountId`, `getLocalDateString`, `parseLocalDate`); Java `outbox/OutboxStore.java`, `OutboxRules.java`, `OutboxSender.java`, `OutboxWorker.java`, `OutboxPlugin.java`, `OutboxEvents.java`, `Session.java` |
 | Route(s) | none — a sheet over any banking route; opened by the bottom **+**, Extrato's empty state ("Novo lançamento") and Cartões' "Nova compra" (`openNewEntry('CARD')`). Inside `/investimentos` the **+** opens "Registrar operação" instead (out of scope) |
 | Endpoints | `GET /api/accounts`, `GET /api/categories`, `GET /api/credit-cards`, `POST /api/transactions`, `POST /api/transfers`, `POST /api/cc-expenses/purchases` |
@@ -77,6 +77,10 @@ Client validation (exact strings, accents as in code):
 - cartão: no card, bad date, amount ≤ 0 or installments not a positive integer → "Preencha a
   compra no cartão com valores válidos."
 - lists failed and nothing cached → "Não foi possível carregar contas, cartões e categorias."
+- required fields: on the web the browser's `required` stops the submit with its own bubble
+  ("Preencha este campo." / "Selecione um item na lista."); natively the error box says the same
+  words with the field's label: "Preencha este campo: Descrição." / "Selecione um item na lista:
+  Categoria." (also "Data", "De", "Para"). Checked after the amount rule above.
 - fallbacks when an error has no message: "Não foi possível criar o lançamento.", "Não foi
   possível registrar a transferência.", "Não foi possível registrar a compra no débito.", "Não foi
   possível criar a compra no cartão."

@@ -8,12 +8,18 @@
 //   saem no logout (o evento finance-auth-change de lib/api.js).
 // - O botao voltar do Android fecha o que estiver aberto, depois volta de tela.
 // - As barras do sistema seguem o tema do app (lib/theme.js).
+// - Telas nativas (lib/nativeScreens.js): o "+ Novo" abre em Kotlin quando o
+//   APK o lista; ao gravar, o APK avisa ("dataChanged") e aqui a fila e os
+//   dados sao relidos, com o toast que a tela nativa mandou.
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { App } from '@capacitor/app'
 import { API_BASE_URL, getStoredAuth } from './api'
 import { reloadOutbox, setOutboxBackend } from './outbox'
 import { invalidateServerData } from './queries'
 import { closeTopLayer } from './layers'
+import { onNativeEvent, startNativeScreens } from './nativeScreens'
+import { noticeFrom } from './nativeScreensRules'
+import { toast } from './toast'
 
 const Outbox = registerPlugin('Outbox')
 const Shell = registerPlugin('Shell')
@@ -76,6 +82,16 @@ export async function startNativeApp() {
   })
   await syncSession()
   window.addEventListener('finance-auth-change', syncSession)
+  // Uma tela nativa gravou (ou guardou na fila): a pilula de pendentes, os
+  // saldos e o extrato se atualizam, e o toast dela aparece aqui.
+  onNativeEvent((type, data) => {
+    if (type !== 'dataChanged') return
+    reloadOutbox()
+    invalidateServerData()
+    const notice = noticeFrom(data)
+    if (notice) toast(notice.message, notice.options)
+  })
+  await startNativeScreens()
   applyTheme()
   window.addEventListener('finance-theme-change', applyTheme)
   App.addListener('backButton', onBackButton)

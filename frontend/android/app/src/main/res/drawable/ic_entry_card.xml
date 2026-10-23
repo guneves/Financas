@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CreditCard do lucide (o mesmo icone do "+ Novo" da web), traco de 2 sobre 24x24. A cor vem do
+     tint do Compose (LocalPalette). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4,5H20A2,2 0,0 1,22 7V17A2,2 0,0 1,20 19H4A2,2 0,0 1,2 17V7A2,2 0,0 1,4 5Z"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M2,10H22"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

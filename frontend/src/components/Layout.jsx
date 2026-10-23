@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BellRing, CloudOff, Eye, EyeOff, LogOut, Plus, Settings, UploadCloud } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
@@ -11,6 +11,8 @@ import { useOutbox } from '../lib/outbox'
 import { NEEDS_ATTENTION } from '../lib/outboxRules'
 import { setValuesHidden, useValuesHidden } from '../lib/privacy'
 import { useLayer } from '../lib/layers'
+import { hasNativeScreen, onNativeEvent, openNativeScreen } from '../lib/nativeScreens'
+import { NEW_ENTRY_SCREEN, newEntryOpenRequest, routeFrom } from '../lib/nativeScreensRules'
 import { useScrollRestoration } from '../lib/scroll'
 import ApkUpdateBanner from './ApkUpdateBanner'
 import { AttentionBell } from './Attention'
@@ -243,6 +245,24 @@ export default function Layout() {
       .catch((error) => console.warn('Erro ao buscar ativos:', error))
   }, [])
 
+  // O sheet React do "+ Novo" (o navegador, ou um APK sem a tela nativa).
+  const openReactSheet = useCallback((type, item = null) => {
+    setEditingPending(item)
+    setSheetType(NEW_ENTRY_TYPE_VALUES.includes(type) ? type : 'EXPENSE')
+    setSheetOpen(true)
+  }, [])
+
+  // No APK que tem o "+ Novo" nativo (NativeScreens.routes()), ele abre em
+  // Kotlin por cima da tela; se nao abrir, volta o sheet React.
+  const openEntrySheet = useCallback((type, item = null) => {
+    if (hasNativeScreen(NEW_ENTRY_SCREEN)) {
+      openNativeScreen(newEntryOpenRequest({ type, editingItem: item }))
+        .catch(() => openReactSheet(type, item))
+      return
+    }
+    openReactSheet(type, item)
+  }, [openReactSheet])
+
   // Sem tipo, o botao segue a area em que se esta. Com tipo
   // (`openNewEntry('CARD')`) e sempre o sheet bancario.
   const openNewEntry = useCallback((type) => {
@@ -250,10 +270,8 @@ export default function Layout() {
       openInvestment()
       return
     }
-    setEditingPending(null)
-    setSheetType(NEW_ENTRY_TYPE_VALUES.includes(type) ? type : 'EXPENSE')
-    setSheetOpen(true)
-  }, [inInvestments, openInvestment])
+    openEntrySheet(type)
+  }, [inInvestments, openInvestment, openEntrySheet])
 
   const closeSheet = useCallback(() => {
     setSheetOpen(false)
@@ -271,9 +289,19 @@ export default function Layout() {
   const closePending = useCallback(() => setPendingOpen(false), [])
   const editPending = useCallback((item) => {
     setPendingOpen(false)
-    setEditingPending(item)
-    setSheetOpen(true)
-  }, [])
+    openEntrySheet(item.kind, item)
+  }, [openEntrySheet])
+
+  // A tela nativa gravou: o Extrato pisca a linha nova (os dados e a fila ja
+  // foram relidos em lib/nativeApp.js). Um link dela abre a rota aqui.
+  const navigate = useNavigate()
+  useEffect(() => onNativeEvent((type, data) => {
+    if (type === 'dataChanged') bumpDataVersion()
+    if (type === 'navigate') {
+      const route = routeFrom(data)
+      if (route) navigate(route)
+    }
+  }), [bumpDataVersion, navigate])
   const closeInvestment = useCallback(() => setInvestmentOpen(false), [])
 
   const newEntryValue = useMemo(() => ({ openNewEntry }), [openNewEntry])

@@ -1,3 +1,7 @@
+// Port: mudou um, muda o outro, com um teste de cada lado. O par nativo e
+// frontend/android/.../outbox/OutboxRules.java (OutboxRulesTest): endpointFor,
+// newClientId, buildItem, editedItem, outcomeOf, deliveredDiffers.
+//
 // As regras da fila de envio (lib/outbox.js), como funcoes puras: nada aqui
 // toca em rede, IndexedDB ou React, entao os testes rodam com `node --test`
 // (outboxRules.test.js) e o APK reaproveita as mesmas regras com a fila nativa.
@@ -50,6 +54,23 @@ export function buildItem({ kind, payload, userId, now = new Date() }) {
     last_error: '',
     created_at: now.toISOString(),
   }
+}
+
+// Um item da fila corrigido (Pendentes › Corrigir): o mesmo client_id, de
+// volta a pendente. O id continua o mesmo (trocar duplicaria um envio que ja
+// chegou), entao o envio precisa conferir se o servidor ficou com esta versao:
+// `edited` liga o deliveredDiffers().
+export function editedItem(current, { kind, payload }) {
+  const next = {
+    ...current,
+    kind: kind || current.kind,
+    payload: { ...payload, client_id: current.client_id },
+    status: PENDING,
+    last_error: '',
+    edited: true,
+  }
+  endpointFor(next.kind)
+  return next
 }
 
 // O que uma tentativa de envio faz com o item.

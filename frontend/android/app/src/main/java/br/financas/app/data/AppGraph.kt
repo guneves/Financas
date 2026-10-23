@@ -41,6 +41,16 @@ class AppGraph private constructor(context: Context) {
         onUnauthorized = ::handleUnauthorized,
     )
 
+    /** O POST de uma criacao do "+ Novo" (ui/newentry/): o mesmo cliente, com o prazo de 6 s. */
+    val creationApi: ApiClient = ApiClient(
+        session = { currentSession().also { if (it != null) _sessionExpired.value = false } },
+        http = ApiClient.creationHttpClient(),
+        onUnauthorized = ::handleUnauthorized,
+    )
+
+    /** O usuario da sessao (o user_id de um item da fila), ou null sem login. */
+    fun sessionUserId(): String? = Session.load(appContext)?.userId
+
     val cache: ReadCache = FileReadCache(File(appContext.filesDir, CACHE_DIR))
 
     private val reader = CachedReader(

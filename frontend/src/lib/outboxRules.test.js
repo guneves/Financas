@@ -8,6 +8,7 @@ import {
   buildItem,
   countByStatus,
   deliveredDiffers,
+  editedItem,
   endpointFor,
   newClientId,
   outcomeOf,
@@ -47,6 +48,22 @@ test('o item leva o client_id dentro do payload, e mantem o que ja veio', () => 
 
   const kept = buildItem({ kind: 'EXPENSE', payload: { amount: 10, client_id: 'ja-existia-123' } })
   assert.equal(kept.client_id, 'ja-existia-123')
+})
+
+test('item corrigido: mesmo client_id, de volta a pendente, marcado como editado', () => {
+  const current = { ...item('EXPENSE', { amount: 10, client_id: 'abc12345' }), client_id: 'abc12345', user_id: 'u1', status: NEEDS_ATTENTION, last_error: 'Categoria nao encontrada.' }
+  const next = editedItem(current, { kind: 'INCOME', payload: { amount: 12.5, client_id: 'outro-id-99' } })
+  assert.equal(next.client_id, 'abc12345')
+  assert.equal(next.payload.client_id, 'abc12345')
+  assert.equal(next.payload.amount, 12.5)
+  assert.equal(next.kind, 'INCOME')
+  assert.equal(next.status, PENDING)
+  assert.equal(next.last_error, '')
+  assert.equal(next.edited, true)
+  assert.equal(next.user_id, 'u1')
+  assert.equal(next.created_at, current.created_at)
+  assert.equal(editedItem(current, { payload: { amount: 1 } }).kind, 'EXPENSE')
+  assert.throws(() => editedItem(current, { kind: 'BUY', payload: {} }))
 })
 
 test('resposta do envio: gravou sai, sem rede e 5xx esperam, 401 para, recusa pede atencao', () => {
