@@ -30,7 +30,7 @@ const KINDS = [
 ]
 
 const KIND_HINTS = {
-  NET_WORTH: 'Carteira de investimentos + saldo das contas — o número do Início.',
+  NET_WORTH: 'Carteira de investimentos + saldo das contas.',
   PORTFOLIO: 'Valor líquido da carteira de investimentos.',
   ASSET_CLASS: 'Valor líquido de uma classe de ativo.',
   MONTHLY_INCOME: 'Média mensal dos proventos líquidos recebidos nos últimos 12 meses.',

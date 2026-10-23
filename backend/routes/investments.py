@@ -162,7 +162,7 @@ CASH_RECEIPT_LOCKED_MESSAGE = (
 
 CASH_WITHOUT_AMOUNT_MESSAGE = (
     "Esta operacao nao tem valor para lancar no extrato. "
-    "Corrija o valor ou desmarque 'Lancar no extrato'."
+    "Corrija o valor ou marque 'Nao descontar de nenhuma conta'."
 )
 
 

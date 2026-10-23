@@ -55,7 +55,7 @@ export default function IntegracoesSection() {
     <Panel id="integracoes" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Integrações"
-        description="De onde vêm as cotações, os índices da renda fixa e o extrato dos bancos."
+        description="De onde vêm as cotações, os índices da renda fixa e os preços do Tesouro Direto."
         actions={(
           <Button variant="secondary" size="sm" icon={RefreshCw} loading={refreshing} onClick={handleRefresh}>
             Verificar agora

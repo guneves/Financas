@@ -87,9 +87,8 @@ export default function Orcamento() {
   })
 
   // O plano do mes inteiro numa leitura (services/monthly_plan.py): renda,
-  // Investir, Gastar, Saldo do plano, Disponivel por dia e as categorias. A
-  // mesma chave do Inicio, entao o cache e um so. Categorias arquivadas
-  // inclusive: um orcamento antigo pode apontar para uma.
+  // Investir, Gastar, Saldo do plano, Disponivel por dia e as categorias.
+  // Categorias arquivadas inclusive: um orcamento antigo pode apontar para uma.
   const planQuery = useQuery({
     queryKey: ['plano-do-mes', month],
     queryFn: () => monthlyPlanApi.month(month),
