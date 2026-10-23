@@ -29,22 +29,11 @@ import {
   X,
 } from 'lucide-react'
 import { ccExpensesApi, recurringApi } from '../lib/dataApi'
-import { dismissAttention, useDismissedAttention, useInicioBudget, useInicioCards, useInicioMovements, useInicioRecurring } from '../lib/attention'
-import {
-  attentionItems,
-  autopayShortfalls as autopayShortfallsOf,
-  invoiceMonthKey,
-  isPastDue,
-  nextInvoices as nextInvoicesOf,
-  openCardExpenses,
-  overdueDetail as overdueDetailOf,
-  overdueInvoices as overdueInvoicesOf,
-  payableInvoices as payableInvoicesOf,
-  undismissedItems,
-} from '../lib/attentionRules'
+import { dismissAttention, useAttentionItems, useDismissedAttention, useHome, useInicioBudget, useInicioMovements } from '../lib/attention'
+import { invoiceMonthKey, isPastDue, overdueDetail as overdueDetailOf, undismissedItems } from '../lib/attentionRules'
 import { AttentionCards } from '../components/Attention'
 import { useOutbox } from '../lib/outbox'
-import { PENDING, applyPendingToAccounts, pendingAsTransactions } from '../lib/outboxRules'
+import { PENDING, pendingAsTransactions } from '../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage } from '../lib/queries'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
@@ -81,12 +70,10 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, consolidatedBalance, isCardRefund, isInvestmentOutflow, openingBalanceTotal } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, isCardRefund, isInvestmentOutflow, isInvoicePayment } from '../lib/transactions'
 import { toast } from '../lib/toast'
-import { buildMonthlyFlow, isInvoicePayment } from '../lib/cashFlow'
 import { ownAmount } from '../lib/sharing'
 
-const HISTORY_MONTHS = 12
 const INVOICE_MONTHS = 6
 // Meses anteriores que formam a media do "Ritmo de gastos".
 const PACE_MONTHS = 3
@@ -104,6 +91,29 @@ const parseInstallmentInfo = (value) => {
 }
 
 const shortMonth = shortMonthLabel
+
+// Um mes de /api/home como o grafico o desenha: as saidas abaixo do zero (a
+// posicao diz "saida" sem depender da cor), o investimento e outras pessoas
+// liquidos. Em centavos, sem -0 num mes vazio.
+const cents = (value) => Math.round((Number(value) || 0) * 100)
+const negated = (value) => (value ? -value / 100 : 0)
+
+function flowPoint(month) {
+  return {
+    key: month.month,
+    label: shortMonth(month.month),
+    income: month.income,
+    expense: negated(cents(month.expense)),
+    investment: negated(cents(month.invested) - cents(month.redeemed)),
+    invested: month.invested,
+    redeemed: month.redeemed,
+    others: (cents(month.others_received) - cents(month.others_paid)) / 100,
+    othersPaid: month.others_paid,
+    othersReceived: month.others_received,
+    net: month.net,
+    balance: month.balance,
+  }
+}
 
 const percentChange = (current, previous) => {
   if (!previous) return null
@@ -165,26 +175,28 @@ export default function Dashboard() {
   const [payError, setPayError] = useState('')
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
 
-  // Quatro queries independentes: uma que falha nao derruba as outras. As
-  // movimentacoes mostram erro; cartoes, recorrencias e orcamento so escondem
-  // o aviso ou a faixa que dependem deles.
+  // Queries independentes: uma que falha nao derruba as outras. O saldo, o
+  // fluxo e a proxima fatura vem de /api/home e os avisos de /api/attention,
+  // somados no servidor; o historico (movimentacoes) so alimenta os paineis
+  // que ainda o leem aqui (categorias, ritmo, parcelamentos, projecao).
+  const homeQuery = useHome()
   // Todas as compras do cartao, nao so as abertas: o ritmo de gastos do mes
   // passado precisa das compras que ja foram pagas.
   const movementsQuery = useInicioMovements()
-  // Cartoes so para o aviso de debito automatico sem saldo.
-  const cardsQuery = useInicioCards()
-  // Recorrencias vencidas para o "Precisa de atencao".
-  const recurringQuery = useInicioRecurring()
   // Orcamento do mes para a faixa de orcamento.
   const budgetMonth = monthKey(new Date())
   const budgetQuery = useInicioBudget(budgetMonth)
+  // "Precisa de atencao", o mesmo pedido do sino do cabecalho.
+  const attention = useAttentionItems()
   const dismissedAttention = useDismissedAttention()
 
   // Lancamentos guardados no aparelho, ainda sem chegar ao servidor
-  // (lib/outbox.js): entram nas contas e no mes como em Lancamentos, e o
-  // saldo fica marcado como estimativa. O saldo e o historico leem a mesma
-  // lista, entao a curva continua terminando no saldo do topo.
+  // (lib/outbox.js): entram nas contas e no mes (applyPendingToHome, em
+  // useHome) e nos paineis como em Lancamentos, e o saldo fica marcado como
+  // estimativa. O saldo e o historico leem os mesmos pendentes, entao a curva
+  // continua terminando no saldo do topo.
   const pending = useOutbox()
+  const home = homeQuery.data
   const serverTransactions = movementsQuery.data?.transactions || NO_ITEMS
   const serverAccounts = movementsQuery.data?.allAccounts || NO_ITEMS
   // Vistos da area bancaria (bankingTransactions): a conta Corretora fica de
@@ -196,22 +208,19 @@ export default function Dashboard() {
     return bankingTransactions(all, serverAccounts)
   }, [serverTransactions, serverAccounts, pending])
   const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
-  // Todas as contas, arquivadas inclusive: o consolidado soma todas.
-  const allAccounts = useMemo(() => applyPendingToAccounts(serverAccounts, pending), [serverAccounts, pending])
   const pendingInBalance = useMemo(
     () => pending.filter((item) => item.status === PENDING && item.kind !== 'CARD').length,
     [pending]
   )
-  const cards = cardsQuery.data || NO_ITEMS
-  const recurringItems = recurringQuery.data?.items || NO_ITEMS
   const budget = budgetQuery.data || null
 
   useEffect(() => {
-    if (movementsQuery.error) {
-      console.warn('Erro ao buscar movimentações:', movementsQuery.error)
-      setDataError(queryErrorMessage(movementsQuery, 'Não foi possível carregar movimentações e faturas.'))
+    const failed = homeQuery.error ? homeQuery : movementsQuery.error ? movementsQuery : null
+    if (failed) {
+      console.warn('Erro ao buscar movimentações:', failed.error)
+      setDataError(queryErrorMessage(failed, 'Não foi possível carregar movimentações e faturas.'))
     }
-  }, [movementsQuery.error])
+  }, [homeQuery.error, movementsQuery.error])
 
   const fetchAllData = () => invalidateServerData()
 
@@ -241,24 +250,19 @@ export default function Dashboard() {
   const currentKey = monthKey(today)
   const todayText = getLocalDateString(today)
 
-  const openCcExpenses = useMemo(() => openCardExpenses(ccExpenses), [ccExpenses])
+  const openCcExpenses = useMemo(() => ccExpenses.filter((expense) => expense.status === 'OPEN'), [ccExpenses])
 
+  // Todas as contas de /api/home (arquivadas inclusive), com os pendentes.
+  const allAccounts = home?.accounts || NO_ITEMS
   const accounts = useMemo(() => activeAccounts(allAccounts), [allAccounts])
-  // A soma dos saldos de /api/accounts: inclui o saldo inicial de cada conta,
-  // que a soma dos lancamentos deixava de fora (lib/transactions.js).
-  const bankBalance = useMemo(() => consolidatedBalance(allAccounts), [allAccounts])
+  // Saldo em contas: a soma do servidor, sem a Corretora (services/home.py).
+  const bankBalance = home?.consolidated_balance || 0
 
-  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses (lib/cashFlow.js).
+  // Entradas, saidas e saldo de fim de mes dos ultimos 12 meses (services/home.py).
   // Cada gasto entra no dia em que acontece — a compra no cartao no mes da
   // compra, nao no pagamento da fatura. Investimento e o que era de outra
   // pessoa ficam a parte; o saldo e o das contas de verdade.
-  const monthlyHistory = useMemo(() => {
-    const keys = Array.from({ length: HISTORY_MONTHS }, (_, index) => shiftMonth(currentKey, index - (HISTORY_MONTHS - 1)))
-    // Saldo inicial das contas + tudo antes da janela: a curva termina no
-    // mesmo saldo do topo da pagina.
-    return buildMonthlyFlow({ transactions, ccExpenses, keys, openingBalance: openingBalanceTotal(allAccounts) })
-      .map((item) => ({ ...item, label: shortMonth(item.key) }))
-  }, [transactions, ccExpenses, allAccounts, currentKey])
+  const monthlyHistory = useMemo(() => (home?.flow || NO_ITEMS).map(flowPoint), [home])
 
   const flowSummary = useMemo(() => {
     const hasInvestment = (item) => item.invested !== 0 || item.redeemed !== 0
@@ -355,49 +359,36 @@ export default function Dashboard() {
   }, [currentSpending, previousSpending])
 
   // A proxima fatura de cada cartao: a que vence primeiro, de hoje em diante
-  // (lib/attentionRules.js) — a mesma regra do sino e da tela Cartoes. "A
+  // (services/card_invoices.py) — a mesma regra do sino e da tela Cartoes. "A
   // fatura do mes que vem" deixava de fora quem fecha antes de vencer no mesmo
   // mes (fecha 3, vence 10): a de novembro, fechada, so aparecia vencida.
-  const nextInvoices = useMemo(() => nextInvoicesOf(openCcExpenses, todayText), [openCcExpenses, todayText])
-  const nextInvoiceItems = useMemo(() => nextInvoices.flatMap((invoice) => invoice.items), [nextInvoices])
-  const nextInvoiceTotal = useMemo(() => nextInvoices.reduce((acc, invoice) => acc + invoice.total, 0), [nextInvoices])
+  const nextInvoices = home?.next_invoices || NO_ITEMS
+  // As compras delas, na ordem das faturas, para a lista do painel.
+  const nextInvoiceItems = useMemo(() => nextInvoices.flatMap((invoice) => openCcExpenses.filter((item) => (
+    item.card_id === invoice.card_id && item.invoice_month === invoice.invoice_month && item.invoice_year === invoice.invoice_year
+  ))), [nextInvoices, openCcExpenses])
+  const nextInvoiceTotal = home?.next_invoices_total || 0
   // Os meses delas: com cartoes de ciclos diferentes, pode ser mais de um.
   const nextInvoiceMonths = useMemo(() => [...new Set(nextInvoices.map(invoiceMonthKey))].sort(), [nextInvoices])
 
   // So fatura fechada pode ser paga (o servidor recusa as outras). Uma por
   // cartao: cada uma vira um pagamento proprio.
-  const payableInvoices = useMemo(() => payableInvoicesOf(nextInvoiceItems), [nextInvoiceItems])
+  const payableInvoices = useMemo(() => nextInvoices
+    .filter((invoice) => invoice.payable)
+    .map(({ card_id, invoice_month, invoice_year, total }) => ({ card_id, invoice_month, invoice_year, total })), [nextInvoices])
 
   const payableTotal = payableInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
 
   // "Precisa de atencao" so cobra fatura vencida: passou do dia do vencimento
-  // e continua em aberto (lib/attentionRules.js).
-  const overdueInvoices = useMemo(() => overdueInvoicesOf(openCcExpenses, todayText), [openCcExpenses, todayText])
-
-  const overdueTotal = overdueInvoices.reduce((acc, invoice) => acc + invoice.total, 0)
+  // e continua em aberto (services/attention.py).
+  const overdueItem = attention.find((item) => item.kind === 'INVOICE_OVERDUE')
+  const overdueInvoices = overdueItem?.invoices || NO_ITEMS
+  const overdueTotal = overdueItem?.total || 0
   const overdueDetail = overdueDetailOf(overdueInvoices)
 
-  // Debito automatico que a conta nao cobre nos proximos 31 dias.
-  const autopayShortfalls = useMemo(() => {
-    const limit = new Date()
-    limit.setDate(limit.getDate() + 31)
-    return autopayShortfallsOf({ cards, accounts, openExpenses: openCcExpenses, todayText: getLocalDateString(), limitText: getLocalDateString(limit) })
-  }, [cards, accounts, openCcExpenses])
-
-  // Os avisos de "Precisa de atencao", os mesmos do sino do cabecalho.
-  const attention = useMemo(() => attentionItems({
-    overdue: overdueInvoices,
-    payable: payableInvoices,
-    shortfalls: autopayShortfalls,
-    recurringItems,
-    budget,
-  }), [overdueInvoices, payableInvoices, autopayShortfalls, recurringItems, budget])
   const shownAttention = useMemo(() => undismissedItems(attention, dismissedAttention), [attention, dismissedAttention])
 
-  const nextClosingDate = useMemo(() => nextInvoiceItems
-    .filter((item) => item.invoice_closed !== true && item.invoice_closing_date)
-    .map((item) => item.invoice_closing_date)
-    .sort()[0] || null, [nextInvoiceItems])
+  const nextClosingDate = home?.next_closing_date || null
 
   // Quanto ja esta comprometido nas proximas faturas, por mes de fatura, a
   // partir do mes da primeira delas. A vencida fica fora: ela e o aviso de
@@ -520,7 +511,7 @@ export default function Dashboard() {
 
   // Esqueleto ate as movimentacoes chegarem: sem elas os numeros de cima
   // piscariam zerados.
-  if (movementsQuery.isPending) {
+  if (homeQuery.isPending || movementsQuery.isPending) {
     return <DashboardSkeleton />
   }
 
@@ -531,7 +522,7 @@ export default function Dashboard() {
   // O mes atual do fluxo de caixa (o cartao no dia da compra). Aporte,
   // resgate e outras pessoas nao sao despesa nem receita do dono e aparecem a
   // parte no "Resumo do mes".
-  const currentMonth = monthlyHistory[monthlyHistory.length - 1] || { income: 0, expense: 0, invested: 0, redeemed: 0, others: 0, othersPaid: 0, othersReceived: 0, net: 0 }
+  const summary = home?.summary || { income: 0, expense: 0, invested: 0, redeemed: 0, others_net: 0 }
 
   return (
     <div className="space-y-5">
@@ -570,11 +561,11 @@ export default function Dashboard() {
         />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:col-span-4 xl:grid-cols-1">
           <MonthSummary
-            income={currentMonth.income}
-            expense={-currentMonth.expense}
-            invested={currentMonth.invested}
-            redeemed={currentMonth.redeemed}
-            others={currentMonth.others}
+            income={summary.income}
+            expense={summary.expense}
+            invested={summary.invested}
+            redeemed={summary.redeemed}
+            others={summary.others_net}
           />
           <NextInvoiceTile
             total={nextInvoiceTotal}
@@ -1082,7 +1073,7 @@ function useIsSm() {
 const sentenceCase = (text = '') => text.charAt(0).toUpperCase() + text.slice(1)
 
 // O mes em linhas: rotulo, valor e uma dica. Os numeros sao os do fluxo de
-// caixa do mes atual (lib/cashFlow.js) — receitas e despesas so a parte do
+// caixa do mes atual (GET /api/home, `summary`) — receitas e despesas so a parte do
 // dono, o cartao no dia da compra. Investido e outras pessoas so aparecem
 // quando houve. No modo privado todos os valores somem, e a cor do resultado
 // sai junto, senao o sinal vaza.

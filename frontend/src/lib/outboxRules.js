@@ -2,7 +2,7 @@
 // frontend/android/.../outbox/OutboxRules.java (OutboxRulesTest): endpointFor,
 // newClientId, buildItem, editedItem, outcomeOf, deliveredDiffers. O saldo com
 // pendentes (pendingAccountDeltas, applyPendingToAccounts, pendingAsTransactions,
-// countByStatus e o sendOrder/toCents que usam) tem outro par:
+// applyPendingToHome, countByStatus e o sendOrder/toCents que usam) tem outro par:
 // frontend/android/.../rules/OutboxPending.kt (OutboxPendingTest).
 //
 // As regras da fila de envio (lib/outbox.js), como funcoes puras: nada aqui
@@ -196,6 +196,103 @@ export function pendingAsTransactions(items = [], { defaultAccountId = '' } = {}
       created_at: item.created_at,
     }))
     .reverse()
+}
+
+// GET /api/home com os pendentes por cima. O servidor nao ve a fila do
+// aparelho; sem isto uma despesa guardada offline baixaria a conta mas nao o
+// "Saiu" do mes. E o bankingTransactions() + buildMonthlyFlow() de antes,
+// restrito aos pendentes, em centavos:
+//   - as contas: applyPendingToAccounts();
+//   - o saldo em contas: + o que muda nas contas em reais que nao sao Corretora;
+//   - cada mes do fluxo: despesa/receita inteira (um pendente nunca e
+//     dividido; "Pagamento Fatura..." nao e despesa), transferencia banco ->
+//     Corretora e aporte, Corretora -> banco resgate, banco -> banco nada;
+//     linha numa Corretora fica de fora; compra no cartao nao entra;
+//   - o saldo de fim de mes anda do mes do pendente em diante;
+//   - `summary` e o ultimo mes de novo.
+export function applyPendingToHome(home, items = []) {
+  const waiting = items.filter((item) => item.status === PENDING && item.kind !== 'CARD')
+  if (!home || !waiting.length) return home
+  const accounts = home.accounts || []
+  const defaultAccountId = accounts.find((account) => account.is_default)?.id || ''
+  const isPortfolio = (id) => accounts.some((account) => account.id === id && account.type === 'BROKERAGE')
+
+  const nextAccounts = applyPendingToAccounts(accounts, waiting)
+  const deltas = pendingAccountDeltas(waiting, { defaultAccountId })
+  let consolidated = toCents(home.consolidated_balance)
+  accounts.forEach((account) => {
+    const cents = deltas.get(account.id)
+    const inReais = !account.currency || account.currency === 'BRL'
+    if (cents && inReais && account.type !== 'BROKERAGE' && account.balance_brl !== null && account.balance_brl !== undefined) {
+      consolidated += cents
+    }
+  })
+
+  const months = (home.flow || []).map((month) => ({
+    month: month.month,
+    income: toCents(month.income),
+    expense: toCents(month.expense),
+    invested: toCents(month.invested),
+    redeemed: toCents(month.redeemed),
+    others_paid: toCents(month.others_paid),
+    others_received: toCents(month.others_received),
+    balance: toCents(month.balance),
+  }))
+  waiting.forEach((item) => {
+    const cents = toCents(amountOf(item))
+    if (cents <= 0) return
+    const key = String(item.payload?.date || '').slice(0, 7)
+    let field = null
+    let cash = 0
+    if (item.kind === 'TRANSFER') {
+      const fromPortfolio = isPortfolio(item.payload.account_id)
+      const toPortfolio = isPortfolio(item.payload.transfer_account_id)
+      if (fromPortfolio === toPortfolio) return
+      field = toPortfolio ? 'invested' : 'redeemed'
+      cash = toPortfolio ? -cents : cents
+    } else {
+      if (isPortfolio(item.payload.account_id || defaultAccountId)) return
+      cash = item.kind === 'INCOME' ? cents : -cents
+      const invoicePayment = String(item.payload.category || '').startsWith('Pagamento Fatura')
+      field = item.kind === 'INCOME' ? 'income' : invoicePayment ? null : 'expense'
+    }
+    months.forEach((month) => {
+      if (month.month === key && field) month[field] += cents
+      if (month.month >= key) month.balance += cash
+    })
+  })
+
+  const flow = months.map((month) => ({
+    month: month.month,
+    income: month.income / 100,
+    expense: month.expense / 100,
+    invested: month.invested / 100,
+    redeemed: month.redeemed / 100,
+    others_paid: month.others_paid / 100,
+    others_received: month.others_received / 100,
+    net: (month.income - month.expense - month.invested + month.redeemed + month.others_received - month.others_paid) / 100,
+    balance: month.balance / 100,
+  }))
+  const last = months[months.length - 1]
+  const summary = last ? {
+    income: last.income / 100,
+    expense: last.expense / 100,
+    result: (last.income - last.expense) / 100,
+    invested: last.invested / 100,
+    redeemed: last.redeemed / 100,
+    investment_net: (last.invested - last.redeemed) / 100,
+    others_paid: last.others_paid / 100,
+    others_received: last.others_received / 100,
+    others_net: (last.others_received - last.others_paid) / 100,
+  } : home.summary
+  return {
+    ...home,
+    accounts: nextAccounts,
+    consolidated_balance: consolidated / 100,
+    flow,
+    summary,
+    balance_estimated: nextAccounts !== accounts,
+  }
 }
 
 export function countByStatus(items = []) {

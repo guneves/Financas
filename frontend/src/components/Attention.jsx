@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Bell, ChevronRight, CreditCard, Repeat, Target, Wallet } from 'lucide-react'
 import { useAttentionItems } from '../lib/attention'
+import { overdueDetail } from '../lib/attentionRules'
 import { formatCurrency, formatDateBR } from '../lib/format'
 import { useLayer } from '../lib/layers'
 import { usePrivateFormatter } from '../lib/privacy'
 import { cx } from './ui'
 
-// Os avisos de "Precisa de atencao" (lib/attentionRules.js) desenhados: os
-// cartoes do Inicio e a lista do sino do cabecalho usam o mesmo texto.
+// Os avisos de "Precisa de atencao" (GET /api/attention) desenhados: os
+// cartoes do Inicio e a lista do sino do cabecalho usam o mesmo texto. O
+// servidor manda so os numeros; o texto e daqui.
 
 const attentionTones = {
   danger: 'bg-rose-100 text-rose-700',
@@ -40,18 +42,18 @@ function useAttentionText() {
   return (item) => {
     switch (item.kind) {
       case 'INVOICE_OVERDUE':
-        return { title: `Fatura vencida: ${formatCurrency(item.total)}`, detail: `${item.detail} · ${item.itemCount} lançamento(s)` }
+        return { title: `Fatura vencida: ${formatCurrency(item.total)}`, detail: `${overdueDetail(item.invoices || [])} · ${item.item_count} lançamento(s)` }
       case 'INVOICE_PAYABLE':
         return { title: `Fatura fechada: ${formatCurrency(item.total)}`, detail: 'O pagamento já está liberado.' }
       case 'AUTOPAY_SHORTFALL':
         return {
           title: `Débito automático sem saldo: faltam ${privateMoney(item.missing)}`,
-          detail: `${item.accountName} tem ${privateMoney(item.balance)} para ${formatCurrency(item.total)} a debitar · o primeiro em ${formatDateBR(item.firstDue)}`,
+          detail: `${item.account_name} tem ${privateMoney(item.balance)} para ${formatCurrency(item.total)} a debitar · o primeiro em ${formatDateBR(item.first_due)}`,
         }
       case 'RECURRING':
         return { title: `${item.count} ${item.count === 1 ? 'recorrência vencida' : 'recorrências vencidas'}`, detail: '' }
       case 'OVER_BUDGET':
-        return { title: `${item.categoryName} passou do orçamento`, detail: `${formatCurrency(item.spent)} de ${formatCurrency(item.available)}` }
+        return { title: `${item.category_name} passou do orçamento`, detail: `${formatCurrency(item.spent)} de ${formatCurrency(item.available)}` }
       default:
         return { title: '', detail: '' }
     }

@@ -413,6 +413,48 @@ def test_investido_matches_monthly_plan(world, clock):
     assert (summary["invested"], summary["redeemed"]) == (plan["actual"]["aportes"], plan["actual"]["resgates"])
 
 
+# --- sharing.test.js (os dois casos de buildMonthlyFlow que moravam la) ------
+
+def test_from_sharing_card_in_purchase_month_invoice_payment_not(world, clock):
+    banco = world.account("Banco", initial=0)
+    card = world.card()
+    world.insert_tx("EXPENSE", 300, "2026-03-10", banco, source_type="CC_INVOICE_PAYMENT", category="Pagamento Fatura Nubank")
+    world.insert_tx("EXPENSE", 50, "2026-03-11", banco, category="Pagamento Fatura antigo")
+    world.tx("INCOME", 1000, "2026-02-01", banco, "Receita", "Salário")
+    for _ in range(3):
+        world.purchase(card, 100, "2026-02-20")
+    clock.set("2026-03-20")
+
+    february, march = world.home(months=2)["flow"]
+    assert (february["expense"], march["expense"]) == (300, 0)
+    # O saldo e o das contas: o pagamento da fatura sai em marco.
+    assert (february["balance"], march["balance"]) == (1000, 650)
+
+
+def test_from_sharing_other_people_apart_but_in_the_result(world, clock):
+    banco = world.account("Banco", initial=100)
+    poupanca = world.account("Poupança", "SAVINGS")
+    card = world.card()
+    world.tx("EXPENSE", 80, "2026-03-05", banco, "Alimentação", "Pizza",
+             share_mode="SPLIT", share_person="Ana", share_others_amount=40.1)
+    world.tx("INCOME", 40.1, "2026-03-06", banco, "Receita", "Pix", share_mode="OTHERS", share_person="Ana")
+    world.tx("INCOME", 500, "2026-03-01", banco, "Receita", "Salário")
+    world.insert_tx("EXPENSE", 200, "2026-03-02", banco, source_type="INVESTMENT_TRANSACTION")
+    world.transfer(999, "2026-03-02", banco, poupanca)
+    world.tx("EXPENSE", 5, "2026-01-31", banco)
+    rows = world.purchase(card, 60, "2026-03-08")
+    world.call("patch", f"/api/cc-expenses/{rows[0]['id']}/share", json={"share_mode": "OTHERS", "share_person": "Bruno"})
+    clock.set("2026-03-20")
+
+    march = world.home(months=2)["flow"][1]
+    assert (march["income"], march["expense"]) == (500, 39.9)
+    assert (march["others_paid"], march["others_received"]) == (100.1, 40.1)
+    assert march["invested"] == 200
+    assert march["net"] == 200.1
+    assert march["balance"] == 355.1
+    assert world.home()["summary"]["others_net"] == -60
+
+
 def test_user_isolation(client, world, other_user, clock):
     banco = world.account("Banco", initial=10)
     world.tx("EXPENSE", 5, "2026-10-03", banco)

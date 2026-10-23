@@ -1,6 +1,5 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMonthlyFlow } from './cashFlow.js'
 import {
   groupReceivables,
   othersAmount,
@@ -58,50 +57,6 @@ test('receivables group by person, case and spaces aside, biggest first', () => 
   assert.deepEqual(settlePayload(groups[1].items), { transaction_ids: ['t1', 't2'], cc_expense_ids: [], settled: true })
 })
 
-const keys = ['2026-02', '2026-03']
-
-test('a card purchase counts in its purchase month and the invoice payment does not', () => {
-  const flow = buildMonthlyFlow({
-    keys,
-    transactions: [
-      { type: 'EXPENSE', amount: 300, date: '2026-03-10', category: 'Pagamento Fatura Nubank', source_type: 'CC_INVOICE_PAYMENT' },
-      { type: 'EXPENSE', amount: 50, date: '2026-03-11', category: 'Pagamento Fatura antigo' },
-      { type: 'INCOME', amount: 1000, date: '2026-02-01', category: 'Salário' },
-    ],
-    ccExpenses: [
-      { amount: 100, purchase_date: '2026-02-20' },
-      { amount: 100, purchase_date: '2026-02-20' },
-      { amount: 100, purchase_date: '2026-02-20' },
-    ],
-  })
-  assert.equal(flow[0].expense, -300)
-  assert.equal(flow[1].expense, 0)
-  // O saldo e o das contas: o pagamento da fatura sai em marco.
-  assert.equal(flow[0].balance, 1000)
-  assert.equal(flow[1].balance, 650)
-})
-
-test('other people stay apart from income and expense, but in the result', () => {
-  const flow = buildMonthlyFlow({
-    keys,
-    openingBalance: 100,
-    transactions: [
-      { ...pizza, date: '2026-03-05' },
-      { type: 'INCOME', amount: 40.1, date: '2026-03-06', category: 'Pix', share_mode: 'OTHERS', share_person: 'Ana' },
-      { type: 'INCOME', amount: 500, date: '2026-03-01', category: 'Salário' },
-      { type: 'EXPENSE', amount: 200, date: '2026-03-02', source_type: 'INVESTMENT_TRANSACTION', category: 'Aporte' },
-      { type: 'TRANSFER', amount: 999, date: '2026-03-02' },
-      { type: 'EXPENSE', amount: 5, date: '2026-01-31' },
-    ],
-    ccExpenses: [{ amount: 60, purchase_date: '2026-03-08', share_mode: 'OTHERS', share_person: 'Bruno' }],
-  })
-  const march = flow[1]
-  assert.equal(march.income, 500)
-  assert.equal(march.expense, -39.9)
-  assert.equal(march.othersPaid, 100.1)
-  assert.equal(march.othersReceived, 40.1)
-  assert.equal(march.others, -60)
-  assert.equal(march.invested, 200)
-  assert.equal(march.net, 200.1)
-  assert.equal(march.balance, 355.1)
-})
+// O fluxo do mes (o cartao no mes da compra, o pagamento da fatura fora, outras
+// pessoas a parte) e do servidor: estes dois casos, com as mesmas entradas,
+// estao em backend/tests/test_home.py (test_from_sharing_*).

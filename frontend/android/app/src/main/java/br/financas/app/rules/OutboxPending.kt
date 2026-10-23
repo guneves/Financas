@@ -1,7 +1,7 @@
 // Port: mudou um, muda o outro, com um teste de cada lado.
 // Par: frontend/src/lib/outboxRules.js (testes em outboxRules.test.js), so as regras do saldo
-// com pendentes: pendingAccountDeltas, applyPendingToAccounts, pendingAsTransactions e
-// countByStatus (e o sendOrder, o toCents e o amountOf que elas usam). As regras de envio
+// com pendentes: pendingAccountDeltas, applyPendingToAccounts, pendingAsTransactions,
+// applyPendingToHome e countByStatus (e o sendOrder, o toCents e o amountOf que elas usam). As regras de envio
 // estao em outbox/OutboxRules.java. Aqui: OutboxPendingTest.kt, os mesmos casos na mesma ordem.
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
 package br.financas.app.rules
@@ -33,9 +33,11 @@ data class PendingItem(
     val createdAt: String? = null,
 )
 
-/** Uma conta de GET /api/accounts, so o que applyPendingToAccounts le e escreve. */
+/** Uma conta de GET /api/accounts (ou de /api/home), so o que estas regras leem e escrevem. */
 data class PendingAccount(
     val id: String,
+    /** BROKERAGE e a Corretora: fica fora do saldo em contas e do fluxo do Inicio. */
+    val type: String? = null,
     val balance: BigDecimal? = null,
     val balanceBrl: BigDecimal? = null,
     /** null = sem moeda (o JS trata como reais, como "BRL"). */
@@ -59,6 +61,41 @@ data class PendingTransaction(
     val transferAccountId: String?,
     val sourceType: String? = null,
     val createdAt: String?,
+)
+
+/** Um mes do `flow` de GET /api/home, em reais. */
+data class HomeMonth(
+    val month: String,
+    val income: BigDecimal = BigDecimal.ZERO,
+    val expense: BigDecimal = BigDecimal.ZERO,
+    val invested: BigDecimal = BigDecimal.ZERO,
+    val redeemed: BigDecimal = BigDecimal.ZERO,
+    val othersPaid: BigDecimal = BigDecimal.ZERO,
+    val othersReceived: BigDecimal = BigDecimal.ZERO,
+    val net: BigDecimal = BigDecimal.ZERO,
+    val balance: BigDecimal = BigDecimal.ZERO,
+)
+
+/** O `summary` de GET /api/home: o ultimo mes do fluxo com o resultado e os liquidos. */
+data class HomeSummary(
+    val income: BigDecimal = BigDecimal.ZERO,
+    val expense: BigDecimal = BigDecimal.ZERO,
+    val result: BigDecimal = BigDecimal.ZERO,
+    val invested: BigDecimal = BigDecimal.ZERO,
+    val redeemed: BigDecimal = BigDecimal.ZERO,
+    val investmentNet: BigDecimal = BigDecimal.ZERO,
+    val othersPaid: BigDecimal = BigDecimal.ZERO,
+    val othersReceived: BigDecimal = BigDecimal.ZERO,
+    val othersNet: BigDecimal = BigDecimal.ZERO,
+)
+
+/** O que applyPendingToHome le e escreve de GET /api/home. */
+data class HomeData(
+    val consolidatedBalance: BigDecimal,
+    val accounts: List<PendingAccount>,
+    val summary: HomeSummary,
+    val flow: List<HomeMonth>,
+    val balanceEstimated: Boolean = false,
 )
 
 object OutboxPending {
@@ -168,6 +205,105 @@ object OutboxPending {
                 )
             }
             .reversed()
+
+    /**
+     * GET /api/home com os pendentes por cima (o servidor nao ve a fila do aparelho), em
+     * centavos: as contas (applyPendingToAccounts); o saldo em contas + o que muda nas contas
+     * em reais que nao sao Corretora; em cada mes do fluxo a despesa/receita inteira (um
+     * pendente nunca e dividido; "Pagamento Fatura..." nao e despesa), transferencia banco ->
+     * Corretora e aporte, Corretora -> banco resgate, banco -> banco nada, linha numa
+     * Corretora de fora, compra no cartao nunca; o saldo de fim de mes anda do mes do
+     * pendente em diante; summary e o ultimo mes de novo. Nada a mudar devolve o mesmo objeto.
+     */
+    fun applyPendingToHome(home: HomeData, items: List<PendingItem>): HomeData {
+        val waiting = items.filter { it.status == PENDING && it.kind != "CARD" }
+        if (waiting.isEmpty()) return home
+        val accounts = home.accounts
+        val defaultAccountId = accounts.firstOrNull { it.isDefault }?.id ?: ""
+        fun isPortfolio(id: String?) = accounts.any { it.id == id && it.type == "BROKERAGE" }
+
+        val nextAccounts = applyPendingToAccounts(accounts, waiting)
+        val deltas = pendingAccountDeltas(waiting, defaultAccountId)
+        var consolidated = toCents(home.consolidatedBalance)
+        accounts.forEach { account ->
+            val cents = deltas[account.id] ?: 0L
+            val inReais = account.currency.isNullOrEmpty() || account.currency == "BRL"
+            if (cents != 0L && inReais && account.type != "BROKERAGE" && account.balanceBrl != null) {
+                consolidated += cents
+            }
+        }
+
+        val months = home.flow.map {
+            longArrayOf(
+                toCents(it.income), toCents(it.expense), toCents(it.invested), toCents(it.redeemed),
+                toCents(it.othersPaid), toCents(it.othersReceived), toCents(it.balance),
+            )
+        }
+        val income = 0; val expense = 1; val invested = 2; val redeemed = 3
+        val othersPaid = 4; val othersReceived = 5; val balance = 6
+        waiting.forEach { item ->
+            val cents = toCents(amountOf(item))
+            if (cents <= 0) return@forEach
+            val payload = item.payload
+            val key = (payload.date ?: "").take(7)
+            val field: Int?
+            val cash: Long
+            if (item.kind == "TRANSFER") {
+                val fromPortfolio = isPortfolio(payload.accountId)
+                val toPortfolio = isPortfolio(payload.transferAccountId)
+                if (fromPortfolio == toPortfolio) return@forEach
+                field = if (toPortfolio) invested else redeemed
+                cash = if (toPortfolio) -cents else cents
+            } else {
+                val account = payload.accountId.takeUnless { it.isNullOrEmpty() } ?: defaultAccountId
+                if (isPortfolio(account)) return@forEach
+                cash = if (item.kind == "INCOME") cents else -cents
+                val invoicePayment = (payload.category ?: "").startsWith("Pagamento Fatura")
+                field = when {
+                    item.kind == "INCOME" -> income
+                    invoicePayment -> null
+                    else -> expense
+                }
+            }
+            home.flow.forEachIndexed { index, month ->
+                if (month.month == key && field != null) months[index][field] += cents
+                if (month.month >= key) months[index][balance] += cash
+            }
+        }
+
+        val flow = home.flow.mapIndexed { index, month ->
+            val m = months[index]
+            month.copy(
+                income = fromCents(m[income]),
+                expense = fromCents(m[expense]),
+                invested = fromCents(m[invested]),
+                redeemed = fromCents(m[redeemed]),
+                othersPaid = fromCents(m[othersPaid]),
+                othersReceived = fromCents(m[othersReceived]),
+                net = fromCents(m[income] - m[expense] - m[invested] + m[redeemed] + m[othersReceived] - m[othersPaid]),
+                balance = fromCents(m[balance]),
+            )
+        }
+        val last = months.lastOrNull()
+        val summary = if (last == null) home.summary else HomeSummary(
+            income = fromCents(last[income]),
+            expense = fromCents(last[expense]),
+            result = fromCents(last[income] - last[expense]),
+            invested = fromCents(last[invested]),
+            redeemed = fromCents(last[redeemed]),
+            investmentNet = fromCents(last[invested] - last[redeemed]),
+            othersPaid = fromCents(last[othersPaid]),
+            othersReceived = fromCents(last[othersReceived]),
+            othersNet = fromCents(last[othersReceived] - last[othersPaid]),
+        )
+        return home.copy(
+            accounts = nextAccounts,
+            consolidatedBalance = fromCents(consolidated),
+            flow = flow,
+            summary = summary,
+            balanceEstimated = nextAccounts !== accounts,
+        )
+    }
 
     /** Quantos itens em cada estado; pending e needs_attention sempre presentes (0). */
     fun countByStatus(items: List<PendingItem>): Map<String, Int> {
