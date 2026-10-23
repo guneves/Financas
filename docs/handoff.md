@@ -10,7 +10,7 @@
 ## Session — 2026-10-23 · native migration session 7: Início and the bell
 
 Cloud session, branch `claude/wizardly-faraday-cbx3mb` (from `main` at `c137844`, PR #36 merged),
-PR #37 to `main`. Briefing by `session-scout`, found by `subagent_type`, no fallback. Confirmed
+PR #38 to `main`. Briefing by `session-scout`, found by `subagent_type`, no fallback. Confirmed
 first that `main` had `GET /api/home`, `GET /api/attention` and `rules/OutboxPending.kt`.
 The builder (`native-screen-builder`) was cut off once by a usage limit and resumed from its
 transcript; nothing was lost.
@@ -71,7 +71,7 @@ transcript; nothing was lost.
 9. New: should native and web share one dismissed-cards list?
 
 ### Next session
-1. If the owner's phone check of PR #37 finds something, fix it on that branch before the merge.
+1. If the owner's phone check of PR #38 finds something, fix it on that branch before the merge.
 2. Otherwise `home-panels.md` (so Início, web and native, stops downloading the history and the
    four panels can go native), or step 4 (Extrato/Cartões, with paging §5).
 

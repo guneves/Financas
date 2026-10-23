@@ -145,7 +145,7 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   (`assert 0 == 1`) — at that hour UTC is already the next day, so the test's `days(0)` and
   `apply_paid_proceeds()`'s "today" disagree. Seen 2026-10-22 21:43 local; find which side uses
   UTC and make both the local date, as everything else does.
-- [ ] **Step 3 — Início and the bell native, owner's phone check** (built 2026-10-23, PR #37,
+- [ ] **Step 3 — Início and the bell native, owner's phone check** (built 2026-10-23, PR #38,
   native-level 5): run `screens/03-inicio.md`'s Acceptance on the debug APK and compare with the
   web on the same data (the spec's "Comparing native and web"). Open from that session:
   - toggling the eye natively and then following a link can show the web's values unmasked for a
