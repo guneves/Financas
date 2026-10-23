@@ -131,7 +131,9 @@ rejects both calls and the web keeps its own mode.
 Navigation: the web route `/inicio` is `NativePage stay`: it opens the native page and the WebView
 stays on `/inicio` drawing nothing; native links (Cartões, Extrato, A receber, Orçamento,
 Recorrentes, Ajustes, the bottom tabs) finish the Activity with `navigate`; `/inicio?web=1` is the
-React page (also what "Entrar novamente" opens after a 401). Native back on Início minimizes; "+"
+React page (also what "Entrar novamente" opens after a 401). With no WebView listening (the
+process was recreated with native Início on top) the link's route is stored
+(`NativeScreens.takePendingRoute`, valid 2 min) and the web goes straight to it on start. Native back on Início minimizes; "+"
 opens the native "+ Novo"; the Aprovar pill opens native Aprovar on top.
 
 ## Client rules
