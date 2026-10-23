@@ -231,7 +231,9 @@ def normalize_goal_payload(payload, existing=None):
         merged, "annual_return_percent", "Rentabilidade anual esperada", minimum=-99, maximum=100
     )
     target_date = optional_date(merged, "target_date", "Data desejada")
-    if target_date and target_date[:7] <= month_key(local_today()):
+    stored_date = str(existing["target_date"])[:10] if existing and existing["target_date"] else None
+    # So uma data nova precisa ser futura: a guardada chega ao seu mes e a meta segue editavel.
+    if target_date and target_date != stored_date and target_date[:7] <= month_key(local_today()):
         raise ValidationError("A data desejada precisa ser depois deste mes.")
     return {
         "name": name,

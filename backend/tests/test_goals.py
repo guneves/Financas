@@ -162,3 +162,19 @@ def test_another_user_cannot_see_or_touch_a_goal(client, auth, other_user):
     assert client.patch(f"/api/goals/{goal['id']}", headers=stranger, json={"target_amount": 1}).status_code == 404
     assert client.delete(f"/api/goals/{goal['id']}", headers=stranger).status_code == 404
     assert client.get(f"/api/goals/{goal['id']}", headers=auth).status_code == 200
+
+
+def test_an_edit_keeps_a_target_date_that_has_since_arrived(client, auth, monkeypatch):
+    goal = created(create_goal(client, auth, target_amount=1000, target_date="2026-03-01"))
+    goals = importlib.import_module("services.goals")
+    monkeypatch.setattr(goals, "local_today", lambda: date(2026, 3, 10))
+    # A tela manda a data guardada de volta: renomear nao pode ser recusado.
+    response = client.patch(f"/api/goals/{goal['id']}", headers=auth,
+                            json={"name": "Reserva", "target_date": "2026-03-01"})
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["name"] == "Reserva"
+    omitted = client.patch(f"/api/goals/{goal['id']}", headers=auth, json={"target_amount": 2000})
+    assert omitted.status_code == 200, omitted.get_data(as_text=True)
+    # Uma data nova continua tendo de ser futura.
+    moved = client.patch(f"/api/goals/{goal['id']}", headers=auth, json={"target_date": "2026-02-01"})
+    assert moved.status_code == 400
