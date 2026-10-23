@@ -18,12 +18,15 @@ spec named on each line.
 | Paging on `GET /api/transactions` | Returning the whole history on every read | `04-extrato.md` |
 
 `rules-port.md` holds the port-or-endpoint decision per module; these are the concrete shapes.
+The first five (all but the Extrato's balance summary) are proposed in detail in
+`proposals/home-attention-invoices.md` (2026-10-23), waiting for the owner.
 
 ## Rules that must be ported anyway
 
 - **Pending-balance rules** (`outboxRules.js`: `pendingAccountDeltas`, `applyPendingToAccounts`,
-  `pendingAsTransactions`): `OutboxRules.java` has only the send rules. The queue lives on the phone,
-  so no endpoint can replace them. Needed by native Início (step 3).
+  `pendingAsTransactions`, `countByStatus`): ported to `rules/OutboxPending.kt` on 2026-10-23 with
+  the node cases. The queue lives on the phone, so no endpoint can replace them. `applyPendingToHome()`
+  (the overlay on the proposed `/api/home`) is still to write, on both sides.
 - `parseMoneyInput()` (shared by "+ Novo", Orçamento and others), `percentRoom` / `clampPercent` /
   `stepPercent`, the plan's flag texts and `planFlagKey()`, `cardFunctions.js`.
 

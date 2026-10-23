@@ -96,6 +96,9 @@ Extrato.". Refund: "Compra estornada nao encontrada neste cartao.", archived/deb
 - Every write invalidates all queries.
 
 ## Client rules
+`GET /api/cc-invoices` and `DELETE /api/cc-expenses/purchases/<id>` are proposed in
+`../proposals/home-attention-invoices.md` (§3, §4; 2026-10-23, waiting for the owner).
+
 - **Invoice grouping** (inline `openInvoicesByCard` in `Cartoes.jsx`, **untested**): groups open items by
   card → invoice (`YYYY-MM`) → purchase, sums with `cardSignedAmount()` in float, sorts. **Endpoint**
   recommended: `GET /api/cc-invoices` returning per card the invoices with `total` (cents-correct),

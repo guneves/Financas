@@ -123,7 +123,9 @@ Reads write on the server: `/api/accounts` and `/api/transactions` materialize a
 `/api/credit-cards` materialize autopay only.
 
 ## Client rules
-**Candidates for an endpoint** (all are money rules and Início downloads the whole history to run
+**Proposed endpoints**: `GET /api/home`, `GET /api/attention` and `GET /api/cc-invoices` in
+`../proposals/home-attention-invoices.md` (2026-10-23, waiting for the owner). Below, the rules they
+replace. **Candidates for an endpoint** (all are money rules and Início downloads the whole history to run
 them; a single `GET /api/home?month=` — proposal, does not exist — returning balance, month summary,
 next invoices, attention items, flow, categories, projection, installments and pace would replace
 four queries and ~1000 lines of client logic; native keeps only the pending-item overlay):
@@ -157,7 +159,8 @@ four queries and ~1000 lines of client logic; native keeps only the pending-item
   `pendingAsTransactions()` (tested in `outboxRules.test.js`: expense out, income in, transfer moves
   both and leaves the consolidated, card pending touches nothing, missing account → default,
   `needs_attention` excluded, cents exact, foreign account's `balance_brl` untouched). Not in
-  `OutboxRules.java` yet: **port** with the same cases; the queue is local, no endpoint can see it.
+  `OutboxRules.java`: **ported** to `rules/OutboxPending.kt` (2026-10-23, the same cases); the queue is
+  local, no endpoint can see it. With `/api/home`, `applyPendingToHome()` is the overlay (proposal §1).
 - **Dismissals** — `lib/attention.js` (localStorage `@financeMVP:attentionDismissed`) +
   `addDismissed()` (keeps the last 200, tested) / `undismissedItems()`. **Port** per device.
 - **Budget status of the strip** — `BudgetProgress.jsx` `budgetStatus()` recomputes the overall
