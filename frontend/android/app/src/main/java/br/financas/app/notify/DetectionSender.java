@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import br.financas.app.outbox.Session;
+import br.financas.app.ui.inbox.InboxNotifier;
 
 /**
  * Manda a fila de deteccoes para o Aprovar, com o app fechado (DetectionWorker). Em lotes, na
@@ -24,6 +25,9 @@ import br.financas.app.outbox.Session;
  * qualquer resultado (nova, juntada, repetida, ja conhecida, invalida) e final: sai da fila.
  * Sem rede ou 5xx: fica para a proxima rodada. 401 ou sem login: espera o proximo login. Outro
  * 4xx no lote inteiro: o lote nao serve e sai (nao trava a fila para sempre).
+ *
+ * Uma deteccao que vira item novo (ou entra num item) poe a notificacao "Novo para aprovar"
+ * (ui/inbox/InboxNotifier), que abre Aprovar nativo no item.
  */
 public final class DetectionSender {
 
@@ -42,25 +46,53 @@ public final class DetectionSender {
             DetectionQueue queue = DetectionQueue.get(app);
             Session session = Session.load(app);
             if (session == null) return queue.count() > 0 ? "login" : "";
-            while (true) {
-                List<JSONObject> batch = queue.oldest(BATCH);
-                if (batch.isEmpty()) return "";
-                JSONArray list = new JSONArray();
-                List<String> keys = new ArrayList<>();
-                for (JSONObject item : batch) {
-                    list.put(item);
-                    keys.add(item.optString("key"));
+            List<String> arrived = new ArrayList<>();
+            try {
+                while (true) {
+                    List<JSONObject> batch = queue.oldest(BATCH);
+                    if (batch.isEmpty()) return "";
+                    JSONArray list = new JSONArray();
+                    List<String> keys = new ArrayList<>();
+                    for (JSONObject item : batch) {
+                        list.put(item);
+                        keys.add(item.optString("key"));
+                    }
+                    Answer answer = post(session, list);
+                    int status = answer.status;
+                    if (status == -1 || status >= 500) return "offline";
+                    if (status == 401) return "login";
+                    if (status != 200) Log.w(TAG, "Lote de deteccoes recusado: HTTP " + status);
+                    else arrived.addAll(InboxNotifier.newItemIds(answer.body));
+                    queue.remove(keys);
                 }
-                int status = post(session, list);
-                if (status == -1 || status >= 500) return "offline";
-                if (status == 401) return "login";
-                if (status != 200) Log.w(TAG, "Lote de deteccoes recusado: HTTP " + status);
-                queue.remove(keys);
+            } finally {
+                notifyArrived(app, arrived);
             }
         }
     }
 
-    private static int post(Session session, JSONArray detections) {
+    // "Novo para aprovar": nunca derruba o envio (a fila ja saiu).
+    private static void notifyArrived(Context app, List<String> itemIds) {
+        if (itemIds.isEmpty()) return;
+        try {
+            InboxNotifier.show(app, itemIds);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Aviso de Aprovar falhou", error);
+        }
+    }
+
+    /** O status da resposta (-1 = nao chegou) e o corpo de um 200. */
+    private static final class Answer {
+        final int status;
+        final String body;
+
+        Answer(int status, String body) {
+            this.status = status;
+            this.body = body;
+        }
+    }
+
+    private static Answer post(Session session, JSONArray detections) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL(session.baseUrl.replaceAll("/+$", "") + ENDPOINT);
@@ -80,12 +112,14 @@ public final class DetectionSender {
                 out.write(body);
             }
             int status = connection.getResponseCode();
-            if (status >= 300 && status < 400) return -1;
-            if (status == 200 && !isResults(read(connection.getInputStream()))) return -1;
-            return status;
+            if (status >= 300 && status < 400) return new Answer(-1, "");
+            if (status != 200) return new Answer(status, "");
+            String answerBody = read(connection.getInputStream());
+            if (!isResults(answerBody)) return new Answer(-1, "");
+            return new Answer(status, answerBody);
         } catch (Exception error) {
             // Sem rede, servidor desligado, tempo esgotado: a chave torna o reenvio seguro.
-            return -1;
+            return new Answer(-1, "");
         } finally {
             if (connection != null) connection.disconnect();
         }

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 2 (see `../migration-order.md`) |
-| Status | Not started |
+| Status | Built 2026-10-22 on `claude/native-aprovar` (native-level 4): NativeActivity + NavHost, ui/inbox/, data/InboxRepository, "Novo para aprovar" notification; local JVM tests + assembleDebug green; waiting for the owner's phone check (Acceptance). Not built: swipe gestures, quick-settings tile |
 | React source | `frontend/src/pages/lancamentos/Aprovar.jsx` (ItemCard, Decisions, TargetLine, CandidateRow, EditSheet, DecidedRow inline), `pages/lancamentos/helpers.js` (`buildCategoryOptions`, `filterCategoryOptions`), `pages/ajustes/AprovarSection.jsx` (the "Sempre perguntar" switch), `components/Layout.jsx` (tab badge) |
 | Route(s) | `/lancamentos/aprovar` (`APROVAR_PATH` in `lib/navigation.js`; `/aprovar` redirects there) |
 | Endpoints | `GET /api/inbox?view=pending\|decided`, `GET /api/inbox/count`, `GET /api/inbox/<id>`, `PATCH /api/inbox/<id>`, `POST /api/inbox/<id>/approve`, `POST /api/inbox/<id>/deny`, `POST /api/inbox/<id>/restore`, `POST /api/inbox/<id>/split`, `POST /api/inbox/approve-ready`, `GET /api/inbox/hints`, `DELETE /api/inbox/hints/<id>`, `GET/PATCH /api/inbox/settings`, `GET /api/accounts`, `GET /api/credit-cards`, `GET /api/categories` |

@@ -17,7 +17,9 @@ import com.getcapacitor.annotation.CapacitorPlugin
  *   nativa so para uma rota listada; o resto segue React.
  * - open({ screen, params }): abre a tela nativa. "new-entry": o "+ Novo"
  *   (params.type = EXPENSE | INCOME | TRANSFER | CARD; params.client_id = um item da fila a
- *   corrigir, Pendentes › Corrigir). Tela desconhecida: rejeita com "UNIMPLEMENTED".
+ *   corrigir, Pendentes › Corrigir). "inbox": Lancamentos › Aprovar (ui/inbox/, numa
+ *   NativeActivity; frontend/native-level.txt 4 em diante). Tela desconhecida: rejeita com
+ *   "UNIMPLEMENTED".
  *
  * Eventos (escutados pela web com addListener):
  * - "dataChanged" ({ notice? }): uma tela nativa gravou algo (ou guardou na fila); a web chama
@@ -71,6 +73,16 @@ class NativeScreensPlugin : Plugin() {
                 }
                 call.resolve()
             }
+            SCREEN_INBOX -> {
+                val host = activity
+                if (host == null) {
+                    call.reject("Tela nativa indisponível agora.", CODE_UNAVAILABLE)
+                    return
+                }
+                val intent = NativeActivity.intent(host, NativeRoutes.INBOX)
+                host.runOnUiThread { host.startActivity(intent) }
+                call.resolve()
+            }
             else -> call.reject("Tela nativa não disponível: $screen", CODE_UNIMPLEMENTED)
         }
     }
@@ -88,8 +100,11 @@ class NativeScreensPlugin : Plugin() {
         /** O "+ Novo" (ui/newentry/). */
         const val SCREEN_NEW_ENTRY = "new-entry"
 
+        /** Lancamentos › Aprovar (ui/inbox/), uma pagina da NativeActivity. */
+        const val SCREEN_INBOX = "inbox"
+
         /** As rotas nativas deste APK (o NativeScreens.routes() da web). */
-        val ROUTES: List<String> = listOf(SCREEN_NEW_ENTRY)
+        val ROUTES: List<String> = listOf(SCREEN_NEW_ENTRY, SCREEN_INBOX)
 
         @Volatile
         private var current: NativeScreensPlugin? = null

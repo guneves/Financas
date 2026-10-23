@@ -21,4 +21,6 @@ ext {
     kotlinxSerializationVersion = '1.9.0'
     kotlinxCoroutinesVersion = '1.10.2'
     androidxLifecycleVersion = '2.9.2'
+    // As paginas nativas (ui/nav/NativeActivity): um NavHost do Compose para todas elas.
+    navigationComposeVersion = '2.9.5'
 }
