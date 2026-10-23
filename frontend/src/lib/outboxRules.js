@@ -1,6 +1,9 @@
 // Port: mudou um, muda o outro, com um teste de cada lado. O par nativo e
 // frontend/android/.../outbox/OutboxRules.java (OutboxRulesTest): endpointFor,
-// newClientId, buildItem, editedItem, outcomeOf, deliveredDiffers.
+// newClientId, buildItem, editedItem, outcomeOf, deliveredDiffers. O saldo com
+// pendentes (pendingAccountDeltas, applyPendingToAccounts, pendingAsTransactions,
+// countByStatus e o sendOrder/toCents que usam) tem outro par:
+// frontend/android/.../rules/OutboxPending.kt (OutboxPendingTest).
 //
 // As regras da fila de envio (lib/outbox.js), como funcoes puras: nada aqui
 // toca em rede, IndexedDB ou React, entao os testes rodam com `node --test`
