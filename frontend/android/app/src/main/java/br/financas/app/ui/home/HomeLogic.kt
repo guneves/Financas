@@ -101,6 +101,9 @@ object HomeLogic {
         )
     }
 
+    /** A caixa de erro: o de uma acao vence o da leitura (e nenhuma releitura o apaga). */
+    fun bannerDetail(actionError: String, loadError: String): String = actionError.ifEmpty { loadError }
+
     /** As contas ativas (o activeAccounts() da web): as do sheet de pagamento. */
     fun activeAccounts(accounts: List<HomeAccount>): List<HomeAccount> = accounts.filter { !it.archived }
 

@@ -1,5 +1,6 @@
 package br.financas.app.ui.nav
 
+import android.content.Context
 import br.financas.app.ui.newentry.NewEntryActivity
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
@@ -15,6 +16,8 @@ import com.getcapacitor.annotation.CapacitorPlugin
  * Metodos (chamados pela web):
  * - routes(): { routes: [...] } as telas que este APK tem em nativo ([ROUTES]). A web abre a
  *   nativa so para uma rota listada; o resto segue React.
+ * - takePendingRoute(): { route? } a rota que uma tela nativa pediu quando nao havia WebView
+ *   para ouvir (processo recriado); a web vai para ela ao abrir (native-level 5).
  * - open({ screen, params }): abre a tela nativa. "new-entry": o "+ Novo"
  *   (params.type = EXPENSE | INCOME | TRANSFER | CARD; params.client_id = um item da fila a
  *   corrigir, Pendentes › Corrigir). "inbox": Lancamentos › Aprovar (ui/inbox/, numa
@@ -89,6 +92,18 @@ class NativeScreensPlugin : Plugin() {
         }
     }
 
+    /**
+     * A rota que uma tela nativa pediu sem WebView viva para ouvir (o app recriado depois de o
+     * Android matar o processo): a web pergunta uma vez ao abrir e vai direto para ela.
+     * { route } ou {} sem nenhuma (ou velha demais).
+     */
+    @PluginMethod
+    fun takePendingRoute(call: PluginCall) {
+        val result = JSObject()
+        takePendingRoute(context)?.let { result.put("route", it) }
+        call.resolve(result)
+    }
+
     private fun emit(event: String, data: JSObject) {
         notifyListeners(event, data)
     }
@@ -134,6 +149,36 @@ class NativeScreensPlugin : Plugin() {
             plugin.emit(EVENT_DATA_CHANGED, data)
             return true
         }
+
+        private const val PREFS = "financas_native_screens"
+        private const val PENDING_ROUTE = "pending_route"
+        private const val PENDING_AT = "pending_route_at"
+
+        /** Quanto tempo a rota guardada vale: e so a ponte ate a WebView abrir. */
+        private const val PENDING_ROUTE_MS = 2 * 60 * 1000L
+
+        /** Guarda [route] para a WebView que vai abrir (sem WebView viva para o "navigate"). */
+        @JvmStatic
+        fun savePendingRoute(context: Context, route: String) {
+            prefs(context).edit()
+                .putString(PENDING_ROUTE, route)
+                .putLong(PENDING_AT, System.currentTimeMillis())
+                .apply()
+        }
+
+        /** A rota guardada, se ainda vale; e apagada ao ser lida. */
+        @JvmStatic
+        fun takePendingRoute(context: Context): String? {
+            val prefs = prefs(context)
+            val route = prefs.getString(PENDING_ROUTE, null)
+            val at = prefs.getLong(PENDING_AT, 0L)
+            prefs.edit().remove(PENDING_ROUTE).remove(PENDING_AT).apply()
+            val age = System.currentTimeMillis() - at
+            return route?.takeIf { it.startsWith("/") && age in 0..PENDING_ROUTE_MS }
+        }
+
+        private fun prefs(context: Context) =
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
         /** Uma tela nativa pede para a WebView abrir [route] (uma tela ainda React). */
         @JvmStatic

@@ -121,10 +121,15 @@ class NativeActivity : ComponentActivity() {
     /**
      * Um link para uma tela que ainda e React (architecture.md, "Going back to the WebView"): a
      * WebView abre [route] (evento "navigate") e esta Activity sai da frente. Sem WebView viva,
-     * ela abre por baixo (no Inicio; a rota se perde, o que so acontece com o app recriado).
+     * ela abre por baixo e le a rota guardada ao comecar.
      */
     private fun leaveTo(route: String) {
         val delivered = NativeScreensPlugin.emitNavigate(route)
+        if (!delivered) {
+            // Processo recriado: a WebView ainda nao existe. Ela le a rota ao abrir
+            // (NativeScreens.takePendingRoute) em vez de voltar para o Inicio.
+            NativeScreensPlugin.savePendingRoute(this, route)
+        }
         if (!delivered || isTaskRoot) startActivity(Intent(this, MainActivity::class.java))
         finish()
     }

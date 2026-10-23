@@ -71,9 +71,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     var inboxCount by mutableStateOf(0)
         private set
 
-    /** O detalhe da caixa "Movimentações indisponíveis no momento." (a leitura ou uma acao). */
-    var dataError by mutableStateOf("")
+    /** O erro da leitura de /api/home; uma leitura nova que chega o limpa. */
+    var loadError by mutableStateOf("")
         private set
+
+    /**
+     * O erro (ou o aviso de bloqueadas) de uma acao: "Lançar", pagar. Fica ate a proxima acao —
+     * uma releitura nunca o apaga (na web o mesmo estado so muda no erro seguinte).
+     */
+    var actionError by mutableStateOf("")
+        private set
+
+    /** O detalhe da caixa "Movimentações indisponíveis no momento.", se houver. */
+    val dataError: String get() = HomeLogic.bannerDetail(actionError, loadError)
 
     /** A ultima leitura de /api/home nao chegou ao servidor: o que se ve e a copia guardada. */
     var offline by mutableStateOf(false)
@@ -163,7 +173,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                             cachedAt = null
                             offline = false
                             sessionExpired = false
-                            dataError = ""
+                            loadError = ""
                         }
                         is Load.Failed -> homeFailed(load)
                     }
@@ -181,14 +191,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         when (val cause = load.error) {
             is ApiException.Network, is ApiException.BadResponse -> {
                 offline = true
-                if (!hadData && load.cached == null) dataError = app.getString(R.string.data_offline)
+                if (!hadData && load.cached == null) loadError = app.getString(R.string.data_offline)
             }
             is ApiException.Unauthorized -> expire(cause.serverMessage)
             is ApiException.Http ->
                 if (cause.status in 300..399) {
                     offline = true
                 } else {
-                    dataError = cause.serverMessage ?: app.getString(R.string.home_load_failed)
+                    loadError = cause.serverMessage ?: app.getString(R.string.home_load_failed)
                 }
         }
     }
@@ -242,7 +252,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun expire(message: String?) {
         sessionExpired = true
-        dataError = message ?: app.getString(R.string.data_session_expired)
+        loadError = message ?: app.getString(R.string.data_session_expired)
     }
 
     // ---- O olho ----
@@ -334,7 +344,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun runRecurring() {
         if (runningRecurring) return
         runningRecurring = true
-        dataError = ""
+        actionError = ""
         graph.appScope.launch {
             when (val result = repo.runRecurring()) {
                 is InboxWrite.Done -> {
@@ -362,6 +372,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun fail(message: String) {
-        if (cleared) Toast.makeText(app, message, Toast.LENGTH_LONG).show() else dataError = message
+        if (cleared) Toast.makeText(app, message, Toast.LENGTH_LONG).show() else actionError = message
     }
 }

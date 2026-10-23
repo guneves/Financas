@@ -8,11 +8,14 @@
 // inscreve em onNativeEvent(); lib/nativeApp.js atualiza os dados e a fila, o
 // Layout navega e marca a gravacao.
 import { Capacitor, registerPlugin } from '@capacitor/core'
-import { routesFrom } from './nativeScreensRules'
+import { routeFrom, routesFrom } from './nativeScreensRules'
 
 const NativeScreens = registerPlugin('NativeScreens')
 
 let routes = []
+// A rota que uma tela nativa pediu quando a WebView nao existia (o app recriado
+// depois de o Android matar o processo): a primeira tela vai direto para ela.
+let startRoute = ''
 let started = false
 const listeners = new Set()
 
@@ -37,6 +40,12 @@ export async function startNativeScreens() {
     routes = []
     return
   }
+  try {
+    // native-level 5; um APK sem o metodo recusa e nada muda.
+    startRoute = routeFrom(await NativeScreens.takePendingRoute())
+  } catch {
+    startRoute = ''
+  }
   NativeScreens.addListener('dataChanged', (data) => emit('dataChanged', data)).catch(() => {})
   NativeScreens.addListener('navigate', (data) => emit('navigate', data)).catch(() => {})
 }
@@ -44,6 +53,14 @@ export async function startNativeScreens() {
 // Este APK tem a tela em nativo?
 export function hasNativeScreen(screen) {
   return routes.includes(screen)
+}
+
+// A rota pedida pela tela nativa antes de a WebView existir; '' sem nenhuma.
+// Vale uma vez.
+export function takeStartRoute() {
+  const route = startRoute
+  startRoute = ''
+  return route
 }
 
 // Abre a tela nativa. Rejeita se o APK nao conseguiu (quem chama volta para a React).

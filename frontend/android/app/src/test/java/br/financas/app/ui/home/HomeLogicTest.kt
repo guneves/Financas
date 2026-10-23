@@ -158,4 +158,13 @@ class HomeLogicTest {
         assertTrue(AttentionDismissals.decode("quebrado").isEmpty())
         assertTrue(AttentionDismissals.decode(null).isEmpty())
     }
+
+    @Test
+    fun anActionMessageOutlivesARefetch() {
+        // "Lançar" com recorrencia bloqueada: a releitura limpa so o erro da leitura.
+        assertEquals("bloqueada", HomeLogic.bannerDetail("bloqueada", ""))
+        assertEquals("bloqueada", HomeLogic.bannerDetail("bloqueada", "falhou a leitura"))
+        assertEquals("falhou a leitura", HomeLogic.bannerDetail("", "falhou a leitura"))
+        assertEquals("", HomeLogic.bannerDetail("", ""))
+    }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { hasNativeScreen, openNativeScreen } from '../lib/nativeScreens'
+import { hasNativeScreen, openNativeScreen, takeStartRoute } from '../lib/nativeScreens'
 import { nativePageExit, nativePageOpenRequest, wantsWebPage } from '../lib/nativeScreensRules'
 
 // Uma pagina que o APK pode ter em nativo (Lancamentos › Aprovar): num APK
@@ -29,6 +29,13 @@ export default function NativePage({ screen, stay = false, children }) {
       return
     }
     if (react || opened.current === location.key) return
+    // O app foi recriado a partir de uma tela nativa que pediu outra rota (um
+    // link do Inicio nativo): vai para ela em vez de reabrir a nativa.
+    const start = takeStartRoute()
+    if (start) {
+      navigate(start)
+      return
+    }
     opened.current = location.key
     openNativeScreen(nativePageOpenRequest(screen))
       .then(() => {

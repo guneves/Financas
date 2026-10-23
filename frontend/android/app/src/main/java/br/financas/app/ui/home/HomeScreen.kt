@@ -33,6 +33,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -77,6 +79,13 @@ import br.financas.app.ui.components.BadgeTone
 import br.financas.app.ui.theme.LocalPalette
 import java.math.BigDecimal
 
+/** Um toast com o tom: [info] e o toast(..., { tone: 'info' }) da web. */
+private class NoticeVisuals(override val message: String, val info: Boolean) : SnackbarVisuals {
+    override val actionLabel: String? = null
+    override val withDismissAction: Boolean = false
+    override val duration: SnackbarDuration = SnackbarDuration.Short
+}
+
 /** A rota da web com o Inicio completo, sem abrir a nativa (HOME_WEB_ROUTE em nativeScreensRules.js). */
 const val HOME_WEB_ROUTE = "/inicio?web=1"
 
@@ -106,7 +115,7 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.notices.collect { notice -> snackbar.showSnackbar(notice.message) }
+        viewModel.notices.collect { notice -> snackbar.showSnackbar(NoticeVisuals(notice.message, notice.info)) }
     }
 
     val view = viewModel.view
@@ -117,7 +126,13 @@ fun HomeScreen(
         containerColor = palette.background,
         snackbarHost = {
             SnackbarHost(snackbar) { data ->
-                Snackbar(snackbarData = data, containerColor = palette["zinc-900"], contentColor = palette["zinc-50"])
+                // O tom do toast() da web: informativo (azul) ou sucesso (o escuro de sempre).
+                val info = (data.visuals as? NoticeVisuals)?.info == true
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = if (info) palette["sky-50"] else palette["zinc-900"],
+                    contentColor = if (info) palette.info else palette["zinc-50"],
+                )
             }
         },
         topBar = { HomeTopBar(viewModel, onOpenInbox, onOpenWeb) },
@@ -366,7 +381,8 @@ private fun Alerts(viewModel: HomeViewModel, onOpenWeb: (String) -> Unit) {
                 )
             }
         }
-        if (viewModel.offline) {
+        // Sem copia e sem rede a caixa de erro ja diz "Sem conexão": um aviso so.
+        if (viewModel.offline && viewModel.loadError.isEmpty()) {
             AlertMessage(message = stringResource(R.string.data_offline), tone = AlertTone.INFO, dismissLabel = dismissLabel)
         }
         val pending = viewModel.pendingInBalance

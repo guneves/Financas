@@ -156,7 +156,7 @@ private fun FlowDetail(point: FlowPoint, hasInvestment: Boolean, hasOthers: Bool
     lines += stringResource(R.string.home_tip_net) to formatCurrency(point.net)
     Surface(shape = RoundedCornerShape(12.dp), color = palette.background) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(HomeRules.sentenceCase(monthLabel(point.key)), color = palette.text, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(monthLabel(point.key), color = palette.text, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             lines.forEach { (label, value) ->
                 Row {
                     Text(label, color = palette["zinc-600"], fontSize = 13.sp, modifier = Modifier.weight(1f))
@@ -365,7 +365,7 @@ internal fun BalancePanel(view: HomeView, hidden: Boolean) {
             selected?.let { index ->
                 points.getOrNull(index)?.let { point ->
                     Row {
-                        Text(HomeRules.sentenceCase(monthLabel(point.key)), color = palette["zinc-600"], fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(monthLabel(point.key), color = palette["zinc-600"], fontSize = 13.sp, modifier = Modifier.weight(1f))
                         Text(
                             stringResource(R.string.home_tip_balance) + ": " +
                                 if (hidden) HomeLogic.MASKED_CURRENCY else formatCurrency(point.balance),
