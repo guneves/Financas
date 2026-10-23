@@ -164,8 +164,19 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
 - [ ] **`client_id` on investment creations** (`POST /api/investments`, `/api/investment-proceeds`,
   `/api/corporate-actions`) if native should queue them offline; until then native refuses them
   offline (`findings.md`, Investimentos).
-- [ ] **Decide the client rules before step 3** (`mobile-docs/native/rules-port.md`): endpoint or
-  port for `transactions.js` (balances), `cashFlow.js` (no tests today) and `attentionRules.js`.
+- [ ] **Owner: review the proposal** `mobile-docs/native/proposals/home-attention-invoices.md`
+  (`GET /api/home`, `GET /api/attention`, `GET /api/cc-invoices`,
+  `DELETE /api/cc-expenses/purchases/<id>`, paging on `GET /api/transactions`). It replaces the
+  money of `transactions.js`, `cashFlow.js` and `attentionRules.js`; merging its PR approves it.
+  Decide its behaviour changes B1–B9 (one, B2, is an open question: should the plan's "spent" also
+  leave out a despesa typed in a Corretora account, as Início does?). Then implement in the
+  proposal's order, one PR per endpoint with the web switched in the same PR. Not built: the
+  second proposal for Início's other panels (categories, pace, installments, invoice projection)
+  and the Extrato's projections.
+- [ ] **`applyPendingToHome()`** (the proposal's §1, the pending overlay on `/api/home`) in
+  `outboxRules.js` and `rules/OutboxPending.kt` together, once `/api/home` exists. The four
+  pending-balance functions are already ported; `OutboxPending.kt` takes typed data classes, so the
+  native Início needs an adapter from `OutboxStore`'s JSON items.
 - [ ] **Owner decision**: may `android-check.yml` upload a branch's debug APK as a workflow
   artifact, to try a branch on the phone before the merge? (CLAUDE.md says APKs never go to GitHub.)
 

@@ -7,51 +7,53 @@
 
 ---
 
-## Session — 2026-10-23 · `findings.md`: possible bugs and stale texts
+## Session — 2026-10-23 · native migration session 5: endpoint proposal + pending-balance port
 
-Cloud session, branch `claude/mobile-docs-bugs-stale-text-u8ylzb` (from `main` at `0016f5b`, after
-PR #33). The owner called it "session 4". Web and backend only, no native code. Briefing by
-`session-scout`, found by `subagent_type`, no fallback.
+Cloud session, branch `claude/native-migration-backend-proposals-7yx22w` (from `main` at `880f4fa`,
+after PR #34). Briefing by `session-scout`, found by `subagent_type`, no fallback. Proposal and
+port only: **no endpoint was implemented**, by the owner's brief.
 
 ### Done
-Each possible bug in `mobile-docs/native/findings.md` got a test first. Every test failed, so every
-bug was real and is fixed in its own commit, with the test kept:
-
-| Bug | Fix | Test |
-|---|---|---|
-| Metas refused any edit once the target month arrived | only a changed `target_date` must be future (`services/goals.py`) | `test_goals.py::test_an_edit_keeps_a_target_date_that_has_since_arrived` |
-| Recorrentes: "escolha outra conta" with no account in the edit | "Editar valor e conta", account select | `lib/recurring.test.js` |
-| Extrato could not change a transfer's destination | De/Para selects; form + PATCH in `lib/transactionEdit.js` | `lib/transactionEdit.test.js` |
-| Investment statement: same day, proventos before operações (comment said the opposite) | sort fixed to match the comment | `investmentStatement.test.js` |
-| Refund prefill = installment × count (R$ 100 in 3x from 2/3 → 99,99) | sum of the purchase's installments in cents | `lib/cardPurchase.test.js` |
-| A receber "pago em" in UTC (next day after 21:00) | `localDateOfTimestamp()` in `lib/format.js` | `format.test.js` (TZ `America/Sao_Paulo`) |
-
-Stale texts, all fixed: login "FinanceMVP" → "Finanças", and "Criar acesso" (was "Cadastrar")
-appears only when a new public `GET /api/auth/signup` answers `{open: true}` (`test_signup_and_secret.py`,
-`test_route_map.py` now has `GET,POST`); Metas' Patrimônio hint; Integrações; Notificações;
-`CASH_WITHOUT_AMOUNT_MESSAGE`; the `Orcamento.jsx` comment. Specs updated (`00-shell`, `04-extrato`,
-`05-cartoes`, `06-a-receber`, `09-recorrentes`, `10-metas`). pytest 1536 passed, `npm test` 164
-passed, `vite build` clean.
+- **`mobile-docs/native/proposals/home-attention-invoices.md`**: route, response JSON with an
+  example, the server functions reused, the web switch and the pytest cases for `GET /api/home`,
+  `GET /api/attention`, `GET /api/cc-invoices`, `DELETE /api/cc-expenses/purchases/<id>` and opt-in
+  paging (`limit` + keyset cursor, with whole-filter `totals` and `day_totals`) on
+  `GET /api/transactions`. Every case of `transactions.test.js` (10) and `attentionRules.test.js`
+  (13) is mapped to a pytest case (or marked "stays client" with its server half), plus 18 new
+  cases for `cashFlow.js`. Behaviour changes B1–B9 with a recommendation each. One new service
+  `card_invoices.py` feeds all three reads, so Início, the bell and Cartões agree by construction.
+- **Port** (agent `rule-porter`): `pendingAccountDeltas`, `applyPendingToAccounts`,
+  `pendingAsTransactions`, `countByStatus` → `frontend/android/.../rules/OutboxPending.kt`, 11 JVM
+  tests with the node cases in order (`OutboxPendingTest.kt`), commit `942e3f6`. `android-check.yml`
+  run 39890464044 **green** (checked by `android-ci-watcher`). `npm test` 164 passed. No
+  native-level bump (no screen calls it).
+- Docs: `rules-port.md`, `findings.md`, `README.md` (new `proposals/` row), specs 03/04/05 point to
+  the proposal; next-steps has "review the proposal" and `applyPendingToHome()`.
 
 ### Not done, and why
-- **The 401 finding is native** (the sender never clears `Session`), out of this session's scope.
-  Its "180 days on the server" is the owner's `.env` (`JWT_EXP_DAYS=180` in `.env.example`); the
-  code default is 30. Left open in `findings.md`.
-- **Grouped Tesouro delete is not atomic** (next-steps listed it among the bugs; findings.md files it
-  under Investimentos): it needs a new grouped endpoint, not a one-line fix. Open in next-steps.
-- **No Inconsistency was changed**: none was a one-liner without a behaviour question.
-- No screenshot or browser check of the changed screens (Recorrentes edit row, Extrato transfer
-  edit, login). They build and their rules are tested; look at them once on the desktop and phone.
-- **Drift found**: the Aprovar session (PR #33) left no handoff or plan update. I only rewrote
-  next-steps' step 1 into "steps 1–2 merged, phone check not recorded" and renumbered "Steps 3–8";
-  `done-tasks.md` still has no Aprovar row — whoever knows that session's details should add it.
-- Carried, still open: the web `createEntry()` duplicating after a killed tab; the sharing form
-  refusing "12,5" (web and native); pytest red 21:00–midnight local
-  (`test_fixed_income_interest.py`, UTC vs local "today" — likely the same class of bug as A
-  receber's, worth checking next); APK not buildable in a cloud container; desktop redesign;
-  Plus Jakarta Sans natively; the owner's phone checks.
+- **No endpoint built**: the brief was propose-only. The order of implementation is at the end of
+  the proposal (cc-invoices first, one PR per endpoint, the web switched in the same PR).
+- **`applyPendingToHome()`** (the overlay that keeps an offline despesa in "Saiu" once Início reads
+  `/api/home`) is designed in the proposal, not written: it has no caller until `/api/home` exists.
+- **`OutboxPending.kt` takes typed data classes**; there is no adapter yet from `OutboxStore`'s
+  JSON items. The native Início will need one.
+- **Out of the brief, flagged in the proposal**: Início's other panels (categories, pace,
+  installments, invoice projection) and the Extrato's projections still need the full history; a
+  second proposal (`home-panels.md`) would cover them.
+- No pytest run: only docs and Kotlin changed (the scout counted 1536 collected).
+- Carried, still open: the owner's phone check of native steps 1–2; native 401 handling; grouped
+  Tesouro delete not atomic; the web `createEntry()` duplicate after a killed tab; the sharing form
+  refusing "12,5"; pytest red 21:00–midnight local (`test_fixed_income_interest.py`); no screenshot
+  check of last session's changed screens; `done-tasks.md` still has no row for the Aprovar
+  session (PR #33).
 
-### Questions for the owner (the Inconsistencies in `findings.md`)
+### Questions for the owner
+0. **The proposal** (PR "Proposal: home, attention and invoice endpoints"): edit it in the PR
+   and merge to approve. Decide B2 in particular: the plan's "spent" (`month_banking_totals()`)
+   counts a despesa typed in a Corretora account, Início's "Saiu" does not — should the plan follow
+   Início? (It overlaps question 1.)
+
+Carried from session 4 (the Inconsistencies in `findings.md`):
 1. **Corretora in banking forms**: should "+ Novo", the pay-invoice sheet and autopay stop
    offering Corretora accounts? A despesa recorded there vanishes from Início today.
 2. **Extrato vs Início for a transfer to the Corretora**: should the Extrato show it as
@@ -70,16 +72,22 @@ passed, `vite build` clean.
    `['cartoes']` and `['inicio','cartoes']`.
 
 ### Next session
-Answer-driven: take the owner's answers above as tasks. Otherwise the pytest 21:00–midnight
-failure (a test that reproduces only at night: patch the clock to 22:00 local), then the plan's
-native step 3 after the owner's phone check of steps 1–2.
+If the proposal PR is merged: implement it in its order, starting with `services/card_invoices.py`
++ `GET /api/cc-invoices` and Cartões switched (pytest cases listed in the proposal; freeze
+`local_today` in every module that reads it). Otherwise the owner's answers above, then the pytest
+21:00–midnight failure.
 
 ### Learned
-- `node --test` runs each file in its own process, so a test can set `process.env.TZ` (restore it
-  after) to pin a timezone; V8 parses the server's six-digit fractional `...Z` timestamps.
-- Two Flask rules on the same path with different methods show up as two rows in
-  `test_route_map.py`; one view with `methods=["GET", "POST"]` keeps the map's `GET,POST` row.
-- `GET /api/cc-expenses/candidates?id=` already returns a purchase's installments by `client_id`;
-  any "whole purchase" amount on the client should sum those in cents, never installment × count.
-- This Linux container has no `.venv`; `pip install -r backend/requirements-dev.txt` and
-  `python3 -m pytest` work (the full suite takes ~2.5 min).
+- `month_banking_totals()` (plan "spent") and Início's flow differ on one case: a non-investment
+  despesa/receita in a Corretora account (the plan counts it, `bankingTransactions()` drops it).
+  `month_investment_flow()` matches Início exactly.
+- `invoiceId()` in `attentionRules.js` does not zero-pad the month (`c1|2026-9`), so an attention
+  endpoint must reproduce that, or every dismissal already stored on a device comes back once.
+- `useAttentionItems()` applies pending outbox items to balances before the autopay shortfall
+  check; a server endpoint cannot (proposal B3).
+- `Math.round(1.005 * 100)` is 100 in JS but HALF_UP from the text gives 101 in Kotlin; harmless for
+  form input (two decimals), noted in `rules-port.md`.
+- The Docker image runs with `TZ=America/Sao_Paulo`, so the server's `local_today()` is the owner's
+  date.
+- The scout left pytest wheel files (`*.whl`) in the repo root while installing; deleted, never
+  committed. Install into a scratch directory instead.

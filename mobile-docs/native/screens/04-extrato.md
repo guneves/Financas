@@ -129,6 +129,10 @@ payment 409 "Este pagamento tem comprovante. Remova o comprovante antes de desfa
 - Every write invalidates all queries.
 
 ## Client rules
+Paging on `GET /api/transactions` (with whole-filter `totals` and `day_totals`) is proposed in
+`../proposals/home-attention-invoices.md` §5; "Saldo em contas" would read `/api/home`'s
+`consolidated_balance` (§1). 2026-10-23, waiting for the owner.
+
 - `consolidatedBalance()` / `accountBalanceBrl()` / `bankingAccounts()` (`lib/transactions.js`,
   `transactions.test.js`) — **endpoint** preferred (the same number Início shows; a `GET /api/balance-summary`
   would serve both), else port.
