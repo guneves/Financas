@@ -70,11 +70,6 @@ export const axisProps = {
 
 // Eixo de valores (sem o "R$"): a regra mora em lib/chartFormat.js, testada.
 export { compactAxis } from '../lib/chartFormat'
-  if (absolute >= 1000) {
-    return `${sign}${(absolute / 1000).toLocaleString('pt-BR', { maximumFractionDigits: absolute >= 10000 ? 0 : 1 })} mil`
-  }
-  return `${sign}${absolute.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
-}
 
 export function compactCurrency(value) {
   const numeric = Number(value || 0)
