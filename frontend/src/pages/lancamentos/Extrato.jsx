@@ -22,7 +22,8 @@ import {
 import { formatSignedCurrency } from '../../lib/format'
 import { parseMoneyInput } from '../../lib/monthlyPlan'
 import { INVESTMENT_SOURCE_TYPES, isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
-import { shareFormError, shareFormFrom, sharePayload, shareSummary } from '../../lib/sharing'
+import { shareFormError, shareFormFrom, shareSummary } from '../../lib/sharing'
+import { transactionEditForm, transactionEditPayload } from '../../lib/transactionEdit'
 import ShareFields from '../../components/ShareFields'
 import { categoryLabel, getNow } from './helpers'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
@@ -258,7 +259,7 @@ function ExtratoContas({ viewSwitch }) {
   const [exportOpen, setExportOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState(null)
-  const [editForm, setEditForm] = useState({ amount: '', date: '', category_id: '', description: '', type: 'EXPENSE', account_id: '', share: shareFormFrom(null) })
+  const [editForm, setEditForm] = useState({ amount: '', date: '', category_id: '', description: '', type: 'EXPENSE', account_id: '', transfer_account_id: '', share: shareFormFrom(null) })
 
   // Filtros do extrato: aplicados no backend (GET /api/transactions?...).
   // Sem filtro, o extrato usa a lista completa ja carregada por useLancamentos.
@@ -323,15 +324,7 @@ function ExtratoContas({ viewSwitch }) {
 
   const startEditing = (transaction) => {
     setEditingId(transaction.id)
-    setEditForm({
-      amount: String(transaction.amount ?? ''),
-      date: transaction.date || '',
-      category_id: transaction.category_id || '',
-      description: transaction.description || '',
-      type: transaction.type,
-      account_id: transaction.account_id || '',
-      share: shareFormFrom(transaction),
-    })
+    setEditForm(transactionEditForm(transaction))
   }
 
   const cancelEditing = () => {
@@ -354,27 +347,7 @@ function ExtratoContas({ viewSwitch }) {
     setSaving(true)
     setDataError('')
     try {
-      // PATCH e parcial; transferencias so aceitam os campos que fazem sentido
-      // para elas (o backend recusa converter um tipo no outro).
-      const payload = {
-        amount,
-        date: editForm.date,
-        description: editForm.description,
-      }
-      // A conta so quando mudou: a de um lancamento antigo pode estar
-      // arquivada, e o servidor recusa escolher uma conta arquivada.
-      if (editForm.account_id && editForm.account_id !== (transaction.account_id || '')) payload.account_id = editForm.account_id
-      if (transaction.type !== 'TRANSFER') {
-        payload.type = editForm.type
-        // A categoria pelo id, e so quando mudou: mandar o nome de volta tirava
-        // um lancamento de "Alimentação › Outros" e o punha no "Outros" da raiz.
-        if (editForm.category_id !== (transaction.category_id || '')) payload.category_id = editForm.category_id
-      }
-      // Sem mudar a divisao, o PATCH nem leva os campos (o servidor so confere
-      // que o valor novo ainda cabe nela).
-      if (sharing && JSON.stringify(editForm.share) !== JSON.stringify(shareFormFrom(transaction))) {
-        Object.assign(payload, sharePayload(editForm.share))
-      }
+      const payload = transactionEditPayload(transaction, editForm, amount, { sharing })
       await transactionsApi.update(transaction.id, payload)
       setEditingId('')
       await fetchData()
@@ -459,24 +432,27 @@ function ExtratoContas({ viewSwitch }) {
       : accountName(transaction.account_id)
   )
 
+  const accountSelect = (key, currentId, label) => (
+    <select value={editForm[key]} onChange={setEditField(key)} aria-label={label} className="app-select">
+      {/* A conta que o lancamento ja tem, quando ela foi arquivada: fica como esta. */}
+      {currentId && !accounts.some((account) => account.id === currentId) ? (
+        <option value={currentId}>{accountName(currentId)} (arquivada)</option>
+      ) : null}
+      {accounts.map((account) => (
+        <option key={account.id} value={account.id}>{account.name}</option>
+      ))}
+    </select>
+  )
+
   // Campos de edicao reaproveitados pela tabela (inline) e pela lista do celular (empilhados).
   const editControls = (transaction) => {
     const isTransfer = transaction.type === 'TRANSFER'
     return {
       date: <input type="date" value={editForm.date} onChange={setEditField('date')} className="app-input" />,
-      account: (
-        <select value={editForm.account_id} onChange={setEditField('account_id')} className="app-select">
-          {/* A conta que o lancamento ja tem, quando ela foi arquivada: fica como esta. */}
-          {transaction.account_id && !accounts.some((account) => account.id === transaction.account_id) ? (
-            <option value={transaction.account_id}>{accountName(transaction.account_id)} (arquivada)</option>
-          ) : null}
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>{account.name}</option>
-          ))}
-        </select>
-      ),
+      account: accountSelect('account_id', transaction.account_id, isTransfer ? 'Conta de origem' : 'Conta'),
+      // Numa transferencia, o lugar da categoria e o da conta de destino.
       category: isTransfer ? (
-        <span className="text-zinc-500">{transaction.category}</span>
+        accountSelect('transfer_account_id', transaction.transfer_account_id, 'Conta de destino')
       ) : (
         <select value={editForm.category_id} onChange={setEditField('category_id')} className="app-select">
           {/* A categoria que o lancamento ja tem, quando ela nao esta na lista
@@ -786,10 +762,10 @@ function ExtratoContas({ viewSwitch }) {
                         <Field label="Valor">{controls.amount}</Field>
                       </div>
                       <Field label="Descrição">{controls.description}</Field>
-                      <Field label="Categoria">{controls.category}</Field>
+                      <Field label={transaction.type === 'TRANSFER' ? 'Para' : 'Categoria'}>{controls.category}</Field>
                       <div className="grid grid-cols-2 gap-3">
                         <Field label="Tipo">{controls.type}</Field>
-                        <Field label="Conta">{controls.account}</Field>
+                        <Field label={transaction.type === 'TRANSFER' ? 'De' : 'Conta'}>{controls.account}</Field>
                       </div>
                       {controls.share}
                       <div className="flex items-center justify-between gap-2">
