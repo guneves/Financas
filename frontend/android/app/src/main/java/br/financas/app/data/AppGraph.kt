@@ -51,6 +51,13 @@ class AppGraph private constructor(context: Context) {
         onUnauthorized = ::handleUnauthorized,
     )
 
+    /** Escritas que nao sao criacao (Inicio: pagar fatura, lancar): sem prazo de resposta. */
+    val writeApi: ApiClient = ApiClient(
+        session = { currentSession().also { if (it != null) _sessionExpired.value = false } },
+        http = ApiClient.writeHttpClient(),
+        onUnauthorized = ::handleUnauthorized,
+    )
+
     /**
      * Trabalho que nao pode morrer com a tela: um Salvar ja comecado termina (e avisa) mesmo que o
      * dono feche o sheet ou a Activity acabe. Vive o processo inteiro; roda na thread da tela.
@@ -74,6 +81,9 @@ class AppGraph private constructor(context: Context) {
 
     /** Aprovar: leituras com a copia guardada, decisoes so com o servidor (nunca na fila). */
     val inbox = InboxRepository(reader, Sender { method, path, body -> api.send(method, path, body) })
+
+    /** Inicio: o saldo, o mes, os avisos e o orcamento; pagar fatura e lancar recorrencias. */
+    val home = HomeRepository(reader, Sender { method, path, body -> writeApi.send(method, path, body) })
 
     companion object {
         /** files/native-read-cache: a ultima resposta boa de cada leitura. */

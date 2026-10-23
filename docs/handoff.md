@@ -7,116 +7,77 @@
 
 ---
 
-## Session — 2026-10-23 · native migration session 6: home, attention and invoice endpoints
+## Session — 2026-10-23 · native migration session 7: Início and the bell
 
-Cloud session, branch `claude/mobile-docs-home-attention-invoices-pbo0kq` (from `main` at
-`9a4e219`, PR #35 merged: the proposal is approved as merged). Briefing by `session-scout`, found
-by `subagent_type`, no fallback.
+Cloud session, branch `claude/wizardly-faraday-cbx3mb` (from `main` at `c137844`, PR #36 merged),
+PR #38 to `main`. Briefing by `session-scout`, found by `subagent_type`, no fallback. Confirmed
+first that `main` had `GET /api/home`, `GET /api/attention` and `rules/OutboxPending.kt`.
+The builder (`native-screen-builder`) was cut off once by a usage limit and resumed from its
+transcript; nothing was lost.
 
 ### Done
-- **Backend, proposal §1–4**: `services/card_invoices.py`, `services/home.py`,
-  `services/attention.py`, `routes/home.py` (`GET /api/home`, `/api/attention`, `/api/cc-invoices`)
-  and `DELETE /api/cc-expenses/purchases/<id>` in `routes/cards.py`. Each read first runs
-  `ensure_default_account()`, `apply_due_autopay()` and `apply_paid_proceeds()`.
-  `with_balance_in_brl()` moved from `routes/accounts.py` to `services/fx.py`, so a service can
-  read it. `month_investment_flow()` now reads `investment_flow_sql()` from `services/home.py`:
-  one "Investido" condition for the plan and Início.
-- **Tests**: `test_home.py` (30), `test_attention.py` (15), `test_cc_invoices.py` (14),
-  `test_cc_purchase_delete.py` (8), and 4 new rows in `test_route_map.py`. They carry every case
-  the proposal lists, plus the two `buildMonthlyFlow` cases that lived in `sharing.test.js`. The
-  shared setup and the frozen clock are in `tests/finance_world.py`. **pytest 1603 passed**
-  (was 1536).
-- **Web switched, no visible change**:
-  - Início: hero, Resumo do mês, the next-invoice tile, Fluxo de caixa and Evolução do saldo
-    read `useHome()`. Its "Precisa de atenção" cards read `useAttentionItems()`.
-  - The bell reads `useAttentionItems()`, the same `['atencao']` query as Início.
-  - Extrato: "Saldo em contas" is `consolidated_balance`.
-  - Cartões: `['cartoes','faturas']`. Delete is one `removePurchase()`; the confirmation counts
-    come from `installments_open`/`installments_paid`.
-  - `applyPendingToHome()` is in `outboxRules.js` (6 node cases) and `rules/OutboxPending.kt`
-    (6 JVM tests, same order).
-- **Removed**:
-  - `cashFlow.js` (its `isInvoicePayment` moved to `transactions.js`, with a test).
-  - `consolidatedBalance` and `openingBalanceTotal`.
-  - The rule half of `attentionRules.js`. Kept: dismissals, `overdueDetail`, and `isPastDue`/`invoiceMonthKey` for Início's projection panel.
-  - **npm test 160** (was 164: 13 cases moved to pytest — 11 of `attentionRules.test.js`, 2 of `sharing.test.js` — and 9 added; `transactions.test.js` lost only the `consolidatedBalance`/`openingBalanceTotal` asserts).
-- **Parity**: a throwaway database was seeded through the API (scratch script, not committed) and
-  captured with Chromium at 1440 and 390 px, before and after:
-  - The text of Início, the bell, Extrato and Cartões was **identical** on all eight captures.
-  - Six PNGs were pixel-identical. Two differed in about 110 anti-aliased pixels, at most 2/255.
-  - The Cartões delete was clicked through once: one `DELETE …/purchases/<id>`, row gone, totals refreshed.
-- Docs: `rules-port.md` (the three modules are "endpoint, done"), the proposal's Status row,
-  CLAUDE.md (the conventions that named removed functions, test counts, layout, layering),
-  next-steps, done-tasks.
+- **Native Início and the bell** (step 3, native-level 4 → 5): `ui/home/`, `ui/charts/`, the
+  rules ports, privacy mirrored both ways, the web Início tab opening native. Details in
+  `docs/done-tasks.md` (session 7 note) and `mobile-docs/native/screens/03-inicio.md`.
+- **CI**: `android-check.yml` run 39960549681 on `cc5df2d` (the last code commit) **green** (JVM
+  tests + debug APK), checked from here. `npm test` 176 (was 160; re-run here), both vite builds
+  (normal and android) pass.
+  pytest not run: no backend change.
+- **Parity review**: no blockers; two majors and four minors fixed in one round (`779d1e3`). The
+  re-verification found three minors (the info toast drawn sky instead of the web's dark surface,
+  a stale start route kept in the web's memory, the route expiry untested); fixed in `cc5df2d`
+  (`PendingRoute.kt` + `PendingRouteTest`, `pendingStartRoute()` + a node test).
+- **Comparing native and web**: `mobile/inicio-snapshot.py` (stdlib, GETs only) prints Início's
+  numbers from the server with the screen's labels; the steps are in `03-inicio.md`, "Comparing
+  native and web". Tried against a local server on a scratch database.
+- Docs: `03-inicio.md` (Status, Endpoints/Data/Client rules rewritten for the session-6
+  endpoints), the native README's status table (steps 1–2 now say merged), next-steps, done-tasks.
 
 ### Not done, and why
-- **Paging (§5)** was not built. The proposal's *Order of implementation* puts it with the native
-  Extrato, and says no endpoint should exist without a reader.
-- **Início still downloads the whole history** for its other panels: "Despesas por categoria",
-  "Ritmo de gastos", "Parcelamentos abertos" and the invoice projection. The Extrato's
-  projections still read `GET /api/cc-expenses?status=OPEN`. All of this is the proposal's *Beyond
-  the brief* (`home-panels.md`, not written). The list under "Próximas faturas" filters those rows
-  by `/api/home`'s `next_invoices`, so its order is the old one.
-- **The parity check ran on seeded data, not the owner's**: `backend/finance.db` was not touched,
-  and the server's data is not reachable from here. It is a next-steps item for the owner.
-- No native-level bump: no screen calls `applyPendingToHome()` yet.
-- Carried, still open:
-  - B2 (below).
-  - The owner's phone check of native steps 1–2.
-  - Native 401 handling.
-  - Grouped Tesouro delete is not atomic.
-  - The web `createEntry()` duplicate after a killed tab.
-  - The sharing form refusing "12,5".
-  - pytest red 21:00–midnight local (`test_fixed_income_interest.py`).
-  - `done-tasks.md` still has no row for the Aprovar session (PR #33).
+- **The four history panels** (Despesas por categoria, Ritmo de gastos, the invoice projection,
+  Parcelamentos abertos) are not native: they need `home-panels.md`'s endpoints. A row opens the
+  web Início for them (`/inicio?web=1`).
+- **Reviewer's minor 6**: toggling the eye natively and then following a link can show the web's
+  values for a moment before the web reads the new mode on resume. Not a one-liner; next-steps.
+- **Aprovar's writes** still use the read client's 45 s timeout (Início's moved to `writeApi`).
+- **No phone check**: sessions cannot install an APK. The owner runs the spec's Acceptance.
+- Carried, still open: B2; the owner's phone check of steps 1–2; native 401 handling in the shell
+  (Início's "Entrar novamente" opens the web login); grouped Tesouro delete not atomic; the web
+  `createEntry()` duplicate after a killed tab; the sharing form refusing "12,5"; pytest red
+  21:00–midnight local; `done-tasks.md` has no row for the Aprovar session (PR #33).
 
 ### Decisions made here (worth checking)
-- **`applyPendingToHome()` covers every month of `flow`**, not only the current one. A pending
-  item changes the month of its date, and the balance from that month on. That is exactly what
-  `buildMonthlyFlow()` did over pending rows (B1, "keep today's behaviour"). For a pending item of
-  the current month it is what §1 says. This is recorded in the proposal's Status row.
-- **The invoice-payment prefix is compared case-sensitively** (`substr`), like the client's
-  `startsWith`. `month_banking_totals()` uses `LIKE`, which ignores case. The two differ only for a
-  typed "pagamento fatura…", which counts as a despesa on Início. That is unchanged from before.
-- **The overdue invoices' order follows the rows' order** (invoice, then `created_at`) before the
-  stable sort by due date, as the client's did. Two invoices due the same day keep the old order.
+- **Native scope = what the server serves.** The history panels stay on the web rather than being
+  ported as client rules over the whole history, which the native conventions forbid without tests
+  and which `home-panels.md` will replace anyway.
+- **Dismissals are per store**: native and web keep separate lists of dismissed cards (same keys).
+  The bell lists everything on both, so nothing can be hidden for good.
+- **With values hidden, no red** on a negative account chip or the Evolução badge (the web shows
+  the colour and so leaks the sign). Native-only, deliberate.
+- **A stored route survives process death** for 2 minutes (`takePendingRoute()`), read once by the
+  web at start.
 
 ### Questions for the owner
 0. **B2**: should the plan's "spent" leave out a despesa typed in a Corretora account, as Início's
    "Saiu" does (one rule)? It overlaps question 1.
-
-Carried from session 4 (the Inconsistencies in `findings.md`):
 1. Corretora accounts in "+ Novo", the pay-invoice sheet and autopay?
 2. Should the Extrato show a transfer to the Corretora as aporte/resgate, as Início does?
 3. A débito purchase in Pendentes: Corrigir reopens it as Despesa. Should it?
 4. Installments 48 (client) vs 72 (server); description required or optional?
-5. "Despesas por categoria" on Início groups by name: should it group by id? This also matters
-   for `home-panels.md`.
+5. "Despesas por categoria" on Início groups by name: should it group by id? (`home-panels.md`)
 6. Privacy mode across the other screens?
 7. A bank field on cards?
-8. `/api/credit-cards` cached under two keys. This is partly gone: Início no longer reads
-   `['inicio','cartoes']`.
+8. `/api/credit-cards` cached under two keys (partly gone since session 6).
+9. New: should native and web share one dismissed-cards list?
 
 ### Next session
-1. `android-check.yml` run 39893915777 on `e66f957` was **green** (debug APK + JVM tests,
-   `OutboxPendingTest` included; checked by `android-ci-watcher`). Check the PR's checks after any new push.
-2. If the owner answers B2, apply it (a one-line change in `month_banking_totals()` plus a test).
-3. Otherwise write `home-panels.md` (categories, pace, installments, invoice projection, the
-   Extrato's projections), so Início stops downloading the history. Or move to the native Início:
-   `/api/home` + `/api/attention` + `applyPendingToHome()`, after an `OutboxStore` → typed-items
-   adapter.
+1. If the owner's phone check of PR #38 finds something, fix it on that branch before the merge.
+2. Otherwise `home-panels.md` (so Início, web and native, stops downloading the history and the
+   four panels can go native), or step 4 (Extrato/Cartões, with paging §5).
 
 ### Learned
-- **`pkill -f <pattern>` inside a Bash call kills that call's own shell** when the pattern is part
-  of the command line (exit 144). Keep server PIDs in a file and `kill $(cat pid)`.
-- **Freezing `local_today()` needs six modules**: `services.invoices`, `routes.cards`,
-  `services.card_invoices`, `services.home`, `services.attention` and `routes.home`.
-  `tests/finance_world.py::freeze()` patches all six. `apply_paid_proceeds()` reads
-  `invoices.local_today`.
-- **A card's `autopay_start_date` is the creation day** (`local_today()` in `routes/cards.py`).
-  Autopay only pays invoices due on or after it, so a test that wants autopay creates the card
-  earlier on the clock.
-- `apply_paid_proceeds()` deletes any `INVESTMENT_PROCEED` row without a paid provento behind it.
-  A test needs a real provento: buy, POST the provento, then move the account out of Corretora.
-- `GET /api/recurring` and `/run` use the real `datetime.now()`. Recurrence tests in
-  `test_attention.py` therefore freeze the clock at `date.today()` (± days), not at a fixed date.
+- **`android-check.yml`'s path filter skips a push that touches only web files** (`charts.jsx`);
+  dispatch it by hand (`workflow_dispatch`) when the last commit must be checked.
+- **A native page restored after process death has no WebView behind it**: `emitNavigate` goes
+  nowhere. Anything that leaves native must also work from a cold `MainActivity`.
+- `pkill -f` on a pattern in the same command line kills the calling shell (exit 144) — again.

@@ -27,8 +27,10 @@ reasons are in `../native-app.md`; this folder is everything needed to do the wo
 |---|---|---|
 | 0 | Kotlin + Compose in the project, native theme from the web's tokens, `android-check.yml` | Done 2026-10-22 |
 | 1a | Step 1's foundation: `core/` (format.js, money input), `rules/` (cardFunctions.js, the sharing form), `data/` (ApiClient, ReadCache, repositories for accounts/categories/cards, AppGraph), the `NativeScreens` plugin (empty `routes()`, stub `open()`) | Done 2026-10-22 |
-| 1 | "+ Novo" native (`NewEntryActivity`, the web opening it, `native-level.txt` 2 → 3) | Built 2026-10-22 on `claude/native-novo`, CI green, reviewer clean; waiting for the owner's phone check and the merge |
-| 2–8 | Aprovar, Início, Extrato/Cartões, planning, Ajustes, Investimentos, remove the WebView | Not started |
+| 1 | "+ Novo" native (`NewEntryActivity`, the web opening it, `native-level.txt` 2 → 3) | Merged (PR #32); waiting for the owner's phone check |
+| 2 | Aprovar native (`NativeActivity` + `NavHost`, opened from the notification) | Merged (PR #33); waiting for the owner's phone check |
+| 3 | Início and the bell (`ui/home/`, `ui/charts/`, privacy mirrored both ways, `native-level.txt` 4 → 5) | Built 2026-10-23 on `claude/wizardly-faraday-cbx3mb` (PR #38), CI green, parity review clean after one fix round; waiting for the owner's phone check and the merge. The four history panels stay on the web Início (`home-panels.md`) |
+| 4–8 | Extrato/Cartões, planning, Ajustes, Investimentos, remove the WebView | Not started |
 | D | Desktop redesign | Not started |
 
 Keep this table and each spec's `Status` row current; `docs/next-steps.md` holds the open items

@@ -171,6 +171,7 @@
 | `findings.md` triage, possible bugs and stale texts (web and backend): Metas edit after the target month, Recorrentes account edit, Extrato transfer destination, investment statement same-day order, refund prefill cents, A receber "pago em" local day — each reproduced by a test, then fixed; login "Finanças" + "Criar acesso" only when `GET /api/auth/signup` says open; Metas/Integrações/Notificações texts, `CASH_WITHOUT_AMOUNT_MESSAGE`, `Orcamento.jsx` comment | 2026-10-23 |
 | Native migration session 5: the proposal `mobile-docs/native/proposals/home-attention-invoices.md` (home, attention, invoices, purchase delete, transactions paging; routes, JSON, reused functions, web switch, pytest cases for every `transactions.test.js` / `attentionRules.test.js` case plus 18 new for `cashFlow.js`, behaviour changes B1–B9) — proposal only, nothing implemented; the pending-balance rules of `outboxRules.js` (`pendingAccountDeltas`, `applyPendingToAccounts`, `pendingAsTransactions`, `countByStatus`) ported to `rules/OutboxPending.kt`, 11 JVM tests, android-check green | 2026-10-23 |
 | Native migration session 6: the proposal's §1–4 built — `GET /api/home` (`services/home.py`), `GET /api/attention` (`services/attention.py`), `GET /api/cc-invoices` (`services/card_invoices.py`), `DELETE /api/cc-expenses/purchases/<id>`; Início, the bell, the Extrato's "Saldo em contas" and Cartões switched with no visible change; `applyPendingToHome()` in `outboxRules.js` and `rules/OutboxPending.kt`; `cashFlow.js`, the rule half of `attentionRules.js` and `consolidatedBalance`/`openingBalanceTotal` deleted, their node cases moved to pytest. pytest 1536 → 1603, node 164 → 160 | 2026-10-23 |
+| Native migration session 7 (step 3): Início and the bell native — `ui/home/` reading `/api/home?months=12` and `/api/attention` with the pending overlay (`OutboxItems` → `applyPendingToHome()`, "Saldo estimado"), attention cards with Pagar/Lançar and per-device dismissal, the bell sheet, Fluxo de caixa / Orçamento / Evolução do saldo (`ui/charts/`), privacy mirrored both ways (`Shell.setValuesHidden`/`getValuesHidden` → `ShellPrefs`), the web Início tab opening it (`NativePage`, `?web=1`), native-level 4 → 5; `mobile/inicio-snapshot.py` to compare native and web; 39 new JVM tests, node 160 → 176 | 2026-10-23 |
 
 ---
 
@@ -1239,3 +1240,34 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
 - **Not built**: paging (§5), by the proposal's own order. Início's history panels need
   `home-panels.md` (next-steps).
 
+### Native Início and the bell — 2026-10-23 (native session 7)
+
+- **What native reads**: `GET /api/home?months=12`, `GET /api/attention`, `GET /api/budgets?month=`
+  (the strip) and the accounts for the pay sheet; writes `POST /api/cc-expenses/pay-invoice`
+  (sequential, one per invoice) and `POST /api/recurring/run` through a `writeApi` with no read
+  timeout (a write that may have gone through is never reported as offline by a timeout).
+- **Ports with the node cases**: `rules/HomeFlow.kt` (`lib/homeFlow.js` — the flow averages and
+  taxa de poupança, moved out of `Dashboard.jsx` — and `chartFormat.js`), `rules/AttentionRules.kt`
+  (`attentionRules.js`: `overdueDetail`, `undismissedItems`, `addDismissed` keeping the last 200,
+  and the texts now in `attentionRules.js` instead of `Attention.jsx`), `rules/HomeRules.kt`
+  (`blockedRecurringMessage`, `budgetStatus`), `rules/OutboxItems.kt` (the `OutboxStore` JSON item
+  → `PendingItem`). Chart colours moved into `index.css` (`--flow-*`, `--series-0`) and
+  `Tokens.kt`; `chartColors.test.js` keeps `charts.jsx` on the variables.
+- **Leaving native**: a link finishes `NativeActivity` with the route and `NativeScreens` emits
+  `navigate`. When no WebView is listening (the process was killed and Android restored the native
+  screen alone), the route is stored for 2 minutes and the web takes it once at start
+  (`NativeScreens.takePendingRoute()`), so the link lands where it points instead of looping back
+  to native Início. `/inicio?web=1` is the web Início that does not redirect (the four history
+  panels, and the login after a 401).
+- **Privacy**: the web calls `Shell.setValuesHidden` on toggle and at start, and reads
+  `getValuesHidden` on resume; an older APK rejects the calls and nothing changes. With values
+  hidden, a negative account chip and the Evolução badge are not coloured red (the web leaks the
+  sign there; kept native-only on purpose).
+- **Review**: `native-parity-reviewer` found no blockers and two majors — the blocked-recurrence
+  message wiped by the refetch (read error and action error are now separate states,
+  `HomeLogic.bannerDetail`) and the process-death loop above — plus minors (write timeout, two
+  offline banners, info toast, lowercase month); fixed in one round. The re-verification caught
+  three more minors (the toast's surface must be the web's dark one for every tone, only the icon
+  changes; the start route expires on the web side too; `PendingRoute.kt` tested); fixed.
+- **Not built**: the four history panels (they wait for `home-panels.md`), a Pendentes pill in the
+  native top bar (the shell, step 8), one dismissal list shared by web and native.

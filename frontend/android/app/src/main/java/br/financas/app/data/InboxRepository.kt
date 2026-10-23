@@ -35,6 +35,27 @@ sealed interface InboxWrite<out T> {
 }
 
 /**
+ * Uma escrita so com o servidor (Aprovar, e o Inicio: pagar fatura, lancar recorrencias): o
+ * corpo da resposta, ou por que nao deu. Um redirecionamento nunca e a API (portal de Wi-Fi): o
+ * pedido nao chegou.
+ */
+suspend fun sendWrite(sender: Sender, method: String, path: String, body: String?): InboxWrite<String> = try {
+    InboxWrite.Done(sender.send(method, path, body))
+} catch (error: ApiException.Network) {
+    InboxWrite.Offline
+} catch (error: ApiException.BadResponse) {
+    InboxWrite.Offline
+} catch (error: ApiException.Unauthorized) {
+    InboxWrite.SessionExpired(error.serverMessage)
+} catch (error: ApiException.Http) {
+    when {
+        error.status in 300..399 -> InboxWrite.Offline
+        error.status == 409 -> InboxWrite.Conflict(error.serverMessage)
+        else -> InboxWrite.Refused(error.status, error.serverMessage)
+    }
+}
+
+/**
  * Aprovar (Lancamentos > Aprovar) sobre a API: as leituras com a copia guardada primeiro
  * (CachedReader), as escritas so com o servidor, sempre com a `version` do item no corpo (quem
  * monta o corpo e rules/InboxRules.kt).
@@ -118,22 +139,8 @@ class InboxRepository(
         is InboxWrite.SessionExpired -> result
     }
 
-    private suspend fun raw(method: String, path: String, body: String?): InboxWrite<String> = try {
-        InboxWrite.Done(sender.send(method, path, body))
-    } catch (error: ApiException.Network) {
-        InboxWrite.Offline
-    } catch (error: ApiException.BadResponse) {
-        InboxWrite.Offline
-    } catch (error: ApiException.Unauthorized) {
-        InboxWrite.SessionExpired(error.serverMessage)
-    } catch (error: ApiException.Http) {
-        when {
-            // Um redirecionamento nunca e a API (portal de Wi-Fi): o pedido nao chegou.
-            error.status in 300..399 -> InboxWrite.Offline
-            error.status == 409 -> InboxWrite.Conflict(error.serverMessage)
-            else -> InboxWrite.Refused(error.status, error.serverMessage)
-        }
-    }
+    private suspend fun raw(method: String, path: String, body: String?): InboxWrite<String> =
+        sendWrite(sender, method, path, body)
 
     private fun <T> decode(body: String, deserializer: DeserializationStrategy<T>): T? = try {
         json.decodeFromString(deserializer, body)

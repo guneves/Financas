@@ -38,6 +38,23 @@ object Tokens {
         "brand-soft" to 0xB9D7C8,
         "brand-ink" to 0xF2FBF6,
         "on-accent" to 0x052E1F,
+        // Inicio (passo 3): os fundos dos icones dos avisos, as barras do orcamento e os graficos.
+        "emerald-100" to 0xD1FAE5,
+        "emerald-800" to 0x065F46,
+        "rose-100" to 0xFFE4E6,
+        "rose-200" to 0xFECDD3,
+        "rose-500" to 0xF43F5E,
+        "rose-700" to 0xBE123C,
+        "amber-100" to 0xFEF3C7,
+        "amber-500" to 0xF59E0B,
+        "amber-800" to 0x92400E,
+        "sky-100" to 0xE0F2FE,
+        "sky-700" to 0x0369A1,
+        "flow-income" to 0x1BAF7A,
+        "flow-expense" to 0xE34948,
+        "flow-investment" to 0x2A78D6,
+        "flow-others" to 0xEDA100,
+        "series-0" to 0x2A78D6,
     )
 
     val dark: Map<String, Int> = mapOf(
@@ -67,6 +84,22 @@ object Tokens {
         "brand-soft" to 0xB9D7C8,
         "brand-ink" to 0xF2FBF6,
         "on-accent" to 0x052E1F,
+        "emerald-100" to 0x133526,
+        "emerald-800" to 0xA7F3D0,
+        "rose-100" to 0x3A1A1D,
+        "rose-200" to 0x5A2328,
+        "rose-500" to 0xF07178,
+        "rose-700" to 0xFCA5A5,
+        "amber-100" to 0x3A2C0E,
+        "amber-500" to 0xF5B94A,
+        "amber-800" to 0xFDE3A7,
+        "sky-100" to 0x10283A,
+        "sky-700" to 0xA5D8FA,
+        "flow-income" to 0x1BAF7A,
+        "flow-expense" to 0xE34948,
+        "flow-investment" to 0x2A78D6,
+        "flow-others" to 0xEDA100,
+        "series-0" to 0x2A78D6,
     )
 
     fun of(dark: Boolean): Map<String, Int> = if (dark) this.dark else light

@@ -73,6 +73,7 @@ import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValue
 import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, isCardRefund, isInvestmentOutflow, isInvoicePayment } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { ownAmount } from '../lib/sharing'
+import { flowPoint, flowSummary as flowSummaryOf, savingsRateText } from '../lib/homeFlow'
 
 const INVOICE_MONTHS = 6
 // Meses anteriores que formam a media do "Ritmo de gastos".
@@ -91,29 +92,6 @@ const parseInstallmentInfo = (value) => {
 }
 
 const shortMonth = shortMonthLabel
-
-// Um mes de /api/home como o grafico o desenha: as saidas abaixo do zero (a
-// posicao diz "saida" sem depender da cor), o investimento e outras pessoas
-// liquidos. Em centavos, sem -0 num mes vazio.
-const cents = (value) => Math.round((Number(value) || 0) * 100)
-const negated = (value) => (value ? -value / 100 : 0)
-
-function flowPoint(month) {
-  return {
-    key: month.month,
-    label: shortMonth(month.month),
-    income: month.income,
-    expense: negated(cents(month.expense)),
-    investment: negated(cents(month.invested) - cents(month.redeemed)),
-    invested: month.invested,
-    redeemed: month.redeemed,
-    others: (cents(month.others_received) - cents(month.others_paid)) / 100,
-    othersPaid: month.others_paid,
-    othersReceived: month.others_received,
-    net: month.net,
-    balance: month.balance,
-  }
-}
 
 const percentChange = (current, previous) => {
   if (!previous) return null
@@ -264,30 +242,9 @@ export default function Dashboard() {
   // pessoa ficam a parte; o saldo e o das contas de verdade.
   const monthlyHistory = useMemo(() => (home?.flow || NO_ITEMS).map(flowPoint), [home])
 
-  const flowSummary = useMemo(() => {
-    const hasInvestment = (item) => item.invested !== 0 || item.redeemed !== 0
-    const hasOthers = (item) => item.othersPaid !== 0 || item.othersReceived !== 0
-    const active = monthlyHistory.filter((item) => item.income !== 0 || item.expense !== 0 || hasInvestment(item) || hasOthers(item))
-    const income = monthlyHistory.reduce((acc, item) => acc + item.income, 0)
-    const expense = monthlyHistory.reduce((acc, item) => acc - item.expense, 0)
-    const investment = monthlyHistory.reduce((acc, item) => acc - item.investment, 0)
-    const months = Math.max(active.length, 1)
-    return {
-      avgIncome: income / months,
-      avgExpense: expense / months,
-      avgInvestment: investment / months,
-      // O que foi investido conta como poupado: so a despesa reduz a taxa. O
-      // resgate ja ficou fora da receita.
-      savingsRate: income > 0 ? ((income - expense) / income) * 100 : null,
-      hasData: active.length > 0,
-      // So existe investimento aqui se algum aporte ou resgate passou pelo
-      // extrato; sem isso a media e a serie do grafico nem aparecem.
-      hasInvestment: monthlyHistory.some(hasInvestment),
-      // Algo pago por (ou recebido de) outra pessoa nos 12 meses: so entao a
-      // serie aparece.
-      hasOthers: monthlyHistory.some(hasOthers),
-    }
-  }, [monthlyHistory])
+  // As medias e a taxa de poupanca (lib/homeFlow.js, testada; o par nativo e
+  // rules/HomeFlow.kt).
+  const flowSummary = useMemo(() => flowSummaryOf(monthlyHistory), [monthlyHistory])
 
   const currentSpending = useMemo(() => buildSpending(transactions, ccExpenses, currentKey), [transactions, ccExpenses, currentKey])
   // Os meses anteriores, do mais recente para o mais antigo.
@@ -617,7 +574,7 @@ export default function Dashboard() {
                   ) : null}
                   <InlineStat
                     label="Taxa de poupança"
-                    value={flowSummary.savingsRate === null ? '—' : `${flowSummary.savingsRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
+                    value={savingsRateText(flowSummary.savingsRate)}
                     valueClassName={flowSummary.savingsRate !== null && flowSummary.savingsRate < 0 ? 'text-rose-600' : 'text-emerald-700'}
                     className={flowSummary.hasInvestment ? '' : 'col-span-2 sm:col-span-1'}
                   />

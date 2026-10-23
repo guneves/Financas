@@ -5,6 +5,7 @@ import android.view.Window;
 
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -17,6 +18,11 @@ import br.financas.app.ui.theme.ShellPrefs;
  * da barra de gestos ganha o fundo da tela, e os icones ficam claros no tema escuro.
  * O botao de tema do app pode divergir do sistema, entao o tema do Android nao basta.
  * A escolha fica gravada (ShellPrefs) para as telas nativas abrirem no mesmo tema.
+ *
+ * O modo privado (o olho, lib/privacy.js) tambem: setValuesHidden({ hidden }) grava cada troca
+ * da web, getValuesHidden() devolve { hidden } (ou {} sem escolha guardada) — o Inicio nativo
+ * tem o olho e a web le o que ele deixou ao voltar (lib/nativeApp.js; frontend/native-level.txt
+ * 5 em diante). Nunca tire um metodo que a web de um nivel abaixo ainda chama.
  */
 @CapacitorPlugin(name = "Shell")
 public class ShellPlugin extends Plugin {
@@ -43,5 +49,24 @@ public class ShellPlugin extends Plugin {
             controller.setAppearanceLightNavigationBars(!dark);
             call.resolve();
         });
+    }
+
+    @PluginMethod
+    public void setValuesHidden(PluginCall call) {
+        Boolean hidden = call.getBoolean("hidden");
+        if (hidden == null) {
+            call.reject("Informe hidden.");
+            return;
+        }
+        ShellPrefs.saveValuesHidden(getContext(), hidden);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getValuesHidden(PluginCall call) {
+        JSObject result = new JSObject();
+        Boolean hidden = ShellPrefs.valuesHidden(getContext());
+        if (hidden != null) result.put("hidden", hidden.booleanValue());
+        call.resolve(result);
     }
 }

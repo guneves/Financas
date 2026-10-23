@@ -141,6 +141,21 @@ class ApiClient(
             .followSslRedirects(false)
             .build()
 
+        /**
+         * Uma escrita que nao e criacao (pagar fatura, lancar recorrencias): sem prazo de resposta,
+         * como na web (lib/api.js: edicao e exclusao nao tem timeout) — uma que estourasse o prazo
+         * podia ter passado, e a tela diria "sem conexao" de algo feito. So a conexao tem prazo:
+         * sem conectar, o pedido nao saiu.
+         */
+        fun writeHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS)
+            .writeTimeout(0, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+
         fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)

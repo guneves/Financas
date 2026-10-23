@@ -7,6 +7,10 @@
 // com useValuesHidden(): trocar o modo re-renderiza so esses pontos, sem
 // remontar a pagina (sem nova busca, sem recontar numeros nem redesenhar
 // graficos).
+//
+// No APK o modo e o mesmo das telas nativas (o Inicio nativo tem o olho):
+// lib/nativeApp.js guarda cada troca no Java (Shell.setValuesHidden) e, ao
+// voltar para a WebView, le o que a tela nativa deixou (Shell.getValuesHidden).
 import { useCallback, useSyncExternalStore } from 'react'
 
 const HIDE_VALUES_KEY = '@financeMVP:hideValues'
@@ -40,6 +44,16 @@ export function setValuesHidden(hidden) {
     // Sem localStorage o modo so dura ate recarregar a pagina.
   }
   listeners.forEach((listener) => listener())
+}
+
+// O valor de agora, fora do React (lib/nativeApp.js espelha no APK).
+export function valuesHiddenNow() {
+  return valuesHidden
+}
+
+// Avisa a cada troca (o espelho do APK). Devolve o cancelamento.
+export function onValuesHiddenChange(listener) {
+  return subscribe(listener)
 }
 
 export function useValuesHidden() {

@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | Migration order | 3 (see `../migration-order.md`) |
-| Status | Not started |
+| Status | Built 2026-10-23 on `claude/wizardly-faraday-cbx3mb` (native-level 5, PR #38): `ui/home/`, the bell, privacy mirrored both ways, `ui/charts/`; CI green, parity review clean after two fix rounds; waiting for the owner's phone check and the merge. Out of scope natively: Despesas por categoria, Ritmo de gastos, Próximas faturas (projection) and Parcelamentos abertos — one row "Categorias, ritmo e parcelamentos" opens the web Início (`/inicio?web=1`) |
 | React source | `frontend/src/pages/Dashboard.jsx` (with its inline `BalanceHero`, `MonthSummary`, `NextInvoiceTile`, `NeedsAttention`, `CategoryList`, `BudgetStrip`, `FlowTooltip`, `InlineStat`, `DashboardSkeleton`, `buildSpending()`), `components/Attention.jsx` (`AttentionCards`), `components/PayInvoiceSheet.jsx`, `components/BudgetProgress.jsx`, `components/charts.jsx` (`DonutChart`, `CHART`, `FLOW`, `SERIES`, `OTHER_COLOR`), `lib/attention.js`, `lib/attentionRules.js`, `lib/transactions.js`, `lib/cashFlow.js`, `lib/sharing.js` (`ownAmount()`, `othersAmount()`), `lib/outboxRules.js` (`applyPendingToAccounts()`, `pendingAsTransactions()`), `lib/format.js`, `lib/privacy.js` |
 | Route(s) | `/inicio` (also `/dashboard` → redirect) |
-| Endpoints | `GET /api/transactions`, `GET /api/cc-expenses`, `GET /api/accounts?include_archived=1`, `GET /api/credit-cards`, `GET /api/recurring`, `GET /api/budgets?month=AAAA-MM`, `POST /api/recurring/run`, `POST /api/cc-expenses/pay-invoice` |
-| Client rules | `lib/transactions.js` (`consolidatedBalance()`, `accountBalanceBrl()`, `bankingAccounts()`, `activeAccounts()`, `openingBalanceTotal()`, `bankingTransactions()`, `isInvestmentOutflow/Inflow()`, `cardSignedAmount()`, `cardPurchaseKey()`, `blockedRecurringMessage()`), `lib/cashFlow.js` (`buildMonthlyFlow()`, `isInvoicePayment()`), `lib/attentionRules.js` (`nextInvoices()`, `payableInvoices()`, `overdueInvoices()`, `overdueDetail()`, `autopayShortfalls()`, `attentionItems()`, `undismissedItems()`, `addDismissed()`, `invoiceMonthKey()`, `isPastDue()`), `lib/attention.js` (dismissals), inline in `Dashboard.jsx` (spending, pace, categories, projection, installments, flow averages) |
+| Endpoints | Native: `GET /api/home?months=12`, `GET /api/attention`, `GET /api/budgets?month=AAAA-MM`, `GET /api/inbox/count` (the Aprovar pill), `POST /api/cc-expenses/pay-invoice`, `POST /api/recurring/run`. The web Início (`?web=1`, and the browser) also reads `GET /api/transactions`, `GET /api/cc-expenses`, `GET /api/accounts?include_archived=1` for the history panels |
+| Client rules | Ported (Kotlin, JVM-tested with the node cases): `lib/homeFlow.js` → `rules/HomeFlow.kt` (flowPoint, flowSummary, savingsRateText; moved out of `Dashboard.jsx` in this step), `lib/chartFormat.js` → `HomeFlow.compactAxis`, `lib/attentionRules.js` → `rules/AttentionRules.kt` (overdueDetail, attentionText, attentionLink, bellBadge/bellLabel, undismissedItems, addDismissed; the texts moved out of `Attention.jsx`), `applyPendingToHome` (`rules/OutboxPending.kt`) fed by `rules/OutboxItems.kt` (OutboxStore JSON → PendingItem), `blockedRecurringMessage` and `budgetStatus` → `rules/HomeRules.kt`. The rest of the old list moved to the server in session 6 |
 
 ## What it is for
 The screen the owner opens to see how much money is in the bank accounts, how the month is going
@@ -107,65 +107,40 @@ accounts "<nome> (padrão) · R$ saldo" (balance hidden in privacy mode and for 
 nesta fatura.", 404 "Cartao nao encontrado.", 400 account messages.
 
 ## Data
-Four independent queries (one failing does not hide the others) + the outbox. Today's keys are
-shared with the bell (`lib/attention.js`); any write invalidates all; `staleTime` 30 s.
+Native (`ui/home/HomeViewModel.kt`, `data/HomeRepository.kt`): three independent reads through
+`CachedReader` (cache first, then the network; one failing hides nothing else; "atualizado às HH:MM"
+while the copy shown is the stored one), re-read on every resume of the screen and by pull to refresh:
 
-| Query key | Request | Fields used |
+| Read | Request | Fields used |
 |---|---|---|
-| `['inicio','movimentos']` | `GET /api/transactions` (no filter: **every row ever**), `GET /api/cc-expenses` (**every row**, paid included), `GET /api/accounts?include_archived=1` | transactions: `type`, `amount`, `date`, `category`, `source_type`, `account_id`, `transfer_account_id`, `share_mode`, `share_others_amount`. cc rows: `status`, `kind`, `amount`, `purchase_date`, `client_id`, `card_id`, `credit_cards.name`, `description`, `category`, `installment_info`, `invoice_month`, `invoice_year`, `invoice_due_date`, `invoice_closing_date`, `invoice_closed` (server-computed), `share_*`. accounts: `id`, `name`, `type`, `archived_at`, `is_default`, `currency`, `balance`, `balance_brl`, `initial_balance` |
-| `['inicio','cartoes']` | `GET /api/credit-cards` | `id`, `autopay_account_id` |
-| `['inicio','recorrencias']` | `GET /api/recurring` | `items[].id`, `pending_count`, `last_occurrence_date` |
-| `['inicio','orcamento', AAAA-MM]` | `GET /api/budgets?month=` | `month`; `items[]`: `id`, `category_id`, `category_name`, `parent_name`, `spent`, `available`, `percent`, `status` (`OK`/`WARNING`/`OVER`/`NEEDS_INCOME`); `totals.available`, `totals.spent`, `totals.remaining` |
-| outbox | `useOutbox()` (native: `OutboxStore.all()`) | `pending` items → `applyPendingToAccounts()` (balances, `balance_estimated`) and `pendingAsTransactions()` (flow rows) |
+| home | `GET /api/home?months=12` (as `useHome()`) | `consolidated_balance`, `accounts[]` (`id`, `name`, `type`, `archived_at`, `is_default`, `currency`, `balance`, `balance_brl`), `summary` (`income`, `expense`, `invested`, `redeemed`, `others_net`), `flow[]` (every field), `next_invoices[]` (`card_id`, `invoice_month`, `invoice_year`, `payable`, `total`), `next_invoices_total`, `next_closing_date` |
+| attention | `GET /api/attention` | `items[]`: `key`, `kind`, `tone`, `total`, `item_count`, `invoices[]` (`card_id`, `card_name`, `invoice_month`, `invoice_year`, `due_date`, `total`), `account_name`, `balance`, `missing`, `first_due`, `count`, `category_name`, `spent`, `available` |
+| budget | `GET /api/budgets?month=<device month>` | `items[]` (`id`, `category_name`, `parent_name`, `spent`, `available`, `percent`, `status`), `totals` (`available`, `spent`, `remaining`) |
+| outbox | `OutboxStore.all()` → `OutboxItems.forUser(…, session user)` | `pending` non-`CARD` items → `applyPendingToHome()` (accounts, Saldo em contas, every month of the flow, `summary`); the "Saldo estimado" banner counts them |
 
-Reads write on the server: `/api/accounts` and `/api/transactions` materialize autopay
-(`apply_due_autopay()`) and paid proventos (`apply_paid_proceeds()`); `/api/cc-expenses` and
-`/api/credit-cards` materialize autopay only.
+Dismissals: native keeps its own list in SharedPreferences (`financas_attention`, `dismissed`, the
+same keys, last 200); the web's stays in localStorage. They are separate stores on purpose: hiding a
+card in the native Início does not hide it in the web Início (`?web=1`) and vice versa. The bell
+always lists every item.
+
+Privacy: `ShellPrefs.valuesHidden` (`financas_shell`, `values_hidden`). The web pushes each toggle
+(`Shell.setValuesHidden`) and, on start and on every `resume`, adopts what native stored
+(`Shell.getValuesHidden`, `lib/nativeApp.js`); native's eye writes the same key. An older APK
+rejects both calls and the web keeps its own mode.
+
+Navigation: the web route `/inicio` is `NativePage stay`: it opens the native page and the WebView
+stays on `/inicio` drawing nothing; native links (Cartões, Extrato, A receber, Orçamento,
+Recorrentes, Ajustes, the bottom tabs) finish the Activity with `navigate`; `/inicio?web=1` is the
+React page (also what "Entrar novamente" opens after a 401). With no WebView listening (the
+process was recreated with native Início on top) the link's route is stored
+(`NativeScreens.takePendingRoute`, valid 2 min) and the web goes straight to it on start. Native back on Início minimizes; "+"
+opens the native "+ Novo"; the Aprovar pill opens native Aprovar on top.
 
 ## Client rules
-**Proposed endpoints**: `GET /api/home`, `GET /api/attention` and `GET /api/cc-invoices` in
-`../proposals/home-attention-invoices.md` (2026-10-23, waiting for the owner). Below, the rules they
-replace. **Candidates for an endpoint** (all are money rules and Início downloads the whole history to run
-them; a single `GET /api/home?month=` — proposal, does not exist — returning balance, month summary,
-next invoices, attention items, flow, categories, projection, installments and pace would replace
-four queries and ~1000 lines of client logic; native keeps only the pending-item overlay):
-
-- **`consolidatedBalance()` / `accountBalanceBrl()` / `bankingAccounts()` / `openingBalanceTotal()`**
-  (`lib/transactions.js`, tested in `transactions.test.js`): sum of `balance_brl` of non-BROKERAGE
-  accounts incl. archived. **Endpoint** (the server already computes each balance; add the total).
-- **`bankingTransactions()`** (tested): drops rows inside a Corretora; a transfer bank → Corretora
-  becomes an EXPENSE "Aporte" (`portfolio_transfer`), back an INCOME "Resgate". **Endpoint**;
-  `month_investment_flow()` in `services/monthly_plan.py` is already its SQL twin for one month.
-- **`buildMonthlyFlow()`** (`lib/cashFlow.js`, tested only through `sharing.test.js`): per month
-  income/expense (owner's part, `ownAmount()`), invested/redeemed, othersPaid/Received, net and
-  month-end balance (opening = banking `initial_balance` + earlier rows). Card purchases count in the
-  purchase month (refund subtracts), invoice payments (`CC_INVOICE_PAYMENT`, `CC_AUTOPAY`, or
-  category starting "Pagamento Fatura") never. **Endpoint**.
-- **`attentionRules.js`** (tested, `attentionRules.test.js`): `nextInvoices()` (per card, open
-  invoice with the earliest `invoice_due_date` ≥ today), `payableInvoices()` (closed, total ≥ 0),
-  `overdueInvoices()` (due date < today, total > 0), `autopayShortfalls()` (autopay invoices due
-  within 31 days vs the account's BRL balance; Corretora/archived/no-rate skipped),
-  `attentionItems()` (order: overdue; payable only without overdue; shortfalls; recurring; over
-  budget; each with a case `key`). **Endpoint** (`GET /api/attention`, shared with the bell); keep
-  the `key` format so per-device dismissals keep working.
-- **Inline, untested** in `Dashboard.jsx`: `buildSpending()` (by day and by category **name** —
-  "Outros" root and "Lazer › Outros" merge), the pace (3-month baseline, months with zero spending
-  excluded), `categoryBreakdown` (delta vs previous month), `invoiceProjection` (6 invoice months,
-  overdue excluded), `groupedInstallmentExpenses`, `flowSummary` (averages over active months,
-  savings rate), next closing date. **Endpoint**; if ported instead, write tests first.
-
-**Stays on the phone (port)**:
-- **Pending overlay** — `outboxRules.js` `pendingAccountDeltas()` / `applyPendingToAccounts()` /
-  `pendingAsTransactions()` (tested in `outboxRules.test.js`: expense out, income in, transfer moves
-  both and leaves the consolidated, card pending touches nothing, missing account → default,
-  `needs_attention` excluded, cents exact, foreign account's `balance_brl` untouched). Not in
-  `OutboxRules.java`: **ported** to `rules/OutboxPending.kt` (2026-10-23, the same cases); the queue is
-  local, no endpoint can see it. With `/api/home`, `applyPendingToHome()` is the overlay (proposal §1).
-- **Dismissals** — `lib/attention.js` (localStorage `@financeMVP:attentionDismissed`) +
-  `addDismissed()` (keeps the last 200, tested) / `undismissedItems()`. **Port** per device.
-- **Budget status of the strip** — `BudgetProgress.jsx` `budgetStatus()` recomputes the overall
-  status from totals (≥ 80 % = WARNING); items use the server's `status`. Prefer a server total
-  status.
+See the header row. All money (balances, the month, next invoices, attention items, budget totals)
+comes from the server; the phone only overlays its own pending items and formats. Two deliberate
+differences from the web, both privacy fixes: a negative account in the hero strip and the Evolução
+do saldo badge are not coloured rose while values are hidden (the web leaks the sign there).
 
 ## States
 - **Loading**: `DashboardSkeleton` (hero 56, summary, tile, two panels) until movements arrive;
@@ -210,6 +185,28 @@ four queries and ~1000 lines of client logic; native keeps only the pending-item
 - [ ] Dismissing hides the cards on this phone only; the bell still lists them; a new case returns.
 - [ ] "Lançar" with an archived-account recurrence shows the blocked message.
 - [ ] The eye masks exactly the values listed under "Privacy mode".
+
+### Comparing native and web on the same data
+Both read the same server, so the same account at the same minute must show the same numbers.
+
+1. Get the APK with native Início: before the merge, build this branch on the PC
+   (`.\mobile\build-apk.ps1`, installs over the real app and keeps its data); after the merge, the
+   debug APK from `/apk/financas-debug.apk` (installs beside it, log in once).
+2. Send or discard every pending item first (Pendentes pill on the web), and open the eye on both:
+   a pending item or a hidden value is a legitimate difference.
+3. On the PC, print the server's numbers with the screen's labels:
+   `.\.venv\Scripts\python.exe mobile\inicio-snapshot.py --url https://<server>.<tailnet>.ts.net --email <email>`
+   (GETs only; the password is asked, or `FINANCAS_PASSWORD`). It lists Saldo em conta and each
+   account, Resumo do mês, the next invoice(s), every attention item (the bell's count), the
+   Orçamento strip and the 12 months of the flow with each month-end balance.
+4. Open the native Início on the phone and the web Início in a browser
+   (`https://<server>…/inicio`, the desktop or the phone's browser). Tick each value against the
+   printout: hero, each account chip, the four or five Resumo lines, the invoice tile (label, total,
+   "Fechada"/"fecha dd/mm"), the attention cards and the bell's count, the Orçamento strip, the
+   flow's averages and taxa de poupança, and a few months of Evolução do saldo (tap a bar/point).
+5. Then the overlay: airplane mode, one despesa through "+ Novo" on the phone → the account and the
+   hero drop by it and "Saldo estimado: 1 lançamento…" appears; reconnect, it is sent, the banner
+   goes and the numbers equal the printout again (run it again).
 
 ## Desktop
 Keep and widen: hero + summary + next invoice in one row, then flow/categories and invoices/
