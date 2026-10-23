@@ -48,7 +48,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** O Field de components/ui.jsx: o rotulo (e a dica ao lado) sobre o campo. */
+/** O Field de components/ui.jsx: o rotulo (e a dica abaixo dele) sobre o campo. */
 @Composable
 fun Field(
     label: String,
@@ -58,17 +58,18 @@ fun Field(
 ) {
     val palette = LocalPalette.current
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // O aviso vai abaixo do rotulo, nao ao lado: numa Row o aviso (sem peso) era medido
+        // primeiro, ficava com a largura toda e o rotulo quebrava letra por letra.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = palette["zinc-700"],
-                modifier = Modifier.weight(1f, fill = false),
             )
             if (hint != null) {
                 Text(
-                    text = "  $hint",
+                    text = hint,
                     style = MaterialTheme.typography.labelMedium,
                     color = palette.muted,
                 )
