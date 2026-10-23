@@ -186,6 +186,28 @@ do saldo badge are not coloured rose while values are hidden (the web leaks the 
 - [ ] "Lançar" with an archived-account recurrence shows the blocked message.
 - [ ] The eye masks exactly the values listed under "Privacy mode".
 
+### Comparing native and web on the same data
+Both read the same server, so the same account at the same minute must show the same numbers.
+
+1. Get the APK with native Início: before the merge, build this branch on the PC
+   (`.\mobile\build-apk.ps1`, installs over the real app and keeps its data); after the merge, the
+   debug APK from `/apk/financas-debug.apk` (installs beside it, log in once).
+2. Send or discard every pending item first (Pendentes pill on the web), and open the eye on both:
+   a pending item or a hidden value is a legitimate difference.
+3. On the PC, print the server's numbers with the screen's labels:
+   `.\.venv\Scripts\python.exe mobile\inicio-snapshot.py --url https://<server>.<tailnet>.ts.net --email <email>`
+   (GETs only; the password is asked, or `FINANCAS_PASSWORD`). It lists Saldo em conta and each
+   account, Resumo do mês, the next invoice(s), every attention item (the bell's count), the
+   Orçamento strip and the 12 months of the flow with each month-end balance.
+4. Open the native Início on the phone and the web Início in a browser
+   (`https://<server>…/inicio`, the desktop or the phone's browser). Tick each value against the
+   printout: hero, each account chip, the four or five Resumo lines, the invoice tile (label, total,
+   "Fechada"/"fecha dd/mm"), the attention cards and the bell's count, the Orçamento strip, the
+   flow's averages and taxa de poupança, and a few months of Evolução do saldo (tap a bar/point).
+5. Then the overlay: airplane mode, one despesa through "+ Novo" on the phone → the account and the
+   hero drop by it and "Saldo estimado: 1 lançamento…" appears; reconnect, it is sent, the banner
+   goes and the numbers equal the printout again (run it again).
+
 ## Desktop
 Keep and widen: hero + summary + next invoice in one row, then flow/categories and invoices/
 installments side by side (as today at `xl`), plus room for analysis (12-month table under the flow,

@@ -145,8 +145,17 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   (`assert 0 == 1`) — at that hour UTC is already the next day, so the test's `days(0)` and
   `apply_paid_proceeds()`'s "today" disagree. Seen 2026-10-22 21:43 local; find which side uses
   UTC and make both the local date, as everything else does.
-- [ ] Steps 3–8 (Início, Extrato/Cartões, planning screens, Ajustes, Investimentos, then
-  remove the WebView), one per APK, each checked by the owner with the debug APK first.
+- [ ] **Step 3 — Início and the bell native, owner's phone check** (built 2026-10-23, PR #37,
+  native-level 5): run `screens/03-inicio.md`'s Acceptance on the debug APK and compare with the
+  web on the same data (the spec's "Comparing native and web"). Open from that session:
+  - toggling the eye natively and then following a link can show the web's values unmasked for a
+    moment, until the web reads `getValuesHidden()` on resume (reviewer's minor 6);
+  - Aprovar's writes still use the read client's 45 s timeout, so a timeout reads as offline even
+    when the write may have gone through; move them to `writeApi` as Início's pay/run were;
+  - the native top bar has no Pendentes pill (the shell, step 8);
+  - native and web keep separate dismissed-card lists (one per store; the bell lists all anyway).
+- [ ] Steps 4–8 (Extrato/Cartões, planning screens, Ajustes, Investimentos, then remove the
+  WebView), one per APK, each checked by the owner with the debug APK first.
 - [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
   screen here before it starts.
 - [ ] **Session containers cannot build an APK**: `dl.google.com` is blocked by the environment's
@@ -175,10 +184,9 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
     de gastos", "Parcelamentos abertos" and the 6-month invoice projection, and the Extrato's
     projections, still read the whole history (`['inicio','movimentos']`,
     `GET /api/cc-expenses?status=OPEN` in `useLancamentos()`). Once served, Início stops calling
-    `GET /api/transactions` and `bankingTransactions()` / `isPastDue()` leave the client.
-  - **Native Início**: an adapter from `OutboxStore`'s JSON items to `OutboxPending.kt`'s typed
-    classes, and the ports of the attention texts and dismissals (`overdueDetail`,
-    `undismissedItems`, `addDismissed`, the titles in `components/Attention.jsx`).
+    `GET /api/transactions` and `bankingTransactions()` / `isPastDue()` leave the client. The
+    native Início (step 3) shows those four panels only through the web (`/inicio?web=1`) until
+    then.
   - **Owner, after the deploy**: open Início, the bell, Extrato and Cartões on the real server once
     and compare with the day before (the parity check ran on a seeded database, not on real data).
 - [ ] **Owner decision**: may `android-check.yml` upload a branch's debug APK as a workflow
