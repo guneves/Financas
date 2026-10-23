@@ -14,4 +14,6 @@ ext {
     androidxEspressoCoreVersion = '3.7.0'
     cordovaAndroidVersion = '14.0.1'
     androidxWorkVersion = '2.11.2'
+    // As telas nativas: o BOM fixa as versoes de todas as bibliotecas do Compose.
+    composeBomVersion = '2025.09.00'
 }

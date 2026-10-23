@@ -11,7 +11,7 @@ the end). The status of each phase is in its heading.
 
 | Topic | Decision |
 |---|---|
-| Shape | Capacitor wraps the existing React frontend into an APK. Same repo, same UI code. No native rewrite. |
+| Shape | Capacitor wraps the existing React frontend into an APK. Same repo, same UI code. **Superseded 2026-10-22:** the phone becomes native (Kotlin + Compose) screen by screen and the desktop gets its own interface — `mobile-docs/native-app.md`. |
 | Connection | Tailscale between phone and PC. The backend stays on the PC; HTTPS comes from `tailscale serve`. |
 | Offline scope | Creating a despesa, receita, transferência and card purchase works offline. Edits, deletes, investments, invoice payment and imports stay online-only. |
 | Sync | One direction: an outbox on the phone replays creations to the server. The server is the only source of truth; the phone refetches after each run. |
@@ -304,8 +304,9 @@ Java already, and nothing reports to a third party.
    Capacitor or plugin upgrade, a permission. Bump it in the same commit. The level in
    `bundle.json` is the *minimum*: an APK at or above it opens the bundle, an older one keeps its
    screens and is offered the new APK (below).
-7. **The APK from CI (option 2, built 2026-10-17).** A push that changes the Android project, the
-   native level or Capacitor's config also runs the `apk` job (DEPLOY.md, "Updating the phone"):
+7. **The APK from CI (option 2, built 2026-10-17).** Every push to `main` also runs the `apk` job
+   (DEPLOY.md, "Updating the phone"; until 2026-10-22 only a push that changed the Android project,
+   the native level or Capacitor's config did — the owner wants a new APK after every deploy):
    signed with the phone's key from the `android-release` environment, `versionCode = 10000 + run
    number`, published with `version.json` to `/apk/` on the server (tailnet only, `tailscale
    serve`). Plugin `AppUpdate` (`android/.../update/`) reads it; when it is newer than the

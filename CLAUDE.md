@@ -79,6 +79,15 @@ Agent(subagent_type="general-purpose",
 
 If the fallback is what you used, say so in the handoff.
 
+### The native migration's agents
+
+Six more agents in `.claude/agents/` run the phone's native migration and the desktop redesign:
+`screen-spec-writer`, `rule-porter`, `native-screen-builder`, `native-parity-reviewer`,
+`android-ci-watcher` and `desktop-screen-builder`. What each does, the rules for running them in
+parallel (one writer per branch, worktrees, one owner of the shared Android files per round) and
+ready-to-paste prompts are in `mobile-docs/native/agents.md`. The same fallback applies if one is
+"not found".
+
 ## What this is
 
 A personal finance manager, single-user, running locally. Income and expenses, credit cards with
@@ -243,7 +252,8 @@ docs/
   done-tasks.md       # completed work, moved out of next-steps.md
   handoff.md          # latest session only
 frontend/android/      # Capacitor's Android project (committed); native code in
-                      # app/src/main/java/br/financas/app/ (outbox/ = the native queue and sender,
+                      # app/src/main/java/br/financas/app/ (ui/ = the native Kotlin/Compose screens
+                      # and theme, mobile-docs/native-app.md; outbox/ = the native queue and sender,
                       # bundle/ = the screen self-update, notify/ = the bank-notification
                       # listener and NotifyPairing, the bank × Samsung rule); app/src/debug/ = the test APK's name
 frontend/native-level.txt   # the APK's native level; a screen goes only to an APK at or above its level
@@ -253,8 +263,13 @@ mobile/
   new-keystore.ps1    # creates the release key outside the repo; run once, back it up
 mobile-docs/
   steps-to-production.md  # the Android app plan: decisions, phases and their status
+  native-app.md           # native phone screens (Kotlin + Compose) and the desktop redesign: decisions
+  native/                 # the migration's docs: architecture, conventions, build, order, rules,
+                          # screens/ (one spec per screen), desktop.md, agents.md (agents + prompts)
 .claude/agents/
   session-scout.md    # the start-of-session briefing subagent
+  screen-spec-writer.md, rule-porter.md, native-screen-builder.md, native-parity-reviewer.md,
+  android-ci-watcher.md, desktop-screen-builder.md   # the native migration's agents (mobile-docs/native/agents.md)
 ```
 
 ## Conventions
@@ -430,6 +445,15 @@ mobile-docs/
   items is labelled an estimate. In the APK the queue and the sender are Java
   (`frontend/android/.../outbox/`, swapped in by `lib/nativeApp.js`), and `OutboxRules.java` is a
   port of `outboxRules.js`: change one, change the other, with a test on each side.
+- **The phone goes native, the desktop gets its own interface** (owner, 2026-10-22,
+  `mobile-docs/native-app.md`): Kotlin + Jetpack Compose in `frontend/android`, one screen at a
+  time in the order of daily use, a screen not migrated yet still opening in the WebView; the
+  desktop stays React, redesigned for a wide screen. The server and its money rules do not change;
+  a frontend rule a native screen needs goes behind an endpoint or is ported with the same test
+  cases. Native colours are `ui/theme/Tokens.kt`, the names and values of `index.css`
+  (`TokensTest` reads the CSS), and the theme follows Ajustes › Aparência through `ShellPrefs`.
+  Sessions cannot build an APK (`dl.google.com` blocked): `android-check.yml` compiles the debug
+  APK and runs the JVM tests on every branch push that touches Android.
 - **The APK's screens come from the server** (2026-10-17, `services/app_bundle.py`,
   `android/.../bundle/`, `lib/appBundle.js`). The image builds the frontend for the APK into
   `frontend/dist-android` with a `bundle.json` (content-hash version, native level, API address);
@@ -442,8 +466,8 @@ mobile-docs/
   not have, and never remove a Java method that lower-level screens still call (a newer APK runs
   them). `GET /api/app-bundle*` is public on purpose (the same frontend `/` serves).
 - **A new APK comes from CI, never from GitHub Releases** (2026-10-17). The `apk` job of
-  `deploy.yml` runs only when `frontend/android/`, `native-level.txt` or `capacitor.config.json`
-  changed. It signs with the `android-release` environment's key (checked against
+  `deploy.yml` runs on every deploy (owner, 2026-10-22: a new APK to download after each one,
+  whatever changed). It signs with the `android-release` environment's key (checked against
   `mobile/release-cert-sha256.txt`), uses `versionCode = 10000 + run number`, and copies the APK and
   `version.json` to `/srv/apps/financas/apk/`, served at `/apk/` by `tailscale serve`. The app
   (`android/.../update/ApkUpdatePlugin.java`, `ApkUpdateBanner.jsx`) offers "Nova versão

@@ -10,10 +10,13 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import br.financas.app.ui.theme.ShellPrefs;
+
 /**
  * O tema do app (lib/theme.js) nas barras do Android: a faixa atras da barra de status e
  * da barra de gestos ganha o fundo da tela, e os icones ficam claros no tema escuro.
  * O botao de tema do app pode divergir do sistema, entao o tema do Android nao basta.
+ * A escolha fica gravada (ShellPrefs) para as telas nativas abrirem no mesmo tema.
  */
 @CapacitorPlugin(name = "Shell")
 public class ShellPlugin extends Plugin {
@@ -30,6 +33,8 @@ public class ShellPlugin extends Plugin {
             return;
         }
         final int color = parsed;
+        // As telas nativas abrem no mesmo tema (ui/theme/Theme.kt).
+        ShellPrefs.saveDark(getContext(), dark);
         getActivity().runOnUiThread(() -> {
             Window window = getActivity().getWindow();
             window.getDecorView().setBackgroundColor(color);

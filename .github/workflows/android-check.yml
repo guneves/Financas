@@ -1,0 +1,60 @@
+# The Android project on a branch: compiles the debug APK and runs the JVM tests, with no key and
+# no publishing. The container sessions work in has no Android SDK (dl.google.com is blocked
+# there), so this is where a native change (Kotlin/Compose screens, mobile-docs/native-app.md) is
+# first built. main is covered by deploy.yml's apk job, which signs and publishes.
+name: android-check
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - frontend/android/**
+      - frontend/native-level.txt
+      - frontend/capacitor.config.json
+      - frontend/package.json
+      - frontend/package-lock.json
+      - .github/workflows/android-check.yml
+  pull_request:
+    paths:
+      - frontend/android/**
+      - frontend/native-level.txt
+      - frontend/capacitor.config.json
+      - .github/workflows/android-check.yml
+  workflow_dispatch:
+
+concurrency:
+  group: android-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+        working-directory: frontend
+      # The same steps as deploy.yml's apk job: the screens the APK carries, then cap sync.
+      - name: Build the screens for the APK
+        working-directory: frontend
+        run: |
+          npx vite build --outDir dist-android --emptyOutDir
+          node scripts/bundle-manifest.mjs dist-android "https://example.invalid"
+          npx cap sync android
+      - name: JVM tests and the debug APK
+        working-directory: frontend/android
+        run: bash ./gradlew --no-daemon testDebugUnitTest assembleDebug
+      - name: Test report on failure
+        if: failure()
+        run: |
+          find frontend/android/app/build/test-results -name '*.xml' -print0 2>/dev/null \
+            | xargs -0 -r grep -l '<failure' | xargs -r cat | head -200
