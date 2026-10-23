@@ -72,10 +72,8 @@ classe de ativo da meta.", "Valor da meta deve ser maior que zero." (and `parse_
 "Aporte mensal …", "Rentabilidade anual esperada …" (−99…100), "Data desejada …", "A data desejada
 precisa ser depois deste mes."; 404 "Meta nao encontrada.".
 
-**Bug to know**: `normalize_goal_payload()` merges the stored row and re-validates `target_date`, so
-once the target month arrives (`target_date[:7] <= this month`) *any* edit of that goal — even a
-rename — is refused with "A data desejada precisa ser depois deste mes." until the date is cleared or
-moved. Native should surface this clearly (or the server should validate only a changed date).
+Only a *changed* `target_date` must be after this month (fixed 2026-10-23): a goal whose month has
+arrived still takes a rename or a new amount with its stored date sent back.
 
 ## Data
 - `GET /api/goals` → array, key `['metas']` (`queryFn: goalsApi.list`). Item (`serialize_goal()`,

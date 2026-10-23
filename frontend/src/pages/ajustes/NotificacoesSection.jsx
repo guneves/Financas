@@ -115,7 +115,7 @@ function NotificacoesPanel() {
     <Panel id="notificacoes" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Notificações dos bancos"
-        description="O app ouve o Samsung Wallet e os apps do Itaú, BB e BTG. Por enquanto só guarda os textos, para os leitores de cada banco serem escritos contra o que chega de verdade."
+        description="O app ouve o Samsung Wallet, a Flash e os apps do Itaú, BB e BTG. Cada notificação com valor vira um item em Aprovar: só os campos lidos (valor, loja, cartão) vão ao servidor, nunca o texto. O modo de captura guarda os textos no celular, para exportar."
         actions={(
           <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => run('reload', reload)} loading={busy === 'reload'}>
             Atualizar

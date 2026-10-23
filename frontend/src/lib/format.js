@@ -85,6 +85,14 @@ export function getLocalDateString(date = new Date()) {
   return `${year}-${month}-${day}`
 }
 
+// Um instante do servidor (utc_timestamp(), '...Z') no dia local 'AAAA-MM-DD'.
+// Fatiar o texto dava o dia em UTC: depois das 21h no Brasil, o dia seguinte.
+export function localDateOfTimestamp(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : getLocalDateString(date)
+}
+
 // 'AAAA-MM' — a chave de mes que o backend usa em orcamentos.
 export function monthKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`

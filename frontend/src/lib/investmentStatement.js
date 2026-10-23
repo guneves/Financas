@@ -91,7 +91,7 @@ export function buildInvestmentStatement(movements = [], proceeds = [], { today 
     : entries
   // Mais novo primeiro; no mesmo dia, operacoes antes de proventos.
   return visible.sort((a, b) => (
-    a.date === b.date ? a.source.localeCompare(b.source) * -1 : (a.date < b.date ? 1 : -1)
+    a.date === b.date ? a.source.localeCompare(b.source) : (a.date < b.date ? 1 : -1)
   ))
 }
 

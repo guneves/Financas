@@ -28,6 +28,17 @@ export async function signUp(email, password, username) {
   return authData
 }
 
+// O cadastro fecha quando o servidor ja tem o seu usuario (ALLOW_SIGNUP abre).
+// Sem resposta, fechado: a tela so oferece entrar.
+export async function signupOpen() {
+  try {
+    const status = await apiFetch('/api/auth/signup', { auth: false })
+    return Boolean(status?.open)
+  } catch {
+    return false
+  }
+}
+
 // Troca o nome de usuario e atualiza a sessao guardada, para a barra lateral
 // mostrar o nome novo sem precisar entrar de novo.
 export async function updateUsername(username) {

@@ -65,17 +65,17 @@ badge "Pendente" (neutral) / "Recusado" (warning), "<Despesa|Receita|Transferên
 · dd/mm/aaaa[ · Nx]", `last_error` in amber, amount (not masked), menu "Corrigir" / "Descartar".
 Footer "Fechar" + "Sincronizar agora".
 
-**Login** (`pages/Auth.jsx`): segmented "Entrar" / "Cadastrar"; headings "Acesse sua conta" /
+**Login** (`pages/Auth.jsx`, "Finanças"): segmented "Entrar" / "Criar acesso", only when
+`GET /api/auth/signup` answers `{open: true}` (no answer = closed, the segment is hidden); headings "Acesse sua conta" /
 "Crie seu acesso"; fields E-mail, Senha ("Mínimo de 6 caracteres"), and on signup "Nome de usuário"
 (2–40 chars, hint "É o nome exibido no app. O e-mail serve só para entrar."). Error box in rose.
-Branding there still says "FinanceMVP" (the shell says "Finanças") — see findings.
 
 ## Actions
 
 | Action | Where | Request | Confirmation | Offline |
 |---|---|---|---|---|
 | Sign in | Login | `POST /api/auth/login` `{email, password}` (no auth) → `{user:{id,email,username,created_at}, access_token}` | navigates to `/inicio` | refused (`ApiNetworkError`: "Sem conexão com o servidor. Esta ação só funciona conectado.") |
-| Sign up | Login › Cadastrar | `POST /api/auth/signup` `{email, password, username}` → same shape, 201 | navigates to `/inicio` | refused |
+| Sign up | Login › Criar acesso | `POST /api/auth/signup` `{email, password, username}` → same shape, 201 | navigates to `/inicio` | refused |
 | Sign out | Ajustes › Perfil "Sair" (desktop: user menu) | none: `clearStoredAuth()` → `finance-auth-change` → `Outbox.clearSession()`; caches cleared (`clearServerData`, `clearPersistedQueryCache`) | none | works; the outbox survives logout (per user) |
 | Toggle privacy | Eye | none (`setValuesHidden`, localStorage `@financeMVP:hideValues`) | none | works |
 | Open "+ Novo" | Bottom **+** | opens `NewEntrySheet` (`01-novo.md`); inside `/investimentos` opens `InvestmentLaunchModal` ("Registrar operação") after `GET /api/investments/portfolio?refresh_prices=false` | — | sheet works offline; the investment modal does not |
@@ -164,8 +164,8 @@ encontrado.") signs the WebView out (`apiFetch` → `clearStoredAuth()`).
 ## Conventions that apply
 - **"The phone goes native, the desktop gets its own interface"**: the shell is the last thing to
   disappear; until then native screens open over the WebView.
-- **"Signup is closed once a user exists"**: the phone should not offer "Cadastrar" as a primary
-  path; show the 403 text if used.
+- **"Signup is closed once a user exists"**: offer "Criar acesso" only when `GET /api/auth/signup`
+  says it is open (as the web does since 2026-10-23); show the 403 text if used anyway.
 - **"The APK's screens come from the server"**: bump `frontend/native-level.txt` with any new
   plugin method the web shell calls (e.g. `NativeScreens.open`).
 - **"A new APK comes from CI, never from GitHub Releases"**: the banner reads `/apk/version.json`.
@@ -201,4 +201,4 @@ encontrado.") signs the WebView out (`apiFetch` → `clearStoredAuth()`).
 Keep the single top strip (brand, section pills, Aprovar/pending pills, bell, eye, user menu,
 "+ Novo") but move to the planned fixed sidebar ≥ 1280 px; drop the bottom navigation and the 44 px
 targets; "+ Novo" becomes a dialog or inline row. The login page can lose the phone-specific
-layout and should be renamed from "FinanceMVP" to "Finanças".
+layout (it is "Finanças" since 2026-10-23).

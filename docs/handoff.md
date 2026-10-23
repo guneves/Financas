@@ -7,58 +7,79 @@
 
 ---
 
-## Session — 2026-10-22 (late night) · native "+ Novo" (the rest of step 1)
+## Session — 2026-10-23 · `findings.md`: possible bugs and stale texts
 
-Local session on the owner's PC, branch `claude/native-novo` (cut here from `origin/main` after PR
-#31, upstream unset so nothing pushes to `main`). The owner's prompt called it "session 2"; in the
-plan it is the rest of step 1 (Aprovar is step 2). Briefing by `session-scout`, found by
-`subagent_type`, no fallback.
+Cloud session, branch `claude/mobile-docs-bugs-stale-text-u8ylzb` (from `main` at `0016f5b`, after
+PR #33). The owner called it "session 4". Web and backend only, no native code. Briefing by
+`session-scout`, found by `subagent_type`, no fallback.
 
 ### Done
-- **`native-screen-builder`** built `ui/newentry/` (NewEntryActivity: a translucent Compose bottom
-  sheet with the four forms, amount first; Corrigir from Pendentes is native too), the save path of
-  `createEntry()`, `buildItem`/`newClientId`/`editedItem` in `OutboxRules.java` (`editedItem` also
-  added to `outboxRules.js`), `rules/EntryOptions.kt`, `rules/InboxNotice.kt` and the first
-  `ui/components/`. `NativeScreens.routes()` lists `new-entry`, `open()` starts it, `dataChanged`
-  carries the toast. Web: `lib/nativeScreens.js` + `nativeScreensRules.js`, Layout opens the native
-  sheet only when listed. `native-level.txt` 2 → 3 in the same commit.
-- **`native-parity-reviewer`**: one blocker (closing the sheet mid-save cancelled the POST, so a
-  retype would duplicate), one major (app killed mid-POST, same result), minors. The builder fixed
-  the blocker, the major and two minors in one round; the reviewer re-checked: all closed, nothing
-  new. Details in `done-tasks.md`.
-- CI: 39884267832 (`e641424`) and 39884996021 (`4144bf8`), both green first time. 51 new JVM tests;
-  `npm test` 150 (was 144); backend untouched.
+Each possible bug in `mobile-docs/native/findings.md` got a test first. Every test failed, so every
+bug was real and is fixed in its own commit, with the test kept:
+
+| Bug | Fix | Test |
+|---|---|---|
+| Metas refused any edit once the target month arrived | only a changed `target_date` must be future (`services/goals.py`) | `test_goals.py::test_an_edit_keeps_a_target_date_that_has_since_arrived` |
+| Recorrentes: "escolha outra conta" with no account in the edit | "Editar valor e conta", account select | `lib/recurring.test.js` |
+| Extrato could not change a transfer's destination | De/Para selects; form + PATCH in `lib/transactionEdit.js` | `lib/transactionEdit.test.js` |
+| Investment statement: same day, proventos before operações (comment said the opposite) | sort fixed to match the comment | `investmentStatement.test.js` |
+| Refund prefill = installment × count (R$ 100 in 3x from 2/3 → 99,99) | sum of the purchase's installments in cents | `lib/cardPurchase.test.js` |
+| A receber "pago em" in UTC (next day after 21:00) | `localDateOfTimestamp()` in `lib/format.js` | `format.test.js` (TZ `America/Sao_Paulo`) |
+
+Stale texts, all fixed: login "FinanceMVP" → "Finanças", and "Criar acesso" (was "Cadastrar")
+appears only when a new public `GET /api/auth/signup` answers `{open: true}` (`test_signup_and_secret.py`,
+`test_route_map.py` now has `GET,POST`); Metas' Patrimônio hint; Integrações; Notificações;
+`CASH_WITHOUT_AMOUNT_MESSAGE`; the `Orcamento.jsx` comment. Specs updated (`00-shell`, `04-extrato`,
+`05-cartoes`, `06-a-receber`, `09-recorrentes`, `10-metas`). pytest 1536 passed, `npm test` 164
+passed, `vite build` clean.
 
 ### Not done, and why
-- **No phone check.** Nothing has run on a device; the PR carries the Acceptance list as the
-  owner's checklist. Merge after it.
-- **The web still duplicates after a killed tab** (`createEntry()` queues only after the failure).
-  Native now keeps the item in the outbox during the POST; porting that to `lib/outbox.js` is a
-  separate change with a node test (next-steps).
-- Launcher shortcut not built; Corrigir after the worker already sent the item still says
-  "pendente atualizada" (same on web). Both in next-steps.
-- Accepted, not fixed: a 5xx is shown and the item removed (web parity), so a 5xx racing a worker
-  delivery could lead the owner to retype; requires both at the same instant.
-- Carried, still open: everything in the previous entry's "Not done" (pytest red 21:00–midnight
-  local; the sharing form refusing "12,5"; `settlePayload`/`shareSummary` unported; APK not buildable
-  in a cloud container; desktop redesign; `findings.md` triage; Plus Jakarta Sans; the phone checks
-  of the APK-on-every-deploy and the card débito/Flash; brapi quota with hourly quotes; the fuzzing
-  leftovers).
+- **The 401 finding is native** (the sender never clears `Session`), out of this session's scope.
+  Its "180 days on the server" is the owner's `.env` (`JWT_EXP_DAYS=180` in `.env.example`); the
+  code default is 30. Left open in `findings.md`.
+- **Grouped Tesouro delete is not atomic** (next-steps listed it among the bugs; findings.md files it
+  under Investimentos): it needs a new grouped endpoint, not a one-line fix. Open in next-steps.
+- **No Inconsistency was changed**: none was a one-liner without a behaviour question.
+- No screenshot or browser check of the changed screens (Recorrentes edit row, Extrato transfer
+  edit, login). They build and their rules are tested; look at them once on the desktop and phone.
+- **Drift found**: the Aprovar session (PR #33) left no handoff or plan update. I only rewrote
+  next-steps' step 1 into "steps 1–2 merged, phone check not recorded" and renumbered "Steps 3–8";
+  `done-tasks.md` still has no Aprovar row — whoever knows that session's details should add it.
+- Carried, still open: the web `createEntry()` duplicating after a killed tab; the sharing form
+  refusing "12,5" (web and native); pytest red 21:00–midnight local
+  (`test_fixed_income_interest.py`, UTC vs local "today" — likely the same class of bug as A
+  receber's, worth checking next); APK not buildable in a cloud container; desktop redesign;
+  Plus Jakarta Sans natively; the owner's phone checks.
+
+### Questions for the owner (the Inconsistencies in `findings.md`)
+1. **Corretora in banking forms**: should "+ Novo", the pay-invoice sheet and autopay stop
+   offering Corretora accounts? A despesa recorded there vanishes from Início today.
+2. **Extrato vs Início for a transfer to the Corretora**: should the Extrato show it as
+   aporte/resgate (`bankingTransactions()`), as Início does, and keep it out of its day totals?
+3. **Débito purchase in Pendentes**: Corrigir reopens it as a Despesa. Acceptable, or should it
+   reopen as Cartão › Débito?
+4. **Installments**: the client stops at 48, the server at 72 — which limit? And should the
+   description be required (client) or optional (server) for despesa/receita?
+5. **"Despesas por categoria" on Início** groups by name, merging root "Outros" with "Lazer ›
+   Outros". Group by id, showing "Lazer › Outros"?
+6. **Privacy mode**: the cash-flow chart shows what Entrou/Saiu mask; Operações, Proventos'
+   summary and history, Aprovar, Cartões' totals and A receber are unmasked. Mask which of these?
+7. **Cards without a bank field**: Aprovar's ambiguous-target rule never runs for cards. Add a bank
+   to cards?
+8. Minor, no behaviour change, left for whoever touches Início: `/api/credit-cards` is cached under
+   `['cartoes']` and `['inicio','cartoes']`.
 
 ### Next session
-After the owner's phone check and merge: step 2, Aprovar (`screens/02-aprovar.md`), which creates
-`NativeActivity`/the NavHost. It can reuse `ui/components/`, `EntrySaver`'s pattern and the
-`dataChanged` toast bridge.
+Answer-driven: take the owner's answers above as tasks. Otherwise the pytest 21:00–midnight
+failure (a test that reproduces only at night: patch the clock to 22:00 local), then the plan's
+native step 3 after the owner's phone check of steps 1–2.
 
 ### Learned
-- **Native "+ Novo" deliberately differs from `createEntry()`**: the item is in `OutboxStore`
-  before the POST (worker not scheduled) and removed on any server answer. A concurrent worker
-  delivery is safe: the server answers a duplicate `client_id` with the first row (IntegrityError
-  guard in transactions, transfers and purchases), and the worker writes back only through
-  `removeIfUnchanged`/`replaceIfUnchanged`.
-- A save must outlive its screen: it runs in `AppGraph.appScope`; results after the sheet closed go
-  through `EntryDelivery` (WebView toast or an Android Toast).
-- `OutboxPlugin.load()` already schedules the worker on every app start; no extra startup hook.
-- The web's required-field check is the browser's popup; native has its own wording in the error
-  box ("Preencha este campo: …"), recorded in the spec.
-
+- `node --test` runs each file in its own process, so a test can set `process.env.TZ` (restore it
+  after) to pin a timezone; V8 parses the server's six-digit fractional `...Z` timestamps.
+- Two Flask rules on the same path with different methods show up as two rows in
+  `test_route_map.py`; one view with `methods=["GET", "POST"]` keeps the map's `GET,POST` row.
+- `GET /api/cc-expenses/candidates?id=` already returns a purchase's installments by `client_id`;
+  any "whole purchase" amount on the client should sum those in cents, never installment × count.
+- This Linux container has no `.venv`; `pip install -r backend/requirements-dev.txt` and
+  `python3 -m pytest` work (the full suite takes ~2.5 min).

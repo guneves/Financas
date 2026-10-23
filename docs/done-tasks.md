@@ -168,6 +168,7 @@
 | Native migration documentation (owner: "faça toda a documentação para o novo projeto"): `mobile-docs/native/` — README (index, status), architecture (packages, native beside the WebView through a `NativeScreens` plugin, session, cache/offline, mirrored settings, an in-house Compose chart kit), conventions, build-and-test (the CI loop from a session), migration-order (steps 0–9 + desktop, what runs in parallel), rules-port (every `lib/` module: port or endpoint), findings (endpoints to add, inconsistencies, possible bugs), desktop (principles, layout, plan per screen), agents (workflow, parallel rules, prompts) and 16 screen specs from one template, written by four parallel agents against the code. Six agents in `.claude/agents/`: `screen-spec-writer`, `rule-porter`, `native-screen-builder`, `native-parity-reviewer`, `android-ci-watcher`, `desktop-screen-builder` | 2026-10-22 |
 | Native step 1's foundation (no screen): `core/Format.kt` + `MoneyInput.kt` (all of format.js, `parseMoneyInput`/`moneyInputValue`), `rules/CardFunctions.kt` (all of cardFunctions.js), `rules/Sharing.kt` (`shareFormFrom`/`shareFormError`/`sharePayload`), each with the node cases; `data/` (ApiClient on OkHttp + kotlinx.serialization with the token from `Session`, ReadCache, repositories for accounts/categories/cards, AppGraph); the `NativeScreens` plugin registered (`routes()` empty, `open()` a stub, `dataChanged`/`navigate` declared). 64 new JVM tests; no native-level bump | 2026-10-22 |
 | Native "+ Novo" (step 1's screen): `ui/newentry/` (`NewEntryActivity`, a translucent Compose bottom sheet with despesa, receita, transferência and cartão crédito/débito, amount first; Corrigir from Pendentes too), the save of `createEntry()` with the item kept in the outbox during the POST, `buildItem`/`newClientId`/`editedItem` in `OutboxRules.java` (+ `editedItem` in `outboxRules.js`), `rules/EntryOptions.kt`, `rules/InboxNotice.kt`, the first `ui/components/`; `NativeScreens` lists `new-entry`, the React layout opens it when listed (`lib/nativeScreens.js`, `nativeScreensRules.js`), `native-level.txt` 3. 51 JVM tests, web 144 → 150. Owner's phone check open | 2026-10-22 |
+| `findings.md` triage, possible bugs and stale texts (web and backend): Metas edit after the target month, Recorrentes account edit, Extrato transfer destination, investment statement same-day order, refund prefill cents, A receber "pago em" local day — each reproduced by a test, then fixed; login "Finanças" + "Criar acesso" only when `GET /api/auth/signup` says open; Metas/Integrações/Notificações texts, `CASH_WITHOUT_AMOUNT_MESSAGE`, `Orcamento.jsx` comment | 2026-10-23 |
 
 ---
 
@@ -1196,3 +1197,15 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   campo: Descrição." / "Selecione um item na lista: Categoria." in the error box (in the spec).
 - Rule and toast texts are Kotlin constants (the `CardFunctions` pattern, so tests check the exact
   wording); screen labels are in `strings.xml` (`newentry_*`).
+
+### `findings.md` possible bugs and stale texts — 2026-10-23
+- Branch `claude/mobile-docs-bugs-stale-text-u8ylzb`, one commit per bug. Each bug got a test first
+  and every one failed, so none was marked "not reproducible". Outcomes per bug are in
+  `mobile-docs/native/findings.md` › Possible bugs.
+- New pure modules, all tested with `node --test`: `lib/recurring.js` (the recurrence's inline
+  edit), `lib/transactionEdit.js` (the Extrato's edit form and PATCH, moved out of `Extrato.jsx`),
+  `lib/cardPurchase.js` (a purchase's installments from `/candidates`, the refund prefill);
+  `localDateOfTimestamp()` joins `lib/format.js`.
+- `GET /api/auth/signup` is public and answers `{open}` (`signup_open()` in `routes/auth.py`, the
+  same rule the POST uses); the login hides "Criar acesso" when closed or unreachable.
+- pytest 1536 (was 1534), `npm test` 164 (was 150).
