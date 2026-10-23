@@ -98,7 +98,8 @@ Carried from session 4 (the Inconsistencies in `findings.md`):
    `['inicio','cartoes']`.
 
 ### Next session
-1. Check this PR's `android-check.yml` run (see below).
+1. `android-check.yml` run 39893915777 on `e66f957` was **green** (debug APK + JVM tests,
+   `OutboxPendingTest` included; checked by `android-ci-watcher`). Check the PR's checks after any new push.
 2. If the owner answers B2, apply it (a one-line change in `month_banking_totals()` plus a test).
 3. Otherwise write `home-panels.md` (categories, pace, installments, invoice projection, the
    Extrato's projections), so Início stops downloading the history. Or move to the native Início:
