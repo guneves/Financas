@@ -164,19 +164,23 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
 - [ ] **`client_id` on investment creations** (`POST /api/investments`, `/api/investment-proceeds`,
   `/api/corporate-actions`) if native should queue them offline; until then native refuses them
   offline (`findings.md`, Investimentos).
-- [ ] **Owner: review the proposal** `mobile-docs/native/proposals/home-attention-invoices.md`
-  (`GET /api/home`, `GET /api/attention`, `GET /api/cc-invoices`,
-  `DELETE /api/cc-expenses/purchases/<id>`, paging on `GET /api/transactions`). It replaces the
-  money of `transactions.js`, `cashFlow.js` and `attentionRules.js`; merging its PR approves it.
-  Decide its behaviour changes B1–B9 (one, B2, is an open question: should the plan's "spent" also
-  leave out a despesa typed in a Corretora account, as Início does?). Then implement in the
-  proposal's order, one PR per endpoint with the web switched in the same PR. Not built: the
-  second proposal for Início's other panels (categories, pace, installments, invoice projection)
-  and the Extrato's projections.
-- [ ] **`applyPendingToHome()`** (the proposal's §1, the pending overlay on `/api/home`) in
-  `outboxRules.js` and `rules/OutboxPending.kt` together, once `/api/home` exists. The four
-  pending-balance functions are already ported; `OutboxPending.kt` takes typed data classes, so the
-  native Início needs an adapter from `OutboxStore`'s JSON items.
+- [ ] **What the home/attention/invoices proposal left open** (§1–4 built in session 6,
+  `done-tasks.md`):
+  - **B2, owner decision**: the plan's "spent" (`month_banking_totals()`) still counts a despesa
+    typed in a Corretora account; Início's "Saiu" (`/api/home`) does not. Make the plan follow
+    Início (one rule) or keep both?
+  - **Paging on `GET /api/transactions`** (§5): built with the native Extrato (step 4 of
+    `migration-order.md`), web "Carregar mais" in the same PR, as the proposal orders.
+  - **`home-panels.md`** (second proposal, not written): Início's "Despesas por categoria", "Ritmo
+    de gastos", "Parcelamentos abertos" and the 6-month invoice projection, and the Extrato's
+    projections, still read the whole history (`['inicio','movimentos']`,
+    `GET /api/cc-expenses?status=OPEN` in `useLancamentos()`). Once served, Início stops calling
+    `GET /api/transactions` and `bankingTransactions()` / `isPastDue()` leave the client.
+  - **Native Início**: an adapter from `OutboxStore`'s JSON items to `OutboxPending.kt`'s typed
+    classes, and the ports of the attention texts and dismissals (`overdueDetail`,
+    `undismissedItems`, `addDismissed`, the titles in `components/Attention.jsx`).
+  - **Owner, after the deploy**: open Início, the bell, Extrato and Cartões on the real server once
+    and compare with the day before (the parity check ran on a seeded database, not on real data).
 - [ ] **Owner decision**: may `android-check.yml` upload a branch's debug APK as a workflow
   artifact, to try a branch on the phone before the merge? (CLAUDE.md says APKs never go to GitHub.)
 

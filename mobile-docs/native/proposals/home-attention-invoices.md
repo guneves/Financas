@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Proposal**, waiting for the owner's review (2026-10-23). Nothing here is implemented. Merging the PR that adds this file approves it as merged. |
+| Status | **Approved** (PR #35 merged) and **implemented §1–4** in session 6 (2026-10-23), web switched. §5 (paging) waits for the native Extrato, as *Order of implementation* says. One reading of §1: `applyPendingToHome()` applies a pending item to the month of its date (any month in `flow`) and moves the balance from there on, which is exactly the old `buildMonthlyFlow()` over pending rows; a pending item of the current month behaves as written. |
 | Replaces | `lib/transactions.js` money (`consolidatedBalance`, `openingBalanceTotal`, `bankingTransactions` + the investment classification), `lib/cashFlow.js` (`buildMonthlyFlow`), `lib/attentionRules.js` items (`nextInvoices`, `payableInvoices`, `overdueInvoices`, `autopayShortfalls`, `attentionItems`, `nearestOpenInvoice`), Cartões' inline `openInvoicesByCard` and its delete filter |
 | Serves | Início (`03-inicio.md`), the bell (`00-shell.md`), Cartões (`05-cartoes.md`), the Extrato's list (`04-extrato.md`), on the web and on native |
 | Does not replace | The pending overlay (`outboxRules.js`, ported to `rules/OutboxPending.kt` in the same session as this proposal), the dismissals (`attention.js`, `addDismissed`, `undismissedItems`), the texts (`overdueDetail`, labels) |

@@ -130,8 +130,8 @@ cd frontend; npm run dev
 cd backend; ..\.venv\Scripts\python.exe -m pytest
 ```
 
-1536 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
-and its `@token_required`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
+1603 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
+and its `@token_required`), Início's balance and month flow (`test_home.py`: Saldo em contas without the Corretora, the banking view, the owner's part, the card in its purchase month, the month-end balance ending at the hero, cents exact), "Precisa de atenção" (`test_attention.py`: the items and their keys, byte for byte the old client's), the invoices per card (`test_cc_invoices.py`: next, overdue, payable, nearest, future), deleting a purchase's open installments (`test_cc_purchase_delete.py`; the shared setup is `tests/finance_world.py`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
 per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
 monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
 per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
@@ -178,7 +178,7 @@ of `app.py` was only safe because the suite was in place.
 
 The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
 `cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome`, `treasury`, `cardFunctions`, `nativeScreensRules`, `recurring`, `transactionEdit` and `cardPurchase`, 164 tests). A module tested this way imports nothing from the browser, React or `lib/api.js`.
+`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome`, `treasury`, `cardFunctions`, `nativeScreensRules`, `recurring`, `transactionEdit` and `cardPurchase`, 160 tests). A rule moved to the server takes its node cases to pytest with the same inputs. A module tested this way imports nothing from the browser, React or `lib/api.js`.
 
 ## Layout
 
@@ -217,10 +217,13 @@ backend/
                       # monthly_plan (income, Investir/Gastar %, Saldo do plano, flags),
                       # asset_categories (ETF, Tesouro Direto, the fixed-income indexer; on read),
                       # treasury (Tesouro Direto marked to market, grouped, net of custody/IOF/IR),
-                      # quote_refresh (renda variavel quotes every hour, a thread started in app.py)
+                      # quote_refresh (renda variavel quotes every hour, a thread started in app.py),
+                      # card_invoices (open invoices per card: next, overdue, payable, nearest),
+                      # home (Saldo em contas, accounts, the month flow), attention ("Precisa de atenção")
   routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
                       # attachments, budgets, recurring, imports, cards, investments,
                       # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
+                      # home (GET /api/home, /api/attention, /api/cc-invoices),
                       # frontend (serves frontend/dist at /)
   statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
   export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
@@ -396,11 +399,13 @@ mobile-docs/
   Refused while the payment has a receipt.
 - **The next invoice is per card, by due date, never "next month's"** (2026-10-18). The invoice
   month is the due month, so a card that closes before its due day (3/10) pays this month's
-  invoice and one that closes after it (25/5) next month's. `nextInvoices()` in
-  `lib/attentionRules.js` (each card's open invoice with the earliest due date from today on) feeds
-  Início's "Próxima fatura", its "Pagar fatura", the projection and the bell;
-  `nearestOpenInvoice()` (overdue first) is the one Cartões opens and pays from its header. Overdue
-  means after the due day (`isPastDue()`), on every screen.
+  invoice and one that closes after it (25/5) next month's. `services/card_invoices.py`
+  (`open_invoices()`, session 6) is the one rule: `next` (each card's open invoice with the
+  earliest due date from today on) feeds Início's "Próxima fatura" and its "Pagar fatura"
+  (`/api/home` `next_invoices`) and the bell's payable item (`/api/attention`); `nearest` (the
+  oldest overdue invoice with total > 0, else the first `next`) is the one Cartões opens and pays
+  from its header (`GET /api/cc-invoices`). Overdue means after the due day (`past_due`), on every
+  screen; Início's projection panel still reads the open rows with `isPastDue()`.
 - **A card has functions: crédito, débito or both** (041, owner 2026-10-22). `debit_account_id` is
   the débito: a débito purchase is a plain EXPENSE in that account (`lib/cardFunctions.js`,
   "+ Novo › Cartão" offers Crédito/Débito), never a `cc_expenses` row. `credit_enabled = 0` is a
@@ -595,11 +600,13 @@ mobile-docs/
   it Corretora; `created_at` for one created as Corretora) — earlier ones are already in its
   initial balance, and the automatic proventos carry years of history. A written row stays in the
   account it was born in. **Its balance is shown only in Investimentos** (owner, 2026-10-17):
-  `consolidatedBalance()` / `openingBalanceTotal()` skip Corretora accounts, Início reads
-  `bankingTransactions()` (rows inside a Corretora leave; a transfer bank → Corretora is an aporte,
-  back a resgate), Ajustes › Contas says "Em Investimentos" instead of the amount, the
-  invoice-payment sheet and the autopay warning never print it, and Posição's summary has "Saldo
-  na corretora" (`portfolioCashBalance()`). All in `lib/transactions.js`, tested.
+  `GET /api/home` (`services/home.py`) leaves Corretora accounts out of `consolidated_balance` and
+  the opening balance, and its flow is the banking view (rows inside a Corretora leave; a
+  transfer bank → Corretora is an aporte, back a resgate; `investment_flow_sql()`). Início's
+  history panels still read `bankingTransactions()` (`lib/transactions.js`) for the same view.
+  Ajustes › Contas says "Em Investimentos" instead of the amount, the invoice-payment sheet and
+  the autopay warning never print it, and Posição's summary has "Saldo na corretora"
+  (`portfolioCashBalance()`, `lib/transactions.js`, tested).
 - **Início is the banking area only, and in reais.** Its headline is the consolidated account
   balance; the portfolio never appears there, so nobody reads invested money as money to spend. A
   foreign-currency account appears only by its converted value (`accountBalanceBrl()` in
@@ -627,12 +634,15 @@ mobile-docs/
   proportionally. Lançamentos › A receber lists the others' part of each expense until marked paid
   (`share_settled_at`); marking writes no money. Transfers and investment cash are never shared.
 - **"Precisa de atenção" lives in two places** (owner, 2026-10-18): Início's cards and the bell in
-  the header (where the theme toggle was). Both read `lib/attentionRules.js` (pure, tested): each
-  item carries a `key` naming the case (the invoices, the recurrence's last occurrence, the
-  budget month and category), not the kind. Início's X dismisses the items on screen for this
-  device (`lib/attention.js`, localStorage), so the same case never comes back there and a new one
-  does; the bell always lists every current item. The bell runs Início's own queries
-  (`useInicio*()`, same keys), so the cache is shared.
+  the header (where the theme toggle was). Both read `GET /api/attention` (`services/attention.py`,
+  session 6) through `useAttentionItems()` (one query, `['atencao']`): each item carries a `key`
+  naming the case (the invoices — `card|year-month` with the month **not** zero-padded, as the
+  old client wrote it —, the recurrence's last occurrence, the budget month and category), not
+  the kind, and the server sends numbers only (snake_case); the text is `components/Attention.jsx`
+  + `overdueDetail()`. Início's X dismisses the items on screen for this device (`lib/attention.js`,
+  `lib/attentionRules.js`, localStorage), so the same case never comes back there and a new one
+  does; the bell always lists every current item. The autopay shortfall compares the server's
+  balances, without pending items (proposal B3).
 - **A card refund is a credit row** (033, `POST /api/cc-expenses/refunds`): `cc_expenses.kind =
   'REFUND'`, amount stored positive, always 1/1, never shared. Anything that sums card rows goes
   through the sign — `signed_amount()` / `signed_amount_sql()` in `services/invoices.py`,
@@ -647,8 +657,10 @@ mobile-docs/
   old place Início has **"Resumo do mês"** (`MonthSummary` in `pages/Dashboard.jsx`): Resultado
   (receitas − despesas, the owner's part), Entrou, Saiu, Investido (aportes − resgates, when either
   happened) and the net of other people (label by sign, value unsigned, → A receber), all from the
-  cash flow's current month (`lib/cashFlow.js`); privacy mode masks every value and Resultado's
-  colour. The hero holds only the balance and the accounts.
+  `summary` of `GET /api/home` (the flow's current month, `services/home.py`); privacy mode masks
+  every value and Resultado's colour. The hero holds only the balance and the accounts. Pending
+  items on the device go on top through `applyPendingToHome()` (`lib/outboxRules.js`, ported to
+  `rules/OutboxPending.kt`): accounts, the balance and every month of the flow (`useHome()`).
 - **Orçamento's percentages slide, they are not typed** (2026-10-19, owner): Investir, Gastar and
   each category's % are a `PercentSlider` (`ui.jsx`: range of 1 point, − and + for the fine step,
   the R$ beside it). Each stops at what is still free (`percentRoom()` / `clampPercent()` /
@@ -706,8 +718,8 @@ mobile-docs/
   and `DELETE` (real, no guard) removes the month's plan and its categories. Spent and invested
   are computed on read: spent is the budget's rule without categories (no transfers, invoice
   payments or aportes; card purchases in full in the purchase month), invested is Início's
-  "Investido" (owner, 2026-10-19: `month_investment_flow()`, the SQL twin of `bankingTransactions()`
-  + `buildMonthlyFlow()`): transfers bank → Corretora plus portfolio cash rows in a non-Corretora
+  "Investido" (owner, 2026-10-19: `month_investment_flow()` reads the same condition as
+  `/api/home`, `investment_flow_sql()` in `services/home.py`): transfers bank → Corretora plus portfolio cash rows in a non-Corretora
   account, minus the way back — a buy paid from money already in the Corretora is not new money; the received income only compares. **Saldo do
   plano** (`plan_balance`) = Gastar R$ − the month's spent is the one "still to spend" number
   (`progress.spend_remaining` and `/api/budgets` `totals.plan_balance` are the same); budgets'
@@ -857,7 +869,11 @@ mobile-docs/
   and `routes/investments.py`), `fixed_income`/`asset_categories`/`prices` ← `treasury` (read by
   `portfolio`, `returns` and `routes/investments.py`), `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
   on top. `inbox` sits on `import_rules`; `inbox_decisions` on `inbox` and `invoices`, and is read
-  by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`). `monthly_plan` sits on `budgets` (the plan row, Gastar R$ and the categories live in
+  by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`).
+  `card_invoices` sits on `invoices` and `attachments`; `home` on `accounts`, `fx`
+  (`with_balance_in_brl()`, moved there from `routes/accounts.py`), `invoices`, `proceeds_cash` and
+  `card_invoices`; `attention` on `home`, `card_invoices`, `recurring` and `monthly_plan`, which
+  reads `investment_flow_sql()` from `home`. `monthly_plan` sits on `budgets` (the plan row, Gastar R$ and the categories live in
   `budgets`; `routes/budgets.py` reads `build_budget_view()` from `monthly_plan`). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
   `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
   blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
@@ -905,6 +921,7 @@ mobile-docs/
   variables), never a hex literal. The theme lives in `lib/theme.js` (system by default; Sistema / Claro / Escuro
   in Ajustes › Aparência — no header toggle) and `index.html` applies it before first paint. The font is Plus Jakarta
   Sans served from `public/fonts` (the app must open offline) — no Google Fonts link.
-- **Consolidated balance = sum of `/api/accounts` balances**, fetched with `include_archived`
-  (`consolidatedBalance()` in `lib/transactions.js`). Summing `transactions` left each account's
+- **Consolidated balance = sum of the account balances**, archived included, on the server:
+  `consolidated_balance` of `GET /api/home` (`consolidated_balance()` in `services/home.py`), read
+  by Início and the Extrato's "Saldo em contas". Summing `transactions` left each account's
   `initial_balance` out; don't go back to it.
