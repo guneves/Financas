@@ -13,6 +13,7 @@ import com.getcapacitor.BridgeActivity;
 import br.financas.app.bundle.BundlePlugin;
 import br.financas.app.notify.NotifyPlugin;
 import br.financas.app.outbox.OutboxPlugin;
+import br.financas.app.ui.nav.NativeScreensPlugin;
 import br.financas.app.update.ApkUpdatePlugin;
 
 public class MainActivity extends BridgeActivity {
@@ -30,6 +31,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ApkUpdatePlugin.class);
         // O leitor de notificacoes dos bancos: acesso, captura, exportacao (Ajustes).
         registerPlugin(NotifyPlugin.class);
+        // A ponte para as telas nativas (ui/nav/): rotas nativas, abrir, dataChanged/navigate.
+        registerPlugin(NativeScreensPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Android 13+: sem esta permissao o aviso de "entre de novo" do envio em segundo

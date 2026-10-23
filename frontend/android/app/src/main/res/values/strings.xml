@@ -4,4 +4,9 @@
     <string name="title_activity_main">Finanças</string>
     <string name="package_name">br.financas.app</string>
     <string name="custom_url_scheme">br.financas.app</string>
+    <!-- A camada de dados das telas nativas (data/). -->
+    <string name="data_session_expired">Sessão expirada. Entre novamente no app.</string>
+    <string name="data_offline">Sem conexão com o servidor.</string>
+    <string name="data_bad_response">Resposta inesperada do servidor.</string>
+    <string name="data_updated_at">atualizado às %1$s</string>
 </resources>

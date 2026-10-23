@@ -16,4 +16,9 @@ ext {
     androidxWorkVersion = '2.11.2'
     // As telas nativas: o BOM fixa as versoes de todas as bibliotecas do Compose.
     composeBomVersion = '2025.09.00'
+    // A camada de dados das telas nativas (data/): HTTP, JSON, corrotinas e o ViewModel.
+    okhttpVersion = '4.12.0'
+    kotlinxSerializationVersion = '1.9.0'
+    kotlinxCoroutinesVersion = '1.10.2'
+    androidxLifecycleVersion = '2.9.2'
 }
