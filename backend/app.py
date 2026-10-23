@@ -27,6 +27,7 @@ from routes import (
     cards as card_routes,
     frontend as frontend_routes,
     goals as goal_routes,
+    home as home_routes,
     imports as import_routes,
     inbox as inbox_routes,
     investments as investment_routes,
@@ -69,6 +70,7 @@ for blueprint_module in (
     monthly_plan_routes,
     inbox_routes,
     receivable_routes,
+    home_routes,
     app_bundle_routes,
     frontend_routes,
 ):

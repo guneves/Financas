@@ -632,6 +632,44 @@ def create_cc_purchase(current_user_id):
     return jsonify([row_to_dict(row) for row in created]), 201
 
 
+@bp.route("/api/cc-expenses/purchases/<item_id>", methods=["DELETE"])
+@token_required
+def delete_cc_purchase(current_user_id, item_id):
+    """Exclui as parcelas em aberto da compra a que `item_id` pertence (qualquer
+    parcela dela, ou um estorno 1/1), numa transacao so.
+
+    A compra e o client_id (same_purchase_sql): uma corrida igual no mesmo dia
+    e outra compra e fica. A parcela paga fica com a fatura dela (037); sem
+    nenhuma em aberto, 409 e nada sai.
+    """
+    with get_db() as conn:
+        ids = cc_purchase_expense_ids(conn, current_user_id, item_id)
+        if not ids:
+            return jsonify({"error": "Compra nao encontrada."}), 404
+        placeholders = ",".join("?" for _ in ids)
+        open_ids = [
+            row["id"] for row in conn.execute(
+                f"""
+                SELECT id FROM cc_expenses
+                WHERE user_id = ? AND status = 'OPEN' AND id IN ({placeholders})
+                ORDER BY invoice_year, invoice_month, created_at, id
+                """,
+                [current_user_id, *ids],
+            ).fetchall()
+        ]
+        if not open_ids:
+            return validation_error("Nenhuma parcela em aberto foi encontrada para essa compra.", 409)
+        # Os comprovantes saem pelo CASCADE; os arquivos, depois do commit.
+        stored_names = cc_expense_attachment_names(conn, current_user_id, expense_ids=open_ids)
+        open_placeholders = ",".join("?" for _ in open_ids)
+        conn.execute(
+            f"DELETE FROM cc_expenses WHERE user_id = ? AND status = 'OPEN' AND id IN ({open_placeholders})",
+            [current_user_id, *open_ids],
+        )
+    remove_attachment_files(current_user_id, stored_names)
+    return jsonify({"deleted": len(open_ids), "kept_paid": len(ids) - len(open_ids), "ids": open_ids}), 200
+
+
 @bp.route("/api/cc-expenses/refunds", methods=["POST"])
 @token_required
 def create_cc_refund(current_user_id):
