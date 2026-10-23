@@ -1,3 +1,8 @@
+// Port: mudou um, muda o outro, com um teste de cada lado. Tudo aqui menos
+// matchedInboxNotice() tem a copia nativa em
+// frontend/android/app/src/main/java/br/financas/app/rules/InboxRules.kt (testes em
+// InboxRulesTest.kt); matchedInboxNotice() esta em rules/InboxNotice.kt (InboxNoticeTest.kt).
+//
 // Aprovar (Lançamentos › Aprovar): os textos e as contas da tela, como funcoes
 // puras — nada aqui toca em rede ou React, entao os testes rodam com
 // `node --test` (inboxRules.test.js). As regras de verdade (o que junta com o
