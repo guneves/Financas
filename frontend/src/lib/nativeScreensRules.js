@@ -92,3 +92,16 @@ export function nativePageOpenRequest(screen) {
 export function nativePageExit({ hasHistory } = {}) {
   return hasHistory ? { back: true, route: '' } : { back: false, route: NATIVE_PAGE_FALLBACK_ROUTE }
 }
+
+// A rota que a tela nativa pediu sem WebView viva (NativeScreens.takePendingRoute),
+// lida na abertura: vale so por pouco tempo — se a primeira tela foi outra (o
+// login, com a sessao vencida), chegar ao Inicio minutos depois nao pula para
+// ela. O mesmo prazo do APK (ui/nav/PendingRoute.kt).
+export const START_ROUTE_MAX_AGE_MS = 2 * 60 * 1000
+
+export function pendingStartRoute(stored, now) {
+  const route = routeFrom(stored)
+  if (!route) return ''
+  const age = now - Number(stored?.at)
+  return age >= 0 && age <= START_ROUTE_MAX_AGE_MS ? route : ''
+}

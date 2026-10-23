@@ -11,6 +11,8 @@ import {
   nativePageOpenRequest,
   newEntryOpenRequest,
   noticeFrom,
+  pendingStartRoute,
+  START_ROUTE_MAX_AGE_MS,
   privacyFromNative,
   routeFrom,
   routesFrom,
@@ -94,4 +96,15 @@ test('o modo privado do APK: so true/false; o resto e "nada guardado"', () => {
   assert.equal(privacyFromNative({}), null)
   assert.equal(privacyFromNative({ hidden: 'true' }), null)
   assert.equal(privacyFromNative(null), null)
+})
+
+test('a rota guardada pela nativa vale so por dois minutos depois de lida', () => {
+  const at = 1_000_000
+  assert.equal(pendingStartRoute({ route: '/lancamentos/cartoes', at }, at), '/lancamentos/cartoes')
+  assert.equal(pendingStartRoute({ route: '/ajustes', at }, at + START_ROUTE_MAX_AGE_MS), '/ajustes')
+  assert.equal(pendingStartRoute({ route: '/ajustes', at }, at + START_ROUTE_MAX_AGE_MS + 1), '')
+  assert.equal(pendingStartRoute({ route: '/ajustes', at }, at - 1), '')
+  assert.equal(pendingStartRoute({ route: 'https://x', at }, at), '')
+  assert.equal(pendingStartRoute({ at }, at), '')
+  assert.equal(pendingStartRoute(null, at), '')
 })

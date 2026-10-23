@@ -126,13 +126,26 @@ fun HomeScreen(
         containerColor = palette.background,
         snackbarHost = {
             SnackbarHost(snackbar) { data ->
-                // O tom do toast() da web: informativo (azul) ou sucesso (o escuro de sempre).
+                // O Toaster da web: o mesmo fundo invertido para todo tom; o informativo so troca o
+                // icone (Info no lugar do check).
                 val info = (data.visuals as? NoticeVisuals)?.info == true
-                Snackbar(
-                    snackbarData = data,
-                    containerColor = if (info) palette["sky-50"] else palette["zinc-900"],
-                    contentColor = if (info) palette.info else palette["zinc-50"],
-                )
+                Snackbar(containerColor = palette["zinc-900"], contentColor = palette["white"]) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(
+                            imageVector = if (info) AppIcons.Info else AppIcons.CheckCircle,
+                            contentDescription = null,
+                            tint = palette["white"],
+                            modifier = Modifier.padding(top = 2.dp).size(16.dp),
+                        )
+                        Text(
+                            text = data.visuals.message,
+                            color = palette["white"],
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
+                    }
+                }
             }
         },
         topBar = { HomeTopBar(viewModel, onOpenInbox, onOpenWeb) },

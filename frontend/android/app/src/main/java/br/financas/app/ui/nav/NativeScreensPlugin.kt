@@ -154,8 +154,6 @@ class NativeScreensPlugin : Plugin() {
         private const val PENDING_ROUTE = "pending_route"
         private const val PENDING_AT = "pending_route_at"
 
-        /** Quanto tempo a rota guardada vale: e so a ponte ate a WebView abrir. */
-        private const val PENDING_ROUTE_MS = 2 * 60 * 1000L
 
         /** Guarda [route] para a WebView que vai abrir (sem WebView viva para o "navigate"). */
         @JvmStatic
@@ -173,9 +171,9 @@ class NativeScreensPlugin : Plugin() {
             val route = prefs.getString(PENDING_ROUTE, null)
             val at = prefs.getLong(PENDING_AT, 0L)
             prefs.edit().remove(PENDING_ROUTE).remove(PENDING_AT).apply()
-            val age = System.currentTimeMillis() - at
-            return route?.takeIf { it.startsWith("/") && age in 0..PENDING_ROUTE_MS }
+            return PendingRoute.valid(route, at, System.currentTimeMillis())
         }
+
 
         private fun prefs(context: Context) =
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

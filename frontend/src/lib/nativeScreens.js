@@ -8,14 +8,14 @@
 // inscreve em onNativeEvent(); lib/nativeApp.js atualiza os dados e a fila, o
 // Layout navega e marca a gravacao.
 import { Capacitor, registerPlugin } from '@capacitor/core'
-import { routeFrom, routesFrom } from './nativeScreensRules'
+import { pendingStartRoute, routeFrom, routesFrom } from './nativeScreensRules'
 
 const NativeScreens = registerPlugin('NativeScreens')
 
 let routes = []
 // A rota que uma tela nativa pediu quando a WebView nao existia (o app recriado
 // depois de o Android matar o processo): a primeira tela vai direto para ela.
-let startRoute = ''
+let startRoute = null
 let started = false
 const listeners = new Set()
 
@@ -42,9 +42,10 @@ export async function startNativeScreens() {
   }
   try {
     // native-level 5; um APK sem o metodo recusa e nada muda.
-    startRoute = routeFrom(await NativeScreens.takePendingRoute())
+    const route = routeFrom(await NativeScreens.takePendingRoute())
+    startRoute = route ? { route, at: Date.now() } : null
   } catch {
-    startRoute = ''
+    startRoute = null
   }
   NativeScreens.addListener('dataChanged', (data) => emit('dataChanged', data)).catch(() => {})
   NativeScreens.addListener('navigate', (data) => emit('navigate', data)).catch(() => {})
@@ -56,10 +57,10 @@ export function hasNativeScreen(screen) {
 }
 
 // A rota pedida pela tela nativa antes de a WebView existir; '' sem nenhuma.
-// Vale uma vez.
+// Vale uma vez, e so nos primeiros minutos (pendingStartRoute).
 export function takeStartRoute() {
-  const route = startRoute
-  startRoute = ''
+  const route = pendingStartRoute(startRoute, Date.now())
+  startRoute = null
   return route
 }
 

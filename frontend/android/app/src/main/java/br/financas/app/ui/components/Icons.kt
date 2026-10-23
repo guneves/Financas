@@ -98,5 +98,6 @@ object AppIcons {
     val Settings: ImageVector by lazy {
         icon("settings-2", "M20 7h-9", "M14 17H5", circle(17f, 17f, 3f), circle(7f, 7f, 3f))
     }
+    val Info: ImageVector by lazy { icon("info", circle(12f, 12f, 10f), "M12 16v-4", "M12 8h.01") }
     val CheckCircle: ImageVector by lazy { icon("check-circle-2", circle(12f, 12f, 10f), "M9 12l2 2 4-4") }
 }
