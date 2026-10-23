@@ -166,6 +166,7 @@
 | A new APK on every deploy (owner: "preciso apenas poder baixar o app a cada deploy automaticamente"): the `apk` job of `deploy.yml` no longer depends on `frontend/android/`, `native-level.txt` or `capacitor.config.json` changing (the change-detection step and the `apk` input of `workflow_dispatch` removed); every push to `main` publishes a signed APK with a higher versionCode, offered by "Nova versão disponível". DEPLOY.md, CLAUDE.md and the mobile plan updated. Phone check open (next-steps) | 2026-10-22 |
 | Native phone app, step 0 (owner: phone native, desktop its own interface; `mobile-docs/native-app.md`): Kotlin Gradle plugin + Compose compiler plugin (2.3.20), Compose BOM, Material 3 and `activity-compose` in the Android project, JVM target 21; `ui/theme/Tokens.kt` (the web's colour tokens by CSS name) + `Theme.kt` (`FinancasTheme`, `Palette`, `ShellPrefs`); `ShellPlugin.setTheme` stores the web's theme for native screens; `TokensTest` reads `index.css`; `.github/workflows/android-check.yml` builds the debug APK and runs the JVM tests on branch pushes. No screen yet, no native-level bump | 2026-10-22 |
 | Native migration documentation (owner: "faça toda a documentação para o novo projeto"): `mobile-docs/native/` — README (index, status), architecture (packages, native beside the WebView through a `NativeScreens` plugin, session, cache/offline, mirrored settings, an in-house Compose chart kit), conventions, build-and-test (the CI loop from a session), migration-order (steps 0–9 + desktop, what runs in parallel), rules-port (every `lib/` module: port or endpoint), findings (endpoints to add, inconsistencies, possible bugs), desktop (principles, layout, plan per screen), agents (workflow, parallel rules, prompts) and 16 screen specs from one template, written by four parallel agents against the code. Six agents in `.claude/agents/`: `screen-spec-writer`, `rule-porter`, `native-screen-builder`, `native-parity-reviewer`, `android-ci-watcher`, `desktop-screen-builder` | 2026-10-22 |
+| Native step 1's foundation (no screen): `core/Format.kt` + `MoneyInput.kt` (all of format.js, `parseMoneyInput`/`moneyInputValue`), `rules/CardFunctions.kt` (all of cardFunctions.js), `rules/Sharing.kt` (`shareFormFrom`/`shareFormError`/`sharePayload`), each with the node cases; `data/` (ApiClient on OkHttp + kotlinx.serialization with the token from `Session`, ReadCache, repositories for accounts/categories/cards, AppGraph); the `NativeScreens` plugin registered (`routes()` empty, `open()` a stub, `dataChanged`/`navigate` declared). 64 new JVM tests; no native-level bump | 2026-10-22 |
 
 ---
 
@@ -1146,3 +1147,28 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   R$ 1 trilhão; the initial balance may be negative); an operation's quantity and prices and the
   numbers in its `metadata` are finite and ≤ 1e12 (`validate_movement_metadata()`); a card purchase
   must have at least one cent per installment.
+
+### Native step 1's foundation — 2026-10-22
+- Four branches merged into `claude/native-foundation`, each green on `android-check.yml` on its own
+  (`-cards` 39878478611, `-format` 39879129355, `-sharing` 39879583998, `-data` 39879956700): three
+  `rule-porter` runs and one `native-screen-builder`, each in its own worktree.
+- `core/`: top-level functions with the JS names (`formatCurrency(BigDecimal?)`,
+  `formatSignedCurrency`, `formatPercent`, the dates on `LocalDate`, `monthLabel`, `shiftMonth`…).
+  The strings are built by hand (U+00A0 after "R$", U+2212 for the minus), so the JVM's locale data
+  plays no part. `parseMoneyInput()` returns a sealed `MoneyInput` (`Empty` = JS null, `Invalid` =
+  NaN, `Amount`). Known differences, on purpose: BigDecimal is exact past 2^53, and
+  `moneyInputValue` never writes an exponent. format.test.js covers only `maskEmail` and
+  `formatQuantity`, so the Kotlin side has extra native-only cases taken from running the JS in node.
+- `rules/`: `object CardFunctions` / `object Sharing` (`@JvmStatic`, small data classes, payloads as
+  `Map<String, Any?>` in the JS key order: a JS null is a null value, an absent key a missing key).
+  `toCents` copies `Math.round` (.5 toward +∞); with 3+ decimals it can differ from the JS by a cent,
+  never with 2.
+- `data/`: money read from the JSON text into `BigDecimal` (never via `Double`), flags accept
+  true/false and 0/1, unknown keys ignored. ApiClient tells apart no connection, 401/no session
+  (the outbox's `LoginNotifier` path), the server's refusal (its `error` text kept) and an
+  unexpected body; reads wait 45 s, no redirects. ReadCache keys include the user id, writes are
+  atomic. A repository emits the cached copy, then the fresh one; on failure the error carries the
+  cached copy, and a body that does not parse never replaces a good copy.
+- Libraries (`variables.gradle`): OkHttp 4.12.0 (+ mockwebserver), kotlinx-serialization-json 1.9.0
+  with the serialization Gradle plugin at the project's Kotlin 2.3.20, kotlinx-coroutines-android
+  1.10.2 (+ -test), lifecycle-viewmodel-compose 2.9.2.

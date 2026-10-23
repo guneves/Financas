@@ -25,7 +25,8 @@ reasons are in `../native-app.md`; this folder is everything needed to do the wo
 | Step | What | Status |
 |---|---|---|
 | 0 | Kotlin + Compose in the project, native theme from the web's tokens, `android-check.yml` | Done 2026-10-22 |
-| 1 | "+ Novo" native | Not started |
+| 1a | Step 1's foundation: `core/` (format.js, money input), `rules/` (cardFunctions.js, the sharing form), `data/` (ApiClient, ReadCache, repositories for accounts/categories/cards, AppGraph), the `NativeScreens` plugin (empty `routes()`, stub `open()`) | Done 2026-10-22 |
+| 1 | "+ Novo" native (`NewEntryActivity`, the web opening it, `native-level.txt` bump) | Not started |
 | 2–8 | Aprovar, Início, Extrato/Cartões, planning, Ajustes, Investimentos, remove the WebView | Not started |
 | D | Desktop redesign | Not started |
 
