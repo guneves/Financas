@@ -33,6 +33,15 @@
             android:theme="@style/AppTheme.NativeSheet"
             android:windowSoftInputMode="adjustResize|stateVisible" />
 
+        <!-- As paginas nativas (ui/nav/NativeActivity): um NavHost do Compose, Aprovar primeiro.
+             Aberta pela WebView (NativeScreens.open) e pela notificacao "Novo para aprovar". -->
+        <activity
+            android:name=".ui.nav.NativeActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- O leitor de notificacoes dos bancos (notify/). O Android so o liga depois que o dono
              permite o acesso em Ajustes do Android; a tela leva ate la (Ajustes › Notificações). -->
         <service

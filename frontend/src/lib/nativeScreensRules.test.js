@@ -1,7 +1,17 @@
 // node --test src/lib   (npm test em frontend/)
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { NEW_ENTRY_SCREEN, newEntryOpenRequest, noticeFrom, routeFrom, routesFrom } from './nativeScreensRules.js'
+import {
+  INBOX_SCREEN,
+  NATIVE_PAGE_FALLBACK_ROUTE,
+  NEW_ENTRY_SCREEN,
+  nativePageExit,
+  nativePageOpenRequest,
+  newEntryOpenRequest,
+  noticeFrom,
+  routeFrom,
+  routesFrom,
+} from './nativeScreensRules.js'
 
 test('rotas nativas: so a lista de textos; APK antigo ou resposta estranha e nenhuma', () => {
   assert.deepEqual(routesFrom({ routes: ['new-entry'] }), ['new-entry'])
@@ -10,6 +20,7 @@ test('rotas nativas: so a lista de textos; APK antigo ou resposta estranha e nen
   assert.deepEqual(routesFrom({}), [])
   assert.deepEqual(routesFrom(null), [])
   assert.deepEqual(routesFrom({ routes: 'new-entry' }), [])
+  assert.deepEqual(routesFrom({ routes: ['new-entry', 'inbox'] }), [NEW_ENTRY_SCREEN, INBOX_SCREEN])
 })
 
 test('abrir o "+ Novo": o tipo pedido, ou despesa', () => {
@@ -46,4 +57,15 @@ test('navigate: so um caminho da propria web', () => {
   assert.equal(routeFrom({ route: 'https://exemplo.com' }), '')
   assert.equal(routeFrom({ route: '//exemplo.com' }), '')
   assert.equal(routeFrom({}), '')
+})
+
+test('Aprovar abre a pagina nativa, sem parametros', () => {
+  assert.equal(INBOX_SCREEN, 'inbox')
+  assert.deepEqual(nativePageOpenRequest(INBOX_SCREEN), { screen: 'inbox', params: {} })
+})
+
+test('depois de abrir a nativa, a WebView volta para a tela de antes (ou o Extrato)', () => {
+  assert.deepEqual(nativePageExit({ hasHistory: true }), { back: true, route: '' })
+  assert.deepEqual(nativePageExit({ hasHistory: false }), { back: false, route: NATIVE_PAGE_FALLBACK_ROUTE })
+  assert.deepEqual(nativePageExit(), { back: false, route: '/lancamentos/extrato' })
 })

@@ -12,6 +12,14 @@ export const NEW_ENTRY_SCREEN = 'new-entry'
 
 const NEW_ENTRY_TYPES = ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD']
 
+// Lancamentos › Aprovar: ui/inbox/ no APK, uma pagina da NativeActivity
+// (native-level 4 em diante; um APK abaixo nao lista e a React abre).
+export const INBOX_SCREEN = 'inbox'
+
+// Para onde a WebView volta depois de abrir uma pagina nativa: a tela de
+// antes (a nativa fica por cima dela) ou, sem historico, o Extrato.
+export const NATIVE_PAGE_FALLBACK_ROUTE = '/lancamentos/extrato'
+
 // A resposta de routes(): so os nomes que sao texto; qualquer outra coisa e
 // "nenhuma tela nativa".
 export function routesFrom(result) {
@@ -48,4 +56,16 @@ export function noticeFrom(event) {
 export function routeFrom(event) {
   const route = event?.route
   return typeof route === 'string' && route.startsWith('/') && !route.startsWith('//') ? route : ''
+}
+
+// O pedido de abertura de uma pagina nativa inteira (Aprovar): sem parametros.
+export function nativePageOpenRequest(screen) {
+  return { screen, params: {} }
+}
+
+// Abriu a pagina nativa: a rota React dela nao fica na WebView por baixo
+// (voltar da nativa mostraria a React). Com historico, volta um passo; sem
+// ele (o app abriu direto na rota), vai para o Extrato.
+export function nativePageExit({ hasHistory } = {}) {
+  return hasHistory ? { back: true, route: '' } : { back: false, route: NATIVE_PAGE_FALLBACK_ROUTE }
 }

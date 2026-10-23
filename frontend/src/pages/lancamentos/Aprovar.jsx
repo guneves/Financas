@@ -112,6 +112,9 @@ function Select({ label, value, options, onChange, placeholder = 'Escolha…', h
   )
 }
 
+// Port: mudou um, muda o outro. openPickers(), o "alreadyOpen" do TargetLine, o
+// aviso/visibilidade de Decisions e a categoria extra do EditSheet tem copia
+// nativa em android/.../rules/InboxRules.kt (InboxRulesTest.kt; aqui sem teste).
 // Os seletores que o item mostra aberto: o que falta, o palpite a confirmar e,
 // depois de "Trocar", todos os do tipo.
 function openPickers(item, changing) {

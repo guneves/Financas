@@ -114,6 +114,9 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion"
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:$androidxLifecycleVersion"
+    // As paginas nativas (Aprovar e as seguintes): o NavHost e o ciclo de vida no Compose.
+    implementation "androidx.navigation:navigation-compose:$navigationComposeVersion"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:$androidxLifecycleVersion"
     testImplementation "com.squareup.okhttp3:mockwebserver:$okhttpVersion"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion"
     testImplementation "junit:junit:$junitVersion"

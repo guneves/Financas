@@ -6,6 +6,8 @@ import { clearPersistedQueryCache } from './lib/queryPersist'
 import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
 import Layout from './components/Layout'
+import NativePage from './components/NativePage'
+import { INBOX_SCREEN } from './lib/nativeScreensRules'
 
 // Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
 // mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
@@ -95,7 +97,8 @@ export default function App() {
 
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
             <Route path="/lancamentos/extrato" element={<Extrato />} />
-            <Route path="/lancamentos/aprovar" element={<Aprovar />} />
+            {/* No APK com Aprovar nativo (native-level 4), a rota abre a tela em Kotlin. */}
+            <Route path="/lancamentos/aprovar" element={<NativePage screen={INBOX_SCREEN}><Aprovar /></NativePage>} />
             <Route path="/lancamentos/cartoes" element={<Cartoes />} />
             <Route path="/lancamentos/a-receber" element={<AReceber />} />
             <Route path="/lancamentos/importar" element={<Importar />} />
