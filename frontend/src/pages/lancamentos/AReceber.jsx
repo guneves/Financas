@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { CheckCheck, Coins, CreditCard, Undo2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { receivablesApi } from '../../lib/dataApi'
-import { formatCurrency, formatDateBR } from '../../lib/format'
+import { formatCurrency, formatDateBR, localDateOfTimestamp } from '../../lib/format'
 import { queryErrorMessage, useQuery } from '../../lib/queries'
 import { groupReceivables, settlePayload } from '../../lib/sharing'
 import { toast } from '../../lib/toast'
@@ -122,7 +122,7 @@ export default function AReceber() {
                             {formatDateBR(item.date)}
                             {item.card_name ? ` · ${item.card_name}` : ''}
                             {item.share_mode === 'SPLIT' ? ` · dividida, total ${formatCurrency(item.amount)}` : ''}
-                            {item.settled_at ? ` · pago em ${formatDateBR(item.settled_at.slice(0, 10))}` : ''}
+                            {item.settled_at ? ` · pago em ${formatDateBR(localDateOfTimestamp(item.settled_at))}` : ''}
                           </p>
                         </div>
                         <p className={item.settled_at ? 'num whitespace-nowrap font-semibold text-zinc-400 line-through' : 'num whitespace-nowrap font-semibold text-zinc-950'}>
