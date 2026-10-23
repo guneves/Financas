@@ -1,4 +1,8 @@
-// De quem e o gasto (032, backend/services/sharing.py). Um lancamento ou uma
+// Porte: mudou um, muda o outro, com um teste de cada lado (par nativo de SHARE_OPTIONS,
+// shareFormFrom, shareFormError e sharePayload: android/app/src/main/java/br/financas/app/
+// rules/Sharing.kt e SharingTest.kt; o resto deste arquivo nao foi portado).
+//
+// De quem e o gasto (032,backend/services/sharing.py). Um lancamento ou uma
 // compra no cartao pode ser inteiro de outra pessoa (OTHERS) ou dividido
 // (SPLIT, com a parte dos outros em share_others_amount), sempre com o nome
 // dela. O dinheiro sai da conta do mesmo jeito: o saldo nao muda. Muda o que e
