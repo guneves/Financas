@@ -219,7 +219,7 @@ internal object Js {
         }
         if (DECIMAL.matches(body)) return body.toDouble()
         val radix = RADIX.matchEntire(body) ?: return null
-        val base = when (radix.groupValues[1].lowercaseChar()) { 'x' -> 16; 'o' -> 8; else -> 2 }
+        val base = when (radix.groupValues[1].lowercase()) { "x" -> 16; "o" -> 8; else -> 2 }
         return runCatching { java.math.BigInteger(radix.groupValues[2], base).toDouble() }.getOrNull()
     }
 
