@@ -2,6 +2,7 @@ apply plugin: 'com.android.application'
 // As telas nativas (mobile-docs/native-app.md): Kotlin ao lado do Java de sempre, e o Compose.
 apply plugin: 'org.jetbrains.kotlin.android'
 apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+apply plugin: 'org.jetbrains.kotlin.plugin.serialization'
 
 // A chave de assinatura mora fora do repositorio (mobile/new-keystore.ps1 cria as duas
 // coisas): o .jks e um keystore.properties com storeFile, storePassword, keyAlias e
@@ -108,6 +109,13 @@ dependencies {
     implementation "androidx.compose.ui:ui-tooling-preview"
     implementation "androidx.activity:activity-compose:$androidxActivityVersion"
     debugImplementation "androidx.compose.ui:ui-tooling"
+    // A camada de dados (data/): ApiClient, ReadCache e os repositorios.
+    implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:$androidxLifecycleVersion"
+    testImplementation "com.squareup.okhttp3:mockwebserver:$okhttpVersion"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion"
     testImplementation "junit:junit:$junitVersion"
     // O org.json do Android e so um esboco na JVM; os testes de OutboxRules usam o real.
     testImplementation "org.json:json:20250517"

@@ -1,3 +1,6 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado (par nativo:
+// android/app/src/main/java/br/financas/app/rules/CardFunctions.kt e CardFunctionsTest.kt).
+//
 // As funcoes de um cartao (migration 041): credito, debito ou os dois.
 //
 // Credito e o de sempre: fatura, parcelas, debito automatico. Debito e uma conta

@@ -1,3 +1,7 @@
+// Port: mudou um, muda o outro, com um teste de cada lado. parseMoneyInput() e moneyInputValue()
+// tem a copia nativa em frontend/android/app/src/main/java/br/financas/app/core/MoneyInput.kt
+// (testes em MoneyInputTest.kt).
+//
 // Plano do mes (Orcamento): o texto de cada alerta e a leitura dos valores
 // digitados. Funcoes puras — testadas com node --test (monthlyPlan.test.js).
 //

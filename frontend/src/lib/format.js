@@ -1,3 +1,6 @@
+// Port: mudou um, muda o outro, com um teste de cada lado. O app nativo tem a copia em
+// frontend/android/app/src/main/java/br/financas/app/core/Format.kt (testes em FormatTest.kt).
+//
 // Formatadores compartilhados (4.3 de docs/next-steps.md).
 //
 // formatCurrency estava copiado em cinco paginas e formatDateBR em tres. Aqui
