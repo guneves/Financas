@@ -67,3 +67,9 @@ test('o total do dia ignora o agendado', () => {
   ])
   assert.deepEqual(groups.map((g) => [g.date, g.items.length, g.total]), [['2026-12-20', 1, 0], ['2026-03-01', 2, -201]])
 })
+
+test('no mesmo dia, operacoes antes de proventos', () => {
+  const sameDay = { ...paid, id: 'p3', payment_date: '2026-03-01' }
+  const ids = buildInvestmentStatement([buy], [sameDay], { today: '2026-10-16' }).map((e) => e.id)
+  assert.deepEqual(ids, ['mov:m1', 'prov:p3'])
+})
