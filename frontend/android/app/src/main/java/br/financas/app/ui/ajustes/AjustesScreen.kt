@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SheetValue
@@ -322,6 +323,7 @@ private fun AccountRow(account: AccountDto, viewModel: AjustesViewModel, onOpenL
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditAccountSheet(account: AccountDto, viewModel: AjustesViewModel) {
     val palette = LocalPalette.current
@@ -464,6 +466,7 @@ private fun CardFields(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditCardSheet(card: CreditCardDto, viewModel: AjustesViewModel) {
     val palette = LocalPalette.current

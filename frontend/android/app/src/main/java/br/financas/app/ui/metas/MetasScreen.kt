@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -179,6 +180,7 @@ private fun Figure(label: String, value: String, hint: String?, modifier: Modifi
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GoalSheetView(sheet: GoalSheet, viewModel: MetasViewModel) {
     val palette = LocalPalette.current
