@@ -164,8 +164,24 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
     (`useLancamentos()`); switch them to the pages and to `/api/home`'s `projections`;
   - a parallel session (`claude/native-b-investments`) also bumps `native-level.txt` and the
     `NativeScreens` routes: whichever PR merges second resolves those files.
-- [ ] Steps 5–8 (planning screens, Ajustes, Investimentos, then remove the WebView), one per APK,
-  each checked by the owner with the debug APK first.
+- [ ] **Steps 5–6 — Orçamento, Recorrentes, Metas, A receber and Ajustes native, owner's phone
+  check** (built 2026-10-24 on `claude/practical-hamilton-e6nxfi`, native-level 7): run the
+  Acceptance of `screens/08-orcamento.md`, `09-recorrentes.md`, `10-metas.md`, `06-a-receber.md`
+  and `11-ajustes.md` on the debug APK, light and dark, online and in airplane mode. Left from
+  that session:
+  - **theme and Sair across the two sides**: the native change is left in `ShellPrefs` and the
+    WebView applies it on start and on resume (`Shell.takeThemePreference` / `takeSignOut`);
+    check that a native theme change shows on a React screen right after, and that a native Sair
+    lands on the login and the outbox stops (`Session` cleared, read cache cleared);
+  - Regras de importação and Integrações stay in the WebView (step 8, desktop-first);
+  - not built: month swipe and pull to refresh in Orçamento, swipe/long-press menus, the widgets
+    (Saldo do plano, a pinned goal), "Sempre perguntar" inside native Aprovar, the biometric gate
+    on Sair, the listener-lost notification, the bundle half of Versão do app;
+  - privacy is as on the web (Recorrentes and A receber mask nothing; Metas masks Atual, Faltam,
+    Objetivo): the owner may want more masked;
+  - the native and web dismissed plan-flag lists are separate (like Início's cards).
+- [ ] Steps 7–8 (Investimentos, then remove the WebView), one per APK, each checked by the owner
+  with the debug APK first.
 - [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
   screen here before it starts.
 - [ ] **Session containers cannot build an APK**: `dl.google.com` is blocked by the environment's
