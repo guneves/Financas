@@ -103,12 +103,15 @@ object ExtratoRules {
      * "Hoje", "Ontem" ou "Ter., 22 de set." (o toLocaleDateString do pt-BR com a primeira letra
      * maiuscula, como o first-letter:uppercase da web); o ano so quando nao e o atual.
      */
-    fun dayLabel(date: String?, today: LocalDate): String {
+    fun dayLabel(date: String?, today: LocalDate, relative: Boolean = true): String {
         if (date.isNullOrEmpty()) return "Sem data"
         val value = runCatching { LocalDate.parse(date.take(10)) }.getOrNull() ?: return "Sem data"
-        when (ChronoUnit.DAYS.between(value, today)) {
-            0L -> return "Hoje"
-            1L -> return "Ontem"
+        // O extrato de investimentos nao diz "Hoje"/"Ontem" (ExtratoInvestimentos.jsx).
+        if (relative) {
+            when (ChronoUnit.DAYS.between(value, today)) {
+                0L -> return "Hoje"
+                1L -> return "Ontem"
+            }
         }
         val text = buildString {
             append(WEEKDAYS[value.dayOfWeek.value - 1])

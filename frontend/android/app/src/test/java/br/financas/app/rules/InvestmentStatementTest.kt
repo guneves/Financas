@@ -143,4 +143,12 @@ class InvestmentStatementTest {
         val ids = buildInvestmentStatement(listOf(buy), listOf(sameDay), today = "2026-10-16").map { it.id }
         assertEquals(listOf("mov:m1", "prov:p3"), ids)
     }
+
+    // Sem par no node: o detailText de ExtratoInvestimentos.jsx.
+    @Test
+    fun theDetailLineHasQuantityPriceAndTax() {
+        assertEquals("10 un. · R$ 20,00", InvestmentStatement.detailText(movementEntry(buy)))
+        assertEquals("10 cotas · R$ 1,00/cota · IR R$ 1,75", InvestmentStatement.detailText(proceedEntry(paid, "2026-10-16")))
+        assertEquals("", InvestmentStatement.detailText(movementEntry(redemption)))
+    }
 }

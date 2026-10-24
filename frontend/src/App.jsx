@@ -7,7 +7,7 @@ import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
 import Layout from './components/Layout'
 import NativePage from './components/NativePage'
-import { HOME_SCREEN, INBOX_SCREEN } from './lib/nativeScreensRules'
+import { CARTOES_SCREEN, EXTRATO_SCREEN, HOME_SCREEN, INBOX_SCREEN } from './lib/nativeScreensRules'
 
 // Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
 // mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
@@ -98,10 +98,12 @@ export default function App() {
             <Route path="/inicio" element={<NativePage screen={HOME_SCREEN} stay><Dashboard /></NativePage>} />
 
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
-            <Route path="/lancamentos/extrato" element={<Extrato />} />
+            {/* No APK com Extrato e Cartoes nativos (native-level 6), as rotas abrem as
+                telas em Kotlin; ?web=1 fica na React. */}
+            <Route path="/lancamentos/extrato" element={<NativePage screen={EXTRATO_SCREEN}><Extrato /></NativePage>} />
             {/* No APK com Aprovar nativo (native-level 4), a rota abre a tela em Kotlin. */}
             <Route path="/lancamentos/aprovar" element={<NativePage screen={INBOX_SCREEN}><Aprovar /></NativePage>} />
-            <Route path="/lancamentos/cartoes" element={<Cartoes />} />
+            <Route path="/lancamentos/cartoes" element={<NativePage screen={CARTOES_SCREEN}><Cartoes /></NativePage>} />
             <Route path="/lancamentos/a-receber" element={<AReceber />} />
             <Route path="/lancamentos/importar" element={<Importar />} />
 

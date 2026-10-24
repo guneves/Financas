@@ -326,6 +326,7 @@
     <string name="extrato_edit_type_expense">Despesa</string>
     <string name="extrato_edit_type_income">Receita</string>
     <string name="extrato_edit_account">Conta</string>
+    <string name="extrato_edit_transfer">Transferência</string>
     <string name="extrato_edit_from">De</string>
     <string name="extrato_edit_to">Para</string>
     <string name="extrato_edit_archived">%1$s (arquivada)</string>
@@ -372,6 +373,8 @@
     <string name="extrato_inv_movements">Operações</string>
     <string name="extrato_inv_proceeds_tab">Proventos</string>
     <string name="extrato_inv_scheduled_badge">Agendado</string>
+    <string name="extrato_inv_in_statement">no extrato da conta</string>
+    <string name="extrato_inv_no_cost">sem custo</string>
     <string name="extrato_inv_empty_title">Nada por aqui</string>
     <string name="extrato_inv_go_operations">Ir para Operações</string>
     <string name="extrato_inv_delete">Excluir operação</string>

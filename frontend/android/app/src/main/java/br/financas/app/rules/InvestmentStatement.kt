@@ -196,6 +196,24 @@ object InvestmentStatement {
         return StatementTotals(invested, withdrawn, proceeds, scheduled)
     }
 
+    /**
+     * A linha de baixo (o detailText de ExtratoInvestimentos.jsx): "10 un. · R$ 20,00 · IR R$ 1,75";
+     * proventos em "cotas" e "/cota". A quantidade com ate 6 casas, como o toLocaleString de la.
+     */
+    fun detailText(entry: StatementEntry): String {
+        val parts = mutableListOf<String>()
+        val proceed = entry.source == PROCEED
+        val quantity = entry.quantity
+        if (quantity != null && quantity.signum() != 0) {
+            val rounded = quantity.setScale(6, java.math.RoundingMode.HALF_UP)
+            parts += "${br.financas.app.core.formatQuantity(rounded)} ${if (proceed) "cotas" else "un."}"
+        }
+        val price = entry.unitPrice
+        if (price != null && price.signum() != 0) parts += br.financas.app.core.formatUnitCurrency(price) + if (proceed) "/cota" else ""
+        if (entry.tax.signum() != 0) parts += "IR ${br.financas.app.core.formatCurrency(entry.tax)}"
+        return parts.joinToString(" · ")
+    }
+
     /** Dias em ordem; o total do dia ignora o agendado (ainda nao entrou). */
     fun groupEntriesByDay(entries: List<StatementEntry>): List<EntryDay> {
         val groups = mutableListOf<Triple<String, MutableList<StatementEntry>, Array<BigDecimal>>>()

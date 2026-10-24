@@ -22,6 +22,12 @@ export const INBOX_SCREEN = 'inbox'
 // para a WebView pelo evento "navigate".
 export const HOME_SCREEN = 'home'
 
+// Lancamentos › Extrato (as duas vistas) e Lancamentos › Cartoes: ui/extrato/ e
+// ui/cartoes/ no APK, paginas da NativeActivity (native-level 6 em diante). O
+// Extrato leva a vista pedida na URL (?ver=contas|investimentos).
+export const EXTRATO_SCREEN = 'extrato'
+export const CARTOES_SCREEN = 'cartoes'
+
 // O Inicio da web, sem abrir a nativa: a nativa leva para ca os paineis que o
 // servidor ainda nao serve (categorias, ritmo de gastos, parcelamentos,
 // proximas faturas).
@@ -40,8 +46,10 @@ export function privacyFromNative(result) {
 }
 
 // Para onde a WebView volta depois de abrir uma pagina nativa: a tela de
-// antes (a nativa fica por cima dela) ou, sem historico, o Extrato.
-export const NATIVE_PAGE_FALLBACK_ROUTE = '/lancamentos/extrato'
+// antes (a nativa fica por cima dela) ou, sem historico, o Extrato da web —
+// com ?web=1, porque o Extrato tambem e nativo (native-level 6) e abri-lo de
+// novo empilharia outra pagina nativa por cima da que acabou de abrir.
+export const NATIVE_PAGE_FALLBACK_ROUTE = `/lancamentos/extrato?${WEB_PAGE_PARAM}=1`
 
 // A resposta de routes(): so os nomes que sao texto; qualquer outra coisa e
 // "nenhuma tela nativa".
@@ -81,8 +89,13 @@ export function routeFrom(event) {
   return typeof route === 'string' && route.startsWith('/') && !route.startsWith('//') ? route : ''
 }
 
-// O pedido de abertura de uma pagina nativa inteira (Aprovar): sem parametros.
-export function nativePageOpenRequest(screen) {
+// O pedido de abertura de uma pagina nativa inteira. So o Extrato leva
+// parametro: a vista da URL (?ver=), quando ela vem; as outras vao sem nenhum.
+export function nativePageOpenRequest(screen, search = '') {
+  if (screen === EXTRATO_SCREEN) {
+    const view = new URLSearchParams(search || '').get('ver')
+    if (view === 'contas' || view === 'investimentos') return { screen, params: { view } }
+  }
   return { screen, params: {} }
 }
 
