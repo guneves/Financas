@@ -1,3 +1,5 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado. Par nativo:
+// android/.../rules/CompoundInterest.kt (CompoundInterestTest.kt), os mesmos casos de compoundInterest.test.js.
 // Calculadora de juros compostos (Investimentos › Calculadora). Funcoes puras,
 // sem navegador nem React: testadas com node --test (compoundInterest.test.js).
 //

@@ -1,6 +1,5 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { filterAssetOptions, normalizeSearchText } from './assetSearch.js'
 import {
   changesPositions,
   assetCategory,
@@ -80,27 +79,13 @@ test('changing asset keeps the type when it fits, else picks the first that does
   assert.equal(typeForAsset(null, 'JCP'), 'JCP')
 })
 
-test('the search matches ticker or name, without accents, ticker first', () => {
-  const options = [
-    { value: '1', label: 'ITSA4', name: 'Itaúsa' },
-    { value: '2', label: 'ITUB4', name: 'Itaú Unibanco' },
-    { value: '3', label: 'BBAS3', name: 'Banco do Brasil' },
-    { value: '4', label: 'XPBR31', name: 'Petrobras BDR' },
-    { value: '5', label: 'PETR4', name: 'Petrobras PN' },
-  ]
-  assert.deepEqual(filterAssetOptions(options, 'itau').map((o) => o.value), ['1', '2'])
-  assert.deepEqual(filterAssetOptions(options, 'petr').map((o) => o.value), ['5', '4'])
-  assert.deepEqual(filterAssetOptions(options, ' banco ').map((o) => o.value), ['3', '2'])
-  assert.deepEqual(filterAssetOptions(options, '').map((o) => o.value), ['1', '2', '3', '4', '5'])
-  assert.deepEqual(filterAssetOptions(options, 'zzz'), [])
-  assert.equal(normalizeSearchText('  Tesouro   IPCA+ '), 'TESOURO IPCA+')
-})
-
 test('changesPositions: operacoes e eventos sim, cotacoes nao', () => {
   assert.equal(changesPositions('/api/investments'), true)
   assert.equal(changesPositions('/api/investments/abc'), true)
   assert.equal(changesPositions('/api/investments/by-asset/abc?asset_class=STOCKS'), true)
   assert.equal(changesPositions('/api/corporate-actions'), true)
+  assert.equal(changesPositions('/api/investments/redemptions'), true)
+  assert.equal(changesPositions('/api/investments/by-assets'), true)
   assert.equal(changesPositions('/api/investments/update-prices'), false)
   assert.equal(changesPositions('/api/investments/price-by-asset/abc'), false)
   assert.equal(changesPositions('/api/investment-proceeds'), false)

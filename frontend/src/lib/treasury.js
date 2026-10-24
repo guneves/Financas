@@ -1,3 +1,5 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado. Par nativo (so os textos):
+// android/.../rules/TreasuryLabels.kt (TreasuryLabelsTest.kt), os mesmos casos de treasury.test.js.
 // Tesouro Direto na Posicao: a posicao agrupada por titulo (services/treasury.py)
 // traz `lots` (as compras) e `treasury` (vencimento, titulos, taxa media, PU).
 
