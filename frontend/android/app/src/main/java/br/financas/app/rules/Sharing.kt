@@ -1,6 +1,6 @@
 // Porte: mudou um, muda o outro, com um teste de cada lado.
 // Par: frontend/src/lib/sharing.js (testes em sharing.test.js): SHARE_OPTIONS, othersAmount,
-// ownAmount, shareSummary, settlePayload,
+// ownAmount, shareSummary, settlePayload, groupReceivables,
 // shareFormFrom, shareFormError e sharePayload (e o toCents que elas usam);
 // aqui: SharingTest.kt, os mesmos casos na mesma ordem.
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
@@ -139,6 +139,35 @@ object Sharing {
         "cc_expense_ids" to items.filter { it.kind == "CARD_PURCHASE" }.map { it.id },
         "settled" to settled,
     )
+
+    /** Um item de "A receber" para groupReceivables: a pessoa e a parte dela. */
+    data class Receivable<T>(val item: T, val person: String?, val othersAmount: BigDecimal?)
+
+    /** Uma pessoa de "A receber": o nome (o primeiro como veio), o total e os itens. */
+    data class ReceivableGroup<T>(val person: String, val total: BigDecimal, val items: List<T>)
+
+    /**
+     * "A receber" por pessoa (groupReceivables): o total dela em centavos e os itens, do maior
+     * total para o menor, depois o nome. O nome agrupa sem diferenciar maiusculas nem espacos;
+     * vazio e "Sem nome".
+     */
+    @JvmStatic
+    fun <T> groupReceivables(items: List<Receivable<T>>): List<ReceivableGroup<T>> {
+        val groups = LinkedHashMap<String, Triple<String, BigInteger, MutableList<T>>>()
+        for (entry in items) {
+            val name = Js.trim(entry.person ?: "").ifEmpty { "Sem nome" }
+            val key = name.lowercase(PT_BR)
+            val current = groups[key] ?: Triple(name, BigInteger.ZERO, mutableListOf<T>())
+            current.third.add(entry.item)
+            groups[key] = current.copy(second = current.second + toCents(entry.othersAmount ?: BigDecimal.ZERO))
+        }
+        val collator = java.text.Collator.getInstance(PT_BR)
+        return groups.values
+            .map { (person, cents, list) -> ReceivableGroup(person, BigDecimal(cents).movePointLeft(2), list.toList()) }
+            .sortedWith(compareByDescending<ReceivableGroup<T>> { it.total }.thenComparator { a, b -> collator.compare(a.person, b.person) })
+    }
+
+    private val PT_BR = java.util.Locale.forLanguageTag("pt-BR")
 
     /**
      * `Math.round(value * 100)` do JS, em centavos, sobre o valor decimal exato: o .5

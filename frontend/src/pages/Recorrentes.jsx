@@ -14,7 +14,7 @@ import { accountsApi, categoriesApi, recurringApi } from '../lib/dataApi'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../lib/format'
 import { invalidateServerData, useQuery, useReportQueryError } from '../lib/queries'
 import { blockedRecurringMessage } from '../lib/transactions'
-import { recurringAccountOptions, recurringEditPatch } from '../lib/recurring'
+import { frequencyLabel, recurringAccountOptions, recurringEditPatch } from '../lib/recurring'
 import {
   AlertMessage,
   Badge,
@@ -32,12 +32,6 @@ import {
 } from '../components/ui'
 import { toast } from '../lib/toast'
 import { confirmAction } from '../lib/confirm'
-
-const FREQUENCY_LABELS = {
-  WEEKLY: 'Semanal',
-  MONTHLY: 'Mensal',
-  YEARLY: 'Anual',
-}
 
 // Estado da recorrencia e rotulo, nao alerta: sem cor. Pendente (venceu) e
 // que pede atencao, e tem o seu badge ambar.
@@ -65,14 +59,6 @@ const emptyForm = () => ({
   end_date: '',
 })
 
-function frequencyLabel(item) {
-  const base = FREQUENCY_LABELS[item.frequency] || item.frequency
-  const interval = Number(item.interval_count || 1)
-  if (interval <= 1) return base
-  if (item.frequency === 'WEEKLY') return `A cada ${interval} semanas`
-  if (item.frequency === 'YEARLY') return `A cada ${interval} anos`
-  return `A cada ${interval} meses`
-}
 
 const NO_ITEMS = []
 

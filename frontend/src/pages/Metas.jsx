@@ -21,6 +21,7 @@ import {
 } from '../components/ui'
 import { BudgetProgressBar } from '../components/BudgetProgress'
 import { getClassLabel } from './investimentos/helpers'
+import { forecastHint, forecastText, goalBadge } from '../lib/goals'
 
 const KINDS = [
   { value: 'NET_WORTH', label: 'Patrimônio' },
@@ -170,33 +171,6 @@ function Figure({ label, value, hint }) {
   )
 }
 
-// 'AAAA-MM' -> 'out/2028': cabe no quadro mesmo no celular.
-function shortMonthYear(key) {
-  const [year, month] = String(key).split('-').map(Number)
-  const name = new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-  return `${name}/${year}`
-}
-
-function plural(count, one, many) {
-  return `${count} ${count === 1 ? one : many}`
-}
-
-function forecastText(goal) {
-  if (goal.reached) return 'Alcançada'
-  if (goal.kind === 'MONTHLY_INCOME') return '—'
-  if (!goal.estimated_month) return 'Sem previsão'
-  return shortMonthYear(goal.estimated_month)
-}
-
-function forecastHint(goal) {
-  if (goal.reached || goal.kind === 'MONTHLY_INCOME') return ''
-  if (!goal.estimated_month) return 'Informe um aporte mensal'
-  const years = Math.floor(goal.estimated_months / 12)
-  const months = goal.estimated_months % 12
-  const parts = [years ? plural(years, 'ano', 'anos') : '', months ? plural(months, 'mês', 'meses') : ''].filter(Boolean)
-  return parts.length ? `em ${parts.join(' e ')}` : ''
-}
-
 // Metas (GET /api/goals): o plano fica gravado; atual, progresso e previsao
 // sao calculados no servidor a cada leitura.
 export default function Metas() {
@@ -251,9 +225,7 @@ export default function Metas() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {goal.reached ? <Badge tone="success">Alcançada</Badge> : null}
-                  {!goal.reached && goal.on_track === false ? <Badge tone="warning">Fora do prazo</Badge> : null}
-                  {!goal.reached && goal.on_track === true ? <Badge>No prazo</Badge> : null}
+                  {goalBadge(goal) ? <Badge tone={goalBadge(goal).tone}>{goalBadge(goal).label}</Badge> : null}
                   <Menu
                     label={`Ações da meta ${goal.name}`}
                     items={[

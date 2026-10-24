@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -206,16 +207,20 @@ fun DateField(
     cancelLabel: String,
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
+    placeholder: String? = null,
+    clearLabel: String? = null,
+    onClear: (() -> Unit)? = null,
 ) {
     val palette = LocalPalette.current
     var open by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier.fillMaxWidth()) {
     Surface(
         onClick = { open = true },
         shape = FieldShape,
         color = palette.surface,
         border = BorderStroke(1.dp, palette["zinc-300"]),
-        modifier = modifier
-            .fillMaxWidth()
+        modifier = Modifier
+            .weight(1f)
             .heightIn(min = 56.dp)
             .semantics {
                 role = Role.Button
@@ -223,13 +228,28 @@ fun DateField(
             },
     ) {
         Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+            val shown = formatDateBR(value, "")
             Text(
-                text = formatDateBR(value, ""),
+                text = shown.ifEmpty { placeholder.orEmpty() },
                 style = MaterialTheme.typography.bodyLarge,
-                color = palette.text,
+                color = if (shown.isEmpty()) palette["zinc-400"] else palette.text,
                 maxLines = 1,
             )
         }
+    }
+    // Uma data opcional: o X a apaga (volta ao placeholder).
+    if (onClear != null && value.isNotEmpty()) {
+        Surface(
+            onClick = onClear,
+            shape = RoundedCornerShape(12.dp),
+            color = palette.background,
+            modifier = Modifier.padding(start = 8.dp).size(48.dp).semantics { this.contentDescription = clearLabel ?: "" },
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("\u00D7", style = MaterialTheme.typography.titleLarge, color = palette["zinc-700"])
+            }
+        }
+    }
     }
     if (open) {
         val initial = parseLocalDate(value) ?: LocalDate.now()

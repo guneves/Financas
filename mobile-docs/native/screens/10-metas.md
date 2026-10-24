@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 5 (see `../migration-order.md`) |
-| Status | Not started |
+| Status | Built 2026-10-24 on `claude/practical-hamilton-e6nxfi` (native-level 7): `ui/metas/` over `GET /api/goals` (cached copy opens at once), cards with progress, Atual/Faltam/Objetivo masked, the forecast texts and badge from `lib/goals.js` (moved out of `Metas.jsx` with node tests) ported in `rules/Goals.kt`; the sheet clears the fields its kind hides (an income goal sends contribution 0, rate and date null — the web still sends them, harmless); waiting for the owner's phone check. Not built: circular progress, the pinned-goal widget |
 | React source | `frontend/src/pages/Metas.jsx` (`GoalSheet`, `Figure`, `forecastText()`, `forecastHint()`, `shortMonthYear()`), `components/BudgetProgress.jsx` (`BudgetProgressBar`), `pages/investimentos/helpers.js` (`getClassLabel()`), `components/ui.jsx` (`Sheet`, `SegmentedControl`, `Menu`, `Badge`) |
 | Route(s) | `/planejamento/metas`; tab "Metas" of "Planejamento" |
 | Endpoints | `GET /api/goals`, `POST /api/goals`, `PATCH /api/goals/<id>`, `DELETE /api/goals/<id>` (`GET /api/goals/<id>` exists, unused by the screen) |

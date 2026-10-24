@@ -174,6 +174,7 @@
 | Native migration session 7 (step 3): Início and the bell native — `ui/home/` reading `/api/home?months=12` and `/api/attention` with the pending overlay (`OutboxItems` → `applyPendingToHome()`, "Saldo estimado"), attention cards with Pagar/Lançar and per-device dismissal, the bell sheet, Fluxo de caixa / Orçamento / Evolução do saldo (`ui/charts/`), privacy mirrored both ways (`Shell.setValuesHidden`/`getValuesHidden` → `ShellPrefs`), the web Início tab opening it (`NativePage`, `?web=1`), native-level 4 → 5; `mobile/inicio-snapshot.py` to compare native and web; 39 new JVM tests, node 160 → 176 | 2026-10-23 |
 | Native migration session A (step 4): Extrato (both views) and Cartões native — paging on `GET /api/transactions?limit=&cursor=` (keyset, `items`/`next_cursor`/`count`/whole-filter `totals`/`day_totals`, `services/transaction_pages.py`, `test_transactions_paging.py`) with the web's filtered Extrato on "Carregar mais" (`lib/transactionPages.js`); `projections` on `/api/home`; `ui/extrato/`, `ui/cartoes/`, `ui/lancamentos/` (receipts with camera/file picker, export through the share sheet, "De quem é?"), `rules/InvestmentStatement.kt`, `ExtratoRules.kt`, `CardRules.kt`, the rest of `sharing.js` (`shareSummary`, `settlePayload`), `NativeLinks`; Aprovar's writes on `writeApi`; native-level 5 → 6. pytest 1603 → 1615, node 176 → 180, JVM 348 | 2026-10-24 |
 | Native migration session B (Investimentos backend and ports, no screen): `client_id` on investment, provento and corporate-action creations (042); `POST /api/investments/redemptions` (PEPS and the proportional cost on the server) and `DELETE /api/investments/by-assets` (atomic grouped Tesouro delete); `realized_result`, `by_year` and `net` read by Operações, Proventos and IR with no visible change; SERIES/FLOW as CSS variables and in `Tokens.kt`; `ui/charts/` donut, signed bars and gap lines; six rule ports (`PortfolioAccount`, `AssetSearch`, `FixedIncome`, `TreasuryLabels`, `ProceedsRules`, `CompoundInterest`). pytest 1603 → 1636, node 176 → 185, JVM 361 | 2026-10-24 |
+| Native migration session C (steps 5–6): Orçamento, Recorrentes, Metas, A receber and Ajustes native — `rules/MonthlyPlan.kt` (the input side of `monthlyPlan.js`), `Recurring.kt`, `Goals.kt`, `Receivables.kt`, `Settings.kt`, `NotifyTexts.kt`, `ApkUpdateTexts.kt`, `Sharing.groupReceivables`; `frequencyLabel` and the goal forecast texts moved to `lib/recurring.js` / `lib/goals.js` with node tests first; `ui/components/PercentSlider.kt`; `ui/orcamento/`, `ui/recorrentes/`, `ui/metas/`, `ui/areceber/`, `ui/ajustes/` (Regras and Integrações stay web); theme and Sair handed to the WebView through `ShellPrefs` (`Shell.takeThemePreference`/`takeSignOut`); native-level 6 → 7. node 185 → 196 | 2026-10-24 |
 
 ---
 
@@ -1296,3 +1297,22 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   `fixedIncome.test.js` cases were written first on the node side. Display numbers go through
   `ptBrNumber()` (`rules/FixedIncome.kt`): half-up on the shortest decimal, as ICU does.
 
+### Planning screens and Ajustes native — 2026-10-24 (native session C)
+- **Decision field left blank** (installments 48 or 72, description required): both stay as today.
+- **Ports**: same cases, same order, as JVM tests; what the screens did inline and untested
+  (`AReceber.jsx`'s grouping per person, the account menu, the closing-day auto-fill, the autopay
+  toast, the signed initial balance, the username Salvar) got a pure Kotlin home with tests.
+  Percentages are `BigDecimal` end to end; the slider's `Float` is only the finger's position.
+- **A local JVM harness** (not committed): a plain Kotlin/JVM Gradle project compiling `core/`,
+  `rules/` and the DTOs with their tests, so the pure code was green before CI. The Maven proxy
+  answered 404/429 at random; the jars came by `curl` from repo1 and a `file://` repo.
+- **Shared Java made reusable instead of copied**: `NotifyPlugin` (status, latest, export, clear,
+  open settings) and `ApkUpdatePlugin` (`latestState`, `installPrecheck`, `installNow`; the
+  download guard is now static, so web and native never download twice) are static helpers the
+  plugin methods and `AjustesViewModel` both call.
+- **Theme and Sair**: the WebView owns `localStorage`, so a native change is left in `ShellPrefs`
+  and taken by the web on start and on every resume (before `syncSession()`, so a signed-out
+  token is never pushed back). The web now sends its `preference` with `setTheme`, so the native
+  Aparência shows the web's choice. Sair also clears `Session` (the outbox stops) and the read cache.
+- **Ajustes routes**: `/ajustes#<section>` opens the native section; `#regras-de-importacao` and
+  `#integracoes` (and `?web=1`) keep the React page (`wantsWebPage(search, hash)`).

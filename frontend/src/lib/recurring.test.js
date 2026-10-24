@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { recurringAccountOptions, recurringEditPatch } from './recurring.js'
+import { frequencyLabel, recurringAccountOptions, recurringEditPatch } from './recurring.js'
 
 const accounts = [
   { id: 'nubank', name: 'Nubank' },
@@ -29,4 +29,15 @@ test('a recurrence without an account shows no archived option', () => {
   const item = { id: 'r', amount: 10, account_id: null }
   assert.deepEqual(recurringAccountOptions(item, accounts).map((option) => option.id), ['nubank', 'itau'])
   assert.deepEqual(recurringEditPatch(item, { amount: '10', account_id: '' }), {})
+})
+
+test('frequencyLabel: a frequencia e o intervalo', () => {
+  assert.equal(frequencyLabel({ frequency: 'MONTHLY', interval_count: 1 }), 'Mensal')
+  assert.equal(frequencyLabel({ frequency: 'WEEKLY' }), 'Semanal')
+  assert.equal(frequencyLabel({ frequency: 'YEARLY', interval_count: '1' }), 'Anual')
+  assert.equal(frequencyLabel({ frequency: 'MONTHLY', interval_count: 3 }), 'A cada 3 meses')
+  assert.equal(frequencyLabel({ frequency: 'WEEKLY', interval_count: 2 }), 'A cada 2 semanas')
+  assert.equal(frequencyLabel({ frequency: 'YEARLY', interval_count: 5 }), 'A cada 5 anos')
+  assert.equal(frequencyLabel({ frequency: 'DAILY', interval_count: 1 }), 'DAILY')
+  assert.equal(frequencyLabel({ frequency: 'DAILY', interval_count: 4 }), 'A cada 4 meses')
 })

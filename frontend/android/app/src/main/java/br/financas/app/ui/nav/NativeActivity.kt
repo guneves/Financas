@@ -25,7 +25,18 @@ import br.financas.app.ui.cartoes.CartoesScreen
 import br.financas.app.ui.cartoes.CartoesViewModel
 import br.financas.app.ui.extrato.ExtratoScreen
 import br.financas.app.ui.extrato.ExtratoViewModel
+import br.financas.app.ui.ajustes.AjustesScreen
+import br.financas.app.ui.ajustes.AjustesViewModel
+import br.financas.app.ui.areceber.AReceberScreen
+import br.financas.app.ui.areceber.AReceberViewModel
 import br.financas.app.ui.lancamentos.LancamentosTab
+import br.financas.app.ui.metas.MetasScreen
+import br.financas.app.ui.metas.MetasViewModel
+import br.financas.app.ui.orcamento.OrcamentoScreen
+import br.financas.app.ui.orcamento.OrcamentoViewModel
+import br.financas.app.ui.planejar.PlanejarTab
+import br.financas.app.ui.recorrentes.RecorrentesScreen
+import br.financas.app.ui.recorrentes.RecorrentesViewModel
 import br.financas.app.ui.home.HomeScreen
 import br.financas.app.ui.home.HomeViewModel
 import br.financas.app.ui.newentry.NewEntryActivity
@@ -49,7 +60,18 @@ object NativeRoutes {
     /** Lancamentos › Cartoes (ui/cartoes/). */
     const val CARTOES = "cartoes"
 
-    val ALL: List<String> = listOf(INBOX, HOME, EXTRATO, CARTOES)
+    /** Lancamentos › A receber (ui/areceber/). */
+    const val A_RECEBER = "a-receber"
+
+    /** Planejar › Orcamento, Recorrentes e Metas (ui/orcamento/, ui/recorrentes/, ui/metas/). */
+    const val ORCAMENTO = "orcamento"
+    const val RECORRENTES = "recorrentes"
+    const val METAS = "metas"
+
+    /** Ajustes (ui/ajustes/): a lista de secoes; a secao pedida abre por cima. */
+    const val AJUSTES = "ajustes"
+
+    val ALL: List<String> = listOf(INBOX, HOME, EXTRATO, CARTOES, A_RECEBER, ORCAMENTO, RECORRENTES, METAS, AJUSTES)
 
     /** A rota pedida, se este APK a tem; senao a primeira. */
     fun known(route: String?): String = if (route != null && route in ALL) route else INBOX
@@ -104,6 +126,7 @@ class NativeActivity : ComponentActivity() {
                     viewRequest = viewRequest,
                     onViewConsumed = { viewRequest = null },
                     onNewCardPurchase = ::openNewCardPurchase,
+                    onSignedOut = ::signedOut,
                 )
             }
         }
@@ -157,6 +180,16 @@ class NativeActivity : ComponentActivity() {
         tabTransition()
     }
 
+    /**
+     * "Sair" de Ajustes: a sessao nativa ja foi apagada e o pedido ficou para a WebView
+     * (ShellPrefs.markSignOut, AjustesViewModel.signOut); ela o le ao voltar para a frente (ou ao
+     * abrir) e mostra o login.
+     */
+    private fun signedOut() {
+        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        finish()
+    }
+
     /** O "+" da barra de baixo: o "+ Novo" nativo por cima (despesa, como na web). */
     private fun openNewEntry() {
         startActivity(NewEntryActivity.intent(this, type = "EXPENSE", clientId = null))
@@ -207,6 +240,7 @@ private fun NativeNavHost(
     viewRequest: String?,
     onViewConsumed: () -> Unit,
     onNewCardPurchase: () -> Unit,
+    onSignedOut: () -> Unit,
 ) {
     val nav = rememberNavController()
     // Um link de uma tela nativa: a pagina nativa, se este APK a tem (NativeLinks); senao a WebView.
@@ -215,7 +249,10 @@ private fun NativeNavHost(
         if (target == null) {
             onOpenWeb(route)
         } else {
-            if (target.view != null) ExtratoPendingView.value = target.view
+            if (target.view != null) {
+                if (target.route == NativeRoutes.AJUSTES) AjustesPendingSection.value = target.view
+                else ExtratoPendingView.value = target.view
+            }
             nav.navigate(target.route) { launchSingleTop = true }
         }
     }
@@ -225,6 +262,20 @@ private fun NativeNavHost(
             LancamentosTab.EXTRATO -> NativeRoutes.EXTRATO
             LancamentosTab.CARTOES -> NativeRoutes.CARTOES
             LancamentosTab.APROVAR -> NativeRoutes.INBOX
+            LancamentosTab.A_RECEBER -> NativeRoutes.A_RECEBER
+        }
+        val current = nav.currentDestination?.route
+        nav.navigate(route) {
+            launchSingleTop = true
+            if (current != null && current != NativeRoutes.HOME) popUpTo(current) { inclusive = true }
+        }
+    }
+    // As abas de Planejar, do mesmo jeito.
+    val openPlanTab: (PlanejarTab) -> Unit = { tab ->
+        val route = when (tab) {
+            PlanejarTab.ORCAMENTO -> NativeRoutes.ORCAMENTO
+            PlanejarTab.RECORRENTES -> NativeRoutes.RECORRENTES
+            PlanejarTab.METAS -> NativeRoutes.METAS
         }
         val current = nav.currentDestination?.route
         nav.navigate(route) {
@@ -282,7 +333,40 @@ private fun NativeNavHost(
             val cartoes: CartoesViewModel = viewModel()
             CartoesScreen(viewModel = cartoes, onBack = back, onTab = openTab, onOpenWeb = openLink, onNewPurchase = onNewCardPurchase)
         }
+        composable(NativeRoutes.A_RECEBER) {
+            val receivables: AReceberViewModel = viewModel()
+            AReceberScreen(viewModel = receivables, onBack = back, onTab = openTab)
+        }
+        composable(NativeRoutes.ORCAMENTO) {
+            val orcamento: OrcamentoViewModel = viewModel()
+            OrcamentoScreen(viewModel = orcamento, onBack = back, onTab = openPlanTab, onOpenLink = openLink)
+        }
+        composable(NativeRoutes.RECORRENTES) {
+            val recorrentes: RecorrentesViewModel = viewModel()
+            RecorrentesScreen(viewModel = recorrentes, onBack = back, onTab = openPlanTab)
+        }
+        composable(NativeRoutes.METAS) {
+            val metas: MetasViewModel = viewModel()
+            MetasScreen(viewModel = metas, onBack = back, onTab = openPlanTab)
+        }
+        composable(NativeRoutes.AJUSTES) {
+            val ajustes: AjustesViewModel = viewModel()
+            LaunchedEffect(viewRequest) {
+                val requested = viewRequest ?: AjustesPendingSection.value
+                if (requested != null) {
+                    ajustes.openSection(requested)
+                    AjustesPendingSection.value = null
+                    onViewConsumed()
+                }
+            }
+            AjustesScreen(viewModel = ajustes, onBack = back, onOpenLink = openLink, onSignedOut = onSignedOut)
+        }
     }
+}
+
+/** A secao de Ajustes pedida por um link nativo ("/ajustes#categorias"), lida ao abrir. */
+internal object AjustesPendingSection {
+    var value: String? = null
 }
 
 /** A vista do Extrato pedida por um link nativo ("/lancamentos/extrato?ver=..."), lida ao abrir. */

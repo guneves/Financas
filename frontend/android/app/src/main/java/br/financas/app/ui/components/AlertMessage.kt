@@ -19,8 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import br.financas.app.ui.theme.LocalPalette
 
-/** Os tons do AlertMessage da web: danger (rose), warning (amber), info (sky). */
-enum class AlertTone { DANGER, WARNING, INFO }
+/** Os tons do AlertMessage da web: danger (rose), warning (amber), info (sky), success (emerald). */
+enum class AlertTone { DANGER, WARNING, INFO, SUCCESS }
 
 /**
  * O AlertMessage de components/ui.jsx: a caixa de erro/aviso no corpo da tela, que fica ate ser
@@ -40,6 +40,7 @@ fun AlertMessage(
         AlertTone.DANGER -> palette["rose-50"] to palette.loss
         AlertTone.WARNING -> palette["amber-50"] to palette.warning
         AlertTone.INFO -> palette["sky-50"] to palette.info
+        AlertTone.SUCCESS -> palette["emerald-50"] to palette.gain
     }
     Surface(
         modifier = modifier.fillMaxWidth(),

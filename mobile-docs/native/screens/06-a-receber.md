@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 5 (see `../migration-order.md`) |
-| Status | Not started |
+| Status | Built 2026-10-24 on `claude/practical-hamilton-e6nxfi` (native-level 7): `ui/areceber/`, a fourth native Lançamentos tab, over `GET /api/receivables` (`?include_settled=1` for Todos); `Sharing.groupReceivables` port (node cases) and `rules/Receivables.kt` for what `AReceber.jsx` does inline (pending filter, open total per person, "Tudo pago" with two or more, the summary; JVM tests); Pago / Voltar para pendente / Tudo pago through `POST /api/receivables/settle`, never queued; nothing masked (as today); waiting for the owner's phone check. Not built: the Aprovar suggestion, swipe with undo, the reminder text |
 | React source | `frontend/src/pages/lancamentos/AReceber.jsx` |
 | Route(s) | `/lancamentos/a-receber` |
 | Endpoints | `GET /api/receivables` (`?include_settled=1`), `POST /api/receivables/settle` |

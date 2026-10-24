@@ -171,4 +171,14 @@ class FormatTest {
         assertEquals("x•••", maskEmail("x"))
         assertEquals("ab•••@e•••.com", maskEmail("abc@d@e.com"))
     }
+
+    // format.test.js: "localDateOfTimestamp le um instante UTC no dia local"
+    @Test
+    fun localDateOfTimestampReadsAnUtcInstantInTheLocalDay() {
+        val zone = java.time.ZoneId.of("America/Sao_Paulo")
+        assertEquals("2026-10-22", localDateOfTimestamp("2026-10-23T01:30:00.123456Z", zone))
+        assertEquals("2026-10-23", localDateOfTimestamp("2026-10-23T15:00:00Z", zone))
+        assertEquals("", localDateOfTimestamp("", zone))
+        assertEquals("", localDateOfTimestamp("lixo", zone))
+    }
 }

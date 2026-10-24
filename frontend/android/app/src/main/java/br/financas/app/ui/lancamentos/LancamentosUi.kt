@@ -38,6 +38,8 @@ import br.financas.app.rules.Sharing
 import br.financas.app.ui.components.AppIcons
 import br.financas.app.ui.components.AppTextField
 import br.financas.app.ui.components.Field
+import br.financas.app.ui.components.NativeTopBar
+import br.financas.app.ui.components.TopTab
 import br.financas.app.ui.components.FitText
 import br.financas.app.ui.components.Panel
 import br.financas.app.ui.components.SelectField
@@ -47,7 +49,7 @@ import br.financas.app.ui.theme.LocalPalette
 import java.math.BigDecimal
 
 /** As abas de Lancamentos que este APK tem em nativo (a ordem da web: lib/navigation.js). */
-enum class LancamentosTab { EXTRATO, APROVAR, CARTOES }
+enum class LancamentosTab { EXTRATO, APROVAR, CARTOES, A_RECEBER }
 
 /** O texto de uma escrita que nao deu (ou null quando deu): a mensagem do servidor, como chegou. */
 fun writeErrorOf(app: Application, result: InboxWrite<*>, fallback: Int): String? = when (result) {
@@ -63,8 +65,8 @@ fun moneyOrMasked(value: BigDecimal?, hidden: Boolean): String =
     if (hidden) HomeLogic.MASKED_CURRENCY else formatCurrency(value)
 
 /**
- * O topo de Extrato e Cartoes: voltar, o titulo, o olho do modo privado e as abas nativas de
- * Lancamentos (tocar numa troca de pagina sem passar pela WebView).
+ * O topo de Extrato, Cartoes e A receber: voltar, o titulo, o olho do modo privado e as abas
+ * nativas de Lancamentos (tocar numa troca de pagina sem passar pela WebView).
  */
 @Composable
 fun LancamentosTopBar(
@@ -76,76 +78,19 @@ fun LancamentosTopBar(
     onTab: (LancamentosTab) -> Unit,
     inboxCount: Int = 0,
 ) {
-    val palette = LocalPalette.current
-    val backLabel = stringResource(R.string.native_back)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                onClick = onBack,
-                shape = RoundedCornerShape(50),
-                color = palette.background,
-                contentColor = palette.text,
-                modifier = Modifier.size(48.dp).semantics { contentDescription = backLabel },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text("←", style = MaterialTheme.typography.titleLarge, color = palette.text)
-                }
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = palette.text,
-                modifier = Modifier.padding(start = 8.dp).weight(1f),
-            )
-            val eyeLabel = stringResource(if (hidden) R.string.lanc_show_values else R.string.lanc_hide_values)
-            Surface(
-                onClick = onToggleHidden,
-                shape = CircleShape,
-                color = if (hidden) palette["emerald-50"] else palette.surface,
-                border = BorderStroke(1.dp, if (hidden) palette.accent.copy(alpha = 0.35f) else palette.border),
-                modifier = Modifier.size(48.dp).semantics { contentDescription = eyeLabel },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (hidden) AppIcons.EyeOff else AppIcons.Eye,
-                        contentDescription = null,
-                        tint = if (hidden) palette["emerald-700"] else palette["zinc-700"],
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 8.dp)) {
-            TabChip(stringResource(R.string.lanc_tab_extrato), current == LancamentosTab.EXTRATO) { onTab(LancamentosTab.EXTRATO) }
-            val aprovar = stringResource(R.string.lanc_tab_aprovar)
-            TabChip(if (inboxCount > 0) "$aprovar · $inboxCount" else aprovar, current == LancamentosTab.APROVAR) { onTab(LancamentosTab.APROVAR) }
-            TabChip(stringResource(R.string.lanc_tab_cartoes), current == LancamentosTab.CARTOES) { onTab(LancamentosTab.CARTOES) }
-        }
-    }
-}
-
-@Composable
-private fun TabChip(label: String, active: Boolean, onClick: () -> Unit) {
-    val palette = LocalPalette.current
-    Surface(
-        onClick = { if (!active) onClick() },
-        shape = RoundedCornerShape(50),
-        color = if (active) palette["zinc-900"] else palette.surface,
-        contentColor = if (active) palette["zinc-50"] else palette["zinc-700"],
-        border = if (active) null else BorderStroke(1.dp, palette.border),
-        modifier = Modifier.heightIn(min = 48.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 16.dp)) {
-            Text(label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
-        }
-    }
+    val aprovar = stringResource(R.string.lanc_tab_aprovar)
+    NativeTopBar(
+        title = title,
+        hidden = hidden,
+        onBack = onBack,
+        onToggleHidden = onToggleHidden,
+        tabs = listOf(
+            TopTab(stringResource(R.string.lanc_tab_extrato), current == LancamentosTab.EXTRATO) { onTab(LancamentosTab.EXTRATO) },
+            TopTab(if (inboxCount > 0) "$aprovar · $inboxCount" else aprovar, current == LancamentosTab.APROVAR) { onTab(LancamentosTab.APROVAR) },
+            TopTab(stringResource(R.string.lanc_tab_cartoes), current == LancamentosTab.CARTOES) { onTab(LancamentosTab.CARTOES) },
+            TopTab(stringResource(R.string.lanc_tab_a_receber), current == LancamentosTab.A_RECEBER) { onTab(LancamentosTab.A_RECEBER) },
+        ),
+    )
 }
 
 /**

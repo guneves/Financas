@@ -93,6 +93,18 @@ class AppGraph private constructor(context: Context) {
         files = writeApi,
     )
 
+    /** Planejar (Orcamento, Recorrentes, Metas) e A receber: leituras com a copia, escritas sem prazo. */
+    val planejamento = PlanejamentoRepository(
+        reader = reader,
+        sender = Sender { method, path, body -> writeApi.send(method, path, body) },
+    )
+
+    /** Ajustes: contas, cartoes, categorias, Aprovar e o perfil; escritas sem prazo. */
+    val ajustes = AjustesRepository(
+        reader = reader,
+        sender = Sender { method, path, body -> writeApi.send(method, path, body) },
+    )
+
     companion object {
         /** files/native-read-cache: a ultima resposta boa de cada leitura. */
         const val CACHE_DIR = "native-read-cache"

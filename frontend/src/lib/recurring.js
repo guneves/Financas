@@ -23,3 +23,20 @@ export function recurringEditPatch(item, draft) {
   if (draft.account_id && draft.account_id !== (item.account_id || '')) patch.account_id = draft.account_id
   return patch
 }
+
+// "Mensal", "Semanal", "Anual"; com intervalo, "A cada 2 meses" etc. Um codigo
+// desconhecido aparece como veio.
+const FREQUENCY_LABELS = {
+  WEEKLY: 'Semanal',
+  MONTHLY: 'Mensal',
+  YEARLY: 'Anual',
+}
+
+export function frequencyLabel(item) {
+  const base = FREQUENCY_LABELS[item.frequency] || item.frequency
+  const interval = Number(item.interval_count || 1)
+  if (interval <= 1) return base
+  if (item.frequency === 'WEEKLY') return `A cada ${interval} semanas`
+  if (item.frequency === 'YEARLY') return `A cada ${interval} anos`
+  return `A cada ${interval} meses`
+}

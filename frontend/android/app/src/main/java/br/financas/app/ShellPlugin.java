@@ -23,6 +23,9 @@ import br.financas.app.ui.theme.ShellPrefs;
  * da web, getValuesHidden() devolve { hidden } (ou {} sem escolha guardada) — o Inicio nativo
  * tem o olho e a web le o que ele deixou ao voltar (lib/nativeApp.js; frontend/native-level.txt
  * 5 em diante). Nunca tire um metodo que a web de um nivel abaixo ainda chama.
+ *
+ * Ajustes nativo (native-level 7): a Aparência e o "Sair" nativos deixam o pedido aqui, e a web o
+ * le ao abrir e ao voltar para a frente (takeThemePreference, takeSignOut).
  */
 @CapacitorPlugin(name = "Shell")
 public class ShellPlugin extends Plugin {
@@ -39,8 +42,11 @@ public class ShellPlugin extends Plugin {
             return;
         }
         final int color = parsed;
-        // As telas nativas abrem no mesmo tema (ui/theme/Theme.kt).
+        // As telas nativas abrem no mesmo tema (ui/theme/Theme.kt), e a Aparência nativa mostra a
+        // escolha da web (native-level 7; uma web antes dele nao manda `preference`).
         ShellPrefs.saveDark(getContext(), dark);
+        String preference = call.getString("preference", null);
+        if (preference != null) ShellPrefs.saveThemePreference(getContext(), preference);
         getActivity().runOnUiThread(() -> {
             Window window = getActivity().getWindow();
             window.getDecorView().setBackgroundColor(color);
@@ -67,6 +73,30 @@ public class ShellPlugin extends Plugin {
         JSObject result = new JSObject();
         Boolean hidden = ShellPrefs.valuesHidden(getContext());
         if (hidden != null) result.put("hidden", hidden.booleanValue());
+        call.resolve(result);
+    }
+
+    /**
+     * A escolha de Aparência feita numa tela nativa que a web ainda nao aplicou: { preference }
+     * ("system" | "light" | "dark") ou {} sem nenhuma. Lida e apagada; a web a aplica e manda
+     * o setTheme de volta (native-level 7).
+     */
+    @PluginMethod
+    public void takeThemePreference(PluginCall call) {
+        JSObject result = new JSObject();
+        String pending = ShellPrefs.takePendingTheme(getContext());
+        if (pending != null) result.put("preference", pending);
+        call.resolve(result);
+    }
+
+    /**
+     * O "Sair" de Ajustes nativo: { signOut: true } uma vez, e a web apaga o login dela (o APK ja
+     * apagou o dele). Lido antes de a web mandar a sessao ao APK (native-level 7).
+     */
+    @PluginMethod
+    public void takeSignOut(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("signOut", ShellPrefs.takeSignOut(getContext()));
         call.resolve(result);
     }
 }

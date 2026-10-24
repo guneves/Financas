@@ -58,6 +58,12 @@ fun formatQuantity(value: BigDecimal?): String {
     return signPrefix(number) + grouped(number.abs(), 0, 8)
 }
 
+/** O toLocaleString('pt-BR', { maximumFractionDigits }) do JS: "1.234,5", "33,33", "\u221212". */
+fun formatDecimal(value: BigDecimal?, maxFraction: Int): String {
+    val number = value ?: BigDecimal.ZERO
+    return signPrefix(number) + grouped(number.abs(), 0, maxFraction)
+}
+
 /** "12,50%", com virgula. `signed` poe "+" nos positivos (rentabilidade). */
 fun formatPercent(value: BigDecimal?, digits: Int = 2, signed: Boolean = false): String {
     // O Intl recusa (RangeError) casas fora de 0..100.
@@ -92,6 +98,25 @@ fun formatDateBR(value: String?, fallback: String = "-"): String {
 /** LocalDate -> 'AAAA-MM-DD' (o ano como o JS escreve getFullYear(), sem completar com zeros). */
 fun getLocalDateString(date: LocalDate = LocalDate.now()): String =
     "${date.year}-${pad2(date.monthValue)}-${pad2(date.dayOfMonth)}"
+
+/**
+ * Um instante do servidor (UTC, "2026-10-23T01:30:00.123456Z") como o dia local 'AAAA-MM-DD':
+ * em Brasilia, 01h30 UTC de 23/10 ainda e 22/10. Sem fuso no texto, vale como hora local (o
+ * new Date() do JS). Vazio ou invalido -> "".
+ */
+fun localDateOfTimestamp(value: String?, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String {
+    if (value.isNullOrEmpty()) return ""
+    val date = try {
+        java.time.OffsetDateTime.parse(value).atZoneSameInstant(zone).toLocalDate()
+    } catch (error: java.time.format.DateTimeParseException) {
+        try {
+            java.time.LocalDateTime.parse(value).toLocalDate()
+        } catch (again: java.time.format.DateTimeParseException) {
+            return ""
+        }
+    }
+    return getLocalDateString(date)
+}
 
 /** 'AAAA-MM' — a chave de mes que o backend usa em orcamentos. */
 fun monthKey(date: LocalDate = LocalDate.now()): String = "${date.year}-${pad2(date.monthValue)}"

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 5 (see `../migration-order.md`) |
-| Status | Not started |
+| Status | Built 2026-10-24 on `claude/practical-hamilton-e6nxfi` (native-level 7): `ui/recorrentes/` over `GET /api/recurring` and `/forecast?days=90` (the calendar stays on the server), Lançar pendentes (toast with `through`, the archived-account message from `HomeRules.blockedRecurringMessage`), Nova recorrência (comma amounts via `parseMoneyInput`, native date pickers, optional end date), Editar valor e conta (`rules/Recurring.kt`: `recurringEditPatch`/`recurringAccountOptions` ports), pause/resume, delete with the kept count; `frequencyLabel` moved to `lib/recurring.js` with node tests and ported; nothing masked (as today); waiting for the owner's phone check. Not built: swipe to pause, long-press, the overdue notification |
 | React source | `frontend/src/pages/Recorrentes.jsx`, `components/ui.jsx` (`SummaryPanel`, `Collapsible`, `Menu`, `Badge`, `ListSkeleton`, `EmptyState`) |
 | Route(s) | `/planejamento/recorrentes` (legacy `/recorrentes` redirects); tab "Recorrentes" of "Planejamento" |
 | Endpoints | `GET /api/recurring`, `GET /api/recurring/forecast?days=90`, `POST /api/recurring`, `PATCH /api/recurring/<id>`, `DELETE /api/recurring/<id>`, `POST /api/recurring/run`, `GET /api/categories`, `GET /api/accounts` |
