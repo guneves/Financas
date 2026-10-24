@@ -116,6 +116,61 @@ object ShellPrefs {
         return if (prefs.contains(VALUES_HIDDEN)) prefs.getBoolean(VALUES_HIDDEN, false) else null
     }
 
+    private const val THEME = "theme"
+    private const val THEME_PENDING = "theme_pending"
+    private const val SIGN_OUT_PENDING = "sign_out_pending"
+
+    /**
+     * A escolha de Aparência ("system", "light" ou "dark"), como a web a guarda (lib/theme.js).
+     * A web manda a dela junto do setTheme; a Aparência nativa grava aqui, ajusta o escuro das
+     * telas nativas e deixa a escolha pendente para a WebView (takeThemePreference).
+     */
+    @JvmStatic
+    fun themePreference(context: Context): String = prefs(context).getString(THEME, null)?.takeIf { it in THEMES } ?: "system"
+
+    @JvmStatic
+    fun saveThemePreference(context: Context, preference: String) {
+        val choice = preference.takeIf { it in THEMES } ?: "system"
+        prefs(context).edit().putString(THEME, choice).apply()
+    }
+
+    /** A Aparência nativa trocou o tema: o escuro das telas nativas e o pedido para a web. */
+    @JvmStatic
+    fun chooseThemeNatively(context: Context, preference: String, systemDark: Boolean) {
+        val choice = preference.takeIf { it in THEMES } ?: "system"
+        val dark = when (choice) {
+            "dark" -> true
+            "light" -> false
+            else -> systemDark
+        }
+        prefs(context).edit().putString(THEME, choice).putString(THEME_PENDING, choice).putBoolean(DARK, dark).apply()
+    }
+
+    /** A escolha feita na tela nativa que a WebView ainda nao aplicou (e apagada ao ser lida). */
+    @JvmStatic
+    fun takePendingTheme(context: Context): String? {
+        val prefs = prefs(context)
+        val pending = prefs.getString(THEME_PENDING, null)
+        if (pending != null) prefs.edit().remove(THEME_PENDING).apply()
+        return pending?.takeIf { it in THEMES }
+    }
+
+    /** O "Sair" nativo: a WebView apaga o login dela ao voltar (takeSignOut). */
+    @JvmStatic
+    fun markSignOut(context: Context) {
+        prefs(context).edit().putBoolean(SIGN_OUT_PENDING, true).apply()
+    }
+
+    @JvmStatic
+    fun takeSignOut(context: Context): Boolean {
+        val prefs = prefs(context)
+        val pending = prefs.getBoolean(SIGN_OUT_PENDING, false)
+        if (pending) prefs.edit().remove(SIGN_OUT_PENDING).apply()
+        return pending
+    }
+
+    private val THEMES = setOf("system", "light", "dark")
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }

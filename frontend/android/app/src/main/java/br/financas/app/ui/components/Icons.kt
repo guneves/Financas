@@ -92,6 +92,8 @@ object AppIcons {
         icon("target", circle(12f, 12f, 10f), circle(12f, 12f, 6f), circle(12f, 12f, 2f))
     }
     val Plus: ImageVector by lazy { icon("plus", "M5 12h14", "M12 5v14") }
+    val Minus: ImageVector by lazy { icon("minus", "M5 12h14") }
+    val Undo: ImageVector by lazy { icon("undo-2", "M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11") }
     val Home: ImageVector by lazy {
         icon("home", "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "M9 22V12h6v10")
     }

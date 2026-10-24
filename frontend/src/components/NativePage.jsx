@@ -17,7 +17,7 @@ import { nativePageExit, nativePageOpenRequest, wantsWebPage } from '../lib/nati
 export default function NativePage({ screen, stay = false, children }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const webPage = wantsWebPage(location.search)
+  const webPage = wantsWebPage(location.search, location.hash)
   const [react, setReact] = useState(() => !hasNativeScreen(screen))
   const opened = useRef('')
 
@@ -37,7 +37,7 @@ export default function NativePage({ screen, stay = false, children }) {
       return
     }
     opened.current = location.key
-    openNativeScreen(nativePageOpenRequest(screen, location.search))
+    openNativeScreen(nativePageOpenRequest(screen, location.search, location.hash))
       .then(() => {
         if (stay) return
         const exit = nativePageExit({ hasHistory: location.key !== 'default' })
@@ -45,7 +45,7 @@ export default function NativePage({ screen, stay = false, children }) {
         else navigate(exit.route, { replace: true })
       })
       .catch(() => setReact(true))
-  }, [react, webPage, stay, screen, location.key, location.search, navigate])
+  }, [react, webPage, stay, screen, location.key, location.search, location.hash, navigate])
 
   return react || webPage ? children : null
 }

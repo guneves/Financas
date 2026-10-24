@@ -6,8 +6,14 @@ package br.financas.app.ui.nav
  */
 object NativeLinks {
 
-    /** A pagina nativa de [route] e a vista pedida (?ver= do Extrato); null quando e da web. */
+    /**
+     * A pagina nativa de [route] e a vista pedida: ?ver= do Extrato, ou a secao de Ajustes
+     * (#contas...); null quando e da web.
+     */
     data class Target(val route: String, val view: String? = null)
+
+    /** As secoes de Ajustes que o APK tem em nativo; Regras e Integracoes seguem na WebView. */
+    val NATIVE_SETTINGS_SECTIONS = listOf("contas", "cartoes", "categorias", "aprovar", "aparencia", "perfil", "notificacoes", "versao")
 
     fun targetFor(route: String?): Target? {
         if (route.isNullOrEmpty()) return null
@@ -21,6 +27,18 @@ object NativeLinks {
                 Target(NativeRoutes.EXTRATO, params["ver"]?.takeIf { it == "contas" || it == "investimentos" })
             "/lancamentos/cartoes" -> Target(NativeRoutes.CARTOES)
             "/lancamentos/aprovar", "/aprovar" -> Target(NativeRoutes.INBOX)
+            "/lancamentos/a-receber" -> Target(NativeRoutes.A_RECEBER)
+            "/planejamento", "/planejamento/orcamento", "/orcamento" -> Target(NativeRoutes.ORCAMENTO)
+            "/planejamento/recorrentes", "/recorrentes" -> Target(NativeRoutes.RECORRENTES)
+            "/planejamento/metas" -> Target(NativeRoutes.METAS)
+            "/ajustes" -> {
+                val section = route.substringAfter('#', "")
+                when {
+                    section.isEmpty() -> Target(NativeRoutes.AJUSTES)
+                    section in NATIVE_SETTINGS_SECTIONS -> Target(NativeRoutes.AJUSTES, section)
+                    else -> null
+                }
+            }
             else -> null
         }
     }

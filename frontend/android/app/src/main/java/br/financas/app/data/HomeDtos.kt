@@ -190,5 +190,7 @@ data class BlockedRecurringDto(
 @Serializable
 data class RecurringRunDto(
     val created: Int = 0,
+    /** Ate que dia lancou ('AAAA-MM-DD'): o "gerado(s) até" de Recorrentes. */
+    val through: String? = null,
     val blocked: List<BlockedRecurringDto> = emptyList(),
 )

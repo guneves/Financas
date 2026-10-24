@@ -7,7 +7,17 @@ import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
 import Layout from './components/Layout'
 import NativePage from './components/NativePage'
-import { CARTOES_SCREEN, EXTRATO_SCREEN, HOME_SCREEN, INBOX_SCREEN } from './lib/nativeScreensRules'
+import {
+  AJUSTES_SCREEN,
+  A_RECEBER_SCREEN,
+  CARTOES_SCREEN,
+  EXTRATO_SCREEN,
+  HOME_SCREEN,
+  INBOX_SCREEN,
+  METAS_SCREEN,
+  ORCAMENTO_SCREEN,
+  RECORRENTES_SCREEN,
+} from './lib/nativeScreensRules'
 
 // Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
 // mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
@@ -104,13 +114,13 @@ export default function App() {
             {/* No APK com Aprovar nativo (native-level 4), a rota abre a tela em Kotlin. */}
             <Route path="/lancamentos/aprovar" element={<NativePage screen={INBOX_SCREEN}><Aprovar /></NativePage>} />
             <Route path="/lancamentos/cartoes" element={<NativePage screen={CARTOES_SCREEN}><Cartoes /></NativePage>} />
-            <Route path="/lancamentos/a-receber" element={<AReceber />} />
+            <Route path="/lancamentos/a-receber" element={<NativePage screen={A_RECEBER_SCREEN}><AReceber /></NativePage>} />
             <Route path="/lancamentos/importar" element={<Importar />} />
 
             <Route path="/planejamento" element={<Navigate to="/planejamento/orcamento" replace />} />
-            <Route path="/planejamento/orcamento" element={<Orcamento />} />
-            <Route path="/planejamento/recorrentes" element={<Recorrentes />} />
-            <Route path="/planejamento/metas" element={<Metas />} />
+            <Route path="/planejamento/orcamento" element={<NativePage screen={ORCAMENTO_SCREEN}><Orcamento /></NativePage>} />
+            <Route path="/planejamento/recorrentes" element={<NativePage screen={RECORRENTES_SCREEN}><Recorrentes /></NativePage>} />
+            <Route path="/planejamento/metas" element={<NativePage screen={METAS_SCREEN}><Metas /></NativePage>} />
 
             <Route path="/investimentos" element={<Navigate to="/investimentos/posicao" replace />} />
             <Route path="/investimentos/posicao" element={<Investments tab="posicao" />} />
@@ -121,7 +131,7 @@ export default function App() {
             <Route path="/investimentos/ir" element={<ImpostoRenda />} />
             <Route path="/investimentos/calculadora" element={<Calculadora />} />
 
-            <Route path="/ajustes" element={<Ajustes />} />
+            <Route path="/ajustes" element={<NativePage screen={AJUSTES_SCREEN}><Ajustes /></NativePage>} />
 
             {Object.entries(legacyRedirects).map(([from, to]) => (
               <Route key={from} path={from} element={<Navigate to={to} replace />} />

@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import br.financas.app.ui.theme.LocalPalette
 
 /** Os tons do Badge de components/ui.jsx. */
-enum class BadgeTone { NEUTRAL, WARNING, INFO, DANGER }
+enum class BadgeTone { NEUTRAL, WARNING, INFO, DANGER, SUCCESS }
 
 /** O Badge da web: uma etiqueta pequena. Cor so quando significa aviso ou informacao. */
 @Composable
@@ -54,6 +54,7 @@ fun Badge(text: String, tone: BadgeTone = BadgeTone.NEUTRAL) {
         BadgeTone.WARNING -> palette["amber-50"] to palette.warning
         BadgeTone.INFO -> palette["sky-50"] to palette.info
         BadgeTone.DANGER -> palette["rose-50"] to palette.loss
+        BadgeTone.SUCCESS -> palette["emerald-50"] to palette.gain
     }
     Surface(shape = RoundedCornerShape(50), color = fill, contentColor = ink) {
         Text(

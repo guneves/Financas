@@ -56,7 +56,8 @@ public class ApkUpdatePlugin extends Plugin {
     private static final String APK_MIME = "application/vnd.android.package-archive";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final AtomicBoolean installing = new AtomicBoolean(false);
+    // Um download por vez, venha da web ou do Ajustes nativo.
+    private static final AtomicBoolean installing = new AtomicBoolean(false);
 
     @Override
     protected void handleOnDestroy() {
@@ -70,23 +71,7 @@ public class ApkUpdatePlugin extends Plugin {
         if (baseUrl == null) return;
         executor.execute(() -> {
             try {
-                Context context = getContext();
-                JSObject result = installed(context);
-                ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
-                if (latest != null) {
-                    JSObject out = new JSObject();
-                    out.put("versionCode", latest.versionCode);
-                    out.put("versionName", latest.versionName);
-                    out.put("nativeLevel", latest.nativeLevel);
-                    out.put("size", latest.size);
-                    result.put("latest", out);
-                    // O APK de teste (debug) e outro pacote: o publicado nunca instala por cima dele.
-                    result.put("newer", !BuildConfig.DEBUG && ApkUpdateRules.isNewer(latest, installedCode(context)));
-                } else {
-                    result.put("newer", false);
-                }
-                result.put("canInstall", canInstall(context));
-                call.resolve(result);
+                call.resolve(latestState(getContext(), baseUrl));
             } catch (Exception error) {
                 Log.w(TAG, "Nao foi possivel ler o APK publicado", error);
                 call.reject(message(error, "Não foi possível procurar um APK novo."));
@@ -103,46 +88,92 @@ public class ApkUpdatePlugin extends Plugin {
         String baseUrl = baseUrl(call);
         if (baseUrl == null) return;
         Context context = getContext();
-        if (!canInstall(context)) {
-            openInstallPermission(context);
-            JSObject result = new JSObject();
-            result.put("status", "needs-permission");
-            call.resolve(result);
-            return;
-        }
-        if (!installing.compareAndSet(false, true)) {
-            JSObject busy = new JSObject();
-            busy.put("status", "busy");
-            call.resolve(busy);
+        JSObject early = installPrecheck(context);
+        if (early != null) {
+            call.resolve(early);
             return;
         }
         executor.execute(() -> {
             try {
-                ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
-                JSObject result = new JSObject();
-                if (BuildConfig.DEBUG || !ApkUpdateRules.isNewer(latest, installedCode(context))) {
-                    result.put("status", "up-to-date");
-                    call.resolve(result);
-                    return;
-                }
-                File apk = download(context, baseUrl, latest);
-                openInstaller(context, apk);
-                result.put("status", "installing");
-                call.resolve(result);
+                call.resolve(installNow(context, baseUrl));
             } catch (Exception error) {
                 Log.w(TAG, "Nao foi possivel instalar o APK novo", error);
                 call.reject(message(error, "Não foi possível baixar o APK novo."));
-            } finally {
-                installing.set(false);
             }
         });
+    }
+
+    /**
+     * O APK instalado e o publicado: { installedCode, nativeLevel, latest?, newer, canInstall }.
+     * Bloqueia (rede): fora da thread da tela. Tambem o Ajustes nativo (ui/ajustes/).
+     */
+    public static JSObject latestState(Context context, String baseUrl) throws Exception {
+        JSObject result = installed(context);
+        ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
+        if (latest != null) {
+            JSObject out = new JSObject();
+            out.put("versionCode", latest.versionCode);
+            out.put("versionName", latest.versionName);
+            out.put("nativeLevel", latest.nativeLevel);
+            out.put("size", latest.size);
+            result.put("latest", out);
+            // O APK de teste (debug) e outro pacote: o publicado nunca instala por cima dele.
+            result.put("newer", !BuildConfig.DEBUG && ApkUpdateRules.isNewer(latest, installedCode(context)));
+        } else {
+            result.put("newer", false);
+        }
+        result.put("canInstall", canInstall(context));
+        return result;
+    }
+
+    /**
+     * Antes de baixar: sem a permissao de instalar abre a tela dela ({ status: needs-permission });
+     * com um download em andamento, { status: busy }. null = pode seguir com [installNow] (que
+     * entao e dono da vez e a solta no fim).
+     */
+    public static JSObject installPrecheck(Context context) {
+        if (!canInstall(context)) {
+            openInstallPermission(context);
+            JSObject result = new JSObject();
+            result.put("status", "needs-permission");
+            return result;
+        }
+        if (!installing.compareAndSet(false, true)) {
+            JSObject busy = new JSObject();
+            busy.put("status", "busy");
+            return busy;
+        }
+        return null;
+    }
+
+    /** Baixa, confere e abre o instalador: { status: installing | up-to-date }. Bloqueia (rede). */
+    public static JSObject installNow(Context context, String baseUrl) throws Exception {
+        try {
+            ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
+            JSObject result = new JSObject();
+            if (BuildConfig.DEBUG || !ApkUpdateRules.isNewer(latest, installedCode(context))) {
+                result.put("status", "up-to-date");
+                return result;
+            }
+            File apk = download(context, baseUrl, latest);
+            openInstaller(context, apk);
+            result.put("status", "installing");
+            return result;
+        } finally {
+            installing.set(false);
+        }
+    }
+
+    /** A mensagem de uma falha de [latestState] / [installNow], como a web a mostra. */
+    public static String failureMessage(Exception error, String fallback) {
+        return message(error, fallback);
     }
 
     private static boolean canInstall(Context context) {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.getPackageManager().canRequestPackageInstalls();
     }
 
-    private void openInstallPermission(Context context) {
+    private static void openInstallPermission(Context context) {
         Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + context.getPackageName()));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {

@@ -28,14 +28,32 @@ export const HOME_SCREEN = 'home'
 export const EXTRATO_SCREEN = 'extrato'
 export const CARTOES_SCREEN = 'cartoes'
 
+// native-level 7: Lancamentos › A receber, Planejar (Orcamento, Recorrentes,
+// Metas) e Ajustes. Ajustes leva a secao do #: as que o APK tem em nativo abrem
+// nela; Regras de importacao e Integracoes seguem na pagina React.
+export const A_RECEBER_SCREEN = 'a-receber'
+export const ORCAMENTO_SCREEN = 'orcamento'
+export const RECORRENTES_SCREEN = 'recorrentes'
+export const METAS_SCREEN = 'metas'
+export const AJUSTES_SCREEN = 'ajustes'
+export const AJUSTES_NATIVE_SECTIONS = ['contas', 'cartoes', 'categorias', 'aprovar', 'aparencia', 'perfil', 'notificacoes', 'versao']
+export const AJUSTES_WEB_SECTIONS = ['regras-de-importacao', 'integracoes']
+
+// '#categorias' -> 'categorias'
+function hashSection(hash = '') {
+  return String(hash || '').replace(/^#/, '')
+}
+
 // O Inicio da web, sem abrir a nativa: a nativa leva para ca os paineis que o
 // servidor ainda nao serve (categorias, ritmo de gastos, parcelamentos,
 // proximas faturas).
 export const WEB_PAGE_PARAM = 'web'
 export const HOME_WEB_ROUTE = `/inicio?${WEB_PAGE_PARAM}=1`
 
-// A rota pediu a versao web da pagina (?web=1): a nativa nao abre.
-export function wantsWebPage(search = '') {
+// A rota pediu a versao web da pagina (?web=1), ou uma secao de Ajustes que so
+// existe na web (#regras-de-importacao, #integracoes): a nativa nao abre.
+export function wantsWebPage(search = '', hash = '') {
+  if (AJUSTES_WEB_SECTIONS.includes(hashSection(hash))) return true
   return new URLSearchParams(search || '').get(WEB_PAGE_PARAM) === '1'
 }
 
@@ -89,14 +107,30 @@ export function routeFrom(event) {
   return typeof route === 'string' && route.startsWith('/') && !route.startsWith('//') ? route : ''
 }
 
-// O pedido de abertura de uma pagina nativa inteira. So o Extrato leva
-// parametro: a vista da URL (?ver=), quando ela vem; as outras vao sem nenhum.
-export function nativePageOpenRequest(screen, search = '') {
+// O pedido de abertura de uma pagina nativa inteira. O Extrato leva a vista da
+// URL (?ver=) e Ajustes a secao do # (so as nativas); as outras vao sem nenhum.
+export function nativePageOpenRequest(screen, search = '', hash = '') {
   if (screen === EXTRATO_SCREEN) {
     const view = new URLSearchParams(search || '').get('ver')
     if (view === 'contas' || view === 'investimentos') return { screen, params: { view } }
   }
+  if (screen === AJUSTES_SCREEN) {
+    const section = hashSection(hash)
+    if (AJUSTES_NATIVE_SECTIONS.includes(section)) return { screen, params: { section } }
+  }
   return { screen, params: {} }
+}
+
+// Shell.takeThemePreference(): a Aparencia escolhida numa tela nativa, ou ''
+// sem nenhuma (ou de um APK sem o metodo).
+export function themePreferenceFrom(result) {
+  const preference = result?.preference
+  return ['system', 'light', 'dark'].includes(preference) ? preference : ''
+}
+
+// Shell.takeSignOut(): o "Sair" de Ajustes nativo pede que a web saia tambem.
+export function signOutFrom(result) {
+  return result?.signOut === true
 }
 
 // Abriu a pagina nativa: a rota React dela nao fica na WebView por baixo

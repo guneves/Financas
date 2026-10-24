@@ -8,6 +8,10 @@ import {
   NATIVE_PAGE_FALLBACK_ROUTE,
   EXTRATO_SCREEN,
   CARTOES_SCREEN,
+  AJUSTES_SCREEN,
+  ORCAMENTO_SCREEN,
+  signOutFrom,
+  themePreferenceFrom,
   NEW_ENTRY_SCREEN,
   nativePageExit,
   nativePageOpenRequest,
@@ -121,4 +125,26 @@ test('a rota guardada pela nativa vale so por dois minutos depois de lida', () =
   assert.equal(pendingStartRoute({ route: 'https://x', at }, at), '')
   assert.equal(pendingStartRoute({ at }, at), '')
   assert.equal(pendingStartRoute(null, at), '')
+})
+
+test('Ajustes: a secao nativa vai junto; Regras e Integracoes ficam na web', () => {
+  assert.deepEqual(nativePageOpenRequest(AJUSTES_SCREEN, '', '#categorias'), { screen: 'ajustes', params: { section: 'categorias' } })
+  assert.deepEqual(nativePageOpenRequest(AJUSTES_SCREEN, '', ''), { screen: 'ajustes', params: {} })
+  assert.deepEqual(nativePageOpenRequest(AJUSTES_SCREEN, '', '#outra'), { screen: 'ajustes', params: {} })
+  assert.deepEqual(nativePageOpenRequest(ORCAMENTO_SCREEN, '?ver=contas', '#x'), { screen: 'orcamento', params: {} })
+  assert.equal(wantsWebPage('', '#regras-de-importacao'), true)
+  assert.equal(wantsWebPage('', '#integracoes'), true)
+  assert.equal(wantsWebPage('', '#contas'), false)
+  assert.equal(wantsWebPage('?web=1', '#contas'), true)
+  assert.equal(wantsWebPage(''), false)
+})
+
+test('o tema e o Sair pedidos pela tela nativa', () => {
+  assert.equal(themePreferenceFrom({ preference: 'dark' }), 'dark')
+  assert.equal(themePreferenceFrom({ preference: 'roxo' }), '')
+  assert.equal(themePreferenceFrom({}), '')
+  assert.equal(themePreferenceFrom(null), '')
+  assert.equal(signOutFrom({ signOut: true }), true)
+  assert.equal(signOutFrom({ signOut: 'true' }), false)
+  assert.equal(signOutFrom(undefined), false)
 })

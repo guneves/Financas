@@ -76,8 +76,15 @@ public class NotifyPlugin extends Plugin {
     @PluginMethod
     public void latest(PluginCall call) {
         int limit = Math.max(1, Math.min(LATEST_MAX, call.getInt("limit", LATEST_DEFAULT)));
+        JSObject result = new JSObject();
+        result.put("items", latestItems(getContext(), limit));
+        call.resolve(result);
+    }
+
+    /** As ultimas capturadas, mais recentes primeiro (tambem o Ajustes nativo, ui/ajustes/). */
+    public static JSArray latestItems(Context context, int limit) {
         JSArray items = new JSArray();
-        for (NotifyRules.Captured row : NotifyStore.get(getContext()).latest(limit)) {
+        for (NotifyRules.Captured row : NotifyStore.get(context).latest(limit)) {
             JSObject item = new JSObject();
             item.put("dedupKey", row.dedupKey());
             item.put("package", row.packageName);
@@ -89,21 +96,32 @@ public class NotifyPlugin extends Plugin {
             item.put("groupSummary", row.groupSummary);
             items.put(item);
         }
-        JSObject result = new JSObject();
-        result.put("items", items);
-        call.resolve(result);
+        return items;
     }
 
     /** Grava o arquivo no cache do app e abre a folha de compartilhar. */
     @PluginMethod
     public void export(PluginCall call) {
         boolean json = !"text".equals(call.getString("format", "json"));
-        Context context = getContext();
-        List<NotifyRules.Captured> rows = NotifyStore.get(context).all();
-        if (rows.isEmpty()) {
-            call.reject("Nenhuma notificação capturada ainda.");
-            return;
+        try {
+            call.resolve(export(getContext(), json));
+        } catch (ExportException error) {
+            if (error.getCause() instanceof Exception) call.reject(error.getMessage(), (Exception) error.getCause());
+            else call.reject(error.getMessage());
         }
+    }
+
+    /** Uma exportacao que nao deu: a mensagem e o que a tela mostra. */
+    public static final class ExportException extends Exception {
+        ExportException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /** Grava o arquivo e abre a folha de compartilhar: { count, file } (tambem o Ajustes nativo). */
+    public static JSObject export(Context context, boolean json) throws ExportException {
+        List<NotifyRules.Captured> rows = NotifyStore.get(context).all();
+        if (rows.isEmpty()) throw new ExportException("Nenhuma notificação capturada ainda.", null);
         long now = System.currentTimeMillis();
         TimeZone zone = TimeZone.getDefault();
         String content = json ? NotifyRules.toJson(rows, now, zone) : NotifyRules.toText(rows, now, zone);
@@ -113,8 +131,7 @@ public class NotifyPlugin extends Plugin {
         try {
             file = writeExport(context, name, content);
         } catch (IOException error) {
-            call.reject("Não foi possível gravar a exportação.", error);
-            return;
+            throw new ExportException("Não foi possível gravar a exportação.", error);
         }
         Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", file);
         Intent send = new Intent(Intent.ACTION_SEND);
@@ -128,26 +145,34 @@ public class NotifyPlugin extends Plugin {
         try {
             context.startActivity(chooser);
         } catch (ActivityNotFoundException error) {
-            call.reject("Nenhum app para receber o arquivo.");
-            return;
+            throw new ExportException("Nenhum app para receber o arquivo.", null);
         }
         JSObject result = new JSObject();
         result.put("count", rows.size());
         result.put("file", name);
-        call.resolve(result);
+        return result;
     }
 
     @PluginMethod
     public void clear(PluginCall call) {
-        NotifyStore.get(getContext()).clear();
-        clearExports(getContext());
-        call.resolve(status(getContext()));
+        call.resolve(clear(getContext()));
+    }
+
+    /** Apaga as capturas e a ultima exportacao; devolve o estado novo. */
+    public static JSObject clear(Context context) {
+        NotifyStore.get(context).clear();
+        clearExports(context);
+        return status(context);
     }
 
     /** A pagina do Android que liga o acesso as notificacoes, direto no app quando da. */
     @PluginMethod
     public void openAccessSettings(PluginCall call) {
-        Context context = getContext();
+        openAccessSettings(getContext());
+        call.resolve();
+    }
+
+    public static void openAccessSettings(Context context) {
         Intent intent;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS);
@@ -163,20 +188,23 @@ public class NotifyPlugin extends Plugin {
             // Algumas versoes nao tem a pagina do app: a lista de apps com acesso.
             context.startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         }
-        call.resolve();
     }
 
     /** Informações do app: o menu ⋮ dela tem "Permitir configurações restritas". */
     @PluginMethod
     public void openAppDetails(PluginCall call) {
-        Context context = getContext();
-        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.getPackageName()));
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        openAppDetails(getContext());
         call.resolve();
     }
 
-    static JSObject status(Context context) {
+    public static void openAppDetails(Context context) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.getPackageName()));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+    }
+
+    /** O estado que a web le em status(): tambem o Ajustes nativo (ui/ajustes/). */
+    public static JSObject status(Context context) {
         JSObject result = new JSObject();
         result.put("granted", NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.getPackageName()));
         result.put("captureOn", NotifySettings.isCaptureOn(context));
