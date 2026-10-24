@@ -229,6 +229,22 @@ def consolidated_balance(accounts):
     return rounded_money(total)
 
 
+def balance_projections(balance, invoices, today):
+    """O cabecalho de Extrato e Cartoes: o saldo em contas menos o cartao em
+    aberto — ate a fatura do mes que vem (`next_month`) ou todo (`global`).
+    Estorno abate (o total da fatura ja e com sinal)."""
+    next_key = shift_month(today.strftime("%Y-%m"), 1)
+    up_to_next = sum(
+        (item["total"] for item in invoices if item["key"] <= next_key), Decimal("0")
+    )
+    everything = sum((item["total"] for item in invoices), Decimal("0"))
+    base = Decimal(str(balance))
+    return {
+        "next_month": rounded_money(base - up_to_next),
+        "global": rounded_money(base - everything),
+    }
+
+
 def build_home(conn, current_user_id, months=1):
     today = local_today()
     prepare_reads(conn, current_user_id, today)
@@ -238,12 +254,15 @@ def build_home(conn, current_user_id, months=1):
     flow = monthly_flow(conn, current_user_id, accounts, keys)
     last = flow[-1]
 
-    upcoming = next_invoices(open_invoices(conn, current_user_id, today)["invoices"])
+    invoices = open_invoices(conn, current_user_id, today)["invoices"]
+    upcoming = next_invoices(invoices)
     closing_dates = sorted(item["closing_date"] for item in upcoming if not item["closed"])
+    balance = consolidated_balance(accounts)
     return {
         "today": today.strftime("%Y-%m-%d"),
         "month": current,
-        "consolidated_balance": consolidated_balance(accounts),
+        "consolidated_balance": balance,
+        "projections": balance_projections(balance, invoices, today),
         "accounts": accounts,
         "summary": {
             "income": last["income"],

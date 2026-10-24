@@ -79,11 +79,19 @@ class AppGraph private constructor(context: Context) {
     val categories = CategoriesRepository(reader)
     val cards = CardsRepository(reader)
 
-    /** Aprovar: leituras com a copia guardada, decisoes so com o servidor (nunca na fila). */
-    val inbox = InboxRepository(reader, Sender { method, path, body -> api.send(method, path, body) })
+    /** Aprovar: leituras com a copia guardada, decisoes so com o servidor (nunca na fila), sem prazo. */
+    val inbox = InboxRepository(reader, Sender { method, path, body -> writeApi.send(method, path, body) })
 
     /** Inicio: o saldo, o mes, os avisos e o orcamento; pagar fatura e lancar recorrencias. */
     val home = HomeRepository(reader, Sender { method, path, body -> writeApi.send(method, path, body) })
+
+    /** Extrato e Cartoes: as leituras com a copia guardada, as escritas sem prazo (writeApi). */
+    val lancamentos = LancamentosRepository(
+        reader = reader,
+        fetcher = api,
+        sender = Sender { method, path, body -> writeApi.send(method, path, body) },
+        files = writeApi,
+    )
 
     companion object {
         /** files/native-read-cache: a ultima resposta boa de cada leitura. */

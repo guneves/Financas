@@ -16,6 +16,41 @@ import java.math.BigDecimal
 import java.math.BigInteger
 
 class SharingTest {
+    private val pizza = SharedRow(amount = BigDecimal(80), shareMode = "SPLIT", shareOthersAmount = BigDecimal("40.1"), sharePerson = "Ana")
+
+    private fun assertMoney(expected: String, actual: BigDecimal) =
+        assertEquals("$actual", 0, BigDecimal(expected).compareTo(actual))
+
+    // node: 'the owner part of a split, an all-others and a plain row'
+    @Test
+    fun theOwnerPartOfASplitAnAllOthersAndAPlainRow() {
+        assertMoney("40.1", Sharing.othersAmount(pizza))
+        assertMoney("39.9", Sharing.ownAmount(pizza))
+        assertMoney("0", Sharing.ownAmount(SharedRow(amount = BigDecimal(50), shareMode = "OTHERS")))
+        assertMoney("50", Sharing.ownAmount(SharedRow(amount = BigDecimal(50))))
+        assertMoney("0", Sharing.othersAmount(SharedRow(amount = BigDecimal(50))))
+    }
+
+    // node: 'the list line says who and the owner part'
+    @Test
+    fun theListLineSaysWhoAndTheOwnerPart() {
+        assertEquals("Dividida com Ana · sua parte R$ 39,90", Sharing.shareSummary(pizza))
+        assertEquals("De Bruno", Sharing.shareSummary(SharedRow(amount = BigDecimal(10), shareMode = "OTHERS", sharePerson = "Bruno")))
+        assertEquals("", Sharing.shareSummary(SharedRow(amount = BigDecimal(10))))
+    }
+
+    // node: 'receivables group by person, case and spaces aside, biggest first' (a parte do settlePayload)
+    @Test
+    fun settlePayloadSplitsTheIdsByKind() {
+        val items = listOf(Sharing.ReceivableRef("TRANSACTION", "t1"), Sharing.ReceivableRef("TRANSACTION", "t2"))
+        assertEquals(
+            listOf("transaction_ids" to listOf("t1", "t2"), "cc_expense_ids" to emptyList<String>(), "settled" to true),
+            Sharing.settlePayload(items).toList(),
+        )
+        val card = Sharing.settlePayload(listOf(Sharing.ReceivableRef("CARD_PURCHASE", "c1")), settled = false)
+        assertEquals(listOf("c1"), card["cc_expense_ids"])
+        assertEquals(false, card["settled"])
+    }
     private fun assertMatches(pattern: String, text: String?) =
         assertTrue("\"$text\" contem /$pattern/", text != null && Regex(pattern).containsMatchIn(text))
 

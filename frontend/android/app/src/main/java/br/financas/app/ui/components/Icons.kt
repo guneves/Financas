@@ -65,6 +65,17 @@ object AppIcons {
     }
     val X: ImageVector by lazy { icon("x", "M18 6L6 18", "M6 6l12 12") }
     val ChevronRight: ImageVector by lazy { icon("chevron-right", "M9 18l6-6-6-6") }
+    val ChevronDown: ImageVector by lazy { icon("chevron-down", "M6 9l6 6 6-6") }
+    val Paperclip: ImageVector by lazy {
+        icon(
+            "paperclip",
+            "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48",
+        )
+    }
+    val Search: ImageVector by lazy { icon("search", circle(11f, 11f, 8f), "M21 21l-4.3-4.3") }
+    val Download: ImageVector by lazy {
+        icon("download", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "M7 10l5 5 5-5", "M12 15V3")
+    }
     val CreditCard: ImageVector by lazy { icon("credit-card", rect(2f, 5f, 20f, 14f, 2f), "M2 10h20") }
     val Wallet: ImageVector by lazy {
         icon(

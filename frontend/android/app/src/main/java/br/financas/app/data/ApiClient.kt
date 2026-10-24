@@ -10,6 +10,8 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -43,6 +45,9 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
     class BadResponse(cause: Throwable?) : ApiException("Resposta inesperada do servidor", cause)
 }
 
+/** Um arquivo baixado da API: os bytes, o Content-Type e o nome do Content-Disposition. */
+class Downloaded(val status: Int, val bytes: ByteArray, val contentType: String?, val fileName: String?)
+
 /** Uma leitura da API: o corpo da resposta, como texto (o ReadCache guarda esse texto). */
 fun interface Fetcher {
     suspend fun get(path: String): String
@@ -60,7 +65,7 @@ class ApiClient(
     private val http: OkHttpClient = defaultHttpClient(),
     private val onUnauthorized: () -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
-) : Fetcher {
+) : Fetcher, FileApi {
 
     override suspend fun get(path: String): String = send("GET", path, null)
 
@@ -90,6 +95,83 @@ class ApiClient(
         val (status, text) = execute(http.newCall(request))
         when {
             status in 200..299 -> text
+            status == 401 -> {
+                onUnauthorized()
+                throw ApiException.Unauthorized(serverMessage(text))
+            }
+            else -> throw ApiException.Http(status, serverMessage(text))
+        }
+    }
+
+    /**
+     * Um arquivo num POST multipart (o campo [field], como o FormData da web): os comprovantes.
+     * Devolve o corpo da resposta.
+     */
+    override suspend fun upload(path: String, field: String, fileName: String, mimeType: String, bytes: ByteArray): String =
+        withContext(io) {
+            val body = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(field, fileName, bytes.toRequestBody(mimeType.toMediaTypeOrNull()))
+                .build()
+            val request = authorized(path)?.post(body)?.build() ?: throw ApiException.Unauthorized(null)
+            val (status, text) = execute(http.newCall(request))
+            check(status, text)
+            text
+        }
+
+    /** Os bytes de um GET (comprovante, exportacao), com o tipo e o nome que o servidor mandou. */
+    override suspend fun download(path: String): Downloaded = withContext(io) {
+        val request = authorized(path)?.get()?.build() ?: throw ApiException.Unauthorized(null)
+        val call = http.newCall(request)
+        val result = suspendCancellableCoroutine<Downloaded> { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(ApiException.Network(e))
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    val value = try {
+                        response.use {
+                            Downloaded(
+                                status = it.code,
+                                bytes = it.body?.bytes() ?: ByteArray(0),
+                                contentType = it.header("Content-Type"),
+                                fileName = fileNameOf(it.header("Content-Disposition")),
+                            )
+                        }
+                    } catch (error: IOException) {
+                        if (continuation.isActive) continuation.resumeWithException(ApiException.Network(error))
+                        return
+                    }
+                    if (continuation.isActive) continuation.resume(value)
+                }
+            })
+        }
+        if (result.status !in 200..299) check(result.status, String(result.bytes, Charsets.UTF_8))
+        result
+    }
+
+    // O pedido com o endereco e o token da sessao; null (e o aviso de login) sem sessao.
+    private fun authorized(path: String): Request.Builder? {
+        val current = session()
+        if (current == null) {
+            onUnauthorized()
+            return null
+        }
+        val url = try {
+            (current.baseUrl.trimEnd('/') + path).toHttpUrl()
+        } catch (error: IllegalArgumentException) {
+            throw ApiException.Network(error)
+        }
+        return Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer " + current.token)
+    }
+
+    private fun check(status: Int, text: String) {
+        when {
+            status in 200..299 -> Unit
             status == 401 -> {
                 onUnauthorized()
                 throw ApiException.Unauthorized(serverMessage(text))
@@ -165,6 +247,19 @@ class ApiClient(
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
+
+        private val FILENAME_STAR = Regex("filename\\*=(?:UTF-8'')?([^;]+)", RegexOption.IGNORE_CASE)
+        private val FILENAME = Regex("filename=\"?([^\";]+)\"?", RegexOption.IGNORE_CASE)
+
+        /** O nome do arquivo do Content-Disposition (filename*= UTF-8 primeiro); null sem nome. */
+        fun fileNameOf(disposition: String?): String? {
+            if (disposition.isNullOrBlank()) return null
+            FILENAME_STAR.find(disposition)?.let { match ->
+                val raw = match.groupValues[1].trim().trim('"')
+                return runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw).ifBlank { null }
+            }
+            return FILENAME.find(disposition)?.groupValues?.get(1)?.trim()?.ifBlank { null }
+        }
 
         /** A mensagem do servidor: "error" do JSON, senao "message" (o 401); senao null. */
         fun serverMessage(body: String?): String? {
