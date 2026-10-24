@@ -10,7 +10,7 @@
 //
 // O cache e por usuario: trocar de sessao (entrar, sair) limpa tudo.
 import { useEffect } from 'react'
-import { keepPreviousData, QueryClient, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, QueryClient, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { setMutationListener } from './api'
 import { changesPositions, scheduleProceedsSync } from './proceedsSync'
 
@@ -86,4 +86,4 @@ export function dropLegacyCaches() {
   }
 }
 
-export { keepPreviousData, useQuery }
+export { keepPreviousData, useInfiniteQuery, useQuery }

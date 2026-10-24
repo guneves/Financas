@@ -29,6 +29,7 @@ from services.attachments import remove_attachment_files
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.proceeds_cash import apply_paid_proceeds
+from services.transaction_pages import fetch_page, parse_page_args
 from services.sharing import (
     check_split_fits,
     has_share_fields,
@@ -156,10 +157,10 @@ def transactions(current_user_id):
             apply_paid_proceeds(conn, current_user_id)
             try:
                 where, params = transaction_filter_clause(conn, current_user_id, request.args)
+                page_args = parse_page_args(request.args)
             except ValidationError as exc:
                 return validation_error(str(exc))
-            rows = conn.execute(
-                f"""
+            select_sql = """
                 SELECT transactions.*,
                     (
                         SELECT COUNT(*) FROM transaction_attachments ta
@@ -167,9 +168,20 @@ def transactions(current_user_id):
                             AND ta.transaction_id = transactions.id
                     ) AS attachment_count
                 FROM transactions
-                WHERE {where}
-                ORDER BY date DESC, created_at DESC
-                """,
+            """
+            if page_args:
+                # Com limit: uma pagina e os totais do filtro todo (services/transaction_pages.py).
+                limit, cursor = page_args
+                page = fetch_page(conn, where, params, limit, cursor, select_sql)
+                return jsonify({
+                    "items": [serialize_transaction(row) for row in page["rows"]],
+                    "next_cursor": page["next_cursor"],
+                    "count": page["count"],
+                    "totals": page["totals"],
+                    "day_totals": page["day_totals"],
+                }), 200
+            rows = conn.execute(
+                f"{select_sql} WHERE {where} ORDER BY date DESC, created_at DESC",
                 params,
             ).fetchall()
         return jsonify([serialize_transaction(row) for row in rows]), 200
