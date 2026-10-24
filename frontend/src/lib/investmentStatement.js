@@ -1,3 +1,7 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado (par nativo:
+// android/app/src/main/java/br/financas/app/rules/InvestmentStatement.kt e
+// InvestmentStatementTest.kt, os mesmos casos).
+//
 // Extrato de investimentos: operacoes e proventos numa lista so, do mais novo
 // para o mais antigo, agrupada por dia — o mesmo formato do extrato das contas.
 // Funcoes puras (testadas em investmentStatement.test.js): nada de navegador,
