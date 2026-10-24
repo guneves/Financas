@@ -31,8 +31,8 @@ Decision field (installments 48/72, description required) left blank: both stay 
    bancos, Versão do app (APK only). Regras and Integrações stay in the WebView (spec Status).
    Theme and Sair reach the WebView through `ShellPrefs` + `Shell.takeThemePreference/takeSignOut`.
 - Checks: node 196 green, vite build green, the pure JVM suite (core + rules, 220-odd tests) green
-  in a local harness; `android-check.yml` — see the PR (the first run failed only on the
-  ModalBottomSheet `@OptIn`, fixed in `d05a10f`).
+  in a local harness; `android-check.yml` green on `d05a10f` (run 43: full JVM suite + debug APK;
+  run 42 had failed only on the ModalBottomSheet `@OptIn`), and re-run on the review fix.
 
 ### Not done, and why
 - **No phone check** (the owner's; the APK cannot be built here). Each spec's Acceptance list is
@@ -41,6 +41,15 @@ Decision field (installments 48/72, description required) left blank: both stay 
   widgets, "Sempre perguntar" inside native Aprovar, biometric gate, the listener-lost
   notification, the bundle half of Versão.
 - The full JVM suite (ui/, data/ tests with Android classes) only runs in CI.
+
+### Review
+One Sonnet reviewer over `origin/main..HEAD`: **one blocker, no majors**. Blocker fixed in
+`c173f48`: `orc_categories_description` had a bare `%` ("um % do Gastar") next to `%1$s`, so
+`% d` was read as a format and Orçamento would crash on its categories panel; now `%%` (a scan of
+every string found no other). Its minor (the static APK download guard could stay held if the
+screen's scope died between precheck and download) fixed in the same commit: the download runs on
+`appScope`. Checked and found matching: every request body, the rule ports, privacy masking, the
+theme/Sair hand-off and the route lists.
 
 ### Learned
 - **This container can run the pure JVM tests**: a scratch Kotlin/JVM Gradle project with
