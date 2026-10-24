@@ -22,7 +22,9 @@ import com.getcapacitor.annotation.CapacitorPlugin
  *   (params.type = EXPENSE | INCOME | TRANSFER | CARD; params.client_id = um item da fila a
  *   corrigir, Pendentes › Corrigir). "inbox": Lancamentos › Aprovar (ui/inbox/, numa
  *   NativeActivity; frontend/native-level.txt 4 em diante). "home": Inicio e o sino (ui/home/,
- *   native-level 5; a WebView fica parada em /inicio por baixo). Tela desconhecida: rejeita com
+ *   native-level 5; a WebView fica parada em /inicio por baixo). "extrato" (params.view) e
+ *   "cartoes": Lancamentos › Extrato e Cartoes (ui/extrato/, ui/cartoes/; native-level 6).
+ *   Tela desconhecida: rejeita com
  *   "UNIMPLEMENTED".
  *
  * Eventos (escutados pela web com addListener):
@@ -77,14 +79,20 @@ class NativeScreensPlugin : Plugin() {
                 }
                 call.resolve()
             }
-            SCREEN_INBOX, SCREEN_HOME -> {
+            SCREEN_INBOX, SCREEN_HOME, SCREEN_EXTRATO, SCREEN_CARTOES -> {
                 val host = activity
                 if (host == null) {
                     call.reject("Tela nativa indisponível agora.", CODE_UNAVAILABLE)
                     return
                 }
-                val route = if (screen == SCREEN_HOME) NativeRoutes.HOME else NativeRoutes.INBOX
-                val intent = NativeActivity.intent(host, route)
+                val route = when (screen) {
+                    SCREEN_HOME -> NativeRoutes.HOME
+                    SCREEN_EXTRATO -> NativeRoutes.EXTRATO
+                    SCREEN_CARTOES -> NativeRoutes.CARTOES
+                    else -> NativeRoutes.INBOX
+                }
+                val view = params.optString("view", "").takeIf { it == "contas" || it == "investimentos" }
+                val intent = NativeActivity.intent(host, route, view = view)
                 host.runOnUiThread {
                     host.startActivity(intent)
                     // O Inicio e uma aba (a da esquerda), nao uma pagina empilhada: fade, nao o
@@ -128,8 +136,14 @@ class NativeScreensPlugin : Plugin() {
         /** Inicio e o sino (ui/home/), a pagina de partida da NativeActivity (native-level 5). */
         const val SCREEN_HOME = "home"
 
+        /** Lancamentos › Extrato, as duas vistas (ui/extrato/; native-level 6). params.view = contas | investimentos. */
+        const val SCREEN_EXTRATO = "extrato"
+
+        /** Lancamentos › Cartoes (ui/cartoes/; native-level 6). */
+        const val SCREEN_CARTOES = "cartoes"
+
         /** As rotas nativas deste APK (o NativeScreens.routes() da web). */
-        val ROUTES: List<String> = listOf(SCREEN_NEW_ENTRY, SCREEN_INBOX, SCREEN_HOME)
+        val ROUTES: List<String> = listOf(SCREEN_NEW_ENTRY, SCREEN_INBOX, SCREEN_HOME, SCREEN_EXTRATO, SCREEN_CARTOES)
 
         @Volatile
         private var current: NativeScreensPlugin? = null

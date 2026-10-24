@@ -75,6 +75,15 @@ data class HomeDto(
     @SerialName("next_invoices") val nextInvoices: List<NextInvoiceDto> = emptyList(),
     @SerialName("next_invoices_total") val nextInvoicesTotal: Money = BigDecimal.ZERO,
     @SerialName("next_closing_date") val nextClosingDate: String? = null,
+    /** O saldo em contas menos o cartao em aberto (Extrato e Cartoes); null num servidor antigo. */
+    val projections: HomeProjectionsDto? = null,
+)
+
+/** projections de GET /api/home (balance_projections em services/home.py). */
+@Serializable
+data class HomeProjectionsDto(
+    @SerialName("next_month") val nextMonth: Money = BigDecimal.ZERO,
+    @SerialName("global") val global: Money = BigDecimal.ZERO,
 )
 
 /** Uma fatura do aviso de fatura vencida (ou fechada). */

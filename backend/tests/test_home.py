@@ -173,6 +173,32 @@ def test_next_invoices_match_cc_invoices(world, clock):
     assert home["next_closing_date"] == "2026-11-25"
 
 
+def test_projections_subtract_open_card_items(world, clock):
+    world.account("Banco", initial=1000)
+    world.account("Corretora", "BROKERAGE", initial=5000)
+    card = world.card("Nubank", due_day=10, closing_day=3)
+    # Outubro (20/10): a compra de 05/10 cai na fatura de novembro, a de 3x vai ate janeiro.
+    world.purchase(card, 100, "2026-10-05")
+    world.purchase(card, 300, "2026-10-06", description="TV", installments=3)
+    world.refund(card, 30, "2026-10-12")
+
+    home = world.home()
+    assert home["consolidated_balance"] == 1000
+    invoices = {(item["invoice_year"], item["invoice_month"]): item["total"]
+                for card_ in world.invoices()["cards"] for item in card_["invoices"]}
+    up_to_next = sum(total for (year, month_), total in invoices.items() if (year, month_) <= (2026, 11))
+    assert home["projections"] == {
+        "next_month": round(1000 - up_to_next, 2),
+        "global": round(1000 - sum(invoices.values()), 2),
+    }
+    assert home["projections"]["global"] == 630
+
+
+def test_projections_without_cards_are_the_balance(world, clock):
+    world.account("Banco", initial=250.55)
+    assert world.home()["projections"] == {"next_month": 250.55, "global": 250.55}
+
+
 # --- cashFlow.js -------------------------------------------------------------
 
 def test_income_and_expense_are_the_owners_part(world, clock):

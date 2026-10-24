@@ -1,11 +1,13 @@
 // Porte: mudou um, muda o outro, com um teste de cada lado.
-// Par: frontend/src/lib/sharing.js (testes em sharing.test.js), so SHARE_OPTIONS,
+// Par: frontend/src/lib/sharing.js (testes em sharing.test.js): SHARE_OPTIONS, othersAmount,
+// ownAmount, shareSummary, settlePayload,
 // shareFormFrom, shareFormError e sharePayload (e o toCents que elas usam);
 // aqui: SharingTest.kt, os mesmos casos na mesma ordem.
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
 package br.financas.app.rules
 
 import br.financas.app.core.Js
+import br.financas.app.core.formatCurrency
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -18,6 +20,14 @@ data class ShareOption(val value: String, val label: String)
  * `shareOthersAmount` e o numero do JSON (null = ausente ou null).
  */
 data class ShareItem(
+    val shareMode: String? = null,
+    val sharePerson: String? = null,
+    val shareOthersAmount: BigDecimal? = null,
+)
+
+/** Uma linha com a divisao (lancamento ou parcela), o que othersAmount/shareSummary leem. */
+data class SharedRow(
+    val amount: BigDecimal? = null,
     val shareMode: String? = null,
     val sharePerson: String? = null,
     val shareOthersAmount: BigDecimal? = null,
@@ -91,6 +101,44 @@ object Sharing {
         if (form.shareMode == SPLIT) payload["share_others_amount"] = jsNumber(form.shareOthersAmount)
         return payload
     }
+
+    /** Quanto da linha e de outra pessoa, em reais (othersAmount). */
+    @JvmStatic
+    fun othersAmount(item: SharedRow?): BigDecimal = when (item?.shareMode) {
+        OTHERS -> item.amount ?: BigDecimal.ZERO
+        SPLIT -> item.shareOthersAmount ?: BigDecimal.ZERO
+        else -> BigDecimal.ZERO
+    }
+
+    /** A parte do dono, em centavos e de volta (ownAmount). */
+    @JvmStatic
+    fun ownAmount(item: SharedRow?): BigDecimal {
+        val cents = toCents(item?.amount ?: BigDecimal.ZERO) - toCents(othersAmount(item))
+        return BigDecimal(cents).movePointLeft(2)
+    }
+
+    @JvmStatic
+    fun isShared(item: SharedRow?): Boolean = !item?.shareMode.isNullOrEmpty()
+
+    /** "Dividida com Ana · sua parte R$ 40,00" / "De Ana" / "" (shareSummary). */
+    @JvmStatic
+    fun shareSummary(item: SharedRow?): String {
+        if (item == null || !isShared(item)) return ""
+        val person = item.sharePerson?.takeIf { it.isNotEmpty() } ?: "outra pessoa"
+        if (item.shareMode == OTHERS) return "De $person"
+        return "Dividida com $person · sua parte ${formatCurrency(ownAmount(item))}"
+    }
+
+    /** Um item de "A receber" que settlePayload le: TRANSACTION ou CARD_PURCHASE e o id. */
+    data class ReceivableRef(val kind: String, val id: String)
+
+    /** Os ids que POST /api/receivables/settle espera (settlePayload). */
+    @JvmStatic
+    fun settlePayload(items: List<ReceivableRef> = emptyList(), settled: Boolean = true): Map<String, Any?> = linkedMapOf(
+        "transaction_ids" to items.filter { it.kind == "TRANSACTION" }.map { it.id },
+        "cc_expense_ids" to items.filter { it.kind == "CARD_PURCHASE" }.map { it.id },
+        "settled" to settled,
+    )
 
     /**
      * `Math.round(value * 100)` do JS, em centavos, sobre o valor decimal exato: o .5

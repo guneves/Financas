@@ -138,8 +138,8 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
 - [ ] **The sharing form refuses a comma** (found by the port, same on web and native):
   `shareFormError()` reads the other person's part with `Number()`, so "12,5" gets "Informe a
   parte…" while every other money field takes a comma (`parseMoneyInput()`). Fix both sides with a
-  test each (the port mirrors the JS on purpose). `settlePayload` and `shareSummary` are not ported
-  yet (A receber / Cartões need them).
+  test each (the port mirrors the JS on purpose). Native Extrato and Cartões already read the part
+  with `parseMoneyInput()` before `shareFormError()` (`normalizedShare()`); the web still refuses.
 - [ ] **pytest fails between 21:00 and midnight local time**:
   `test_fixed_income_interest.py::TestTheCouponReachesTheAccount::test_paid_lands_in_the_portfolio_account_and_scheduled_waits`
   (`assert 0 == 1`) — at that hour UTC is already the next day, so the test's `days(0)` and
@@ -150,17 +150,29 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   web on the same data (the spec's "Comparing native and web"). Open from that session:
   - toggling the eye natively and then following a link can show the web's values unmasked for a
     moment, until the web reads `getValuesHidden()` on resume (reviewer's minor 6);
-  - Aprovar's writes still use the read client's 45 s timeout, so a timeout reads as offline even
-    when the write may have gone through; move them to `writeApi` as Início's pay/run were;
   - the native top bar has no Pendentes pill (the shell, step 8);
   - native and web keep separate dismissed-card lists (one per store; the bell lists all anyway).
-- [ ] Steps 4–8 (Extrato/Cartões, planning screens, Ajustes, Investimentos, then remove the
-  WebView), one per APK, each checked by the owner with the debug APK first.
+- [ ] **Step 4 — Extrato and Cartões native, owner's phone check** (built 2026-10-24 on
+  `claude/native-session-a`, native-level 6): run `screens/04-extrato.md` and `05-cartoes.md`'s
+  Acceptance on the debug APK (camera receipt, export to WhatsApp/Drive, pay and "Desfazer
+  pagamento", a refund in a paid invoice, "De quem é?" with "12,5"). Left from that session:
+  - not built natively: swipe-to-delete and a long-press menu, the flash on rows just written,
+    attaching a PDF from another app's share sheet, the card carousel, the "Próxima fatura" widget,
+    refunds queued offline (owner decision: they carry `client_id`, so they could be);
+  - a day that has pending outbox rows shows the server's day total (without them);
+  - the web Extrato's unfiltered list and its projections still read the whole history
+    (`useLancamentos()`); switch them to the pages and to `/api/home`'s `projections`;
+  - a parallel session (`claude/native-b-investments`) also bumps `native-level.txt` and the
+    `NativeScreens` routes: whichever PR merges second resolves those files.
+- [ ] Steps 5–8 (planning screens, Ajustes, Investimentos, then remove the WebView), one per APK,
+  each checked by the owner with the debug APK first.
 - [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
   screen here before it starts.
 - [ ] **Session containers cannot build an APK**: `dl.google.com` is blocked by the environment's
   network policy. The owner can allow it (environment settings › Network access › Allowed
   domains); until then every native change is first compiled by `android-check.yml` on the branch.
+  (A session on the owner's PC can: `gradlew.bat --offline testDebugUnitTest assembleDebug` with
+  Android Studio's JDK, as session A did.)
 - [ ] Plus Jakarta Sans in the native screens (needs the `.ttf` in `res/font`; the web ships woff2).
 - [ ] **`findings.md`, what is left** (its possible bugs and stale texts were fixed 2026-10-23,
   the grouped Tesouro delete made atomic 2026-10-24, `done-tasks.md`): the native shell's 401
@@ -189,11 +201,9 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   - **B2, owner decision**: the plan's "spent" (`month_banking_totals()`) still counts a despesa
     typed in a Corretora account; Início's "Saiu" (`/api/home`) does not. Make the plan follow
     Início (one rule) or keep both?
-  - **Paging on `GET /api/transactions`** (§5): built with the native Extrato (step 4 of
-    `migration-order.md`), web "Carregar mais" in the same PR, as the proposal orders.
   - **`home-panels.md`** (second proposal, not written): Início's "Despesas por categoria", "Ritmo
-    de gastos", "Parcelamentos abertos" and the 6-month invoice projection, and the Extrato's
-    projections, still read the whole history (`['inicio','movimentos']`,
+    de gastos", "Parcelamentos abertos" and the 6-month invoice projection, and the web Extrato's
+    projections (native reads `/api/home`'s `projections`), still read the whole history (`['inicio','movimentos']`,
     `GET /api/cc-expenses?status=OPEN` in `useLancamentos()`). Once served, Início stops calling
     `GET /api/transactions` and `bankingTransactions()` / `isPastDue()` leave the client. The
     native Início (step 3) shows those four panels only through the web (`/inicio?web=1`) until

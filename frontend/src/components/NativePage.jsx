@@ -37,7 +37,7 @@ export default function NativePage({ screen, stay = false, children }) {
       return
     }
     opened.current = location.key
-    openNativeScreen(nativePageOpenRequest(screen))
+    openNativeScreen(nativePageOpenRequest(screen, location.search))
       .then(() => {
         if (stay) return
         const exit = nativePageExit({ hasHistory: location.key !== 'default' })
@@ -45,7 +45,7 @@ export default function NativePage({ screen, stay = false, children }) {
         else navigate(exit.route, { replace: true })
       })
       .catch(() => setReact(true))
-  }, [react, webPage, stay, screen, location.key, navigate])
+  }, [react, webPage, stay, screen, location.key, location.search, navigate])
 
   return react || webPage ? children : null
 }

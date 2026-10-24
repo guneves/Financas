@@ -32,7 +32,8 @@ import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
 import { toast } from '../../lib/toast'
 import ExportSheet from '../../components/ExportSheet'
-import { keepPreviousData, queryErrorMessage, useQuery } from '../../lib/queries'
+import { keepPreviousData, queryErrorMessage, useInfiniteQuery } from '../../lib/queries'
+import { mergeTransactionPages, nextPageCursor, STATEMENT_PAGE_LIMIT } from '../../lib/transactionPages'
 import useDebouncedValue from '../../lib/useDebouncedValue'
 import ExtratoInvestimentos from './ExtratoInvestimentos'
 import { useInboxCount } from '../../lib/inboxCount'
@@ -89,8 +90,9 @@ function amountText(transaction) {
 
 // Extrato agrupado por dia (a lista ja vem do mais novo para o mais antigo).
 // O total do dia e o que entrou menos o que saiu na lista mostrada;
-// transferencia nao entra, como no consolidado.
-function groupByDay(transactions) {
+// transferencia nao entra, como no consolidado. No extrato filtrado o total
+// vem do servidor (`dayTotals`), sobre o dia inteiro.
+function groupByDay(transactions, dayTotals = null) {
   const groups = []
   transactions.forEach((transaction) => {
     const date = transaction.date || ''
@@ -103,6 +105,11 @@ function groupByDay(transactions) {
     if (transaction.type === 'INCOME') group.total += Number(transaction.amount || 0)
     else if (transaction.type === 'EXPENSE') group.total -= Number(transaction.amount || 0)
   })
+  if (dayTotals) {
+    groups.forEach((group) => {
+      if (dayTotals[group.date] !== undefined) group.total = Number(dayTotals[group.date])
+    })
+  }
   return groups
 }
 
@@ -282,28 +289,36 @@ function ExtratoContas({ viewSwitch }) {
   // Extrato filtrado: uma query por combinacao de filtros, 250 ms depois da
   // ultima tecla. A chave comeca com 'lancamentos', entao gravar algo tambem a
   // invalida (lib/queries.js).
+  // Vem em paginas de 200 (keyset, lib/transactionPages.js), com os totais do
+  // filtro inteiro; "Carregar mais" pede a seguinte.
   const debouncedFilters = useDebouncedValue(filters, 250)
-  const filteredQuery = useQuery({
-    queryKey: ['lancamentos', 'filtrado', debouncedFilters],
-    queryFn: () => transactionsApi.list(debouncedFilters),
+  const filteredQuery = useInfiniteQuery({
+    queryKey: ['lancamentos', 'filtrado-paginas', debouncedFilters],
+    queryFn: ({ pageParam }) => transactionsApi.list({ ...debouncedFilters, limit: STATEMENT_PAGE_LIMIT, cursor: pageParam }),
+    initialPageParam: '',
+    getNextPageParam: nextPageCursor,
     enabled: filtersActive && hasActiveFilters(debouncedFilters),
     placeholderData: keepPreviousData,
   })
-  const filtering = filtersActive && (filteredQuery.isFetching || debouncedFilters !== filters)
+  const filtering = filtersActive
+    && ((filteredQuery.isFetching && !filteredQuery.isFetchingNextPage) || debouncedFilters !== filters)
   const filterError = filtersActive ? queryErrorMessage(filteredQuery, 'Não foi possível aplicar os filtros.') : ''
-  const filteredTransactions = filtersActive && filteredQuery.data ? filteredQuery.data : null
+  const filteredPages = filtersActive && filteredQuery.data ? mergeTransactionPages(filteredQuery.data.pages) : null
 
-  const statementTransactions = filteredTransactions ?? transactions
+  const statementTransactions = filteredPages?.items ?? transactions
   // Sem cascata nas linhas: um extrato se le de cima para baixo, e filtrar e
   // digitar. So o que acabou de ser gravado pisca, para ser achado.
   const arrived = useArrivals(statementTransactions, useDataVersion())
 
-  // "Mostrar mais": volta a 100 linhas a cada filtro novo.
+  // Sem filtro, "Mostrar mais" sobre a lista ja carregada: volta a 100 linhas
+  // a cada filtro novo. Com filtro, as paginas do servidor.
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   useEffect(() => setVisibleCount(PAGE_SIZE), [filters])
-  const visibleTransactions = statementTransactions.slice(0, visibleCount)
-  const visibleDays = useMemo(() => groupByDay(visibleTransactions), [visibleTransactions])
-  const hiddenCount = statementTransactions.length - visibleTransactions.length
+  const visibleTransactions = filteredPages ? statementTransactions : statementTransactions.slice(0, visibleCount)
+  const dayTotals = filteredPages?.dayTotals
+  const visibleDays = useMemo(() => groupByDay(visibleTransactions, dayTotals), [visibleTransactions, dayTotals])
+  const statementCount = filteredPages ? filteredPages.count : statementTransactions.length
+  const hiddenCount = statementCount - visibleTransactions.length
 
   // Exporta exatamente o que a tela mostra: o backend refaz a mesma consulta
   // com os filtros da URL. Sem filtro, sai o extrato inteiro.
@@ -311,7 +326,9 @@ function ExtratoContas({ viewSwitch }) {
 
   // Investimento e liquido: aportes menos resgates. O resgate nao soma na
   // receita, como o aporte nao soma na despesa.
+  const filteredTotals = filteredPages?.totals
   const statementTotals = useMemo(() => {
+    if (filteredTotals) return filteredTotals
     return statementTransactions.reduce((acc, item) => {
       const amount = Number(item.amount || 0)
       if (isInvestmentInflow(item)) acc.investment -= amount
@@ -320,7 +337,7 @@ function ExtratoContas({ viewSwitch }) {
       else if (item.type === 'EXPENSE') acc.expense += amount
       return acc
     }, { income: 0, expense: 0, investment: 0 })
-  }, [statementTransactions])
+  }, [filteredTotals, statementTransactions])
 
   const startEditing = (transaction) => {
     setEditingId(transaction.id)
@@ -569,7 +586,7 @@ function ExtratoContas({ viewSwitch }) {
                   ) : null}
                 </>
               ) : null}
-              <Badge>{filtering ? 'Filtrando…' : `${statementTransactions.length} registro(s)`}</Badge>
+              <Badge>{filtering ? 'Filtrando…' : `${statementCount} registro(s)`}</Badge>
             </div>
           }
         />
@@ -658,7 +675,7 @@ function ExtratoContas({ viewSwitch }) {
           {filterError ? <p className="text-sm text-rose-600">{filterError}</p> : null}
         </div>
 
-        {loading || (filtersActive && !filteredTransactions && filtering) ? (
+        {loading || (filtersActive && !filteredPages && filtering) ? (
           <ListSkeleton rows={8} />
         ) : statementTransactions.length > 0 ? (
           <>
@@ -838,11 +855,22 @@ function ExtratoContas({ viewSwitch }) {
             {hiddenCount > 0 ? (
               <div className="flex flex-col items-center gap-2 border-t border-zinc-100 px-5 py-4 sm:flex-row sm:justify-between">
                 <p className="text-sm text-zinc-500">
-                  Mostrando {visibleTransactions.length} de {statementTransactions.length}
+                  Mostrando {visibleTransactions.length} de {statementCount}
                 </p>
-                <Button type="button" variant="secondary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
-                  Mostrar mais {Math.min(PAGE_SIZE, hiddenCount)}
-                </Button>
+                {filteredPages ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!filteredPages.hasMore || filteredQuery.isFetchingNextPage}
+                    onClick={() => filteredQuery.fetchNextPage()}
+                  >
+                    {filteredQuery.isFetchingNextPage ? 'Carregando…' : 'Carregar mais'}
+                  </Button>
+                ) : (
+                  <Button type="button" variant="secondary" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+                    Mostrar mais {Math.min(PAGE_SIZE, hiddenCount)}
+                  </Button>
+                )}
               </div>
             ) : null}
           </>

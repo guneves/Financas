@@ -6,6 +6,8 @@ import {
   HOME_WEB_ROUTE,
   INBOX_SCREEN,
   NATIVE_PAGE_FALLBACK_ROUTE,
+  EXTRATO_SCREEN,
+  CARTOES_SCREEN,
   NEW_ENTRY_SCREEN,
   nativePageExit,
   nativePageOpenRequest,
@@ -70,10 +72,22 @@ test('Aprovar abre a pagina nativa, sem parametros', () => {
   assert.deepEqual(nativePageOpenRequest(INBOX_SCREEN), { screen: 'inbox', params: {} })
 })
 
-test('depois de abrir a nativa, a WebView volta para a tela de antes (ou o Extrato)', () => {
+test('depois de abrir a nativa, a WebView volta para a tela de antes (ou o Extrato da web)', () => {
   assert.deepEqual(nativePageExit({ hasHistory: true }), { back: true, route: '' })
   assert.deepEqual(nativePageExit({ hasHistory: false }), { back: false, route: NATIVE_PAGE_FALLBACK_ROUTE })
-  assert.deepEqual(nativePageExit(), { back: false, route: '/lancamentos/extrato' })
+  // ?web=1: o Extrato e nativo tambem, e a volta nao pode abri-lo de novo.
+  assert.deepEqual(nativePageExit(), { back: false, route: '/lancamentos/extrato?web=1' })
+  assert.equal(wantsWebPage(NATIVE_PAGE_FALLBACK_ROUTE.split('?')[1]), true)
+})
+
+test('Extrato e Cartoes abrem nativos; o Extrato leva a vista da URL', () => {
+  assert.equal(EXTRATO_SCREEN, 'extrato')
+  assert.equal(CARTOES_SCREEN, 'cartoes')
+  assert.deepEqual(nativePageOpenRequest(EXTRATO_SCREEN, '?ver=investimentos'), { screen: 'extrato', params: { view: 'investimentos' } })
+  assert.deepEqual(nativePageOpenRequest(EXTRATO_SCREEN, '?ver=contas&q=uber'), { screen: 'extrato', params: { view: 'contas' } })
+  assert.deepEqual(nativePageOpenRequest(EXTRATO_SCREEN, '?ver=outra'), { screen: 'extrato', params: {} })
+  assert.deepEqual(nativePageOpenRequest(EXTRATO_SCREEN), { screen: 'extrato', params: {} })
+  assert.deepEqual(nativePageOpenRequest(CARTOES_SCREEN, '?ver=investimentos'), { screen: 'cartoes', params: {} })
 })
 
 test('Inicio abre a pagina nativa; ?web=1 fica na web', () => {
