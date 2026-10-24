@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 4 (see `../migration-order.md`; same step as Extrato) |
-| Status | Not started |
+| Status | Built 2026-10-24 on `claude/native-session-a` (native-level 6): `ui/cartoes/` over `GET /api/cc-invoices` (totals, closed/past-due/payable/nearest/future from the server), pay-invoice (suggested account = autopay, else default), refund with `client_id` per sheet open and the installments' prefill, "De quem é?" (`CardRules.shareStart`, comma accepted), delete purchase/refund through `DELETE /api/cc-expenses/purchases/<id>`, receipts; `rules/CardRules.kt` (cardPurchase.js port + the inline rules); CI green; waiting for the owner's phone check (Acceptance) and the merge. Not built: card carousel, haptic confirm on Pagar, the home-screen widget, refunds queued offline (a decision) |
 | React source | `frontend/src/pages/lancamentos/Cartoes.jsx`, `pages/lancamentos/CardRefundSheet.jsx`, `pages/lancamentos/CardShareSheet.jsx`, `pages/lancamentos/useLancamentos.js`, `pages/lancamentos/ProjectionHeader.jsx`, `pages/lancamentos/helpers.js`, `components/PayInvoiceSheet.jsx`, `components/AttachmentsSheet.jsx` (purchase mode), `components/ShareFields.jsx` |
 | Route(s) | `/lancamentos/cartoes` |
 | Endpoints | `GET /api/cc-expenses?status=OPEN`, `GET /api/credit-cards`, `GET /api/accounts?include_archived=1`, `GET /api/transactions`, `GET /api/categories` (shared load), `POST /api/cc-expenses/pay-invoice`, `POST /api/cc-expenses/refunds`, `GET /api/cc-expenses/candidates?id=`, `PATCH /api/cc-expenses/<id>/share`, `DELETE /api/cc-expenses` (`{ids}`), `GET/POST /api/cc-expenses/<id>/attachments`, `GET /api/cc-expenses/<id>/attachments/<aid>/file`, `DELETE /api/cc-expenses/<id>/attachments/<aid>` |
@@ -96,8 +96,9 @@ Extrato.". Refund: "Compra estornada nao encontrada neste cartao.", archived/deb
 - Every write invalidates all queries.
 
 ## Client rules
-`GET /api/cc-invoices` and `DELETE /api/cc-expenses/purchases/<id>` are proposed in
-`../proposals/home-attention-invoices.md` (§3, §4; 2026-10-23, waiting for the owner).
+`GET /api/cc-invoices` and `DELETE /api/cc-expenses/purchases/<id>` are built (session 6) and both the
+web and native read them; the grouping, the current/future split, `nearest` and the delete filter below
+are the server's now. What stays on the client is listed as ported in `rules/CardRules.kt`.
 
 - **Invoice grouping** (inline `openInvoicesByCard` in `Cartoes.jsx`, **untested**): groups open items by
   card → invoice (`YYYY-MM`) → purchase, sums with `cardSignedAmount()` in float, sorts. **Endpoint**

@@ -519,6 +519,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun saveEdit() {
+        if (saving) return
         val row = editing ?: return
         val form = editForm ?: return
         val amount = (parseMoneyInput(form.amount) as? MoneyInput.Amount)?.value

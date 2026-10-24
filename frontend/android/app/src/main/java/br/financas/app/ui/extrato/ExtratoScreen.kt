@@ -2,7 +2,7 @@ package br.financas.app.ui.extrato
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -404,7 +404,7 @@ private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
-                .combinedClickable(onClick = onTap, onLongClick = { if (editable) viewModel.askDelete(row) })
+                .clickable(onClick = onTap)
                 .heightIn(min = 56.dp)
                 .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
         ) {

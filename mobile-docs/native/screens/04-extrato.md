@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 4 (see `../migration-order.md`; same step as Cartões) |
-| Status | Not started |
+| Status | Built 2026-10-24 on `claude/native-session-a` (native-level 6): `ui/extrato/` (both views), `ui/lancamentos/` (projection header, receipts with camera/file picker, "De quem é?", section tabs), `rules/ExtratoRules.kt`, `rules/InvestmentStatement.kt`; the list reads `GET /api/transactions?limit=200` pages with the server's `totals`/`day_totals`, the header `/api/home` (`consolidated_balance`, new `projections`); export through the Android share sheet; local JVM tests + assembleDebug and CI green; waiting for the owner's phone check (Acceptance) and the merge. Not built: swipe-to-delete, long-press menu, the flash on new rows, attaching from another app's share sheet |
 | React source | `frontend/src/pages/lancamentos/Extrato.jsx` (`Extrato`, `ExtratoContas`), `pages/lancamentos/ExtratoInvestimentos.jsx`, `pages/lancamentos/useLancamentos.js`, `pages/lancamentos/ProjectionHeader.jsx`, `pages/lancamentos/helpers.js`, `components/AttachmentsSheet.jsx`, `components/ExportSheet.jsx`, `components/ShareFields.jsx` |
 | Route(s) | `/lancamentos/extrato` (`?ver=contas\|investimentos`, filters `?q=&from=&to=&type=&account_id=&category_id=&min_amount=&max_amount=`); `/transactions` and `/carteira` redirect here |
 | Endpoints | `GET /api/transactions` (+ filters), `PATCH /api/transactions/<id>`, `DELETE /api/transactions/<id>`, `GET /api/transactions/export`, `DELETE /api/cc-expenses/payments/<id>`, `DELETE /api/investments/<id>`, `GET /api/accounts?include_archived=1`, `GET /api/categories`, `GET /api/credit-cards`, `GET /api/cc-expenses?status=OPEN`, `GET/POST /api/transactions/<id>/attachments`, `GET /api/transactions/<id>/attachments/<aid>/file`, `DELETE /api/transactions/<id>/attachments/<aid>`, `GET /api/exports/columns`, `GET /api/inbox/count`, `GET /api/investments?order=created_at&ascending=false`, `GET /api/investment-proceeds`, `POST /api/investment-proceeds/sync` |
@@ -129,9 +129,13 @@ payment 409 "Este pagamento tem comprovante. Remova o comprovante antes de desfa
 - Every write invalidates all queries.
 
 ## Client rules
-Paging on `GET /api/transactions` (with whole-filter `totals` and `day_totals`) is proposed in
-`../proposals/home-attention-invoices.md` §5; "Saldo em contas" would read `/api/home`'s
-`consolidated_balance` (§1). 2026-10-23, waiting for the owner.
+Paging on `GET /api/transactions?limit=N&cursor=` (keyset; `items`, `next_cursor`, `count`, whole-filter
+`totals`, `day_totals` over each whole day) is built (2026-10-24, `services/transaction_pages.py`,
+`test_transactions_paging.py`); the web's filtered list reads it with "Carregar mais", native reads it
+for everything. "Saldo em contas" reads `/api/home`'s `consolidated_balance`; the two projections are
+`projections.next_month` / `projections.global` of `/api/home` (`balance_projections()`), with the
+device's pending items added natively the same way the balance gets them. The web still computes the
+projections from `GET /api/cc-expenses?status=OPEN`.
 
 - `consolidatedBalance()` / `accountBalanceBrl()` / `bankingAccounts()` (`lib/transactions.js`,
   `transactions.test.js`) — **endpoint** preferred (the same number Início shows; a `GET /api/balance-summary`
