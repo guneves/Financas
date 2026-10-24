@@ -1,927 +1,315 @@
 # CLAUDE.md
 
-Guidance for Claude Code when working in this repository.
+Guidance for Claude Code in this repository.
 
-## The session process — read this first
+## Session process
 
-This project is worked on in discrete sessions, each starting from a clean context. Three documents
-carry state between them. **Start every session by reading them in this order:**
+Work happens in sessions that start from a clean context. Start by reading:
 
-1. **`docs/handoff.md`** — what the last session did, what it deliberately left undone, and what it
-   recommends next. It holds only the most recent session; older entries live in git history
-   (`git log -p docs/handoff.md`). This is the fastest way into context.
-2. **`docs/next-steps.md`** — the active, prioritized work plan. Phases, functional gaps, technical
-   debt. This is the source of truth for *what to work on*.
-3. **`docs/done-tasks.md`** — everything already completed, moved out of the plan. Read it when you
-   need to know whether something exists or how a finished feature behaves.
-4. **`ROADMAP.md`** — historical record of what has been built and the original direction. Read for
-   background; it does not drive work anymore.
+1. `docs/handoff.md` — the last session only: what was done, left undone, recommended next.
+2. `docs/next-steps.md` — the prioritized plan (open work only).
+3. `docs/done-tasks.md` — finished work; read when you need to know whether something exists.
 
-Cheaper route for the same thing: run the **`session-scout` subagent** (see below) and let it read
-those documents for you. It hands back a one-page briefing and keeps the reading in its own context
-instead of yours.
+`session-scout` (`.claude/agents/`) can read these for you on a cold start; skip it when the prompt
+already says what to do. If `subagent_type` is "not found", use `general-purpose` with "Read
+.claude/agents/session-scout.md and follow it".
 
-**End every session by:**
-
-- Updating `docs/next-steps.md` — **remove every task you completed from it and record it in
-  `docs/done-tasks.md`** (a row in the table, plus a note if the detail is worth keeping). The plan
-  holds only open work: no `[x]` boxes, no "done" sections, no struck-through decisions. What a
-  finished task left undone (a "not built", an owner walk-through) stays in `next-steps.md` as an
-  open item. Rewrite the affected section rather than appending a note to it. A stale plan is worse
-  than no plan.
-- Replacing the session entry in `docs/handoff.md` with a new one — the file holds only the latest
-  session, so delete the previous entry rather than stacking on top of it. Carry forward anything
-  from it that is still open and still matters. Cover: what was done, **what was not done
-  and why**, what the next session should pick up, and anything non-obvious you learned along the
-  way (a fixture quirk, a bug you found, a decision you made and its reasoning).
-- Committing the work.
-
-Be explicit in the handoff about partial work. "Phase 1 complete except automatic backup, because X"
-is useful; "Phase 1 done" when it isn't costs the next session an hour of confusion.
-
-## The subagent routine
-
-One read-only subagent opens a session: `session-scout`, in `.claude/agents/`. It does not edit,
-commit, or run the app against `backend/finance.db`. Discovery by `subagent_type` failed repeatedly
-around 2026-09-15/16 but has worked since; if it fails again, use the fallback documented at the end
-of this section.
-
-### Opening — `session-scout`
-
-`.claude/agents/session-scout.md`. Reads `docs/handoff.md`, `docs/next-steps.md`, the git log, the
-migration directory and the test suite, and returns a one-page briefing: where the project stands,
-what the last session genuinely left open, the next task and the concrete files it touches, the traps
-from the handoff that apply to *that* task, and any drift between the docs and the repository.
-
-```
-Agent(subagent_type="session-scout", prompt="Brief me for this session.")
-```
-
-The point is the arithmetic: the handoff, the plan, the git log and the test suite together are
-more text than the current task needs. The scout reads all of it and keeps the ~500 words that
-matter. Read the documents yourself instead whenever the session is a
-follow-up on work still fresh in context — the briefing is for a cold start.
-
-### If `subagent_type` is not found
-
-Custom agent definitions are discovered by Claude Code at startup, and on 2026-09-15 and twice on
-2026-09-16 `Agent(subagent_type=...)` returned *"Agent type not found"* even though the
-file had been committed sessions earlier. It has worked directly in every session since, so try it
-first and reach for the fallback after one failed attempt rather than investigating. Do not conclude
-the file is broken — it is a discovery problem, not a definition problem. The fallback gives the
-same briefing:
-
-```
-Agent(subagent_type="general-purpose",
-      prompt="Read .claude/agents/session-scout.md in full and follow it exactly as your "
-             "instructions. Brief me for this session. You are read-only.")
-```
-
-If the fallback is what you used, say so in the handoff.
-
-### The native migration's agents
-
-Six more agents in `.claude/agents/` run the phone's native migration and the desktop redesign:
-`screen-spec-writer`, `rule-porter`, `native-screen-builder`, `native-parity-reviewer`,
-`android-ci-watcher` and `desktop-screen-builder`. What each does, the rules for running them in
-parallel (one writer per branch, worktrees, one owner of the shared Android files per round) and
-ready-to-paste prompts are in `mobile-docs/native/agents.md`. The same fallback applies if one is
-"not found".
+End every session by: removing finished tasks from `next-steps.md` and recording them in
+`done-tasks.md` (what a task left undone stays in the plan, rewritten, no `[x]`); replacing the
+entry in `docs/handoff.md` (done, **not done and why**, next, non-obvious lessons — be explicit
+about partial work); committing.
 
 ## What this is
 
-A personal finance manager, single-user, running locally. Income and expenses, credit cards with
-installments and invoice settlement, and a fairly deep investments module (weighted average cost,
-realized results, monthly tax apuração, proceeds, quotes).
+A single-user personal finance manager: income and expenses, credit cards with installments and
+invoice settlement, and an investments module (weighted average cost, realized results, monthly
+tax apuração, proventos, quotes). The goal is a tool the owner uses daily — prefer what makes
+daily use better over prettier architecture.
 
-**Stack:** React 18 + Vite + Tailwind · Flask 3 · local SQLite with versioned migrations · hand-rolled
-HS256 JWT auth · yfinance for quotes.
-
-The goal is a tool the owner actually uses daily — not a portfolio piece. Prefer the change that makes
-daily use better over the change that makes the architecture prettier.
+**Stack:** React 18 + Vite + Tailwind · Flask 3 · SQLite with versioned migrations · hand-rolled
+HS256 JWT · yfinance/brapi/BCB/Tesouro/StatusInvest for market data.
 
 ## Running it
 
 ```powershell
-.\start.ps1 -Tests             # run the backend test suite
-.\start.ps1 -Local             # dev only: backend (:5000) + frontend (:5173), Ctrl+C stops both
-.\start.ps1 -Local -NoBrowser  # same, without opening a browser
+.\start.ps1 -Tests             # backend test suite
+.\start.ps1 -Local             # dev: backend :5000 + frontend :5173
+.\start.ps1 -Local -Built      # Flask serves the built frontend (one origin)
 ```
 
-**The home server is the only real backend** (since 2026-10-16). The PC's `backend\finance.db` is
-a development copy, not the owner's data, so `start.ps1` refuses to start without `-Local`.
-
-**Production** runs on the home server as the Docker image
+The home server is the only real backend; `backend\finance.db` on the PC is a dev copy, so
+`start.ps1` refuses to start without `-Local`. Production is the Docker image
 `ghcr.io/guneves/financas-app`, deployed by `.github/workflows/deploy.yml` on every push to `main`
-(tests → GHCR → Tailscale SSH → `docker compose pull/up`). The server holds only `compose.yaml` and
-`.env`; data is in the `financas_data` volume. `DEPLOY.md` has setup, the manual `deploy.ps1`, the
-data import and rollback.
-
-Manually, if you need the two halves separate:
-
-```powershell
-cd backend;  ..\.venv\Scripts\python.exe app.py
-cd frontend; npm run dev
-```
+(tests → GHCR → Tailscale SSH → `docker compose pull/up`); data lives in the `financas_data`
+volume. `DEPLOY.md` has setup, manual deploy, import and rollback.
 
 ## Tests
 
 ```powershell
-cd backend; ..\.venv\Scripts\python.exe -m pytest
+cd backend; ..\.venv\Scripts\python.exe -m pytest     # ~1600 tests in backend/tests/
+cd frontend; npm test                                 # node --test over src/**/*.test.js
 ```
 
-1603 tests in `backend/tests/`, covering the URL map (`test_route_map.py`: every route, its methods
-and its `@token_required`), Início's balance and month flow (`test_home.py`: Saldo em contas without the Corretora, the banking view, the owner's part, the card in its purchase month, the month-end balance ending at the hero, cents exact), "Precisa de atenção" (`test_attention.py`: the items and their keys, byte for byte the old client's), the invoices per card (`test_cc_invoices.py`: next, overdue, payable, nearest, future), deleting a purchase's open installments (`test_cc_purchase_delete.py`; the shared setup is `tests/finance_world.py`), the charts' history fetch (`test_history_fetch.py`: per-ticker and
-per-series caches that cover every period, a stale entry served while it refreshes in the background, the fetches running at once, and the disk copy surviving a restart), the weighted average cost (`test_average_cost.py`), Tesouro Direto marked to market and grouped (`test_treasury.py`: the price file, titles per purchase, custody/IOF/IR, the average rate, PEPS redemptions), tax rules and the
-monthly variable-income apuração (`test_variable_income_tax.py`: stock exemption, ETFs/BDRs, the
-per-sale share of the month's tax), credit card invoices (settlement, the closed-only payment rule, débito automático and the
-invoice-month rule), the opt-in investment↔cash link, editing an operation keeps its sign (`test_investment_edit_sign.py`), fixed-income coupons and amortizations typed ahead (`test_fixed_income_interest.py`: 040's `INTEREST`, the coupon's regressive IR, `repeat`, the IR report), bank accounts and transfers, categories, editing a
-transaction, monthly budgets, recurring entries, the monthly plan from income (`test_monthly_plan_income.py`: percentages at both levels, inheritance, Saldo do plano, migration 038 and `needs_income`), statement import and its rules (including applying
-them to recorded lançamentos), CSV/.xlsx exports, receipts (per lançamento and per card purchase), corporate actions,
-multi-currency, the IR report and the monthly exemption meter, allocation targets and concentration, goals,
-proventos per asset and total return, automatic proventos (position on the data com × StatusInvest), time-weighted return and its benchmarks, sectors, the IRPF paste text, monthly contributions, the integrations healthcheck, `user_id` isolation, idempotent creation by `client_id`, the built frontend served by Flask, the APK's screen bundle (`test_app_bundle.py`), Aprovar (`test_inbox.py`: the phone's notifications waiting for the owner; `test_inbox_counterparty.py`: own-account transfer vs Pix to someone else, from the captured texts; `test_inbox_recurring.py`: a notification settling a recurrence's occurrence; `test_inbox_ambiguous.py`: the ambiguous target and "Sempre perguntar"), expense sharing and A receber (`test_expense_share.py`), Investimento no longer a category and migration 039 (`test_investment_not_a_category.py`), card refunds (`test_cc_refund.py`), the card history (`test_card_history.py`: paid installments stay, a purchase skips a paid invoice, card archive, undoing an invoice payment), categories by id and the rename carrying everywhere (`test_category_identity.py`), each card purchase its own `client_id` and migration 035's backfill (`test_cc_purchase_identity.py`), editing a card (`test_card_edit.py`), the card's débito function and the Flash in Aprovar (`test_card_debit.py`), the hourly quote refresh (`test_quote_auto_refresh.py`), closed signup and the generated `JWT_SECRET` (`test_signup_and_secret.py`), saving and editing without extra work (`test_write_speed.py`: gzip, realized results rewritten only when changed, positions left to their read), odd input refused with a 400 instead of a 500 or a wrong row (`test_input_edges.py`: a non-object body, years outside 1900–2199, amounts that round to 0 or exceed R$ 1 trilhão, a 1e308 operação), and backup
-retention and the receipts mirror. `conftest.py` blanks `BRAPI_TOKEN`, so no test reaches brapi
-unless it patches it in, and no test reaches StatusInvest: `test_proceeds_sync.py` patches
-`statusinvest_client.get_proceed_events` (call `statusinvest_client.clear_cache()` too). It
-blanks `TESOURO_PRICES_URL`/`TESOURO_PRICES_FILE` too, so no test downloads the Tesouro file; a
-test that needs prices calls `tesouro_client.set_prices(parse_prices_csv(...))` (and `None` after). They run
-against a throwaway SQLite database built by the real migrations — **the real
-`backend/finance.db` is never touched.**
+Test files are named for what they cover (`test_invoice_month.py`, `test_average_cost.py`,
+`test_route_map.py` for every route and its `@token_required`, …). They run on a throwaway SQLite
+built by the real migrations — **`backend/finance.db` is never touched.**
 
-`config.py` reads the environment once, at import, and `app.py` calls `init_db()` at import time,
-so `conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* importing `app` (it drops
-`app` and `config` from `sys.modules` first). If you add a test that needs different config, set it
-there, not inside the test. A test never imports an app module (`db`, `routes.*`, `services.*`) at
-the top of the file — reach it through a fixture or `importlib.import_module` inside the test, after
-`app_module` has loaded. The pure modules (`brapi_client`, `statement_import`, `export_csv`,
-`market_catalog`, `irpf_text`) are fine at the top.
-
-**Patch where the name is read, not where it is defined.** Modules import settings and helpers by
-name (`from config import ATTACHMENT_MAX_BYTES`), so `monkeypatch.setattr` must target the module
-whose code reads the name: `db` for the backup settings, `routes.attachments` for the upload limits,
-*both* `services.invoices` and `routes.cards` for the `local_today` clock (`services.goals` for goals, `services.monthly_plan` *and* `services.goals` for the monthly plan), `services.prices` for
-`download_close_prices` and `download_daily_history` (the real `get_daily_history()` and its
-per-ticker cache run; clear `_daily_history_cache`), `services.fixed_income` for `fetch_bcb_series` (clear `_index_history_cache`; it returns datetimes), `services.fx` for
-`fetch_bcb_window` (PTAX; call `reset_fetch_throttle()` too), `services.benchmarks` for
-`download_monthly_history` (call its `reset_fetch_throttle()` too), `brapi_client` for `get_history` /
-`get_sectors` / `get_listing` / `is_configured` (call `services.market_listing.reset_cache()` too), `routes.investments` for
-`refresh_market_prices` (registering a corporate action fetches a quote), and *both*
-`services.prices` and `routes.investments` for `yf`. A patch on the wrong module does not fail — it
-silently does nothing. `app.py` itself exposes almost nothing now; reach code through the module
-that defines it.
-
-Fixtures: `client`, `user`, `other_user`, `auth`, `app_module`, `db_module`, `invoices_module`,
-`prices_module`, `fixed_income_module`, `realized_results_module`, `portfolio_module`.
-
-**Add tests for financial rules you touch.** That is the whole reason they exist — the Phase 5 split
-of `app.py` was only safe because the suite was in place.
-
-The frontend has no test runner installed. Its pure rule modules are tested with Node's own:
-`cd frontend; npm test` runs `node --test` over `src/**/*.test.js` (today `outboxRules`, `format`,
-`monthlyPlan`, `investmentStatement`, `appBundleRules`, `notifyRules`, `portfolioAccount`, `inboxRules`, `attentionRules`, `transactions`, `sharing`, `compoundInterest`, `proceedsRules` (with `assetSearch`), `fixedIncome`, `treasury`, `cardFunctions`, `nativeScreensRules`, `recurring`, `transactionEdit` and `cardPurchase`, 160 tests). A rule moved to the server takes its node cases to pytest with the same inputs. A module tested this way imports nothing from the browser, React or `lib/api.js`.
+- `conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* importing `app` (it drops
+  `app` and `config` from `sys.modules`), because `config.py` reads the environment once and
+  `app.py` runs `init_db()` at import. Different config goes there, not in a test.
+- A test never imports `db`, `routes.*` or `services.*` at the top; use a fixture or
+  `importlib.import_module` inside the test. Pure modules (`brapi_client`, `statement_import`,
+  `export_csv`, `market_catalog`, `irpf_text`) are fine at the top.
+- `conftest.py` blanks `BRAPI_TOKEN`, `TESOURO_PRICES_URL/FILE`, `HISTORY_CACHE_FILE`, sets
+  `QUOTE_AUTO_REFRESH_SECONDS=0` and `ALLOW_SIGNUP=1`. StatusInvest is patched in
+  `test_proceeds_sync.py` (`statusinvest_client.get_proceed_events`, plus `clear_cache()`); Tesouro
+  prices via `tesouro_client.set_prices(...)` (and `None` after).
+- **Patch where the name is read, not where it is defined** — a wrong target silently does nothing:
+  `db` (backup settings), `routes.attachments` (upload limits), `services.invoices` *and*
+  `routes.cards` (`local_today`), `services.goals` (goals), `services.monthly_plan` *and*
+  `services.goals` (plan), `services.prices` (`download_close_prices`, `download_daily_history`;
+  clear `_daily_history_cache`), `services.fixed_income` (`fetch_bcb_series`; clear
+  `_index_history_cache`), `services.fx` (`fetch_bcb_window`; `reset_fetch_throttle()`),
+  `services.benchmarks` (`download_monthly_history`; `reset_fetch_throttle()`), `brapi_client`
+  (`get_history`/`get_sectors`/`get_listing`/`is_configured`; `services.market_listing.reset_cache()`),
+  `routes.investments` (`refresh_market_prices`, `get_daily_history`), and *both* `services.prices`
+  and `routes.investments` for `yf`. History refreshes run behind: wait with
+  `wait_history_refreshes()`.
+- Fixtures: `client`, `user`, `other_user`, `auth`, `app_module`, `db_module`, `invoices_module`,
+  `prices_module`, `fixed_income_module`, `realized_results_module`, `portfolio_module`,
+  `daily_history_from_months`; shared setup in `tests/finance_world.py`.
+- **Add tests for every financial rule you touch.** A frontend rule tested with node imports nothing
+  from the browser, React or `lib/api.js`; a rule moved to the server takes its node cases to pytest.
 
 ## Layout
 
 ```
 backend/
-  app.py              # Flask app + CORS + blueprint registration + boot (~60 lines)
-  config.py           # env / .env, read once at import
-  history_store.py    # disk copy of the chart history caches (history_cache.json next to the DB)
-  db.py               # connection, migrations, backups, row helpers
-  validators.py       # ValidationError + require_* / parse_* for request payloads
-  auth.py             # hand-rolled JWT, token_required
-  money.py            # rounded_money()
-  gzip_responses.py      # gzip for API JSON >= 1 KB when the client accepts it (after_request in app.py)
-  applog.py           # structured JSON logging; every module logs through get_logger(), never print()
-  integrations.py     # last success/failure of each external provider (yfinance, brapi, BCB)
-  dates.py            # ISO parsing and month arithmetic
-  source_types.py     # transactions.source_type values (who wrote the row)
-  asset_classes.py    # asset-class constants and the class filter
-  responses.py        # download/export responses (CSV or .xlsx, ?format=&columns=) shared by blueprints
-  services/           # domain rules: accounts, invoices, attachments, prices (quotes, caches),
-                      # fixed_income (BCB, accrual), fx (PTAX), investments (movements, cash link,
-                      # BRL conversion, the average cost), corporate_actions,
-                      # realized_results (cost and IR of each sale), variable_income_tax
-                      # (monthly IR of stocks/ETFs/BDRs/FIIs, pure),
-                      # portfolio (positions, evolution), tax_report (IR, exemption meter),
-                      # allocation (targets, contribution split, concentration), goals,
-                      # proceeds (proventos read, by asset), proceeds_sync (automatic proventos),
-                      # proceeds_cash (paid proventos into the portfolio account), returns (TWR), contributions
-                      # (aportes x resgates), benchmarks (IPCA/IBOV/IFIX/IDIV closes),
-                      # sectors (brapi sector per asset, breakdown), health (integrations),
-                      # app_bundle (the APK's screens, zipped for the phone), import_rules
-                      # (categorization shared by import and Aprovar), inbox + inbox_decisions
-                      # (Aprovar: the phone's notifications waiting for the owner),
-                      # recurring (the recurrences' calendar, /run, Aprovar's settlements),
-                      # budgets (categories as % of Gastar, the plan row, inheritance),
-                      # monthly_plan (income, Investir/Gastar %, Saldo do plano, flags),
-                      # asset_categories (ETF, Tesouro Direto, the fixed-income indexer; on read),
-                      # treasury (Tesouro Direto marked to market, grouped, net of custody/IOF/IR),
-                      # quote_refresh (renda variavel quotes every hour, a thread started in app.py),
-                      # card_invoices (open invoices per card: next, overdue, payable, nearest),
-                      # home (Saldo em contas, accounts, the month flow), attention ("Precisa de atenção")
-  routes/             # one Flask blueprint per area: system, auth, accounts, transactions,
-                      # attachments, budgets, recurring, imports, cards, investments,
-                      # proceeds, market, allocation, goals, inbox, app_bundle (GET /api/app-bundle),
-                      # home (GET /api/home, /api/attention, /api/cc-invoices),
-                      # frontend (serves frontend/dist at /)
-  statement_import.py # leitura de extrato CSV/OFX (funcoes puras, sem banco)
-  export_csv.py       # tabelas de exportacao (colunas tipadas) e o CSV (funcoes puras, sem banco)
-  export_xlsx.py      # a mesma tabela em .xlsx, uma ou varias abas (zipfile, sem dependencia)
-  irpf_text.py        # texto para colar no programa do IRPF, sobre o relatorio de IR (funcoes puras)
-  statusinvest_client.py # historico de proventos por ticker na StatusInvest (funcoes puras + cache)
-  tesouro_client.py   # precos e taxas do Tesouro Direto (CSV do Tesouro Transparente) + cache em disco
-  gov_http.py         # GET no BCB e no Tesouro: TLS sem o modo estrito do Python 3.13+, nova tentativa, erro legivel
-  scripts/            # one-off seeds — destructive, read scripts/README.md first
-  tests/              # pytest suite
-  .env                # local config, gitignored — .env.example is the template
-database/
-  schema.sql          # reference schema
-  migrations/         # versioned, applied automatically on boot
+  app.py            Flask app, blueprint list, boot      config.py   env, read once at import
+  db.py             connection, migrations, backups      validators.py / money.py / dates.py
+  auth.py           JWT, token_required                  responses.py  CSV/.xlsx downloads
+  applog.py         JSON logging (never print())         integrations.py  provider health
+  history_store.py  disk copy of chart history caches    gov_http.py   GET to BCB/Tesouro
+  statement_import.py, export_csv.py, export_xlsx.py, irpf_text.py, statusinvest_client.py,
+  tesouro_client.py, brapi_client.py, market_catalog.py   (pure or client modules)
+  services/         domain rules (accounts, invoices, card_invoices, home, attention, budgets,
+                    monthly_plan, recurring, inbox, inbox_decisions, import_rules, sharing,
+                    attachments, investments, prices, fixed_income, fx, treasury, portfolio,
+                    realized_results, variable_income_tax, tax_report, proceeds, proceeds_sync,
+                    proceeds_cash, returns, benchmarks, allocation, goals, sectors, ...)
+  routes/           one blueprint per area; frontend.py serves frontend/dist at /
+  tests/            pytest
+database/migrations/  versioned, applied on boot
 frontend/src/
-  pages/              # Dashboard (Início), lancamentos/, Orcamento, Recorrentes, Metas, investimentos/
-                      # (incl. Calculadora: compound interest, lib/compoundInterest.js),
-                      # Proventos, Ajustes + ajustes/, Importar — screen map in lib/navigation.js
-  components/         # Layout (nav, "+ Novo" host), NewEntrySheet (banking only), CashLinkField
-                      # (the portfolio account + "Não descontar de nenhuma conta"),
-                      # ui.jsx (the UI kit)
-  lib/                # api.js, auth.js, dataApi.js, format.js, navigation.js, newEntry.js,
-                      # queries.js (TanStack Query), confirm.js, toast.js, scroll.js,
-                      # outbox.js + outboxRules.js (offline queue), offlineStore.js (IndexedDB),
-                      # queryPersist.js (saved read cache), connection.js,
-                      # inboxRules.js (Aprovar's texts and requests)
-docs/
-  next-steps.md       # the plan — open work only
-  done-tasks.md       # completed work, moved out of next-steps.md
-  handoff.md          # latest session only
-frontend/android/      # Capacitor's Android project (committed); native code in
-                      # app/src/main/java/br/financas/app/ (ui/ = the native Kotlin/Compose screens
-                      # and theme, mobile-docs/native-app.md; outbox/ = the native queue and sender,
-                      # bundle/ = the screen self-update, notify/ = the bank-notification
-                      # listener and NotifyPairing, the bank × Samsung rule); app/src/debug/ = the test APK's name
-frontend/native-level.txt   # the APK's native level; a screen goes only to an APK at or above its level
-frontend/scripts/      # bundle-manifest.mjs: writes bundle.json into the APK build
-mobile/
-  build-apk.ps1       # web build for the APK + cap sync + signed release + adb install
-  new-keystore.ps1    # creates the release key outside the repo; run once, back it up
-mobile-docs/
-  steps-to-production.md  # the Android app plan: decisions, phases and their status
-  native-app.md           # native phone screens (Kotlin + Compose) and the desktop redesign: decisions
-  native/                 # the migration's docs: architecture, conventions, build, order, rules,
-                          # screens/ (one spec per screen), desktop.md, agents.md (agents + prompts)
-.claude/agents/
-  session-scout.md    # the start-of-session briefing subagent
-  screen-spec-writer.md, rule-porter.md, native-screen-builder.md, native-parity-reviewer.md,
-  android-ci-watcher.md, desktop-screen-builder.md   # the native migration's agents (mobile-docs/native/agents.md)
+  pages/            Início (Dashboard), lancamentos/, Orcamento, Recorrentes, Metas,
+                    investimentos/, Proventos, Ajustes, Importar — map in lib/navigation.js
+  components/       Layout, NewEntrySheet, CashLinkField, ui.jsx (the UI kit), charts.jsx
+  lib/              api.js, queries.js (TanStack Query), format.js, outbox.js + outboxRules.js,
+                    transactions.js, monthlyPlan.js, ... (pure rules have *.test.js)
+frontend/android/   the Android app (see mobile-docs/native/ before touching it)
+docs/               next-steps.md, done-tasks.md, handoff.md
 ```
 
 ## Conventions
 
-- **Money.** Always round through `rounded_money()` (`backend/money.py`) — it is ROUND_HALF_UP via
-  `Decimal`. Python's built-in `round()` is banker's rounding and is wrong for currency. Never
-  introduce a bare `round()` on a monetary value. An amount from a request is read with
-  `parse_money()` (same file): rounded first, then at least R$ 0,01 (unless `allow_zero`) and at
-  most `MAX_MONEY` — `parse_number()` + "> 0" let 0,004 through as R$ 0,00.
-- **Typed dates and months are 1900–2199** (`MIN_YEAR`/`MAX_YEAR` in `validators.py`, applied by
-  `require_date()` / `normalize_month()`): a 9999 date was stored, its invoice landed in year
-  10000 and every Cartões read answered 500. A date read from `metadata` (investments) goes
-  through `validate_movement_metadata()`.
-- **`user_id` on everything.** Every table carries it and every query must filter on it. There are
-  tests asserting this; do not add an endpoint that skips it.
-- **Transfers are one row, not two.** A `TRANSFER` leaves `account_id` and arrives at
-  `transfer_account_id` in a single `transactions` row, so the consolidated balance ignores it for
-  free. Anything that sums `transactions` must skip `type = 'TRANSFER'` — otherwise moving money
-  between your own accounts reads as an expense.
-- **`transactions.category` still holds the category *name*, but the id decides** (035). `category_id`
-  was added in migration 008; the text column is what the Dashboard groups on and what survives a
-  category being archived. The same name exists under different parents ("Outros" at the root,
-  "Alimentação › Outros", "Lazer › Outros"), so every table that keeps a category keeps both —
-  `transactions`, `cc_expenses` (035), `recurring_transactions`, `import_rules`, `inbox_items` —
-  and every screen's category select sends `category_id` (value = id, never the name). A bare name
-  (old client, an outbox item queued before the id) resolves to the root first, then the oldest
-  subcategory (`category_id_for_name()`, `CATEGORY_NAME_ORDER` in `services/accounts.py`; the
-  budget's fallback for rows with no id reads the same order), and an edit that sends back the
-  row's own name keeps its id (`resolve_category(current=...)`). Renaming rewrites the name in all
-  five tables (`rename_category_rows()`), and a row with only the old text adopts the id when that
-  name was this category's. The import commit accepts a rule's archived category
-  (`allow_archived`); a new choice by the owner does not.
-- **A card purchase is its `client_id`** (035). Every installment shares it and every purchase has
-  one: the delivery's, one generated when the client sends none (`POST /api/cc-expenses/purchases`,
-  refunds, Aprovar), or `legacy:<id>` for those written before 024 (the migration splits identical
-  old purchases by write order). Receipts, sharing, A receber, the attachment count and the
-  purchase's installments (`GET /api/cc-expenses/candidates?id=<any installment>`) go through
-  `same_purchase_sql()` / `cc_purchase_expense_ids()` in `services/attachments.py`; the screens
-  group by `cardPurchaseKey()` (`lib/transactions.js`). Card + description + date + category is
-  only the fallback for a row with no `client_id` (the old list `POST /api/cc-expenses`): it made two
-  identical Uber rides one purchase.
-- **There is always one default account, active and not the Corretora** (2026-10-18 night).
-  `ensure_default_account()` (`DEFAULT_ACCOUNT_ORDER` in `services/accounts.py`: the marked one,
-  else the first non-Corretora by name — the list's order) writes `is_default` when none is
-  marked, so server and screens read the same flag. Archiving the default or making it Corretora
-  hands the mark on; `is_default` on a Corretora is refused; a PATCH clears the other marks only
-  after its own UPDATE went through (a repeated name, 409, changes nothing).
+### Money, dates, identity
+- **Money** rounds only through `rounded_money()` (`money.py`, ROUND_HALF_UP via `Decimal`); never
+  a bare `round()`. Request amounts go through `parse_money()`: rounded, ≥ R$ 0,01 (unless
+  `allow_zero`), ≤ `MAX_MONEY`.
+- **Dates and months** are 1900–2199 (`MIN_YEAR`/`MAX_YEAR`, `require_date()`/`normalize_month()`)
+  and stored zero-padded ("2026-1-5" → "2026-01-05"); filters compare them as text. Investment
+  metadata dates go through `validate_movement_metadata()`.
+- **`user_id` on every table and every query.** Tests assert it.
+- **Migrations are append-only**: a new numbered file, never edit an applied one. (027/029 are
+  empty placeholders from the Pluggy removal; keep their numbers.)
+- **Destructive endpoints take a confirmation guard** (asset deletes need the matching
+  `asset_class`; deletes that would leave a sale unbacked are refused).
+- Comments and identifiers mix Portuguese and English — match the file. User-facing text is
+  Portuguese; `docs/` is English.
+
+### Accounts, categories, transfers
+- **Transfers are one row** (`account_id` → `transfer_account_id`); anything summing
+  `transactions` skips `type = 'TRANSFER'`.
+- **Categories: the id decides** (035). Tables keep both `category` (name) and `category_id`
+  (`transactions`, `cc_expenses`, `recurring_transactions`, `import_rules`, `inbox_items`); screens
+  send `category_id`. A bare name resolves root first, then the oldest subcategory
+  (`category_id_for_name()`); an edit sending the row's own name keeps its id. Renaming rewrites
+  all five tables (`rename_category_rows()`).
+- **Accounts, categories and cards are archived, never deleted** (`archived_at`). A card
+  (037) with an `OPEN` item refuses delete (409), one with history is archived, only an empty one is
+  deleted. An archived card takes no purchase, refund, autopay or approval (`require_active_card()`).
+- **One default account, active and never the Corretora** (`ensure_default_account()`).
 - **An edit keeps the row's own account even when archived** (`keep_or_require_account()`); a new
-  choice must be active, and `account_id: ""` on an edit is refused, never "the default". The
-  Extrato sends the account only when it changed. A transfer edit checks currencies like the
-  creation (`TRANSFER_CURRENCY_MESSAGE`). A recurrence whose account is archived does not post:
-  `/run` lists it in `blocked`.
-- **Signup is closed once a user exists** (`ALLOW_SIGNUP=1` opens it; `conftest.py` sets it). A
-  missing or example `JWT_SECRET` (`PUBLIC_JWT_SECRETS` in `config.py`) is replaced by a random one
-  stored in `JWT_SECRET_FILE` (`.jwt_secret` next to the DB, mode 600), never the public default.
-- **Accounts and categories are archived, never deleted.** Both use `ON DELETE SET NULL`, so a real
-  delete would silently orphan lancamentos. `DELETE` on either endpoint sets `archived_at`.
-  **Cards too** (037): `cc_expenses` cascade from `credit_cards`, so `DELETE /api/credit-cards/<id>`
-  refuses (409) while the card has an `OPEN` item, archives one with history (paid items or
-  payments; autopay off) and really deletes only an empty one. An archived card is out of the GET
-  (`?include_archived=1`) and takes no purchase, refund, autopay or Aprovar approval
-  (`require_active_card()`).
-- **Migrations are append-only.** Add a new numbered file in `database/migrations/`; never edit one
-  that has been applied. They run automatically at boot.
-- **Destructive endpoints take a confirmation guard.** Deleting by asset requires the matching
-  `asset_class`; deletions that would leave a sale or redemption unbacked are refused. Keep that
-  pattern for anything new that destroys data.
-- **Comments and identifiers are a mix of Portuguese and English.** User-facing strings and error
-  messages are Portuguese; documentation in `docs/` is English. Match the surrounding file rather
-  than converting it.
-- **A budget is a plan, not a record.** `budgets` rows are keyed by `(category_id, month)` and
-  `DELETE /api/budgets/<id>` is a real delete with no confirmation guard — removing one destroys
-  no lançamento. The `rollover` carry-over is computed on read, never stored, so a retroactive
-  lançamento does not have to rewrite a chain of months. **A budget is a % of the month's Gastar**
-  (038, `services/budgets.py`): `planned_percent` only, never a fixed R$; its R$ = Gastar R$ × % on
-  read (`percent_of()`), the categories sum to at most 100% of Gastar (400; a month converted over
-  100% may lower one, not raise it), and "Sem categoria" is the rest. A month's categories are
-  those of the latest month ≤ it with a plan row or budget rows (`category_source_month()`), so a
-  month without its own inherits them; any write in an inherited month (POST, PATCH/DELETE/lines
-  `?month=`, copy) goes through `materialize_month()` first, which copies the inherited plan and
-  categories into it. Rollover's leftover is the previous month's own Gastar × its %. A row with
-  `planned_percent` NULL predates 038 and waits for income (`needs_income`, status
-  `NEEDS_INCOME`); `planned_amount` is read only to convert it, and new rows write 0 there.
-- **A recurrence is a template, not money.** `recurring_transactions` rows generate real
-  `transactions` rows via `POST /api/recurring/run`; nothing is projected into the statement. Each
-  occurrence writes `source_type = 'RECURRING_TRANSACTION'` and
-  `source_id = '<recurrence>:<AAAA-MM-DD>'`, so the unique index `idx_transactions_user_source`
-  makes a second run a no-op. Keep that shape for anything else that materializes rows on demand —
-  it is what makes the button safe to press twice. Deleting a recurrence keeps its lançamentos.
-  A pause skips only its own window (019): `paused_at` on pause, `(paused_at, resume day)` appended
-  to `pause_gaps` on resume, so an occurrence due before the pause stays pending. Anything that walks
-  occurrences goes through `recurring_occurrence_dates()` / `skip_pause_gaps()`, and revival starts
-  after the stored `last_occurrence_date`, not after the last surviving lançamento. That calendar
-  lives in `services/recurring.py` (the blueprint only validates and serves).
-- **Aprovar settles a recurrence's occurrence** (034, owner 2026-10-18). A pending item shows the
-  open occurrence it looks like (`suggest_for_item()`: same type — an outflow/card purchase is an
-  EXPENSE, an inflow an INCOME, a transfer never —, within `RECURRING_MATCH_DAYS` = 7 days, and the
-  exact amount, or within 20% when the description shares a word or the category matches; an
-  INCOME within 20% even without the name, because the salary arrives in the employer's name).
-  Approving it (or "É este" on a lançamento already there) writes a `recurring_settlements` row:
-  `/run` skips that date, it is not pending, it leaves the forecast, and the cursor walks over a
-  settled prefix. The approved lançamento keeps the notification's real amount, card or account;
-  it takes the recurrence's category only when the item had the import default. "Não é esta"
-  (`PATCH /api/inbox/<id>` `{recurring: false}`, `inbox_items.recurring_off`) holds for "Aprovar
-  todos" too; `approve` takes `recurring: false` or an explicit `{recurring_id, date}`, checked
-  before anything is written.
-- **Only `pay-invoice` marks an invoice paid** (2026-10-18 night): `PATCH /api/cc-expenses/status`
-  and `/invoice-status` were removed — they set `PAID` with no payment, and reopen + pay debited
-  twice. Reopening is "Desfazer pagamento". `compute_invoice_start()` clamps a closing day 29–31
-  to the purchase month's last day, as `invoice_closing_date()` does.
-- **An invoice is paid only once it has closed.** `invoice_closing_date()` in `backend/services/invoices.py`
-  is the rule (same shift as `compute_invoice_start()`; closed *on* the closing day). Every path
-  that sets `PAID` goes through `ensure_invoice_closed()`, and the real payment is
-  `POST /api/cc-expenses/pay-invoice` — don't go back to a client-side EXPENSE + status PATCH.
-  The client reads `invoice_closed` / `invoice_closing_date` from `GET /api/cc-expenses`.
-- **A paid invoice is history** (037). A paid item is never deleted (`DELETE /api/cc-expenses`
-  refuses it; Cartões deletes only a purchase's `OPEN` installments), and a new purchase or refund
-  never lands in a paid invoice: `first_unpaid_invoice()` starts it at the first one from its date
-  with an open item or no paid one (the autopay `source_id` is taken, so it would never be debited).
-  `settle_invoice()` stamps each item's `paid_by` (the payment lançamento);
-  `DELETE /api/cc-expenses/payments/<id>` (Extrato › "⋯" › Desfazer pagamento) removes the payment,
-  reopens what it paid (or, before 037, its invoice's paid items without `paid_by`) and writes
-  `cc_invoice_manual`, so autopay never debits that invoice again — it goes back to "Pagar".
-  Refused while the payment has a receipt.
-- **The next invoice is per card, by due date, never "next month's"** (2026-10-18). The invoice
-  month is the due month, so a card that closes before its due day (3/10) pays this month's
-  invoice and one that closes after it (25/5) next month's. `services/card_invoices.py`
-  (`open_invoices()`, session 6) is the one rule: `next` (each card's open invoice with the
-  earliest due date from today on) feeds Início's "Próxima fatura" and its "Pagar fatura"
-  (`/api/home` `next_invoices`) and the bell's payable item (`/api/attention`); `nearest` (the
-  oldest overdue invoice with total > 0, else the first `next`) is the one Cartões opens and pays
-  from its header (`GET /api/cc-invoices`). Overdue means after the due day (`past_due`), on every
-  screen; Início's projection panel still reads the open rows with `isPastDue()`.
-- **A card has functions: crédito, débito or both** (041, owner 2026-10-22). `debit_account_id` is
-  the débito: a débito purchase is a plain EXPENSE in that account (`lib/cardFunctions.js`,
-  "+ Novo › Cartão" offers Crédito/Débito), never a `cc_expenses` row. `credit_enabled = 0` is a
-  debit-only card (the Flash): `require_active_card()` refuses it on every credit path, it has no
-  autopay, its stored `due_day`/`closing_day` (1) are never read, and the screens list only
-  `creditCards()` where an invoice is involved (Cartões, Aprovar's card choice). The debit account
-  is never a Corretora. Aprovar sends a purchase on a debit card to its account
-  (`debit_card_for()`: by final, Samsung card name or issuer — never "the only card").
-- **Débito automático** (`credit_cards.autopay_account_id`, migration 011) is materialized on read
-  by `apply_due_autopay()`, dated on the due day, with `source_type = 'CC_AUTOPAY'` and
-  `source_id = '<card>:<AAAA-MM>'` — same idempotency shape as recurrences. Only invoices due on or
-  after `autopay_start_date` are paid, and a reopened invoice is not debited twice.
-- **An import is idempotent by construction.** CSV/OFX rows are written by
-  `POST /api/import/commit` with `source_type = 'STATEMENT_IMPORT'` and `source_id` = the row's
-  hash (account + date + amount + normalized description) or `'ofx:<conta>:<FITID>'` when the file
-  carries one, so the unique index makes a re-import a no-op — same shape as recurrences and
-  autopay. Two identical rows in one file get an occurrence suffix, so they are still two
-  lançamentos. A FITID repeated inside one file gets the same occurrence suffix. Parsing lives in
-  `backend/statement_import.py` (pure functions, no DB) and `POST /api/import/preview` never
-  writes. Amounts: the last separator is the decimal, a dot in groups of three is thousands
-  ("1.500"), a comma alone is always decimal; OFX's own amount may use a comma. In the type
-  column, short codes ("d", "db") count only on their own, words by prefix.
-- **Dates and months are stored zero-padded**: `require_date()` / `normalize_month()` accept
-  "2026-1-5" and return "2026-01-05" — the filters and the budget compare them as text.
-- **A "+ Novo" creation is idempotent by `client_id`** (024). `POST /api/transactions`,
-  `/api/transfers` and `/api/cc-expenses/purchases` take an optional `client_id`; a repeated one
-  returns what the first delivery created, with 200, and writes nothing. The lookup runs *before*
-  validation, so a replay succeeds even if the account was archived in between. It is a column,
-  not `source_type`/`source_id`: such a row was typed by the owner and stays "Manual", editable and
-  deletable. All installments of a purchase share the id (the `cc_expenses` index includes
-  `installment_info`). The frontend always sends one (`createEntry()` in `lib/outbox.js`).
+  choice must be active; `account_id: ""` is refused. A recurrence whose account is archived lands
+  in `/run`'s `blocked`.
+- **Signup is closed once a user exists** (`ALLOW_SIGNUP=1` opens it). A missing/example
+  `JWT_SECRET` is replaced by a random one in `JWT_SECRET_FILE`.
+- **Consolidated balance = sum of account balances** (archived included), from
+  `consolidated_balance` of `GET /api/home`; never sum `transactions` (it drops `initial_balance`).
+
+### Idempotency (materialized rows)
+- Rows written on demand carry `source_type` + `source_id` under the unique index
+  `idx_transactions_user_source`, so a repeat is a no-op: recurrences
+  (`'<recurrence>:<AAAA-MM-DD>'`), autopay (`CC_AUTOPAY`, `'<card>:<AAAA-MM>'`), statement import
+  (row hash or `'ofx:<conta>:<FITID>'`, occurrence suffix for duplicates in one file), investment
+  cash, paid proventos. Keep that shape for anything new.
+- **"+ Novo" creations are idempotent by `client_id`** (024): `POST /api/transactions`,
+  `/api/transfers`, `/api/cc-expenses/purchases`. A repeat returns the first result (200) — the
+  lookup runs before validation. The row stays "Manual" and editable.
 - **The outbox holds creations only, and only when the request never reached the server**
-  (`ApiNetworkError` in `lib/api.js`). A response from the server, whatever it is, is never queued
-  or retried on its own. A timeout counts as never reaching it only where that is safe: a
-  creation (`timeoutMs`, 6 s; `client_id` makes the resend harmless — and with no network at all,
-  `backend.isOffline()`, it is queued without trying) and a read (45 s); an edit
-  or delete has no timeout, because one that timed out may have gone through. One queue and one sender per platform: IndexedDB and `flush()` in the
-  browser; in the APK both become native (`setOutboxBackend()`), because sending must work with
-  the app closed. The rules — what each response does to an item, what a pending item does to a
-  balance — live in `lib/outboxRules.js` with tests; a pending transfer leaves the consolidated
-  balance alone and a pending card purchase touches no account. A balance that counts pending
-  items is labelled an estimate. In the APK the queue and the sender are Java
-  (`frontend/android/.../outbox/`, swapped in by `lib/nativeApp.js`), and `OutboxRules.java` is a
-  port of `outboxRules.js`: change one, change the other, with a test on each side.
-- **The phone goes native, the desktop gets its own interface** (owner, 2026-10-22,
-  `mobile-docs/native-app.md`): Kotlin + Jetpack Compose in `frontend/android`, one screen at a
-  time in the order of daily use, a screen not migrated yet still opening in the WebView; the
-  desktop stays React, redesigned for a wide screen. The server and its money rules do not change;
-  a frontend rule a native screen needs goes behind an endpoint or is ported with the same test
-  cases. Native colours are `ui/theme/Tokens.kt`, the names and values of `index.css`
-  (`TokensTest` reads the CSS), and the theme follows Ajustes › Aparência through `ShellPrefs`.
-  Sessions cannot build an APK (`dl.google.com` blocked): `android-check.yml` compiles the debug
-  APK and runs the JVM tests on every branch push that touches Android.
-- **The APK's screens come from the server** (2026-10-17, `services/app_bundle.py`,
-  `android/.../bundle/`, `lib/appBundle.js`). The image builds the frontend for the APK into
-  `frontend/dist-android` with a `bundle.json` (content-hash version, native level, API address);
-  the phone downloads it, checks the SHA-256 and opens it on the next start on trial. A bundle
-  that does not call `ready()` within 30 s of opening (`AppStarted` in `main.jsx`, after the first
-  render) is dropped for good and the APK's own screens come back. A bundle's native level is the
-  **minimum** APK level it needs. **Bump `frontend/native-level.txt`** in the same commit as any
-  change the screens depend on that lives in the APK — a Java plugin or method the JS calls, a
-  Capacitor/plugin upgrade, a permission — so an old APK never loads screens calling Java it does
-  not have, and never remove a Java method that lower-level screens still call (a newer APK runs
-  them). `GET /api/app-bundle*` is public on purpose (the same frontend `/` serves).
-- **A new APK comes from CI, never from GitHub Releases** (2026-10-17). The `apk` job of
-  `deploy.yml` runs on every deploy (owner, 2026-10-22: a new APK to download after each one,
-  whatever changed). It signs with the `android-release` environment's key (checked against
-  `mobile/release-cert-sha256.txt`), uses `versionCode = 10000 + run number`, and copies the APK and
-  `version.json` to `/srv/apps/financas/apk/`, served at `/apk/` by `tailscale serve`. The app
-  (`android/.../update/ApkUpdatePlugin.java`, `ApkUpdateBanner.jsx`) offers "Nova versão
-  disponível" when that versionCode is higher than the installed one, then downloads the APK and
-  opens Android's installer. DEPLOY.md, "Updating the phone". The same job builds the **test APK**
-  (debug build, package `br.financas.app.debug`, "Finanças debug") and copies it as
-  `financas-debug.apk`, outside `version.json`: it installs beside the real app by `adb install`,
-  never over it, and is never offered as an update.
-- **Bank notifications are read on the phone and stay there** (Phase 6, 2026-10-17,
-  `android/.../notify/`, `lib/notifyCapture.js`, Ajustes › Notificações dos bancos). The
-  allow-list is `NotifyRules.APPS` plus the manifest's `<queries>` (a JVM test keeps them equal);
-  anything else is dropped unread. Only a debug build accepts `com.android.shell` (adb-posted
-  test notifications) — never widen that to release. Capture mode is off by default, keeps each
-  notification word for word in `financas_notify.db`, and its texts leave the phone only through
-  the export (share sheet); never send them to the server or a third party. The listener
-  deduplicates only the same posting (`dedupKey`: package + key + posted time). Samsung Wallet is
-  heard again (owner, 2026-10-17, later the same day) as a **fallback**: the bank app's notification
-  wins, Samsung's counts only when no bank notification for that purchase arrives, and Samsung
-  only ever yields card purchases (never Pix, transfer or estorno). The pairing runs **on the
-  server** (`services/inbox.py`, `same_purchase()`: one to one, same amount in cents, a card
-  neither side contradicts, within `NOTIFY_WINDOW_MS`; only the bank's decline cancels);
-  `notify/NotifyPairing.java` is the same rule, JVM-tested, and stays unwired because the phone
-  sends every detection at once. Itaú Cartões and Ourocard stay off (they repeat the bank apps),
-  so don't add them back. Parsers are written against exported captures, never against examples
-  from the web. Samsung's 2026-10 format is title = the card's name, text = "<LUGAR> R$ <valor>"
-  with a U+00A0 after "R$" (normalized in `textOf()`); the name goes as `card_name` and the server
-  takes the issuer from it, so Samsung pairs only with the same bank. **Flash Benefícios**
-  (`br.com.flashapp`, issuer `flash`, 2026-10-22) is heard, generic parser until a capture;
-  Samsung's "Card used for Meal and Voucher" is read as the Flash.
-- **Every money notification goes to Aprovar, as parsed fields only** (2026-10-17). The listener
-  hands every allowed notification to `notify/NotifyParsers.java` (pure, `NotifyParsersTest`),
-  capture on or off; a detection (kind, amount in cents, merchant, card final, installments, and
-  for a Pix/transfer the counterparty's name, the masked CPF's visible digits and institution)
-  goes to `DetectionQueue` and `DetectionWorker` POSTs it to `/api/inbox/detections`. The text
-  itself never leaves the phone. A parser change gets a test case from a real capture first.
-  Nothing a notification brings is recorded without the owner's approval: a detection that looks
-  like an existing lançamento is a pending item with it as candidate, never a silent match.
-- **Aprovar never remembers an ambiguous target** (2026-10-18, `ambiguous_target()` in
-  `services/inbox.py`): no card final and more than one active account (or card) whose *bank
-  field* names the notification's bank — never the name — means no hint is saved, none applies,
-  no guess, and the item asks every time. Accounts/cards without a bank don't count (today's
-  behaviour). Every item shows its target with "Trocar". "Sempre perguntar a conta/cartão"
-  (`user_settings`, 036, `GET/PATCH /api/inbox/settings`) makes every target a confirm
-  (`confirm_targets()`), so "Aprovar prontos" takes nothing.
-- **Own-account transfer vs someone else is the counterparty** (031, `services/inbox.py`). "It's
-  me" is learned, never typed: `inbox_hints` keys `self:doc:<digits>` / `self:name:<name>`,
-  written when an OUT and an IN leg pair into a transfer and when the owner approves a transfer.
-  A single leg whose counterparty is the owner is drafted as a TRANSFER (other side guessed from
-  the cited institution, or asked); otherwise it is a despesa/receita "Pix para/de <nome>"
-  (`external_transfer`). A transfer seen by the brokerage app (`BROKERAGE_APP`, BTG
-  Investimentos) is always the owner's own, the other side BTG Banking. Two legs whose CPF digits
-  or first names differ never pair. The same
-  notification posted twice by a bank (same app, kind, amount, event time, merchant) is
-  `repeated`, not a second item.
-- **No bank-statement API** (owner, 2026-10-17): Pluggy was removed — its free plan gives no
-  access. Aprovar (028) takes the phone's notifications only. At the owner's request, the
-  migrations no longer mention it either. This was the one deliberate break of append-only,
-  done only after the server had applied 029: `027_reserved.sql` and `029_reserved.sql` are
-  empty but keep their numbers, because a database that already applied them would skip a new
-  file with the same number. 028 lost its Pluggy lines, and 030 renames the two rows in
-  `schema_migrations`. On a database that applied the old 028, the stored `CREATE TABLE
-  inbox_items` still carries one Pluggy word in a comment. Rewriting it would need a table
-  rebuild, which isn't worth it for a comment.
-- **Flask serves the built frontend** (`routes/frontend.py`, `.\start.ps1 -Local -Built`): screen and API
-  on one origin, which is what the phone opens. A production build calls the API same-origin;
-  `vite dev` keeps `http://localhost:5000`. `/api/*` never falls back to `index.html`.
-- **Rules touch the past only on confirmation.** `POST /api/import-rules/apply/preview` never writes;
-  `POST /api/import-rules/apply` rewrites only the `transaction_ids` it is sent, and re-runs the
-  rule on each before writing, so a stale list cannot recategorize a row the rule no longer matches.
-  TRANSFER, investment cash, paid proventos and invoice payments are outside its reach.
-- **A receipt is a file on disk, referenced by a row.** `transaction_attachments` (migration 014)
-  holds the reference; the bytes live in `ATTACHMENTS_DIR/<user_id>/<stored_name>`, where
-  `stored_name` is generated — the uploaded name is only displayed, never a path. The type is
-  sniffed from the bytes, not trusted from the browser. Routes nest under the lançamento and check
-  both ids (that is the delete's guard). Write the file before the row and remove the file only
-  after the commit; `prune_orphan_attachment_files()` sweeps leftovers at boot. Receipts are not in
-  the backup zip: every backup mirrors `ATTACHMENTS_DIR` into `backups/attachments/` (one copy per
-  file; deleted ones go to `backups/attachments-removed/AAAAMMDD/`). Card purchases have their own
-  table (`cc_expense_attachments`, 016), listed across all installments of the purchase.
-- **A corporate action is applied on write** (017, `services/corporate_actions.py`): earlier
-  movements and quotes of the asset are rescaled in place (originals in
-  `metadata.corporate_adjustments`), a bonus is a zero-cash BUY row. So stored values are always in
-  the basis of the asset's latest event: no movement may be entered or moved before it, and only the
-  latest event with nothing after its ex date can be undone. Keep those guards.
-- **Foreign currency is stored native, calculated in BRL** (018): quantities, prices and quotes in
-  the asset's currency, the movement's rate in `metadata.fx_rate`. `fetch_investments()` — the
-  stream the realized result, portfolio, evolution and the IR report read — returns BRL (cost at the movement's
-  rate, value at today's PTAX); `fetch_investment_rows()` is native (screens, edits). The cash link
-  is BRL. Anything new that computes money from movements must read `fetch_investments()`.
-- **The app is reais-only on screen** (owner, 2026-10-12: "Everything on the app should be reais").
-  No form offers a currency (accounts, operations), and no screen prints a foreign one. An account
-  balance on screen goes through `accountBalanceBrl()` (`lib/transactions.js`): the converted
-  value, or "sem câmbio hoje". The 018 machinery above stays in the backend, tested and reachable
-  only through the API — never add a currency choice or a foreign symbol back to a screen unless
-  the owner asks. One deliberate exception: the IR tab's "Aplicações no exterior" panel and the
-  matching row of the IR export appear when, and only when, the year has a foreign result (in
-  reais), so an estimated tax can never be hidden.
-- **Investments and banking are separate areas; a movement's cash goes through the portfolio
-  account** (2026-10-12; portfolio account 2026-10-17). `metadata.cash_account_id` on the movement
-  is both the switch and the account:
-  present, exactly one linked lançamento exists in that account (`source_type =
-  'INVESTMENT_TRANSACTION'`, `source_id` = the movement id, BRL, labelled "Aporte"/"Resgate"); absent,
-  nothing is written. The rule is `investment_cash_account_id()`, checked first in
-  `sync_investment_cash_transaction()`; `resolve_investment_cash_account()` validates the account
-  (the user's, active, BRL) before any write. On `PATCH` an omitted key keeps the link and `null`
-  removes it — refused (409) while the lançamento has a receipt. A movement that asks for the
-  Extrato but has no cash amount to write is refused (400), so the key never says "no extrato"
-  without a row. Each movement decides for itself, and nothing financial reads the link (cost, IR
-  and the portfolio read movements, not cash). **The portfolio account** (owner, 2026-10-17): an
-  active BRL account of type Corretora (`BROKERAGE`) is linked to the portfolio, and every new
-  operation comes out of it (a sale or redemption goes into it) unless the owner ticks "Não
-  descontar de nenhuma conta", which sends `cash_account_id: null`. The API applies it to a POST
-  without the key (`portfolio_cash_account_id()`: default account first, then the name — the
-  order of the account list), and keeps such a movement out instead of refusing it when it has
-  nothing to write; with no Corretora account the API writes nothing (the tests and seeds post
-  that way). The screens always send the key, and refuse a new operation until a Corretora
-  account exists (`lib/portfolioAccount.js`, tested); an edit of an old one is not blocked. The
-  three forms share `CashLinkField`; Ajustes › Contas links an account by "Vincular à carteira"
-  (PATCH type). **Paid proventos go into it too** (`services/proceeds_cash.py`,
-  `apply_paid_proceeds()`, materialized on read next to `apply_due_autopay()` in the accounts and
-  transactions reads): each provento with payment date ≤ today and net > 0 is one INCOME row
-  (`source_type = 'INVESTMENT_PROCEED'`, `source_id` = the provento id, labelled "Provento"),
-  locked in the Extrato (409), following its provento (edit, delete, back to scheduled). Only
-  proventos paid on or after the account's `metadata.portfolio_since` (set by the PATCH that makes
-  it Corretora; `created_at` for one created as Corretora) — earlier ones are already in its
-  initial balance, and the automatic proventos carry years of history. A written row stays in the
-  account it was born in. **Its balance is shown only in Investimentos** (owner, 2026-10-17):
-  `GET /api/home` (`services/home.py`) leaves Corretora accounts out of `consolidated_balance` and
-  the opening balance, and its flow is the banking view (rows inside a Corretora leave; a
-  transfer bank → Corretora is an aporte, back a resgate; `investment_flow_sql()`). Início's
-  history panels still read `bankingTransactions()` (`lib/transactions.js`) for the same view.
-  Ajustes › Contas says "Em Investimentos" instead of the amount, the invoice-payment sheet and
-  the autopay warning never print it, and Posição's summary has "Saldo na corretora"
-  (`portfolioCashBalance()`, `lib/transactions.js`, tested).
-- **Início is the banking area only, and in reais.** Its headline is the consolidated account
-  balance; the portfolio never appears there, so nobody reads invested money as money to spend. A
-  foreign-currency account appears only by its converted value (`accountBalanceBrl()` in
-  `lib/transactions.js`, "sem câmbio hoje" when there is no rate) — never in its own currency. A
-  linked lançamento (or, in the banking view, a transfer to/from a Corretora) is an aporte or a
-  resgate, not a despesa or a receita — `isInvestmentOutflow()` / `isInvestmentInflow()` in
-  `lib/transactions.js` — and every banking total (Início, Extrato) keeps it apart.
-- **Investimento is not a category** (owner, 2026-10-19, 039). A row is aporte, resgate or
-  provento by its origin only: `source_type` in `INVESTMENT_SOURCE_TYPES` (`source_types.py`,
-  `lib/transactions.js`), or a transfer between a bank and a Corretora. A typed aporte is a
-  transfer to the Corretora; the cash rows carry a label ("Aporte", "Resgate", "Provento") with
-  no `category_id`, like "Transferencia". The plan's spent/income and the budget's lines skip
-  those source types; nothing compares a category name. 039 turned every typed "Investimento"
-  despesa/receita into such a transfer (creating "Corretora" for a user without one), archived the
-  category, switched off the import rules that chose it and moved pending Aprovar items to the
-  import default. A category someone names "Investimento" now is an ordinary one — don't give a
-  name meaning again.
-  "+ Novo" is banking-only (despesa, receita, transferência, cartão); inside `/investimentos` the
-  same button opens "Registrar operação".
-- **Whose expense it is** (032, `services/sharing.py`, `lib/sharing.js`): a despesa/receita or a
-  card purchase can be the owner's, `SPLIT` (others' part in `share_others_amount`) or `OTHERS`,
-  with `share_person`. Balances never change; the budget, the monthly plan, Despesas por categoria
-  and Início's cash flow count only the owner's part (`own_amount_sql()` / `ownAmount()`), the flow
-  shows "Outras pessoas" apart. A card purchase's share covers every installment, split
-  proportionally. Lançamentos › A receber lists the others' part of each expense until marked paid
-  (`share_settled_at`); marking writes no money. Transfers and investment cash are never shared.
-- **"Precisa de atenção" lives in two places** (owner, 2026-10-18): Início's cards and the bell in
-  the header (where the theme toggle was). Both read `GET /api/attention` (`services/attention.py`,
-  session 6) through `useAttentionItems()` (one query, `['atencao']`): each item carries a `key`
-  naming the case (the invoices — `card|year-month` with the month **not** zero-padded, as the
-  old client wrote it —, the recurrence's last occurrence, the budget month and category), not
-  the kind, and the server sends numbers only (snake_case); the text is `components/Attention.jsx`
-  + `overdueDetail()`. Início's X dismisses the items on screen for this device (`lib/attention.js`,
-  `lib/attentionRules.js`, localStorage), so the same case never comes back there and a new one
-  does; the bell always lists every current item. The autopay shortfall compares the server's
-  balances, without pending items (proposal B3).
-- **A card refund is a credit row** (033, `POST /api/cc-expenses/refunds`): `cc_expenses.kind =
-  'REFUND'`, amount stored positive, always 1/1, never shared. Anything that sums card rows goes
-  through the sign — `signed_amount()` / `signed_amount_sql()` in `services/invoices.py`,
-  `cardSignedAmount()` in `lib/transactions.js`. It lands in its date's invoice, or the next one
-  not yet paid. An invoice zeroed by a refund is settled without a lançamento; one in credit is
-  refused (409) and its rows ride along with the next invoice's payment (`invoice_open_lines()`).
-- **Budget spent (decision 1):** card purchases count in full in the purchase month (a refund
-  subtracts in its month); invoice payments never count.
-- **"Disponível por dia" lives in Planejar › Orçamento, not Início** (2026-10-19): the month
-  plan's Saldo do plano (`plan_balance`) ÷ days left in the month, today included, read from the
-  server's `daily_available` — never computed on the client, and no fallback without a plan. In its
-  old place Início has **"Resumo do mês"** (`MonthSummary` in `pages/Dashboard.jsx`): Resultado
-  (receitas − despesas, the owner's part), Entrou, Saiu, Investido (aportes − resgates, when either
-  happened) and the net of other people (label by sign, value unsigned, → A receber), all from the
-  `summary` of `GET /api/home` (the flow's current month, `services/home.py`); privacy mode masks
-  every value and Resultado's colour. The hero holds only the balance and the accounts. Pending
-  items on the device go on top through `applyPendingToHome()` (`lib/outboxRules.js`, ported to
-  `rules/OutboxPending.kt`): accounts, the balance and every month of the flow (`useHome()`).
-- **Orçamento's percentages slide, they are not typed** (2026-10-19, owner): Investir, Gastar and
-  each category's % are a `PercentSlider` (`ui.jsx`: range of 1 point, − and + for the fine step,
-  the R$ beside it). Each stops at what is still free (`percentRoom()` / `clampPercent()` /
-  `stepPercent()` in `lib/monthlyPlan.js`, tested): Investir at 100 − Gastar and back, a category at
-  100% of Gastar − the others (an edit in a month already over 100% may lower, never raise). The
-  income stays typed; Metas (the investing goals) are unchanged. In an old plan without income
-  both start blank ("—") and "Converter os valores antigos" blanks them again.
-- **The plan's flags can be dismissed per device** (`lib/planFlags.js`, localStorage, like
-  Início's attention cards): the key is `planFlagKey()` in `lib/monthlyPlan.js` — flag code +
-  month (+ `goal_id`) — so the same flag stays gone that month, a new code, another goal or the
-  next month comes back. The Gastar bar's colour still reads every flag; nothing goes to the server.
-- **Proventos of ações/FIIs are computed, not typed** (026, `services/proceeds_sync.py`):
-  `POST /api/investment-proceeds/sync` takes each event from StatusInvest (`statusinvest_client.py`;
-  brapi's dividends need a paid plan) and multiplies its value per share by the position on its
-  *data com* (`accumulate_position()`, the manual form's rule), so a buy entered with a past date
-  brings the proventos it earned and deleting one takes them away. Idempotent like recurrences:
-  `sync_key` = `<ticker>:<kind>:<data com>:<pagamento>#n` with a unique partial index. A typed
-  provento (`sync_key` NULL) is never touched and stands in for the automatic one of the same type and
-  data com, an edited automatic one is `sync_locked`, a deleted
-  one goes to `proceeds_sync_dismissed` and stays gone; a ticker whose fetch fails keeps its rows.
-  The frontend asks for it (`lib/proceedsSync.js`) when an investments screen opens (at most every
-  10 min) and 1.5 s after any write to `/api/investments*` or `/api/corporate-actions*`; the server
-  caches each ticker's history for 6 h and paces requests (StatusInvest answers bursts with 429/403).
-  StatusInvest's values before a split are already in today's basis, as are our stored quantities;
-  before a bonificação they are not, and neither are ours — so quantity × value is right either way
-  (checked against Investidor10). A renamed ticker needs an entry in `TICKER_ALIASES`. JCP's
-  default tax is 15% with data com up to 2025 and 17.5% from 2026; "rendimento tributável" is a
-  JCP row with `metadata.kind = TAXABLE_INCOME` at 22.5% (`default_tax_rate()` in
-  `services/proceeds.py`).
-- **Coupons and amortizations of fixed income are typed proventos** (owner, 2026-10-19, 040): no
-  source brings them, so the owner registers future payments in Proventos and each lands in the
-  Corretora on its day (`apply_paid_proceeds()`, "Juros: <título>"). `INTEREST` is the coupon;
-  INTEREST/AMORTIZATION take the payment date as data com when none is sent. The coupon's default
-  IR is the regressive table from the asset's first BUY to the payment (`interest_tax_rate()` in
-  `routes/proceeds.py`, 0 for a tax-free type), recomputed when its date moves unless typed. A POST
-  with `repeat: {every_months, count}` writes every payment or none and answers a list. Amortization
-  is still a provento, not principal returned: the title's value in Posição does not drop.
-- **An operation's sign is its type, not the field** (2026-10-19): Operações › Editar shows the
-  quantity without "-", and `PATCH /api/investments/<id>` keeps the stored row's sign (a sale stays
-  a sale, a buy a buy). Saving an edit never awaits the quote refresh.
-- **The Extrato has two views** (`?ver=contas|investimentos`, last choice kept on the device): the
-  accounts' lançamentos, and an investments statement of operações + proventos
-  (`lib/investmentStatement.js`, tested). Editing stays in Operações and Proventos, but an
-  operação is deleted from either view (owner, 2026-10-19): Investimentos › "⋯" › Excluir operação,
-  and in Contas an aporte/resgate row's "⋯" deletes its movement (`DELETE /api/investments/<id>`,
-  which removes the linked lançamento with it). A bonificação is not offered (the server refuses).
-- **The monthly plan is a plan, like budgets, and starts from income** (025, 038,
-  `services/monthly_plan.py`): `PUT /api/monthly-plan` writes one month's `income_amount` (the only
-  typed R$, required, > 0 — no plan without income) and `invest_percent` / `spend_percent` of it
-  (required, 0 allowed, sum ≤ 100, else 400). Every R$ is computed on read from the **planned**
-  income (income × %, then Gastar R$ × category %, through `percent_of()`), never stored; "Sem
-  destino" = 100% − Investir − Gastar is returned. Percentages are TEXT with six decimals read as
-  `Decimal` (`to_percent()`), never float. A month without a row inherits the latest earlier plan,
-  categories included; a PUT that creates a month's plan copies the inherited categories into it,
-  and `DELETE` (real, no guard) removes the month's plan and its categories. Spent and invested
-  are computed on read: spent is the budget's rule without categories (no transfers, invoice
-  payments or aportes; card purchases in full in the purchase month), invested is Início's
-  "Investido" (owner, 2026-10-19: `month_investment_flow()` reads the same condition as
-  `/api/home`, `investment_flow_sql()` in `services/home.py`): transfers bank → Corretora plus portfolio cash rows in a non-Corretora
-  account, minus the way back — a buy paid from money already in the Corretora is not new money; the received income only compares. **Saldo do
-  plano** (`plan_balance`) = Gastar R$ − the month's spent is the one "still to spend" number
-  (`progress.spend_remaining` and `/api/budgets` `totals.plan_balance` are the same); budgets'
-  `totals.remaining` is only the categories' own leftover. An old plan without income
-  (`spend_percent` NULL) is `needs_income`: nothing is computed from it, and the PUT with the
-  income converts it (percentages omitted = from the old R$, 038's formula) and the old categories
-  of the months it governs. Flags are codes plus amounts; the Portuguese text lives in
-  `lib/monthlyPlan.js`. Goal flags are per goal, never summed.
-- **Allocation targets and goals are plans, like budgets** (020, 021): `PUT /api/allocation/targets`
-  replaces the whole set (class targets sum to 100%; asset targets are % *within* their class and
-  sum to 100% in any class that has one), and `DELETE /api/goals/<id>` is a real delete with no
-  guard. Current values, gaps, the contribution split and the goal forecast are computed on read
-  from `build_portfolio_snapshot()` (net values) — never stored.
-- **Renda variável quotes refresh every hour on their own** (owner, 2026-10-22,
-  `services/quote_refresh.py`): a thread started in `app.py` calls `refresh_market_prices(force=True)`
-  for every user each `QUOTE_AUTO_REFRESH_SECONDS` (3600; 0 = off, as in `conftest.py`), first run
-  60 s after boot. Same provider rules as "Atualizar cotações"; one gunicorn worker, so one thread.
-- **The chart history is served stale and refreshed behind** (2026-10-19, owner: "Evolução de
-  patrimônio is taking too long"). The Yahoo closes (`get_daily_history()`) and the BCB series
-  (`_bcb_series_since()`) are fresh for `HISTORY_CACHE_TTL_SECONDS` (15 min); after that, up to
-  `HISTORY_CACHE_STALE_MAX_SECONDS` (7 days), the request reads the cache at once and
-  `schedule_history_refresh()` (`services/prices.py`, one per key) downloads again in the
-  background. Only past months read it — the current month uses the live quote. A refresh that
-  fails or brings a ticker with no closes keeps the old history. Past the stale limit, or a
-  ticker never fetched, the request waits as before. Tests wait with `wait_history_refreshes()`.
-  **Both caches have a copy on disk** (2026-10-19, owner: "updating the Investir charts takes 5 s
-  or more"): `history_store.py` writes sections "daily" and "bcb" to `HISTORY_CACHE_FILE`
-  (`history_cache.json` next to the DB, so `/data` on the server; empty disables — `conftest.py`
-  sets it empty, `test_history_fetch.py::TestDiskCopy` patches `history_store.HISTORY_CACHE_FILE`),
-  off the request, and each module reads its section once per process
-  (`load_persisted_daily_history()`, `load_persisted_index_history()`, behind a lock so a second
-  thread waits for the read instead of seeing an empty cache), keeping each entry's age — so a
-  deploy no longer makes the first chart wait for Yahoo and the BCB. It is a cache, not data:
-  unreadable or another `STORE_VERSION` is ignored. **The index closes follow the same rule**:
-  with closes stored less than the stale limit ago (`stored_closes_are_recent()`, `fetched_at`),
-  `load_benchmarks()` reads `benchmark_closes` and the yfinance/brapi fetch goes to
-  `schedule_history_refresh()`; with none (or older), it waits as before. **Proventos' sync does
-  not invalidate the screen's cache unless it changed something** (`invalidate: false` +
-  `notifyMutation()` in `lib/api.js`, `lib/proceedsSync.js`): opening Investimentos used to compute
-  every chart twice. The CPU side: `accrual_factor_until()` reads a cumulative product of the CDI
-  (`cdi_products()`, not a loop over the days per title × month), the TWR of every asset comes from
-  one pass over the days (`group_monthly_returns()`, the same arithmetic as `monthly_chain()` per
-  group), `FixedIncomeCurve` keeps one segment per title × month, and movement dates are parsed
-  once — outputs identical to the old code on a 354-operation, 5-year portfolio.
-- **A save waits only for its own request** (owner, 2026-10-19: "demorando muito para salvar e
-  editar operações"). A write through `apiFetch` already invalidates every query; a screen that
-  then awaits `invalidateServerData()` joins those refetches (`cancelRefetch: false`) — never
-  restart them, each restart made the server compute the portfolio and the charts again. The quote
-  refresh after a buy or an edit runs after the sheet closes, through `refreshQuotes()`
-  (`lib/dataApi.js`, `invalidate: false`), which refreshes the screens only when `updated_count`
-  > 0; a quote write is not a position change (`changesPositions()`, no proventos sync). On the
-  server, writes do not rebuild `investment_positions` (only `GET /api/investment-positions` does,
-  and no screen reads it) and `replace_realized_results()` writes only when a result changed, so
-  the reads a write triggers don't queue on SQLite's write lock.
-- **Rentabilidade compares from the same 0%** (owner, 2026-10-19: "a fair comparison starts both
-  at 0%"). `GET /api/investments/returns` returns `comparison` (`base_month`, `start`, `end`,
-  `months`, `starts_after_window`) and `series[0]` is the base point (`base: true`): the end of the
-  month before the first compared month, every accumulated line at 0%. The compared months are the
-  window from the first month with a portfolio return (`compared_months()`): months before the
-  first operação (of the class, with the filter) leave the series, and the CDI, every benchmark's
-  `period_percent`/`difference_pp`/`months_total` and `percent_of_cdi` cover those same months — the
-  index no longer earns alone while there was no portfolio. A benchmark whose data starts later
-  begins at 0% at the month before its first data (`accumulate_benchmark(from_zero=True)`). The
-  year table and the per-asset TWR still read the whole window. The first compared month still
-  counts the index's whole month, the portfolio from the purchase day (month-end closes only).
-- **TWR is daily and the closes are in the basis of the stored quantities** (2026-10-18,
-  `services/returns.py`): each day r = (V1 + sales + proventos) / (V0 + buys) − 1, months are
-  products of their days — Investidor10's method. Yahoo records a bonificação as a split and
-  adjusts the earlier closes; a bonus here is its own BUY row and earlier quantities are not
-  rescaled, so `restore_quantity_basis()` (`services/prices.py`) undoes every Yahoo event except
-  a registered SPLIT/REVERSE_SPLIT. Returns and evolution both read `get_daily_history()` through
-  `load_history_inputs()` (tests patch `routes.investments.get_daily_history`; the
-  `daily_history_from_months` fixture builds it from monthly paths). A bonificação is never a
-  flow (`movement_flow_amount()`).
-- **The exemption meter reads the IR report's own apuração** (`exemption_meter()` calls
-  `renda_variavel()` up to the month), so the R$ 20 mil figure on the IR tab and in the sale form
-  always matches the annual report. Don't give it a second copy of the rule.
-- **Cost is the weighted average (custo médio ponderado), never FIFO** (2026-10-17): the Receita's
-  rule for stocks, FIIs, ETFs and BDRs (Lei 8.981/1995, art. 72, §2º; IN RFB 1.585/2015, art. 58).
-  `apply_average_cost()` in `services/investments.py`, run inside `fetch_investments()`, gives each
-  movement `cost_amount` (how much the position's cost changes; a sale removes quantity × the
-  average of that moment) and each sale `average_cost`. Posição, the evolution, the realized
-  result and Bens e Direitos all sum those, so they agree. **The price stored on a SELL row is
-  never a cost**: the screen sends the position's average there and the API used to accept the
-  sale price — neither is read. Fixed income stays per title (quantity × price, as stored).
-- **One monthly tax rule for variable income** (`services/variable_income_tax.py`, pure):
-  `monthly_apuration()` is the IR tab's month-by-month *and* the IR of each sale — the realized
-  result stores the sale's share of its month's tax (`apply_monthly_tax()`), so an exempt sale
-  shows IR 0 in Operações exactly as on the IR tab. The R$ 20 mil exemption is for **ações only**
-  (units count as ações); ETFs and BDRs pay 15% with no exemption, don't count toward the limit
-  and share the stocks' loss pool; FIIs 20% with their own pool; fixed-income ETFs (IR withheld at
-  source, Lei 13.043/2014) stay out of the DARF. The kind comes from `market_catalog.tax_kind()`
-  (catalog kind, `FIXED_INCOME_ETFS`, BDR ticker suffix), through `market_listing.tax_kind()`.
-  Foreign assets and "outros" keep a per-sale estimate. Tributação exclusiva (códigos 06 e 10) is
-  declared at the **net** value: the IR tab, the paste text and the export show that.
-- **The category refines the class, on read** (owner, 2026-10-19, `services/asset_categories.py`):
-  ACAO/ETF/BDR inside STOCKS, FII, RENDA_FIXA/TESOURO inside FIXED_INCOME, CRIPTO/OTHER. Tesouro
-  Direto is the title type `TESOURO` (or a typeless title named "Tesouro…"). It is never stored —
-  the DB class (and its `CHECK`) is what IR, targets and goals read; don't rebuild `assets` for a
-  new class (seven tables cascade from it). Screens show `category_label` (`/api/assets`,
-  positions, `asset_category_label` on movements); Posição has a Tesouro Direto tab; fixed
-  income's sector is its indexer (`rate_kind()`, source `INDEXER`) unless set by hand.
-- **Tesouro Direto is marked to market and grouped by title** (owner, 2026-10-19: "o valor exato
-  dos títulos, considerando taxas e marcação a mercado"; `services/treasury.py`,
-  `tesouro_client.py`). The price is the Tesouro Nacional's daily PU (Tesouro Transparente CSV) —
-  the BCB has none. A purchase is still stored as 1 × the amount; its titles are the amount ÷ the
-  purchase day's PU (moved to the contracted rate for a zero-coupon title) or the typed
-  `metadata.treasury_units`; gross = titles × today's PU de venda; net = gross − B3 custody (0.20%
-  a.a. pro rata die from D+1, not before 2025; Selic exempt to R$ 10 mil) − IOF − IR, purchase by
-  purchase. Posição merges the purchases of one title (type + maturity, found from the name) into
-  one row with `lots` and `treasury` (maturity, titles, the rate with the same value at maturity,
-  PU, data base); a grouped redemption is one row per purchase, oldest first (PEPS,
-  `lib/treasury.js`). The evolution and Rentabilidade read the same PU (`market_value_on()`,
-  `build_treasury_positions()`), so their last point is Posição's. A read never waits for the file
-  (`get_prices()` downloads behind; without it the title is on the curve, `valuation: "CURVE"`);
-  "Atualizar cotações" waits and records the market value as the quote (source `tesouro`).
-  The file is downloaded **once a day** (owner, 2026-10-19: `PRICES_FRESH_SECONDS` = 24 h, read
-  from the disk copy's mtime, so a deploy does not re-download): at boot when older, then
-  `start_auto_refresh()` checks its age hourly (off without URL); reads and "Atualizar cotações"
-  never download a copy younger than that.
-- **The BCB and the Tesouro are fetched through `gov_http.get()`** (2026-10-19): the image runs
-  Python 3.14, whose default `VERIFY_X509_STRICT` refuses certificate chains that browsers accept;
-  `gov_http` keeps chain and hostname checks and drops only that flag, retries once on a timeout or
-  429/502/503/504, and turns failures into a readable cause for the health screen. Its `urlopen`
-  call passes `context=`, so a test's fake `urlopen` takes `**kwargs`. The BCB health probe waits
-  `BCB_TIMEOUT_SECONDS` (30 s), not the quotes' 6 s.
-- **Registrar provento: the type first, then only the assets that can pay it**
-  (`lib/proceedsRules.js`, tested): JCP only ações; the coupon only fixed income and Tesouro titles
-  with semiannual coupons; amortization of Tesouro only Renda+/Educa+. The server refuses only by
-  class (`PROCEEDS_TYPE_CLASS_MESSAGES` in `routes/proceeds.py`), and only when the asset or the
-  type changes. An asset already held is picked by typing (`AssetPicker`, the sale and the
-  provento); a new one by the B3 catalog (`TickerAutocomplete`). A picker's option button calls
-  `preventDefault()`: inside `Field`'s `<label>` the click otherwise returns focus to the input.
-- **`CATTLE` (Gado) was removed on 2026-09-27** at the owner's request: the API refuses it and no screen
-  lists it. The migrations' `CHECK` constraints still allow the value (append-only; no table rebuild
-  for it) — don't read that as the class being alive.
+  (`ApiNetworkError`). A creation times out at 6 s and is queued (offline: queued without trying);
+  reads 45 s; edits and deletes have no timeout and are never queued. Rules in `lib/outboxRules.js`
+  (tested): a pending transfer leaves the balance alone, a pending card purchase touches no account,
+  a balance counting pending items is labelled an estimate.
+
+### Cards and invoices
+- **A card purchase is its `client_id`** (035): all installments share it; old rows have
+  `legacy:<id>`. Receipts, sharing, A receber and installments go through `same_purchase_sql()` /
+  `cc_purchase_expense_ids()`; screens group by `cardPurchaseKey()`.
+- **The invoice-month rule is backend-only** (`compute_invoice_start()`, closing day 29–31 clamped,
+  `test_invoice_month.py`); don't add a client copy.
+- **An invoice is paid only after it closes** (`invoice_closing_date()`, `ensure_invoice_closed()`)
+  and **only by `POST /api/cc-expenses/pay-invoice`**. Reopening is "Desfazer pagamento"
+  (`DELETE /api/cc-expenses/payments/<id>`: reopens what it paid, writes `cc_invoice_manual` so
+  autopay won't debit it again; refused while the payment has a receipt).
+- **A paid invoice is history** (037): paid items are never deleted; a new purchase or refund never
+  lands in a paid invoice (`first_unpaid_invoice()`); `settle_invoice()` stamps `paid_by`.
+- **The next invoice is per card, by due date** (`services/card_invoices.py`, `open_invoices()`):
+  `next` feeds Início and the bell, `nearest` (oldest overdue with total > 0, else first `next`) is
+  what Cartões pays. Overdue = after the due day.
+- **Card functions** (041): `debit_account_id` makes a débito purchase a plain EXPENSE in that
+  account; `credit_enabled = 0` is debit-only (refused on credit paths, no autopay). The debit
+  account is never a Corretora.
+- **Débito automático** (`autopay_account_id`) is materialized on read by `apply_due_autopay()` on
+  the due day, only for invoices due on/after `autopay_start_date`.
+- **A refund is a credit row** (033, `kind = 'REFUND'`, stored positive, 1/1, never shared); sum card
+  rows through `signed_amount()` / `signed_amount_sql()` / `cardSignedAmount()`. An invoice in
+  credit is refused (409) and rides along with the next payment.
+
+### Banking views, plan and budgets
+- **Início is banking only, in reais**: consolidated balance and accounts, never the portfolio.
+  Aporte/resgate/provento are kept apart from despesa/receita (`isInvestmentOutflow()` /
+  `isInvestmentInflow()`). "Resumo do mês" reads `summary` of `GET /api/home`.
+- **Investimento is not a category** (039): a row is aporte/resgate/provento by origin only
+  (`INVESTMENT_SOURCE_TYPES`, or a bank ↔ Corretora transfer). Don't give a category name meaning.
+- **Whose expense it is** (032, `services/sharing.py`, `lib/sharing.js`): owner, `SPLIT` or
+  `OTHERS`. Balances never change; budget, plan and Início count only the owner's part
+  (`own_amount_sql()` / `ownAmount()`). A receber lists the others' part until `share_settled_at`.
+- **The app is reais-only on screen**: no currency choice, no foreign symbol; an account balance
+  shows `accountBalanceBrl()` or "sem câmbio hoje". The foreign-currency backend (018) stays,
+  API-only. Exception: the IR tab's "Aplicações no exterior" when the year has a foreign result.
+- **The monthly plan starts from income** (025, 038, `services/monthly_plan.py`): `PUT
+  /api/monthly-plan` writes `income_amount` (> 0) and `invest_percent`/`spend_percent` (sum ≤ 100).
+  Every R$ is computed on read via `percent_of()`; percentages are TEXT read as `Decimal`, never
+  float. A month without a row inherits the latest earlier plan and its categories. **Saldo do
+  plano** (`plan_balance`) = Gastar R$ − spent; "Disponível por dia" = it ÷ days left, server-side,
+  shown in Orçamento. Invested = `month_investment_flow()` (same rule as `investment_flow_sql()`).
+  Old plans without income are `needs_income`.
+- **A budget is a % of Gastar** (038, `services/budgets.py`): `planned_percent` only, categories
+  sum ≤ 100% (400; an over-100 month may lower, not raise), "Sem categoria" is the rest. Categories
+  come from the latest month ≤ it with a plan (`category_source_month()`); writes in an inherited
+  month go through `materialize_month()`. Rollover is computed on read. `DELETE` is a real delete.
+  Spent: card purchases in full in the purchase month, refunds subtract, invoice payments never.
+- Orçamento's percentages are `PercentSlider`s bounded by `percentRoom()`/`clampPercent()`
+  (`lib/monthlyPlan.js`). Plan flags and Início's attention cards are dismissed per device
+  (localStorage, keys `planFlagKey()` / the item `key`).
+- **"Precisa de atenção"** is `GET /api/attention` (`services/attention.py`), shown on Início and
+  in the bell; the server sends numbers and keys, the text lives in `components/Attention.jsx`.
+- **A recurrence is a template**: `POST /api/recurring/run` writes real rows; deleting keeps them.
+  Pauses skip only their window (`pause_gaps`, `recurring_occurrence_dates()`/`skip_pause_gaps()`).
+- **Rules touch the past only on confirmation**: `/api/import-rules/apply/preview` never writes;
+  `apply` rewrites only the sent ids, re-checking the rule. Transfers, investment cash, proventos
+  and invoice payments are out of reach.
+
+### Aprovar (the inbox)
+- Detections arrive as parsed fields at `POST /api/inbox/detections`; nothing is recorded without
+  approval, and a look-alike of an existing lançamento is a pending item with a candidate.
+- **Settles a recurrence's occurrence** (034, `suggest_for_item()`: same type, ±7 days, exact amount
+  or within 20% with a shared word/category; INCOME within 20% regardless). Approving writes a
+  `recurring_settlements` row; "Não é esta" sets `recurring_off`.
+- **Never remembers an ambiguous target** (`ambiguous_target()`: no card final and several active
+  accounts/cards whose *bank field* names the bank). "Sempre perguntar" (036) makes every target a
+  confirm.
+- **Own transfer vs someone else is the counterparty** (031): "it's me" is learned into
+  `inbox_hints` (`self:doc:` / `self:name:`); BTG Investimentos transfers are always own. Pairing
+  (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
+  bank's notification wins over Samsung's.
+
+### Receipts
+- **A receipt is a file on disk referenced by a row** (014; card purchases 016): bytes in
+  `ATTACHMENTS_DIR/<user_id>/<generated name>`, type sniffed from bytes, routes check both ids.
+  Write the file before the row, remove it after the commit; `prune_orphan_attachment_files()` at
+  boot. Backups mirror the folder into `backups/attachments/`.
+
+### Investments
+- **Cost is the weighted average, never FIFO** (`apply_average_cost()` in `fetch_investments()`);
+  the price stored on a SELL is never a cost. Fixed income stays per title.
+- **One monthly tax rule** (`services/variable_income_tax.py`, `monthly_apuration()`): R$ 20 mil
+  exemption for ações only; ETFs/BDRs 15%, no exemption, stocks' loss pool; FIIs 20% own pool;
+  fixed-income ETFs out of the DARF. Each sale stores its share of the month's tax. The exemption
+  meter reads the IR report's apuração — no second copy. Tributação exclusiva is declared net.
+- **Movements and BRL**: `fetch_investments()` is the BRL stream (realized result, portfolio,
+  evolution, IR read it); `fetch_investment_rows()` is native currency for screens and edits.
+- **A corporate action is applied on write** (017): earlier movements and quotes are rescaled
+  (originals in `metadata.corporate_adjustments`), a bonus is a zero-cash BUY; nothing may be
+  entered before the latest event, and only the latest can be undone.
+- **Cash goes through the portfolio account**: `metadata.cash_account_id` is switch and account —
+  present means exactly one linked lançamento (`INVESTMENT_TRANSACTION`), absent means none
+  (`investment_cash_account_id()`, `resolve_investment_cash_account()`). A POST without the key
+  uses the Corretora (`portfolio_cash_account_id()`); `null` = "Não descontar". Paid proventos land
+  in it (`apply_paid_proceeds()`, `INVESTMENT_PROCEED`) from `metadata.portfolio_since` on. Its
+  balance shows only in Investimentos.
+- An operation's sign is its type: `PATCH /api/investments/<id>` keeps the stored sign.
+- **Proventos of ações/FIIs are computed** (026, `proceeds_sync.py`): StatusInvest value × position
+  on the data com; idempotent by `sync_key`; typed ones are never touched, edited ones are
+  `sync_locked`, deleted ones are dismissed for good. JCP 15% to 2025, 17.5% from 2026;
+  `TAXABLE_INCOME` 22.5%. Renamed tickers need `TICKER_ALIASES`.
+- **Coupons and amortizations are typed proventos** (040, `INTEREST`): regressive IR from the
+  first BUY (`interest_tax_rate()`); `repeat: {every_months, count}` writes all or none.
+- **The category refines the class on read** (`services/asset_categories.py`), never stored; don't
+  rebuild `assets` for a new class.
+- **Tesouro Direto is marked to market** (`services/treasury.py`, `tesouro_client.py`): titles =
+  amount ÷ purchase-day PU (or `metadata.treasury_units`), net of B3 custody, IOF and IR per
+  purchase; Posição groups by title, redemptions are PEPS (`lib/treasury.js`). A read never waits
+  for the price file (falls back to the curve); the file downloads at most once a day.
+- **Returns**: TWR is daily (`services/returns.py`), closes put back in the stored-quantity basis
+  (`restore_quantity_basis()`); Rentabilidade compares from the same 0% over the compared months
+  (`compared_months()`). A bonificação is never a flow.
+- **Chart history is served stale and refreshed behind** (15 min fresh, 7 days stale,
+  `schedule_history_refresh()`), with a disk copy in `HISTORY_CACHE_FILE`; index closes follow the
+  same rule. Quotes refresh hourly in a thread (`services/quote_refresh.py`).
+- **A save waits only for its own request**: `apiFetch` already invalidates every query; awaiting
+  `invalidateServerData()` joins those refetches, never restarts them. The quote refresh after a
+  write runs after the sheet closes (`refreshQuotes()`). Writes don't rebuild
+  `investment_positions`; `replace_realized_results()` writes only on change.
+- **Allocation targets and goals are plans** (020, 021): computed on read from
+  `build_portfolio_snapshot()`, never stored.
+- BCB and Tesouro are fetched through `gov_http.get()` (Python 3.14 strict X.509 flag dropped,
+  one retry). A test's fake `urlopen` takes `**kwargs`.
+- Registrar provento picks the type first, then only assets that can pay it
+  (`lib/proceedsRules.js`). `CATTLE` was removed (2026-09-27): the API refuses it.
+- The Extrato has two views (`?ver=contas|investimentos`); an operação can be deleted from either.
 
 ## Known sharp edges
 
-- **The layering is strict** (Phase 5, done 2026-09-23): `config` ← `db` ←
-  `validators`/`money`/`dates`/`auth`/`asset_classes`/`responses` ← `services/*` ← `routes/*` ←
-  `app`. Among the investment services: `variable_income_tax` (pure: `money`/`validators`, read by
-`realized_results` and `tax_report`), `proceeds` (only `db`/`money`/`dates`/`validators`) and
-  `prices` ← `fixed_income` ← `fx` ← `investments` ← `corporate_actions` / `realized_results` /
-  `portfolio` ← `tax_report` / `allocation` / `goals` / `returns` / `contributions`, `allocation` ←
-  `sectors`, `market_listing` ← `asset_categories` (read by `portfolio`, `sectors`
-  and `routes/investments.py`), `fixed_income`/`asset_categories`/`prices` ← `treasury` (read by
-  `portfolio`, `returns` and `routes/investments.py`), `fixed_income`/`prices` ← `benchmarks` (read by `routes/investments.py`); `health` sits
-  on top. `inbox` sits on `import_rules`; `inbox_decisions` on `inbox` and `invoices`, and is read
-  by `routes/inbox.py`, `routes/transactions.py` and `routes/cards.py` (`absorb_created`).
-  `card_invoices` sits on `invoices` and `attachments`; `home` on `accounts`, `fx`
-  (`with_balance_in_brl()`, moved there from `routes/accounts.py`), `invoices`, `proceeds_cash` and
-  `card_invoices`; `attention` on `home`, `card_invoices`, `recurring` and `monthly_plan`, which
-  reads `investment_flow_sql()` from `home`. `monthly_plan` sits on `budgets` (the plan row, Gastar R$ and the categories live in
-  `budgets`; `routes/budgets.py` reads `build_budget_view()` from `monthly_plan`). `routes/proceeds.py` is write-only now — reads go through `services/proceeds.py`. Nothing imports
-  `app`, and a blueprint does not import another blueprint (shared code goes in `services/`). A new
-  blueprint must be added to the `for blueprint_module in (...)` list in `app.py`; forgetting it
-  fails `test_route_map.py` by name.
-- The credit card **invoice-month rule now lives in the backend** (`compute_invoice_start()` in
-  `backend/services/invoices.py`, behind `POST /api/cc-expenses/purchases`), covered by
-  `backend/tests/test_invoice_month.py`. The "+ Novo" card form calls it (`ccExpensesApi.createPurchase`); don't reintroduce a
-  client-side copy.
-- `formatCurrency` and the date helpers now live in `frontend/src/lib/format.js`. One local
-  copy survives on purpose: `pages/lancamentos/helpers.js` defaults `getLocalDateString` to a
-  `getNow()` clock hook rather than to `new Date()`, and its `formatDateBR` returns `''` where the
-  shared one returns `'-'`.
-- **Frontend conventions** (from the 2026-09-21 UX reorganization): pages use only `ui.jsx`
-  pieces (`AlertMessage`, `Collapsible`, `Sheet`, `Tabs`…), emerald is the only accent, section
-  tabs come from the URL. Server data is read with `useQuery` (`lib/queries.js`); `apiFetch`
-  invalidates the whole cache after every successful write, so a page never refetches by hand
-  (call `invalidateServerData()` only to *await* the refresh). `useDataVersion()` is only the
-  Extrato "arrived" flash. A list that is loading shows `ListSkeleton`, not its empty state. Since the 2026-09-23 remodel: a page's
-  headline numbers go in one `SummaryPanel` (not a row of `MetricCard`s), two or more row actions go
-  behind a `Menu` ("⋯"), a success message is `toast()` from `lib/toast.js` (errors stay in
-  `AlertMessage`), a destructive confirmation is `await confirmAction({...})` from
-  `lib/confirm.js`, and nothing uses `window.confirm` / `prompt` / `alert`.
-- **Privacy mode** (the eye) hides balances and the portfolio only, and never remounts
-  the page. `formatCurrency` and friends always show the value; a sensitive spot uses
-  `usePrivateFormatter()` / `usePrivateAxisFormatter()` or `MetricCard sensitive` from
-  `lib/privacy.js`, which re-render on toggle through `useSyncExternalStore`.
-- **Visual rules** (2026-09-22 design pass): green/red/amber/sky only when they mean gain, loss,
-  warning or info — labels, counts and normal states are neutral. A signed amount in a list goes
-  through `formatSignedCurrency`; a numeric table cell gets `.num` (right-aligned, no wrap).
-  Touch targets are 44 px below `lg` (Phase 2, 2026-10-16): `Button`, `IconButton`,
-  `SegmentedControl` and `Tabs` already do it, so don't add `h-11 lg:h-9` by hand; a numeric
-  field gets `inputMode` (`decimal` for money, `numeric` for counts — not where a value can be
-  negative). The "+ Novo" forms open on a large, focused amount field, in typing order. Tables
-  must not sit inside an `overflow-x` / `overflow-hidden` wrapper, or the sticky header stops
-  sticking (use `overflow-clip` on the panel for rounded corners). Row actions use
-  `IconButton size="sm"`; a big money value in a card uses `FitValue`, never `truncate`.
-- **Theme and tokens** (2026-09-23 remodel, direction C "Cartões"): the palettes pages may use are
-  `zinc`, `emerald`, `rose`, `amber`, `sky`, `white` and `brand` — `tailwind.config.js` maps each
-  to a CSS variable in `index.css`, and **dark mode is only the `dark` class on `<html>` swapping
-  those variables** (the neutral scale inverts: `white` becomes the dark surface, `zinc-950` the
-  light text). So never write `dark:` classes and never use another Tailwind family (`slate`,
-  `red`, `blue`…) — it does not exist in the theme. `brand` is the deep green of the net-worth block
-  and the active nav pill, with `text-brand-ink` on it; text on the bright `emerald-500` fill is
-  `text-on-accent`. Charts take colours from `CHART` (grid, axes, ink), `FLOW` / `SERIES` / `OTHER_COLOR` in `charts.jsx` (CSS
-  variables), never a hex literal. The theme lives in `lib/theme.js` (system by default; Sistema / Claro / Escuro
-  in Ajustes › Aparência — no header toggle) and `index.html` applies it before first paint. The font is Plus Jakarta
-  Sans served from `public/fonts` (the app must open offline) — no Google Fonts link.
-- **Consolidated balance = sum of the account balances**, archived included, on the server:
-  `consolidated_balance` of `GET /api/home` (`consolidated_balance()` in `services/home.py`), read
-  by Início and the Extrato's "Saldo em contas". Summing `transactions` left each account's
-  `initial_balance` out; don't go back to it.
+- **Strict layering**: `config` ← `db` ← `validators`/`money`/`dates`/`auth`/`asset_classes`/
+  `responses` ← `services/*` ← `routes/*` ← `app`. Nothing imports `app`; a blueprint never imports
+  another (shared code goes in `services/`). A new blueprint goes in `app.py`'s list, or
+  `test_route_map.py` fails.
+- `formatCurrency` and the date helpers live in `lib/format.js`; `pages/lancamentos/helpers.js`
+  keeps a local `getLocalDateString`/`formatDateBR` on purpose (clock hook, `''` vs `'-'`).
+- **Frontend**: pages use only `ui.jsx` pieces; emerald is the only accent; tabs come from the URL;
+  data via `useQuery`; `apiFetch` invalidates after every write (no manual refetch). Loading lists
+  show `ListSkeleton`. Headline numbers in one `SummaryPanel`; two+ row actions behind a `Menu`;
+  success is `toast()`, errors `AlertMessage`, destructive confirms `confirmAction()` — never
+  `window.confirm`/`prompt`/`alert`.
+- **Privacy mode** hides balances and the portfolio via `usePrivateFormatter()` /
+  `usePrivateAxisFormatter()` / `MetricCard sensitive` (`lib/privacy.js`), without remounting.
+- **Visual rules**: green/red/amber/sky only for gain/loss/warning/info; signed amounts via
+  `formatSignedCurrency`; numeric cells `.num`; 44 px touch targets below `lg` (already in the kit);
+  `inputMode` on numeric fields; no `overflow-x`/`overflow-hidden` around sticky tables (use
+  `overflow-clip`); big values in `FitValue`, never `truncate`.
+- **Theme**: only `zinc`, `emerald`, `rose`, `amber`, `sky`, `white`, `brand` (CSS variables in
+  `index.css`); dark mode swaps the variables — never `dark:` classes or other Tailwind families.
+  Charts use `CHART`/`FLOW`/`SERIES`/`OTHER_COLOR` from `charts.jsx`. Font is Plus Jakarta Sans
+  from `public/fonts` (no Google Fonts).
