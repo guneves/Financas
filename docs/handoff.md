@@ -7,77 +7,59 @@
 
 ---
 
-## Session — 2026-10-23 · native migration session 7: Início and the bell
+## Session — 2026-10-24 · native migration session B: what Investimentos needs (no screen)
 
-Cloud session, branch `claude/wizardly-faraday-cbx3mb` (from `main` at `c137844`, PR #36 merged),
-PR #38 to `main`. Briefing by `session-scout`, found by `subagent_type`, no fallback. Confirmed
-first that `main` had `GET /api/home`, `GET /api/attention` and `rules/OutboxPending.kt`.
-The builder (`native-screen-builder`) was cut off once by a usage limit and resumed from its
-transcript; nothing was lost.
+Local session on the owner's PC, branch `claude/native-b-investments` (from `main` at `457d0da`),
+in its own worktree `..\Financas-native-b` because another session was editing the main tree
+(`transactions.py`, a paging test). PR to `main`. Decisions: `client_id` **yes** (owner, mid-session:
+"keep the offline queue"); endpoints: **all five** (the field was blank; the step listed five).
 
 ### Done
-- **Native Início and the bell** (step 3, native-level 4 → 5): `ui/home/`, `ui/charts/`, the
-  rules ports, privacy mirrored both ways, the web Início tab opening native. Details in
-  `docs/done-tasks.md` (session 7 note) and `mobile-docs/native/screens/03-inicio.md`.
-- **CI**: `android-check.yml` run 39960549681 on `cc5df2d` (the last code commit) **green** (JVM
-  tests + debug APK), checked from here. `npm test` 176 (was 160; re-run here), both vite builds
-  (normal and android) pass.
-  pytest not run: no backend change.
-- **Parity review**: no blockers; two majors and four minors fixed in one round (`779d1e3`). The
-  re-verification found three minors (the info toast drawn sky instead of the web's dark surface,
-  a stale start route kept in the web's memory, the route expiry untested); fixed in `cc5df2d`
-  (`PendingRoute.kt` + `PendingRouteTest`, `pendingStartRoute()` + a node test).
-- **Comparing native and web**: `mobile/inicio-snapshot.py` (stdlib, GETs only) prints Início's
-  numbers from the server with the screen's labels; the steps are in `03-inicio.md`, "Comparing
-  native and web". Tried against a local server on a scratch database.
-- Docs: `03-inicio.md` (Status, Endpoints/Data/Client rules rewritten for the session-6
-  endpoints), the native README's status table (steps 1–2 now say merged), next-steps, done-tasks.
+- **Backend** (pytest 1603 → 1636, full run green locally): migration 042 (`client_id` on
+  investment, provento and corporate-action creations); `POST /api/investments/redemptions` (PEPS
+  and the single-title cost on the server, the old `treasury.test.js` cases in pytest);
+  `DELETE /api/investments/by-assets` (atomic grouped Tesouro delete); `realized_result` read by
+  Operações, `by_year` by Proventos, `net` by IR. Details in `done-tasks.md` (session B note).
+- **Screens unchanged**, checked with before/after Chromium shots (Operações and Proventos
+  byte-identical; IR and Posição identical to the eye, Posição differing only by chart animation).
+  The redemption was walked through Posição's sheet.
+- **Colours**: SERIES and FLOW are CSS variables (`--series-0..7`, `--flow-*`), same values in
+  both themes, mirrored in `Tokens.kt` (TokensTest) and fixed by `chartColors.test.js`.
+- **`ui/charts/`**: `ChartGeometry.kt` (tested) + `DonutChart`, `SignedBarChart`, `GapLineChart`.
+- **Ports** (43 JVM tests, same cases and order as node): `PortfolioAccount`, `AssetSearch` (node
+  tests written first), `FixedIncome` (new form-error cases on both sides), `TreasuryLabels`,
+  `ProceedsRules`, `CompoundInterest`. node 176 → 185; full JVM suite 361, 0 failures.
+- **CI**: `android-check.yml` run 40101206958 on `660a8ae` **green** (JVM + debug APK). There is no
+  branch pytest workflow (pytest runs in `deploy.yml` on `main`), so pytest was run here.
+- Docs: specs 12/13/15/16 carry a dated note on what now exists; next-steps, done-tasks.
 
 ### Not done, and why
-- **The four history panels** (Despesas por categoria, Ritmo de gastos, the invoice projection,
-  Parcelamentos abertos) are not native: they need `home-panels.md`'s endpoints. A row opens the
-  web Início for them (`/inicio?web=1`).
-- **Reviewer's minor 6**: toggling the eye natively and then following a link can show the web's
-  values for a moment before the web reads the new mode on resume. Not a one-liner; next-steps.
-- **Aprovar's writes** still use the read client's 45 s timeout (Início's moved to `writeApi`).
-- **No phone check**: sessions cannot install an APK. The owner runs the spec's Acceptance.
-- Carried, still open: B2; the owner's phone check of steps 1–2; native 401 handling in the shell
-  (Início's "Entrar novamente" opens the web login); grouped Tesouro delete not atomic; the web
+- **No queue yet for investment creations**: the server is idempotent, but neither outbox knows the
+  kinds — that belongs with the native screens (step 7). The web sends no `client_id` on them.
+- **The grouped delete was not clicked** (the walk had used up the second lot); pytest covers it.
+- Carried, still open: B2; the owner's phone checks of steps 1–3; native 401 handling; the web
   `createEntry()` duplicate after a killed tab; the sharing form refusing "12,5"; pytest red
-  21:00–midnight local; `done-tasks.md` has no row for the Aprovar session (PR #33).
+  21:00–midnight local.
 
-### Decisions made here (worth checking)
-- **Native scope = what the server serves.** The history panels stay on the web rather than being
-  ported as client rules over the whole history, which the native conventions forbid without tests
-  and which `home-panels.md` will replace anyway.
-- **Dismissals are per store**: native and web keep separate lists of dismissed cards (same keys).
-  The bell lists everything on both, so nothing can be hidden for good.
-- **With values hidden, no red** on a negative account chip or the Evolução badge (the web shows
-  the colour and so leaks the sign). Native-only, deliberate.
-- **A stored route survives process death** for 2 minutes (`takePendingRoute()`), read once by the
-  web at start.
-
-### Questions for the owner
-0. **B2**: should the plan's "spent" leave out a despesa typed in a Corretora account, as Início's
-   "Saiu" does (one rule)? It overlaps question 1.
-1. Corretora accounts in "+ Novo", the pay-invoice sheet and autopay?
-2. Should the Extrato show a transfer to the Corretora as aporte/resgate, as Início does?
-3. A débito purchase in Pendentes: Corrigir reopens it as Despesa. Should it?
-4. Installments 48 (client) vs 72 (server); description required or optional?
-5. "Despesas por categoria" on Início groups by name: should it group by id? (`home-panels.md`)
-6. Privacy mode across the other screens?
-7. A bank field on cards?
-8. `/api/credit-cards` cached under two keys (partly gone since session 6).
-9. New: should native and web share one dismissed-cards list?
+### Review
+One `native-parity-reviewer` (sonnet) over `origin/main..HEAD`: **no blockers, no majors**; every
+claim checked. Noted, accepted: the server rounds the redemption with `rounded_money()` (can differ
+from JS `Math.round(x*100)/100` by a cent only on float-noise inputs like 1.005); a single title with
+`current_value <= 0` is now refused (the client used to send NaN); `by_year` may differ from the old
+sum of rounded months by a cent. Fixed: the calculator port took an infinite period as "até 100
+anos" where JS says "não fecha em meses inteiros".
 
 ### Next session
-1. If the owner's phone check of PR #38 finds something, fix it on that branch before the merge.
-2. Otherwise `home-panels.md` (so Início, web and native, stops downloading the history and the
-   four panels can go native), or step 4 (Extrato/Cartões, with paging §5).
+1. Session C of the prompts (the Investimentos screens), on top of this branch once merged.
+2. Or `home-panels.md` / step 4, as the previous handoff said.
 
 ### Learned
-- **`android-check.yml`'s path filter skips a push that touches only web files** (`charts.jsx`);
-  dispatch it by hand (`workflow_dispatch`) when the last commit must be checked.
-- **A native page restored after process death has no WebView behind it**: `emitNavigate` goes
-  nowhere. Anything that leaves native must also work from a cold `MainActivity`.
-- `pkill -f` on a pattern in the same command line kills the calling shell (exit 144) — again.
+- **The `native-parity-reviewer` agent file was removed in `f921be2`**; it was recovered from git
+  (`git show f921be2^:.claude/agents/native-parity-reviewer.md`) and run as general-purpose.
+- **A worktree needs Capacitor's ignored folders for Gradle**: copy
+  `frontend/android/capacitor-cordova-android-plugins/`, `app/src/main/assets/` and
+  `app/src/main/res/xml/config.xml` from the main tree, and junction `frontend/node_modules`.
+- **pytest has no xdist here**; `-n auto` fails before running anything (and `| tail` hides the
+  exit code).
+- **The proventos sync hits StatusInvest live from a scratch server** (no patch outside pytest):
+  both runs of a before/after walk must use the same network state.

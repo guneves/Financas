@@ -123,7 +123,8 @@ object CompoundInterest {
         }
         if (period == null || period <= 0) return FormError("Informe o período.")
         val months = if (form.periodUnit == "month") period else period * 12
-        if (floor(months) != months) {
+        // Number.isInteger do JS: Infinity nao e inteiro.
+        if (!months.isFinite() || floor(months) != months) {
             return FormError(
                 if (form.periodUnit == "month") {
                     "O período em meses precisa ser inteiro."

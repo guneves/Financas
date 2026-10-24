@@ -163,16 +163,27 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   domains); until then every native change is first compiled by `android-check.yml` on the branch.
 - [ ] Plus Jakarta Sans in the native screens (needs the `.ttf` in `res/font`; the web ships woff2).
 - [ ] **`findings.md`, what is left** (its possible bugs and stale texts were fixed 2026-10-23,
-  `done-tasks.md`): a grouped Tesouro delete is not atomic (several DELETEs; needs a grouped
-  endpoint); the native shell's 401 handling (`00-shell.md`). Inconsistencies waiting on the owner
+  the grouped Tesouro delete made atomic 2026-10-24, `done-tasks.md`): the native shell's 401
+  handling (`00-shell.md`). Inconsistencies waiting on the owner
   (questions in `docs/handoff.md`): Corretora accounts offered in banking forms and autopay; Início
   groups categories by name; privacy mode uneven across screens; the Extrato vs Início
   classification of a transfer to the Corretora; a débito purchase reopened as Despesa by
   Corrigir; 48 vs 72 installments and the required description; the two `/api/credit-cards`
   cache keys; cards without a bank field.
-- [ ] **`client_id` on investment creations** (`POST /api/investments`, `/api/investment-proceeds`,
-  `/api/corporate-actions`) if native should queue them offline; until then native refuses them
-  offline (`findings.md`, Investimentos).
+- [ ] **Investimentos native, what session B left** (2026-10-24, backend, chart kit and ports
+  done, `done-tasks.md`):
+  - **The outbox for investment creations**: the server takes `client_id` now (042), but neither
+    queue knows the kinds yet. Native: add them to `OutboxRules.java` / `rules/OutboxItems.kt`
+    with the native screens (step 7), and decide what the pending overlay shows (an operação
+    pending moves no account until it lands, like a card purchase). The web still sends no
+    `client_id` on these and never queues them; add it to `lib/outboxRules.js` only if the owner
+    wants web investment creations offline too.
+  - **Not clicked through**: the grouped delete (`DELETE /api/investments/by-assets`) is covered by
+    pytest and the screen's call is one line, but the session's walk ran out of grouped lots after
+    the redemption. Owner: delete a Tesouro title with two buys once on the server.
+  - The rest of the screens' client rules (`groupAssets()`, `positionMenuItems()`, the movement
+    readers, `comparisonItems()`, `gapText()`, the payload builders) are ported with the screens;
+    the CDI on `benchmarks[]` (`14-…`) is still an open endpoint choice.
 - [ ] **What the home/attention/invoices proposal left open** (§1–4 built in session 6,
   `done-tasks.md`):
   - **B2, owner decision**: the plan's "spent" (`month_banking_totals()`) still counts a despesa

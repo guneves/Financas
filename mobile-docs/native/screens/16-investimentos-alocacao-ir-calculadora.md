@@ -179,6 +179,10 @@ the text to paste into the IRPF program, the .xlsx) and the monthly R$ 20 mil ex
 `GET /api/tax-report/exemption?month=` → see `13-…`. Key `['investimentos','isencao',month]`.
 
 ### Client rules
+> **Session B (2026-10-24).** Built: each `tributacao_exclusiva[]` item has `net` =
+> `rounded_money(gross − withheld)`, as the export; the web reads it. The Calculadora is ported:
+> `rules/CompoundInterest.kt` with the 12 cases.
+
 - Net of tributação exclusiva `gross − withheld` — inline, unrounded float. **Endpoint**: add
   `net` per item (the export already computes `rounded_money(gross − withheld)`).
 - `activeMonths`, `hasEtfs`, `hasForeignResult()`, `monthName()` — inline. Port (display).
