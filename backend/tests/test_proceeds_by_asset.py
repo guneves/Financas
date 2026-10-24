@@ -294,3 +294,21 @@ def test_another_users_proceeds_never_count(client, auth, user, other_user, port
     assert [item["ticker"] for item in theirs["by_asset"]] == ["PETR4"]
     assert theirs["by_asset"][0]["net_amount"] == 900.0
     assert position(portfolio_module, other_user, "PETR4")["proceeds_net"] == 900.0
+
+
+def test_the_yearly_totals_sum_the_events_and_round_once(app_module):
+    """O grafico "Anual" de Proventos le `by_year` (antes, a tela somava os meses)."""
+    proceeds = importlib.import_module("services.proceeds")
+    items = [
+        {"payment_date": "2025-01-10", "gross_amount": 10.004, "tax_amount": 0, "net_amount": 10.004},
+        {"payment_date": "2025-03-10", "gross_amount": 10.004, "tax_amount": 0, "net_amount": 10.004},
+        {"payment_date": "2026-02-10", "gross_amount": 20, "tax_amount": 3, "net_amount": 17},
+        {"payment_date": "", "gross_amount": 5, "tax_amount": 0, "net_amount": 5},
+    ]
+    for item in items:
+        item.update({"asset_id": "a", "asset": {"ticker": "X"}, "proceeds_type": "DIVIDEND", "status": "PAID"})
+    body = proceeds.build_investment_proceeds_summary(items)
+    assert body["by_year"] == [
+        {"year": "2025", "event_count": 2, "gross_amount": 20.01, "tax_amount": 0, "net_amount": 20.01},
+        {"year": "2026", "event_count": 1, "gross_amount": 20.0, "tax_amount": 3.0, "net_amount": 17.0},
+    ]

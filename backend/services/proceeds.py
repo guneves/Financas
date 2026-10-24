@@ -348,6 +348,7 @@ def build_investment_proceeds_summary(items, trailing_net=None):
         "scheduled_net_amount": 0,
         "by_type": {},
         "by_month": {},
+        "by_year": {},
         "by_asset": [],
         "next_events": [],
     }
@@ -393,18 +394,32 @@ def build_investment_proceeds_summary(items, trailing_net=None):
             month_bucket["tax_amount"] += tax
             month_bucket["net_amount"] += net
 
+            # O grafico "Anual" de Proventos: o ano soma os eventos, e arredonda uma vez.
+            year_bucket = summary["by_year"].setdefault(month_key[:4], {
+                "year": month_key[:4],
+                "event_count": 0,
+                "gross_amount": 0,
+                "tax_amount": 0,
+                "net_amount": 0,
+            })
+            year_bucket["event_count"] += 1
+            year_bucket["gross_amount"] += gross
+            year_bucket["tax_amount"] += tax
+            year_bucket["net_amount"] += net
+
     for key in ("gross_amount", "tax_amount", "net_amount", "paid_net_amount", "scheduled_net_amount"):
         summary[key] = rounded_money(summary[key])
 
     for bucket in summary["by_type"].values():
         for key in ("gross_amount", "tax_amount", "net_amount"):
             bucket[key] = rounded_money(bucket[key])
-    for bucket in summary["by_month"].values():
+    for bucket in [*summary["by_month"].values(), *summary["by_year"].values()]:
         for key in ("gross_amount", "tax_amount", "net_amount"):
             bucket[key] = rounded_money(bucket[key])
 
     summary["by_type"] = sorted(summary["by_type"].values(), key=lambda item: item["proceeds_type"])
     summary["by_month"] = sorted(summary["by_month"].values(), key=lambda item: item["month"])
+    summary["by_year"] = sorted(summary["by_year"].values(), key=lambda item: item["year"])
     summary["by_asset"] = build_proceeds_by_asset(items, summary["net_amount"], trailing_net)
     # O custo de cada ativo entra uma vez (o mesmo do by_asset), nao uma por evento.
     summary["cost_basis"] = rounded_money(sum(item["cost_basis"] for item in summary["by_asset"]))

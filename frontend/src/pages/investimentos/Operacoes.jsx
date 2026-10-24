@@ -115,6 +115,7 @@ export default function Operacoes() {
   const {
     movementsLoading,
     assets,
+    realizedResult,
     movements,
     dataError,
     setDataError,
@@ -252,21 +253,14 @@ export default function Operacoes() {
     }
   }
 
-  const realizedMovements = movements.filter(hasRealizedResult)
-  const realizedSummary = realizedMovements.reduce((acc, movement) => {
-    acc.realizedProfit += Number(movement.realized_profit || 0)
-    acc.taxAmount += Number(movement.realized_tax_amount || 0)
-    acc.netProfitAfterTax += Number(movement.realized_net_profit_after_tax || 0)
-    acc.netProceeds += Number(movement.realized_net_proceeds || 0)
-    acc.costBasis += Number(movement.realized_cost_basis || 0)
-    return acc
-  }, {
-    realizedProfit: 0,
-    taxAmount: 0,
-    netProfitAfterTax: 0,
-    netProceeds: 0,
-    costBasis: 0,
-  })
+  // Somado no servidor (`realized_result` da carteira), nao aqui.
+  const realizedCount = Number(realizedResult?.operation_count || 0)
+  const realizedSummary = {
+    realizedProfit: Number(realizedResult?.realized_profit || 0),
+    taxAmount: Number(realizedResult?.tax_amount || 0),
+    netProfitAfterTax: Number(realizedResult?.net_profit_after_tax || 0),
+    costBasis: Number(realizedResult?.cost_basis || 0),
+  }
 
   const setEditField = (field, value) => setEditModal({ ...editModal, [field]: value })
 
@@ -289,12 +283,12 @@ export default function Operacoes() {
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
 
-      {realizedMovements.length > 0 ? (
+      {realizedCount > 0 ? (
         <SummaryPanel
           lead={{
             label: 'Resultado pós-IR',
             value: formatSignedCurrency(realizedSummary.netProfitAfterTax),
-            hint: `${realizedMovements.length} venda(s) e resgate(s) com resultado`,
+            hint: `${realizedCount} venda(s) e resgate(s) com resultado`,
             tone: realizedSummary.netProfitAfterTax >= 0 ? 'gain' : 'loss',
           }}
           figures={[
