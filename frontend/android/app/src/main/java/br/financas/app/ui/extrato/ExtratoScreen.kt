@@ -216,8 +216,9 @@ private fun LazyListScope.contasView(viewModel: ExtratoViewModel, onTab: (Lancam
         }
         else -> {
             val today = LocalDate.now()
-            ExtratoRules.groupByDay(shown, viewModel.dayTotals).forEach { day ->
-                stickyHeader(key = "day:${day.date}") { DayHeader(ExtratoRules.dayLabel(day.date, today), formatSignedCurrency(day.total)) }
+            // A chave leva a posicao: um pendente da fila com data antiga abre o mesmo dia duas vezes.
+            ExtratoRules.groupByDay(shown, viewModel.dayTotals).forEachIndexed { index, day ->
+                stickyHeader(key = "day:$index:${day.date}") { DayHeader(ExtratoRules.dayLabel(day.date, today), formatSignedCurrency(day.total)) }
                 day.items.forEach { row -> item(key = "row:${row.id}") { TransactionRow(row, viewModel) } }
             }
             item(key = "more") { MoreFooter(viewModel) }

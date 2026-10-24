@@ -188,6 +188,9 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     private var listJob: Job? = null
+
+    // Sobe a cada leitura nova da primeira pagina: uma pagina seguinte pedida antes dela e descartada.
+    private var listGeneration = 0
     private var cleared = false
     private var proceedsSynced = false
 
@@ -261,6 +264,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
 
     private fun readList() {
         listJob?.cancel()
+        listGeneration += 1
         val params = ExtratoRules.filterParams(filters)
         filtering = true
         listJob = viewModelScope.launch {
@@ -290,7 +294,13 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun applyPage(items: List<TransactionDto>, page: br.financas.app.data.TransactionPageDto, replace: Boolean) {
-        rows = if (replace) items else rows.orEmpty() + items
+        rows = if (replace) {
+            items
+        } else {
+            // Nunca a mesma linha duas vezes (a lista usa o id como chave).
+            val seen = rows.orEmpty().map { it.id }.toHashSet()
+            rows.orEmpty() + items.filter { it.id !in seen }
+        }
         nextCursor = page.nextCursor
         count = page.count
         if (replace) {
@@ -325,10 +335,11 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         if (loadingMore) return
         loadingMore = true
         val params = ExtratoRules.filterParams(filters)
+        val generation = listGeneration
         viewModelScope.launch {
             try {
                 val page = repo.nextPage(params, cursor)
-                if (ExtratoRules.filterParams(filters) == params) applyPage(page.items, page, replace = false)
+                if (generation == listGeneration) applyPage(page.items, page, replace = false)
             } catch (error: ApiException) {
                 actionError = app.getString(R.string.extrato_more_failed)
             } finally {
