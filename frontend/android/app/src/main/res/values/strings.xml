@@ -469,7 +469,7 @@
     <string name="orc_flag_dismiss">Dispensar</string>
     <string name="orc_footnote">Gasto: saídas das contas e compras no cartão (inteiras, no mês da compra), sem transferências, pagamento de fatura e aportes. Investido: aportes menos resgates das operações da carteira no mês.</string>
     <string name="orc_categories_title">Categorias do mês</string>
-    <string name="orc_categories_description">Cada categoria leva um % do Gastar (%1$s). O realizado soma os lançamentos em conta, sem transferências, e as compras no cartão, inteiras, no mês da compra; o pagamento da fatura não conta de novo.</string>
+    <string name="orc_categories_description">Cada categoria leva um %% do Gastar (%1$s). O realizado soma os lançamentos em conta, sem transferências, e as compras no cartão, inteiras, no mês da compra; o pagamento da fatura não conta de novo.</string>
     <string name="orc_add_category">Adicionar categoria ao mês</string>
     <string name="orc_category">Categoria</string>
     <string name="orc_select">Selecione</string>

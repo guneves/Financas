@@ -766,7 +766,9 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         apkBusy = "install"
-        viewModelScope.launch {
+        // A vez do download ja e nossa (installPrecheck): o escopo do app garante que installNow
+        // roda e a solta, mesmo se a tela fechar no meio.
+        graph.appScope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
                     ApkUpdatePlugin.installNow(app, base).optString("status") to null
