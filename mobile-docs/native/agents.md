@@ -52,6 +52,11 @@ main session ── reads handoff/next-steps (or session-scout)
 
 ## Prompts
 
+**For the remaining steps use `session-prompts.md`** (five sessions, A–E) with
+`session-protocol.md`: the main session builds and only one reviewer runs per session, because each
+subagent re-reads the same docs and code and the parallel loop below cost too many tokens. The
+prompts below are kept for reference.
+
 Paste these into a new Claude Code session on this repository. Each one names its branch: replace
 `<branch>` with the branch the session was given.
 

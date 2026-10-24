@@ -132,6 +132,8 @@ class NativeActivity : ComponentActivity() {
         }
         if (!delivered || isTaskRoot) startActivity(Intent(this, MainActivity::class.java))
         finish()
+        // Uma aba da barra (ou um link do Inicio): fade, nao o "voltar" que desliza para a direita.
+        tabTransition()
     }
 
     /** O "+" da barra de baixo: o "+ Novo" nativo por cima (despesa, como na web). */

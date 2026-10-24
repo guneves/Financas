@@ -85,7 +85,12 @@ class NativeScreensPlugin : Plugin() {
                 }
                 val route = if (screen == SCREEN_HOME) NativeRoutes.HOME else NativeRoutes.INBOX
                 val intent = NativeActivity.intent(host, route)
-                host.runOnUiThread { host.startActivity(intent) }
+                host.runOnUiThread {
+                    host.startActivity(intent)
+                    // O Inicio e uma aba (a da esquerda), nao uma pagina empilhada: fade, nao o
+                    // "avancar" que entra pela direita. Aprovar segue empilhada, com o padrao.
+                    if (screen == SCREEN_HOME) host.tabTransition()
+                }
                 call.resolve()
             }
             else -> call.reject("Tela nativa não disponível: $screen", CODE_UNIMPLEMENTED)
