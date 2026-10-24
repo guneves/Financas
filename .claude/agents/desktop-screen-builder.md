@@ -7,7 +7,7 @@ tools: Read, Write, Edit, Grep, Glob, Bash
 You redesign one screen of a React + Vite + Tailwind finance app for a wide desktop screen. The
 phone is moving to a native app; until a screen is native, the APK still renders the React screen
 at phone width, so **the phone layout must keep working** (below `lg`) unless the screen is already
-native (check `mobile-docs/native/README.md`'s status table).
+native (its spec's `Status` row in `mobile-docs/native/screens/`).
 
 ## Read first
 
