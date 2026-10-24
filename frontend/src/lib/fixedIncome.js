@@ -1,3 +1,5 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado. Par nativo:
+// android/.../rules/FixedIncome.kt (FixedIncomeTest.kt), os mesmos casos de fixedIncome.test.js.
 // Renda fixa: tipo do titulo e forma de remuneracao.
 //
 // O metadata do lancamento guarda:

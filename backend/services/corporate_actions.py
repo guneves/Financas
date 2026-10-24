@@ -140,7 +140,18 @@ def read_action_payload(conn, current_user_id, payload):
     }
 
 
-def create_corporate_action(conn, current_user_id, payload):
+def corporate_action_by_client_id(conn, current_user_id, client_id):
+    """O evento que um envio com este client_id ja criou (042), ou None."""
+    if not client_id:
+        return None
+    row = conn.execute(
+        "SELECT * FROM corporate_actions WHERE user_id = ? AND client_id = ?",
+        (current_user_id, client_id),
+    ).fetchone()
+    return serialize_corporate_action(row) if row else None
+
+
+def create_corporate_action(conn, current_user_id, payload, client_id=None):
     asset, fields = read_action_payload(conn, current_user_id, payload)
     asset_id = asset["id"]
     ex_date = fields["ex_date"]
@@ -213,8 +224,8 @@ def create_corporate_action(conn, current_user_id, payload):
         """
         INSERT INTO corporate_actions
         (id, user_id, asset_id, action_type, ex_date, ratio_from, ratio_to,
-         bonus_unit_cost, bonus_transaction_id, adjusted_ids, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         bonus_unit_cost, bonus_transaction_id, adjusted_ids, notes, client_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             action_id,
@@ -228,6 +239,7 @@ def create_corporate_action(conn, current_user_id, payload):
             bonus_transaction_id,
             json.dumps(adjusted),
             fields["notes"],
+            client_id,
         ),
     )
     return serialize_corporate_action(fetch_corporate_action(conn, current_user_id, action_id))

@@ -268,6 +268,8 @@ class TestTheTaxReport:
         line_06 = exclusive["06 - Rendimentos de aplicações financeiras"]
         assert line_06["gross"] == pytest.approx(100.0)
         assert line_06["withheld"] == pytest.approx(17.5)  # 433 dias
+        # Declarado liquido: o servidor manda o `net` (a tela nao subtrai mais).
+        assert line_06["net"] == 82.5
         assert exempt["12 - Rendimentos de LCI, LCA, CRI e CRA"] == pytest.approx(40.0)
         assert [item["type"] for item in report["proventos"]] == ["INTEREST", "INTEREST"]
 

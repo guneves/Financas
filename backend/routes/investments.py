@@ -22,13 +22,14 @@ from config import PRICE_FETCH_TIMEOUT_SECONDS
 from dates import parse_iso_date, subtract_months
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
-from money import rounded_money
+from money import parse_money, rounded_money
 import export_csv
 import export_xlsx
 from responses import XLSX_MIMETYPE, download_response
 from responses import export_response, read_export_options
 from services.corporate_actions import (
     action_factor,
+    corporate_action_by_client_id,
     create_corporate_action,
     delete_corporate_action,
     ensure_outside_corporate_actions,
@@ -51,7 +52,7 @@ from services.fixed_income import (
     validate_fixed_income_metadata,
 )
 from services.asset_categories import categories_by_asset
-from services.treasury import finish_treasury_refresh, start_treasury_refresh
+from services.treasury import finish_treasury_refresh, redemption_parts, start_treasury_refresh
 from services.investments import (
     CASH_ACCOUNT_KEY,
     MAX_MOVEMENT_NUMBER,
@@ -99,10 +100,12 @@ from services.returns import build_investment_returns, returns_evaluated_months
 from validators import (
     ValidationError,
     normalize_month,
+    optional_client_id,
     parse_json_body,
     parse_number,
     parse_optional_number,
     require_choice,
+    require_date,
     require_string,
     safe_float,
     validation_error,
@@ -355,6 +358,45 @@ def investments(current_user_id):
     items = payload if isinstance(payload, list) else [payload]
     if not items:
         return validation_error("Informe ao menos um investimento.")
+    try:
+        client_id = request_client_id(items)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    return create_movements(current_user_id, items, client_id)
+
+
+def request_client_id(items):
+    """O client_id do envio (042): uma lista e um envio so, entao todas as
+    operacoes levam o mesmo id (ou nenhuma leva)."""
+    ids = {optional_client_id(item) if isinstance(item, dict) else None for item in items}
+    if len(ids) > 1:
+        raise ValidationError("Todas as operacoes de um envio levam o mesmo client_id.")
+    return ids.pop()
+
+
+def movements_by_client_id(conn, current_user_id, client_id):
+    """As operacoes que um envio com este client_id ja criou (042), na ordem do envio."""
+    if not client_id:
+        return []
+    ids = conn.execute(
+        """
+        SELECT id FROM investment_transactions
+        WHERE user_id = ? AND client_id = ?
+        ORDER BY client_part
+        """,
+        (current_user_id, client_id),
+    ).fetchall()
+    return [fetch_investment_rows(conn, current_user_id, investment_id=row["id"])[0] for row in ids]
+
+
+def create_movements(current_user_id, items, client_id=None):
+    """Grava as operacoes de um envio, todas ou nenhuma (POST /api/investments
+    e o resgate). Com client_id, a segunda entrega devolve as da primeira (200)."""
+    if client_id:
+        with get_db() as conn:
+            existing = movements_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return jsonify([serialize_investment(row) for row in existing]), 200
 
     inserted = []
     affected_asset_ids = set()
@@ -433,9 +475,10 @@ def investments(current_user_id):
                     INSERT INTO investment_transactions
                     (
                         id, user_id, asset_id, movement_type, quantity,
-                        unit_price, gross_amount, fee_amount, transaction_date, metadata
+                        unit_price, gross_amount, fee_amount, transaction_date, metadata,
+                        client_id, client_part
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item_id,
@@ -448,6 +491,8 @@ def investments(current_user_id):
                         investment_fee_amount(metadata_dict),
                         transaction_date,
                         encode_metadata(metadata),
+                        client_id,
+                        len(inserted) if client_id else None,
                     ),
                 )
                 record_price_quote(
@@ -486,10 +531,84 @@ def investments(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     except sqlite3.IntegrityError:
+        # Entregas simultaneas do mesmo envio: a outra ja gravou.
+        if client_id:
+            with get_db() as conn:
+                existing = movements_by_client_id(conn, current_user_id, client_id)
+            if existing:
+                return jsonify([serialize_investment(row) for row in existing]), 200
         return jsonify({"error": "Nao foi possivel criar o investimento."}), 400
 
     refresh_realized_results(current_user_id)
     return jsonify([serialize_investment(row) for row in rows]), 201
+
+
+@bp.route("/api/investments/redemptions", methods=["POST"])
+@token_required
+def redeem_fixed_income(current_user_id):
+    """Resgate parcial de uma posicao de renda fixa da carteira.
+
+    `{position_id, amount, date, cash_account_id?, client_id?}`: `position_id`
+    e o `id` da posicao em GET /api/investments/portfolio. O servidor divide o
+    valor pelas compras (Tesouro agrupado: PEPS) com o custo proporcional
+    (`redemption_parts()`) e grava um resgate por compra, todos ou nenhum.
+    `cash_account_id` como no POST de operacoes: sem a chave, a Corretora;
+    `null`, nao descontar de conta nenhuma."""
+    payload = parse_json_body()
+    try:
+        client_id = optional_client_id(payload)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    if client_id:
+        with get_db() as conn:
+            existing = movements_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return jsonify([serialize_investment(row) for row in existing]), 200
+
+    position_id = str(payload.get("position_id") or "").strip()
+    try:
+        if not position_id:
+            raise ValidationError("Informe a posicao a resgatar.")
+        amount = parse_money(payload, "amount", "Valor do resgate")
+        redemption_date = require_date(payload, "date", "Data do resgate")
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
+    refresh_realized_results(current_user_id)
+    snapshot = build_portfolio_snapshot(current_user_id)
+    position = next(
+        (
+            asset for asset in snapshot["assets"]
+            if str(asset["id"]) == position_id and asset["class"] == "FIXED_INCOME"
+        ),
+        None,
+    )
+    if position is None:
+        return jsonify({"error": "Posicao de renda fixa nao encontrada."}), 404
+    try:
+        parts = redemption_parts(position, amount)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+
+    cash = {CASH_ACCOUNT_KEY: payload.get(CASH_ACCOUNT_KEY)} if CASH_ACCOUNT_KEY in payload else {}
+    items = [
+        {
+            "asset_class": position["class"],
+            "ticker_or_name": position["ticker"] or position["name"],
+            "quantity": -1,
+            "average_price": part["cost"],
+            "current_price": part["amount"],
+            "metadata": {
+                "is_redemption": True,
+                "affects_position": True,
+                "related_id": part["lot_id"],
+                "redemption_date": redemption_date,
+                **cash,
+            },
+        }
+        for part in parts
+    ]
+    return create_movements(current_user_id, items, client_id)
 
 
 @bp.route("/api/investments/<investment_id>", methods=["PATCH", "DELETE"])
@@ -727,37 +846,79 @@ def delete_investments_by_asset(current_user_id, asset_id):
     except ValidationError as exc:
         return validation_error(str(exc))
 
-    with get_db() as conn:
-        asset = conn.execute(
-            """
-            SELECT id, asset_class, ticker
-            FROM assets
-            WHERE id = ? AND user_id = ?
-            """,
-            (asset_id, current_user_id),
-        ).fetchone()
-        if not asset:
-            return jsonify({"deleted": 0, "error": "Ativo nao encontrado."}), 404
-        if asset["asset_class"] != asset_class:
-            return validation_error("Classe do ativo nao confere com o ativo informado.", 409)
+    return delete_assets(current_user_id, [asset_id], asset_class)
 
-        rows = conn.execute(
-            """
-            SELECT it.id
-            FROM investment_transactions it
-            WHERE it.user_id = ? AND it.asset_id = ?
-            """,
-            (current_user_id, asset_id),
-        ).fetchall()
-        for row in rows:
-            delete_investment_cash_transaction(conn, current_user_id, row["id"])
-        cursor = conn.execute(
-            "DELETE FROM assets WHERE user_id = ? AND id = ? AND asset_class = ?",
-            (current_user_id, asset_id, asset_class),
-        )
-    if rows:
+
+@bp.route("/api/investments/by-assets", methods=["DELETE"])
+@token_required
+def delete_investments_by_assets(current_user_id):
+    """Varios ativos de uma vez, todos ou nenhum: o Tesouro agrupado junta
+    compras de mais de um ativo (`asset_ids` da posicao). `{asset_ids,
+    asset_class}`; a guarda e a mesma do DELETE por ativo, para cada um."""
+    payload = parse_json_body()
+    raw_ids = payload.get("asset_ids")
+    try:
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValidationError("Informe os ativos a excluir.")
+        asset_class = require_choice(payload, "asset_class", "Classe do ativo", ALLOWED_ASSET_CLASSES)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    asset_ids = list(dict.fromkeys(str(value) for value in raw_ids))
+    return delete_assets(current_user_id, asset_ids, asset_class)
+
+
+class AssetDeleteRefused(Exception):
+    """Recusa no meio da exclusao: sai do `with` (rollback) levando a resposta."""
+
+    def __init__(self, response):
+        super().__init__("refused")
+        self.response = response
+
+
+def delete_assets(current_user_id, asset_ids, asset_class):
+    """Exclui os ativos e as operacoes deles numa transacao so. Um ativo que
+    nao existe (404) ou de outra classe (409) desfaz tudo."""
+    deleted = 0
+    any_rows = False
+    try:
+        with get_db() as conn:
+            for asset_id in asset_ids:
+                asset = conn.execute(
+                    """
+                    SELECT id, asset_class, ticker
+                    FROM assets
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (asset_id, current_user_id),
+                ).fetchone()
+                if not asset:
+                    raise AssetDeleteRefused((jsonify({"deleted": 0, "error": "Ativo nao encontrado."}), 404))
+                if asset["asset_class"] != asset_class:
+                    raise AssetDeleteRefused(
+                        validation_error("Classe do ativo nao confere com o ativo informado.", 409)
+                    )
+
+                rows = conn.execute(
+                    """
+                    SELECT it.id
+                    FROM investment_transactions it
+                    WHERE it.user_id = ? AND it.asset_id = ?
+                    """,
+                    (current_user_id, asset_id),
+                ).fetchall()
+                any_rows = any_rows or bool(rows)
+                for row in rows:
+                    delete_investment_cash_transaction(conn, current_user_id, row["id"])
+                cursor = conn.execute(
+                    "DELETE FROM assets WHERE user_id = ? AND id = ? AND asset_class = ?",
+                    (current_user_id, asset_id, asset_class),
+                )
+                deleted += cursor.rowcount
+    except AssetDeleteRefused as refused:
+        return refused.response
+    if any_rows:
         refresh_realized_results(current_user_id)
-    return jsonify({"deleted": cursor.rowcount}), 200
+    return jsonify({"deleted": deleted}), 200
 
 
 @bp.route("/api/investments/by-ticker/<path:ticker>", methods=["DELETE"])
@@ -1140,10 +1301,22 @@ def corporate_actions(current_user_id):
 
     payload = parse_json_body()
     try:
+        client_id = optional_client_id(payload)
+        # Segunda entrega do mesmo envio (042): o evento que a primeira gravou.
         with get_db() as conn:
-            item = create_corporate_action(conn, current_user_id, payload)
+            existing = corporate_action_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return jsonify(existing), 200
+        with get_db() as conn:
+            item = create_corporate_action(conn, current_user_id, payload, client_id)
     except ValidationError as exc:
         return validation_error(str(exc))
+    except sqlite3.IntegrityError:
+        with get_db() as conn:
+            existing = corporate_action_by_client_id(conn, current_user_id, client_id)
+        if not existing:
+            raise
+        return jsonify(existing), 200
     # A cotacao do proprio dia ex pode ser de antes ou de depois do evento;
     # busca uma nova no mercado. Sem rede, o cliente avisa para atualizar.
     try:

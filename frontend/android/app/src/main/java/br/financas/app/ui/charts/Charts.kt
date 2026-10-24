@@ -39,14 +39,14 @@ data class BarColumn(
     val line: Double?,
 )
 
-private val AXIS_WIDTH = 48.dp
-private val LABEL_HEIGHT = 20.dp
+internal val AXIS_WIDTH = 48.dp
+internal val LABEL_HEIGHT = 20.dp
 
-private class Plot(val left: Float, val top: Float, val width: Float, val height: Float, val min: Double, val max: Double) {
+internal class Plot(val left: Float, val top: Float, val width: Float, val height: Float, val min: Double, val max: Double) {
     fun y(value: Double): Float = top + height - ((value - min) / (max - min) * height).toFloat()
 }
 
-private fun DrawScope.axisAndGrid(
+internal fun DrawScope.axisAndGrid(
     measurer: TextMeasurer,
     plot: Plot,
     ticks: List<Double>,
@@ -73,7 +73,7 @@ private fun DrawScope.axisAndGrid(
     }
 }
 
-private fun DrawScope.xLabels(measurer: TextMeasurer, plot: Plot, labels: List<String>, color: Color) {
+internal fun DrawScope.xLabels(measurer: TextMeasurer, plot: Plot, labels: List<String>, color: Color) {
     if (labels.isEmpty()) return
     val slot = plot.width / labels.size
     val style = TextStyle(color = color, fontSize = 11.sp)
@@ -90,7 +90,7 @@ private fun DrawScope.xLabels(measurer: TextMeasurer, plot: Plot, labels: List<S
     }
 }
 
-private fun slotAt(x: Float, left: Float, width: Float, count: Int): Int? {
+internal fun slotAt(x: Float, left: Float, width: Float, count: Int): Int? {
     if (count == 0 || x < left || x > left + width) return null
     return ((x - left) / (width / count)).toInt().coerceIn(0, count - 1)
 }

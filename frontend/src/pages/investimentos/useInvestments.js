@@ -14,6 +14,8 @@ async function fetchPortfolio() {
       value: Number(data.current_balance || 0),
       netValue: Number(data.current_net_balance || 0),
     },
+    // O resultado realizado somado no servidor (o resumo de Operacoes).
+    realizedResult: data.realized_result || null,
   }
 }
 
@@ -32,6 +34,7 @@ export default function useInvestments() {
   })
   const assets = portfolioQuery.data?.assets || NO_ASSETS
   const totals = portfolioQuery.data?.totals || null
+  const realizedResult = portfolioQuery.data?.realizedResult || null
   const movements = movementsQuery.data || NO_MOVEMENTS
 
   const [dataError, setDataError] = useState('')
@@ -88,6 +91,7 @@ export default function useInvestments() {
     movementsLoading: movementsQuery.isPending,
     assets,
     totals,
+    realizedResult,
     movements,
     dataError,
     setDataError,

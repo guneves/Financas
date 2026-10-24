@@ -183,7 +183,7 @@ export default function ImpostoRenda() {
             </Panel>
             <Panel>
               <PanelHeader title="Tributação exclusiva" description="Já tributados na fonte: declare o valor líquido (bruto menos o IR retido), como no informe de rendimentos." />
-              <IncomeList items={report.tributacao_exclusiva.map((item) => ({ line: item.line, value: item.gross - item.withheld, gross: item.gross, withheld: item.withheld }))} />
+              <IncomeList items={report.tributacao_exclusiva.map((item) => ({ line: item.line, value: item.net, gross: item.gross, withheld: item.withheld }))} />
             </Panel>
           </div>
 

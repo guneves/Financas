@@ -35,7 +35,6 @@ import {
 import useInvestments from './useInvestments'
 import { FIXED_INCOME_TYPES, describeFixedIncome } from '../../lib/fixedIncome'
 import {
-  allocateTreasuryRedemption,
   isMarketValued,
   treasuryMarketRateText,
   treasuryRateLabel,
@@ -188,29 +187,17 @@ export default function Posicao() {
   // ao valor bruto resgatado. Entra na conta da carteira, a nao ser que o
   // sheet marque "Não descontar" (`cashLink`); um erro volta para o sheet.
   //
-  // Tesouro Direto agrupado: um resgate por compra, das mais antigas para as
-  // mais novas (PEPS, `allocateTreasuryRedemption()`), cada um apontando a sua.
+  // A conta e do servidor (POST /api/investments/redemptions): no Tesouro
+  // agrupado, um resgate por compra, das mais antigas para as mais novas (PEPS).
   const handlePartialSale = async ({ asset, amount, date, cashLink }) => {
     setLoading(true)
     try {
-      const parts = asset.lots?.length
-        ? allocateTreasuryRedemption(asset.lots, amount)
-        : [{ lotId: asset.id, amount, cost: asset.average_price * (amount / asset.current_value) }]
-
-      await investmentsApi.create(parts.map((part) => ({
-        asset_class: asset.class,
-        ticker_or_name: asset.ticker || asset.name,
-        quantity: -1,
-        average_price: part.cost,
-        current_price: part.amount,
-        metadata: {
-          is_redemption: true,
-          affects_position: true,
-          related_id: part.lotId,
-          redemption_date: date,
-          ...cashLinkMetadata(cashLink)
-        }
-      })))
+      await investmentsApi.redeem({
+        position_id: asset.id,
+        amount,
+        date,
+        ...cashLinkMetadata(cashLink)
+      })
 
       setRedeemFor(null)
       toast(`Resgate de ${formatCurrency(amount)} registrado nas operações.`)
@@ -233,9 +220,7 @@ export default function Posicao() {
     })) {
       try {
         if (groupedTreasury) {
-          for (const assetId of asset.asset_ids?.length ? asset.asset_ids : [asset.asset_id]) {
-            await investmentsApi.removeByAsset(assetId, asset.class)
-          }
+          await investmentsApi.removeByAssets(asset.asset_ids?.length ? asset.asset_ids : [asset.asset_id], asset.class)
         } else if (asset.class === 'FIXED_INCOME') {
           await investmentsApi.remove(asset.id)
         } else {

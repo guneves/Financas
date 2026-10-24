@@ -9,19 +9,23 @@ import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip } fr
 import { formatCurrency } from '../lib/format'
 import { cx, prefersReducedMotion } from './ui'
 
-export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948']
+// Os valores sao variaveis de index.css (--series-0..7), as mesmas que as telas
+// nativas leem (Tokens.kt): azul, laranja, verde-agua, amarelo, rosa, verde,
+// roxo, vermelho.
+export const SERIES = Array.from({ length: 8 }, (_, index) => `rgb(var(--series-${index}))`)
 export const OTHER_COLOR = 'var(--chart-other)'
 
 // Entradas e saidas: verde/vermelho por convencao, mas o par fica na faixa de
 // alerta para daltonismo — por isso os graficos de fluxo desenham as saidas
 // abaixo do zero. A posicao carrega o sinal; a cor so reforca. Aporte e saida
 // mas nao e despesa: azul, a mesma cor de Investimentos no painel.
+// Os valores sao variaveis de index.css (--flow-*), como SERIES.
 export const FLOW = {
-  income: '#1baf7a',
-  expense: '#e34948',
-  investment: '#2a78d6',
+  income: 'rgb(var(--flow-income))',
+  expense: 'rgb(var(--flow-expense))',
+  investment: 'rgb(var(--flow-investment))',
   // O que foi de outras pessoas (lib/sharing.js): nem despesa nem receita do dono.
-  others: '#eda100',
+  others: 'rgb(var(--flow-others))',
   net: 'var(--chart-ink)',
 }
 

@@ -270,6 +270,17 @@ export const investmentsApi = {
     body: JSON.stringify(payload),
     invalidate: false
   }),
+  // Resgate de renda fixa: o servidor divide pelas compras (Tesouro: PEPS) e
+  // grava um resgate por compra (POST /api/investments/redemptions).
+  redeem: (payload) => apiFetch('/api/investments/redemptions', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  // Varios ativos numa transacao so (o Tesouro agrupado): todos ou nenhum.
+  removeByAssets: (assetIds, assetClass) => apiFetch('/api/investments/by-assets', {
+    method: 'DELETE',
+    body: JSON.stringify({ asset_ids: assetIds, asset_class: assetClass })
+  }),
   removeByAsset: (assetId, assetClass) => apiFetch(`/api/investments/by-asset/${encodeURIComponent(assetId)}${queryString({ asset_class: assetClass })}`, { method: 'DELETE' }),
   updatePriceByAsset: (assetId, assetClass, currentPrice) => apiFetch(`/api/investments/price-by-asset/${encodeURIComponent(assetId)}`, {
     method: 'PATCH',

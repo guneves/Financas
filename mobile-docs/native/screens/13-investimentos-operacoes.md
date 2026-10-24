@@ -176,6 +176,11 @@ operacao(oes) a partir de <data> feitas na base nova; exclua-as antes de desfaze
 - Every write invalidates all queries and schedules the proventos sync (`changesPositions()`).
 
 ## Client rules
+> **Session B (2026-10-24).** Built: the web's realized summary reads `realized_result` of the
+> portfolio (no client sum). Ported: `rules/AssetSearch.kt`, `rules/PortfolioAccount.kt`,
+> `rules/FixedIncome.kt` (with the form-error cases on both sides). Aportes e resgates can use
+> `ui/charts/SignedBarChart`. `client_id` (migration 042) is now accepted by `POST /api/investments` (object or list, one id per request), `POST /api/investments/redemptions`, `POST /api/investment-proceeds` (with `repeat`) and `POST /api/corporate-actions`: a repeat returns the first result (200), so these creations may be queued offline like "+ Novo". The statements below saying "no `client_id`, never queue" are superseded.
+
 - **Asset search** `filterAssetOptions()` (`lib/assetSearch.js`, tested in
   `proceedsRules.test.js` "the search matches ticker or name…"). **Port** (shared with `15-…`).
 - **Cash link** (`lib/portfolioAccount.js`, `portfolioAccount.test.js`). **Port**.

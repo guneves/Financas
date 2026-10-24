@@ -1,31 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  allocateTreasuryRedemption,
   parseTreasuryUnits,
   treasuryMarketRateText,
   treasuryRateLabel,
   treasuryRateText,
 } from './treasury.js'
 
-const lots = [
-  { id: 'b', purchase_date: '2026-07-11', invested: 2200, gross: 2400 },
-  { id: 'a', purchase_date: '2025-09-14', invested: 1000, gross: 1200 },
-]
-
-test('a redemption takes the oldest buy first (PEPS), cost in proportion', () => {
-  assert.deepEqual(allocateTreasuryRedemption(lots, 600), [{ lotId: 'a', amount: 600, cost: 500 }])
-  const parts = allocateTreasuryRedemption(lots, 1800)
-  assert.deepEqual(parts.map((part) => [part.lotId, part.amount]), [['a', 1200], ['b', 600]])
-  assert.equal(parts[0].cost, 1000)
-  assert.equal(parts[1].cost, 550)
-})
-
-test('the whole position, and not a cent more', () => {
-  assert.deepEqual(allocateTreasuryRedemption(lots, 3600).map((part) => part.amount), [1200, 2400])
-  assert.throws(() => allocateTreasuryRedemption(lots, 3600.01), /saldo bruto/)
-  assert.throws(() => allocateTreasuryRedemption(lots, 0), /valor/)
-})
+// Os casos do resgate PEPS foram com a regra para o servidor:
+// backend/tests/test_investment_redemptions.py (TestThePepsSplit).
 
 test('rate texts follow the indexer', () => {
   assert.equal(treasuryRateText(0.0623, { rate_type: 'POS', indexer: 'IPCA' }), 'IPCA + 6,23% a.a.')

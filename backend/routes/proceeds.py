@@ -40,6 +40,7 @@ from validators import (
     MAX_YEAR,
     MIN_YEAR,
     ValidationError,
+    optional_client_id,
     optional_date,
     optional_string,
     parse_json_body,
@@ -283,7 +284,7 @@ def repeated_payloads(payload, repeat):
     return payloads
 
 
-def insert_proceed(conn, current_user_id, proceed):
+def insert_proceed(conn, current_user_id, proceed, client_id=None, client_part=None):
     proceed_id = new_id()
     conn.execute(
         """
@@ -292,9 +293,9 @@ def insert_proceed(conn, current_user_id, proceed):
             id, user_id, asset_id, proceeds_type, declared_date,
             record_date, ex_date, payment_date, amount_per_unit,
             eligible_quantity, gross_amount, tax_amount, net_amount,
-            source, notes, metadata
+            source, notes, metadata, client_id, client_part
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             proceed_id,
@@ -313,9 +314,38 @@ def insert_proceed(conn, current_user_id, proceed):
             proceed["source"],
             proceed["notes"],
             encode_metadata(proceed["metadata"]),
+            client_id,
+            client_part if client_id else None,
         ),
     )
     return proceed_id
+
+
+def proceeds_by_client_id(conn, current_user_id, client_id):
+    """Os proventos que um envio com este client_id ja criou (042), na ordem do envio."""
+    if not client_id:
+        return []
+    rows = conn.execute(
+        """
+        SELECT id FROM investment_proceeds
+        WHERE user_id = ? AND client_id = ?
+        ORDER BY client_part
+        """,
+        (current_user_id, client_id),
+    ).fetchall()
+    return [
+        serialize_investment_proceed(
+            fetch_investment_proceed_by_id(conn, current_user_id, row["id"]), conn, current_user_id,
+        )
+        for row in rows
+    ]
+
+
+def created_proceeds_response(payload, items, status):
+    """Com `repeat`, a lista; sem ele, o provento sozinho, como sempre."""
+    if payload.get("repeat") not in (None, "", False):
+        return jsonify(items), status
+    return jsonify(items[0]), status
 
 
 def parse_investment_proceeds_filters(args):
@@ -364,26 +394,40 @@ def investment_proceeds(current_user_id):
     if not isinstance(payload, dict):
         return validation_error("Provento deve ser um objeto valido.")
 
+    # Segunda entrega do mesmo envio (042): devolve o que a primeira gravou.
+    try:
+        client_id = optional_client_id(payload)
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    if client_id:
+        with get_db() as conn:
+            existing = proceeds_by_client_id(conn, current_user_id, client_id)
+        if existing:
+            return created_proceeds_response(payload, existing, 200)
+
     # Com `repeat`, todos os pagamentos sao gravados juntos ou nenhum, e a
     # resposta e a lista; sem ele, o provento sozinho, como sempre.
     try:
         repeat = parse_repeat(payload)
         with get_db() as conn:
             items = []
-            for item_payload in repeated_payloads(payload, repeat):
+            for part, item_payload in enumerate(repeated_payloads(payload, repeat)):
                 proceed = normalize_proceed_payload(conn, current_user_id, item_payload)
-                proceed_id = insert_proceed(conn, current_user_id, proceed)
+                proceed_id = insert_proceed(conn, current_user_id, proceed, client_id, part)
                 row = fetch_investment_proceed_by_id(conn, current_user_id, proceed_id)
                 items.append(serialize_investment_proceed(row, conn, current_user_id))
     except ValidationError as exc:
         return validation_error(str(exc))
     except sqlite3.IntegrityError:
+        # Entregas simultaneas do mesmo envio: a outra ja gravou.
+        if client_id:
+            with get_db() as conn:
+                existing = proceeds_by_client_id(conn, current_user_id, client_id)
+            if existing:
+                return created_proceeds_response(payload, existing, 200)
         return jsonify({"error": "Nao foi possivel registrar o provento."}), 400
 
-    if repeat:
-        return jsonify(items), 201
-    item = items[0]
-    return jsonify(item), 201
+    return created_proceeds_response(payload, items, 201)
 
 
 @bp.route("/api/investment-proceeds/sync", methods=["POST"])

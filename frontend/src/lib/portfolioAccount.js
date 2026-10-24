@@ -1,3 +1,5 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado. Par nativo:
+// android/.../rules/PortfolioAccount.kt (PortfolioAccountTest.kt), os mesmos casos de portfolioAccount.test.js.
 // A conta da carteira (dono, 2026-10-17): uma conta do tipo Corretora em reais
 // e a conta de onde as operacoes saem (e para onde a venda e o resgate voltam).
 // Toda operacao nova vai para o Extrato nessa conta, a nao ser que o dono marque

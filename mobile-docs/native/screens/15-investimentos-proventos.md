@@ -121,6 +121,11 @@ One query today, key `['proventos', filters]`, `keepPreviousData`, four requests
 Native can split these into separate cached requests; the assets list rarely changes.
 
 ## Client rules
+> **Session B (2026-10-24).** Built: `GET /api/investment-proceeds/summary` has `by_year[]`
+> {`year`, `event_count`, `gross_amount`, `tax_amount`, `net_amount`} (summed per event, rounded
+> once); the web's annual chart reads it. Ported: `rules/ProceedsRules.kt` (types, layout, tax
+> field, `typeForAsset`, `changesPositions`), `rules/AssetSearch.kt`. `client_id` (migration 042) is now accepted by `POST /api/investments` (object or list, one id per request), `POST /api/investments/redemptions`, `POST /api/investment-proceeds` (with `repeat`) and `POST /api/corporate-actions`: a repeat returns the first result (200), so these creations may be queued offline like "+ Novo". The statements below saying "no `client_id`, never queue" are superseded.
+
 - **Which asset receives which type** `proceedsTypeFitsAsset()`, `assetsForProceedsType()`,
   `treasuryProduct()` (Tesouro by name: Renda+/Educa+ INSTALLMENTS, juros semestrais/NTN-F/NTN-B
   COUPON, Selic/Prefixado/IPCA+ BULLET, else null = both) — `proceedsRules.test.js`. **Port** with

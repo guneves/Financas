@@ -172,6 +172,7 @@
 | Native migration session 5: the proposal `mobile-docs/native/proposals/home-attention-invoices.md` (home, attention, invoices, purchase delete, transactions paging; routes, JSON, reused functions, web switch, pytest cases for every `transactions.test.js` / `attentionRules.test.js` case plus 18 new for `cashFlow.js`, behaviour changes B1–B9) — proposal only, nothing implemented; the pending-balance rules of `outboxRules.js` (`pendingAccountDeltas`, `applyPendingToAccounts`, `pendingAsTransactions`, `countByStatus`) ported to `rules/OutboxPending.kt`, 11 JVM tests, android-check green | 2026-10-23 |
 | Native migration session 6: the proposal's §1–4 built — `GET /api/home` (`services/home.py`), `GET /api/attention` (`services/attention.py`), `GET /api/cc-invoices` (`services/card_invoices.py`), `DELETE /api/cc-expenses/purchases/<id>`; Início, the bell, the Extrato's "Saldo em contas" and Cartões switched with no visible change; `applyPendingToHome()` in `outboxRules.js` and `rules/OutboxPending.kt`; `cashFlow.js`, the rule half of `attentionRules.js` and `consolidatedBalance`/`openingBalanceTotal` deleted, their node cases moved to pytest. pytest 1536 → 1603, node 164 → 160 | 2026-10-23 |
 | Native migration session 7 (step 3): Início and the bell native — `ui/home/` reading `/api/home?months=12` and `/api/attention` with the pending overlay (`OutboxItems` → `applyPendingToHome()`, "Saldo estimado"), attention cards with Pagar/Lançar and per-device dismissal, the bell sheet, Fluxo de caixa / Orçamento / Evolução do saldo (`ui/charts/`), privacy mirrored both ways (`Shell.setValuesHidden`/`getValuesHidden` → `ShellPrefs`), the web Início tab opening it (`NativePage`, `?web=1`), native-level 4 → 5; `mobile/inicio-snapshot.py` to compare native and web; 39 new JVM tests, node 160 → 176 | 2026-10-23 |
+| Native migration session B (Investimentos backend and ports, no screen): `client_id` on investment, provento and corporate-action creations (042); `POST /api/investments/redemptions` (PEPS and the proportional cost on the server) and `DELETE /api/investments/by-assets` (atomic grouped Tesouro delete); `realized_result`, `by_year` and `net` read by Operações, Proventos and IR with no visible change; SERIES/FLOW as CSS variables and in `Tokens.kt`; `ui/charts/` donut, signed bars and gap lines; six rule ports (`PortfolioAccount`, `AssetSearch`, `FixedIncome`, `TreasuryLabels`, `ProceedsRules`, `CompoundInterest`). pytest 1603 → 1636, node 176 → 185, JVM 361 | 2026-10-24 |
 
 ---
 
@@ -1271,3 +1272,26 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   changes; the start route expires on the web side too; `PendingRoute.kt` tested); fixed.
 - **Not built**: the four history panels (they wait for `home-panels.md`), a Pendentes pill in the
   native top bar (the shell, step 8), one dismissal list shared by web and native.
+
+### Investimentos backend and ports — 2026-10-24 (native session B)
+- **Decisions given**: `client_id` yes (the owner: "keep the offline queue"); all five endpoints
+  (the prompt's field was blank, the step listed five).
+- **042** adds `client_id` + `client_part` to `investment_transactions` and `investment_proceeds`
+  (unique on user, id, part: a list, a redemption and a `repeat` are one request with several
+  rows) and `client_id` to `corporate_actions`. A list must carry one id (400 otherwise). The
+  lookup runs before validation; a concurrent second delivery is caught on the unique index.
+- **Redemption** (`redeem_fixed_income()` in `routes/investments.py`): finds the position in
+  `build_portfolio_snapshot()` by its `id`, splits with `redemption_parts()` (lots → PEPS, else
+  `average_price × amount / current_value`), and writes through `create_movements()` — the old
+  POST body, extracted so both share validation, cash link and atomicity. The cost stays
+  unrounded, as the client sent it. Walked in Chromium: 1800 on two curve-valued lots of 1000 and
+  2200 → parts (1000, cost 1000) and (800, cost 800), both into the Corretora.
+- **Grouped delete**: `delete_assets()` runs every asset in one transaction; a missing asset (404)
+  or a class mismatch (409) rolls all back. `DELETE /by-asset/<id>` goes through it too.
+- **Screens unchanged**: before/after Chromium shots on a seeded scratch server — Operações and
+  Proventos (annual) byte-identical, IR identical to the eye, Posição differs only by chart
+  animation timing. Proventos stayed identical after the colour change too (its bars use FLOW).
+- **Ports**: same cases, same order, on both sides; `assetSearch.test.js` and the new
+  `fixedIncome.test.js` cases were written first on the node side. Display numbers go through
+  `ptBrNumber()` (`rules/FixedIncome.kt`): half-up on the shortest decimal, as ICU does.
+
