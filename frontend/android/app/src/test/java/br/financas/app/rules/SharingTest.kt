@@ -39,6 +39,28 @@ class SharingTest {
         assertEquals("", Sharing.shareSummary(SharedRow(amount = BigDecimal(10))))
     }
 
+    // node: 'receivables group by person, case and spaces aside, biggest first' (o agrupamento)
+    @Test
+    fun receivablesGroupByPersonCaseAndSpacesAsideBiggestFirst() {
+        val groups = Sharing.groupReceivables(
+            listOf(
+                Sharing.Receivable("t1", "Ana", BigDecimal("40.1")),
+                Sharing.Receivable("c1", "bruno", BigDecimal(100)),
+                Sharing.Receivable("t2", " ana ", BigDecimal("0.2")),
+            ),
+        )
+        assertEquals(listOf("bruno", "Ana"), groups.map { it.person })
+        assertEquals(0, BigDecimal(100).compareTo(groups[0].total))
+        assertEquals(0, BigDecimal("40.3").compareTo(groups[1].total))
+        assertEquals(listOf("t1", "t2"), groups[1].items)
+        // Sem nome, e empate de total pelo nome.
+        val tie = Sharing.groupReceivables(
+            listOf(Sharing.Receivable("a", "Zé", BigDecimal(10)), Sharing.Receivable("b", "  ", BigDecimal(10)), Sharing.Receivable("c", null, BigDecimal(5))),
+        )
+        assertEquals(listOf("Sem nome", "Zé"), tie.map { it.person })
+        assertEquals(0, BigDecimal(15).compareTo(tie[0].total))
+    }
+
     // node: 'receivables group by person, case and spaces aside, biggest first' (a parte do settlePayload)
     @Test
     fun settlePayloadSplitsTheIdsByKind() {
