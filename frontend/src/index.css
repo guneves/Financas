@@ -92,14 +92,21 @@
     --brand-soft: 185 215 200;
     --brand-ink: 242 251 246;
     --on-accent: 5 46 31;
-    /* As cores dos graficos (FLOW e SERIES[0] de components/charts.jsx, os
-       mesmos valores; chartColors.test.js confere). Iguais nos dois temas; as
-       telas nativas as leem daqui (Tokens.kt, TokensTest). */
+    /* As cores dos graficos: FLOW e SERIES de components/charts.jsx as leem
+       daqui (chartColors.test.js confere). Iguais nos dois temas; as telas
+       nativas tambem (Tokens.kt, TokensTest). */
     --flow-income: 27 175 122;
     --flow-expense: 227 73 72;
     --flow-investment: 42 120 214;
     --flow-others: 237 161 0;
     --series-0: 42 120 214;
+    --series-1: 235 104 52;
+    --series-2: 27 175 122;
+    --series-3: 237 161 0;
+    --series-4: 232 123 164;
+    --series-5: 0 131 0;
+    --series-6: 74 58 167;
+    --series-7: 227 73 72;
   }
 
   :root.dark {
@@ -164,14 +171,21 @@
     --brand-soft: 185 215 200;
     --brand-ink: 242 251 246;
     --on-accent: 5 46 31;
-    /* As cores dos graficos (FLOW e SERIES[0] de components/charts.jsx, os
-       mesmos valores; chartColors.test.js confere). Iguais nos dois temas; as
-       telas nativas as leem daqui (Tokens.kt, TokensTest). */
+    /* As cores dos graficos: FLOW e SERIES de components/charts.jsx as leem
+       daqui (chartColors.test.js confere). Iguais nos dois temas; as telas
+       nativas tambem (Tokens.kt, TokensTest). */
     --flow-income: 27 175 122;
     --flow-expense: 227 73 72;
     --flow-investment: 42 120 214;
     --flow-others: 237 161 0;
     --series-0: 42 120 214;
+    --series-1: 235 104 52;
+    --series-2: 27 175 122;
+    --series-3: 237 161 0;
+    --series-4: 232 123 164;
+    --series-5: 0 131 0;
+    --series-6: 74 58 167;
+    --series-7: 227 73 72;
   }
 
   :root {

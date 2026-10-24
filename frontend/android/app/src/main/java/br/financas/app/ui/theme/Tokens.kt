@@ -55,6 +55,13 @@ object Tokens {
         "flow-investment" to 0x2A78D6,
         "flow-others" to 0xEDA100,
         "series-0" to 0x2A78D6,
+        "series-1" to 0xEB6834,
+        "series-2" to 0x1BAF7A,
+        "series-3" to 0xEDA100,
+        "series-4" to 0xE87BA4,
+        "series-5" to 0x008300,
+        "series-6" to 0x4A3AA7,
+        "series-7" to 0xE34948,
     )
 
     val dark: Map<String, Int> = mapOf(
@@ -100,6 +107,13 @@ object Tokens {
         "flow-investment" to 0x2A78D6,
         "flow-others" to 0xEDA100,
         "series-0" to 0x2A78D6,
+        "series-1" to 0xEB6834,
+        "series-2" to 0x1BAF7A,
+        "series-3" to 0xEDA100,
+        "series-4" to 0xE87BA4,
+        "series-5" to 0x008300,
+        "series-6" to 0x4A3AA7,
+        "series-7" to 0xE34948,
     )
 
     fun of(dark: Boolean): Map<String, Int> = if (dark) this.dark else light

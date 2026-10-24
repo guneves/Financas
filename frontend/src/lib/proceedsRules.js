@@ -1,3 +1,5 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado. Par nativo:
+// android/.../rules/ProceedsRules.kt (ProceedsRulesTest.kt), os mesmos casos de proceedsRules.test.js.
 // Registrar provento: que tipo cada ativo recebe e que campos cada tipo pede.
 // Puro (sem React nem api.js): testado por node --test.
 //

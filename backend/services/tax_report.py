@@ -353,7 +353,13 @@ def income_sections(proceeds, rows, year):
     return (
         [{"line": line, "amount": rounded_money(value)} for line, value in sorted(isentos.items())],
         [
-            {"line": line, "gross": rounded_money(value["gross"]), "withheld": rounded_money(value["withheld"])}
+            {
+                "line": line,
+                "gross": rounded_money(value["gross"]),
+                "withheld": rounded_money(value["withheld"]),
+                # Declarado liquido (o que a exportacao e o texto do IRPF mostram).
+                "net": rounded_money(rounded_money(value["gross"]) - rounded_money(value["withheld"])),
+            }
             for line, value in sorted(exclusiva.items())
         ],
         details,

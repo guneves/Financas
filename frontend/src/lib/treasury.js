@@ -1,29 +1,10 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado. Par nativo (so os textos):
+// android/.../rules/TreasuryLabels.kt (TreasuryLabelsTest.kt), os mesmos casos de treasury.test.js.
 // Tesouro Direto na Posicao: a posicao agrupada por titulo (services/treasury.py)
 // traz `lots` (as compras) e `treasury` (vencimento, titulos, taxa media, PU).
 
-const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100
-
-// Resgate de um titulo agrupado: o Tesouro vende primeiro os titulos comprados
-// antes (PEPS). Cada parte vira um resgate da compra dela (`related_id`), com o
-// custo proporcional ao valor bruto tirado daquela compra -- a mesma regra do
-// resgate parcial de um titulo so. Valor acima do bruto da posicao: erro.
-export function allocateTreasuryRedemption(lots, amount) {
-  const ordered = [...(lots || [])].sort((a, b) =>
-    String(a.purchase_date).localeCompare(String(b.purchase_date)) || String(a.id).localeCompare(String(b.id)))
-  let rest = round2(amount)
-  if (!(rest > 0)) throw new Error('Informe um valor de resgate.')
-  const parts = []
-  for (const lot of ordered) {
-    if (rest <= 0) break
-    const gross = Number(lot.gross) || 0
-    if (gross <= 0) continue
-    const take = Math.min(rest, round2(gross))
-    parts.push({ lotId: lot.id, amount: round2(take), cost: (Number(lot.invested) || 0) * (take / gross) })
-    rest = round2(rest - take)
-  }
-  if (rest > 0) throw new Error('O valor passa do saldo bruto do título.')
-  return parts
-}
+// O resgate (a divisao PEPS pelas compras) e do servidor:
+// POST /api/investments/redemptions (services/treasury.py, redemption_parts()).
 
 function percentNumber(fraction) {
   return (Number(fraction) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

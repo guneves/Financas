@@ -47,7 +47,7 @@ from services.fixed_income import (
     regressive_ir_rate,
 )
 from services.prices import record_price_quote
-from validators import safe_float
+from validators import ValidationError, safe_float
 
 logger = get_logger(__name__)
 
@@ -390,6 +390,61 @@ def lot_payload(lot):
         "net": rounded_money(lot["net"]),
         "valuation": lot["valuation"],
     }
+
+
+# --- Resgate ------------------------------------------------------------------
+
+def allocate_treasury_redemption(lots, amount):
+    """Resgate de um titulo agrupado: o Tesouro vende primeiro os titulos
+    comprados antes (PEPS). Cada parte vira um resgate da compra dela
+    (`related_id`), com o custo proporcional ao valor bruto tirado daquela
+    compra -- a mesma regra do resgate parcial de um titulo so. Valor acima do
+    bruto da posicao: erro.
+
+    `lots` no formato de `lot_payload()` (id, purchase_date, invested, gross).
+    Devolve [{lot_id, amount, cost}]; o custo nao e arredondado (e o preco
+    medio da operacao, como era no cliente)."""
+    ordered = sorted(lots or [], key=lambda lot: (str(lot.get("purchase_date")), str(lot.get("id"))))
+    rest = rounded_money(amount or 0)
+    if not rest > 0:
+        raise ValidationError("Informe um valor de resgate.")
+    parts = []
+    for lot in ordered:
+        if rest <= 0:
+            break
+        gross = safe_float(lot.get("gross"))
+        if gross <= 0:
+            continue
+        take = min(rest, rounded_money(gross))
+        parts.append({
+            "lot_id": lot["id"],
+            "amount": rounded_money(take),
+            "cost": safe_float(lot.get("invested")) * (take / gross),
+        })
+        rest = rounded_money(rest - take)
+    if rest > 0:
+        raise ValidationError("O valor passa do saldo bruto do título.")
+    return parts
+
+
+def redemption_parts(position, amount):
+    """As partes do resgate de uma posicao de renda fixa da carteira
+    (`build_portfolio_snapshot()`): PEPS pelas compras quando ela traz `lots`
+    (Tesouro), senao uma parte so, com custo = preco medio x bruto resgatado /
+    valor bruto atual."""
+    if position.get("lots"):
+        return allocate_treasury_redemption(position["lots"], amount)
+    amount = rounded_money(amount or 0)
+    if not amount > 0:
+        raise ValidationError("Informe um valor de resgate.")
+    current_value = safe_float(position.get("current_value"))
+    if current_value <= 0:
+        raise ValidationError("O titulo nao tem saldo para resgatar.")
+    return [{
+        "lot_id": position["id"],
+        "amount": amount,
+        "cost": safe_float(position.get("average_price")) * (amount / current_value),
+    }]
 
 
 # --- "Atualizar cotacoes" ---------------------------------------------------

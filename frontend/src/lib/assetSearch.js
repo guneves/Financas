@@ -1,3 +1,5 @@
+// Porte: mudou um, muda o outro, com um teste de cada lado. Par nativo:
+// android/.../rules/AssetSearch.kt (AssetSearchTest.kt), os mesmos casos de assetSearch.test.js.
 // Busca de um ativo da carteira enquanto se digita (AssetPicker): ticker ou
 // nome, sem acento nem caixa. Quem comeca com o texto vem antes de quem so o
 // contem, e o ticker antes do nome — como a busca do catalogo da B3

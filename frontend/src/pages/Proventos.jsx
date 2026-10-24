@@ -103,21 +103,13 @@ const CHART_PERIODS = [
   { value: 'year', label: 'Anual' },
 ]
 
-// by_month vem por AAAA-MM; o anual soma os meses de cada ano.
-function receiptsChartData(byMonth, period) {
-  const months = [...(byMonth || [])].sort((a, b) => String(a.month).localeCompare(String(b.month)))
-  if (period !== 'year') {
-    return months.map((item) => ({ key: item.month, net: Number(item.net_amount || 0), event_count: item.event_count || 0 }))
-  }
-  const years = new Map()
-  months.forEach((item) => {
-    const key = String(item.month).slice(0, 4)
-    const bucket = years.get(key) || { key, net: 0, event_count: 0 }
-    bucket.net += Number(item.net_amount || 0)
-    bucket.event_count += item.event_count || 0
-    years.set(key, bucket)
-  })
-  return [...years.values()].map((item) => ({ ...item, net: Math.round(item.net * 100) / 100 }))
+// by_month (AAAA-MM) e by_year (AAAA) vem somados do servidor.
+function receiptsChartData(summary, period) {
+  const rows = period === 'year' ? summary?.by_year : summary?.by_month
+  const keyOf = (item) => String(period === 'year' ? item.year : item.month)
+  return [...(rows || [])]
+    .sort((a, b) => keyOf(a).localeCompare(keyOf(b)))
+    .map((item) => ({ key: keyOf(item), net: Number(item.net_amount || 0), event_count: item.event_count || 0 }))
 }
 
 // Cupom ou amortizacao de renda fixa: sem data com nem valor por cota.
@@ -189,7 +181,7 @@ export default function Proventos() {
   // ETF e ETF, Tesouro e Tesouro Direto: a categoria vem de /api/assets.
   const assetsById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets])
   const categoryOf = (assetId, fallback) => categoryLabel(assetsById.get(assetId) || fallback)
-  const chartData = useMemo(() => receiptsChartData(summary?.by_month, chartPeriod), [summary, chartPeriod])
+  const chartData = useMemo(() => receiptsChartData(summary, chartPeriod), [summary, chartPeriod])
 
   const fetchData = () => invalidateServerData()
 

@@ -150,6 +150,15 @@ esta arquivada.", "O lancamento no extrato e em reais: escolha uma conta em reai
   changed something.
 
 ## Client rules
+> **Session B (2026-10-24).** Built: `POST /api/investments/redemptions` `{position_id, amount,
+> date, cash_account_id?, client_id?}` does the PEPS split and the single-title cost on the server
+> (`redemption_parts()` in `services/treasury.py`, the old `treasury.test.js` cases in
+> `test_investment_redemptions.py`); `allocateTreasuryRedemption()` is gone from the web. The grouped
+> Tesouro delete is one request, `DELETE /api/investments/by-assets` `{asset_ids, asset_class}`, all
+> or nothing. Ported: `rules/PortfolioAccount.kt`, `rules/TreasuryLabels.kt` (the rate texts,
+> `isMarketValued`, `parseTreasuryUnits`), `rules/FixedIncome.kt` (`describeFixedIncome`); the donut
+> is `ui/charts/DonutChart`. `client_id` (migration 042) is now accepted by `POST /api/investments` (object or list, one id per request), `POST /api/investments/redemptions`, `POST /api/investment-proceeds` (with `repeat`) and `POST /api/corporate-actions`: a repeat returns the first result (200), so these creations may be queued offline like "+ Novo". The statements below saying "no `client_id`, never queue" are superseded.
+
 - **PEPS redemption split** — `allocateTreasuryRedemption()` (`lib/treasury.js`, tested in
   `treasury.test.js`). **Endpoint** recommended: it decides cost basis (money). A proposed
   `POST /api/investments/redemptions {position id, amount, date, cash_account_id}` does not exist
