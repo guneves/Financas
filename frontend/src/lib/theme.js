@@ -34,8 +34,6 @@ function apply() {
   document.documentElement.classList.toggle('dark', dark)
   const meta = document.querySelector('meta[name="theme-color"]')
   if (meta) meta.setAttribute('content', dark ? '#0B1210' : '#EFF2ED')
-  // No APK as barras do Android seguem (lib/nativeApp.js).
-  window.dispatchEvent(new CustomEvent('finance-theme-change', { detail: { dark } }))
   listeners.forEach((listener) => listener())
 }
 
@@ -58,7 +56,7 @@ export function setThemePreference(next) {
   apply()
 }
 
-// A escolha atual ('system' | 'light' | 'dark'), fora do React (lib/nativeApp.js).
+// A escolha atual ('system' | 'light' | 'dark'), fora do React.
 export function themePreferenceNow() {
   return preference
 }

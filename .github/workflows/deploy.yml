@@ -91,9 +91,9 @@ jobs:
           ssh "$SERVER" "cd $APP_DIR && sudo docker compose pull && sudo docker compose up -d && sudo docker image prune -f > /dev/null && sudo docker compose ps"
 
   # The signed APK, on every deploy (owner, 2026-10-22: a new APK to download after each one,
-  # whatever changed; the screen bundle still reaches the phone without it). The key exists on
-  # the runner only between the decode and the delete steps; the secrets reach gradle as
-  # environment variables (masked).
+  # whatever changed). Since session E the APK is all native: no web build, no Node. The key
+  # exists on the runner only between the decode and the delete steps; the secrets reach gradle
+  # as environment variables (masked).
   # The certificate is checked against mobile/release-cert-sha256.txt, the key on the phone:
   # an APK signed with another key would not install over it. Never published to GitHub.
   # It runs alongside build/deploy (gradle outlasts the deploy, so the APK lands after it).
@@ -110,27 +110,11 @@ jobs:
       APK_DEBUG: frontend/android/app/build/outputs/apk/debug/app-debug.apk
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
-      - run: npm ci
-        working-directory: frontend
-      # The same screens the image serves as the bundle (same content hash), as the APK's own.
-      - name: Build the screens for the APK
-        working-directory: frontend
-        env:
-          VITE_API_BASE_URL: ${{ env.API_BASE }}
-        run: |
-          npx vite build --outDir dist-android --emptyOutDir
-          node scripts/bundle-manifest.mjs dist-android "$API_BASE"
-          npx cap sync android
       - name: Version
         run: |
           echo "VERSION_CODE=$((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
@@ -154,7 +138,8 @@ jobs:
         run: |
           export FINANCAS_KEYSTORE_FILE="$KEY_DIR/release.jks"
           bash ./gradlew --no-daemon testReleaseUnitTest assembleRelease assembleDebug \
-            "-PfinancasVersionCode=$VERSION_CODE" "-PfinancasVersionName=$VERSION_NAME"
+            "-PfinancasVersionCode=$VERSION_CODE" "-PfinancasVersionName=$VERSION_NAME" \
+            "-PfinancasApiBase=$API_BASE"
       - name: Delete the release key
         if: always()
         run: rm -rf "$RUNNER_TEMP/release-key"
@@ -179,6 +164,9 @@ jobs:
               exit 1
             fi
           done
+      # native_level stays in the manifest for the WebView APKs (native-level 8 and below), which
+      # refuse a manifest without it; 9 is above all of them, so their banner says the new APK is
+      # needed. The native APK ignores the field.
       - name: Write version.json
         run: |
           file="financas-$VERSION_CODE.apk"
@@ -188,7 +176,7 @@ jobs:
           jq -n \
             --argjson version_code "$VERSION_CODE" \
             --arg version_name "$VERSION_NAME" \
-            --argjson native_level "$(tr -d ' \r\n' < frontend/native-level.txt)" \
+            --argjson native_level 9 \
             --arg sha256 "$(sha256sum "$APK" | cut -d' ' -f1)" \
             --argjson size "$(stat -c%s "$APK")" \
             --arg file "$file" \

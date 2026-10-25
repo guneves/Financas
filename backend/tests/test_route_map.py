@@ -13,9 +13,6 @@ EXPECTED_ROUTES = {
     # O frontend construido (routes/frontend.py): publico, como qualquer pagina.
     ("/", "GET"),
     ("/<path:path>", "GET"),
-    # A tela do APK (routes/app_bundle.py): publica, como `/`.
-    ("/api/app-bundle", "GET"),
-    ("/api/app-bundle/<version>.zip", "GET"),
     ("/api/accounts", "GET,POST"),
     ("/api/accounts/<account_id>", "DELETE,PATCH"),
     ("/api/assets", "GET"),
@@ -148,8 +145,7 @@ def test_no_unexpected_route_appeared(app_module):
 
 def test_every_route_but_health_and_login_requires_a_token(client, app_module):
     """Um blueprint novo nao pode esquecer o @token_required."""
-    public = {"/api/health", "/api/auth/signup", "/api/auth/login", "/", "/<path:path>",
-              "/api/app-bundle", "/api/app-bundle/<version>.zip"}
+    public = {"/api/health", "/api/auth/signup", "/api/auth/login", "/", "/<path:path>"}
     for rule, methods in sorted(EXPECTED_ROUTES):
         if rule in public:
             continue
