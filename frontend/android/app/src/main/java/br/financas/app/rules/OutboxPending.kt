@@ -114,6 +114,12 @@ object OutboxPending {
      * Difere do toCents do JS (Math.round sobre ponto flutuante) so com 3+ casas: 1.005 da 101
      * aqui e 100 la; e num negativo com meio centavo exato (-0.005: -1 aqui, 0 la).
      */
+    /**
+     * Os que mexem em conta. Uma operacao ou provento pendente (INVESTMENT, PROCEED) nao mexe: o
+     * lancamento ligado na Corretora so existe depois que o servidor grava. ACCOUNT_KINDS do JS.
+     */
+    private val ACCOUNT_KINDS = setOf("EXPENSE", "INCOME", "TRANSFER")
+
     internal fun toCents(value: BigDecimal?): Long =
         (value ?: BigDecimal.ZERO).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact()
 
@@ -185,7 +191,7 @@ object OutboxPending {
      */
     fun pendingAsTransactions(items: List<PendingItem>, defaultAccountId: String = ""): List<PendingTransaction> =
         sendOrder(items)
-            .filter { it.kind != "CARD" }
+            .filter { it.kind in ACCOUNT_KINDS }
             .map { item ->
                 val payload = item.payload
                 PendingTransaction(
@@ -216,7 +222,7 @@ object OutboxPending {
      * pendente em diante; summary e o ultimo mes de novo. Nada a mudar devolve o mesmo objeto.
      */
     fun applyPendingToHome(home: HomeData, items: List<PendingItem>): HomeData {
-        val waiting = items.filter { it.status == PENDING && it.kind != "CARD" }
+        val waiting = items.filter { it.status == PENDING && it.kind in ACCOUNT_KINDS }
         if (waiting.isEmpty()) return home
         val accounts = home.accounts
         val defaultAccountId = accounts.firstOrNull { it.isDefault }?.id ?: ""

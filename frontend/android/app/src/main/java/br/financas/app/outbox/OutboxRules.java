@@ -38,7 +38,11 @@ public final class OutboxRules {
 
     private OutboxRules() {}
 
-    /** A rota de cada um dos quatro formularios do "+ Novo"; null para um tipo desconhecido. */
+    /**
+     * A rota de cada um dos quatro formularios do "+ Novo" e das duas criacoes de Investimentos
+     * guardadas sem conexao (042): INVESTMENT ("Registrar operacao") e PROCEED ("Registrar
+     * provento"); null para um tipo desconhecido.
+     */
     public static String endpointFor(String kind) {
         if (kind == null) return null;
         switch (kind) {
@@ -49,9 +53,18 @@ public final class OutboxRules {
                 return "/api/transfers";
             case "CARD":
                 return "/api/cc-expenses/purchases";
+            case "INVESTMENT":
+                return "/api/investments";
+            case "PROCEED":
+                return "/api/investment-proceeds";
             default:
                 return null;
         }
+    }
+
+    /** So os do "+ Novo" reabrem no formulario (Corrigir); os de Investimentos so se descartam. */
+    public static boolean isEditableKind(String kind) {
+        return "EXPENSE".equals(kind) || "INCOME".equals(kind) || "TRANSFER".equals(kind) || "CARD".equals(kind);
     }
 
     /**
@@ -146,7 +159,10 @@ public final class OutboxRules {
      * parcelas (lista). Outra coisa com 2xx nao prova que o item chegou.
      */
     public static boolean isCreationResponse(String kind, Object data) {
-        if ("CARD".equals(kind)) return data instanceof JSONArray;
+        // A operacao volta como lista (POST /api/investments sempre devolve as linhas); o
+        // provento, um objeto, ou a lista da serie quando veio com `repeat`.
+        if ("CARD".equals(kind) || "INVESTMENT".equals(kind)) return data instanceof JSONArray;
+        if ("PROCEED".equals(kind)) return data instanceof JSONObject || data instanceof JSONArray;
         return data instanceof JSONObject;
     }
 
@@ -159,6 +175,7 @@ public final class OutboxRules {
     public static boolean deliveredDiffers(JSONObject item, Object data) {
         if (data == null) return false;
         String kind = item.optString("kind");
+        if (!isEditableKind(kind)) return false;
         JSONObject payload = item.optJSONObject("payload");
         if (payload == null) return false;
         if ("CARD".equals(kind)) {

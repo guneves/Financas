@@ -17,15 +17,31 @@
 export const PENDING = 'pending'
 export const NEEDS_ATTENTION = 'needs_attention'
 
-// Os quatro formularios do "+ Novo" e a rota de cada um.
+// Os quatro formularios do "+ Novo" e a rota de cada um; e as duas criacoes de
+// Investimentos que o APK guarda sem conexao (042): "Registrar operacao"
+// (compra ou venda, um objeto) e "Registrar provento" (um objeto, com ou sem
+// `repeat`).
 const ENDPOINTS = {
   EXPENSE: '/api/transactions',
   INCOME: '/api/transactions',
   TRANSFER: '/api/transfers',
   CARD: '/api/cc-expenses/purchases',
+  INVESTMENT: '/api/investments',
+  PROCEED: '/api/investment-proceeds',
 }
 
 export const ENTRY_KINDS = Object.keys(ENDPOINTS)
+
+// Os que mexem em conta (saldo estimado, linhas do extrato, o Inicio). Uma
+// operacao ou provento pendente nao mexe: o lancamento ligado na Corretora so
+// existe depois que o servidor grava.
+const ACCOUNT_KINDS = ['EXPENSE', 'INCOME', 'TRANSFER']
+
+// So os do "+ Novo" reabrem no formulario (Pendentes › Corrigir); os de
+// Investimentos so podem ser descartados.
+export function isEditableKind(kind) {
+  return ['EXPENSE', 'INCOME', 'TRANSFER', 'CARD'].includes(kind)
+}
 
 export function endpointFor(kind) {
   const endpoint = ENDPOINTS[kind]
@@ -98,7 +114,7 @@ export const ALREADY_DELIVERED_MESSAGE =
 // lancamento antigo e ignora a correcao. Aqui se compara o que o servidor
 // devolveu com o que o item pede: valor e data, em centavos.
 export function deliveredDiffers(item, data) {
-  if (!data) return false
+  if (!data || !isEditableKind(item.kind)) return false
   if (item.kind === 'CARD') {
     const rows = Array.isArray(data) ? data : []
     if (!rows.length) return false
@@ -126,7 +142,15 @@ function toCents(value) {
 }
 
 const amountOf = (item) => {
-  const value = Number(item.kind === 'CARD' ? item.payload?.total_amount : item.payload?.amount)
+  const payload = item.payload || {}
+  let value
+  if (item.kind === 'CARD') value = Number(payload.total_amount)
+  else if (item.kind === 'PROCEED') value = Number(payload.gross_amount)
+  else if (item.kind === 'INVESTMENT') {
+    // Compra: o preco medio ja leva os custos; venda: o preco de venda.
+    const sale = Number(payload.quantity) < 0
+    value = Math.abs(Number(payload.quantity)) * Number(sale ? payload.metadata?.sale_price : payload.average_price)
+  } else value = Number(payload.amount)
   return Number.isFinite(value) ? value : 0
 }
 
@@ -179,7 +203,7 @@ export function applyPendingToAccounts(accounts = [], items = []) {
 // extrato). Recusados aparecem tambem: o dono precisa ve-los para resolver.
 export function pendingAsTransactions(items = [], { defaultAccountId = '' } = {}) {
   return sendOrder(items)
-    .filter((item) => item.kind !== 'CARD')
+    .filter((item) => ACCOUNT_KINDS.includes(item.kind))
     .map((item) => ({
       id: `pending:${item.client_id}`,
       client_id: item.client_id,
@@ -211,7 +235,7 @@ export function pendingAsTransactions(items = [], { defaultAccountId = '' } = {}
 //   - o saldo de fim de mes anda do mes do pendente em diante;
 //   - `summary` e o ultimo mes de novo.
 export function applyPendingToHome(home, items = []) {
-  const waiting = items.filter((item) => item.status === PENDING && item.kind !== 'CARD')
+  const waiting = items.filter((item) => item.status === PENDING && ACCOUNT_KINDS.includes(item.kind))
   if (!home || !waiting.length) return home
   const accounts = home.accounts || []
   const defaultAccountId = accounts.find((account) => account.is_default)?.id || ''
@@ -307,6 +331,8 @@ export const KIND_LABELS = {
   INCOME: 'Receita',
   TRANSFER: 'Transferência',
   CARD: 'Compra no cartão',
+  INVESTMENT: 'Operação',
+  PROCEED: 'Provento',
 }
 
 export function itemAmount(item) {
@@ -314,5 +340,17 @@ export function itemAmount(item) {
 }
 
 export function itemDate(item) {
-  return item.kind === 'CARD' ? item.payload?.purchase_date : item.payload?.date
+  if (item.kind === 'CARD') return item.payload?.purchase_date
+  if (item.kind === 'PROCEED') return item.payload?.payment_date
+  if (item.kind === 'INVESTMENT') return item.payload?.metadata?.purchase_date || item.payload?.metadata?.sale_date
+  return item.payload?.date
+}
+
+// O titulo da linha em Pendentes: a descricao do lancamento, o ativo da
+// operacao, o `title` que o APK guarda no item do provento (o payload so tem o
+// asset_id), ou o tipo.
+export function itemTitle(item) {
+  if (item.kind === 'INVESTMENT') return item.payload?.ticker_or_name || KIND_LABELS.INVESTMENT
+  if (item.kind === 'PROCEED') return item.title || KIND_LABELS.PROCEED
+  return item.payload?.description || KIND_LABELS[item.kind]
 }

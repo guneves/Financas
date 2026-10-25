@@ -187,6 +187,17 @@ class OutboxPendingTest {
 
     private fun assertMoney(expected: String, actual: BigDecimal) = assertEquals(0, money(expected).compareTo(actual))
 
+    // node: 'operacao e provento pendentes: nao mexem em conta, nem no extrato, nem no Inicio'
+    @Test
+    fun pendingInvestmentItemsTouchNoAccountRowOrHome() {
+        val buy = item("INVESTMENT", PendingPayload(accountId = null, date = null))
+        val proceed = item("PROCEED")
+        assertTrue(pendingAccountDeltas(listOf(buy, proceed), defaultAccountId = "main").isEmpty())
+        assertTrue(pendingAsTransactions(listOf(buy, proceed), defaultAccountId = "main").isEmpty())
+        val base = home()
+        assertSame(base, applyPendingToHome(base, listOf(buy, proceed)))
+    }
+
     // node: 'home: sem pendentes volta o mesmo objeto'
     @Test
     fun homeWithoutPendingItemsComesBackTheSame() {

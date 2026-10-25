@@ -25,6 +25,8 @@ import com.getcapacitor.annotation.CapacitorPlugin
  *   native-level 5; a WebView fica parada em /inicio por baixo). "extrato" (params.view) e
  *   "cartoes": Lancamentos › Extrato e Cartoes (ui/extrato/, ui/cartoes/; native-level 6).
  *   "a-receber", "orcamento", "recorrentes", "metas" e "ajustes" (params.section) — native-level 7.
+ *   As abas de Investimentos pelo nome ("posicao", "operacoes", "proventos"...;
+ *   NativeRoutes.INVESTMENTS) — native-level 8.
  *   Tela desconhecida: rejeita com
  *   "UNIMPLEMENTED".
  *
@@ -81,7 +83,8 @@ class NativeScreensPlugin : Plugin() {
                 call.resolve()
             }
             SCREEN_INBOX, SCREEN_HOME, SCREEN_EXTRATO, SCREEN_CARTOES, SCREEN_A_RECEBER,
-            SCREEN_ORCAMENTO, SCREEN_RECORRENTES, SCREEN_METAS, SCREEN_AJUSTES -> {
+            SCREEN_ORCAMENTO, SCREEN_RECORRENTES, SCREEN_METAS, SCREEN_AJUSTES,
+            in NativeRoutes.INVESTMENTS -> {
                 val host = activity
                 if (host == null) {
                     call.reject("Tela nativa indisponível agora.", CODE_UNAVAILABLE)
@@ -96,6 +99,7 @@ class NativeScreensPlugin : Plugin() {
                     SCREEN_RECORRENTES -> NativeRoutes.RECORRENTES
                     SCREEN_METAS -> NativeRoutes.METAS
                     SCREEN_AJUSTES -> NativeRoutes.AJUSTES
+                    in NativeRoutes.INVESTMENTS -> screen
                     else -> NativeRoutes.INBOX
                 }
                 val view = if (screen == SCREEN_AJUSTES) {
@@ -164,11 +168,14 @@ class NativeScreensPlugin : Plugin() {
         /** Ajustes (ui/ajustes/; native-level 7). params.section = a secao a abrir (#contas...). */
         const val SCREEN_AJUSTES = "ajustes"
 
-        /** As rotas nativas deste APK (o NativeScreens.routes() da web). */
+        /**
+         * As rotas nativas deste APK (o NativeScreens.routes() da web). As de Investimentos
+         * (native-level 8) tem o nome da aba: "posicao", "operacoes", "proventos"...
+         */
         val ROUTES: List<String> = listOf(
             SCREEN_NEW_ENTRY, SCREEN_INBOX, SCREEN_HOME, SCREEN_EXTRATO, SCREEN_CARTOES,
             SCREEN_A_RECEBER, SCREEN_ORCAMENTO, SCREEN_RECORRENTES, SCREEN_METAS, SCREEN_AJUSTES,
-        )
+        ) + NativeRoutes.INVESTMENTS
 
         @Volatile
         private var current: NativeScreensPlugin? = null

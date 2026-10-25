@@ -26,6 +26,20 @@ class NativeLinksTest {
     }
 
     @Test
+    fun investmentTabsThisApkHasOpenNatively() {
+        assertEquals(NativeLinks.Target(NativeRoutes.POSICAO), NativeLinks.targetFor("/investimentos"))
+        assertEquals(NativeLinks.Target(NativeRoutes.POSICAO), NativeLinks.targetFor("/investimentos/posicao"))
+        assertEquals(NativeLinks.Target(NativeRoutes.POSICAO), NativeLinks.targetFor("/investments"))
+        assertEquals(NativeLinks.Target(NativeRoutes.OPERACOES), NativeLinks.targetFor("/investimentos/operacoes"))
+        assertEquals(NativeLinks.Target(NativeRoutes.PROVENTOS), NativeLinks.targetFor("/investimentos/proventos"))
+        assertEquals(NativeLinks.Target(NativeRoutes.PROVENTOS), NativeLinks.targetFor("/proventos"))
+        assertNull(NativeLinks.targetFor("/investimentos/posicao?web=1"))
+        assertNull(NativeLinks.targetFor("/investimentos/outra"))
+        // Cada aba sabe a rota nativa e o caminho web dela.
+        assertEquals("/investimentos/rentabilidade", InvestimentosRoutes.webPathOf(br.financas.app.ui.investimentos.InvestimentosTab.RENTABILIDADE))
+    }
+
+    @Test
     fun planejarAReceberAndAjustesOpenTheNativePages() {
         assertEquals(NativeLinks.Target(NativeRoutes.A_RECEBER), NativeLinks.targetFor("/lancamentos/a-receber"))
         assertEquals(NativeLinks.Target(NativeRoutes.ORCAMENTO), NativeLinks.targetFor("/planejamento"))
