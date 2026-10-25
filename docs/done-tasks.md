@@ -176,6 +176,7 @@
 | Native migration session B (Investimentos backend and ports, no screen): `client_id` on investment, provento and corporate-action creations (042); `POST /api/investments/redemptions` (PEPS and the proportional cost on the server) and `DELETE /api/investments/by-assets` (atomic grouped Tesouro delete); `realized_result`, `by_year` and `net` read by Operações, Proventos and IR with no visible change; SERIES/FLOW as CSS variables and in `Tokens.kt`; `ui/charts/` donut, signed bars and gap lines; six rule ports (`PortfolioAccount`, `AssetSearch`, `FixedIncome`, `TreasuryLabels`, `ProceedsRules`, `CompoundInterest`). pytest 1603 → 1636, node 176 → 185, JVM 361 | 2026-10-24 |
 | Native migration session C (steps 5–6): Orçamento, Recorrentes, Metas, A receber and Ajustes native — `rules/MonthlyPlan.kt` (the input side of `monthlyPlan.js`), `Recurring.kt`, `Goals.kt`, `Receivables.kt`, `Settings.kt`, `NotifyTexts.kt`, `ApkUpdateTexts.kt`, `Sharing.groupReceivables`; `frequencyLabel` and the goal forecast texts moved to `lib/recurring.js` / `lib/goals.js` with node tests first; `ui/components/PercentSlider.kt`; `ui/orcamento/`, `ui/recorrentes/`, `ui/metas/`, `ui/areceber/`, `ui/ajustes/` (Regras and Integrações stay web); theme and Sair handed to the WebView through `ShellPrefs` (`Shell.takeThemePreference`/`takeSignOut`); native-level 6 → 7. node 185 → 196 | 2026-10-24 |
 | Native migration session D (step 7): Investimentos native, all seven tabs — `ui/investimentos/` (Posição, Operações with Registrar operação and corporate events, Proventos, Rentabilidade, Alocação read-only with the aporte split, IR meter and DARF months, Calculadora), `data/InvestimentosDtos.kt` + `InvestimentosRepository.kt`, rules `PortfolioView`, `Operations`, `ProceedsForm`, `ReturnsRules`, `AllocationRules`, `CompoundInterest.chartPoints`, `ui/charts/StackedAreaChart`; the outbox's `INVESTMENT` and `PROCEED` kinds on both sides (`outboxRules.js`, `OutboxRules.java`, `OutboxPending.kt`, `PendingSheet.jsx`, `EntrySaver.createJson`); the web routes in `NativePage`; native-level 7 → 8. node 196 → 198, full JVM suite 500 green | 2026-10-24 |
+| Native migration session E (step 8): the native shell and no WebView — `NativeActivity` is the launcher (alias `.MainActivity`), native login (signup closed), bottom bar Início · Lançamentos · Planejar · Investir · Ajustes with a floating "+", native Pendentes (pill in every header, Corrigir/Descartar/Sincronizar agora; `rules/PendingRows.kt`), APK banner, a 401 clears the session and returns to the login; Início's four history panels native from `GET /api/home/panels` (`services/home_panels.py`); Capacitor, `MainActivity`, the plugins, `bundle/`, `NativeScreens`, `services/app_bundle.py` + `GET /api/app-bundle*`, `dist-android`, `bundle-manifest.mjs`, `native-level.txt` removed (web, Dockerfile, both workflows). pytest 1648, node 198 → 169 (bridge tests removed), JVM suite green | 2026-10-25 |
 
 ---
 
@@ -1339,3 +1340,31 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   (the web masks less there); the owner decides whether the web follows (`next-steps.md`).
 - **Found**: the main tree's `frontend/node_modules` had lost `.bin` and several packages (a
   peer worktree's junction cleanup, most likely); `npm ci` restored it before `npm run build`.
+
+### The native shell and no WebView — 2026-10-25 (native session E)
+- **Routes checked first**: every phone route was native or decided desktop-only except Início's
+  four history panels and the Pendentes sheet; the owner chose to build both natively. Importar,
+  Regras de importação, Integrações, the full IR report and editing allocation targets/sectors are
+  desktop-only: the native screens show a note, and `NativeLinks` gives their paths no target.
+- **Início panels**: `GET /api/home/panels` serves Despesas por categoria (owner's part, card
+  purchases in full on the purchase day, refunds subtract, grouped by name as the web does, delta
+  against the whole previous month), Ritmo de gastos (31 days, the average of the previous 3 months
+  with spending), the 6-month invoice projection (overdue left out) with the next invoices' items,
+  and Parcelamentos abertos — all in integer cents (`test_home_panels.py`, 13 cases).
+- **Shell**: `ui/nav/NativeActivity.kt` (NavHost with `login` and every page), `ShellViewModel`
+  (queue rows per session user, the non-VPN network, sync/discard, the APK check at most every
+  6 h), `ShellChrome.kt`, `ShellNav` (+ test), `ShellEvents` (replaces `NativeScreensPlugin`),
+  `ui/components/PendingPill.kt` in `NativeTopBar` and Início's header; `ui/login/` with
+  `data/AuthRepository.kt` (+ test). `ApiClient` passes the refused token to `onUnauthorized`;
+  `AppGraph` clears the session only when it is still that token. `ShellPrefs.isDark` follows
+  "Sistema"; the WebView's last `dark` still counts until the first native choice.
+- **Removal**: `outbox/Outbox.java` (sign in/out, flush, network), `notify/NotifyAccess.java` and
+  `update/ApkUpdater.java` (the plugins' static halves), `ApkUpdateRules` no longer needs
+  `native_level`, `deploy.yml` writes `native_level: 9` for the WebView APKs and passes
+  `-PfinancasApiBase`; `android-check.yml` has no Node step; `mobile/build-apk.ps1` builds only.
+- **Review** (one Sonnet reviewer, shell + removal): one blocker (a Capacitor leftover in
+  `ApkUpdater`, also what CI reported) and minors, fixed: a stale 401 after a new login no longer
+  notifies, `DetectionWorker` is scheduled on every app open, stale WebView comments. Accepted: a
+  link to a view of the page already on top (none exist today) does not switch the view;
+  `Session.load` on the main thread (a few ms, as before).
+

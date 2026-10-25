@@ -7,59 +7,53 @@
 
 ---
 
-## Session — 2026-10-24 · native migration session D: Investimentos (all seven tabs)
+## Session — 2026-10-25 · native migration session E: the native shell, then no WebView
 
-Local session on the owner's PC, branch `claude/native-session-d` from `main` at `e2ee3e1`
-(sessions A, B and C already merged, so no stacking), PR to `main`. No builder agents; one Sonnet
-review at the end. Session B had added `client_id` (042), so Operações and Proventos creations are
-queued offline, as the prompt asked.
+Cloud session, branch `claude/affectionate-thompson-3vd16f` from `main` at `36ea64f` (sessions
+A–D merged), PR to `main`. One Sonnet review at the end (shell + removal only).
 
 ### Done
-1. **Routes**: `NativeRoutes.INVESTMENTS` (posicao, operacoes, proventos, rentabilidade, alocacao,
-   ir, calculadora) in the NavHost, the plugin's `routes()`/`open()`, `NativeLinks`
-   (`InvestimentosRoutes`), the web routes wrapped in `NativePage`; native-level 7 → 8. The seven
-   tabs in the native top bar; a tab the APK lacks would open on the web.
-2. **Outbox**: kinds `INVESTMENT` and `PROCEED` on both sides (`outboxRules.js`,
-   `OutboxRules.java`, `OutboxPending.kt`, `PendingSheet.jsx`): they move no account, make no
-   Extrato row, leave Início and the "Saldo estimado" banners alone, and in Pendentes only
-   "Descartar". `EntrySaver.createJson()` keeps explicit nulls (`cash_account_id: null`).
-3. **Screens** (`ui/investimentos/`): Posição, Operações (Registrar operação, edit, delete,
-   corporate events, Aportes e resgates), Proventos (calendar first, collapsible filters), then
-   Rentabilidade, and spec 16's native part: Alocação read-only + "Quanto vai aportar?", IR meter +
-   DARF months, Calculadora. Targets, sectors and the full IR report open `?web=1`.
-4. **Ports with JVM tests** of what the pages did inline: `PortfolioView`, `Operations`,
-   `ProceedsForm`, `ReturnsRules`, `AllocationRules`, `CompoundInterest.chartPoints`; new
-   `StackedAreaChart`; `LineSeries.width`.
-- Checks: full JVM suite 500 green + `assembleDebug` locally; node 198; `npm run build`;
-  `android-check.yml` green on `43f80e2` and `8c986e7` (the review-fix commit pushed after).
-  No pytest run: no backend change.
+0. **Route check first**: every phone route was native or desktop-only except Início's four
+   history panels (`/inicio?web=1`) and the Pendentes sheet (web only). Stopped and asked; the
+   owner said build both natively. The five desktop-only pages stay desktop-only.
+1. **Início panels**: `GET /api/home/panels` (`services/home_panels.py`, `test_home_panels.py`)
+   and `ui/home/HomeHistoryPanels.kt` (+ `rules/HomePanelsRules.kt`, test). The row that opened
+   the web Início is gone.
+2. **Shell**: `NativeActivity` is the launcher (activity-alias `.MainActivity`, splash), native
+   login (`ui/login/`, Entrar only), bottom bar with the four sections and Ajustes plus a floating
+   "+", the pending pill in every header and a native Pendentes sheet, the APK banner above the
+   bar, a 401 → session cleared → login (the queue stays). Desktop-only links show a note.
+3. **Removal**: Capacitor (gradle, package.json, `capacitor.config.json`), `MainActivity`,
+   `ShellPlugin`, `OutboxPlugin` → `outbox/Outbox.java`, `NotifyPlugin` → `notify/NotifyAccess`,
+   `ApkUpdatePlugin` → `update/ApkUpdater`, `bundle/`, `NativeScreensPlugin` → `ShellEvents`,
+   `PendingRoute`, `services/app_bundle.py` + routes + tests, the web bridge (`nativeApp.js`,
+   `nativeScreens*`, `appBundle*`, `notify*`, `NativePage`, `ApkUpdateBanner`, the two APK-only
+   Ajustes sections), `bundle-manifest.mjs`, `native-level.txt`, `dist-android` (Dockerfile,
+   `deploy.yml`, `android-check.yml`, `build-apk.ps1`). outbox/, notify/, update/ and the
+   notification allow-list test (`NotifyRulesTest`) are untouched in behaviour.
+- Checks: pytest 1648 green, node 169 green, `vite build` ok, `android-check.yml` green on
+  `40161837854` (JVM tests + `assembleDebug`) after three red runs (Capacitor colours in the base
+  theme, two removed enum values, a Capacitor leftover in `ApkUpdater`).
 
 ### Not done, and why
-- **No phone check** (the owner's): each spec's Acceptance list, airplane mode especially.
-- Not built (listed in next-steps, step 7): pull-to-refresh, swipes, chart crosshair, landscape,
-  the shell "+" opening Registrar operação, Proventos' 30-day total and payment-day notification,
-  the DARF reminder.
-- **Owner decision left**: web investment creations offline too (they still send no
-  `client_id`). Privacy was decided (owner, after the PR): every R$ of Operações and Proventos is
-  masked on both sides; the web followed in the stacked PR (`claude/web-privacy-investments`),
-  checked in Chromium on a scratch server with privacy on. IR and the exemption notices stay
-  unmasked on both.
-
-### Review
-One Sonnet reviewer over `origin/main..HEAD`: **no blockers, two majors, both fixed**: the
-"Saldo estimado" counters (`HomeLogic.pendingInBalance`, `ExtratoViewModel.balanceEstimated`,
-`Dashboard.jsx`, `useLancamentos.js`) counted a queued operação/provento — now only the kinds
-that move an account (`ACCOUNT_KINDS`); a redemption's label showed its R$ in privacy mode. Minors
-fixed: bonus cost, the redemption range message and the opportunities' average price masked; a
-misplaced KDoc. Accepted: the queued body passes through `org.json` (numbers as `Double`; exact for
-real amounts); suggested aporte amounts stay visible (they split what the owner types).
+- **No phone check** (the owner's; the PR has the checklist). Nothing of the shell has run on a
+  device: the session cannot build or run an APK.
+- The "+" inside Investimentos opens "+ Novo", not Registrar operação; the launcher shortcut.
+- The web Início still computes the four panels itself (only native reads the new endpoint).
+- `CORS_ORIGINS=https://localhost` stays on the server until the phone has the native APK (the
+  WebView APK still needs it); drop it after.
 
 ### Learned
-- **`frontend/node_modules` in the main tree had lost `.bin` and packages** (likely a peer
-  worktree's junction removal); `vite` was "not recognized". `npm ci` restored it.
-- Android trims leading/trailing spaces of a `<string>`: put the " · " separator in code.
-- `ScreenLoad` + `PlanejarScaffold` (session C) carry any screen; reuse them over new scaffolds.
+- **Installing over the WebView app**: same package, same key and higher versionCode keep
+  `financas_outbox.db`, `Session` and the read cache; the alias keeps the launcher shortcut.
+  The old APK refuses a `version.json` without `native_level`, so CI keeps writing 9.
+- Capacitor brought resources the app theme used (`colorPrimary`…): the build fails at
+  `processDebugResources`, before Kotlin, so each CI round shows one layer of errors.
+- `palette["x"]` throws at runtime for an unknown token (`amber-700` does not exist; use
+  `amber-800`): check new names against `Tokens.kt`.
 
 ### Next session
 1. Fix what the owner's phone check of this PR finds, on this branch.
-2. Otherwise step 8 (remove the WebView) planning, or `home-panels.md`.
+2. Otherwise: the web Início onto `/api/home/panels`, or the desktop redesign plan.
+
+---
