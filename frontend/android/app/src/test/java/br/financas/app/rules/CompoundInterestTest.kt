@@ -169,4 +169,13 @@ class CompoundInterestTest {
         assertEquals("1 mês", durationText(1))
         assertEquals("2 anos e 6 meses", durationText(30))
     }
+
+    // chartPoints de Calculadora.jsx (inline, sem teste la): mes a mes ate 5 anos; acima, ano a ano e o ultimo.
+    @Test
+    fun chartPointsMonthlyUpToFiveYearsThenYearly() {
+        fun schedule(months: Int) = (0..months).map { CompoundInterest.Row(it, 0.0, 0.0, 0.0, 0.0, null) }
+        assertEquals(61, CompoundInterest.chartPoints(schedule(60)).size)
+        assertEquals(listOf(0, 12, 24, 36, 48, 60, 61), CompoundInterest.chartPoints(schedule(61)).map { it.month })
+        assertEquals((0..120 step 12).toList() + 130, CompoundInterest.chartPoints(schedule(130)).map { it.month })
+    }
 }

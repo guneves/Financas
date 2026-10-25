@@ -336,7 +336,7 @@ data class ReturnsPointDto(
     @SerialName("accumulated_percent") val accumulatedPercent: Money? = null,
     @SerialName("cdi_accumulated_percent") val cdiAccumulatedPercent: Money? = null,
     val value: Money? = null,
-    val benchmarks: Map<String, BenchmarkPointDto> = emptyMap(),
+    val benchmarks: Map<String, BenchmarkPointDto?> = emptyMap(),
 )
 
 @Serializable

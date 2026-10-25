@@ -18,7 +18,6 @@ class NativeLinksTest {
     fun everythingElseStaysOnTheWeb() {
         assertNull(NativeLinks.targetFor("/ajustes#regras-de-importacao"))
         assertNull(NativeLinks.targetFor("/ajustes?web=1#categorias"))
-        assertNull(NativeLinks.targetFor("/investimentos/alocacao"))
         assertNull(NativeLinks.targetFor("/lancamentos/extrato?web=1"))
         assertNull(NativeLinks.targetFor(""))
         assertNull(NativeLinks.targetFor(null))
@@ -33,6 +32,13 @@ class NativeLinksTest {
         assertEquals(NativeLinks.Target(NativeRoutes.OPERACOES), NativeLinks.targetFor("/investimentos/operacoes"))
         assertEquals(NativeLinks.Target(NativeRoutes.PROVENTOS), NativeLinks.targetFor("/investimentos/proventos"))
         assertEquals(NativeLinks.Target(NativeRoutes.PROVENTOS), NativeLinks.targetFor("/proventos"))
+        assertEquals(NativeLinks.Target(NativeRoutes.RENTABILIDADE), NativeLinks.targetFor("/investimentos/rentabilidade"))
+        assertEquals(NativeLinks.Target(NativeRoutes.ALOCACAO), NativeLinks.targetFor("/investimentos/alocacao"))
+        assertEquals(NativeLinks.Target(NativeRoutes.IR), NativeLinks.targetFor("/investimentos/ir"))
+        assertEquals(NativeLinks.Target(NativeRoutes.CALCULADORA), NativeLinks.targetFor("/investimentos/calculadora"))
+        // A pagina completa (metas, setores, o relatorio de IR) e a web, mesmo com a nativa.
+        assertNull(NativeLinks.targetFor("/investimentos/alocacao?web=1"))
+        assertNull(NativeLinks.targetFor("/investimentos/ir?web=1"))
         assertNull(NativeLinks.targetFor("/investimentos/posicao?web=1"))
         assertNull(NativeLinks.targetFor("/investimentos/outra"))
         // Cada aba sabe a rota nativa e o caminho web dela.

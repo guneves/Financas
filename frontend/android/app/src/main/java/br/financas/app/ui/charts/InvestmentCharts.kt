@@ -132,7 +132,7 @@ fun SignedBarChart(
 }
 
 /** Uma serie de [GapLineChart]: um valor por coluna, null onde nao ha dado (a linha quebra). */
-data class LineSeries(val values: List<Double?>, val color: Color, val dashed: Boolean = false)
+data class LineSeries(val values: List<Double?>, val color: Color, val dashed: Boolean = false, val width: Dp = 2.dp)
 
 /**
  * Varias linhas sobre as mesmas colunas, cada uma quebrando onde falta dado (o indice que comecou
@@ -197,7 +197,7 @@ fun GapLineChart(
                         moveTo(points[0].x, points[0].y)
                         points.drop(1).forEach { lineTo(it.x, it.y) }
                     }
-                    drawPath(path, line.color, style = Stroke(width = 2.dp.toPx(), pathEffect = effect))
+                    drawPath(path, line.color, style = Stroke(width = line.width.toPx(), pathEffect = effect))
                 }
             }
             if (selected != null) {
@@ -207,6 +207,92 @@ fun GapLineChart(
                     drawCircle(line.color, radius = 3.5f.dp.toPx(), center = point)
                 }
             }
+        }
+        xLabels(measurer, plot, labels, tick)
+    }
+}
+
+/** Uma camada de [StackedAreaChart]: um valor por coluna e a cor. */
+data class AreaSeries(val values: List<Double>, val color: Color)
+
+/**
+ * Areas empilhadas (a Calculadora: investido embaixo, juros por cima) e, se houver, uma linha
+ * tracejada por cima (o valor em reais de hoje). Tocar escolhe a coluna ([onSelect]).
+ */
+@Composable
+fun StackedAreaChart(
+    labels: List<String>,
+    areas: List<AreaSeries>,
+    dashedLine: LineSeries?,
+    tickLabel: (Double) -> String,
+    selected: Int?,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 240.dp,
+) {
+    val palette = LocalPalette.current
+    val measurer = rememberTextMeasurer()
+    val grid = palette["zinc-100"]
+    val axis = palette["zinc-300"]
+    val tick = palette["zinc-500"]
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .pointerInput(labels.size) {
+                detectTapGestures { offset ->
+                    val left = AXIS_WIDTH.toPx()
+                    slotAt(offset.x, left, size.width - left, labels.size)?.let(onSelect)
+                }
+            },
+    ) {
+        if (labels.isEmpty() || areas.isEmpty()) return@Canvas
+        // O topo de cada camada e a soma dela com as de baixo.
+        val tops = areas.indices.map { layer -> labels.indices.map { index -> (0..layer).sumOf { areas[it].values.getOrElse(index) { 0.0 } } } }
+        val (low, high) = ChartGeometry.extent(tops + listOfNotNull(dashedLine?.values?.map { it ?: 0.0 }))
+        val ticks = ChartScale.ticks(low, high)
+        val plot = Plot(
+            left = AXIS_WIDTH.toPx(),
+            top = 8.dp.toPx(),
+            width = size.width - AXIS_WIDTH.toPx(),
+            height = size.height - 8.dp.toPx() - LABEL_HEIGHT.toPx(),
+            min = ticks.first(),
+            max = ticks.last(),
+        )
+        axisAndGrid(measurer, plot, ticks, tickLabel, grid, axis, tick)
+        val slot = plot.width / labels.size
+        val x = { index: Int -> plot.left + slot * index + slot / 2 }
+        areas.indices.forEach { layer ->
+            val top = tops[layer].mapIndexed { index, value -> Offset(x(index), plot.y(value)) }
+            val bottom = if (layer == 0) labels.indices.map { Offset(x(it), plot.y(0.0)) } else tops[layer - 1].mapIndexed { index, value -> Offset(x(index), plot.y(value)) }
+            if (top.size > 1) {
+                val area = Path().apply {
+                    moveTo(top[0].x, top[0].y)
+                    top.drop(1).forEach { lineTo(it.x, it.y) }
+                    bottom.reversed().forEach { lineTo(it.x, it.y) }
+                    close()
+                }
+                drawPath(area, areas[layer].color.copy(alpha = 0.28f))
+                val line = Path().apply {
+                    moveTo(top[0].x, top[0].y)
+                    top.drop(1).forEach { lineTo(it.x, it.y) }
+                }
+                drawPath(line, areas[layer].color, style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+        dashedLine?.let { line ->
+            val effect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))
+            ChartGeometry.lineRuns(line.values).forEach { run ->
+                if (run.size < 2) return@forEach
+                val path = Path().apply {
+                    moveTo(x(run[0].first), plot.y(run[0].second))
+                    run.drop(1).forEach { (index, value) -> lineTo(x(index), plot.y(value)) }
+                }
+                drawPath(path, line.color, style = Stroke(width = line.width.toPx(), pathEffect = effect))
+            }
+        }
+        if (selected != null && selected in labels.indices) {
+            drawLine(axis, Offset(x(selected), plot.top), Offset(x(selected), plot.top + plot.height), strokeWidth = 1.dp.toPx())
         }
         xLabels(measurer, plot, labels, tick)
     }
