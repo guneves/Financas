@@ -180,8 +180,24 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   - privacy is as on the web (Recorrentes and A receber mask nothing; Metas masks Atual, Faltam,
     Objetivo): the owner may want more masked;
   - the native and web dismissed plan-flag lists are separate (like Início's cards).
-- [ ] Steps 7–8 (Investimentos, then remove the WebView), one per APK, each checked by the owner
-  with the debug APK first.
+- [ ] **Step 7 — Investimentos native, owner's phone check** (built 2026-10-24 on
+  `claude/native-session-d`, native-level 8: all seven tabs): run the Acceptance of
+  `screens/12-…` to `16-…` on the debug APK, light and dark, online and in airplane mode, and
+  compare with the web on the same data. Left from that session:
+  - **offline**: a buy/sale and a provento are queued (kinds `INVESTMENT`, `PROCEED`); check that
+    one saved in airplane mode lands once after reconnecting, with its Extrato row in the
+    Corretora, and that Pendentes (web sheet) shows it with only "Descartar". The web itself still
+    sends no `client_id` on investment creations and never queues them (owner: want that too?);
+  - **privacy, owner decision**: native masks every R$ of Operações and Proventos (summary, list,
+    chart), the web masks only some (`13-…`/`15-…` States). Make the web follow, or unmask native?
+  - not built natively: pull-to-refresh, swipe on cards, a press-and-drag chart crosshair (a tap
+    selects), landscape charts, the shell "+" opening Registrar operação inside Investimentos
+    (`NativeScreens.open("investment-entry")`), remembering the last asset type, the "próximos 30
+    dias" total and a payment-day notification in Proventos, the DARF reminder, copying a
+    suggested aporte into Registrar operação;
+  - targets, sectors (Buscar setores, the pencil) and the full IR report stay in the WebView
+    (`?web=1` from the native screens) until the desktop redesign decides their home (step 8).
+- [ ] Step 8 (remove the WebView), checked by the owner with the debug APK first.
 - [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
   screen here before it starts.
 - [ ] **Session containers cannot build an APK**: `dl.google.com` is blocked by the environment's
@@ -200,18 +216,11 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   cache keys; cards without a bank field.
 - [ ] **Investimentos native, what session B left** (2026-10-24, backend, chart kit and ports
   done, `done-tasks.md`):
-  - **The outbox for investment creations**: the server takes `client_id` now (042), but neither
-    queue knows the kinds yet. Native: add them to `OutboxRules.java` / `rules/OutboxItems.kt`
-    with the native screens (step 7), and decide what the pending overlay shows (an operação
-    pending moves no account until it lands, like a card purchase). The web still sends no
-    `client_id` on these and never queues them; add it to `lib/outboxRules.js` only if the owner
-    wants web investment creations offline too.
   - **Not clicked through**: the grouped delete (`DELETE /api/investments/by-assets`) is covered by
     pytest and the screen's call is one line, but the session's walk ran out of grouped lots after
     the redemption. Owner: delete a Tesouro title with two buys once on the server.
-  - The rest of the screens' client rules (`groupAssets()`, `positionMenuItems()`, the movement
-    readers, `comparisonItems()`, `gapText()`, the payload builders) are ported with the screens;
-    the CDI on `benchmarks[]` (`14-…`) is still an open endpoint choice.
+  - The CDI on `benchmarks[]` (`14-…`) is still an open endpoint choice: session D builds the CDI
+    card on the client in both (`comparisonItems()` / `ReturnsRules.comparisonItems()`).
 - [ ] **What the home/attention/invoices proposal left open** (§1–4 built in session 6,
   `done-tasks.md`):
   - **B2, owner decision**: the plan's "spent" (`month_banking_totals()`) still counts a despesa

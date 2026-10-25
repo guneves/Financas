@@ -95,7 +95,7 @@ fun AlocacaoScreen(viewModel: AlocacaoViewModel, onBack: () -> Unit, onTab: (Inv
                 if (!data.hasClassTargets) item(key = "no-targets") { AlertMessage(stringResource(R.string.inv_aloc_no_targets), AlertTone.INFO, dismiss) }
                 item(key = "concentration") { Concentration(data, dismiss) }
                 if (data.hasClassTargets) item(key = "contribution") { ContributionPanel(data, viewModel) }
-                if (data.opportunities.isNotEmpty()) item(key = "opportunities") { OpportunitiesPanel(data) }
+                if (data.opportunities.isNotEmpty()) item(key = "opportunities") { OpportunitiesPanel(data, viewModel.hidden) }
                 item(key = "classes") { ClassesPanel(data, viewModel) }
                 item(key = "sectors") { SectorsPanel(viewModel) }
             }
@@ -134,7 +134,7 @@ private fun ContributionPanel(data: AllocationDto, viewModel: AlocacaoViewModel)
 }
 
 @Composable
-private fun OpportunitiesPanel(data: AllocationDto) {
+private fun OpportunitiesPanel(data: AllocationDto, hidden: Boolean) {
     val palette = LocalPalette.current
     Panel {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -149,12 +149,12 @@ private fun OpportunitiesPanel(data: AllocationDto) {
                         Text(item.ticker.orEmpty(), color = palette.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text(PortfolioView.classLabel(item.assetClass), color = palette.muted, fontSize = 13.sp)
                     }
-                    // Precos e percentuais: publicos, ficam no modo privado (como na web).
+                    // A cotacao e publica; o medio e o custo do dono: some no modo privado.
                     Text(
                         stringResource(
                             R.string.inv_aloc_opportunity_line,
                             formatCurrency(item.currentPrice),
-                            formatCurrency(item.averagePrice),
+                            moneyOrMasked(item.averagePrice, hidden),
                             formatPercent(item.percentInClass, 1),
                             formatPercent(item.targetPercent, 1),
                         ),

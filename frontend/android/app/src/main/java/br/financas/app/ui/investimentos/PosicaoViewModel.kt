@@ -262,7 +262,7 @@ class PosicaoViewModel(application: Application) : AndroidViewModel(application)
         val amount = Operations.parseNumberInput(sheet.amount)
         val limit = sheet.asset.currentValue ?: BigDecimal.ZERO
         if (amount == null || amount.signum() <= 0 || amount > limit) {
-            redeemError = app.getString(R.string.inv_redeem_range, formatCurrency(limit))
+            redeemError = app.getString(R.string.inv_redeem_range, br.financas.app.ui.lancamentos.moneyOrMasked(limit, hidden))
             return
         }
         if (sheet.date.isEmpty()) {

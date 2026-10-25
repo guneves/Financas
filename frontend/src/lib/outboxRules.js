@@ -35,7 +35,7 @@ export const ENTRY_KINDS = Object.keys(ENDPOINTS)
 // Os que mexem em conta (saldo estimado, linhas do extrato, o Inicio). Uma
 // operacao ou provento pendente nao mexe: o lancamento ligado na Corretora so
 // existe depois que o servidor grava.
-const ACCOUNT_KINDS = ['EXPENSE', 'INCOME', 'TRANSFER']
+export const ACCOUNT_KINDS = ['EXPENSE', 'INCOME', 'TRANSFER']
 
 // So os do "+ Novo" reabrem no formulario (Pendentes › Corrigir); os de
 // Investimentos so podem ser descartados.

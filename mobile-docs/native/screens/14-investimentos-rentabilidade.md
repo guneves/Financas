@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 7 (see `../migration-order.md`) — **fourth of the area** (7d), after Posição, Operações and Proventos: read-only, but it needs the chart kit decided here (also used by Posição's evolution, Operações' Aportes, Proventos' receipts and the Calculadora) |
-| Status | Not started |
+| Status | **Built** 2026-10-24 (session D, native-level 8): `ui/investimentos/RentabilidadeScreen.kt` + `RentabilidadeViewModel.kt`, rules `ReturnsRules.kt` (the CDI card built on the client as on the web, with the difference rounded to 2; hints, tones, axis, colours; tested). Aportes e resgates lives in Operações (`StackedBarChart`, signed). Chart kit used: `DonutChart`, `StackedBarChart`, `GapLineChart` (now with a line width), new `StackedAreaChart` (Calculadora). Tap selects a column (no press-and-drag crosshair yet); no landscape full-screen. The class filter is not remembered (as on the web). |
 | React source | `frontend/src/pages/investimentos/Rentabilidade.jsx` (`BenchmarkToggles`, `ReturnsChart`, `YearMonthTable`, `AssetsTable`, `comparisonItems()`, `comparisonHint()`), `pages/investimentos/AportesChart.jsx`, `components/charts.jsx` (`SERIES`, `FLOW`, `CHART`, `OTHER_COLOR`, `ChartTooltip`, `LegendDot`, `DonutChart`, `compactAxis()`, `axisProps`, `useChartAnimation()`), `pages/investimentos/helpers.js` (`ASSET_CLASSES`, `getClassLabel()`), `frontend/src/index.css` (`--chart-*`) |
 | Route(s) | `/investimentos/rentabilidade` (Aportes lives on `/investimentos/operacoes`) |
 | Endpoints | `GET /api/investments/returns?months=6\|12\|24\|36\|60\|all&asset_class=`, `GET /api/investments/contributions?months=&asset_class=` |

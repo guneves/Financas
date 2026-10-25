@@ -106,6 +106,12 @@ object OutboxPending {
      * Ordem de envio: a ordem em que foram lancados (sort estavel, como o do JS). Sem
      * created_at o JS compara "undefined"; aqui tambem.
      */
+    /**
+     * Os que mexem em conta. Uma operacao ou provento pendente (INVESTMENT, PROCEED) nao mexe: o
+     * lancamento ligado na Corretora so existe depois que o servidor grava. ACCOUNT_KINDS do JS.
+     */
+    val ACCOUNT_KINDS = setOf("EXPENSE", "INCOME", "TRANSFER")
+
     fun sendOrder(items: List<PendingItem>): List<PendingItem> =
         items.sortedBy { it.createdAt ?: "undefined" }
 
@@ -114,12 +120,6 @@ object OutboxPending {
      * Difere do toCents do JS (Math.round sobre ponto flutuante) so com 3+ casas: 1.005 da 101
      * aqui e 100 la; e num negativo com meio centavo exato (-0.005: -1 aqui, 0 la).
      */
-    /**
-     * Os que mexem em conta. Uma operacao ou provento pendente (INVESTMENT, PROCEED) nao mexe: o
-     * lancamento ligado na Corretora so existe depois que o servidor grava. ACCOUNT_KINDS do JS.
-     */
-    private val ACCOUNT_KINDS = setOf("EXPENSE", "INCOME", "TRANSFER")
-
     internal fun toCents(value: BigDecimal?): Long =
         (value ?: BigDecimal.ZERO).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact()
 

@@ -150,7 +150,8 @@ object Operations {
 
     private val TIME = DateTimeFormatter.ofPattern("HH:mm")
 
-    fun describe(movement: Movement, zone: ZoneId = ZoneId.systemDefault()): Description {
+    /** [money] escreve o valor do resgate no rotulo (a tela passa o que mascara no modo privado). */
+    fun describe(movement: Movement, zone: ZoneId = ZoneId.systemDefault(), money: (BigDecimal) -> String = ::formatCurrency): Description {
         val fixed = movement.assetClass == "FIXED_INCOME"
         val sale = isSale(movement)
         val redemption = metaFlag(movement.metadata, "is_redemption")
@@ -187,7 +188,7 @@ object Operations {
             adjusted = metaListSize(movement.metadata, "corporate_adjustments") > 0,
             inStatement = inStatement,
             kind = kind,
-            kindLabel = "$kind de ${if (redemption) formatCurrency(total) else quantityText}",
+            kindLabel = "$kind de ${if (redemption) money(total) else quantityText}",
             unitPrice = unitPrice(movement),
             totalValue = total,
             fees = fee,

@@ -96,7 +96,8 @@ export default function useLancamentos() {
     return [...pendingAsTransactions(pending, { defaultAccountId }), ...data.transactions]
   }, [data.transactions, data.allAccounts, pending])
   const balanceEstimated = useMemo(
-    () => pending.some((item) => item.status === PENDING && item.kind !== 'CARD' && item.kind !== 'TRANSFER'),
+    // So despesa e receita mexem no saldo (cartao, transferencia, operacao e provento nao).
+    () => pending.some((item) => item.status === PENDING && (item.kind === 'EXPENSE' || item.kind === 'INCOME')),
     [pending]
   )
   const accounts = useMemo(() => activeAccounts(allAccounts), [allAccounts])

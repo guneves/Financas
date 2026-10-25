@@ -230,7 +230,7 @@ private fun MovementCard(movement: OperationDto, viewModel: OperacoesViewModel) 
     val palette = LocalPalette.current
     val hidden = viewModel.hidden
     val view = OperacoesViewModel.movementOf(movement)
-    val info = Operations.describe(view)
+    val info = Operations.describe(view, money = { moneyOrMasked(it, hidden) })
     Panel {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -337,7 +337,7 @@ private fun EventRow(event: CorporateActionDto, viewModel: OperacoesViewModel) {
             )
             val details = buildString {
                 append(stringResource(R.string.inv_events_ex_date, formatDateBR(event.exDate)))
-                if (event.actionType == "BONUS") append(" · " + stringResource(R.string.inv_events_bonus_cost, formatCurrency(event.bonusUnitCost ?: BigDecimal.ZERO)))
+                if (event.actionType == "BONUS") append(" · " + stringResource(R.string.inv_events_bonus_cost, moneyOrMasked(event.bonusUnitCost ?: BigDecimal.ZERO, viewModel.hidden)))
                 if (!event.notes.isNullOrEmpty()) append(" · ${event.notes}")
             }
             Text(details, color = palette.muted, fontSize = 12.sp)

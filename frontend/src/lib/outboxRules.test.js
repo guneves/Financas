@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  ACCOUNT_KINDS,
   NEEDS_ATTENTION,
   PENDING,
   applyPendingToAccounts,
@@ -48,6 +49,9 @@ test('operacao e provento pendentes: nao mexem em conta, nem no extrato, nem no 
   assert.deepEqual(pendingAsTransactions([buy, proceed], { defaultAccountId: 'main' }), [])
   const home = { accounts: [{ id: 'main', balance: 100, balance_brl: 100, is_default: true }], consolidated_balance: 100, flow: [{ month: '2026-10', income: 0, expense: 0, invested: 0, redeemed: 0, others_paid: 0, others_received: 0, balance: 100 }] }
   assert.equal(applyPendingToHome(home, [buy, proceed]), home)
+  // O aviso "Saldo estimado" conta so os que mexem em conta.
+  assert.deepEqual(ACCOUNT_KINDS, ['EXPENSE', 'INCOME', 'TRANSFER'])
+  assert.equal([buy, proceed].filter((entry) => ACCOUNT_KINDS.includes(entry.kind)).length, 0)
 })
 
 test('operacao e provento pendentes em Pendentes: titulo, valor e data; so se descartam', () => {
