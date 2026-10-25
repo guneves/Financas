@@ -42,4 +42,10 @@ class ShellNavTest {
         assertFalse(ShellNav.backGoesHome(NativeRoutes.LOGIN))
         assertTrue(ShellNav.backGoesHome(NativeRoutes.INBOX))
     }
+
+    @Test
+    fun aprovarGoesBackToExtrato() {
+        assertEquals(NativeRoutes.EXTRATO, ShellNav.backTarget(NativeRoutes.INBOX))
+        for (route in NativeRoutes.ALL - NativeRoutes.INBOX) assertNull(route, ShellNav.backTarget(route))
+    }
 }

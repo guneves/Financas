@@ -7,53 +7,44 @@
 
 ---
 
-## Session — 2026-10-25 · native migration session E: the native shell, then no WebView
+## Session — 2026-10-25 · Aprovar back, quote timeouts, Investimentos tabs keep their place
 
-Cloud session, branch `claude/affectionate-thompson-3vd16f` from `main` at `36ea64f` (sessions
-A–D merged), PR to `main`. One Sonnet review at the end (shell + removal only).
+Cloud session, branch `ccr-d9a20479-tevyk2` from `main` at `3281070` (session E merged).
 
 ### Done
-0. **Route check first**: every phone route was native or desktop-only except Início's four
-   history panels (`/inicio?web=1`) and the Pendentes sheet (web only). Stopped and asked; the
-   owner said build both natively. The five desktop-only pages stay desktop-only.
-1. **Início panels**: `GET /api/home/panels` (`services/home_panels.py`, `test_home_panels.py`)
-   and `ui/home/HomeHistoryPanels.kt` (+ `rules/HomePanelsRules.kt`, test). The row that opened
-   the web Início is gone.
-2. **Shell**: `NativeActivity` is the launcher (activity-alias `.MainActivity`, splash), native
-   login (`ui/login/`, Entrar only), bottom bar with the four sections and Ajustes plus a floating
-   "+", the pending pill in every header and a native Pendentes sheet, the APK banner above the
-   bar, a 401 → session cleared → login (the queue stays). Desktop-only links show a note.
-3. **Removal**: Capacitor (gradle, package.json, `capacitor.config.json`), `MainActivity`,
-   `ShellPlugin`, `OutboxPlugin` → `outbox/Outbox.java`, `NotifyPlugin` → `notify/NotifyAccess`,
-   `ApkUpdatePlugin` → `update/ApkUpdater`, `bundle/`, `NativeScreensPlugin` → `ShellEvents`,
-   `PendingRoute`, `services/app_bundle.py` + routes + tests, the web bridge (`nativeApp.js`,
-   `nativeScreens*`, `appBundle*`, `notify*`, `NativePage`, `ApkUpdateBanner`, the two APK-only
-   Ajustes sections), `bundle-manifest.mjs`, `native-level.txt`, `dist-android` (Dockerfile,
-   `deploy.yml`, `android-check.yml`, `build-apk.ps1`). outbox/, notify/, update/ and the
-   notification allow-list test (`NotifyRulesTest`) are untouched in behaviour.
-- Checks: pytest 1648 green, node 169 green, `vite build` ok, `android-check.yml` green on
-  `40161837854` (JVM tests + `assembleDebug`) after three red runs (Capacitor colours in the base
-  theme, two removed enum values, a Capacitor leftover in `ApkUpdater`).
+1. **Aprovar goes back to Extrato** (APK): arrow and system back, from any entry point
+   (`ShellNav.backTarget()`, `ShellNavTest.aprovarGoesBackToExtrato`).
+2. **"Tempo limite ao consultar yfinance" for every ticker** (owner's screenshot, Sunday 01:37).
+   Cause: the request waited 6 s (`PRICE_FETCH_TIMEOUT_SECONDS`) but outside trading hours
+   `download_market_prices()` makes two yfinance calls (1d/1m comes back empty, then 5d/1d) of up
+   to 8 s each; the late answer only reached the memory cache, never `price_quotes`, and the next
+   `force=True` fetched again — so the hourly thread failed the same way all weekend. Now the
+   button and the thread wait `PRICE_REFRESH_TIMEOUT_SECONDS` (25 s), and a late answer is written
+   anyway (`get_market_prices_with_status(on_late=...)` → `update_current_prices_for_assets`),
+   with `late: true` in the response. Test:
+   `test_a_quote_that_arrives_after_the_timeout_is_still_recorded`.
+3. **Quote result panel**: failures grouped by reason (one line per error, web and APK);
+   `palette["amber-700"]` (not a token: it threw as soon as "Usando cache" had items) → `amber-800`.
+4. **Investimentos tabs (and all tabs/sections) keep their place** (APK): `openTab()`/
+   `openSection()` save the leaving page and restore the returning one (ViewModel, data, scroll);
+   NavHost fades in 120 ms instead of the default 700 ms; the active top tab scrolls into view.
+- Checks: pytest all green, node 169 green, `vite build` ok. Android: not built here (no SDK);
+  `android-check.yml` on the push.
 
 ### Not done, and why
-- **No phone check** (the owner's; the PR has the checklist). Nothing of the shell has run on a
-  device: the session cannot build or run an APK.
-- The "+" inside Investimentos opens "+ Novo", not Registrar operação; the launcher shortcut.
-- The web Início still computes the four panels itself (only native reads the new endpoint).
-- `CORS_ORIGINS=https://localhost` stays on the server until the phone has the native APK (the
-  WebView APK still needs it); drop it after.
+- No phone check of any of this (the owner's). Watch: a restored tab re-reads on show (the
+  STARTED refresh); data should update in place without jumping.
+- The yfinance 1d/1m call is still made outside trading hours (wasted seconds); with the longer
+  wait and the late write it no longer fails, so it was left alone.
+- Session E's open items still stand (the "+" inside Investimentos, web Início on
+  `/api/home/panels`, `CORS_ORIGINS=https://localhost`).
 
 ### Learned
-- **Installing over the WebView app**: same package, same key and higher versionCode keep
-  `financas_outbox.db`, `Session` and the read cache; the alias keeps the launcher shortcut.
-  The old APK refuses a `version.json` without `native_level`, so CI keeps writing 9.
-- Capacitor brought resources the app theme used (`colorPrimary`…): the build fails at
-  `processDebugResources`, before Kotlin, so each CI round shows one layer of errors.
-- `palette["x"]` throws at runtime for an unknown token (`amber-700` does not exist; use
-  `amber-800`): check new names against `Tokens.kt`.
+- Unknown palette tokens are runtime crashes: a quick scan of `palette["..."]` against
+  `Tokens.kt` found `amber-700` (the others — `flow-*`, `series-*`, `brand-soft` — exist).
 
 ### Next session
-1. Fix what the owner's phone check of this PR finds, on this branch.
+1. If `android-check.yml` is red on this branch, fix it first; then the owner's phone check.
 2. Otherwise: the web Início onto `/api/home/panels`, or the desktop redesign plan.
 
 ---

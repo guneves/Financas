@@ -414,7 +414,11 @@ def update_current_prices_for_assets(current_user_id, target_assets, market_resu
     return updated_assets
 
 
-def refresh_market_prices(current_user_id, investment_id=None, *, force=False, asset_id=None, asset_class=None):
+def refresh_market_prices(current_user_id, investment_id=None, *, force=False, asset_id=None, asset_class=None, timeout=None):
+    """Busca e grava as cotacoes dos ativos cotados com posicao aberta.
+
+    Se o provedor passa de `timeout`, o que chegar depois e gravado do mesmo jeito
+    (`write_late`): a proxima leitura da carteira ja mostra a cotacao nova."""
     all_investments = fetch_investments(current_user_id)
     investments_to_update = (
         fetch_investments(current_user_id, investment_id) if investment_id else all_investments
@@ -437,7 +441,13 @@ def refresh_market_prices(current_user_id, investment_id=None, *, force=False, a
     tickers = sorted({asset["ticker"] for asset in target_assets})
 
     foreign = {asset["ticker"] for asset in target_assets if asset.get("currency", "BRL") != "BRL"}
-    market_result = get_market_prices_with_status(tickers, force=force, foreign=foreign)
+    def write_late(prices):
+        late_result = {"prices": prices, "source_by_ticker": {ticker: "market" for ticker in prices}}
+        update_current_prices_for_assets(current_user_id, target_assets, late_result)
+
+    market_result = get_market_prices_with_status(
+        tickers, force=force, foreign=foreign, timeout=timeout, on_late=write_late,
+    )
     updated_assets = update_current_prices_for_assets(current_user_id, target_assets, market_result)
     failed_tickers = set(market_result.get("failed_tickers", []))
     source_by_ticker = market_result.get("source_by_ticker", {})
@@ -469,6 +479,7 @@ def refresh_market_prices(current_user_id, investment_id=None, *, force=False, a
         "requested_tickers": len(tickers),
         "priced_tickers": len(market_result.get("prices", {})),
         "failed_tickers": sorted(failed_tickers),
+        "late": bool(market_result.get("late")),
     }
 
 

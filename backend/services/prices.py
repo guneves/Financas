@@ -268,6 +268,24 @@ def cache_market_prices_from_future(future):
         logger.exception(f"Erro ao finalizar cache de cotacoes: {exc}")
 
 
+def late_prices_callback(on_late=None):
+    """O fim de uma consulta que passou do tempo: o cache e, com `on_late`, quem grava."""
+    def done(future):
+        try:
+            prices = future.result()
+        except Exception as exc:
+            logger.warning(f"Consulta de cotacoes atrasada falhou: {exc}")
+            return
+        update_price_cache(prices)
+        if on_late is not None and prices:
+            try:
+                on_late(prices)
+            except Exception as exc:
+                logger.exception(f"Erro ao gravar cotacoes atrasadas: {exc}")
+
+    return done
+
+
 def extract_close_values(data, yf_symbol):
     if data is None or getattr(data, "empty", True):
         return None
@@ -802,13 +820,20 @@ def get_market_prices(tickers, *, force=False):
     return prices
 
 
-def get_market_prices_with_status(tickers, *, force=False, foreign=()):
+def get_market_prices_with_status(tickers, *, force=False, foreign=(), timeout=None, on_late=None):
+    """Cotacoes com a origem de cada uma (market, cache, cache_stale) e as que falharam.
+
+    Espera o provedor ate `timeout` (PRICE_FETCH_TIMEOUT_SECONDS por padrao). Se ele
+    demora mais, a consulta continua em segundo plano: o resultado entra no cache e
+    vai para `on_late(precos)` (quem chama grava as cotacoes), e `late` vem True.
+    """
     normalized_tickers = sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)})
     result = {
         "prices": {},
         "source_by_ticker": {},
         "failed_tickers": [],
         "errors": {},
+        "late": False,
     }
     if not normalized_tickers:
         return result
@@ -831,10 +856,11 @@ def get_market_prices_with_status(tickers, *, force=False, foreign=()):
     fetch_error = None
     future = _price_fetch_executor.submit(download_market_prices, tickers_to_fetch, foreign)
     try:
-        fetched_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS)
+        fetched_prices = future.result(timeout=PRICE_FETCH_TIMEOUT_SECONDS if timeout is None else timeout)
     except FutureTimeoutError:
-        future.add_done_callback(cache_market_prices_from_future)
-        fetch_error = "Tempo limite ao consultar yfinance"
+        future.add_done_callback(late_prices_callback(on_late))
+        fetch_error = "O provedor demorou; a cotação será gravada quando chegar"
+        result["late"] = True
         logger.warning("Tempo limite ao consultar yfinance; usando cache quando disponivel.")
         fetched_prices = {}
     except Exception as exc:

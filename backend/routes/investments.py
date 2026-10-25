@@ -18,7 +18,7 @@ from flask import Blueprint, jsonify, request
 
 from asset_classes import ALLOWED_ASSET_CLASSES, is_crypto_asset, is_quoted_asset, parse_asset_class_filter
 from auth import token_required
-from config import PRICE_FETCH_TIMEOUT_SECONDS
+from config import PRICE_FETCH_TIMEOUT_SECONDS, PRICE_REFRESH_TIMEOUT_SECONDS
 from dates import parse_iso_date, subtract_months
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
@@ -1033,6 +1033,7 @@ def update_stock_prices(current_user_id):
             force=True,
             asset_id=asset_id,
             asset_class=asset_class,
+            timeout=PRICE_REFRESH_TIMEOUT_SECONDS,
         )
         treasury_result = finish_treasury_refresh(
             current_user_id, investments_to_update, treasury_pending, fixed_income_plan,
@@ -1071,6 +1072,8 @@ def update_stock_prices(current_user_id):
             "stale_assets": stale_assets,
             "requested_tickers": market_result["requested_tickers"],
             "priced_tickers": market_result["priced_tickers"],
+            # O provedor passou do tempo: as cotacoes que faltam sao gravadas quando chegarem.
+            "late": market_result.get("late", False),
         }), 200
     except ValidationError as exc:
         return validation_error(str(exc))

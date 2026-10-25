@@ -19,7 +19,7 @@ import threading
 import time
 
 from applog import get_logger
-from config import QUOTE_AUTO_REFRESH_SECONDS
+from config import PRICE_REFRESH_TIMEOUT_SECONDS, QUOTE_AUTO_REFRESH_SECONDS
 from db import get_db
 from services.portfolio import refresh_market_prices
 
@@ -42,7 +42,7 @@ def refresh_all_users():
     results = {}
     for current_user_id in user_ids():
         try:
-            outcome = refresh_market_prices(current_user_id, force=True)
+            outcome = refresh_market_prices(current_user_id, force=True, timeout=PRICE_REFRESH_TIMEOUT_SECONDS)
         except Exception as exc:  # um provedor fora do ar nao derruba a rodada
             logger.warning(f"Atualizacao automatica de cotacoes falhou para {current_user_id}: {exc}")
             continue

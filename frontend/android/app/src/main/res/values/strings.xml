@@ -954,7 +954,7 @@
     <string name="inv_quotes_result_summary">%1$d atualizada(s), %2$d falha(s), %3$d desatualizada(s)/sem cotação.</string>
     <string name="inv_quotes_updated">Atualizados: %1$s</string>
     <string name="inv_quotes_cached">Usando cache: %1$s</string>
-    <string name="inv_quotes_failed_list">Falharam: %1$s</string>
+    <string name="inv_quotes_failed_list">%1$s: %2$s</string>
     <string name="inv_quotes_stale">Desatualizada/sem cotação: %1$s</string>
     <string name="inv_quotes_failed">Erro de conexão ao tentar atualizar os preços.</string>
     <string name="inv_menu_details">Detalhes do título</string>

@@ -644,11 +644,15 @@ function QuoteUpdateResult({ result, onClose }) {
               Usando cache: {result.cached_assets.map((item) => item.ticker || item.name).join(', ')}
             </p>
           ) : null}
-          {result.failed_assets?.length ? (
-            <p className="text-rose-700">
-              Falharam: {result.failed_assets.map((item) => `${item.ticker || item.name} (${item.error || 'sem detalhe'})`).join(', ')}
+          {/* Uma linha por motivo: um tempo limite do provedor nao se repete ticker a ticker. */}
+          {Object.entries((result.failed_assets || []).reduce((groups, item) => {
+            const error = item.error || 'sem detalhe'
+            return { ...groups, [error]: [...(groups[error] || []), item] }
+          }, {})).map(([error, items]) => (
+            <p key={error} className="text-rose-700">
+              {error}: {items.map((item) => item.ticker || item.name).join(', ')}
             </p>
-          ) : null}
+          ))}
           {result.stale_assets?.length ? (
             <p className="text-zinc-600">
               Desatualizada/sem cotação: {result.stale_assets.map((item) => item.ticker || item.name).join(', ')}

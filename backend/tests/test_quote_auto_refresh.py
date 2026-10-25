@@ -24,8 +24,8 @@ def buy(client, auth, ticker, quantity, price, *, asset_class="STOCKS"):
 def fake_market(prices):
     calls = []
 
-    def fetch(tickers, *, force=False, foreign=()):
-        calls.append({"tickers": sorted(tickers), "force": force})
+    def fetch(tickers, *, force=False, foreign=(), **kwargs):
+        calls.append({"tickers": sorted(tickers), "force": force, "timeout": kwargs.get("timeout")})
         found = {ticker: prices[ticker] for ticker in tickers if ticker in prices}
         return {
             "prices": found,
@@ -62,6 +62,8 @@ def test_a_round_refreshes_every_user_with_force(client, user, other_user, db_mo
     assert results[user["id"]] == 1
     assert results[other_user["id"]] == 1
     assert all(call["force"] for call in calls)
+    # A rodada de hora em hora espera o provedor mais que a leitura da carteira (6 s).
+    assert all(call["timeout"] == quote_refresh.PRICE_REFRESH_TIMEOUT_SECONDS for call in calls)
     assert latest_market_price(db_module, user["id"], "PETR4") == 38.42
     assert latest_market_price(db_module, other_user["id"], "HGLG11") == 171.15
     # Cada usuario so pede os proprios ativos.
@@ -86,7 +88,7 @@ def test_one_user_failing_does_not_stop_the_others(client, user, other_user, mon
     quote_refresh = importlib.import_module("services.quote_refresh")
     seen = []
 
-    def refresh(current_user_id, *, force=False):
+    def refresh(current_user_id, *, force=False, **kwargs):
         seen.append(current_user_id)
         if current_user_id == user["id"]:
             raise RuntimeError("provedor fora do ar")
@@ -104,3 +106,33 @@ def test_the_thread_is_off_with_interval_zero(app_module):
     quote_refresh = importlib.import_module("services.quote_refresh")
     assert quote_refresh.start_auto_refresh(interval_seconds=0) is False
     assert quote_refresh._auto_refresh_started is False
+
+
+def test_a_quote_that_arrives_after_the_timeout_is_still_recorded(client, user, db_module, portfolio_module, prices_module, monkeypatch):
+    """Fora do pregao o yfinance faz duas consultas e passa do tempo do pedido: a resposta
+    diz `late` e a cotacao que chega depois e gravada, nao so posta no cache."""
+    import threading
+
+    buy(client, user["headers"], "VALE3", 10, 60.0)
+    release = threading.Event()
+
+    def slow_download(tickers, foreign=()):
+        release.wait(5)
+        return {ticker: 61.37 for ticker in tickers}
+
+    monkeypatch.setattr(prices_module, "download_market_prices", slow_download)
+    monkeypatch.setattr(prices_module, "yf", object())
+    monkeypatch.setattr(prices_module, "_price_cache", {})
+    outcome = portfolio_module.refresh_market_prices(user["id"], force=True, asset_id=None, timeout=0.05)
+
+    assert outcome["late"] is True
+    assert outcome["updated_count"] == 0
+    failed = [asset for asset in outcome["failed_assets"] if asset["ticker"] == "VALE3"]
+    assert failed and "gravada quando chegar" in failed[0]["error"]
+
+    release.set()
+    for _ in range(50):
+        if latest_market_price(db_module, user["id"], "VALE3") == 61.37:
+            break
+        threading.Event().wait(0.05)
+    assert latest_market_price(db_module, user["id"], "VALE3") == 61.37
