@@ -237,7 +237,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
                     installApk()
                 }
             }
-            AjustesSection.APARENCIA, AjustesSection.REGRAS, AjustesSection.INTEGRACOES -> Unit
+            AjustesSection.APARENCIA -> Unit
         }
     }
 

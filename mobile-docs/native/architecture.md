@@ -1,30 +1,34 @@
 # Native architecture
 
-All under `frontend/android/app/src/main/java/br/financas/app/`. Native screens are another client
-of the same endpoints the React app calls.
+All under `frontend/android/app/src/main/java/br/financas/app/`. The APK is all native since
+session E (2026-10-25): no WebView, no Capacitor. Native screens are another client of the same
+endpoints the React app (now browser only) calls.
 
 | Package | Holds |
 |---|---|
-| `ui/theme/` | `Tokens`, `FinancasTheme`, `Palette`, `ShellPrefs` |
-| `ui/components/` | The native UI kit |
+| `ui/theme/` | `Tokens`, `FinancasTheme`, `Palette`, `ShellPrefs` (theme choice, privacy) |
+| `ui/components/` | The native UI kit (incl. `PendingPill` and `LocalShellChrome`) |
 | `ui/charts/` | Compose `Canvas` charts (no library) |
-| `ui/nav/` | `NativeActivity` + `NavHost`, the `NativeScreens` bridge to the WebView |
+| `ui/nav/` | `NativeActivity` (the launcher, via the `.MainActivity` alias) + `NavHost`, `ShellViewModel` (Pendentes, network, APK banner), `ShellChrome.kt` (bottom bar, "+", Pendentes sheet), `ShellNav`, `NativeLinks`, `ShellEvents` |
+| `ui/login/` | Native login (`POST /api/auth/login`; signup stays closed on the phone) |
 | `ui/<feature>/` | One package per screen: Screen, ViewModel, state |
-| `data/` | `AppGraph` (no DI framework), `ApiClient` (OkHttp + kotlinx.serialization), `ReadCache`, repositories |
+| `data/` | `AppGraph` (no DI framework), `ApiClient` (OkHttp + kotlinx.serialization), `AuthRepository`, `ReadCache`, repositories |
 | `core/`, `rules/` | Pure Kotlin: money, dates, ported client rules |
-| `outbox/`, `notify/`, `update/` (Java) | Offline queue and sender, bank-notification listener, APK update |
-| `bundle/` (Java) | Screen self-update; leaves with the WebView |
+| `outbox/`, `notify/`, `update/` (Java) | Offline queue and sender (`Outbox`: sign in/out, flush), bank-notification listener (`NotifyAccess`), APK update (`ApkUpdater`) |
 
-## Native beside the WebView
-- `MainActivity` (Capacitor WebView) is the launcher until the shell step. The web asks
-  `NativeScreens.routes()` and calls `open()` for a listed route; an older APK lists nothing and
-  keeps the React screen.
-- A native screen that links to one not migrated finishes with the route; `NativeScreens` emits
-  `navigate`. Native writes emit `dataChanged` (the web invalidates its cache); native re-reads when
-  a screen opens. A route survives process death for 2 minutes.
-- Session: the WebView logs in and hands it to `outbox/Session.java`; a 401 opens the web login
-  until the native shell exists.
+## The shell
+- `NativeActivity` starts on `login` without a `Session`, else on `home`. Around every page: the
+  bottom bar (Início, Lançamentos, Planejar, Investir, Ajustes; `ShellNav`), the "+" (the native
+  "+ Novo", `NewEntryActivity`, Cartão inside Cartões), the APK banner and the Pendentes sheet.
+  Back with nothing below goes to Início; on Início it moves the task to the back.
+- Session: the login writes `outbox/Session.java` (`Outbox.signIn`: Keystore-sealed token, the
+  workers rescheduled). A 401 on any request clears the session if it is still the token that was
+  refused (`AppGraph.handleUnauthorized`) and the shell returns to the login; the queue stays.
+  Sair does the same and clears the read cache.
+- Links between screens are web paths (`/ajustes#contas`, `/lancamentos/cartoes`): `NativeLinks`
+  maps them to a page; desktop-only pages (Importar, Regras de importação, Integrações, the full IR
+  report, editing allocation targets and sectors) have no page and the screens show a note instead.
+- Native writes call `ShellEvents.emitDataChanged()`: the shell rereads the queue and shows the
+  notice; screens reread when they open. The background sender reports through `OutboxEvents`.
 - Reads: cache first, then network, "atualizado às HH:MM" when from cache.
-- Mirrored settings: theme and privacy via `ShellPrefs`; dismissed attention cards are per store.
-- The last step makes `NativeActivity` the launcher and deletes Capacitor, `bundle/`,
-  `services/app_bundle.py`, `native-level.txt` and `dist-android`.
+- Server address: `BuildConfig.API_BASE_URL` (`-PfinancasApiBase`) until a session stores its own.
