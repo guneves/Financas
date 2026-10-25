@@ -31,7 +31,7 @@ import {
 import { toast } from '../lib/toast'
 import { formatCurrency, formatDateBR, formatPercent, formatUnitCurrency, getLocalDateString, monthLabel, shortMonthLabel } from '../lib/format'
 import { confirmAction } from '../lib/confirm'
-import { usePrivateFormatter } from '../lib/privacy'
+import { MASKED_TEXT, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
 import ExportSheet from '../components/ExportSheet'
 import { syncProceeds, useProceedsSync } from '../lib/proceedsSync'
 import AssetPicker from '../components/AssetPicker'
@@ -119,6 +119,11 @@ const isFixedIncomeEvent = (item) => item.asset?.asset_class === 'FIXED_INCOME'
 const NO_ITEMS = []
 
 export default function Proventos() {
+  // Todo valor em reais (e as cotas) some no modo privado, como no APK; percentuais ficam.
+  const money = usePrivateFormatter(formatCurrency)
+  const unitMoney = usePrivateFormatter(formatUnitCurrency)
+  const axisMoney = usePrivateAxisFormatter(compactAxis)
+  const hidden = useValuesHidden()
   const chartAnimation = useChartAnimation()
   const [filters, setFilters] = useState({
     date_from: `${currentYear}-01-01`,
@@ -394,13 +399,13 @@ export default function Proventos() {
       <SummaryPanel
         lead={{
           label: 'Líquido no período',
-          value: formatCurrency(summary?.net_amount),
-          hint: `${summary?.event_count || 0} evento(s) · bruto ${formatCurrency(summary?.gross_amount)}`,
+          value: money(summary?.net_amount),
+          hint: `${summary?.event_count || 0} evento(s) · bruto ${money(summary?.gross_amount)}`,
         }}
         figures={[
           { label: 'Yield on cost', value: formatPercent(summary?.yield_on_cost_percent), hint: 'Líquido / custo elegível' },
-          { label: 'Agendado', value: formatCurrency(summary?.scheduled_net_amount), hint: 'Pagamentos futuros' },
-          { label: 'Imposto retido', value: formatCurrency(summary?.tax_amount), hint: 'Retido na fonte' },
+          { label: 'Agendado', value: money(summary?.scheduled_net_amount), hint: 'Pagamentos futuros' },
+          { label: 'Imposto retido', value: money(summary?.tax_amount), hint: 'Retido na fonte' },
         ]}
       />
 
@@ -422,7 +427,7 @@ export default function Proventos() {
                         <span className="text-sm text-zinc-500">{typeLabel(item.proceeds_type)}</span>
                       </div>
                       <p className="mt-1 truncate text-sm text-zinc-600">
-                        {item.asset?.ticker} - {formatCurrency(item.net_amount)}
+                        {item.asset?.ticker} - {money(item.net_amount)}
                       </p>
                     </div>
                     <CalendarDays className="h-5 w-5 shrink-0 text-zinc-400" />
@@ -467,12 +472,13 @@ export default function Proventos() {
                       interval="preserveStartEnd"
                       minTickGap={12}
                     />
-                    <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
+                    <YAxis tickFormatter={axisMoney} {...axisProps} width={56} />
                     <Tooltip
                       cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
                       content={(
                         <ChartTooltip
                           names={{ net: 'Líquido' }}
+                          valueFormatter={money}
                           labelFormatter={(label) => (chartPeriod === 'year' ? label : monthLabel(label))}
                           footer={(payload) => `${payload?.[0]?.payload?.event_count || 0} evento(s)`}
                         />
@@ -552,15 +558,15 @@ export default function Proventos() {
                       {formatDateBR(item.payment_date)}{isFixedIncomeEvent(item) ? '' : ` · com ${formatDateBR(item.record_date)}`} · {categoryOf(item.asset_id, item.asset)}
                     </p>
                   </div>
-                  <p className="shrink-0 font-bold tabular text-emerald-700">{formatCurrency(item.net_amount)}</p>
+                  <p className="shrink-0 font-bold tabular text-emerald-700">{money(item.net_amount)}</p>
                 </div>
                 <p className="text-sm text-zinc-700">
                   {typeLabel(item.proceeds_type)}
                   {item.status === 'PAID' ? '' : <span className="font-medium text-sky-700"> · agendado</span>}
                 </p>
                 <p className="text-xs text-zinc-600 tabular">
-                  {isFixedIncomeEvent(item) ? '' : `${formatUnitCurrency(item.amount_per_unit)}/cota · ${Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} cotas · `}
-                  Bruto {formatCurrency(item.gross_amount)} · Imposto {formatCurrency(item.tax_amount)} · YOC {formatPercent(item.yield_on_cost_percent, 4)}
+                  {isFixedIncomeEvent(item) ? '' : `${unitMoney(item.amount_per_unit)}/cota · ${(hidden ? MASKED_TEXT : Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 }))} cotas · `}
+                  Bruto {money(item.gross_amount)} · Imposto {money(item.tax_amount)} · YOC {formatPercent(item.yield_on_cost_percent, 4)}
                 </p>
                 <div className="flex justify-end">
                   <Menu label={`Ações do provento de ${item.asset?.ticker || 'ativo'}`} size="md" items={proventoMenuItems(item, handleEdit, handleDelete)} />
@@ -612,15 +618,15 @@ export default function Proventos() {
                         {item.status === 'PAID' ? '' : <span className="font-medium text-sky-700"> · agendado</span>}
                       </p>
                     </td>
-                    <td className="num text-zinc-700">{formatUnitCurrency(item.amount_per_unit)}</td>
-                    <td className="num text-zinc-700">{Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}</td>
-                    <td className="num text-zinc-700">{formatCurrency(item.gross_amount)}</td>
+                    <td className="num text-zinc-700">{unitMoney(item.amount_per_unit)}</td>
+                    <td className="num text-zinc-700">{(hidden ? MASKED_TEXT : Number(item.eligible_quantity || 0).toLocaleString('pt-BR', { maximumFractionDigits: 6 }))}</td>
+                    <td className="num text-zinc-700">{money(item.gross_amount)}</td>
                     <td className="num">
-                      <p className="text-zinc-700">{formatCurrency(item.tax_amount)}</p>
+                      <p className="text-zinc-700">{money(item.tax_amount)}</p>
                       <p className="text-xs text-zinc-500">{formatPercent(item.effective_tax_rate_percent)}</p>
                     </td>
-                    <td className="num font-semibold text-emerald-700">{formatCurrency(item.net_amount)}</td>
-                    <td className="num" title={`Custo na data com: ${formatCurrency(item.cost_basis_at_record_date)}`}>
+                    <td className="num font-semibold text-emerald-700">{money(item.net_amount)}</td>
+                    <td className="num" title={`Custo na data com: ${money(item.cost_basis_at_record_date)}`}>
                       <p className="font-medium text-zinc-800">{formatPercent(item.yield_on_cost_percent, 4)}</p>
                     </td>
                     <td className="py-1.5 text-right">

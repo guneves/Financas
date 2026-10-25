@@ -22,6 +22,7 @@ import {
 import { investmentsApi } from '../../lib/dataApi'
 import { parseTreasuryUnits } from '../../lib/treasury'
 import { formatCurrency, formatSignedCurrency } from '../../lib/format'
+import { usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import {
   FIXED_INCOME_METADATA_KEYS,
   fixedIncomeFormFromMetadata,
@@ -47,7 +48,8 @@ import AportesChart from './AportesChart'
 const EDIT_FORM_ID = 'investment-movement-edit'
 
 // Leitura de uma linha do historico, usada pela tabela e pelos cartoes.
-function describeMovement(mov) {
+// `money` escreve o valor do resgate no rotulo (mascarado no modo privado).
+function describeMovement(mov, money = formatCurrency) {
   const isFixed = mov.asset_class === 'FIXED_INCOME'
   const isSale = mov.quantity < 0
   const isRedemption = !!mov.metadata?.is_redemption
@@ -79,14 +81,14 @@ function describeMovement(mov) {
   const kind = isBonus ? 'Bonificação' : isFixed ? (isSale ? 'Resgate' : 'Aporte') : (isSale ? 'Venda' : 'Compra')
   const quantityText = Math.abs(Number(mov.quantity)).toLocaleString('pt-BR', { maximumFractionDigits: 6 })
   const kindDetail = isRedemption
-    ? formatCurrency(totalValue)
+    ? money(totalValue)
     : isFixed ? '' : `${quantityText} un.${adjusted ? ' · ajustada por evento' : ''}`
   // A operacao tem lancamento no Extrato quando saiu de uma conta (CashLinkField).
   const inStatement = cashLinkFromMetadata(mov.metadata).enabled
   const kindDetailWithCash = inStatement
     ? [kindDetail, 'no extrato'].filter(Boolean).join(' · ')
     : kindDetail
-  const kindLabel = `${kind} de ${isRedemption ? formatCurrency(totalValue) : quantityText}`
+  const kindLabel = `${kind} de ${isRedemption ? money(totalValue) : quantityText}`
 
   return {
     isSale,
@@ -112,6 +114,10 @@ function describeMovement(mov) {
 }
 
 export default function Operacoes() {
+  // Todo valor em reais some no modo privado (como no APK); percentuais ficam.
+  const money = usePrivateFormatter(formatCurrency)
+  const signedMoney = usePrivateFormatter(formatSignedCurrency)
+  const hidden = useValuesHidden()
   const {
     movementsLoading,
     assets,
@@ -287,19 +293,19 @@ export default function Operacoes() {
         <SummaryPanel
           lead={{
             label: 'Resultado pós-IR',
-            value: formatSignedCurrency(realizedSummary.netProfitAfterTax),
+            value: signedMoney(realizedSummary.netProfitAfterTax),
             hint: `${realizedCount} venda(s) e resgate(s) com resultado`,
-            tone: realizedSummary.netProfitAfterTax >= 0 ? 'gain' : 'loss',
+            tone: hidden ? 'neutral' : realizedSummary.netProfitAfterTax >= 0 ? 'gain' : 'loss',
           }}
           figures={[
             {
               label: 'Lucro/prejuízo realizado',
-              value: formatSignedCurrency(realizedSummary.realizedProfit),
+              value: signedMoney(realizedSummary.realizedProfit),
               hint: 'Antes do IR',
-              tone: realizedSummary.realizedProfit >= 0 ? 'gain' : 'loss',
+              tone: hidden ? 'neutral' : realizedSummary.realizedProfit >= 0 ? 'gain' : 'loss',
             },
-            { label: 'IR estimado', value: formatCurrency(realizedSummary.taxAmount), hint: 'Parte de cada venda no IR do mês, e o retido na renda fixa' },
-            { label: 'Base de custo vendida', value: formatCurrency(realizedSummary.costBasis), hint: 'Custo médio e títulos resgatados' },
+            { label: 'IR estimado', value: money(realizedSummary.taxAmount), hint: 'Parte de cada venda no IR do mês, e o retido na renda fixa' },
+            { label: 'Base de custo vendida', value: money(realizedSummary.costBasis), hint: 'Custo médio e títulos resgatados' },
           ]}
         />
       ) : null}
@@ -325,7 +331,7 @@ export default function Operacoes() {
                 <MovementCard
                   key={mov.id}
                   mov={mov}
-                  info={describeMovement(mov)}
+                  info={describeMovement(mov, money)}
                   onEdit={() => openEditModal(mov)}
                   onDelete={() => handleDeleteMovement(mov.id)}
                 />
@@ -359,7 +365,7 @@ export default function Operacoes() {
                     <MovementRow
                       key={mov.id}
                       mov={mov}
-                      info={describeMovement(mov)}
+                      info={describeMovement(mov, money)}
                       onEdit={() => openEditModal(mov)}
                       onDelete={() => handleDeleteMovement(mov.id)}
                     />
@@ -497,6 +503,9 @@ function realizedDetail(mov, info) {
 // Duas linhas no maximo: o valor e um detalhe. O resto (base de custo,
 // aliquota) fica no title da celula.
 function MovementRow({ mov, info, onEdit, onDelete }) {
+  const money = usePrivateFormatter(formatCurrency)
+  const signedMoney = usePrivateFormatter(formatSignedCurrency)
+  const hidden = useValuesHidden()
   return (
     <tr>
       <td className="text-zinc-600">
@@ -509,15 +518,15 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
           <span className="font-medium text-zinc-700">{info.kind}</span>{info.kindDetail ? ` · ${info.kindDetail}` : ''}
         </p>
       </td>
-      <td className="num text-zinc-700">{formatCurrency(info.unitPrice)}</td>
+      <td className="num text-zinc-700">{money(info.unitPrice)}</td>
       <td className="num">
-        <p className="font-semibold text-zinc-950">{formatCurrency(info.totalValue)}</p>
-        {info.fees > 0 ? <p className="text-xs text-zinc-500">custos {formatCurrency(info.fees)}</p> : null}
+        <p className="font-semibold text-zinc-950">{money(info.totalValue)}</p>
+        {info.fees > 0 ? <p className="text-xs text-zinc-500">custos {money(info.fees)}</p> : null}
       </td>
-      <td className="num" title={info.hasResult ? `Base de custo: ${formatCurrency(mov.realized_cost_basis)} · Líquido da venda: ${formatCurrency(info.netProceeds)}` : undefined}>
+      <td className="num" title={info.hasResult ? `Base de custo: ${money(mov.realized_cost_basis)} · Líquido da venda: ${money(info.netProceeds)}` : undefined}>
         {info.hasResult ? (
           <>
-            <p className={cx('font-semibold', profitClass(info.realizedProfit))}>{formatSignedCurrency(info.realizedProfit)}</p>
+            <p className={cx('font-semibold', profitClass(hidden ? 0 : info.realizedProfit))}>{signedMoney(info.realizedProfit)}</p>
             <p className="truncate text-xs text-zinc-500" title={realizedDetail(mov, info)}>{realizedDetail(mov, info)}</p>
           </>
         ) : (
@@ -527,8 +536,8 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
       <td className="num" title={info.hasResult ? `Alíquota: ${formatPercent(Number(mov.realized_tax_rate || 0) * 100)}` : undefined}>
         {info.hasResult ? (
           <>
-            <p className="font-medium text-zinc-900">{formatCurrency(info.realizedTax)}</p>
-            <p className={cx('truncate text-xs', profitClass(info.afterTax))}>pós-IR {formatSignedCurrency(info.afterTax)}</p>
+            <p className="font-medium text-zinc-900">{money(info.realizedTax)}</p>
+            <p className={cx('truncate text-xs', profitClass(hidden ? 0 : info.afterTax))}>pós-IR {signedMoney(info.afterTax)}</p>
           </>
         ) : (
           <span className="text-zinc-400">—</span>
@@ -542,6 +551,9 @@ function MovementRow({ mov, info, onEdit, onDelete }) {
 }
 
 function MovementCard({ mov, info, onEdit, onDelete }) {
+  const money = usePrivateFormatter(formatCurrency)
+  const signedMoney = usePrivateFormatter(formatSignedCurrency)
+  const hidden = useValuesHidden()
   return (
     <li className="space-y-2 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
@@ -549,16 +561,16 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
           <p className="truncate font-semibold text-zinc-950">{mov.ticker_or_name}</p>
           <p className="text-xs text-zinc-500">{(mov.asset_category_label || getClassLabel(mov.asset_class))} · {info.dateLabel}</p>
         </div>
-        <p className="shrink-0 font-semibold text-zinc-950">{formatCurrency(info.totalValue)}</p>
+        <p className="shrink-0 font-semibold text-zinc-950">{money(info.totalValue)}</p>
       </div>
       {/* Acoes na mesma linha da operacao: uma fileira so para dois botoes
           dobrava a altura do cartao. */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-600">
           <span className="font-medium text-zinc-800">{info.kindLabel}</span>
-          <span>a {formatCurrency(info.unitPrice)}</span>
-          {info.fees > 0 ? <span>· Custos {formatCurrency(info.fees)}</span> : null}
-          {info.isSale ? <span>· Líquido {formatCurrency(info.netProceeds)}</span> : null}
+          <span>a {money(info.unitPrice)}</span>
+          {info.fees > 0 ? <span>· Custos {money(info.fees)}</span> : null}
+          {info.isSale ? <span>· Líquido {money(info.netProceeds)}</span> : null}
           {info.inStatement ? <span>· No extrato</span> : null}
         </div>
         {info.isBonus ? null : <Menu label={`Ações da operação de ${mov.ticker_or_name}`} size="md" items={movementMenuItems(onEdit, onDelete)} />}
@@ -567,14 +579,14 @@ function MovementCard({ mov, info, onEdit, onDelete }) {
         <div className="grid grid-cols-2 gap-3 rounded-lg bg-zinc-50 px-3 py-2 text-sm tabular">
           <div>
             <p className="text-xs text-zinc-600">Resultado</p>
-            <p className={cx('font-semibold', profitClass(info.realizedProfit))}>{formatSignedCurrency(info.realizedProfit)}</p>
-            <p className="text-xs text-zinc-600">Base: {formatCurrency(mov.realized_cost_basis)}</p>
+            <p className={cx('font-semibold', profitClass(hidden ? 0 : info.realizedProfit))}>{signedMoney(info.realizedProfit)}</p>
+            <p className="text-xs text-zinc-600">Base: {money(mov.realized_cost_basis)}</p>
             <p className="text-xs text-zinc-600">{realizedDetail(mov, info)}</p>
           </div>
           <div>
             <p className="text-xs text-zinc-600">IR estimado</p>
-            <p className="font-medium text-zinc-900">{formatCurrency(info.realizedTax)}</p>
-            <p className={cx('text-xs font-medium', profitClass(info.afterTax))}>Pós-IR: {formatSignedCurrency(info.afterTax)}</p>
+            <p className="font-medium text-zinc-900">{money(info.realizedTax)}</p>
+            <p className={cx('text-xs font-medium', profitClass(hidden ? 0 : info.afterTax))}>Pós-IR: {signedMoney(info.afterTax)}</p>
             <p className="text-xs text-zinc-600">Alíq.: {formatPercent(Number(mov.realized_tax_rate || 0) * 100)}</p>
           </div>
         </div>
