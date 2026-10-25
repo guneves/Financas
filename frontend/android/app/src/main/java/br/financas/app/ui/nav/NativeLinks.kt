@@ -39,7 +39,8 @@ object NativeLinks {
                     else -> null
                 }
             }
-            else -> null
+            // Investimentos: as abas que este APK tem em nativo (InvestimentosRoutes).
+            else -> InvestimentosRoutes.routeForPath(path)?.let { Target(it) }
         }
     }
 }

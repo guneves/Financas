@@ -63,14 +63,22 @@ class EntrySaver(
     private val newClientId: () -> String = OutboxRules::newClientId,
 ) {
 
-    suspend fun create(kind: String, payload: Map<String, Any?>): SaveResult {
+    suspend fun create(kind: String, payload: Map<String, Any?>): SaveResult =
+        createJson(kind, NewEntryForms.payloadJson(payload))
+
+    /**
+     * O mesmo caminho com o corpo ja montado: as criacoes de Investimentos (INVESTMENT, PROCEED)
+     * mandam `null` de proposito (cash_account_id null = "Não descontar"), que o payloadJson
+     * tiraria. [title] vai no item, fora do corpo: o nome que Pendentes mostra.
+     */
+    suspend fun createJson(kind: String, body: JSONObject, title: String? = null): SaveResult {
         val path = OutboxRules.endpointFor(kind)
             ?: throw IllegalArgumentException("Tipo de lancamento desconhecido: $kind")
-        val body = NewEntryForms.payloadJson(payload)
         if (body.optString("client_id", "").isEmpty()) body.put("client_id", newClientId())
         val user = userId()?.takeIf { it.isNotEmpty() } ?: return SaveResult.SessionExpired(null)
 
         val item = OutboxRules.buildItem(kind, body, user, now())
+        if (!title.isNullOrEmpty()) item.put("title", title)
         val clientId = item.getString("client_id")
         queue.put(item)
 

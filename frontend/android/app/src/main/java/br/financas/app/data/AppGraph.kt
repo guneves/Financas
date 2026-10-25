@@ -99,6 +99,14 @@ class AppGraph private constructor(context: Context) {
         sender = Sender { method, path, body -> writeApi.send(method, path, body) },
     )
 
+    /** Investimentos: leituras com a copia, escritas sem prazo; a operacao e o provento novos vao pela fila. */
+    val investimentos = InvestimentosRepository(
+        reader = reader,
+        fetcher = api,
+        sender = Sender { method, path, body -> writeApi.send(method, path, body) },
+        files = writeApi,
+    )
+
     /** Ajustes: contas, cartoes, categorias, Aprovar e o perfil; escritas sem prazo. */
     val ajustes = AjustesRepository(
         reader = reader,

@@ -4,7 +4,7 @@ import { confirmAction } from '../lib/confirm'
 import { useServerReachable } from '../lib/connection'
 import { formatCurrency, formatDateBR } from '../lib/format'
 import { discardItem, flush, useOutbox } from '../lib/outbox'
-import { KIND_LABELS, NEEDS_ATTENTION, itemAmount, itemDate } from '../lib/outboxRules'
+import { KIND_LABELS, NEEDS_ATTENTION, isEditableKind, itemAmount, itemDate, itemTitle } from '../lib/outboxRules'
 import { toast } from '../lib/toast'
 import { AlertMessage, Badge, Button, EmptyState, Menu, Sheet } from './ui'
 
@@ -75,7 +75,7 @@ export default function PendingSheet({ open, onClose, onEdit }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-semibold text-zinc-950">
-                      {item.payload.description || KIND_LABELS[item.kind]}
+                      {itemTitle(item)}
                     </span>
                     <Badge tone={item.status === NEEDS_ATTENTION ? 'warning' : 'neutral'}>
                       {item.status === NEEDS_ATTENTION ? 'Recusado' : 'Pendente'}
@@ -90,7 +90,8 @@ export default function PendingSheet({ open, onClose, onEdit }) {
                 <span className="num shrink-0 text-sm font-semibold text-zinc-950">{formatCurrency(itemAmount(item))}</span>
                 <Menu
                   items={[
-                    { label: 'Corrigir', icon: Pencil, onSelect: () => onEdit(item) },
+                    // Operacao e provento (Investimentos, no APK) nao tem formulario aqui.
+                    ...(isEditableKind(item.kind) ? [{ label: 'Corrigir', icon: Pencil, onSelect: () => onEdit(item) }] : []),
                     { label: 'Descartar', icon: Trash2, tone: 'danger', onSelect: () => discard(item) },
                   ]}
                 />

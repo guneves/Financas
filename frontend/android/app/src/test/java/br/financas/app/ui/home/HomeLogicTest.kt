@@ -66,6 +66,8 @@ class HomeLogicTest {
         // Um recusado nao conta.
         assertFalse(HomeLogic.view(home, listOf(expense("100", status = "needs_attention"))).estimated)
         assertEquals(1, HomeLogic.pendingInBalance(listOf(expense("1"), expense("2", status = "needs_attention"))))
+        // Operacao e provento na fila nao fazem do saldo uma estimativa.
+        assertEquals(1, HomeLogic.pendingInBalance(listOf(expense("3"), expense("4").copy(kind = "INVESTMENT"), expense("5").copy(kind = "PROCEED"))))
     }
 
     @Test

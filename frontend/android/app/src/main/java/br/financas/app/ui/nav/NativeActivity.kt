@@ -43,6 +43,21 @@ import br.financas.app.ui.newentry.NewEntryActivity
 import br.financas.app.ui.inbox.InboxNotifier
 import br.financas.app.ui.inbox.InboxScreen
 import br.financas.app.ui.inbox.InboxViewModel
+import br.financas.app.ui.investimentos.AlocacaoScreen
+import br.financas.app.ui.investimentos.AlocacaoViewModel
+import br.financas.app.ui.investimentos.CalculadoraScreen
+import br.financas.app.ui.investimentos.CalculadoraViewModel
+import br.financas.app.ui.investimentos.InvestimentosTab
+import br.financas.app.ui.investimentos.IrScreen
+import br.financas.app.ui.investimentos.IrViewModel
+import br.financas.app.ui.investimentos.OperacoesScreen
+import br.financas.app.ui.investimentos.OperacoesViewModel
+import br.financas.app.ui.investimentos.PosicaoScreen
+import br.financas.app.ui.investimentos.ProventosScreen
+import br.financas.app.ui.investimentos.ProventosViewModel
+import br.financas.app.ui.investimentos.RentabilidadeScreen
+import br.financas.app.ui.investimentos.RentabilidadeViewModel
+import br.financas.app.ui.investimentos.PosicaoViewModel
 import br.financas.app.ui.theme.FinancasTheme
 import br.financas.app.ui.theme.ShellPrefs
 
@@ -71,7 +86,19 @@ object NativeRoutes {
     /** Ajustes (ui/ajustes/): a lista de secoes; a secao pedida abre por cima. */
     const val AJUSTES = "ajustes"
 
-    val ALL: List<String> = listOf(INBOX, HOME, EXTRATO, CARTOES, A_RECEBER, ORCAMENTO, RECORRENTES, METAS, AJUSTES)
+    /** Investimentos (ui/investimentos/): uma pagina por aba (native-level 8). */
+    const val POSICAO = "posicao"
+    const val OPERACOES = "operacoes"
+    const val PROVENTOS = "proventos"
+    const val RENTABILIDADE = "rentabilidade"
+    const val ALOCACAO = "alocacao"
+    const val IR = "ir"
+    const val CALCULADORA = "calculadora"
+
+    /** As abas de Investimentos que este APK tem em nativo; as outras abrem na WebView. */
+    val INVESTMENTS: List<String> = listOf(POSICAO, OPERACOES, PROVENTOS, RENTABILIDADE, ALOCACAO, IR, CALCULADORA)
+
+    val ALL: List<String> = listOf(INBOX, HOME, EXTRATO, CARTOES, A_RECEBER, ORCAMENTO, RECORRENTES, METAS, AJUSTES) + INVESTMENTS
 
     /** A rota pedida, se este APK a tem; senao a primeira. */
     fun known(route: String?): String = if (route != null && route in ALL) route else INBOX
@@ -283,6 +310,20 @@ private fun NativeNavHost(
             if (current != null && current != NativeRoutes.HOME) popUpTo(current) { inclusive = true }
         }
     }
+    // As abas de Investimentos: a pagina nativa, ou a da WebView para uma aba que este APK ainda
+    // nao tem em nativo (o caminho web dela).
+    val openInvestTab: (InvestimentosTab) -> Unit = { tab ->
+        val route = InvestimentosRoutes.routeOf(tab)
+        if (route !in NativeRoutes.INVESTMENTS) {
+            onOpenWeb(InvestimentosRoutes.webPathOf(tab))
+        } else {
+            val current = nav.currentDestination?.route
+            nav.navigate(route) {
+                launchSingleTop = true
+                if (current != null && current != NativeRoutes.HOME) popUpTo(current) { inclusive = true }
+            }
+        }
+    }
     LaunchedEffect(nav) {
         nav.currentBackStackEntryFlow.collect { entry -> onRouteShown(entry.destination.route) }
     }
@@ -348,6 +389,34 @@ private fun NativeNavHost(
         composable(NativeRoutes.METAS) {
             val metas: MetasViewModel = viewModel()
             MetasScreen(viewModel = metas, onBack = back, onTab = openPlanTab)
+        }
+        composable(NativeRoutes.POSICAO) {
+            val posicao: PosicaoViewModel = viewModel()
+            PosicaoScreen(viewModel = posicao, onBack = back, onTab = openInvestTab)
+        }
+        composable(NativeRoutes.OPERACOES) {
+            val operacoes: OperacoesViewModel = viewModel()
+            OperacoesScreen(viewModel = operacoes, onBack = back, onTab = openInvestTab)
+        }
+        composable(NativeRoutes.PROVENTOS) {
+            val proventos: ProventosViewModel = viewModel()
+            ProventosScreen(viewModel = proventos, onBack = back, onTab = openInvestTab)
+        }
+        composable(NativeRoutes.RENTABILIDADE) {
+            val rentabilidade: RentabilidadeViewModel = viewModel()
+            RentabilidadeScreen(viewModel = rentabilidade, onBack = back, onTab = openInvestTab)
+        }
+        composable(NativeRoutes.ALOCACAO) {
+            val alocacao: AlocacaoViewModel = viewModel()
+            AlocacaoScreen(viewModel = alocacao, onBack = back, onTab = openInvestTab, onOpenWeb = onOpenWeb)
+        }
+        composable(NativeRoutes.IR) {
+            val ir: IrViewModel = viewModel()
+            IrScreen(viewModel = ir, onBack = back, onTab = openInvestTab, onOpenWeb = onOpenWeb)
+        }
+        composable(NativeRoutes.CALCULADORA) {
+            val calculadora: CalculadoraViewModel = viewModel()
+            CalculadoraScreen(viewModel = calculadora, onBack = back, onTab = openInvestTab)
         }
         composable(NativeRoutes.AJUSTES) {
             val ajustes: AjustesViewModel = viewModel()

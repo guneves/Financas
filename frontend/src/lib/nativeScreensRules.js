@@ -36,6 +36,16 @@ export const ORCAMENTO_SCREEN = 'orcamento'
 export const RECORRENTES_SCREEN = 'recorrentes'
 export const METAS_SCREEN = 'metas'
 export const AJUSTES_SCREEN = 'ajustes'
+// native-level 8: Investimentos, uma tela nativa por aba, com o nome dela. Um
+// APK lista so as que tem (Posicao, Operacoes e Proventos primeiro); as outras
+// seguem na pagina React.
+export const POSICAO_SCREEN = 'posicao'
+export const OPERACOES_SCREEN = 'operacoes'
+export const PROVENTOS_SCREEN = 'proventos'
+export const RENTABILIDADE_SCREEN = 'rentabilidade'
+export const ALOCACAO_SCREEN = 'alocacao'
+export const IR_SCREEN = 'ir'
+export const CALCULADORA_SCREEN = 'calculadora'
 export const AJUSTES_NATIVE_SECTIONS = ['contas', 'cartoes', 'categorias', 'aprovar', 'aparencia', 'perfil', 'notificacoes', 'versao']
 export const AJUSTES_WEB_SECTIONS = ['regras-de-importacao', 'integracoes']
 

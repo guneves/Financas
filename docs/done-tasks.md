@@ -175,6 +175,7 @@
 | Native migration session A (step 4): Extrato (both views) and Cartões native — paging on `GET /api/transactions?limit=&cursor=` (keyset, `items`/`next_cursor`/`count`/whole-filter `totals`/`day_totals`, `services/transaction_pages.py`, `test_transactions_paging.py`) with the web's filtered Extrato on "Carregar mais" (`lib/transactionPages.js`); `projections` on `/api/home`; `ui/extrato/`, `ui/cartoes/`, `ui/lancamentos/` (receipts with camera/file picker, export through the share sheet, "De quem é?"), `rules/InvestmentStatement.kt`, `ExtratoRules.kt`, `CardRules.kt`, the rest of `sharing.js` (`shareSummary`, `settlePayload`), `NativeLinks`; Aprovar's writes on `writeApi`; native-level 5 → 6. pytest 1603 → 1615, node 176 → 180, JVM 348 | 2026-10-24 |
 | Native migration session B (Investimentos backend and ports, no screen): `client_id` on investment, provento and corporate-action creations (042); `POST /api/investments/redemptions` (PEPS and the proportional cost on the server) and `DELETE /api/investments/by-assets` (atomic grouped Tesouro delete); `realized_result`, `by_year` and `net` read by Operações, Proventos and IR with no visible change; SERIES/FLOW as CSS variables and in `Tokens.kt`; `ui/charts/` donut, signed bars and gap lines; six rule ports (`PortfolioAccount`, `AssetSearch`, `FixedIncome`, `TreasuryLabels`, `ProceedsRules`, `CompoundInterest`). pytest 1603 → 1636, node 176 → 185, JVM 361 | 2026-10-24 |
 | Native migration session C (steps 5–6): Orçamento, Recorrentes, Metas, A receber and Ajustes native — `rules/MonthlyPlan.kt` (the input side of `monthlyPlan.js`), `Recurring.kt`, `Goals.kt`, `Receivables.kt`, `Settings.kt`, `NotifyTexts.kt`, `ApkUpdateTexts.kt`, `Sharing.groupReceivables`; `frequencyLabel` and the goal forecast texts moved to `lib/recurring.js` / `lib/goals.js` with node tests first; `ui/components/PercentSlider.kt`; `ui/orcamento/`, `ui/recorrentes/`, `ui/metas/`, `ui/areceber/`, `ui/ajustes/` (Regras and Integrações stay web); theme and Sair handed to the WebView through `ShellPrefs` (`Shell.takeThemePreference`/`takeSignOut`); native-level 6 → 7. node 185 → 196 | 2026-10-24 |
+| Native migration session D (step 7): Investimentos native, all seven tabs — `ui/investimentos/` (Posição, Operações with Registrar operação and corporate events, Proventos, Rentabilidade, Alocação read-only with the aporte split, IR meter and DARF months, Calculadora), `data/InvestimentosDtos.kt` + `InvestimentosRepository.kt`, rules `PortfolioView`, `Operations`, `ProceedsForm`, `ReturnsRules`, `AllocationRules`, `CompoundInterest.chartPoints`, `ui/charts/StackedAreaChart`; the outbox's `INVESTMENT` and `PROCEED` kinds on both sides (`outboxRules.js`, `OutboxRules.java`, `OutboxPending.kt`, `PendingSheet.jsx`, `EntrySaver.createJson`); the web routes in `NativePage`; native-level 7 → 8. node 196 → 198, full JVM suite 500 green | 2026-10-24 |
 
 ---
 
@@ -1316,3 +1317,25 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   Aparência shows the web's choice. Sair also clears `Session` (the outbox stops) and the read cache.
 - **Ajustes routes**: `/ajustes#<section>` opens the native section; `#regras-de-importacao` and
   `#integracoes` (and `?web=1`) keep the React page (`wantsWebPage(search, hash)`).
+
+### Investimentos native — 2026-10-24 (native session D)
+- **Order and scope**: the prompt allowed closing after Proventos; context held, so Rentabilidade
+  and spec 16's native part were built too. Targets, sectors and the full IR report stay web
+  (`?web=1`), as `16-…` recommends.
+- **Offline**: session B's `client_id` made the two creations safe to resend, so Registrar
+  operação and Registrar provento save through the same `EntrySaver` as "+ Novo" (item stored
+  before the POST, 6 s, then `OutboxWorker`). `EntrySaver.createJson()` takes a built body
+  because `payloadJson()` drops nulls and `cash_account_id: null` means "Não descontar". The
+  item's `title` (outside the payload) names a provento in Pendentes. Both kinds are out of
+  `pendingAccountDeltas`, `pendingAsTransactions` and `applyPendingToHome` (an `ACCOUNT_KINDS`
+  list on both sides) and are never Corrigir'd (`isEditableKind`). Redemptions and corporate
+  events stay online but carry a `client_id` so a double tap writes once.
+- **Rules**: what the React pages did inline and untested got pure Kotlin homes with JVM tests
+  written from the web's code (no node twin): Posição's grouping/menu/donut/bars, Operações'
+  movement reading and every payload, Proventos' payload, Rentabilidade's CDI card, Alocação's
+  gap/drift, IR's active months. Money is `BigDecimal`; the buy's average price is 6 places
+  HALF_UP (the web's `toFixed(6)`).
+- **Privacy**: every R$ of the portfolio is masked natively, Operações and Proventos included
+  (the web masks less there); the owner decides whether the web follows (`next-steps.md`).
+- **Found**: the main tree's `frontend/node_modules` had lost `.bin` and several packages (a
+  peer worktree's junction cleanup, most likely); `npm ci` restored it before `npm run build`.

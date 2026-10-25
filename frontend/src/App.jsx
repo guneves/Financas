@@ -9,14 +9,21 @@ import Layout from './components/Layout'
 import NativePage from './components/NativePage'
 import {
   AJUSTES_SCREEN,
+  ALOCACAO_SCREEN,
   A_RECEBER_SCREEN,
+  CALCULADORA_SCREEN,
   CARTOES_SCREEN,
   EXTRATO_SCREEN,
   HOME_SCREEN,
   INBOX_SCREEN,
+  IR_SCREEN,
   METAS_SCREEN,
+  OPERACOES_SCREEN,
   ORCAMENTO_SCREEN,
+  POSICAO_SCREEN,
+  PROVENTOS_SCREEN,
   RECORRENTES_SCREEN,
+  RENTABILIDADE_SCREEN,
 } from './lib/nativeScreensRules'
 
 // Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
@@ -123,13 +130,15 @@ export default function App() {
             <Route path="/planejamento/metas" element={<NativePage screen={METAS_SCREEN}><Metas /></NativePage>} />
 
             <Route path="/investimentos" element={<Navigate to="/investimentos/posicao" replace />} />
-            <Route path="/investimentos/posicao" element={<Investments tab="posicao" />} />
-            <Route path="/investimentos/rentabilidade" element={<Rentabilidade />} />
-            <Route path="/investimentos/operacoes" element={<Investments tab="operacoes" />} />
-            <Route path="/investimentos/alocacao" element={<Alocacao />} />
-            <Route path="/investimentos/proventos" element={<Proventos />} />
-            <Route path="/investimentos/ir" element={<ImpostoRenda />} />
-            <Route path="/investimentos/calculadora" element={<Calculadora />} />
+            {/* No APK com Investimentos nativo (native-level 8), cada aba que ele
+                lista abre a tela em Kotlin; as outras (e ?web=1) ficam na React. */}
+            <Route path="/investimentos/posicao" element={<NativePage screen={POSICAO_SCREEN}><Investments tab="posicao" /></NativePage>} />
+            <Route path="/investimentos/rentabilidade" element={<NativePage screen={RENTABILIDADE_SCREEN}><Rentabilidade /></NativePage>} />
+            <Route path="/investimentos/operacoes" element={<NativePage screen={OPERACOES_SCREEN}><Investments tab="operacoes" /></NativePage>} />
+            <Route path="/investimentos/alocacao" element={<NativePage screen={ALOCACAO_SCREEN}><Alocacao /></NativePage>} />
+            <Route path="/investimentos/proventos" element={<NativePage screen={PROVENTOS_SCREEN}><Proventos /></NativePage>} />
+            <Route path="/investimentos/ir" element={<NativePage screen={IR_SCREEN}><ImpostoRenda /></NativePage>} />
+            <Route path="/investimentos/calculadora" element={<NativePage screen={CALCULADORA_SCREEN}><Calculadora /></NativePage>} />
 
             <Route path="/ajustes" element={<NativePage screen={AJUSTES_SCREEN}><Ajustes /></NativePage>} />
 

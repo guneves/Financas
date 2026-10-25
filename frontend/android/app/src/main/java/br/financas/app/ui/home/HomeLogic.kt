@@ -111,9 +111,12 @@ object HomeLogic {
     fun stripAccounts(accounts: List<HomeAccount>): List<HomeAccount> =
         activeAccounts(accounts).filter { !it.isBrokerage }
 
-    /** Quantos pendentes mexem no saldo (o aviso "Saldo estimado"): os pendentes que nao sao cartao. */
+    /**
+     * Quantos pendentes mexem no saldo (o aviso "Saldo estimado"): despesa, receita e
+     * transferencia; compra no cartao, operacao e provento nao.
+     */
     fun pendingInBalance(items: List<PendingItem>): Int =
-        items.count { it.status == OutboxPending.PENDING && it.kind != "CARD" }
+        items.count { it.status == OutboxPending.PENDING && it.kind in OutboxPending.ACCOUNT_KINDS }
 
     /** Os meses (AAAA-MM) das proximas faturas, sem repetir, em ordem. */
     fun nextInvoiceMonths(invoices: List<NextInvoiceDto>): List<String> =

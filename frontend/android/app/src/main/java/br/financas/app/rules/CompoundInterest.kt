@@ -246,6 +246,16 @@ object CompoundInterest {
     }
 
     /** "Hoje", "Ano 3" ou "Mês 7" para o eixo e a tabela. */
+    /**
+     * Os pontos do grafico (chartPoints de Calculadora.jsx, inline la): ate 5 anos um por mes;
+     * acima, um por ano, mais o ultimo. Devolve as linhas do [schedule] escolhidas.
+     */
+    fun chartPoints(schedule: List<Row>): List<Row> {
+        val last = schedule.size - 1
+        val step = if (last > 60) 12 else 1
+        return schedule.filter { it.month % step == 0 || it.month == last }
+    }
+
     fun periodLabel(month: Int): String = when {
         month == 0 -> "Hoje"
         month % 12 == 0 -> "Ano ${month / 12}"

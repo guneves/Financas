@@ -25,7 +25,20 @@ public class OutboxRulesTest {
         assertEquals("/api/transactions", OutboxRules.endpointFor("INCOME"));
         assertEquals("/api/transfers", OutboxRules.endpointFor("TRANSFER"));
         assertEquals("/api/cc-expenses/purchases", OutboxRules.endpointFor("CARD"));
+        assertEquals("/api/investments", OutboxRules.endpointFor("INVESTMENT"));
+        assertEquals("/api/investment-proceeds", OutboxRules.endpointFor("PROCEED"));
         assertNull(OutboxRules.endpointFor("BUY"));
+    }
+
+    // "operacao e provento pendentes em Pendentes: ... so se descartam"
+    @Test
+    public void investmentKindsAreNeverEditedInTheQueue() throws Exception {
+        assertTrue(OutboxRules.isEditableKind("CARD"));
+        assertFalse(OutboxRules.isEditableKind("INVESTMENT"));
+        assertFalse(OutboxRules.isEditableKind("PROCEED"));
+        JSONObject buy = OutboxRules.buildItem("INVESTMENT", new JSONObject().put("ticker_or_name", "PETR4").put("quantity", 10), "u1", 0L);
+        buy.put("edited", true);
+        assertFalse(OutboxRules.deliveredDiffers(buy, new JSONArray().put(new JSONObject().put("quantity", 1))));
     }
 
     // "o client_id tem o formato que o servidor aceita"
@@ -118,6 +131,11 @@ public class OutboxRulesTest {
         assertFalse(OutboxRules.isCreationResponse("EXPENSE", null));
         assertFalse(OutboxRules.isCreationResponse("CARD", new JSONObject().put("id", 1)));
         assertFalse(OutboxRules.isCreationResponse("TRANSFER", new JSONArray()));
+        assertTrue(OutboxRules.isCreationResponse("INVESTMENT", new JSONArray()));
+        assertFalse(OutboxRules.isCreationResponse("INVESTMENT", new JSONObject().put("id", 1)));
+        assertTrue(OutboxRules.isCreationResponse("PROCEED", new JSONObject().put("id", 1)));
+        assertTrue(OutboxRules.isCreationResponse("PROCEED", new JSONArray()));
+        assertFalse(OutboxRules.isCreationResponse("PROCEED", null));
     }
 
     @Test

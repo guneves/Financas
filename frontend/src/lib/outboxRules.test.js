@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  ACCOUNT_KINDS,
   NEEDS_ATTENTION,
   PENDING,
   applyPendingToAccounts,
@@ -11,6 +12,10 @@ import {
   deliveredDiffers,
   editedItem,
   endpointFor,
+  isEditableKind,
+  itemAmount,
+  itemDate,
+  itemTitle,
   newClientId,
   outcomeOf,
   pendingAccountDeltas,
@@ -32,7 +37,35 @@ test('cada formulario tem a sua rota; transferencia nao vai para /api/transactio
   assert.equal(endpointFor('INCOME'), '/api/transactions')
   assert.equal(endpointFor('TRANSFER'), '/api/transfers')
   assert.equal(endpointFor('CARD'), '/api/cc-expenses/purchases')
-  assert.throws(() => endpointFor('INVESTMENT'))
+  assert.equal(endpointFor('INVESTMENT'), '/api/investments')
+  assert.equal(endpointFor('PROCEED'), '/api/investment-proceeds')
+  assert.throws(() => endpointFor('BUY'))
+})
+
+test('operacao e provento pendentes: nao mexem em conta, nem no extrato, nem no Inicio', () => {
+  const buy = item('INVESTMENT', { asset_class: 'STOCKS', ticker_or_name: 'PETR4', quantity: 10, average_price: 30.5, metadata: { purchase_date: '2026-10-12', cash_account_id: 'corretora' } })
+  const proceed = item('PROCEED', { asset_id: 'a1', gross_amount: 80, payment_date: '2026-11-03' }, { title: 'CDB X' })
+  assert.equal(pendingAccountDeltas([buy, proceed], { defaultAccountId: 'main' }).size, 0)
+  assert.deepEqual(pendingAsTransactions([buy, proceed], { defaultAccountId: 'main' }), [])
+  const home = { accounts: [{ id: 'main', balance: 100, balance_brl: 100, is_default: true }], consolidated_balance: 100, flow: [{ month: '2026-10', income: 0, expense: 0, invested: 0, redeemed: 0, others_paid: 0, others_received: 0, balance: 100 }] }
+  assert.equal(applyPendingToHome(home, [buy, proceed]), home)
+  // O aviso "Saldo estimado" conta so os que mexem em conta.
+  assert.deepEqual(ACCOUNT_KINDS, ['EXPENSE', 'INCOME', 'TRANSFER'])
+  assert.equal([buy, proceed].filter((entry) => ACCOUNT_KINDS.includes(entry.kind)).length, 0)
+})
+
+test('operacao e provento pendentes em Pendentes: titulo, valor e data; so se descartam', () => {
+  const buy = item('INVESTMENT', { ticker_or_name: 'PETR4', quantity: 10, average_price: 30.5, metadata: { purchase_date: '2026-10-12' } })
+  const sale = item('INVESTMENT', { ticker_or_name: 'BOVA11', quantity: -2, average_price: 100, metadata: { sale_date: '2026-10-13', sale_price: 120 } })
+  const proceed = item('PROCEED', { asset_id: 'a1', gross_amount: 80, payment_date: '2026-11-03' }, { title: 'CDB X' })
+  assert.deepEqual([buy, sale, proceed].map(itemTitle), ['PETR4', 'BOVA11', 'CDB X'])
+  assert.deepEqual([buy, sale, proceed].map(itemAmount), [305, 240, 80])
+  assert.deepEqual([buy, sale, proceed].map(itemDate), ['2026-10-12', '2026-10-13', '2026-11-03'])
+  assert.equal(itemTitle(item('PROCEED', { gross_amount: 1 })), 'Provento')
+  assert.equal(itemTitle(item('EXPENSE', { description: 'Pao' })), 'Pao')
+  assert.deepEqual(['EXPENSE', 'INCOME', 'TRANSFER', 'CARD', 'INVESTMENT', 'PROCEED'].map(isEditableKind), [true, true, true, true, false, false])
+  // Nunca editados na fila: o reenvio nao tem versao antiga para comparar.
+  assert.equal(deliveredDiffers({ ...buy, edited: true }, [{ quantity: 1 }]), false)
 })
 
 test('o client_id tem o formato que o servidor aceita', () => {

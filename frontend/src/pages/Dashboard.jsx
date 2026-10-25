@@ -33,7 +33,7 @@ import { dismissAttention, useAttentionItems, useDismissedAttention, useHome, us
 import { invoiceMonthKey, isPastDue, overdueDetail as overdueDetailOf, undismissedItems } from '../lib/attentionRules'
 import { AttentionCards } from '../components/Attention'
 import { useOutbox } from '../lib/outbox'
-import { PENDING, pendingAsTransactions } from '../lib/outboxRules'
+import { ACCOUNT_KINDS, PENDING, pendingAsTransactions } from '../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage } from '../lib/queries'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
@@ -187,7 +187,8 @@ export default function Dashboard() {
   }, [serverTransactions, serverAccounts, pending])
   const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
   const pendingInBalance = useMemo(
-    () => pending.filter((item) => item.status === PENDING && item.kind !== 'CARD').length,
+    // Compra no cartao, operacao e provento pendentes nao mexem em conta.
+    () => pending.filter((item) => item.status === PENDING && ACCOUNT_KINDS.includes(item.kind)).length,
     [pending]
   )
   const budget = budgetQuery.data || null

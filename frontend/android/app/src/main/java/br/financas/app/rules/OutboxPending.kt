@@ -106,6 +106,12 @@ object OutboxPending {
      * Ordem de envio: a ordem em que foram lancados (sort estavel, como o do JS). Sem
      * created_at o JS compara "undefined"; aqui tambem.
      */
+    /**
+     * Os que mexem em conta. Uma operacao ou provento pendente (INVESTMENT, PROCEED) nao mexe: o
+     * lancamento ligado na Corretora so existe depois que o servidor grava. ACCOUNT_KINDS do JS.
+     */
+    val ACCOUNT_KINDS = setOf("EXPENSE", "INCOME", "TRANSFER")
+
     fun sendOrder(items: List<PendingItem>): List<PendingItem> =
         items.sortedBy { it.createdAt ?: "undefined" }
 
@@ -185,7 +191,7 @@ object OutboxPending {
      */
     fun pendingAsTransactions(items: List<PendingItem>, defaultAccountId: String = ""): List<PendingTransaction> =
         sendOrder(items)
-            .filter { it.kind != "CARD" }
+            .filter { it.kind in ACCOUNT_KINDS }
             .map { item ->
                 val payload = item.payload
                 PendingTransaction(
@@ -216,7 +222,7 @@ object OutboxPending {
      * pendente em diante; summary e o ultimo mes de novo. Nada a mudar devolve o mesmo objeto.
      */
     fun applyPendingToHome(home: HomeData, items: List<PendingItem>): HomeData {
-        val waiting = items.filter { it.status == PENDING && it.kind != "CARD" }
+        val waiting = items.filter { it.status == PENDING && it.kind in ACCOUNT_KINDS }
         if (waiting.isEmpty()) return home
         val accounts = home.accounts
         val defaultAccountId = accounts.firstOrNull { it.isDefault }?.id ?: ""

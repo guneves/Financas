@@ -234,9 +234,9 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
             )
         }
 
-    /** Um pendente que nao e cartao nem transferencia mexe no saldo: o saldo e estimativa. */
+    /** Uma despesa ou receita pendente mexe no saldo: o saldo e estimativa (cartao, transferencia, operacao e provento nao). */
     val balanceEstimated: Boolean
-        get() = pending.any { it.status == OutboxPending.PENDING && it.kind != "CARD" && it.kind != "TRANSFER" }
+        get() = pending.any { it.status == OutboxPending.PENDING && it.kind in setOf("EXPENSE", "INCOME") }
 
     fun accountName(id: String?): String = accounts.firstOrNull { it.id == id }?.name ?: "—"
 

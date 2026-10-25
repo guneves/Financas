@@ -72,6 +72,39 @@ class EntrySaverTest {
         )
     }
 
+    // Registrar operacao sem rede: o corpo vai com o null explicito (Nao descontar) e o titulo
+    // fica no item, fora do corpo.
+    @Test
+    fun anInvestmentOfflineIsQueuedWithItsNullsAndTitle() = runTest {
+        val fake = Fake(online = false)
+        val body = JSONObject()
+            .put("asset_class", "STOCKS")
+            .put("ticker_or_name", "PETR4")
+            .put("quantity", 10)
+            .put("metadata", JSONObject().put("purchase_date", "2026-10-22").put("cash_account_id", JSONObject.NULL))
+        val result = fake.saver().createJson("INVESTMENT", body, title = "PETR4")
+        assertTrue(result is SaveResult.Queued)
+        assertTrue(fake.posts.isEmpty())
+        val item = fake.queue.stored.values.single()
+        assertEquals("INVESTMENT", item.getString("kind"))
+        assertEquals("PETR4", item.getString("title"))
+        val stored = item.getJSONObject("payload")
+        assertEquals("gerado-1-0000", stored.getString("client_id"))
+        assertFalse(stored.has("title"))
+        assertTrue(stored.getJSONObject("metadata").has("cash_account_id"))
+        assertTrue(stored.getJSONObject("metadata").isNull("cash_account_id"))
+    }
+
+    // O servidor devolve a lista das linhas criadas: e a prova de entrega da operacao.
+    @Test
+    fun anInvestmentSavedComesBackAsAList() = runTest {
+        val fake = Fake(answer = { _, _ -> "[{\"id\":\"m1\"}]" })
+        val result = fake.saver().createJson("INVESTMENT", JSONObject().put("ticker_or_name", "PETR4"))
+        assertTrue(result is SaveResult.Saved)
+        assertEquals("/api/investments", fake.posts.single().first)
+        assertTrue(fake.queue.stored.isEmpty())
+    }
+
     @Test
     fun savedOnTheServerLeavesNothingQueued() = runTest {
         val fake = Fake()
