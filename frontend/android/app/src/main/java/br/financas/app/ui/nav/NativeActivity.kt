@@ -466,7 +466,10 @@ private fun AppShell(
                                 onFocusConsumed()
                             }
                         }
-                        InboxScreen(viewModel = inbox, onBack = back)
+                        // Voltar (a seta e o do sistema) leva ao Extrato, nao ao que esta por baixo.
+                        val toExtrato: () -> Unit = { nav.openTab(ShellNav.backTarget(NativeRoutes.INBOX) ?: NativeRoutes.EXTRATO) }
+                        BackHandler(onBack = toExtrato)
+                        InboxScreen(viewModel = inbox, onBack = toExtrato)
                     }
                     composable(NativeRoutes.EXTRATO) {
                         val extrato: ExtratoViewModel = viewModel()

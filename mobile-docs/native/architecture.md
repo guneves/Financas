@@ -20,7 +20,8 @@ endpoints the React app (now browser only) calls.
 - `NativeActivity` starts on `login` without a `Session`, else on `home`. Around every page: the
   bottom bar (Início, Lançamentos, Planejar, Investir, Ajustes; `ShellNav`), the "+" (the native
   "+ Novo", `NewEntryActivity`, Cartão inside Cartões), the APK banner and the Pendentes sheet.
-  Back with nothing below goes to Início; on Início it moves the task to the back.
+  Back with nothing below goes to Início; on Início it moves the task to the back. Aprovar always
+  goes back to Extrato (`ShellNav.backTarget()`).
 - Session: the login writes `outbox/Session.java` (`Outbox.signIn`: Keystore-sealed token, the
   workers rescheduled). A 401 on any request clears the session if it is still the token that was
   refused (`AppGraph.handleUnauthorized`) and the shell returns to the login; the queue stays.
