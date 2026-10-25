@@ -188,8 +188,8 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
     one saved in airplane mode lands once after reconnecting, with its Extrato row in the
     Corretora, and that Pendentes (web sheet) shows it with only "Descartar". The web itself still
     sends no `client_id` on investment creations and never queues them (owner: want that too?);
-  - **privacy, owner decision**: native masks every R$ of Operações and Proventos (summary, list,
-    chart), the web masks only some (`13-…`/`15-…` States). Make the web follow, or unmask native?
+  - **privacy**: owner chose 2026-10-24 to mask every R$ of Operações and Proventos on both
+    sides (the web follows since `claude/web-privacy-investments`); check it on the phone too;
   - not built natively: pull-to-refresh, swipe on cards, a press-and-drag chart crosshair (a tap
     selects), landscape charts, the shell "+" opening Registrar operação inside Investimentos
     (`NativeScreens.open("investment-entry")`), remembering the last asset type, the "próximos 30

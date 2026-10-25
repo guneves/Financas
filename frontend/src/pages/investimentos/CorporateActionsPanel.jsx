@@ -3,6 +3,7 @@ import { Plus, Shuffle, Trash2 } from 'lucide-react'
 import { corporateActionsApi } from '../../lib/dataApi'
 import { confirmAction } from '../../lib/confirm'
 import { formatCurrency, formatDateBR, getLocalDateString } from '../../lib/format'
+import { usePrivateFormatter } from '../../lib/privacy'
 import { useQuery, useReportQueryError } from '../../lib/queries'
 import { toast } from '../../lib/toast'
 import { AlertMessage, Button, EmptyState, Field, IconButton, Panel, PanelHeader, SegmentedControl, Sheet } from '../../components/ui'
@@ -49,6 +50,8 @@ function parseDecimal(value) {
 // operacoes anteriores a data ex no servidor; excluir desfaz (so o ultimo do
 // ativo, sem operacao depois).
 export default function CorporateActionsPanel({ assets }) {
+  // O custo atribuido da bonificacao entra no preco medio: some no modo privado.
+  const money = usePrivateFormatter(formatCurrency)
   const [error, setError] = useState('')
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
@@ -151,7 +154,7 @@ export default function CorporateActionsPanel({ assets }) {
                   </p>
                   <p className="text-xs text-zinc-500">
                     Data ex {formatDateBR(action.ex_date)}
-                    {action.action_type === 'BONUS' ? ` · custo atribuído ${formatCurrency(action.bonus_unit_cost || 0)} por cota` : ''}
+                    {action.action_type === 'BONUS' ? ` · custo atribuído ${money(action.bonus_unit_cost || 0)} por cota` : ''}
                     {action.notes ? ` · ${action.notes}` : ''}
                   </p>
                 </div>
