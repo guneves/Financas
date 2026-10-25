@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-        <!-- Customize your theme here. -->
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
+    <!-- O tema base do app; cada Activity usa um dos abaixo e o Compose pinta o resto. -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/app_background</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
@@ -16,15 +13,15 @@
         <item name="android:windowBackground">@color/app_background</item>
     </style>
 
-    <!-- Abertura: o icone sobre o fundo do app, no tema do sistema; depois a tela
-         (lib/nativeApp.js) aplica o tema escolhido no app. -->
+    <!-- Abertura: o icone sobre o fundo do app, no tema do sistema; depois a casca
+         (ui/nav/NativeActivity) aplica o tema escolhido no app. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/app_background</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 
-    <!-- As telas nativas que abrem por cima da WebView (o "+ Novo", ui/newentry/): janela
+    <!-- O "+ Novo" (ui/newentry/), por cima da casca: janela
          transparente, sem titulo nem animacao propria; o sheet do Compose desenha o fundo
          escurecido e anima a entrada. -->
     <style name="AppTheme.NativeSheet" parent="Theme.AppCompat.DayNight.NoActionBar">

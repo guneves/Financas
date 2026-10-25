@@ -3,16 +3,12 @@
     Builds the signed Android APK and installs it on the phone over USB.
 
 .DESCRIPTION
-    1. Builds the frontend into frontend/dist-android, with the API pointed at
-       the server's Tailscale address (frontend/dist, which Flask serves, is left alone),
-       and stamps its bundle.json: the screen version and the native level. After
-       this, screen changes reach the phone from the server on their own; a new APK
-       is needed only when native-level.txt goes up.
-    2. Copies it into the Android project (npx cap sync android).
-    3. Runs the native unit tests and assembles the release APK, signed with the
+    The APK is all native (Kotlin/Compose, no WebView since session E), so there is no
+    web build: the server address goes to gradle (-PfinancasApiBase, BuildConfig.API_BASE_URL).
+    1. Runs the native unit tests and assembles the release APK, signed with the
        key from new-keystore.ps1. The version is the commit count and date+commit,
        so every build is newer than the last and recognisable.
-    4. Installs it with `adb install -r` on the one phone connected with USB
+    2. Installs it with `adb install -r` on the one phone connected with USB
        debugging on. The install keeps the app's data: the offline queue, the
        saved cache and the login survive the update.
 
@@ -48,13 +44,12 @@ param(
 . (Join-Path $PSScriptRoot 'android-tools.ps1')
 
 $Root = Split-Path $PSScriptRoot -Parent
-$FrontendDir = Join-Path $Root 'frontend'
-$AndroidDir = Join-Path $FrontendDir 'android'
+$AndroidDir = Join-Path $Root 'frontend\android'
 $Apk = Join-Path $AndroidDir 'app\build\outputs\apk\release\app-release.apk'
 
 function Invoke-Step([string]$Title, [scriptblock]$Action) {
     Write-Host "==> $Title" -ForegroundColor Cyan
-    # Gradle, npm and apksigner print progress on stderr; under 'Stop', Windows PowerShell
+    # Gradle and apksigner print progress on stderr; under 'Stop', Windows PowerShell
     # would call that a failure when the output is redirected. The exit code decides.
     $ErrorActionPreference = 'Continue'
     & $Action
@@ -91,21 +86,6 @@ $dirty = if (git -C $Root status --porcelain) { '-dirty' } else { '' }
 $versionName = '{0}-{1}{2}' -f (Get-Date -Format 'yyyy.MM.dd'), $sha, $dirty
 Write-Host "Version $versionName (code $versionCode), API $ApiBase" -ForegroundColor Cyan
 
-Push-Location $FrontendDir
-try {
-    $env:VITE_API_BASE_URL = $ApiBase
-    try {
-        Invoke-Step 'Building the frontend for the APK' { npx vite build --outDir dist-android --emptyOutDir }
-        # The screen version the app compares with the server's (frontend/scripts/bundle-manifest.mjs).
-        Invoke-Step 'Stamping the screen version' { node scripts/bundle-manifest.mjs dist-android $ApiBase }
-    } finally {
-        Remove-Item Env:\VITE_API_BASE_URL -ErrorAction SilentlyContinue
-    }
-    Invoke-Step 'Copying it into the Android project' { npx cap sync android }
-} finally {
-    Pop-Location
-}
-
 $gradleTasks = @()
 if (-not $SkipTests) { $gradleTasks += 'testReleaseUnitTest' }
 $gradleTasks += 'assembleRelease'
@@ -113,7 +93,7 @@ $gradleTasks += 'assembleRelease'
 Push-Location $AndroidDir
 try {
     Invoke-Step 'Building the signed APK' {
-        .\gradlew.bat @gradleTasks "-PfinancasVersionCode=$versionCode" "-PfinancasVersionName=$versionName"
+        .\gradlew.bat @gradleTasks "-PfinancasVersionCode=$versionCode" "-PfinancasVersionName=$versionName" "-PfinancasApiBase=$ApiBase"
     }
 } finally {
     Pop-Location
