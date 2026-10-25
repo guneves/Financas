@@ -66,7 +66,7 @@ fun moneyOrMasked(value: BigDecimal?, hidden: Boolean): String =
 
 /**
  * O topo de Extrato, Cartoes e A receber: voltar, o titulo, o olho do modo privado e as abas
- * nativas de Lancamentos (tocar numa troca de pagina sem passar pela WebView).
+ * de Lancamentos (tocar numa troca de pagina).
  */
 @Composable
 fun LancamentosTopBar(

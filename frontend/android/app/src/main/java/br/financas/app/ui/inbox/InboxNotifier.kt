@@ -19,7 +19,7 @@ import org.json.JSONObject
 /**
  * "Novo para aprovar": a notificacao local que o envio das deteccoes (notify/DetectionSender) poe
  * quando o servidor diz que uma virou item novo ou entrou num item (new / merged). O toque abre
- * Aprovar nativo direto no item, sem carregar a WebView. So os campos lidos vao ao servidor;
+ * Aprovar nativo direto no item, So os campos lidos vao ao servidor;
  * esta notificacao e local e nao mostra texto de banco nenhum.
  */
 object InboxNotifier {

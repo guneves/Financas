@@ -85,7 +85,7 @@ private const val HEADER_ROWS = 3
 
 /**
  * Aprovar nativo (mobile-docs/native/screens/02-aprovar.md): o pages/lancamentos/Aprovar.jsx em
- * Compose. [onBack] volta (para a WebView, ou para a pagina nativa anterior).
+ * Compose. [onBack] volta para a pagina anterior (ou para o Inicio).
  */
 @Composable
 fun InboxScreen(viewModel: InboxViewModel, onBack: () -> Unit) {

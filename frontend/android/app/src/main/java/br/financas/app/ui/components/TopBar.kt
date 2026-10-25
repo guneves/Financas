@@ -37,8 +37,8 @@ import br.financas.app.ui.theme.LocalPalette
 data class TopTab(val label: String, val active: Boolean, val onClick: () -> Unit)
 
 /**
- * O topo das paginas nativas: voltar, o titulo, o olho do modo privado (sem [onToggleHidden],
- * nenhum) e as abas da secao, que rolam de lado quando nao cabem.
+ * O topo das paginas nativas: voltar, o titulo, a pilula de pendentes da casca, o olho do modo
+ * privado (sem [onToggleHidden], nenhum) e as abas da secao, que rolam de lado quando nao cabem.
  */
 @Composable
 fun NativeTopBar(
@@ -76,6 +76,7 @@ fun NativeTopBar(
                 color = palette.text,
                 modifier = Modifier.padding(start = 8.dp).weight(1f),
             )
+            PendingPill()
             if (onToggleHidden != null) {
                 val eyeLabel = stringResource(if (hidden) R.string.lanc_show_values else R.string.lanc_hide_values)
                 Surface(

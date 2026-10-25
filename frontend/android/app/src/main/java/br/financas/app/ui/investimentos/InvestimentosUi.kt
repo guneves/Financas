@@ -24,7 +24,7 @@ import br.financas.app.R
 import br.financas.app.core.formatPercent
 import br.financas.app.data.AppGraph
 import br.financas.app.data.InboxWrite
-import br.financas.app.outbox.OutboxPlugin
+import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.OutboxStore
 import br.financas.app.outbox.OutboxWorker
 import br.financas.app.rules.ProceedsRules
@@ -182,7 +182,7 @@ object ProceedsSync {
 fun investmentSaver(app: Application): EntrySaver {
     val graph = AppGraph.from(app)
     return EntrySaver(
-        hasNetwork = { OutboxPlugin.hasRealNetwork(app) },
+        hasNetwork = { Outbox.hasRealNetwork(app) },
         post = { path, body -> graph.creationApi.send("POST", path, body) },
         queue = object : EntryQueue {
             override fun put(item: org.json.JSONObject) = OutboxStore.get(app).put(item)

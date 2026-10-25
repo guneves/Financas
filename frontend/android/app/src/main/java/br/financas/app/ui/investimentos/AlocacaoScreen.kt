@@ -41,11 +41,9 @@ import br.financas.app.rules.PortfolioView
 import br.financas.app.ui.charts.DonutChart
 import br.financas.app.ui.components.AlertMessage
 import br.financas.app.ui.components.AlertTone
-import br.financas.app.ui.components.AppButton
 import br.financas.app.ui.components.AppTextField
 import br.financas.app.ui.components.Badge
 import br.financas.app.ui.components.BadgeTone
-import br.financas.app.ui.components.ButtonVariant
 import br.financas.app.ui.components.EmptyState
 import br.financas.app.ui.components.Field
 import br.financas.app.ui.components.ListSkeleton
@@ -56,12 +54,9 @@ import br.financas.app.ui.theme.LocalPalette
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.math.BigDecimal
 
-/** O caminho web da Alocacao (definir metas, setores): a pagina React, mesmo num APK que tem a nativa. */
-const val ALOCACAO_WEB_ROUTE = "/investimentos/alocacao?web=1"
-
 /** Investimentos › Alocacao nativo, so leitura e a divisao do aporte (16-…, A). */
 @Composable
-fun AlocacaoScreen(viewModel: AlocacaoViewModel, onBack: () -> Unit, onTab: (InvestimentosTab) -> Unit, onOpenWeb: (String) -> Unit) {
+fun AlocacaoScreen(viewModel: AlocacaoViewModel, onBack: () -> Unit, onTab: (InvestimentosTab) -> Unit) {
     val palette = LocalPalette.current
     val dismiss = stringResource(R.string.lanc_dismiss)
     val data = viewModel.allocation.value
@@ -75,7 +70,6 @@ fun AlocacaoScreen(viewModel: AlocacaoViewModel, onBack: () -> Unit, onTab: (Inv
         item(key = "intro") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.inv_aloc_description), fontSize = 14.sp, color = palette["zinc-600"])
-                AppButton(stringResource(R.string.inv_aloc_edit_on_web), { onOpenWeb(ALOCACAO_WEB_ROUTE) }, Modifier.fillMaxWidth(), variant = ButtonVariant.SECONDARY)
                 Text(stringResource(R.string.inv_aloc_edit_hint), fontSize = 12.sp, color = palette.muted)
             }
         }

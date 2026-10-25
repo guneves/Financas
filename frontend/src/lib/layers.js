@@ -1,6 +1,6 @@
 // As camadas abertas por cima da tela (Sheet, menu "⋯", menu da conta), da
-// mais antiga para a mais nova. Esc fecha so a de cima, e o voltar do Android
-// tambem (lib/nativeApp.js). Antes cada uma ouvia o Esc por conta propria: com
+// mais antiga para a mais nova. Esc fecha so a de cima. Antes cada uma ouvia o
+// Esc por conta propria: com
 // a confirmacao aberta sobre "Pendentes", um Esc fechava o sheet de baixo e
 // deixava a pergunta solta; um Esc no "⋯" dentro de um sheet fechava o sheet.
 //
@@ -21,11 +21,6 @@ export function closeTopLayer() {
   if (!top) return false
   top.close()
   return true
-}
-
-// Ha algo aberto por cima da tela? (lib/appBundle.js nao troca de tela no meio de um sheet.)
-export function hasOpenLayer() {
-  return layers.length > 0
 }
 
 export function useLayer(open, onClose, { locksScroll = false } = {}) {

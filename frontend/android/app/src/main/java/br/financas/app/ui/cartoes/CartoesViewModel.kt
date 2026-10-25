@@ -39,7 +39,7 @@ import br.financas.app.ui.home.HomeLogic
 import br.financas.app.ui.lancamentos.AttachmentsState
 import br.financas.app.ui.lancamentos.normalizedShare
 import br.financas.app.ui.lancamentos.writeErrorOf
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.theme.ShellPrefs
 import br.financas.app.outbox.OutboxStore
 import kotlinx.coroutines.Dispatchers
@@ -516,7 +516,7 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun changed(message: String?) {
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
         if (message != null) {
             if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else _notices.tryEmit(message)
         }

@@ -21,7 +21,7 @@ import br.financas.app.rules.AssetSearch
 import br.financas.app.rules.ProceedsForm
 import br.financas.app.rules.ProceedsRules
 import br.financas.app.ui.components.ConfirmRequest
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.newentry.SaveResult
 import br.financas.app.ui.planejar.ScreenLoad
 import br.financas.app.ui.theme.ShellPrefs
@@ -140,7 +140,7 @@ class ProventosViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun reread() {
         if (!cleared) refreshAll()
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
     }
 
     fun toggleHidden() {

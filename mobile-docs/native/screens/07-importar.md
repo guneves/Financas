@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Migration order | 9 — desktop-first; recommended **not** to build natively (see "What it is for") |
-| Status | Not started |
+| Status | Desktop-only (decided by the owner, session E 2026-10-25): no phone page; the native Ajustes says Importar, Regras de importação and Integrações stay on the computer |
 | React source | `frontend/src/pages/lancamentos/Importar.jsx` (Stepper, `readFileText()`, `suggestPattern()` inline), `pages/lancamentos/helpers.js` (`categoryLabel()`) |
 | Route(s) | `/lancamentos/importar` |
 | Endpoints | `POST /api/import/preview`, `POST /api/import/commit`, `POST /api/import-rules`, `GET /api/accounts`, `GET /api/categories` |

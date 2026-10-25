@@ -6,25 +6,6 @@ import { clearPersistedQueryCache } from './lib/queryPersist'
 import { legacyRedirects } from './lib/navigation'
 import Auth from './pages/Auth'
 import Layout from './components/Layout'
-import NativePage from './components/NativePage'
-import {
-  AJUSTES_SCREEN,
-  ALOCACAO_SCREEN,
-  A_RECEBER_SCREEN,
-  CALCULADORA_SCREEN,
-  CARTOES_SCREEN,
-  EXTRATO_SCREEN,
-  HOME_SCREEN,
-  INBOX_SCREEN,
-  IR_SCREEN,
-  METAS_SCREEN,
-  OPERACOES_SCREEN,
-  ORCAMENTO_SCREEN,
-  POSICAO_SCREEN,
-  PROVENTOS_SCREEN,
-  RECORRENTES_SCREEN,
-  RENTABILIDADE_SCREEN,
-} from './lib/nativeScreensRules'
 
 // Cada tela e um chunk proprio (o bundle unico passava de 700 kB); o Layout
 // mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
@@ -110,37 +91,30 @@ export default function App() {
 
         {session && (
           <Route element={<Layout />}>
-            {/* No APK com o Inicio nativo (native-level 5), a rota abre a tela em
-                Kotlin e a WebView espera parada aqui; /inicio?web=1 e a React. */}
-            <Route path="/inicio" element={<NativePage screen={HOME_SCREEN} stay><Dashboard /></NativePage>} />
+            <Route path="/inicio" element={<Dashboard />} />
 
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
-            {/* No APK com Extrato e Cartoes nativos (native-level 6), as rotas abrem as
-                telas em Kotlin; ?web=1 fica na React. */}
-            <Route path="/lancamentos/extrato" element={<NativePage screen={EXTRATO_SCREEN}><Extrato /></NativePage>} />
-            {/* No APK com Aprovar nativo (native-level 4), a rota abre a tela em Kotlin. */}
-            <Route path="/lancamentos/aprovar" element={<NativePage screen={INBOX_SCREEN}><Aprovar /></NativePage>} />
-            <Route path="/lancamentos/cartoes" element={<NativePage screen={CARTOES_SCREEN}><Cartoes /></NativePage>} />
-            <Route path="/lancamentos/a-receber" element={<NativePage screen={A_RECEBER_SCREEN}><AReceber /></NativePage>} />
+            <Route path="/lancamentos/extrato" element={<Extrato />} />
+            <Route path="/lancamentos/aprovar" element={<Aprovar />} />
+            <Route path="/lancamentos/cartoes" element={<Cartoes />} />
+            <Route path="/lancamentos/a-receber" element={<AReceber />} />
             <Route path="/lancamentos/importar" element={<Importar />} />
 
             <Route path="/planejamento" element={<Navigate to="/planejamento/orcamento" replace />} />
-            <Route path="/planejamento/orcamento" element={<NativePage screen={ORCAMENTO_SCREEN}><Orcamento /></NativePage>} />
-            <Route path="/planejamento/recorrentes" element={<NativePage screen={RECORRENTES_SCREEN}><Recorrentes /></NativePage>} />
-            <Route path="/planejamento/metas" element={<NativePage screen={METAS_SCREEN}><Metas /></NativePage>} />
+            <Route path="/planejamento/orcamento" element={<Orcamento />} />
+            <Route path="/planejamento/recorrentes" element={<Recorrentes />} />
+            <Route path="/planejamento/metas" element={<Metas />} />
 
             <Route path="/investimentos" element={<Navigate to="/investimentos/posicao" replace />} />
-            {/* No APK com Investimentos nativo (native-level 8), cada aba que ele
-                lista abre a tela em Kotlin; as outras (e ?web=1) ficam na React. */}
-            <Route path="/investimentos/posicao" element={<NativePage screen={POSICAO_SCREEN}><Investments tab="posicao" /></NativePage>} />
-            <Route path="/investimentos/rentabilidade" element={<NativePage screen={RENTABILIDADE_SCREEN}><Rentabilidade /></NativePage>} />
-            <Route path="/investimentos/operacoes" element={<NativePage screen={OPERACOES_SCREEN}><Investments tab="operacoes" /></NativePage>} />
-            <Route path="/investimentos/alocacao" element={<NativePage screen={ALOCACAO_SCREEN}><Alocacao /></NativePage>} />
-            <Route path="/investimentos/proventos" element={<NativePage screen={PROVENTOS_SCREEN}><Proventos /></NativePage>} />
-            <Route path="/investimentos/ir" element={<NativePage screen={IR_SCREEN}><ImpostoRenda /></NativePage>} />
-            <Route path="/investimentos/calculadora" element={<NativePage screen={CALCULADORA_SCREEN}><Calculadora /></NativePage>} />
+            <Route path="/investimentos/posicao" element={<Investments tab="posicao" />} />
+            <Route path="/investimentos/rentabilidade" element={<Rentabilidade />} />
+            <Route path="/investimentos/operacoes" element={<Investments tab="operacoes" />} />
+            <Route path="/investimentos/alocacao" element={<Alocacao />} />
+            <Route path="/investimentos/proventos" element={<Proventos />} />
+            <Route path="/investimentos/ir" element={<ImpostoRenda />} />
+            <Route path="/investimentos/calculadora" element={<Calculadora />} />
 
-            <Route path="/ajustes" element={<NativePage screen={AJUSTES_SCREEN}><Ajustes /></NativePage>} />
+            <Route path="/ajustes" element={<Ajustes />} />
 
             {Object.entries(legacyRedirects).map(([from, to]) => (
               <Route key={from} path={from} element={<Navigate to={to} replace />} />

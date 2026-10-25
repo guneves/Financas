@@ -3,7 +3,7 @@
 CLAUDE.md holds for everything; a rule about a React screen applies to its native replacement.
 
 ## Code
-- New code is Kotlin; `outbox/`, `notify/`, `bundle/`, `update/` stay Java (`@JvmStatic` where
+- New code is Kotlin; `outbox/`, `notify/`, `update/` stay Java (`@JvmStatic` where
   Java calls Kotlin). One package per screen under `ui/`; `core/` and `rules/` are pure (no Android
   or Compose) and JVM-tested.
 - Comments in Portuguese without accents; UI strings in `res/values/strings.xml`, with accents,
@@ -21,8 +21,6 @@ CLAUDE.md holds for everything; a rule about a React screen applies to its nativ
   card purchase. Only creations are queued offline; edits and deletes are refused offline and never
   retried after a timeout (writes through `writeApi`). Categories go by `category_id`.
 - `OutboxRules.java` ports `lib/outboxRules.js`: change one, change the other, with a test each.
-- Bump `frontend/native-level.txt` in the commit where the web first calls a new plugin method or
-  event; never remove a Java method lower-level screens still call.
 
 ## Look
 - Colours only from `ui/theme/Tokens.kt` (the CSS names of `index.css`; `TokensTest` keeps them
@@ -35,10 +33,12 @@ CLAUDE.md holds for everything; a rule about a React screen applies to its nativ
 
 ## Build and ship
 - Sessions cannot build an APK (`dl.google.com` is blocked): push and let `android-check.yml`
-  compile the debug APK and run the JVM tests (a web-only push skips its path filter; dispatch it).
-- A screen ships with its ViewModel and tests, its `NativeScreens` route and the React layout
-  opening it, the spec's `Status` row and the session docs, and green CI. The owner checks the
-  spec's Acceptance list on the phone with the debug APK.
+  compile the debug APK and run the JVM tests (a push outside `frontend/android/` skips its path filter; dispatch it).
+- A screen ships with its ViewModel and tests, its `NativeRoutes` page in the shell's NavHost
+  (and `NativeLinks` for the web paths that point to it), the spec's `Status` row and the session
+  docs, and green CI. A link to a page the phone does not have (desktop-only) gets no target: the
+  shell says "Esta tela fica no computador". The owner checks the spec's Acceptance list on the
+  phone with the debug APK.
 
 ## Never
 - Send a bank notification's text off the phone, or accept `com.android.shell` in a release build.

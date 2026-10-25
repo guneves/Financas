@@ -70,7 +70,8 @@ data class BarSeries(val values: List<Double?>, val color: Color)
 /**
  * Barras lado a lado que saem do zero: positivas sobem, negativas descem (o AportesChart desenha o
  * resgate negado; a rentabilidade mensal tem meses negativos). Uma ou mais series por coluna.
- * Tocar numa coluna escolhe-a ([onSelect]); a escolhida ganha um fundo.
+ * Tocar numa coluna escolhe-a ([onSelect]); a escolhida ganha um fundo. [barColor] troca a cor de
+ * uma barra (serie, coluna): a projecao das faturas apaga os meses fora de destaque.
  */
 @Composable
 fun SignedBarChart(
@@ -82,6 +83,7 @@ fun SignedBarChart(
     modifier: Modifier = Modifier,
     height: Dp = 240.dp,
     maxBarWidth: Dp = 24.dp,
+    barColor: ((series: Int, index: Int) -> Color)? = null,
 ) {
     val palette = LocalPalette.current
     val measurer = rememberTextMeasurer()
@@ -124,7 +126,7 @@ fun SignedBarChart(
                 val value = bars.values.getOrNull(index) ?: return@forEachIndexed
                 if (value == 0.0 || !value.isFinite()) return@forEachIndexed
                 val span = ChartGeometry.signedBar(value, plot.min, plot.max, plot.top, plot.height)
-                drawRect(bars.color, Offset(lefts[s], span.top), Size(barWidth, maxOf(span.height, 1f)))
+                drawRect(barColor?.invoke(s, index) ?: bars.color, Offset(lefts[s], span.top), Size(barWidth, maxOf(span.height, 1f)))
             }
         }
         xLabels(measurer, plot, labels, tick)

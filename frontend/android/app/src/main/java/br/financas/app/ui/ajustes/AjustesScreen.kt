@@ -107,7 +107,7 @@ fun AjustesScreen(
             AlertMessage(viewModel.error, AlertTone.DANGER, stringResource(R.string.lanc_dismiss), onDismiss = viewModel::dismissError)
         }
         when (section) {
-            null -> sectionList(viewModel, onOpenLink)
+            null -> sectionList(viewModel)
             AjustesSection.CONTAS -> contas(viewModel, onOpenLink)
             AjustesSection.CARTOES -> cartoes(viewModel, onOpenLink)
             AjustesSection.CATEGORIAS -> categorias(viewModel)
@@ -116,7 +116,6 @@ fun AjustesScreen(
             AjustesSection.PERFIL -> item(key = "perfil") { PerfilSection(viewModel, onSignedOut) }
             AjustesSection.NOTIFICACOES -> item(key = "notificacoes") { NotificacoesSection(viewModel) }
             AjustesSection.VERSAO -> item(key = "versao") { VersaoSection(viewModel) }
-            AjustesSection.REGRAS, AjustesSection.INTEGRACOES -> Unit
         }
     }
     viewModel.editingAccount?.let { EditAccountSheet(it, viewModel) }
@@ -128,9 +127,7 @@ private fun titleOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CONTAS -> R.string.ajustes_contas
     AjustesSection.CARTOES -> R.string.ajustes_cartoes
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias
-    AjustesSection.REGRAS -> R.string.ajustes_regras
     AjustesSection.APROVAR -> R.string.ajustes_aprovar
-    AjustesSection.INTEGRACOES -> R.string.ajustes_integracoes
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia
     AjustesSection.PERFIL -> R.string.ajustes_perfil
     AjustesSection.NOTIFICACOES -> R.string.ajustes_notificacoes
@@ -141,16 +138,14 @@ private fun hintOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CONTAS -> R.string.ajustes_contas_hint
     AjustesSection.CARTOES -> R.string.ajustes_cartoes_hint
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias_hint
-    AjustesSection.REGRAS -> R.string.ajustes_regras_hint
     AjustesSection.APROVAR -> R.string.ajustes_aprovar_hint
-    AjustesSection.INTEGRACOES -> R.string.ajustes_integracoes_hint
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia_hint
     AjustesSection.PERFIL -> R.string.ajustes_perfil_hint
     AjustesSection.NOTIFICACOES -> R.string.ajustes_notificacoes_hint
     AjustesSection.VERSAO -> R.string.ajustes_versao_hint
 }
 
-private fun LazyListScope.sectionList(viewModel: AjustesViewModel, onOpenLink: (String) -> Unit) {
+private fun LazyListScope.sectionList(viewModel: AjustesViewModel) {
     item(key = "intro") {
         val palette = LocalPalette.current
         Text(stringResource(R.string.ajustes_description), fontSize = 14.sp, color = palette["zinc-600"])
@@ -166,7 +161,7 @@ private fun LazyListScope.sectionList(viewModel: AjustesViewModel, onOpenLink: (
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 64.dp)
-                            .clickable { if (section.native) viewModel.open(section) else onOpenLink(viewModel.webRoute(section)) }
+                            .clickable { viewModel.open(section) }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -178,6 +173,9 @@ private fun LazyListScope.sectionList(viewModel: AjustesViewModel, onOpenLink: (
                 }
             }
         }
+    }
+    item(key = "desktop-only") {
+        Text(stringResource(R.string.ajustes_desktop_only), fontSize = 13.sp, color = LocalPalette.current.muted)
     }
 }
 
@@ -623,7 +621,7 @@ private fun AparenciaSection(viewModel: AjustesViewModel) {
                     SelectOption("dark", stringResource(R.string.ajustes_theme_dark)),
                 ),
                 value = viewModel.theme,
-                // A Activity se refaz no tema novo; a WebView aplica o mesmo ao voltar.
+                // A Activity se refaz no tema novo (telas e barras do sistema).
                 onChange = { viewModel.chooseTheme(it) { activity?.recreate() } },
                 modifier = Modifier.padding(16.dp),
             )
@@ -783,8 +781,8 @@ private fun VersaoSection(viewModel: AjustesViewModel) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ApkUpdateTexts.apkPrompt(viewModel.apk)?.let { prompt ->
                     AlertMessage(
-                        stringResource(R.string.ajustes_apk_new, prompt.versionName) + if (prompt.required) stringResource(R.string.ajustes_apk_required) else "",
-                        if (prompt.required) AlertTone.WARNING else AlertTone.INFO,
+                        stringResource(R.string.ajustes_apk_new, prompt.versionName),
+                        AlertTone.INFO,
                         dismiss,
                     )
                     AppButton(stringResource(R.string.ajustes_apk_install), viewModel::installApk, Modifier.fillMaxWidth(), loading = viewModel.apkBusy == "install")
@@ -795,14 +793,13 @@ private fun VersaoSection(viewModel: AjustesViewModel) {
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(stringResource(R.string.ajustes_apk), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
                         Text(
-                            stringResource(R.string.ajustes_apk_line, viewModel.apkVersion.ifEmpty { "—" }, viewModel.nativeLevel),
+                            viewModel.apkVersion.ifEmpty { "—" },
                             fontSize = 12.sp,
                             color = palette.muted,
                             fontFamily = FontFamily.Default,
                         )
                     }
                 }
-                Text(stringResource(R.string.ajustes_apk_screens_note), fontSize = 12.sp, color = palette.muted)
                 AppButton(stringResource(R.string.ajustes_apk_check), viewModel::checkApk, Modifier.fillMaxWidth(), ButtonVariant.SECONDARY, loading = viewModel.apkBusy == "check")
             }
         }

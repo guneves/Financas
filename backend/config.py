@@ -54,12 +54,6 @@ FRONTEND_DIST_DIR = resolve_app_path(
     os.getenv("FRONTEND_DIST_DIR", os.path.join("frontend", "dist")),
     PROJECT_DIR,
 )
-# A tela do APK (build com a API do servidor e bundle.json), que o app baixa
-# para se atualizar sem um APK novo (services/app_bundle.py).
-APP_BUNDLE_DIR = resolve_app_path(
-    os.getenv("APP_BUNDLE_DIR", os.path.join("frontend", "dist-android")),
-    PROJECT_DIR,
-)
 # Chaves que ja apareceram em codigo ou exemplo (o padrao antigo deste arquivo,
 # .env.example, README): sao publicas, entao valem como chave nenhuma.
 PUBLIC_JWT_SECRETS = frozenset({

@@ -70,9 +70,9 @@ import br.financas.app.ui.components.AlertMessage
 import br.financas.app.ui.components.AlertTone
 import br.financas.app.ui.components.AppButton
 import br.financas.app.ui.components.AppIcons
-import br.financas.app.ui.components.ButtonVariant
 import br.financas.app.ui.components.FitText
 import br.financas.app.ui.components.ListSkeleton
+import br.financas.app.ui.components.PendingPill
 import br.financas.app.ui.components.Panel
 import br.financas.app.ui.components.Badge
 import br.financas.app.ui.components.BadgeTone
@@ -86,14 +86,11 @@ private class NoticeVisuals(override val message: String, val info: Boolean) : S
     override val duration: SnackbarDuration = SnackbarDuration.Short
 }
 
-/** A rota da web com o Inicio completo, sem abrir a nativa (HOME_WEB_ROUTE em nativeScreensRules.js). */
-const val HOME_WEB_ROUTE = "/inicio?web=1"
-
 /**
  * Inicio nativo (mobile-docs/native/screens/03-inicio.md): o pages/Dashboard.jsx em Compose, com
- * o cabecalho (Aprovar, o sino, o olho, Ajustes) e a barra de baixo da web, porque esta e a tela
- * de partida. [onOpenWeb] leva a uma rota que ainda e React (a Activity fecha e a WebView abre a
- * rota); [onOpenInbox] abre Aprovar nativo por cima; [onNewEntry] abre o "+ Novo" nativo.
+ * o cabecalho da casca (Aprovar, pendentes, o sino, o olho). [onOpenWeb] abre o link de um painel
+ * (um caminho da web, NativeLinks); [onOpenInbox] abre Aprovar. A barra de baixo e o "+" sao da
+ * casca (NativeActivity).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,7 +98,6 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onOpenWeb: (String) -> Unit,
     onOpenInbox: () -> Unit,
-    onNewEntry: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val snackbar = remember { SnackbarHostState() }
@@ -148,8 +144,7 @@ fun HomeScreen(
                 }
             }
         },
-        topBar = { HomeTopBar(viewModel, onOpenInbox, onOpenWeb) },
-        bottomBar = { HomeBottomBar(onOpenWeb, onNewEntry) },
+        topBar = { HomeTopBar(viewModel, onOpenInbox) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = viewModel.refreshing,
@@ -173,12 +168,30 @@ fun HomeScreen(
                         item(key = "attention") { NeedsAttention(shown, viewModel, onOpenWeb) }
                     }
                     item(key = "flow") { CashFlowPanel(view, onOpenWeb) }
+                    val panels = viewModel.panels
+                    if (panels != null) item(key = "categories") { CategoriesPanel(panels, onOpenWeb) }
                     val budget = viewModel.budget
                     if (budget != null && budget.items.isNotEmpty()) {
                         item(key = "budget") { BudgetStrip(budget, onOpenWeb) }
                     }
+                    if (panels != null) {
+                        item(key = "invoices") {
+                            InvoicesPanel(
+                                panels = panels,
+                                nextInvoicesTotal = home.nextInvoicesTotal,
+                                payable = home.nextInvoices.any { it.payable },
+                                closingDate = home.nextClosingDate,
+                                paying = viewModel.paying,
+                                onPay = viewModel::openPayPayable,
+                                onOpenLink = onOpenWeb,
+                            )
+                        }
+                        item(key = "installments") { InstallmentsPanel(panels, onOpenWeb) }
+                        item(key = "pace") { PacePanel(panels) }
+                    } else {
+                        item(key = "panels-skeleton") { ListSkeleton(rows = 2) }
+                    }
                     item(key = "balance") { BalancePanel(view, hidden) }
-                    item(key = "more") { MorePanels(onOpenWeb) }
                 }
             }
         }
@@ -191,7 +204,7 @@ fun HomeScreen(
 // ---- Cabecalho e barra de baixo (os do Layout.jsx no celular) ----
 
 @Composable
-private fun HomeTopBar(viewModel: HomeViewModel, onOpenInbox: () -> Unit, onOpenWeb: (String) -> Unit) {
+private fun HomeTopBar(viewModel: HomeViewModel, onOpenInbox: () -> Unit) {
     val palette = LocalPalette.current
     val hidden = viewModel.hidden
     Row(
@@ -220,17 +233,13 @@ private fun HomeTopBar(viewModel: HomeViewModel, onOpenInbox: () -> Unit, onOpen
             )
         }
         if (viewModel.inboxCount > 0) InboxPill(viewModel.inboxCount, onOpenInbox)
+        PendingPill()
         BellButton(viewModel.attention.size, viewModel::openBell)
         RoundIconButton(
             icon = if (hidden) AppIcons.EyeOff else AppIcons.Eye,
             label = stringResource(if (hidden) R.string.home_privacy_show else R.string.home_privacy_hide),
             active = hidden,
             onClick = viewModel::toggleHidden,
-        )
-        RoundIconButton(
-            icon = AppIcons.Settings,
-            label = stringResource(R.string.home_settings),
-            onClick = { onOpenWeb("/ajustes") },
         )
     }
 }
@@ -311,68 +320,6 @@ private fun InboxPill(count: Int, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun HomeBottomBar(onOpenWeb: (String) -> Unit, onNewEntry: () -> Unit) {
-    val palette = LocalPalette.current
-    Surface(color = palette.surface) {
-        Column {
-            HorizontalDivider(color = palette.border)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(vertical = 4.dp),
-            ) {
-                NavTab(AppIcons.Home, stringResource(R.string.home_nav_home), active = true, onClick = {}, modifier = Modifier.weight(1f))
-                NavTab(AppIcons.Receipt, stringResource(R.string.home_nav_entries), onClick = { onOpenWeb("/lancamentos") }, modifier = Modifier.weight(1f))
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f)) {
-                    val label = stringResource(R.string.home_nav_new)
-                    Surface(
-                        onClick = onNewEntry,
-                        shape = RoundedCornerShape(16.dp),
-                        color = palette.accent,
-                        modifier = Modifier.size(52.dp).semantics { contentDescription = label },
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(AppIcons.Plus, contentDescription = null, tint = palette.onAccent, modifier = Modifier.size(24.dp))
-                        }
-                    }
-                }
-                NavTab(AppIcons.Target, stringResource(R.string.home_nav_plan), onClick = { onOpenWeb("/planejamento") }, modifier = Modifier.weight(1f))
-                NavTab(AppIcons.Briefcase, stringResource(R.string.home_nav_invest), onClick = { onOpenWeb("/investimentos") }, modifier = Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun NavTab(icon: ImageVector, name: String, onClick: () -> Unit, modifier: Modifier = Modifier, active: Boolean = false) {
-    val palette = LocalPalette.current
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = modifier.heightIn(min = 56.dp).clickable(onClick = onClick),
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(width = 48.dp, height = 28.dp)
-                .background(if (active) palette["emerald-100"] else Color.Transparent, RoundedCornerShape(50)),
-        ) {
-            Icon(icon, contentDescription = null, tint = if (active) palette["emerald-800"] else palette.muted, modifier = Modifier.size(20.dp))
-        }
-        Text(
-            text = name,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (active) palette.text else palette.muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
 // ---- Avisos do alto ----
 
 @Composable
@@ -385,14 +332,6 @@ private fun Alerts(viewModel: HomeViewModel, onOpenWeb: (String) -> Unit) {
                 tone = AlertTone.DANGER,
                 dismissLabel = dismissLabel,
             )
-            if (viewModel.sessionExpired) {
-                // O login ainda e da WebView: o Inicio da web recebe o 401 e mostra a tela de entrar.
-                AppButton(
-                    text = stringResource(R.string.home_login_again),
-                    onClick = { onOpenWeb(HOME_WEB_ROUTE) },
-                    variant = ButtonVariant.SECONDARY,
-                )
-            }
         }
         // Sem copia e sem rede a caixa de erro ja diz "Sem conexão": um aviso so.
         if (viewModel.offline && viewModel.loadError.isEmpty()) {
@@ -736,26 +675,5 @@ internal fun PanelTitleLink(title: String, modifier: Modifier = Modifier, onClic
         Text(title, color = palette.text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(4.dp))
         Icon(AppIcons.ChevronRight, contentDescription = null, tint = palette["zinc-400"], modifier = Modifier.size(16.dp))
-    }
-}
-
-// ---- O resto do Inicio, que ainda e da web ----
-
-@Composable
-private fun MorePanels(onOpenWeb: (String) -> Unit) {
-    val palette = LocalPalette.current
-    Panel(onClick = { onOpenWeb(HOME_WEB_ROUTE) }) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.home_more_title), color = palette.text, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text(
-                    stringResource(R.string.home_more_description),
-                    color = palette.muted,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            Icon(AppIcons.ChevronRight, contentDescription = null, tint = palette["zinc-400"], modifier = Modifier.size(20.dp))
-        }
     }
 }

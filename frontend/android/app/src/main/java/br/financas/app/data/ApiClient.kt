@@ -54,16 +54,17 @@ fun interface Fetcher {
 }
 
 /**
- * O cliente HTTP das telas nativas. O endereco e o token vem da sessao que a WebView entregou
- * (outbox/Session.java, lida a cada pedido): nada de segundo login nem outro lugar para o token.
+ * O cliente HTTP das telas nativas. O endereco e o token vem da sessao do login nativo
+ * (outbox/Session.java, lida a cada pedido): nenhum outro lugar para o token.
  *
- * Um 401 (ou nenhuma sessao) chama [onUnauthorized] — o AppGraph liga isso ao mesmo aviso do
- * outbox (LoginNotifier) — e vira [ApiException.Unauthorized].
+ * Um 401 (ou nenhuma sessao) chama [onUnauthorized] com o token que o pedido usou (null sem
+ * sessao) — o AppGraph apaga a sessao se ainda for aquela e a casca volta ao login — e vira
+ * [ApiException.Unauthorized].
  */
 class ApiClient(
     private val session: () -> SessionInfo?,
     private val http: OkHttpClient = defaultHttpClient(),
-    private val onUnauthorized: () -> Unit = {},
+    private val onUnauthorized: (token: String?) -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : Fetcher, FileApi {
 
@@ -74,7 +75,7 @@ class ApiClient(
         // Session.load decifra o token com a chave do Keystore: fora da thread da tela.
         val current = session()
         if (current == null) {
-            onUnauthorized()
+            onUnauthorized(null)
             throw ApiException.Unauthorized(null)
         }
         val url = try {
@@ -96,7 +97,7 @@ class ApiClient(
         when {
             status in 200..299 -> text
             status == 401 -> {
-                onUnauthorized()
+                onUnauthorized(current.token)
                 throw ApiException.Unauthorized(serverMessage(text))
             }
             else -> throw ApiException.Http(status, serverMessage(text))
@@ -115,7 +116,7 @@ class ApiClient(
                 .build()
             val request = authorized(path)?.post(body)?.build() ?: throw ApiException.Unauthorized(null)
             val (status, text) = execute(http.newCall(request))
-            check(status, text)
+            check(status, text, tokenOf(request))
             text
         }
 
@@ -148,7 +149,7 @@ class ApiClient(
                 }
             })
         }
-        if (result.status !in 200..299) check(result.status, String(result.bytes, Charsets.UTF_8))
+        if (result.status !in 200..299) check(result.status, String(result.bytes, Charsets.UTF_8), tokenOf(request))
         result
     }
 
@@ -156,7 +157,7 @@ class ApiClient(
     private fun authorized(path: String): Request.Builder? {
         val current = session()
         if (current == null) {
-            onUnauthorized()
+            onUnauthorized(null)
             return null
         }
         val url = try {
@@ -169,11 +170,14 @@ class ApiClient(
             .header("Authorization", "Bearer " + current.token)
     }
 
-    private fun check(status: Int, text: String) {
+    // O token do cabecalho do pedido (o que o 401 recusou).
+    private fun tokenOf(request: Request): String? = request.header("Authorization")?.removePrefix("Bearer ")
+
+    private fun check(status: Int, text: String, token: String?) {
         when {
             status in 200..299 -> Unit
             status == 401 -> {
-                onUnauthorized()
+                onUnauthorized(token)
                 throw ApiException.Unauthorized(serverMessage(text))
             }
             else -> throw ApiException.Http(status, serverMessage(text))

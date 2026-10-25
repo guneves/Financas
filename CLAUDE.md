@@ -26,8 +26,9 @@ invoice settlement, and an investments module (weighted average cost, realized r
 tax apuração, proventos, quotes). The goal is a tool the owner uses daily — prefer what makes
 daily use better over prettier architecture.
 
-**Stack:** React 18 + Vite + Tailwind · Flask 3 · SQLite with versioned migrations · hand-rolled
-HS256 JWT · yfinance/brapi/BCB/Tesouro/StatusInvest for market data.
+**Stack:** React 18 + Vite + Tailwind (browser) · Kotlin + Compose (the APK, no WebView) ·
+Flask 3 · SQLite with versioned migrations · hand-rolled HS256 JWT ·
+yfinance/brapi/BCB/Tesouro/StatusInvest for market data.
 
 ## Running it
 
@@ -106,7 +107,7 @@ frontend/src/
   components/       Layout, NewEntrySheet, CashLinkField, ui.jsx (the UI kit), charts.jsx
   lib/              api.js, queries.js (TanStack Query), format.js, outbox.js + outboxRules.js,
                     transactions.js, monthlyPlan.js, ... (pure rules have *.test.js)
-frontend/android/   the Android app (see mobile-docs/native/ before touching it)
+frontend/android/   the Android app, all native Kotlin/Compose (see mobile-docs/native/ before touching it)
 docs/               next-steps.md, done-tasks.md, handoff.md
 ```
 

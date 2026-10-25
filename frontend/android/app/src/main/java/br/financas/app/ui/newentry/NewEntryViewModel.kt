@@ -13,7 +13,7 @@ import br.financas.app.data.AppGraph
 import br.financas.app.data.CategoryDto
 import br.financas.app.data.CreditCardDto
 import br.financas.app.data.Load
-import br.financas.app.outbox.OutboxPlugin
+import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.OutboxRules
 import br.financas.app.outbox.OutboxSender
 import br.financas.app.outbox.OutboxStore
@@ -70,7 +70,7 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
     var finished by mutableStateOf<EntryNotice?>(null)
         private set
 
-    /** Um 401: a WebView precisa saber (ela sai e mostra o login). */
+    /** Um 401: a casca precisa saber (ela volta ao login). */
     var sessionExpired by mutableStateOf(false)
         private set
 
@@ -82,7 +82,7 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
     private var cleared = false
 
     private val saver = EntrySaver(
-        hasNetwork = { OutboxPlugin.hasRealNetwork(app) },
+        hasNetwork = { Outbox.hasRealNetwork(app) },
         post = { path, body -> graph.creationApi.send("POST", path, body) },
         queue = object : EntryQueue {
             override fun put(item: org.json.JSONObject) = OutboxStore.get(app).put(item)

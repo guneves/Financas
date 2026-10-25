@@ -108,7 +108,7 @@ tailnet.
 4. GitHub → repo → Settings → Secrets and variables → Actions: `TS_OAUTH_CLIENT_ID`,
    `TS_OAUTH_SECRET`.
 
-**Server address.** `deploy.yml` (`SERVER`, `API_BASE`), the Dockerfile's `APP_API_BASE` default,
+**Server address.** `deploy.yml` (`SERVER`, `API_BASE`), `app/build.gradle`'s `financasApiBase` default,
 `deploy.ps1 -Server` and `mobile\build-apk.ps1 -ApiBase` carry the server's Tailscale name in the
 code. Moving it into Actions secrets (2026-10-17) broke every deploy while the secrets did not
 exist, so it was rolled back; the name is in the git history anyway.
@@ -170,70 +170,54 @@ ssh <user>@<server> "cd /srv/apps/financas && sudo docker compose up -d && sudo 
 The copy uses the app's own image (uid 10001 is the user the app runs as). On the server,
 `curl http://localhost:8101/api/health` should answer `"status":"ok"`.
 
-The APK has its API address baked in at build time. `mobile/build-apk.ps1` defaults to the server's
-address, so rebuild and install it once.
+The APK has its API address baked in at build time (`-PfinancasApiBase`, defaulting to the
+server's address in `app/build.gradle` and `mobile/build-apk.ps1`), so rebuild and install it once.
 
-Screen and APK updates after that: "Updating the phone", below.
+APK updates after that: "Updating the phone", below.
 
 ## Updating the phone
 
-The phone updates itself in two ways. Both come from pushing to `main`, and neither reinstalls by
-USB or loses data.
-
-### Screens (the everyday case): the bundle
-
-The image carries the APK's screens (`frontend/dist-android`, built with `APP_API_BASE`) and
-serves them at `GET /api/app-bundle`. Its `bundle.json` holds the version (a content hash) and
-`native_level`, the **minimum** native level those screens need (`frontend/native-level.txt`).
-After every deploy the app:
-
-1. asks `/api/app-bundle` when it starts, and again on resume at most every 30 min (Ajustes ›
-   Versão do app › **Verificar atualizações** asks right away);
-2. downloads the zip only if its level is at or below the APK's, and checks size and SHA-256;
-3. opens it on the next start, or right away with **Reiniciar agora**, on trial: if the screen
-   does not call `ready()` within 30 s, or the app is killed twice before that, the app goes back
-   to the APK's built-in screens and never downloads that version again.
-
-The offline queue is native (SQLite plus WorkManager), so changing screens never touches a pending
-lançamento.
-
-**Rolling back screens:** roll back the image (`.\deploy.ps1 -Rollback <sha>`, above). The phone
-sees a different version and goes back to it at its next check, or to the built-in screens if that
-is what the old image serves. On the phone itself, Ajustes › Versão do app › "Voltar à versão do
-APK" drops the downloaded screen at once.
+The APK is all native since session E (2026-10-25): no WebView and no screen bundle, so every
+phone change is a new APK. It comes from pushing to `main` and never reinstalls by USB or loses
+data.
 
 ### A new APK from CI, on every deploy
 
 On every push to `main` (and every run by hand), the `apk` job runs alongside build and deploy,
-after the tests, in the `android-release` environment (main only). Until 2026-10-22 it ran only
-when `frontend/android/`, `native-level.txt` or `capacitor.config.json` changed; the owner wants a
-new APK to download after every deploy, so each one gets a higher versionCode and the app offers
-it, whatever changed. The screen bundle (above) still reaches the phone without installing:
+after the tests, in the `android-release` environment (main only). Each run gets a higher
+versionCode, so the app offers it whatever changed. The job:
 
-1. builds the screens for the APK (the same content hash as the image's bundle) and `cap sync`;
-2. decodes `ANDROID_KEYSTORE_BASE64` into `$RUNNER_TEMP`, builds `assembleRelease` with
-   `versionCode = 10000 + run number`, and deletes the key in an `always()` step. The passwords
+1. decodes `ANDROID_KEYSTORE_BASE64` into `$RUNNER_TEMP`, builds `assembleRelease` with
+   `versionCode = 10000 + run number` and `-PfinancasApiBase=$API_BASE` (the server the login
+   talks to, `BuildConfig.API_BASE_URL`), and deletes the key in an `always()` step. The passwords
    reach gradle only as masked environment variables (`FINANCAS_KEYSTORE_*`, read by
    `app/build.gradle`);
-3. refuses the APK unless its certificate SHA-256 equals `mobile/release-cert-sha256.txt`, the
+2. refuses the APK unless its certificate SHA-256 equals `mobile/release-cert-sha256.txt`, the
    key the phone's app was signed with. Another key would not install over it;
-4. copies `financas-<code>.apk`, then `version.json`, to `/srv/apps/financas/apk/` on the server
-   (Tailscale SSH, like the deploy), keeping the last three APKs.
+3. copies `financas-<code>.apk`, then `version.json`, to `/srv/apps/financas/apk/` on the server
+   (Tailscale SSH, like the deploy), keeping the last three APKs. `version.json` still carries
+   `native_level: 9`: the WebView APKs (native level 8 and below) refuse a manifest without it,
+   and 9 makes their banner say the new APK is needed. The native APK ignores it.
 
 `tailscale serve` publishes that folder at `https://<server>.<tailnet>.ts.net/apk/`, on
 the tailnet only. Nothing goes to GitHub Releases or workflow artifacts.
 
-The app reads `/apk/version.json` with the bundle check. When the published `version_code` is
-higher than the installed one, it shows **Nova versão disponível** at the top of every screen and
-in Ajustes. The banner says the update is needed when the server's screens need a higher native
-level than the APK has. Tapping **Instalar** downloads the APK, checks its size, SHA-256, package
-and versionCode, and opens Android's installer. The first time, Android asks for "Instalar apps
-desconhecidos" for Finanças: the app opens that screen, and the download starts by itself when the
-owner comes back. The installer replaces the app in place, so the queue, the login and the cache
-stay. The new APK drops downloaded screens and starts on its own.
+The app reads `/apk/version.json` when it opens and when it comes back to the front (at most every
+6 h; Ajustes › Versão do app › **Verificar atualizações** asks right away). When the published
+`version_code` is higher than the installed one, a **Nova versão disponível** strip shows above the
+bottom bar and in Ajustes. Tapping **Instalar** downloads the APK, checks its size, SHA-256,
+package and versionCode, and opens Android's installer. The first time, Android asks for "Instalar
+apps desconhecidos" for Finanças: the app opens that screen, and the download starts by itself
+when the owner comes back. The installer replaces the app in place (same package, same key, higher
+versionCode), so the offline queue (SQLite, `financas_outbox.db`), the login (`Session`) and the
+read cache stay. The launcher icon keeps its name (`.MainActivity` is now an alias of the native
+activity), so a home-screen shortcut keeps working.
 
-When to bump `native-level.txt`: in the same commit as any Java/plugin/Capacitor change the screens
-call (CLAUDE.md). A native change the screens do not depend on (a Java bug fix) needs no bump.
+**From the WebView APK to the native one (once):** the old app shows "Nova versão disponível …
+A tela nova precisa dela" (its banner reads `native_level` 9); install it from the banner. After
+the install the native app opens on Início with the same login and the queue intact; the old
+downloaded screens are simply never read again. A deploy of this change makes the server answer
+404 on `/api/app-bundle`, which the old app reads as "no new screen" and keeps its own.
 
 **Rolling back the APK:** Android never installs a lower versionCode over a higher one without
 uninstalling, which deletes the offline queue. So an APK rollback goes forward: `git revert` the

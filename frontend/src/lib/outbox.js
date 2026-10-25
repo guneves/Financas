@@ -1,10 +1,9 @@
 // A fila de envio: os lancamentos do "+ Novo" que ainda nao chegaram ao
 // servidor (mobile-docs/steps-to-production.md, "Where the outbox lives").
 //
-// Uma fila, um remetente. No navegador a fila mora no IndexedDB e quem envia
-// e este modulo. No APK os dois passam a ser nativos (o envio precisa
-// funcionar com o app fechado): `setOutboxBackend()` troca o armazenamento e
-// o remetente, e o resto — telas, regras, estados — fica igual.
+// Uma fila, um remetente: a do navegador mora no IndexedDB e quem envia e
+// este modulo. O APK tem a sua (nativa, outbox/ no Android), com as mesmas
+// regras (OutboxRules.java ⇄ outboxRules.js).
 //
 // So criacao entra aqui, e so quando o pedido nao chegou ao servidor
 // (ApiNetworkError). Cada item leva um client_id, entao reenviar nunca
@@ -50,18 +49,9 @@ const browserBackend = {
     }
   },
   isOffline: () => navigator.onLine === false,
-  // No navegador o envio so acontece com a tela aberta, por flush().
-  sendsOnItsOwn: false,
 }
 
-let backend = browserBackend
-
-// Fase 5 (APK): o plugin nativo entra aqui (lib/nativeApp.js), com all, put,
-// remove e um flush que envia do lado nativo e devolve o resumo da rodada.
-export function setOutboxBackend(next) {
-  backend = { ...browserBackend, ...next }
-  return load()
-}
+const backend = browserBackend
 
 let items = []
 let loaded = false
@@ -159,12 +149,6 @@ export function flush({ retryAttention = false } = {}) {
   flushing = (async () => {
     const summary = { sent: 0, kept: 0, attention: 0, stopped: '' }
     if (!loaded) await load()
-    if (backend.sendsOnItsOwn) {
-      // APK: a rodada acontece no Java, com o mesmo resumo e as mesmas regras.
-      const native = await backend.flush?.({ retryAttention })
-      await load()
-      return { ...summary, ...(native || {}) }
-    }
     const queue = getSnapshot().filter((item) => item.status === PENDING || retryAttention)
     if (!queue.length) return summary
     if (!getStoredAuth()?.access_token) {

@@ -19,7 +19,7 @@ import java.util.Set;
 
 /**
  * O remetente da fila no APK. Roda no WorkManager (OutboxWorker, com o app fechado) e no
- * "Sincronizar agora" da tela (OutboxPlugin.flush); um lock garante uma rodada por vez.
+ * "Sincronizar agora" de Pendentes (Outbox.flush); um lock garante uma rodada por vez.
  * Mesmas regras de lib/outbox.js: um item por vez, na ordem; 2xx sai da fila, sem rede
  * ou 5xx para a rodada, 401 para tudo, 400/409 marca o item e segue.
  */

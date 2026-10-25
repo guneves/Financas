@@ -1,5 +1,4 @@
-// Port: mudou um, muda o outro, com um teste de cada lado.
-// Os casos de apkPrompt e installStatusMessage de frontend/src/lib/appBundleRules.test.js.
+// Os casos de apkPrompt e installStatusMessage (eram os de lib/appBundleRules.test.js).
 package br.financas.app.rules
 
 import br.financas.app.rules.ApkUpdateTexts.ApkState
@@ -14,22 +13,12 @@ class ApkUpdateTextsTest {
     // node: 'oferece o APK so quando o publicado e mais novo'
     @Test
     fun ofereceOApkSoQuandoOPublicadoEMaisNovo() {
-        val latest = Latest(10012, "2026.10.17-abc", 1)
+        val latest = Latest(10012, "2026.10.17-abc")
         assertNull(ApkUpdateTexts.apkPrompt(null))
-        assertNull(ApkUpdateTexts.apkPrompt(ApkState(false, latest, 1)))
-        assertNull(ApkUpdateTexts.apkPrompt(ApkState(true, null, 1)))
-        assertEquals(ApkUpdateTexts.Prompt("2026.10.17-abc", false), ApkUpdateTexts.apkPrompt(ApkState(true, latest, 1)))
-    }
-
-    // node: 'o APK e necessario quando a tela do servidor pede um nivel acima do instalado'
-    @Test
-    fun oApkENecessarioQuandoPedeNivelAcima() {
-        val apk = ApkState(true, Latest(10013, null, 2), 1)
-        assertEquals(true, ApkUpdateTexts.apkPrompt(apk)!!.required)
-        assertEquals("10013", ApkUpdateTexts.apkPrompt(apk)!!.versionName)
-        val sameLevel = apk.copy(latest = Latest(10013, null, 1))
-        assertEquals(false, ApkUpdateTexts.apkPrompt(sameLevel)!!.required)
-        assertEquals(true, ApkUpdateTexts.apkPrompt(sameLevel, bundleLevel = 2)!!.required)
+        assertNull(ApkUpdateTexts.apkPrompt(ApkState(false, latest)))
+        assertNull(ApkUpdateTexts.apkPrompt(ApkState(true, null)))
+        assertEquals(ApkUpdateTexts.Prompt("2026.10.17-abc"), ApkUpdateTexts.apkPrompt(ApkState(true, latest)))
+        assertEquals("10013", ApkUpdateTexts.apkPrompt(ApkState(true, Latest(10013, null)))!!.versionName)
     }
 
     // node: 'cada resposta da instalacao tem um texto'

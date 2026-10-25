@@ -27,17 +27,23 @@ public class ApkUpdateRulesTest {
     public void leOManifestoInteiro() throws Exception {
         ApkUpdateRules.Latest latest = ApkUpdateRules.parse(manifest());
         assertEquals(10012, latest.versionCode);
-        assertEquals(2, latest.nativeLevel);
         assertEquals("/apk/financas-10012.apk", latest.path());
     }
 
     @Test
     public void recusaManifestoIncompleto() throws Exception {
-        for (String key : new String[] { "version_code", "native_level", "sha256", "size", "file" }) {
+        for (String key : new String[] { "version_code", "sha256", "size", "file" }) {
             JSONObject json = manifest();
             json.remove(key);
             assertThrows(key, IllegalArgumentException.class, () -> ApkUpdateRules.parse(json));
         }
+    }
+
+    @Test
+    public void semNivelNativoTambemVale() throws Exception {
+        JSONObject json = manifest();
+        json.remove("native_level");
+        assertEquals(10012, ApkUpdateRules.parse(json).versionCode);
     }
 
     @Test

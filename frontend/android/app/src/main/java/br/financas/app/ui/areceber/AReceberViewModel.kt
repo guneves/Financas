@@ -13,7 +13,7 @@ import br.financas.app.data.AppGraph
 import br.financas.app.data.Load
 import br.financas.app.data.ReceivableDto
 import br.financas.app.rules.Receivables
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.planejar.ScreenLoad
 import br.financas.app.ui.planejar.planWriteError
 import br.financas.app.ui.theme.ShellPrefs
@@ -106,7 +106,7 @@ class AReceberViewModel(application: Application) : AndroidViewModel(application
             val error = planWriteError(app, result, R.string.areceber_failed)
             when {
                 error == null -> {
-                    NativeScreensPlugin.emitDataChanged()
+                    ShellEvents.emitDataChanged()
                     val message = app.getString(if (settled) R.string.areceber_settled else R.string.areceber_reopened)
                     if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else {
                         _notices.tryEmit(message)

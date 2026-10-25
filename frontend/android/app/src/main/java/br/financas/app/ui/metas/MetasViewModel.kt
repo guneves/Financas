@@ -14,7 +14,7 @@ import br.financas.app.data.GoalDto
 import br.financas.app.data.InboxWrite
 import br.financas.app.rules.Goals
 import br.financas.app.ui.components.ConfirmRequest
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.planejar.ScreenLoad
 import br.financas.app.ui.planejar.planWriteError
 import br.financas.app.ui.theme.ShellPrefs
@@ -153,8 +153,8 @@ class MetasViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun changed(message: String) {
-        // Os alertas de meta do Orcamento dependem das metas: a WebView rele tudo.
-        NativeScreensPlugin.emitDataChanged()
+        // Os alertas de meta do Orcamento dependem das metas: cada tela rele ao abrir.
+        ShellEvents.emitDataChanged()
         if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else _notices.tryEmit(message)
         if (!cleared) refreshAll()
     }

@@ -6,7 +6,7 @@ import kotlinx.serialization.json.Json
 
 /**
  * O Inicio sobre a API, os mesmos pedidos da web (pages/Dashboard.jsx, lib/attention.js):
- * GET /api/home?months=12, GET /api/attention, GET /api/budgets?month=, com a copia guardada
+ * GET /api/home?months=12, GET /api/home/panels, GET /api/attention, GET /api/budgets?month=, com a copia guardada
  * primeiro (CachedReader); e as duas acoes, so com o servidor (nunca na fila): pagar uma fatura
  * (POST /api/cc-expenses/pay-invoice, uma por pedido) e lancar as recorrencias
  * (POST /api/recurring/run).
@@ -17,6 +17,9 @@ class HomeRepository(
     private val json: Json = ApiJson,
 ) {
     fun home(): Flow<Load<HomeDto>> = reader.read(HOME_PATH, HomeDto.serializer())
+
+    /** Categorias, ritmo, proximas faturas e parcelamentos (GET /api/home/panels). */
+    fun panels(): Flow<Load<HomePanelsDto>> = reader.read(PANELS_PATH, HomePanelsDto.serializer())
 
     fun attention(): Flow<Load<AttentionDto>> = reader.read(ATTENTION_PATH, AttentionDto.serializer())
 
@@ -54,6 +57,7 @@ class HomeRepository(
         /** Os 12 meses do fluxo, como useHome() (HOME_MONTHS em lib/attention.js). */
         const val HOME_MONTHS = 12
         const val HOME_PATH = "/api/home?months=$HOME_MONTHS"
+        const val PANELS_PATH = "/api/home/panels"
         const val ATTENTION_PATH = "/api/attention"
         const val PAY_INVOICE_PATH = "/api/cc-expenses/pay-invoice"
         const val RUN_RECURRING_PATH = "/api/recurring/run"

@@ -1,15 +1,12 @@
 import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
-import { isAppBundleAvailable } from '../lib/appBundle'
 import AparenciaSection from './ajustes/AparenciaSection'
-import AppVersionSection from './ajustes/AppVersionSection'
 import AprovarSection from './ajustes/AprovarSection'
 import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
 import IntegracoesSection from './ajustes/IntegracoesSection'
-import NotificacoesSection from './ajustes/NotificacoesSection'
 import PerfilSection from './ajustes/PerfilSection'
 import RegrasSection from './ajustes/RegrasSection'
 
@@ -22,8 +19,6 @@ const SECTION_LINKS = [
   { id: 'integracoes', label: 'Integrações' },
   { id: 'aparencia', label: 'Aparência' },
   { id: 'perfil', label: 'Perfil' },
-  // So no APK (NotificacoesSection, AppVersionSection).
-  ...(isAppBundleAvailable() ? [{ id: 'notificacoes', label: 'Notificações' }, { id: 'versao', label: 'Versão' }] : []),
 ]
 
 // O router nao rola ate a ancora sozinho. Rola na chegada e de novo depois que
@@ -84,8 +79,6 @@ export default function Ajustes() {
       <IntegracoesSection />
       <AparenciaSection />
       <PerfilSection />
-      <NotificacoesSection />
-      <AppVersionSection />
     </div>
   )
 }

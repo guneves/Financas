@@ -194,3 +194,92 @@ data class RecurringRunDto(
     val through: String? = null,
     val blocked: List<BlockedRecurringDto> = emptyList(),
 )
+
+/** Uma categoria de "Despesas por categoria" (services/home_panels.py, category_breakdown). */
+@Serializable
+data class HomeCategoryDto(
+    val name: String,
+    val value: Money = BigDecimal.ZERO,
+    val cash: Money = BigDecimal.ZERO,
+    val credit: Money = BigDecimal.ZERO,
+    /** % contra o mes passado inteiro; null sem gasto nele. */
+    val delta: Double? = null,
+)
+
+/** Um dia do "Ritmo de gastos": o acumulado do mes (null depois de hoje) e a media no dia. */
+@Serializable
+data class PaceRowDto(
+    val day: Int,
+    val current: Money? = null,
+    val average: Money? = null,
+)
+
+@Serializable
+data class PaceMonthDto(
+    val month: String,
+    @SerialName("to_date") val toDate: Money = BigDecimal.ZERO,
+)
+
+/** O "Ritmo de gastos" (spending_pace). */
+@Serializable
+data class SpendingPaceDto(
+    @SerialName("today_day") val todayDay: Int = 1,
+    @SerialName("days_in_month") val daysInMonth: Int = 31,
+    val rows: List<PaceRowDto> = emptyList(),
+    @SerialName("current_to_date") val currentToDate: Money = BigDecimal.ZERO,
+    @SerialName("average_to_date") val averageToDate: Money = BigDecimal.ZERO,
+    @SerialName("average_month") val averageMonth: Money = BigDecimal.ZERO,
+    @SerialName("vs_average") val vsAverage: Double? = null,
+    val months: List<PaceMonthDto> = emptyList(),
+)
+
+/** Um mes da projecao das faturas; [next] = mes de uma proxima fatura (em destaque). */
+@Serializable
+data class InvoiceProjectionDto(
+    val month: String,
+    val value: Money = BigDecimal.ZERO,
+    val next: Flag = false,
+)
+
+/** Uma compra das proximas faturas. */
+@Serializable
+data class NextInvoiceItemDto(
+    val id: String,
+    val kind: String = "PURCHASE",
+    val description: String? = null,
+    @SerialName("card_name") val cardName: String? = null,
+    @SerialName("installment_info") val installmentInfo: String? = null,
+    val amount: Money = BigDecimal.ZERO,
+)
+
+/** Um parcelamento aberto: a compra, quantas parcelas faltam e quanto. */
+@Serializable
+data class InstallmentGroupDto(
+    val description: String? = null,
+    @SerialName("card_name") val cardName: String? = null,
+    @SerialName("installment_amount") val installmentAmount: Money = BigDecimal.ZERO,
+    val remaining: Int = 0,
+    val paid: Int = 0,
+    @SerialName("total_installments") val totalInstallments: Int = 1,
+    @SerialName("remaining_amount") val remainingAmount: Money = BigDecimal.ZERO,
+    @SerialName("next_invoice_month") val nextInvoiceMonth: Int = 1,
+    @SerialName("next_invoice_year") val nextInvoiceYear: Int = 1900,
+)
+
+/**
+ * GET /api/home/panels (services/home_panels.py): os quatro paineis de historico do Inicio que a
+ * web montava sobre todo o historico — categorias, ritmo, proximas faturas e parcelamentos.
+ */
+@Serializable
+data class HomePanelsDto(
+    val today: String? = null,
+    val month: String? = null,
+    val categories: List<HomeCategoryDto> = emptyList(),
+    @SerialName("spending_total") val spendingTotal: Money = BigDecimal.ZERO,
+    val pace: SpendingPaceDto = SpendingPaceDto(),
+    @SerialName("invoice_projection") val invoiceProjection: List<InvoiceProjectionDto> = emptyList(),
+    @SerialName("next_invoice_months") val nextInvoiceMonths: List<String> = emptyList(),
+    @SerialName("next_invoice_items") val nextInvoiceItems: List<NextInvoiceItemDto> = emptyList(),
+    val installments: List<InstallmentGroupDto> = emptyList(),
+    @SerialName("installments_total") val installmentsTotal: Money = BigDecimal.ZERO,
+)

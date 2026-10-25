@@ -30,10 +30,8 @@ import br.financas.app.data.TaxReportDto
 import br.financas.app.rules.AllocationRules
 import br.financas.app.ui.components.AlertMessage
 import br.financas.app.ui.components.AlertTone
-import br.financas.app.ui.components.AppButton
 import br.financas.app.ui.components.Badge
 import br.financas.app.ui.components.BadgeTone
-import br.financas.app.ui.components.ButtonVariant
 import br.financas.app.ui.components.EmptyState
 import br.financas.app.ui.components.ListSkeleton
 import br.financas.app.ui.components.Panel
@@ -44,9 +42,6 @@ import br.financas.app.ui.theme.LocalPalette
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.math.BigDecimal
 
-/** O relatorio completo de IR: a pagina React, mesmo num APK que tem a nativa. */
-const val IR_WEB_ROUTE = "/investimentos/ir?web=1"
-
 private fun TaxMonthDto.view() = AllocationRules.TaxMonth(month, stocks.sales, etfs.sales, reits.sales, darf, darfCarried)
 
 /**
@@ -54,7 +49,7 @@ private fun TaxMonthDto.view() = AllocationRules.TaxMonth(month, stocks.sales, e
  * na web (o modo privado so esconde Bens e direitos, que ficam no relatorio completo).
  */
 @Composable
-fun IrScreen(viewModel: IrViewModel, onBack: () -> Unit, onTab: (InvestimentosTab) -> Unit, onOpenWeb: (String) -> Unit) {
+fun IrScreen(viewModel: IrViewModel, onBack: () -> Unit, onTab: (InvestimentosTab) -> Unit) {
     val palette = LocalPalette.current
     val dismiss = stringResource(R.string.lanc_dismiss)
     PlanejarScaffold(
@@ -68,7 +63,6 @@ fun IrScreen(viewModel: IrViewModel, onBack: () -> Unit, onTab: (InvestimentosTa
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.inv_ir_description), fontSize = 14.sp, color = palette["zinc-600"])
                 Text(stringResource(R.string.inv_ir_full_report), fontSize = 13.sp, color = palette.muted)
-                AppButton(stringResource(R.string.inv_ir_open_full), { onOpenWeb(IR_WEB_ROUTE) }, Modifier.fillMaxWidth(), variant = ButtonVariant.SECONDARY)
             }
         }
         item(key = "meter") { ExemptionPanel(viewModel.month, viewModel.exemption.value, viewModel.exemption.error, dismiss) }
