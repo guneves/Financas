@@ -39,9 +39,11 @@ queued offline, as the prompt asked.
 - Not built (listed in next-steps, step 7): pull-to-refresh, swipes, chart crosshair, landscape,
   the shell "+" opening Registrar operação, Proventos' 30-day total and payment-day notification,
   the DARF reminder.
-- **Owner decisions left**: privacy (native masks every R$ in Operações/Proventos, the web less;
-  IR and the exemption notices stay unmasked on both, as the web); web investment creations
-  offline too (they still send no `client_id`).
+- **Owner decision left**: web investment creations offline too (they still send no
+  `client_id`). Privacy was decided (owner, after the PR): every R$ of Operações and Proventos is
+  masked on both sides; the web followed in the stacked PR (`claude/web-privacy-investments`),
+  checked in Chromium on a scratch server with privacy on. IR and the exemption notices stay
+  unmasked on both.
 
 ### Review
 One Sonnet reviewer over `origin/main..HEAD`: **no blockers, two majors, both fixed**: the
