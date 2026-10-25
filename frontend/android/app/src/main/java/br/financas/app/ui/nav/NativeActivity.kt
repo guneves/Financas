@@ -13,6 +13,9 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -263,27 +266,43 @@ class NativeActivity : ComponentActivity() {
     }
 }
 
-/** Uma pagina do NavHost a partir da casca, sem empilhar ([from] sai da pilha; o Inicio fica). */
+/**
+ * Uma pagina do NavHost a partir da casca, sem empilhar (a atual sai da pilha; o Inicio fica). A
+ * que sai guarda o estado (ViewModel, dados, rolagem) e a que volta o recupera: trocar de aba nao
+ * recarrega a pagina nem a leva de volta ao topo.
+ */
 private fun NavHostController.openTab(route: String) {
     val current = currentDestination?.route
     navigate(route) {
         launchSingleTop = true
-        if (current != null && current != NativeRoutes.HOME) popUpTo(current) { inclusive = true }
+        restoreState = true
+        if (current != null && current != NativeRoutes.HOME) {
+            popUpTo(current) {
+                inclusive = true
+                saveState = true
+            }
+        }
     }
 }
 
-/** A secao da barra de baixo: o Inicio fica embaixo de tudo, a secao entra por cima dele. */
+/**
+ * A secao da barra de baixo: o Inicio fica embaixo de tudo, a secao entra por cima dele. Como nas
+ * abas, a pagina que sai guarda o estado e a que volta o recupera.
+ */
 private fun NavHostController.openSection(section: ShellNav.Section) {
     if (section == ShellNav.Section.HOME) {
         // O Inicio que ja esta embaixo (sem refazer a pagina); sem ele na pilha, um novo.
-        if (!popBackStack(NativeRoutes.HOME, inclusive = false)) navigate(NativeRoutes.HOME) { launchSingleTop = true }
+        if (!popBackStack(NativeRoutes.HOME, inclusive = false, saveState = true)) navigate(NativeRoutes.HOME) { launchSingleTop = true }
         return
     }
     navigate(section.root) {
         launchSingleTop = true
-        popUpTo(NativeRoutes.HOME)
+        restoreState = true
+        popUpTo(NativeRoutes.HOME) { saveState = true }
     }
 }
+
+private const val PAGE_FADE_MS = 120
 
 /** Sem sessao: o login, e nada por baixo dele. */
 private fun NavHostController.toLogin() {
@@ -445,7 +464,15 @@ private fun AppShell(
                     // A barra de baixo ja cuida da barra do sistema: as paginas nao a somam de novo.
                     .then(if (section != null) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
             ) {
-                NavHost(navController = nav, startDestination = start) {
+                // Troca de pagina curta: o fade padrao (700 ms) fazia cada aba parecer recarregar.
+                NavHost(
+                    navController = nav,
+                    startDestination = start,
+                    enterTransition = { fadeIn(tween(PAGE_FADE_MS)) },
+                    exitTransition = { fadeOut(tween(PAGE_FADE_MS)) },
+                    popEnterTransition = { fadeIn(tween(PAGE_FADE_MS)) },
+                    popExitTransition = { fadeOut(tween(PAGE_FADE_MS)) },
+                ) {
                     composable(NativeRoutes.LOGIN) {
                         val login: LoginViewModel = viewModel()
                         LoginScreen(viewModel = login, expired = expired, onSignedIn = signedIn)

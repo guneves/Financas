@@ -320,10 +320,10 @@ private fun QuoteResultPanel(result: QuoteUpdateDto, onClose: () -> Unit) {
                 AppButton(stringResource(R.string.inv_close), onClose, variant = ButtonVariant.SUBTLE)
             }
             if (result.updatedAssets.isNotEmpty()) Text(stringResource(R.string.inv_quotes_updated, names(result.updatedAssets)), color = palette["emerald-700"], fontSize = 13.sp)
-            if (result.cachedAssets.isNotEmpty()) Text(stringResource(R.string.inv_quotes_cached, names(result.cachedAssets)), color = palette["amber-700"], fontSize = 13.sp)
-            if (result.failedAssets.isNotEmpty()) {
-                val failed = result.failedAssets.joinToString(", ") { "${it.ticker ?: it.name.orEmpty()} (${it.error ?: "sem detalhe"})" }
-                Text(stringResource(R.string.inv_quotes_failed_list, failed), color = palette["rose-700"], fontSize = 13.sp)
+            if (result.cachedAssets.isNotEmpty()) Text(stringResource(R.string.inv_quotes_cached, names(result.cachedAssets)), color = palette["amber-800"], fontSize = 13.sp)
+            // Uma linha por motivo: um tempo limite do provedor nao se repete ticker a ticker.
+            result.failedAssets.groupBy { it.error ?: "sem detalhe" }.forEach { (error, assets) ->
+                Text(stringResource(R.string.inv_quotes_failed_list, error, names(assets)), color = palette["rose-700"], fontSize = 13.sp)
             }
             if (result.staleAssets.isNotEmpty()) Text(stringResource(R.string.inv_quotes_stale, names(result.staleAssets)), color = palette["zinc-600"], fontSize = 13.sp)
         }

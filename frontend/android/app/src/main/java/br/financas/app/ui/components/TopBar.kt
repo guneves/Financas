@@ -1,6 +1,7 @@
 package br.financas.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +25,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -108,16 +113,20 @@ fun NativeTopBar(
     }
 }
 
+// A aba aberta entra na tela: Alocação, Proventos, IR... nao ficam escondidas a direita.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TabChip(tab: TopTab) {
     val palette = LocalPalette.current
+    val requester = remember { BringIntoViewRequester() }
+    if (tab.active) LaunchedEffect(Unit) { requester.bringIntoView() }
     Surface(
         onClick = { if (!tab.active) tab.onClick() },
         shape = RoundedCornerShape(50),
         color = if (tab.active) palette["zinc-900"] else palette.surface,
         contentColor = if (tab.active) palette["zinc-50"] else palette["zinc-700"],
         border = if (tab.active) null else BorderStroke(1.dp, palette.border),
-        modifier = Modifier.heightIn(min = 48.dp),
+        modifier = Modifier.heightIn(min = 48.dp).bringIntoViewRequester(requester),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(PaddingValues(horizontal = 16.dp))) {
             Text(tab.label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)

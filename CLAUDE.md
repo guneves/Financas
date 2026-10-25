@@ -278,7 +278,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   (`compared_months()`). A bonificação is never a flow.
 - **Chart history is served stale and refreshed behind** (15 min fresh, 7 days stale,
   `schedule_history_refresh()`), with a disk copy in `HISTORY_CACHE_FILE`; index closes follow the
-  same rule. Quotes refresh hourly in a thread (`services/quote_refresh.py`).
+  same rule. Quotes refresh hourly in a thread (`services/quote_refresh.py`). The quote button
+  and that thread wait `PRICE_REFRESH_TIMEOUT_SECONDS` (25 s; reads wait 6 s); a provider slower
+  than that still records its quotes when they arrive (`on_late`, response `late: true`).
 - **A save waits only for its own request**: `apiFetch` already invalidates every query; awaiting
   `invalidateServerData()` joins those refetches, never restarts them. The quote refresh after a
   write runs after the sheet closes (`refreshQuotes()`). Writes don't rebuild

@@ -22,6 +22,10 @@ endpoints the React app (now browser only) calls.
   "+ Novo", `NewEntryActivity`, Cartão inside Cartões), the APK banner and the Pendentes sheet.
   Back with nothing below goes to Início; on Início it moves the task to the back. Aprovar always
   goes back to Extrato (`ShellNav.backTarget()`).
+- Switching a tab or a bottom-bar section saves the page that leaves (`popUpTo { saveState }`) and
+  restores the one that comes back (`restoreState`): its ViewModel, data and scroll survive, so a
+  tab shows at once where it was and re-reads behind. Pages fade in 120 ms (`PAGE_FADE_MS`), and
+  the active top tab scrolls into view.
 - Session: the login writes `outbox/Session.java` (`Outbox.signIn`: Keystore-sealed token, the
   workers rescheduled). A 401 on any request clears the session if it is still the token that was
   refused (`AppGraph.handleUnauthorized`) and the shell returns to the login; the queue stays.

@@ -139,6 +139,15 @@ PRICE_DOWNLOAD_TIMEOUT_SECONDS = read_float_env(
     minimum=1.0,
     maximum=30.0,
 )
+# Quanto o botao "Atualizar cotacoes" e a rodada de hora em hora esperam o provedor. O
+# yfinance faz ate duas consultas (1d/1m e, fora do pregao, 5d/1d) de ate
+# PRICE_DOWNLOAD_TIMEOUT_SECONDS cada: os 6 s da leitura da carteira nao bastam.
+PRICE_REFRESH_TIMEOUT_SECONDS = read_float_env(
+    "PRICE_REFRESH_TIMEOUT_SECONDS",
+    25.0,
+    minimum=1.0,
+    maximum=120.0,
+)
 PRICE_FETCH_WORKERS = read_int_env("PRICE_FETCH_WORKERS", 2, minimum=1, maximum=4)
 # De quanto em quanto tempo o servidor atualiza sozinho as cotacoes da renda
 # variavel (acoes, FIIs, ETFs, BDRs, cripto) de cada usuario
