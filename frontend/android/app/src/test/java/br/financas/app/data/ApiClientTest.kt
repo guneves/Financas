@@ -18,6 +18,7 @@ class ApiClientTest {
 
     private lateinit var server: MockWebServer
     private var unauthorizedCalls = 0
+    private var unauthorizedToken: String? = "nenhum"
     private var session: SessionInfo? = null
 
     private val http = OkHttpClient.Builder()
@@ -28,7 +29,10 @@ class ApiClientTest {
     private fun client() = ApiClient(
         session = { session },
         http = http,
-        onUnauthorized = { unauthorizedCalls += 1 },
+        onUnauthorized = { token ->
+            unauthorizedCalls += 1
+            unauthorizedToken = token
+        },
         io = Dispatchers.IO,
     )
 
@@ -77,6 +81,8 @@ class ApiClientTest {
         val error = failure<ApiException.Unauthorized> { runBlocking { client().get("/api/accounts") } }
         assertEquals("Token invalido ou expirado.", error.serverMessage)
         assertEquals(1, unauthorizedCalls)
+        // O token recusado vai junto: o AppGraph so apaga a sessao se ela ainda for essa.
+        assertEquals("token-123", unauthorizedToken)
     }
 
     @Test
@@ -85,6 +91,7 @@ class ApiClientTest {
         val error = failure<ApiException.Unauthorized> { runBlocking { client().get("/api/accounts") } }
         assertNull(error.serverMessage)
         assertEquals(1, unauthorizedCalls)
+        assertNull(unauthorizedToken)
         assertEquals(0, server.requestCount)
     }
 

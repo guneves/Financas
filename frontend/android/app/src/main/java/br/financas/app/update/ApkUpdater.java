@@ -13,12 +13,6 @@ import android.util.Log;
 import androidx.core.content.FileProvider;
 import androidx.core.content.pm.PackageInfoCompat;
 
-import com.getcapacitor.JSObject;
-import com.getcapacitor.Plugin;
-import com.getcapacitor.PluginCall;
-import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.CapacitorPlugin;
-
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -32,97 +26,51 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import br.financas.app.BuildConfig;
+import br.financas.app.JsonOut;
 
 /**
- * O APK novo, quando a tela sozinha nao basta (lib/appUpdate.js): o CI publica o APK
- * assinado e /apk/version.json no servidor, so na tailnet (tailscale serve, DEPLOY.md).
+ * O APK novo (o aviso do Inicio e Ajustes › Versão do app): o CI publica o APK assinado e
+ * /apk/version.json no servidor, so na tailnet (tailscale serve, DEPLOY.md).
  * Aqui: perguntar qual e o mais novo, baixar, conferir e abrir o instalador do Android.
  *
  * O instalador e o do sistema; ele confere a assinatura e so instala por cima um APK da
  * mesma chave, mantendo os dados (a fila, o login, o cache). A permissao "instalar apps
  * desconhecidos" e pedida uma vez, abrindo a tela dela nos Ajustes do Android.
  */
-@CapacitorPlugin(name = "AppUpdate")
-public class ApkUpdatePlugin extends Plugin {
+public final class ApkUpdater {
+
+    private ApkUpdater() {}
 
     private static final String TAG = "FinancasUpdate";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 30_000;
     private static final String APK_MIME = "application/vnd.android.package-archive";
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    // Um download por vez, venha da web ou do Ajustes nativo.
+    // Um download por vez, venha do aviso do Inicio ou de Ajustes.
     private static final AtomicBoolean installing = new AtomicBoolean(false);
 
-    @Override
-    protected void handleOnDestroy() {
-        executor.shutdown();
-    }
-
-    /** O APK instalado e o que o servidor publica (latest = null quando nao publica nenhum). */
-    @PluginMethod
-    public void latest(PluginCall call) {
-        String baseUrl = baseUrl(call);
-        if (baseUrl == null) return;
-        executor.execute(() -> {
-            try {
-                call.resolve(latestState(getContext(), baseUrl));
-            } catch (Exception error) {
-                Log.w(TAG, "Nao foi possivel ler o APK publicado", error);
-                call.reject(message(error, "Não foi possível procurar um APK novo."));
-            }
-        });
-    }
-
     /**
-     * Baixa o APK mais novo, confere e abre o instalador. Sem a permissao de instalar, abre a
-     * tela dela e responde "needs-permission"; a tela chama de novo quando o app volta.
+     * O APK instalado e o publicado: { installedCode, latest?, newer, canInstall }.
+     * Bloqueia (rede): fora da thread da tela. O aviso do Inicio e Ajustes › Versão do app.
      */
-    @PluginMethod
-    public void install(PluginCall call) {
-        String baseUrl = baseUrl(call);
-        if (baseUrl == null) return;
-        Context context = getContext();
-        JSObject early = installPrecheck(context);
-        if (early != null) {
-            call.resolve(early);
-            return;
-        }
-        executor.execute(() -> {
-            try {
-                call.resolve(installNow(context, baseUrl));
-            } catch (Exception error) {
-                Log.w(TAG, "Nao foi possivel instalar o APK novo", error);
-                call.reject(message(error, "Não foi possível baixar o APK novo."));
-            }
-        });
-    }
-
-    /**
-     * O APK instalado e o publicado: { installedCode, nativeLevel, latest?, newer, canInstall }.
-     * Bloqueia (rede): fora da thread da tela. Tambem o Ajustes nativo (ui/ajustes/).
-     */
-    public static JSObject latestState(Context context, String baseUrl) throws Exception {
-        JSObject result = installed(context);
+    public static JSONObject latestState(Context context, String baseUrl) throws Exception {
+        JSONObject result = installed(context);
         ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
         if (latest != null) {
-            JSObject out = new JSObject();
-            out.put("versionCode", latest.versionCode);
-            out.put("versionName", latest.versionName);
-            out.put("nativeLevel", latest.nativeLevel);
-            out.put("size", latest.size);
-            result.put("latest", out);
+            JSONObject out = new JSONObject();
+            JsonOut.put(out, "versionCode", latest.versionCode);
+            JsonOut.put(out, "versionName", latest.versionName);
+            JsonOut.put(out, "size", latest.size);
+            JsonOut.put(result, "latest", out);
             // O APK de teste (debug) e outro pacote: o publicado nunca instala por cima dele.
-            result.put("newer", !BuildConfig.DEBUG && ApkUpdateRules.isNewer(latest, installedCode(context)));
+            JsonOut.put(result, "newer", !BuildConfig.DEBUG && ApkUpdateRules.isNewer(latest, installedCode(context)));
         } else {
-            result.put("newer", false);
+            JsonOut.put(result, "newer", false);
         }
-        result.put("canInstall", canInstall(context));
+        JsonOut.put(result, "canInstall", canInstall(context));
         return result;
     }
 
@@ -131,33 +79,33 @@ public class ApkUpdatePlugin extends Plugin {
      * com um download em andamento, { status: busy }. null = pode seguir com [installNow] (que
      * entao e dono da vez e a solta no fim).
      */
-    public static JSObject installPrecheck(Context context) {
+    public static JSONObject installPrecheck(Context context) {
         if (!canInstall(context)) {
             openInstallPermission(context);
-            JSObject result = new JSObject();
-            result.put("status", "needs-permission");
+            JSONObject result = new JSONObject();
+            JsonOut.put(result, "status", "needs-permission");
             return result;
         }
         if (!installing.compareAndSet(false, true)) {
-            JSObject busy = new JSObject();
-            busy.put("status", "busy");
+            JSONObject busy = new JSONObject();
+            JsonOut.put(busy, "status", "busy");
             return busy;
         }
         return null;
     }
 
     /** Baixa, confere e abre o instalador: { status: installing | up-to-date }. Bloqueia (rede). */
-    public static JSObject installNow(Context context, String baseUrl) throws Exception {
+    public static JSONObject installNow(Context context, String baseUrl) throws Exception {
         try {
             ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
-            JSObject result = new JSObject();
+            JSONObject result = new JSONObject();
             if (BuildConfig.DEBUG || !ApkUpdateRules.isNewer(latest, installedCode(context))) {
-                result.put("status", "up-to-date");
+                JsonOut.put(result, "status", "up-to-date");
                 return result;
             }
             File apk = download(context, baseUrl, latest);
             openInstaller(context, apk);
-            result.put("status", "installing");
+            JsonOut.put(result, "status", "installing");
             return result;
         } finally {
             installing.set(false);
@@ -191,10 +139,9 @@ public class ApkUpdatePlugin extends Plugin {
         context.startActivity(intent);
     }
 
-    private static JSObject installed(Context context) {
-        JSObject result = new JSObject();
-        result.put("installedCode", installedCode(context));
-        result.put("nativeLevel", BuildConfig.NATIVE_LEVEL);
+    private static JSONObject installed(Context context) {
+        JSONObject result = new JSONObject();
+        JsonOut.put(result, "installedCode", installedCode(context));
         return result;
     }
 

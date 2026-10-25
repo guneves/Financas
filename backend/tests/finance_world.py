@@ -17,6 +17,7 @@ CLOCK_MODULES = (
     "routes.cards",
     "services.card_invoices",
     "services.home",
+    "services.home_panels",
     "services.attention",
     "routes.home",
 )
@@ -58,6 +59,9 @@ class World:
     def home(self, months=None):
         query = {"months": months} if months is not None else {}
         return self.get("/api/home", query_string=query)
+
+    def panels(self):
+        return self.get("/api/home/panels")
 
     def attention(self):
         return self.get("/api/attention")["items"]

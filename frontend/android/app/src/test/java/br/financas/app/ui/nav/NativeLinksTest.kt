@@ -15,13 +15,14 @@ class NativeLinksTest {
     }
 
     @Test
-    fun everythingElseStaysOnTheWeb() {
+    fun desktopOnlyPagesHaveNoTarget() {
         assertNull(NativeLinks.targetFor("/ajustes#regras-de-importacao"))
-        assertNull(NativeLinks.targetFor("/ajustes?web=1#categorias"))
-        assertNull(NativeLinks.targetFor("/lancamentos/extrato?web=1"))
+        assertNull(NativeLinks.targetFor("/ajustes#integracoes"))
+        assertNull(NativeLinks.targetFor("/lancamentos/importar"))
         assertNull(NativeLinks.targetFor(""))
         assertNull(NativeLinks.targetFor(null))
         assertEquals(NativeLinks.Target(NativeRoutes.EXTRATO), NativeLinks.targetFor("/lancamentos/extrato?ver=outra"))
+        assertEquals(NativeLinks.Target(NativeRoutes.HOME), NativeLinks.targetFor("/inicio"))
     }
 
     @Test
@@ -36,13 +37,8 @@ class NativeLinksTest {
         assertEquals(NativeLinks.Target(NativeRoutes.ALOCACAO), NativeLinks.targetFor("/investimentos/alocacao"))
         assertEquals(NativeLinks.Target(NativeRoutes.IR), NativeLinks.targetFor("/investimentos/ir"))
         assertEquals(NativeLinks.Target(NativeRoutes.CALCULADORA), NativeLinks.targetFor("/investimentos/calculadora"))
-        // A pagina completa (metas, setores, o relatorio de IR) e a web, mesmo com a nativa.
-        assertNull(NativeLinks.targetFor("/investimentos/alocacao?web=1"))
-        assertNull(NativeLinks.targetFor("/investimentos/ir?web=1"))
-        assertNull(NativeLinks.targetFor("/investimentos/posicao?web=1"))
         assertNull(NativeLinks.targetFor("/investimentos/outra"))
-        // Cada aba sabe a rota nativa e o caminho web dela.
-        assertEquals("/investimentos/rentabilidade", InvestimentosRoutes.webPathOf(br.financas.app.ui.investimentos.InvestimentosTab.RENTABILIDADE))
+        assertEquals(NativeRoutes.RENTABILIDADE, InvestimentosRoutes.routeOf(br.financas.app.ui.investimentos.InvestimentosTab.RENTABILIDADE))
     }
 
     @Test

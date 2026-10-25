@@ -37,12 +37,12 @@ class Palette(private val tokens: Map<String, Int>) {
 val LocalPalette = staticCompositionLocalOf { Palette(Tokens.light) }
 
 /**
- * O tema das telas nativas. Escuro ou claro como a ultima escolha da web (Ajustes › Aparência,
- * gravada pelo ShellPlugin em ShellPrefs); antes da primeira, o do sistema.
+ * O tema das telas nativas: a escolha de Ajustes › Aparência (ShellPrefs); "Sistema" (e antes da
+ * primeira escolha) segue o do celular.
  */
 @Composable
 fun FinancasTheme(
-    dark: Boolean = ShellPrefs.dark(LocalContext.current) ?: isSystemInDarkTheme(),
+    dark: Boolean = ShellPrefs.isDark(LocalContext.current, isSystemInDarkTheme()),
     content: @Composable () -> Unit,
 ) {
     val palette = Palette(Tokens.of(dark))
@@ -79,94 +79,51 @@ private fun colorScheme(p: Palette, dark: Boolean): ColorScheme {
 }
 
 /**
- * O tema escolhido na web, guardado para as telas nativas. A escolha mora no localStorage da
- * WebView (lib/theme.js), que o Kotlin nao le; o ShellPlugin recebe cada troca (setTheme) e a
- * grava aqui. O modo privado tambem mora aqui, nos dois sentidos (ver saveValuesHidden).
+ * O que o app guarda deste aparelho para a casca: o tema (Ajustes › Aparência) e o modo privado
+ * (o olho). Os valores gravados pela WebView antes de ela sair (o "dark" de cada troca de tema)
+ * continuam valendo ate a primeira escolha nativa.
  */
 object ShellPrefs {
     private const val PREFS = "financas_shell"
     private const val DARK = "dark"
     private const val VALUES_HIDDEN = "values_hidden"
+    private const val THEME = "theme"
 
+    /** Escuro? A escolha guardada; "system" (ou nenhuma) segue [systemDark]. */
     @JvmStatic
-    fun saveDark(context: Context, dark: Boolean) {
-        prefs(context).edit().putBoolean(DARK, dark).apply()
-    }
-
-    @JvmStatic
-    fun dark(context: Context): Boolean? {
+    fun isDark(context: Context, systemDark: Boolean): Boolean {
         val prefs = prefs(context)
-        return if (prefs.contains(DARK)) prefs.getBoolean(DARK, false) else null
+        return when (prefs.getString(THEME, null)) {
+            "dark" -> true
+            "light" -> false
+            "system" -> systemDark
+            // Sem escolha: o ultimo tema que a WebView aplicou, se houver.
+            else -> if (prefs.contains(DARK)) prefs.getBoolean(DARK, false) else systemDark
+        }
     }
 
-    /**
-     * O modo privado (o olho): o mesmo nas duas interfaces. A web grava cada troca
-     * (ShellPlugin.setValuesHidden, lib/nativeApp.js) e le a ultima ao voltar para a WebView
-     * (getValuesHidden); o Inicio nativo grava a dele aqui.
-     */
+    /** O modo privado (o olho), o mesmo em todas as paginas. */
     @JvmStatic
     fun saveValuesHidden(context: Context, hidden: Boolean) {
         prefs(context).edit().putBoolean(VALUES_HIDDEN, hidden).apply()
     }
 
-    /** O modo privado guardado; null antes da primeira escolha (vale o da web). */
+    /** O modo privado guardado; null antes da primeira escolha. */
     @JvmStatic
     fun valuesHidden(context: Context): Boolean? {
         val prefs = prefs(context)
         return if (prefs.contains(VALUES_HIDDEN)) prefs.getBoolean(VALUES_HIDDEN, false) else null
     }
 
-    private const val THEME = "theme"
-    private const val THEME_PENDING = "theme_pending"
-    private const val SIGN_OUT_PENDING = "sign_out_pending"
-
-    /**
-     * A escolha de Aparência ("system", "light" ou "dark"), como a web a guarda (lib/theme.js).
-     * A web manda a dela junto do setTheme; a Aparência nativa grava aqui, ajusta o escuro das
-     * telas nativas e deixa a escolha pendente para a WebView (takeThemePreference).
-     */
+    /** A escolha de Aparência: "system", "light" ou "dark". */
     @JvmStatic
     fun themePreference(context: Context): String = prefs(context).getString(THEME, null)?.takeIf { it in THEMES } ?: "system"
 
+    /** Ajustes › Aparência trocou o tema (a Activity e recriada para as barras do sistema). */
     @JvmStatic
     fun saveThemePreference(context: Context, preference: String) {
         val choice = preference.takeIf { it in THEMES } ?: "system"
-        prefs(context).edit().putString(THEME, choice).apply()
-    }
-
-    /** A Aparência nativa trocou o tema: o escuro das telas nativas e o pedido para a web. */
-    @JvmStatic
-    fun chooseThemeNatively(context: Context, preference: String, systemDark: Boolean) {
-        val choice = preference.takeIf { it in THEMES } ?: "system"
-        val dark = when (choice) {
-            "dark" -> true
-            "light" -> false
-            else -> systemDark
-        }
-        prefs(context).edit().putString(THEME, choice).putString(THEME_PENDING, choice).putBoolean(DARK, dark).apply()
-    }
-
-    /** A escolha feita na tela nativa que a WebView ainda nao aplicou (e apagada ao ser lida). */
-    @JvmStatic
-    fun takePendingTheme(context: Context): String? {
-        val prefs = prefs(context)
-        val pending = prefs.getString(THEME_PENDING, null)
-        if (pending != null) prefs.edit().remove(THEME_PENDING).apply()
-        return pending?.takeIf { it in THEMES }
-    }
-
-    /** O "Sair" nativo: a WebView apaga o login dela ao voltar (takeSignOut). */
-    @JvmStatic
-    fun markSignOut(context: Context) {
-        prefs(context).edit().putBoolean(SIGN_OUT_PENDING, true).apply()
-    }
-
-    @JvmStatic
-    fun takeSignOut(context: Context): Boolean {
-        val prefs = prefs(context)
-        val pending = prefs.getBoolean(SIGN_OUT_PENDING, false)
-        if (pending) prefs.edit().remove(SIGN_OUT_PENDING).apply()
-        return pending
+        prefs(context).edit().putString(THEME, choice).remove(DARK).apply()
     }
 
     private val THEMES = setOf("system", "light", "dark")

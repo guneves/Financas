@@ -16,8 +16,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 /**
- * Endereco da API e token, para o envio com o app fechado. A tela entrega os dois
- * no login (OutboxPlugin.setSession) e apaga no logout (clearSession).
+ * Endereco da API e token, para o envio com o app fechado. O login nativo grava os dois
+ * (Outbox.signIn) e "Sair" ou um 401 apagam (Outbox.signOut).
  *
  * O token fica cifrado com uma chave do Android Keystore (AES-GCM), que nunca sai
  * do aparelho; o endereco e o usuario ficam em claro.

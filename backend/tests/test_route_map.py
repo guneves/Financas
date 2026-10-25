@@ -38,6 +38,7 @@ EXPECTED_ROUTES = {
     ("/api/cc-expenses/<item_id>/share", "PATCH"),
     # Inicio, avisos e faturas (routes/home.py).
     ("/api/home", "GET"),
+    ("/api/home/panels", "GET"),
     ("/api/attention", "GET"),
     ("/api/cc-invoices", "GET"),
     # A receber (routes/receivables.py, 032).

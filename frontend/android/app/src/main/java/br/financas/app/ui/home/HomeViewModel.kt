@@ -14,6 +14,7 @@ import br.financas.app.data.AppGraph
 import br.financas.app.data.AttentionItemDto
 import br.financas.app.data.BudgetMonthDto
 import br.financas.app.data.HomeDto
+import br.financas.app.data.HomePanelsDto
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.Load
 import br.financas.app.outbox.OutboxStore
@@ -21,7 +22,7 @@ import br.financas.app.rules.AttentionRules
 import br.financas.app.rules.HomeRules
 import br.financas.app.rules.OutboxItems
 import br.financas.app.rules.PendingItem
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.theme.ShellPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,6 +61,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     var budget by mutableStateOf<BudgetMonthDto?>(null)
+        private set
+
+    /** Categorias, ritmo, proximas faturas e parcelamentos (GET /api/home/panels); null ate chegar. */
+    var panels by mutableStateOf<HomePanelsDto?>(null)
         private set
 
     var dismissed by mutableStateOf<List<String>>(emptyList())
@@ -148,6 +153,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         readHome()
         readAttention()
         readBudget()
+        readPanels()
         readPending()
         readInboxCount()
     }
@@ -221,6 +227,18 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 when (load) {
                     is Load.Cached -> if (budget == null) budget = load.value
                     is Load.Fresh -> budget = load.value
+                    is Load.Failed -> Unit
+                }
+            }
+        }
+    }
+
+    private fun readPanels() {
+        viewModelScope.launch {
+            repo.panels().collect { load ->
+                when (load) {
+                    is Load.Cached -> if (panels == null) panels = load.value
+                    is Load.Fresh -> panels = load.value
                     is Load.Failed -> Unit
                 }
             }
@@ -334,7 +352,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 payError = failure
             }
-            NativeScreensPlugin.emitDataChanged()
+            ShellEvents.emitDataChanged()
             if (!cleared) refreshAll()
         }
     }
@@ -352,7 +370,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     notice(HomeNotice(HomeRules.recurringNotice(created), info = created <= 0))
                     val blocked = HomeRules.blockedRecurringMessage(result.value.blocked.map { it.rule })
                     if (blocked.isNotEmpty()) fail(blocked)
-                    NativeScreensPlugin.emitDataChanged()
+                    ShellEvents.emitDataChanged()
                     if (!cleared) refreshAll()
                 }
                 is InboxWrite.Offline -> fail(app.getString(R.string.home_offline_action))

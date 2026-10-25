@@ -28,7 +28,7 @@ import br.financas.app.rules.LivePlanTotals
 import br.financas.app.rules.MonthlyPlan
 import br.financas.app.ui.components.ConfirmRequest
 import br.financas.app.ui.home.AttentionDismissals
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.planejar.ScreenLoad
 import br.financas.app.ui.planejar.planWriteError
 import br.financas.app.ui.theme.ShellPrefs
@@ -415,7 +415,7 @@ class OrcamentoViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun changed(message: String?) {
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
         if (message != null) {
             if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else _notices.tryEmit(message)
         }

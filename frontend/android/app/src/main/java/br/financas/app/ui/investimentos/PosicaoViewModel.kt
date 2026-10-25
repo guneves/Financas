@@ -25,7 +25,7 @@ import br.financas.app.rules.Operations
 import br.financas.app.rules.PortfolioAccount
 import br.financas.app.rules.PortfolioView
 import br.financas.app.ui.components.ConfirmRequest
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.planejar.ScreenLoad
 import br.financas.app.ui.theme.ShellPrefs
 import kotlinx.coroutines.Job
@@ -131,7 +131,7 @@ class PosicaoViewModel(application: Application) : AndroidViewModel(application)
 
     private fun reread() {
         if (!cleared) refreshAll()
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
     }
 
     private fun readHistory() {

@@ -9,23 +9,8 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
-            android:name=".MainActivity"
-            android:label="@string/title_activity_main"
-            android:theme="@style/AppTheme.NoActionBarLaunch"
-            android:launchMode="singleTask"
-            android:exported="true">
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
-        </activity>
-
-        <!-- O "+ Novo" nativo (ui/newentry/), aberto pela WebView (NativeScreens.open): um sheet
-             do Compose por cima dela, com o teclado no Valor. -->
+        <!-- O "+ Novo" nativo (ui/newentry/), aberto pelo "+" da casca: um sheet do Compose por
+             cima da pagina, com o teclado no Valor. -->
         <activity
             android:name=".ui.newentry.NewEntryActivity"
             android:exported="false"
@@ -33,14 +18,27 @@
             android:theme="@style/AppTheme.NativeSheet"
             android:windowSoftInputMode="adjustResize|stateVisible" />
 
-        <!-- As paginas nativas (ui/nav/NativeActivity): um NavHost do Compose, Aprovar primeiro.
-             Aberta pela WebView (NativeScreens.open) e pela notificacao "Novo para aprovar". -->
+        <!-- O app: a casca nativa (ui/nav/NativeActivity), o login e um NavHost do Compose com
+             todas as paginas. Abre pelo icone (o alias abaixo) e pelas notificacoes. -->
         <activity
             android:name=".ui.nav.NativeActivity"
             android:exported="false"
-            android:launchMode="singleTop"
-            android:theme="@style/AppTheme.NoActionBar"
+            android:launchMode="singleTask"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- O icone do app. Mantem o nome do launcher da WebView (.MainActivity): instalado por
+             cima, o atalho na tela inicial continua valendo. -->
+        <activity-alias
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:targetActivity=".ui.nav.NativeActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- O leitor de notificacoes dos bancos (notify/). O Android so o liga depois que o dono
              permite o acesso em Ajustes do Android; a tela leva ate la (Ajustes › Notificações). -->

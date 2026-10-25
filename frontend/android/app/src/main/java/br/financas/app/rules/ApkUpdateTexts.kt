@@ -1,38 +1,30 @@
-// Port: mudou um, muda o outro, com um teste de cada lado.
-// Este arquivo e o port da metade do APK de frontend/src/lib/appBundleRules.js (apkPrompt,
-// installStatusMessage; testes: appBundleRules.test.js e ApkUpdateTextsTest.kt). A metade da
-// tela baixada (AppBundle) segue na web: Versao do app nativa so oferece o APK novo.
+// O aviso do APK novo (o Inicio e Ajustes › Versão do app): quando oferecer e o texto de cada
+// resposta da instalacao (update/ApkUpdater.java). Era o port de apkPrompt/installStatusMessage
+// de lib/appBundleRules.js, que saiu com a WebView. Testes: ApkUpdateTextsTest.kt.
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
 package br.financas.app.rules
 
 object ApkUpdateTexts {
 
-    /** O que ApkUpdatePlugin.latest devolve. */
-    data class Latest(val versionCode: Long, val versionName: String?, val nativeLevel: Int)
+    /** O APK publicado, como ApkUpdater.latestState o devolve. */
+    data class Latest(val versionCode: Long, val versionName: String?)
 
-    data class ApkState(val newer: Boolean, val latest: Latest?, val nativeLevel: Int)
+    data class ApkState(val newer: Boolean, val latest: Latest?)
 
-    data class Prompt(val versionName: String, val required: Boolean)
+    data class Prompt(val versionName: String)
 
-    /**
-     * "Nova versão disponível" quando o publicado e mais novo; `required` quando ele (ou a tela
-     * do servidor, [bundleLevel] de um check "incompatible") pede um nivel nativo acima do instalado.
-     */
-    fun apkPrompt(apk: ApkState?, bundleLevel: Int = 0): Prompt? {
+    /** "Nova versão disponível (<nome>)" quando o publicado e mais novo que o instalado. */
+    fun apkPrompt(apk: ApkState?): Prompt? {
         val latest = apk?.latest
         if (apk == null || !apk.newer || latest == null) return null
-        val installed = apk.nativeLevel
-        return Prompt(
-            versionName = latest.versionName?.takeIf { it.isNotEmpty() } ?: latest.versionCode.toString(),
-            required = bundleLevel > installed || latest.nativeLevel > installed,
-        )
+        return Prompt(latest.versionName?.takeIf { it.isNotEmpty() } ?: latest.versionCode.toString())
     }
 
     enum class Tone { INFO, WARNING, SUCCESS, NEUTRAL, DANGER }
 
     data class Message(val tone: Tone, val text: String)
 
-    /** O texto de cada resposta de ApkUpdatePlugin.install (ou de uma falha dela). */
+    /** O texto de cada resposta de ApkUpdater.installNow (ou de uma falha dela). */
     fun installStatusMessage(status: String?, message: String? = null): Message? = when (status) {
         null -> null
         "error" -> Message(Tone.DANGER, message?.takeIf { it.isNotEmpty() } ?: "Não foi possível baixar o APK novo.")

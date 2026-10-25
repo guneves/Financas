@@ -1,8 +1,6 @@
-// Port: mudou um, muda o outro, com um teste de cada lado.
-// Este arquivo e o port de frontend/src/lib/notifyRules.js (testes: notifyRules.test.js e
-// NotifyTextsTest.kt): os textos de Ajustes › Notificações dos bancos. O estado vem do mesmo
-// NotifyPlugin.status(Context) que a web le (NotifyStatus e ele lido); a lista de apps ouvidos
-// e notify/NotifyRules.java.
+// Os textos de Ajustes › Notificações dos bancos (eram o port de lib/notifyRules.js, que saiu
+// com a WebView; testes: NotifyTextsTest.kt). O estado vem de NotifyAccess.status(Context)
+// (NotifyStatus e ele lido); a lista de apps ouvidos e notify/NotifyRules.java.
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
 package br.financas.app.rules
 
@@ -18,7 +16,7 @@ object NotifyTexts {
 
     data class AppStatus(val packageName: String, val label: String, val installed: Boolean, val count: Long, val lastPostedAt: Long)
 
-    /** O { granted, captureOn, ... } de NotifyPlugin.status(). */
+    /** O { granted, captureOn, ... } de NotifyAccess.status(). */
     data class NotifyStatus(
         val granted: Boolean = false,
         val captureOn: Boolean = false,

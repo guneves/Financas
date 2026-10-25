@@ -113,4 +113,10 @@ object AppIcons {
     }
     val Info: ImageVector by lazy { icon("info", circle(12f, 12f, 10f), "M12 16v-4", "M12 8h.01") }
     val CheckCircle: ImageVector by lazy { icon("check-circle-2", circle(12f, 12f, 10f), "M9 12l2 2 4-4") }
+    val ArrowUpRight: ImageVector by lazy { icon("arrow-up-right", "M7 7h10v10", "M7 17 17 7") }
+    val ArrowDownRight: ImageVector by lazy { icon("arrow-down-right", "m7 7 10 10", "M17 7v10H7") }
+    val CloudOff: ImageVector by lazy {
+        icon("cloud-off", "m2 2 20 20", "M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193",
+            "M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07")
+    }
 }

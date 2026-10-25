@@ -2,7 +2,7 @@ package br.financas.app.outbox;
 
 /**
  * Avisa a tela (se estiver aberta) que a fila mudou sem ela pedir: o WorkManager enviou
- * ou o servidor recusou um item. O OutboxPlugin assina ao carregar.
+ * ou o servidor recusou um item. A casca nativa (ui/nav/ShellViewModel) assina.
  */
 public final class OutboxEvents {
 

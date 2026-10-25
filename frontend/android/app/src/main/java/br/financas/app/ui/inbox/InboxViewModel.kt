@@ -27,7 +27,7 @@ import br.financas.app.rules.EntryOptions
 import br.financas.app.rules.InboxDraft
 import br.financas.app.rules.InboxRules
 import br.financas.app.ui.components.ConfirmRequest
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -208,7 +208,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
         sessionExpired = true
         listError = message ?: app.getString(R.string.data_session_expired)
         // A WebView rele, recebe o 401 e mostra o login (ainda e ela que faz o login).
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
     }
 
     private fun refreshHints() {
@@ -451,7 +451,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 is InboxWrite.Done -> {
                     onDone(result.value)
                     success?.invoke(result.value)?.let(::notice)
-                    NativeScreensPlugin.emitDataChanged()
+                    ShellEvents.emitDataChanged()
                     refreshAfterWrite()
                 }
                 is InboxWrite.Conflict -> {
@@ -467,7 +467,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
                 is InboxWrite.SessionExpired -> {
                     sessionExpired = true
                     fail(result.message ?: app.getString(R.string.data_session_expired))
-                    NativeScreensPlugin.emitDataChanged()
+                    ShellEvents.emitDataChanged()
                 }
             }
             if (busyKey == key) busyKey = ""

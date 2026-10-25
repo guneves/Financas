@@ -41,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import br.financas.app.core.formatDateBR
 import br.financas.app.core.parseLocalDate
@@ -93,6 +95,7 @@ fun AppTextField(
     textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
     focusRequester: FocusRequester? = null,
     contentDescription: String? = null,
+    password: Boolean = false,
 ) {
     val palette = LocalPalette.current
     var fieldModifier = modifier.fillMaxWidth().heightIn(min = 56.dp)
@@ -109,7 +112,11 @@ fun AppTextField(
         } else {
             null
         },
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Next),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = if (password) KeyboardType.Password else keyboardType,
+            imeAction = ImeAction.Next,
+        ),
+        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
         shape = FieldShape,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = palette.accent,

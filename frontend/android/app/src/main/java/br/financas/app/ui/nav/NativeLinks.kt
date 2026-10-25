@@ -1,18 +1,19 @@
 package br.financas.app.ui.nav
 
 /**
- * Os links das telas nativas que tem pagina nativa neste APK: abrem direto no NavHost, sem passar
- * pela WebView ("/lancamentos" e o Extrato, como o redirect da web). Puro: NativeLinksTest.
+ * Os links entre as telas (caminhos da web, "/lancamentos" e o Extrato, como o redirect da web)
+ * para a pagina do NavHost. Os que nao tem pagina no celular (Importar, Regras de importação,
+ * Integrações: so no computador) nao tem alvo e a casca diz isso. Puro: NativeLinksTest.
  */
 object NativeLinks {
 
     /**
      * A pagina nativa de [route] e a vista pedida: ?ver= do Extrato, ou a secao de Ajustes
-     * (#contas...); null quando e da web.
+     * (#contas...); null quando a pagina so existe no computador.
      */
     data class Target(val route: String, val view: String? = null)
 
-    /** As secoes de Ajustes que o APK tem em nativo; Regras e Integracoes seguem na WebView. */
+    /** As secoes de Ajustes do celular; Regras de importação e Integrações sao so do computador. */
     val NATIVE_SETTINGS_SECTIONS = listOf("contas", "cartoes", "categorias", "aprovar", "aparencia", "perfil", "notificacoes", "versao")
 
     fun targetFor(route: String?): Target? {
@@ -20,9 +21,8 @@ object NativeLinks {
         val path = route.substringBefore('#').substringBefore('?').trimEnd('/')
         val query = route.substringBefore('#').substringAfter('?', "")
         val params = query.split('&').filter { it.isNotEmpty() }.associate { it.substringBefore('=') to it.substringAfter('=', "") }
-        // ?web=1 pede a pagina React de proposito.
-        if (params["web"] == "1") return null
         return when (path) {
+            "/inicio", "/dashboard", "" -> Target(NativeRoutes.HOME)
             "/lancamentos", "/lancamentos/extrato" ->
                 Target(NativeRoutes.EXTRATO, params["ver"]?.takeIf { it == "contas" || it == "investimentos" })
             "/lancamentos/cartoes" -> Target(NativeRoutes.CARTOES)
@@ -39,7 +39,7 @@ object NativeLinks {
                     else -> null
                 }
             }
-            // Investimentos: as abas que este APK tem em nativo (InvestimentosRoutes).
+            // Investimentos: as sete abas (InvestimentosRoutes).
             else -> InvestimentosRoutes.routeForPath(path)?.let { Target(it) }
         }
     }

@@ -48,7 +48,7 @@ import br.financas.app.ui.components.SegmentedChoice
 import br.financas.app.ui.components.SelectField
 import br.financas.app.ui.components.SelectOption
 import br.financas.app.ui.lancamentos.moneyOrMasked
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.newentry.NewEntryForms
 import br.financas.app.ui.newentry.SaveResult
 import br.financas.app.ui.theme.LocalPalette
@@ -326,13 +326,13 @@ class LaunchSheetState(
                     if (buy && created.isNotEmpty()) {
                         graph.appScope.launch { repo.updatePrices(mapOf("investment_id" to created)) }
                     }
-                    ProceedsSync.afterWrite(app, "/api/investments") { NativeScreensPlugin.emitDataChanged() }
-                    NativeScreensPlugin.emitDataChanged()
+                    ProceedsSync.afterWrite(app, "/api/investments") { ShellEvents.emitDataChanged() }
+                    ShellEvents.emitDataChanged()
                     onFinished(NewEntryForms.savedNotice(label).message)
                 }
                 is SaveResult.Queued -> {
                     open = false
-                    NativeScreensPlugin.emitDataChanged()
+                    ShellEvents.emitDataChanged()
                     onFinished(NewEntryForms.queuedNotice(label).message)
                 }
                 is SaveResult.Refused -> error = result.message ?: app.getString(R.string.inv_launch_failed)

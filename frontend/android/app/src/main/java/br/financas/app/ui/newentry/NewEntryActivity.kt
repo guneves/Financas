@@ -7,15 +7,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.ViewModelProvider
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.NativeActivity
+import br.financas.app.ui.nav.NativeRoutes
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.theme.FinancasTheme
 
 /**
  * O "+ Novo" nativo (mobile-docs/native/screens/01-novo.md): uma janela transparente por cima da
- * WebView, com o sheet do Compose. Aberta por NativeScreens.open({ screen: "new-entry" }).
+ * casca, com o sheet do Compose. Aberta pelo "+" e por Pendentes › Corrigir.
  *
- * Ao gravar (ou guardar na fila) avisa a WebView (NativeScreens "dataChanged"), que relê a fila,
- * atualiza os dados e mostra o toast; sem WebView para ouvir, o aviso e um Toast do Android.
+ * Ao gravar (ou guardar na fila) avisa a casca (ShellEvents), que relê a fila e mostra o aviso;
+ * sem ela para ouvir, o aviso e um Toast do Android.
  */
 class NewEntryActivity : ComponentActivity() {
 
@@ -32,14 +34,15 @@ class NewEntryActivity : ComponentActivity() {
                     if (notice != null) finishWith(notice)
                 }
                 LaunchedEffect(viewModel.sessionExpired) {
-                    // 401: a WebView relê os dados, recebe o 401 e mostra o login.
+                    // 401: a casca relê e volta ao login (a sessao ja foi apagada).
                     if (viewModel.sessionExpired) EntryDelivery.dataChanged()
                 }
                 NewEntryScreen(
                     viewModel = viewModel,
                     onClose = { finish() },
                     onNavigate = { route ->
-                        NativeScreensPlugin.emitNavigate(route)
+                        // Um link do sheet (Ajustes › Contas): a casca abre a pagina; sem ela, o app.
+                        if (!ShellEvents.emitNavigate(route)) startActivity(NativeActivity.intent(this, NativeRoutes.HOME))
                         finish()
                     },
                 )

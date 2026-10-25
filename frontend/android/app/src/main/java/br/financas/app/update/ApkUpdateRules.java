@@ -10,7 +10,8 @@ import java.util.regex.Pattern;
  * Testadas na JVM (ApkUpdateRulesTest).
  *
  * O manifesto so e aceito inteiro: nome de arquivo do formato que o CI grava, SHA-256 e
- * tamanho plausiveis. Um APK so e oferecido quando o versionCode dele e maior que o
+ * tamanho plausiveis. O "native_level" que o CI ainda grava e so para os APKs da WebView
+ * (que o exigem); este nao o le. Um APK so e oferecido quando o versionCode dele e maior que o
  * instalado; o Android recusaria um menor de qualquer jeito.
  */
 public final class ApkUpdateRules {
@@ -27,15 +28,13 @@ public final class ApkUpdateRules {
     public static final class Latest {
         public final long versionCode;
         public final String versionName;
-        public final int nativeLevel;
         public final String sha256;
         public final long size;
         public final String file;
 
-        Latest(long versionCode, String versionName, int nativeLevel, String sha256, long size, String file) {
+        Latest(long versionCode, String versionName, String sha256, long size, String file) {
             this.versionCode = versionCode;
             this.versionName = versionName;
-            this.nativeLevel = nativeLevel;
             this.sha256 = sha256;
             this.size = size;
             this.file = file;
@@ -50,16 +49,14 @@ public final class ApkUpdateRules {
     /** O manifesto lido, ou IllegalArgumentException se faltar ou sobrar algo. */
     public static Latest parse(JSONObject json) {
         long versionCode = json.optLong("version_code", -1);
-        int nativeLevel = json.optInt("native_level", -1);
         String sha256 = json.optString("sha256", "");
         long size = json.optLong("size", -1);
         String file = json.optString("file", "");
         if (versionCode < 1) throw new IllegalArgumentException("Manifesto do APK sem versionCode.");
-        if (nativeLevel < 1) throw new IllegalArgumentException("Manifesto do APK sem nível nativo.");
         if (!SHA256.matcher(sha256).matches()) throw new IllegalArgumentException("Manifesto do APK sem SHA-256.");
         if (size <= 0 || size > MAX_APK_BYTES) throw new IllegalArgumentException("Tamanho do APK inválido.");
         if (!FILE.matcher(file).matches()) throw new IllegalArgumentException("Nome do APK inválido.");
-        return new Latest(versionCode, json.optString("version_name", ""), nativeLevel, sha256, size, file);
+        return new Latest(versionCode, json.optString("version_name", ""), sha256, size, file);
     }
 
     public static boolean isNewer(Latest latest, long installedCode) {

@@ -1,7 +1,9 @@
 package br.financas.app.data
 
 import android.content.Context
+import br.financas.app.BuildConfig
 import br.financas.app.outbox.LoginNotifier
+import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.OutboxStore
 import br.financas.app.outbox.Session
 import kotlinx.coroutines.CoroutineScope
@@ -23,21 +25,38 @@ class AppGraph private constructor(context: Context) {
     private val _sessionExpired = MutableStateFlow(false)
 
     /**
-     * true depois de um 401 (ou sem sessao): a tela para, diz "Sessão expirada" e manda entrar
-     * de novo pela WebView, que ainda e dona do login. Volta a false no proximo pedido que passa.
+     * true depois de um 401 (ou sem sessao): a casca (NativeActivity) volta para o login. Volta a
+     * false no proximo pedido com sessao (o login novo).
      */
     val sessionExpired: StateFlow<Boolean> = _sessionExpired.asStateFlow()
 
     private fun currentSession(): SessionInfo? =
         Session.load(appContext)?.let { SessionInfo(it.baseUrl, it.token, it.userId) }
 
-    // O mesmo tratamento do envio da fila (OutboxWorker): com itens guardados, o aviso
-    // "Sessão expirada" do LoginNotifier, que abre o app no login.
-    private fun handleUnauthorized() {
+    // Um 401: apaga a sessao se ela ainda e a do pedido recusado (um pedido antigo que volta
+    // depois de um login novo nao derruba o novo) e a casca volta ao login. Com itens
+    // guardados, o mesmo aviso "Sessão expirada" do envio da fila (LoginNotifier).
+    private fun handleUnauthorized(token: String?) {
+        if (token != null) {
+            val stored = Session.load(appContext)
+            if (stored != null && stored.token == token) Outbox.signOut(appContext)
+        }
         _sessionExpired.value = true
         val pending = OutboxStore.get(appContext).countPending()
         if (pending > 0) LoginNotifier.show(appContext, pending)
     }
+
+    /** O login novo deu certo: as telas voltam a pedir. */
+    fun signedIn() {
+        _sessionExpired.value = false
+    }
+
+    /** O servidor deste APK (o do login guardado, senao o do build: BuildConfig.API_BASE_URL). */
+    fun serverUrl(): String =
+        Session.load(appContext)?.baseUrl?.takeIf { it.startsWith("https://") } ?: BuildConfig.API_BASE_URL
+
+    /** O login nativo (POST /api/auth/login, sem token). */
+    val auth = AuthRepository()
 
     val api: ApiClient = ApiClient(
         session = { currentSession().also { if (it != null) _sessionExpired.value = false } },

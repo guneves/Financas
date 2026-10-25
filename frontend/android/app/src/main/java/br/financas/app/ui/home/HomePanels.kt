@@ -168,7 +168,7 @@ private fun FlowDetail(point: FlowPoint, hasInvestment: Boolean, hasOthers: Bool
 }
 
 @Composable
-private fun LegendDot(color: Color, label: String, line: Boolean = false) {
+internal fun LegendDot(color: Color, label: String, line: Boolean = false) {
     val palette = LocalPalette.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -182,7 +182,7 @@ private fun LegendDot(color: Color, label: String, line: Boolean = false) {
 }
 
 @Composable
-private fun InlineStat(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color? = null) {
+internal fun InlineStat(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color? = null) {
     val palette = LocalPalette.current
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -300,7 +300,7 @@ private fun statusColor(status: String): Color {
 }
 
 @Composable
-private fun ProgressBar(fraction: Float, color: Color, height: Int) {
+internal fun ProgressBar(fraction: Float, color: Color, height: Int) {
     val palette = LocalPalette.current
     Box(
         Modifier

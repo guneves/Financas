@@ -9,7 +9,6 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.0'
-        classpath 'com.google.gms:google-services:4.4.4'
         // As telas nativas (Kotlin + Jetpack Compose, mobile-docs/native-app.md). O plugin do
         // compilador do Compose anda na mesma versao do Kotlin.
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"

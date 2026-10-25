@@ -14,12 +14,8 @@ import android.provider.Settings;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.FileProvider;
 
-import com.getcapacitor.JSArray;
-import com.getcapacitor.JSObject;
-import com.getcapacitor.Plugin;
-import com.getcapacitor.PluginCall;
-import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.CapacitorPlugin;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -34,81 +30,33 @@ import java.util.Map;
 import java.util.TimeZone;
 
 import br.financas.app.BuildConfig;
+import br.financas.app.JsonOut;
 
 /**
- * Ajustes › Notificações dos bancos (lib/notifyCapture.js): se o acesso as notificacoes esta
- * permitido, ligar e desligar a captura, ver o que ela guardou, exportar (folha de
- * compartilhar do Android, JSON ou texto) e apagar. Os textos nunca vao ao servidor.
+ * Ajustes › Notificações dos bancos (ui/ajustes/): se o acesso as notificacoes esta permitido,
+ * o que a captura guardou, exportar (folha de compartilhar do Android, JSON ou texto) e apagar.
+ * Os textos nunca vao ao servidor.
  */
-@CapacitorPlugin(name = "Notify")
-public class NotifyPlugin extends Plugin {
+public final class NotifyAccess {
 
-    private static final int LATEST_DEFAULT = 20;
-    private static final int LATEST_MAX = 200;
-
-    @Override
-    public void load() {
-        NotifyEvents.setListener(() -> notifyListeners("changed", new JSObject()));
-    }
-
-    @Override
-    protected void handleOnDestroy() {
-        NotifyEvents.setListener(null);
-    }
-
-    @PluginMethod
-    public void status(PluginCall call) {
-        call.resolve(status(getContext()));
-    }
-
-    @PluginMethod
-    public void setCapture(PluginCall call) {
-        Boolean on = call.getBoolean("on");
-        if (on == null) {
-            call.reject("Informe on.");
-            return;
-        }
-        NotifySettings.setCapture(getContext(), on, System.currentTimeMillis());
-        call.resolve(status(getContext()));
-    }
-
-    /** As ultimas capturadas, mais recentes primeiro, para conferir na tela. */
-    @PluginMethod
-    public void latest(PluginCall call) {
-        int limit = Math.max(1, Math.min(LATEST_MAX, call.getInt("limit", LATEST_DEFAULT)));
-        JSObject result = new JSObject();
-        result.put("items", latestItems(getContext(), limit));
-        call.resolve(result);
-    }
+    private NotifyAccess() {}
 
     /** As ultimas capturadas, mais recentes primeiro (tambem o Ajustes nativo, ui/ajustes/). */
-    public static JSArray latestItems(Context context, int limit) {
-        JSArray items = new JSArray();
+    public static JSONArray latestItems(Context context, int limit) {
+        JSONArray items = new JSONArray();
         for (NotifyRules.Captured row : NotifyStore.get(context).latest(limit)) {
-            JSObject item = new JSObject();
-            item.put("dedupKey", row.dedupKey());
-            item.put("package", row.packageName);
-            item.put("app", NotifyRules.labelFor(row.packageName));
-            item.put("postedAt", row.postedAt);
-            item.put("title", row.title);
-            item.put("text", NotifyRules.bestText(row.text, row.bigText));
-            item.put("via", row.via);
-            item.put("groupSummary", row.groupSummary);
+            JSONObject item = new JSONObject();
+            JsonOut.put(item, "dedupKey", row.dedupKey());
+            JsonOut.put(item, "package", row.packageName);
+            JsonOut.put(item, "app", NotifyRules.labelFor(row.packageName));
+            JsonOut.put(item, "postedAt", row.postedAt);
+            JsonOut.put(item, "title", row.title);
+            JsonOut.put(item, "text", NotifyRules.bestText(row.text, row.bigText));
+            JsonOut.put(item, "via", row.via);
+            JsonOut.put(item, "groupSummary", row.groupSummary);
             items.put(item);
         }
         return items;
-    }
-
-    /** Grava o arquivo no cache do app e abre a folha de compartilhar. */
-    @PluginMethod
-    public void export(PluginCall call) {
-        boolean json = !"text".equals(call.getString("format", "json"));
-        try {
-            call.resolve(export(getContext(), json));
-        } catch (ExportException error) {
-            if (error.getCause() instanceof Exception) call.reject(error.getMessage(), (Exception) error.getCause());
-            else call.reject(error.getMessage());
-        }
     }
 
     /** Uma exportacao que nao deu: a mensagem e o que a tela mostra. */
@@ -119,7 +67,7 @@ public class NotifyPlugin extends Plugin {
     }
 
     /** Grava o arquivo e abre a folha de compartilhar: { count, file } (tambem o Ajustes nativo). */
-    public static JSObject export(Context context, boolean json) throws ExportException {
+    public static JSONObject export(Context context, boolean json) throws ExportException {
         List<NotifyRules.Captured> rows = NotifyStore.get(context).all();
         if (rows.isEmpty()) throw new ExportException("Nenhuma notificação capturada ainda.", null);
         long now = System.currentTimeMillis();
@@ -147,31 +95,18 @@ public class NotifyPlugin extends Plugin {
         } catch (ActivityNotFoundException error) {
             throw new ExportException("Nenhum app para receber o arquivo.", null);
         }
-        JSObject result = new JSObject();
-        result.put("count", rows.size());
-        result.put("file", name);
+        JSONObject result = new JSONObject();
+        JsonOut.put(result, "count", rows.size());
+        JsonOut.put(result, "file", name);
         return result;
     }
 
-    @PluginMethod
-    public void clear(PluginCall call) {
-        call.resolve(clear(getContext()));
-    }
-
     /** Apaga as capturas e a ultima exportacao; devolve o estado novo. */
-    public static JSObject clear(Context context) {
+    public static JSONObject clear(Context context) {
         NotifyStore.get(context).clear();
         clearExports(context);
         return status(context);
     }
-
-    /** A pagina do Android que liga o acesso as notificacoes, direto no app quando da. */
-    @PluginMethod
-    public void openAccessSettings(PluginCall call) {
-        openAccessSettings(getContext());
-        call.resolve();
-    }
-
     public static void openAccessSettings(Context context) {
         Intent intent;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -189,14 +124,6 @@ public class NotifyPlugin extends Plugin {
             context.startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         }
     }
-
-    /** Informações do app: o menu ⋮ dela tem "Permitir configurações restritas". */
-    @PluginMethod
-    public void openAppDetails(PluginCall call) {
-        openAppDetails(getContext());
-        call.resolve();
-    }
-
     public static void openAppDetails(Context context) {
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.getPackageName()));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -204,21 +131,21 @@ public class NotifyPlugin extends Plugin {
     }
 
     /** O estado que a web le em status(): tambem o Ajustes nativo (ui/ajustes/). */
-    public static JSObject status(Context context) {
-        JSObject result = new JSObject();
-        result.put("granted", NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.getPackageName()));
-        result.put("captureOn", NotifySettings.isCaptureOn(context));
-        result.put("captureSince", NotifySettings.captureSince(context));
-        result.put("connectedAt", NotifySettings.connectedAt(context));
-        result.put("disconnectedAt", NotifySettings.disconnectedAt(context));
-        result.put("acceptsShell", BuildConfig.DEBUG);
-        result.put("sdk", Build.VERSION.SDK_INT);
-        result.put("installer", installer(context));
+    public static JSONObject status(Context context) {
+        JSONObject result = new JSONObject();
+        JsonOut.put(result, "granted", NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.getPackageName()));
+        JsonOut.put(result, "captureOn", NotifySettings.isCaptureOn(context));
+        JsonOut.put(result, "captureSince", NotifySettings.captureSince(context));
+        JsonOut.put(result, "connectedAt", NotifySettings.connectedAt(context));
+        JsonOut.put(result, "disconnectedAt", NotifySettings.disconnectedAt(context));
+        JsonOut.put(result, "acceptsShell", BuildConfig.DEBUG);
+        JsonOut.put(result, "sdk", Build.VERSION.SDK_INT);
+        JsonOut.put(result, "installer", installer(context));
 
         NotifyStore store = NotifyStore.get(context);
         Map<String, long[]> counts = store.countsByPackage();
         PackageManager manager = context.getPackageManager();
-        JSArray apps = new JSArray();
+        JSONArray apps = new JSONArray();
         for (NotifyRules.App app : NotifyRules.APPS) {
             apps.put(appEntry(app.packageName, app.label, isInstalled(manager, app.packageName), counts.remove(app.packageName)));
         }
@@ -226,18 +153,18 @@ public class NotifyPlugin extends Plugin {
         for (Map.Entry<String, long[]> other : counts.entrySet()) {
             apps.put(appEntry(other.getKey(), NotifyRules.labelFor(other.getKey()), true, other.getValue()));
         }
-        result.put("apps", apps);
-        result.put("total", store.total());
+        JsonOut.put(result, "apps", apps);
+        JsonOut.put(result, "total", store.total());
         return result;
     }
 
-    private static JSObject appEntry(String packageName, String label, boolean installed, long[] count) {
-        JSObject entry = new JSObject();
-        entry.put("package", packageName);
-        entry.put("label", label);
-        entry.put("installed", installed);
-        entry.put("count", count == null ? 0 : count[0]);
-        entry.put("lastPostedAt", count == null ? 0 : count[1]);
+    private static JSONObject appEntry(String packageName, String label, boolean installed, long[] count) {
+        JSONObject entry = new JSONObject();
+        JsonOut.put(entry, "package", packageName);
+        JsonOut.put(entry, "label", label);
+        JsonOut.put(entry, "installed", installed);
+        JsonOut.put(entry, "count", count == null ? 0 : count[0]);
+        JsonOut.put(entry, "lastPostedAt", count == null ? 0 : count[1]);
         return entry;
     }
 

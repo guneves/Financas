@@ -42,7 +42,7 @@ import br.financas.app.ui.lancamentos.AttachmentsState
 import br.financas.app.ui.lancamentos.NativeFiles
 import br.financas.app.ui.lancamentos.normalizedShare
 import br.financas.app.ui.lancamentos.writeErrorOf
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.theme.ShellPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -607,7 +607,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
 
     private fun changed(message: String?) {
         // A WebView (Inicio, Cartoes da web) atualiza; o toast fica aqui se a tela esta aberta.
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
         if (message != null) {
             if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else _notices.tryEmit(message)
         }

@@ -24,7 +24,7 @@ import br.financas.app.data.RecurringListDto
 import br.financas.app.rules.HomeRules
 import br.financas.app.rules.Recurring
 import br.financas.app.ui.components.ConfirmRequest
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.planejar.ScreenLoad
 import br.financas.app.ui.planejar.planWriteError
 import br.financas.app.ui.theme.ShellPrefs
@@ -265,7 +265,7 @@ class RecorrentesViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun changed(message: String?) {
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
         if (message != null) {
             if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else _notices.tryEmit(message)
         }

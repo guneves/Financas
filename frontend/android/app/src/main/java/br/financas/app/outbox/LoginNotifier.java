@@ -13,7 +13,7 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
-import br.financas.app.MainActivity;
+import br.financas.app.ui.nav.NativeActivity;
 import br.financas.app.R;
 
 /** A notificacao "entre de novo": o envio parou num 401 ou sem login, com itens na fila. */
@@ -36,7 +36,7 @@ public final class LoginNotifier {
             channel.setDescription("Avisa quando lançamentos guardados no aparelho não puderam ser enviados.");
             context.getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
-        Intent open = new Intent(context, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent open = new Intent(context, NativeActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent tap = PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         String text = pending == 1
             ? "1 lançamento aguarda envio. Entre novamente no app para enviá-lo."

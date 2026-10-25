@@ -35,15 +35,10 @@ android {
         // versionCode dele e maior que o instalado (update/ApkUpdatePlugin.java).
         versionCode((project.findProperty('financasVersionCode') ?: '1') as Integer)
         versionName((project.findProperty('financasVersionName') ?: 'dev') as String)
-        // A tela baixada do servidor so entra num APK deste nivel ou acima (frontend/native-level.txt,
-        // bundle/BundleRules.java). Mudou o Java, um plugin ou o Capacitor: sobe o numero.
-        buildConfigField "int", "NATIVE_LEVEL", file('../../native-level.txt').text.trim()
+        // O servidor do login nativo (ui/login/) e do APK novo; o CI passa -PfinancasApiBase (o
+        // API_BASE de deploy.yml), e o padrao e o mesmo endereco. So https.
+        buildConfigField "String", "API_BASE_URL", "\"${(project.findProperty('financasApiBase') ?: 'https://guilhermeserver.tail5084ff.ts.net')}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
-        }
     }
     signingConfigs {
         release {
@@ -58,6 +53,11 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+    // Java e Kotlin no mesmo alvo (o jvmTarget abaixo): os dois tem de concordar.
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
     buildTypes {
         // O APK de teste: outro pacote (br.financas.app.debug), instalado ao lado do de verdade e
@@ -81,25 +81,16 @@ android {
     }
 }
 
-// O mesmo alvo do Java (capacitor.build.gradle): Kotlin e Java tem de concordar.
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
     }
 }
 
-repositories {
-    flatDir{
-        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
-    }
-}
-
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
-    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
-    implementation project(':capacitor-android')
     // O envio da fila com o app fechado (outbox/OutboxWorker.java).
     implementation "androidx.work:work-runtime:$androidxWorkVersion"
     // As telas nativas (ui/).
@@ -124,16 +115,4 @@ dependencies {
     testImplementation "org.json:json:20250517"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
-    implementation project(':capacitor-cordova-android-plugins')
-}
-
-apply from: 'capacitor.build.gradle'
-
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }

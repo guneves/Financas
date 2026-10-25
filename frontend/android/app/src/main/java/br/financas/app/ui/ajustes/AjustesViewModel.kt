@@ -1,7 +1,6 @@
 package br.financas.app.ui.ajustes
 
 import android.app.Application
-import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,8 +18,10 @@ import br.financas.app.data.CreditCardDto
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.Load
 import br.financas.app.data.MeDto
-import br.financas.app.notify.NotifyPlugin
+import br.financas.app.notify.NotifyAccess
+import br.financas.app.notify.NotifyEvents
 import br.financas.app.notify.NotifySettings
+import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.Session
 import br.financas.app.rules.ApkUpdateTexts
 import br.financas.app.rules.CardForm
@@ -28,11 +29,11 @@ import br.financas.app.rules.CardFunctions
 import br.financas.app.rules.NotifyTexts
 import br.financas.app.rules.Settings
 import br.financas.app.ui.components.ConfirmRequest
-import br.financas.app.ui.nav.NativeScreensPlugin
+import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.planejar.ScreenLoad
 import br.financas.app.ui.planejar.planWriteError
 import br.financas.app.ui.theme.ShellPrefs
-import br.financas.app.update.ApkUpdatePlugin
+import br.financas.app.update.ApkUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -44,20 +45,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** As secoes de Ajustes, na ordem da web; [native] = a secao abre aqui, senao na WebView. */
-enum class AjustesSection(val anchor: String, val native: Boolean) {
-    CONTAS("contas", true),
-    CARTOES("cartoes", true),
-    CATEGORIAS("categorias", true),
-    REGRAS("regras-de-importacao", false),
-    APROVAR("aprovar", true),
-    INTEGRACOES("integracoes", false),
-    APARENCIA("aparencia", true),
-    PERFIL("perfil", true),
-    NOTIFICACOES("notificacoes", true),
-    VERSAO("versao", true);
+enum class AjustesSection(val anchor: String) {
+    CONTAS("contas"),
+    CARTOES("cartoes"),
+    CATEGORIAS("categorias"),
+    APROVAR("aprovar"),
+    APARENCIA("aparencia"),
+    PERFIL("perfil"),
+    NOTIFICACOES("notificacoes"),
+    VERSAO("versao");
 
     companion object {
-        fun of(anchor: String?): AjustesSection? = entries.firstOrNull { it.anchor == anchor && it.native }
+        fun of(anchor: String?): AjustesSection? = entries.firstOrNull { it.anchor == anchor }
     }
 }
 
@@ -80,7 +79,7 @@ data class CategoryForm(val name: String = "", val kind: String = "EXPENSE", val
  * Ajustes nativo (11-ajustes.md): as secoes marcadas "early" e "mid" — Contas, Cartões,
  * Categorias, Aprovar, Aparência, Perfil, Notificações dos bancos e Versão do app (so o APK).
  * Regras de importação e Integrações seguem na WebView. Toda escrita so com o servidor (writeApi),
- * nunca na fila; Notificações e Versão falam com o aparelho (NotifyPlugin, ApkUpdatePlugin).
+ * nunca na fila; Notificações e Versão falam com o aparelho (NotifyAccess, ApkUpdater).
  */
 class AjustesViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -174,8 +173,18 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     private var cleared = false
 
+    // O leitor guardou uma notificacao (ou o Android o ligou/desligou) com Ajustes aberta.
+    private val notifyListener = NotifyEvents.Listener {
+        android.os.Handler(android.os.Looper.getMainLooper()).post { if (!cleared) readNotify() }
+    }
+
+    init {
+        NotifyEvents.setListener(notifyListener)
+    }
+
     override fun onCleared() {
         cleared = true
+        NotifyEvents.setListener(null)
         super.onCleared()
     }
 
@@ -199,7 +208,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         error = ""
     }
 
-    fun webRoute(section: AjustesSection): String = "/ajustes#${section.anchor}"
 
     // ---- Leituras ----
 
@@ -605,14 +613,10 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     // ---- Aparencia ----
 
-    /**
-     * A escolha vale aqui e na WebView: grava em ShellPrefs (o escuro das telas nativas e o
-     * pedido que a web le ao voltar) e a Activity se refaz no tema novo ([onApplied]).
-     */
+    /** Grava em ShellPrefs e a Activity se refaz no tema novo ([onApplied]): telas e barras do sistema. */
     fun chooseTheme(preference: String, onApplied: () -> Unit) {
         if (preference == theme) return
-        val systemDark = (app.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        ShellPrefs.chooseThemeNatively(app, preference, systemDark)
+        ShellPrefs.saveThemePreference(app, preference)
         theme = preference
         onApplied()
     }
@@ -637,7 +641,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             if (failure == null) {
                 profileMessage = true to app.getString(R.string.ajustes_username_saved)
                 username = trimmed
-                NativeScreensPlugin.emitDataChanged()
+                ShellEvents.emitDataChanged()
                 readMe()
             } else {
                 profileMessage = false to failure
@@ -650,22 +654,20 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * "Sair": apaga a sessao do APK (o envio da fila para) e as copias guardadas, e deixa o
-     * pedido para a WebView apagar a dela (ShellPrefs.markSignOut); [onDone] leva ao login.
+     * "Sair": apaga a sessao do APK (o envio da fila para; os itens ficam, de cada usuario) e as
+     * copias guardadas; [onDone] leva ao login.
      */
     fun signOut(onDone: () -> Unit) {
-        Session.clear(app)
+        Outbox.signOut(app)
         graph.cache.clear()
-        ShellPrefs.markSignOut(app)
         onDone()
     }
-
     // ---- Notificacoes dos bancos ----
 
     private fun readNotify() {
         viewModelScope.launch {
             val (status, rows) = withContext(Dispatchers.IO) {
-                parseStatus(NotifyPlugin.status(app)) to parseCaptured(NotifyPlugin.latestItems(app, LATEST))
+                parseStatus(NotifyAccess.status(app)) to parseCaptured(NotifyAccess.latestItems(app, LATEST))
             }
             notify = status
             captured = rows
@@ -674,9 +676,9 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     fun reloadNotify() = readNotify()
 
-    fun openAccessSettings() = NotifyPlugin.openAccessSettings(app)
+    fun openAccessSettings() = NotifyAccess.openAccessSettings(app)
 
-    fun openAppDetails() = NotifyPlugin.openAppDetails(app)
+    fun openAppDetails() = NotifyAccess.openAppDetails(app)
 
     fun setCapture(on: Boolean) {
         if (notify?.captureOn == on) return
@@ -692,8 +694,8 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 try {
-                    Result.success(NotifyPlugin.export(app, json).optInt("count"))
-                } catch (error: NotifyPlugin.ExportException) {
+                    Result.success(NotifyAccess.export(app, json).optInt("count"))
+                } catch (error: NotifyAccess.ExportException) {
                     Result.failure(error)
                 }
             }
@@ -715,7 +717,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             app.getString(R.string.ajustes_clear_confirm),
         ) {
             viewModelScope.launch {
-                val next = withContext(Dispatchers.IO) { parseStatus(NotifyPlugin.clear(app)) }
+                val next = withContext(Dispatchers.IO) { parseStatus(NotifyAccess.clear(app)) }
                 notify = next
                 captured = emptyList()
                 notice(app.getString(R.string.ajustes_cleared))
@@ -726,7 +728,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     // ---- Versao do app (so o APK) ----
 
     val apkVersion: String get() = BuildConfig.VERSION_NAME
-    val nativeLevel: Int get() = BuildConfig.NATIVE_LEVEL
 
     private fun baseUrl(): String? = Session.load(app)?.baseUrl?.trimEnd('/')?.takeIf { it.startsWith("https://") }
 
@@ -741,9 +742,9 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 try {
-                    Result.success(ApkUpdatePlugin.latestState(app, base))
+                    Result.success(ApkUpdater.latestState(app, base))
                 } catch (error: Exception) {
-                    Result.failure<JSONObject>(Exception(ApkUpdatePlugin.failureMessage(error, app.getString(R.string.ajustes_apk_check_failed))))
+                    Result.failure<JSONObject>(Exception(ApkUpdater.failureMessage(error, app.getString(R.string.ajustes_apk_check_failed))))
                 }
             }
             apkBusy = ""
@@ -758,7 +759,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     fun installApk() {
         val base = baseUrl() ?: return
         if (apkBusy.isNotEmpty()) return
-        val early = ApkUpdatePlugin.installPrecheck(app)
+        val early = ApkUpdater.installPrecheck(app)
         if (early != null) {
             val status = early.optString("status")
             installAfterPermission = status == "needs-permission"
@@ -771,9 +772,9 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         graph.appScope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
-                    ApkUpdatePlugin.installNow(app, base).optString("status") to null
+                    ApkUpdater.installNow(app, base).optString("status") to null
                 } catch (error: Exception) {
-                    "error" to ApkUpdatePlugin.failureMessage(error, app.getString(R.string.ajustes_apk_install_failed))
+                    "error" to ApkUpdater.failureMessage(error, app.getString(R.string.ajustes_apk_install_failed))
                 }
             }
             apkBusy = ""
@@ -810,7 +811,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun changed(message: String?) {
-        NativeScreensPlugin.emitDataChanged()
+        ShellEvents.emitDataChanged()
         if (message != null) notice(message)
         if (!cleared) {
             refreshShared()
@@ -821,7 +822,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     companion object {
         private const val LATEST = 20
 
-        /** NotifyPlugin.status() lido (o mesmo JSON que a web recebe). */
+        /** NotifyAccess.status() lido. */
         fun parseStatus(json: JSONObject): NotifyTexts.NotifyStatus {
             val apps = json.optJSONArray("apps") ?: JSONArray()
             return NotifyTexts.NotifyStatus(
@@ -858,9 +859,9 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
         fun parseApk(json: JSONObject): ApkUpdateTexts.ApkState {
             val latest = json.optJSONObject("latest")?.let {
-                ApkUpdateTexts.Latest(it.optLong("versionCode"), if (it.isNull("versionName")) null else it.optString("versionName"), it.optInt("nativeLevel"))
+                ApkUpdateTexts.Latest(it.optLong("versionCode"), if (it.isNull("versionName")) null else it.optString("versionName"))
             }
-            return ApkUpdateTexts.ApkState(json.optBoolean("newer"), latest, json.optInt("nativeLevel"))
+            return ApkUpdateTexts.ApkState(json.optBoolean("newer"), latest)
         }
     }
 }
