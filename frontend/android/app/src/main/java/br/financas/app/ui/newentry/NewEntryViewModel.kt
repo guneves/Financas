@@ -70,7 +70,7 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
     var finished by mutableStateOf<EntryNotice?>(null)
         private set
 
-    /** Um 401: a WebView precisa saber (ela sai e mostra o login). */
+    /** Um 401: a casca precisa saber (ela volta ao login). */
     var sessionExpired by mutableStateOf(false)
         private set
 

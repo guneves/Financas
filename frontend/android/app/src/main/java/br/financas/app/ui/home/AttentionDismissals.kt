@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * Os avisos que o X de "Precisa de atenção" dispensou neste aparelho, pela chave do caso
  * (GET /api/attention, byte a byte): o mesmo caso nao volta ao Inicio, um novo volta, e o sino
- * mostra todos. A web guarda as dela no localStorage da WebView (lib/attention.js); as duas
+ * mostra todos. O navegador guarda as dele no localStorage (lib/attention.js); as duas
  * listas sao separadas — dispensar no Inicio nativo nao esconde o cartao no Inicio da web
  * (?web=1), e vice-versa (03-inicio.md).
  */

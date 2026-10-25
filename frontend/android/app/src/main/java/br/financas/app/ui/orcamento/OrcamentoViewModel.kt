@@ -41,7 +41,7 @@ import java.math.BigDecimal
 
 /**
  * Os alertas do plano dispensados neste aparelho (lib/planFlags.js), pela chave
- * MonthlyPlan.planFlagKey. A lista nativa e separada da da WebView, como as do Inicio.
+ * MonthlyPlan.planFlagKey. A lista do celular e separada da do navegador, como as do Inicio.
  */
 class PlanFlagDismissals(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

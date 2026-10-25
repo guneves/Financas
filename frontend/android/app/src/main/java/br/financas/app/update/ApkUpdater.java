@@ -218,15 +218,6 @@ public final class ApkUpdater {
         return apk;
     }
 
-    private static String baseUrl(PluginCall call) {
-        String baseUrl = call.getString("baseUrl", "").replaceAll("/+$", "");
-        if (!baseUrl.startsWith("https://")) {
-            call.reject("Endereço do servidor inválido.");
-            return null;
-        }
-        return baseUrl;
-    }
-
     private static HttpURLConnection open(String address) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);

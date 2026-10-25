@@ -32,7 +32,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Quem builda passa os dois: o CI (10000 + numero da execucao, data+commit) e
         // mobile/build-apk.ps1 (contagem de commits). O app oferece o APK publicado quando o
-        // versionCode dele e maior que o instalado (update/ApkUpdatePlugin.java).
+        // versionCode dele e maior que o instalado (update/ApkUpdater.java).
         versionCode((project.findProperty('financasVersionCode') ?: '1') as Integer)
         versionName((project.findProperty('financasVersionName') ?: 'dev') as String)
         // O servidor do login nativo (ui/login/) e do APK novo; o CI passa -PfinancasApiBase (o

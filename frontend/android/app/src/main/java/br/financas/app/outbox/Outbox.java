@@ -63,8 +63,12 @@ public final class Outbox {
         return summary;
     }
 
-    /** Pendentes de uma sessao anterior (o app foi atualizado ou morto no meio): ao abrir. */
+    /**
+     * Ao abrir: os pendentes de uma sessao anterior (o app foi atualizado ou morto no meio) e as
+     * deteccoes dos bancos que esperavam. Sem nada guardado, os dois jobs terminam na hora.
+     */
     public static void resume(Context context) {
         OutboxWorker.schedule(context);
+        DetectionWorker.schedule(context);
     }
 }

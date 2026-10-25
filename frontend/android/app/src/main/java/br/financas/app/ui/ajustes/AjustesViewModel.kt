@@ -44,7 +44,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** As secoes de Ajustes, na ordem da web; [native] = a secao abre aqui, senao na WebView. */
+/** As secoes de Ajustes do celular, na ordem da web (Regras e Integrações ficam no computador). */
 enum class AjustesSection(val anchor: String) {
     CONTAS("contas"),
     CARTOES("cartoes"),
@@ -78,7 +78,7 @@ data class CategoryForm(val name: String = "", val kind: String = "EXPENSE", val
 /**
  * Ajustes nativo (11-ajustes.md): as secoes marcadas "early" e "mid" — Contas, Cartões,
  * Categorias, Aprovar, Aparência, Perfil, Notificações dos bancos e Versão do app (so o APK).
- * Regras de importação e Integrações seguem na WebView. Toda escrita so com o servidor (writeApi),
+ * Regras de importação e Integrações ficam no computador. Toda escrita so com o servidor (writeApi),
  * nunca na fila; Notificações e Versão falam com o aparelho (NotifyAccess, ApkUpdater).
  */
 class AjustesViewModel(application: Application) : AndroidViewModel(application) {

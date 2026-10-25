@@ -33,14 +33,13 @@ class AppGraph private constructor(context: Context) {
     private fun currentSession(): SessionInfo? =
         Session.load(appContext)?.let { SessionInfo(it.baseUrl, it.token, it.userId) }
 
-    // Um 401: apaga a sessao se ela ainda e a do pedido recusado (um pedido antigo que volta
-    // depois de um login novo nao derruba o novo) e a casca volta ao login. Com itens
+    // Um 401: apaga a sessao se ela ainda e a do pedido recusado e a casca volta ao login. Um
+    // pedido antigo que volta depois de um login novo nao derruba nem avisa nada. Com itens
     // guardados, o mesmo aviso "Sessão expirada" do envio da fila (LoginNotifier).
     private fun handleUnauthorized(token: String?) {
-        if (token != null) {
-            val stored = Session.load(appContext)
-            if (stored != null && stored.token == token) Outbox.signOut(appContext)
-        }
+        val stored = Session.load(appContext)
+        if (token != null && stored != null && stored.token != token) return
+        if (stored != null) Outbox.signOut(appContext)
         _sessionExpired.value = true
         val pending = OutboxStore.get(appContext).countPending()
         if (pending > 0) LoginNotifier.show(appContext, pending)

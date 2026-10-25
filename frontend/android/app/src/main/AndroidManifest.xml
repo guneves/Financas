@@ -69,7 +69,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- O aviso de "entre de novo" quando o envio em segundo plano para num 401. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Abrir o instalador com o APK novo que o CI publica (update/ApkUpdatePlugin.java). -->
+    <!-- Abrir o instalador com o APK novo que o CI publica (update/ApkUpdater.java). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Android 11+: sem isto o app nao ve se os apps ouvidos estao instalados (Ajustes ›

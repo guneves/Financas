@@ -207,7 +207,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
     private fun expire(message: String?) {
         sessionExpired = true
         listError = message ?: app.getString(R.string.data_session_expired)
-        // A WebView rele, recebe o 401 e mostra o login (ainda e ela que faz o login).
+        // O AppGraph ja apagou a sessao: a casca volta ao login.
         ShellEvents.emitDataChanged()
     }
 
@@ -429,7 +429,7 @@ class InboxViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Uma escrita, o run() da web: o giro no botao, a caixa de erro limpa, o pedido; deu certo,
-     * o toast e a WebView avisada (o contador da aba); 409, CONFLICT_MESSAGE e a lista relida.
+     * o toast e a casca avisada; 409, CONFLICT_MESSAGE e a lista relida.
      */
     private fun <T> write(
         key: String,

@@ -24,7 +24,7 @@ sealed interface SaveResult {
     /** O servidor respondeu e recusou: mostrar, nunca guardar na fila. null = sem mensagem. */
     data class Refused(val status: Int, val message: String?) : SaveResult
 
-    /** 401 ou sem sessao: nada na fila; o dono entra de novo pela WebView. */
+    /** 401 ou sem sessao: nada na fila; a casca volta ao login. */
     data class SessionExpired(val message: String?) : SaveResult
 }
 

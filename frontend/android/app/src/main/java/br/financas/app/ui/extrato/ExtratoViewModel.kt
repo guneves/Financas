@@ -606,7 +606,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun changed(message: String?) {
-        // A WebView (Inicio, Cartoes da web) atualiza; o toast fica aqui se a tela esta aberta.
+        // A casca rele a fila; o toast fica aqui se a tela esta aberta.
         ShellEvents.emitDataChanged()
         if (message != null) {
             if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else _notices.tryEmit(message)

@@ -65,8 +65,7 @@ purchase its own `client_id` (migration 035). Open:
   show the parent.
 - [ ] The outbox retries any 5xx (server down or restarting), so a 500 from a bug is retried until
   the fix is deployed — then it goes through with the same `client_id`, as the transfer will. To
-  stop earlier, cap the retries of a plain 500 in `outboxRules.js` and `OutboxRules.java` together
-  (native-level bump).
+  stop earlier, cap the retries of a plain 500 in `outboxRules.js` and `OutboxRules.java` together.
 - [ ] The old list `POST /api/cc-expenses` (no screen uses it, tests do) now gives each purchase a
   `client_id`, rounds and refuses `PAID`, but still takes the invoice month as sent (so it can
   write into a paid invoice). Give it the unpaid-invoice rule, or remove it with the tests that
@@ -150,7 +149,6 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   web on the same data (the spec's "Comparing native and web"). Open from that session:
   - toggling the eye natively and then following a link can show the web's values unmasked for a
     moment, until the web reads `getValuesHidden()` on resume (reviewer's minor 6);
-  - the native top bar has no Pendentes pill (the shell, step 8);
   - native and web keep separate dismissed-card lists (one per store; the bell lists all anyway).
 - [ ] **Step 4 — Extrato and Cartões native, owner's phone check** (built 2026-10-24 on
   `claude/native-session-a`, native-level 6): run `screens/04-extrato.md` and `05-cartoes.md`'s
@@ -162,21 +160,14 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   - a day that has pending outbox rows shows the server's day total (without them);
   - the web Extrato's unfiltered list and its projections still read the whole history
     (`useLancamentos()`); switch them to the pages and to `/api/home`'s `projections`;
-  - a parallel session (`claude/native-b-investments`) also bumps `native-level.txt` and the
-    `NativeScreens` routes: whichever PR merges second resolves those files.
 - [ ] **Steps 5–6 — Orçamento, Recorrentes, Metas, A receber and Ajustes native, owner's phone
   check** (built 2026-10-24 on `claude/practical-hamilton-e6nxfi`, native-level 7): run the
   Acceptance of `screens/08-orcamento.md`, `09-recorrentes.md`, `10-metas.md`, `06-a-receber.md`
   and `11-ajustes.md` on the debug APK, light and dark, online and in airplane mode. Left from
   that session:
-  - **theme and Sair across the two sides**: the native change is left in `ShellPrefs` and the
-    WebView applies it on start and on resume (`Shell.takeThemePreference` / `takeSignOut`);
-    check that a native theme change shows on a React screen right after, and that a native Sair
-    lands on the login and the outbox stops (`Session` cleared, read cache cleared);
-  - Regras de importação and Integrações stay in the WebView (step 8, desktop-first);
   - not built: month swipe and pull to refresh in Orçamento, swipe/long-press menus, the widgets
     (Saldo do plano, a pinned goal), "Sempre perguntar" inside native Aprovar, the biometric gate
-    on Sair, the listener-lost notification, the bundle half of Versão do app;
+    on Sair, the listener-lost notification;
   - privacy is as on the web (Recorrentes and A receber mask nothing; Metas masks Atual, Faltam,
     Objetivo): the owner may want more masked;
   - the native and web dismissed plan-flag lists are separate (like Início's cards).
@@ -186,7 +177,7 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   compare with the web on the same data. Left from that session:
   - **offline**: a buy/sale and a provento are queued (kinds `INVESTMENT`, `PROCEED`); check that
     one saved in airplane mode lands once after reconnecting, with its Extrato row in the
-    Corretora, and that Pendentes (web sheet) shows it with only "Descartar". The web itself still
+    Corretora, and that Pendentes shows it with only "Descartar". The web itself still
     sends no `client_id` on investment creations and never queues them (owner: want that too?);
   - **privacy**: owner chose 2026-10-24 to mask every R$ of Operações and Proventos on both
     sides (the web follows since `claude/web-privacy-investments`); check it on the phone too;
@@ -195,9 +186,19 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
     (`NativeScreens.open("investment-entry")`), remembering the last asset type, the "próximos 30
     dias" total and a payment-day notification in Proventos, the DARF reminder, copying a
     suggested aporte into Registrar operação;
-  - targets, sectors (Buscar setores, the pencil) and the full IR report stay in the WebView
-    (`?web=1` from the native screens) until the desktop redesign decides their home (step 8).
-- [ ] Step 8 (remove the WebView), checked by the owner with the debug APK first.
+- [ ] **Session E — the native shell and no WebView, owner's phone check** (built 2026-10-25 on
+  `claude/affectionate-thompson-3vd16f`; the PR body has the full checklist). Install the debug APK
+  first, then the release one over the WebView app from its banner: fresh login, every section,
+  offline entry with the app closed, bank notifications reaching Aprovar, the APK banner. Left:
+  - the "+" inside Investimentos opens "+ Novo", not Registrar operação (that sheet lives in the
+    Posição/Operações view models); the launcher shortcut "Novo lançamento";
+  - "Sem conexão" in the pill is the phone's network (no non-VPN network), not the server's
+    reachability: with Tailscale down and Wi-Fi up it stays hidden until a request fails;
+  - Importar, Regras de importação, Integrações, the full IR report and editing allocation
+    targets/sectors are desktop-only (owner, session E): the desktop redesign gives them a home;
+  - `GET /api/home/panels` feeds only the native Início: the web Início still computes the same
+    four panels from the whole history (`useInicioMovements()`); switch it over and drop
+    `buildSpending()` from `Dashboard.jsx`.
 - [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
   screen here before it starts.
 - [ ] **Session containers cannot build an APK**: `dl.google.com` is blocked by the environment's
@@ -208,7 +209,7 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
 - [ ] Plus Jakarta Sans in the native screens (needs the `.ttf` in `res/font`; the web ships woff2).
 - [ ] **`findings.md`, what is left** (its possible bugs and stale texts were fixed 2026-10-23,
   the grouped Tesouro delete made atomic 2026-10-24, `done-tasks.md`): the native shell's 401
-  handling (`00-shell.md`). Inconsistencies waiting on the owner
+  handling is done (session E). Inconsistencies waiting on the owner
   (questions in `docs/handoff.md`): Corretora accounts offered in banking forms and autopay; Início
   groups categories by name; privacy mode uneven across screens; the Extrato vs Início
   classification of a transfer to the Corretora; a débito purchase reopened as Despesa by
@@ -226,13 +227,12 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   - **B2, owner decision**: the plan's "spent" (`month_banking_totals()`) still counts a despesa
     typed in a Corretora account; Início's "Saiu" (`/api/home`) does not. Make the plan follow
     Início (one rule) or keep both?
-  - **`home-panels.md`** (second proposal, not written): Início's "Despesas por categoria", "Ritmo
-    de gastos", "Parcelamentos abertos" and the 6-month invoice projection, and the web Extrato's
-    projections (native reads `/api/home`'s `projections`), still read the whole history (`['inicio','movimentos']`,
-    `GET /api/cc-expenses?status=OPEN` in `useLancamentos()`). Once served, Início stops calling
-    `GET /api/transactions` and `bankingTransactions()` / `isPastDue()` leave the client. The
-    native Início (step 3) shows those four panels only through the web (`/inicio?web=1`) until
-    then.
+  - **The web Início and Extrato still read the whole history**: the four history panels are
+    served since session E (`GET /api/home/panels`, read by the native Início), but the web
+    Início still computes them (`['inicio','movimentos']`) and the web Extrato's projections still
+    read `GET /api/cc-expenses?status=OPEN` in `useLancamentos()` (native reads `/api/home`'s
+    `projections`). Switch both; then Início stops calling `GET /api/transactions` and
+    `bankingTransactions()` / `isPastDue()` leave the client.
   - **Owner, after the deploy**: open Início, the bell, Extrato and Cartões on the real server once
     and compare with the day before (the parity check ran on a seeded database, not on real data).
 - [ ] **Owner decision**: may `android-check.yml` upload a branch's debug APK as a workflow
@@ -264,11 +264,6 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   so an item corrected or discarded during that one request can be overwritten, removed or
   brought back. The native sender compares versions first (`OutboxStore.removeIfUnchanged`); do
   the same on the web side, with a rule test. A small window, found by `finance-guard` on 2026-10-16.
-- [ ] **Self-update, what the phone check left out** (the basic paths passed on 2026-10-17, see
-  `docs/done-tasks.md`): a lançamento queued offline before a screen switch is sent after it; a
-  push that bumps `native-level.txt` shows the banner as *required* and the old screens are kept
-  until the APK is installed; the 30 s fallback with a broken bundle (needs a deliberately broken
-  push — only if the owner wants it proven).
 - [ ] Owner look at Phase 4 on the PC. Its "done when" passed in a scripted desktop browser on a
   scratch database (2026-10-13, see `docs/done-tasks.md`); nobody has yet judged the screens by
   eye: the "Pendentes" sheet, the pending rows in the Extrato, the estimate labels. With the
@@ -386,7 +381,7 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   production row with a year outside 1900–2199, an amount of 0 or a 1e308 operation (none expected)
   would still break its reads. If a screen ever answers 500, look for such a row first.
 - [ ] **Not fuzzed:** the frontend (no runner), the Java listener and parsers, the import's CSV/OFX
-  content itself (only the route's fields), and the file uploads (receipts, app bundle).
+  content itself (only the route's fields), and the file uploads (receipts).
 - [ ] **The proceeds' amounts** (`gross_amount`, `tax_amount`, `amount_per_unit`) and the corporate
   action ratios have no upper bound; nothing broke in the run, so they were left alone.
 

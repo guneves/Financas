@@ -153,7 +153,7 @@ class MetasViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun changed(message: String) {
-        // Os alertas de meta do Orcamento dependem das metas: a WebView rele tudo.
+        // Os alertas de meta do Orcamento dependem das metas: cada tela rele ao abrir.
         ShellEvents.emitDataChanged()
         if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else _notices.tryEmit(message)
         if (!cleared) refreshAll()

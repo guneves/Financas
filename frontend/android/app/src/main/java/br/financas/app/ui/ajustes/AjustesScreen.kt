@@ -621,7 +621,7 @@ private fun AparenciaSection(viewModel: AjustesViewModel) {
                     SelectOption("dark", stringResource(R.string.ajustes_theme_dark)),
                 ),
                 value = viewModel.theme,
-                // A Activity se refaz no tema novo; a WebView aplica o mesmo ao voltar.
+                // A Activity se refaz no tema novo (telas e barras do sistema).
                 onChange = { viewModel.chooseTheme(it) { activity?.recreate() } },
                 modifier = Modifier.padding(16.dp),
             )
