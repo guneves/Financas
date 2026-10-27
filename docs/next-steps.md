@@ -9,27 +9,59 @@
 
 ## 1. Open work, in priority order
 
-### Open Finance in Investimentos — positions from the broker (owner's priority, 2026-10-27)
+### Open Finance in Investimentos — BTG positions automatically (owner's priority, next session)
 The owner: "where Open Finance will help the most is inside the investments area … auto-updates my
-positions so I don't have to manually". Decided with the owner: **operations through approval**,
-never overwriting positions. Positions, weighted average cost, realized results and the monthly
-DARF are all computed from the operations, so writing a quantity directly would break all three.
-- [ ] **First, check what the owner's connection actually sends.** The owner is on the free plan
-  (one CPF) with the **MeuPluggy** connector. With the item connected, call `GET /investments?itemId=`
-  and `GET /investments/{id}/transactions` from a scratch script on the server (`pluggy_client`,
-  the owner's credentials). Record which brokers or banks appear, which types (`EQUITY`, `ETF`,
-  `FIXED_INCOME`, `MUTUAL_FUND`, `SECURITY`, `COE`), whether each comes with `code`/ISIN, `quantity`,
-  `amount`, `balance` and transactions (`BUY`/`SELL`/`TAX`/`TRANSFER`, date, quantity, value). If
-  MeuPluggy does not share investments, stop and tell the owner. Nothing below is possible without that data.
-- [ ] Design (write it here before building): a Pluggy investment transaction becomes a proposed
-  operation in an "Aprovar investimentos" list (or a new kind in Aprovar), matched to the asset by
-  ticker/ISIN (unknown asset → asset creation offered), idempotent by `pluggy:<id>`
-  (`source_type`/`source_id` like other materialized rows), the cash leg through the Corretora per
-  `metadata.cash_account_id`. Proventos: StatusInvest already computes ações/FIIs (026); a Pluggy
-  dividend should **pair** with the computed one, never duplicate it. Tesouro and fixed income: Pluggy
-  gives a position value; compare it, never mark to it (Tesouro has its own PU, `services/treasury.py`).
-- [ ] A position check like the bank Conferência: Pluggy quantity per asset against
-  `build_portfolio_snapshot()` quantity, so anything missed shows up.
+positions so I don't have to manually". **Decided with the owner (2026-10-27):** operations coming
+from the broker are **recorded automatically** (no approval), idempotent by Pluggy id, with a
+position check and a one-tap undo. Positions are never overwritten: average cost, realized results
+and the DARF are computed from operations. **BTG Investimentos goes to the investments area**: its
+Pluggy account is the Corretora's cash, never an Aprovar source (today it is registered and left
+unmapped; the mapping refuses the Corretora on purpose).
+
+**What MeuPluggy sends for BTG (probed read-only 2026-10-27, item `f645e5ca-…`):**
+- Item products include `INVESTMENTS`, `INVESTMENTS_TRANSACTIONS`, `BROKERAGE_NOTE`.
+- `GET /investments?itemId=`: 36 positions. 17 `EQUITY/STOCK` (ações, ETFs and FIIs alike, e.g.
+  AUPO11/ABTC11, so the app's own class wins), 6 CDB, 7 LCI + 1 LCA, 3 CRA, 2 `TREASURY`. All have
+  `code` (ticker, or the CETIP code for fixed income), `quantity`, `value` (unit), `balance`,
+  `status` (`ACTIVE`/`TOTAL_WITHDRAWAL`), `date`. Equities also have `isin`; fixed income has
+  `amountOriginal`, `purchaseDate`, `dueDate`, `issuer`, `rate`/`rateType`, `taxes`. Equity
+  positions are dated **D-1** (Pluggy reads after the close).
+- `GET /investments/{id}/transactions`: 71 rows, `BUY` 30 / `SELL` 22 / `TRANSFER` 18 / `INTEREST` 1,
+  each with `date`, **`tradeDate`**, `quantity`, `value` (unit), `amount`, `netAmount`, `expenses`,
+  `brokerageNumber`. (No `id` was printed; check that each row has a stable id for idempotency,
+  else key on `investment id + tradeDate + type + quantity + amount`.)
+- The "BTG Investimentos" account (`CHECKING_ACCOUNT`, same number as BTG Banking): broker cash
+  balance, ~121 movements in 30 days, categorized "Investments" (DEBIT/CREDIT), "Taxes on
+  investments", "Proceeds interests and dividends", "Same person transfer", "Automatic investment".
+- **Settlement:** ações/ETFs settle D+1/D+2, so the broker cash runs ahead of the app's Corretora
+  until then (the owner sees "more money than I should").
+
+**Build (next session):**
+- [ ] `services/open_finance_investments.py`: pull positions and investment transactions per item
+  with `INVESTMENTS` (in the same pull as accounts; no extra update request). Map a Pluggy
+  investment to an app asset by ticker (equities) or by code/ISIN/issuer+due date (fixed income);
+  an unknown ticker creates the asset (class from `market_catalog`/brapi, as the screen does).
+- [ ] Automatic operations: a Pluggy `BUY`/`SELL` becomes an investment movement on `tradeDate`
+  with quantity and net amount (`netAmount`, costs in `expenses`), `source_type = 'OPEN_FINANCE'`,
+  `source_id = pluggy:<id>`, under the unique index (a repeat is a no-op). Cash through the Corretora
+  (`metadata.cash_account_id`), so the Corretora balance follows. Corporate-action rules (017)
+  apply: nothing before the latest event; a movement that would break one is held, not written.
+  `TRANSFER` (custody in/out) and `INTEREST`: decide on the first real rows. Proventos of ações/FIIs
+  are already computed (026); a Pluggy dividend **pairs** with the computed one, never duplicates it.
+- [ ] The first run must not duplicate what the owner already typed: match existing movements
+  (same asset, date ±2 days, same quantity) and link them instead of writing new ones.
+- [ ] Undo: an automatic operation can be undone (and is then dismissed for good, like a deleted
+  computed provento), from the Extrato's investments view.
+- [ ] Position check in Investimentos: Pluggy quantity per asset vs `build_portfolio_snapshot()`,
+  and the Corretora's cash vs the Pluggy balance **by trade date**: a difference covered by trades
+  of the last 2 business days is "a liquidar", not a discrepancy. Fixed income and Tesouro: compare
+  the value, never mark to it (Tesouro keeps its own PU, `services/treasury.py`).
+- [ ] The BTG Investimentos account: its cash movements that match an automatic operation are
+  covered; aportes/resgates (transfers to/from BTG Banking) are already one TRANSFER when both sides
+  are connected (bank ↔ Corretora = aporte/resgate, 039). Settle how they reach the app without
+  going through Aprovar.
+- [ ] Tests for every rule (pytest with a fake `/investments` in `open_finance_world.py`), node/Kotlin
+  for any screen rule; the APK shows the check read-only.
 
 ### Open Finance (Pluggy) as a source for Aprovar (2026-10-27) — what is left
 Merged to `main` on 2026-10-27 (see `done-tasks.md`; setup and limits in `DEPLOY.md` › "Open
