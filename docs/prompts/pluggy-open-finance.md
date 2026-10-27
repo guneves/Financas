@@ -18,11 +18,13 @@ and `docs/next-steps.md` first, as usual.
   `schema_migrations` rows — **never touch them**; this work gets a new numbered migration (043 or
   whatever is next). The old code is not in this clone's history; do not try to restore it, design
   it again against today's code.
-- **Step 0 is a go/no-go, before any code.** Confirm with me which access I have: a paid Pluggy
-  plan, or the **MeuPluggy** route (I connect my banks in the MeuPluggy app, and a developer
-  account reads my own data through the `MeuPluggy` connector). Check Pluggy's current docs
-  (`docs.pluggy.ai`) for what each plan allows today, and stop and tell me if neither works.
-  Development and tests use Pluggy's **sandbox** connectors and mocked HTTP, never my real data.
+- **Access is settled (owner, 2026-10-27):** I have a Pluggy account whose free plan works for
+  **one CPF** — mine. The app is single-user, so that is all it needs. Consequences: connect only
+  my own banks (one CPF); if Pluggy refuses a connection because of the CPF limit, show its
+  message in Ajustes rather than retrying. Still check Pluggy's current docs (`docs.pluggy.ai`)
+  for the free plan's other limits (connectors, request/refresh rate, history window) and keep the
+  sync within them. Development and tests use Pluggy's **sandbox** connectors and mocked HTTP,
+  never my real data; the first real connection is my check, after the deploy.
 - **The server is reachable only inside my tailnet** (`DEPLOY.md`: `tailscale serve`, no public
   URL). Pluggy's webhooks cannot reach it, so the sync is **pull**: on demand ("Atualizar" button)
   and in a background thread like `services/quote_refresh.py` (every few hours, configurable,
@@ -102,7 +104,7 @@ and `docs/next-steps.md` first, as usual.
 
 ## Order of work (one PR per phase is fine)
 
-1. Step 0 (access) and a short design note in `docs/next-steps.md`: tables, the inbox source
+1. A short design note in `docs/next-steps.md`: tables, the inbox source
    decision, the sign convention verified in the sandbox.
 2. Migration + `pluggy_client` + connect/item/account-mapping endpoints + tests with mocked HTTP.
 3. Sync → Aprovar (dedup, pairing with notifications, installments, refunds, transfers) — the

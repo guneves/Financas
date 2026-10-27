@@ -711,6 +711,6 @@ Seen in Investidor10 PRO and not built; each needs the owner's call first.
 ## 2. Open decisions
 
 3. **Single-user or multi-user?** Schema is ready for either; SQLite is enough for personal use.
-4. **Bring Pluggy (Open Finance) back?** Removed on 2026-10-17 because the free plan gave no access.
-   A ready prompt is in `docs/prompts/pluggy-open-finance.md`; its step 0 is the owner confirming
-   which access exists (paid plan or MeuPluggy) before any code.
+4. **Bring Pluggy (Open Finance) back** — decided (owner, 2026-10-27): the free plan works for one
+   CPF, the owner's, which is all a single-user app needs. Ready to implement from
+   `docs/prompts/pluggy-open-finance.md`.

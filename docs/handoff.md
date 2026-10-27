@@ -18,15 +18,15 @@ Cloud session, branch `claude/confident-keller-439tz2` from `main` at `de353ed`.
   read-only balance check, phases and tests). Listed under "Open decisions" in `next-steps.md`.
 
 ### Not done, and why
-- No code: the owner asked for the prompt only. Its step 0 (which Pluggy access exists — paid plan
-  or MeuPluggy) is the owner's to answer before anyone implements it.
+- No code: the owner asked for the prompt only. Access is settled: the owner has Pluggy, free for
+  one CPF (theirs), which fits a single-user app; the prompt says so.
 - The previous session's open items (below) still stand: the phone check of the 2026-10-25 work,
   the "+" inside Investimentos, web Início on `/api/home/panels`, `CORS_ORIGINS=https://localhost`.
 
 ### Next session
 1. If `android-check.yml` is red on `main`, fix it first; then the owner's phone check.
-2. Otherwise: the web Início onto `/api/home/panels`, the desktop redesign plan, or the Pluggy
-   prompt once the owner confirms access.
+2. Otherwise: the web Início onto `/api/home/panels`, the desktop redesign plan, or implement
+   Pluggy from the prompt.
 
 ---
 
