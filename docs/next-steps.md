@@ -27,10 +27,13 @@ the Extrato's Revisar panel. Built on `main` for the server and the web; see `do
   first, leaving it off is the new default flow (on, connected banks are recorded by Pluggy only).
 
 **Not built / limits:**
-- [ ] **APK**: the native app still has its Aprovar screen and an Extrato without card purchases or
-  review. It keeps posting detections, so recording works; the review UI is web-only. Port
-  `ReviewPanel` and the card rows (`GET /api/review`, `GET /api/cc-expenses/statement`).
-- [ ] An own transfer with one side waits in Aprovar until the other side arrives (the Extrato says
+- [ ] **APK on the phone (built 2026-10-27, not run on a device)**: install the update after the PR
+  merges (the deploy's apk job; the app offers it). Walk: a Flash/Itaú purchase appears in Extrato ›
+  Revisar within a minute (the pill "N para revisar" too); "É meu" clears it; a card purchase shows in
+  the timeline with "Cartão · Nx" and no day total of its own; tapping it opens Cartões; no Aprovar
+  anywhere (tabs, Início, notifications); an own Pix with one side shows under "Não gravou sozinho"
+  and "Gravar" with the other account makes one transfer. Light and dark.
+- [ ] An own transfer with one side waits until the other side arrives (the Extrato says
   "N movimentos não puderam ser gravados sozinhos · Ver"). A transfer to an account that is neither
   connected nor notifies (another bank) needs the owner there.
 - [ ] Review has no "não é meu" action: an error is deleted with the row's normal Excluir (a

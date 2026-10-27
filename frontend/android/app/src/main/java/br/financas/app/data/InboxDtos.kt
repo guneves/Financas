@@ -245,6 +245,12 @@ data class InboxHintDto(
         )
 }
 
-/** GET/PATCH /api/inbox/settings: "Sempre perguntar a conta/cartão". */
+/**
+ * GET/PATCH /api/inbox/settings: "Gravar sozinho" (045, ligado sem escolha; um servidor antigo nao
+ * manda e vale ligado, como na web) e "Sempre perguntar a conta/cartão".
+ */
 @Serializable
-data class InboxSettingsDto(@SerialName("always_ask") val alwaysAsk: Flag = false)
+data class InboxSettingsDto(
+    @SerialName("always_ask") val alwaysAsk: Flag = false,
+    @SerialName("auto_record") val autoRecord: Flag = true,
+)

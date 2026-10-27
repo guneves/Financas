@@ -38,8 +38,6 @@ class AReceberViewModel(application: Application) : AndroidViewModel(application
     val list = ScreenLoad<List<ReceivableDto>>()
     var hidden by mutableStateOf(ShellPrefs.valuesHidden(application) ?: false)
         private set
-    var inboxCount by mutableStateOf(0)
-        private set
     var actionError by mutableStateOf("")
         private set
 
@@ -63,15 +61,6 @@ class AReceberViewModel(application: Application) : AndroidViewModel(application
     fun refreshAll() {
         hidden = ShellPrefs.valuesHidden(app) ?: hidden
         read()
-        viewModelScope.launch {
-            graph.inbox.count().collect { load ->
-                when (load) {
-                    is Load.Cached -> Unit
-                    is Load.Fresh -> inboxCount = load.value.pendingCount ?: 0
-                    is Load.Failed -> if (load.error is ApiException.Network) inboxCount = 0
-                }
-            }
-        }
     }
 
     private fun read() {

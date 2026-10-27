@@ -238,9 +238,11 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   owner typed is linked (`free_candidates()`), never duplicated, and needs no review.
 - **Only these wait**: a Samsung-only purchase for `NOTIFY_WINDOW_MS` (the bank's notice becomes the
   source), an **own transfer with one side** until the other side arrives (recording a despesa then
-  a receita would split one transfer; it stays in Aprovar, which the Extrato points to as
-  `waiting`), another currency. Aprovar left the tabs; its page and API stay for those and for the
-  brake.
+  a receita would split one transfer; it stays an inbox item, counted as `waiting`), another
+  currency. **Aprovar is gone from web tabs and from the phone; waiting items resolve in Revisar**
+  (the APK's Extrato lists them under "Não gravou sozinho": the other account or the amount in reais
+  → `POST /api/inbox/<id>/approve` with `remember: false`, "não é entre minhas contas" → despesa/
+  receita, or Descartar). The web's Aprovar page and the inbox API stay for those and for the brake.
 - **The switches** default to `AUTO_RECORD_DEFAULT` (config, on): `auto_record` in
   `GET/PATCH /api/inbox/settings` (notifications) and in `/api/open-finance/settings` (Pluggy).
   Off is the emergency brake: back to Aprovar. `conftest.py` sets `AUTO_RECORD_DEFAULT=0` so the

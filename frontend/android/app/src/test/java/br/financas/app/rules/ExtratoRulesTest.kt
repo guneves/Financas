@@ -157,6 +157,52 @@ class ExtratoRulesTest {
     }
 
     @Test
+    fun theReviewFilterGoesAsReview1() {
+        val filters = ExtratoFilters(review = "1")
+        assertEquals(listOf("review" to "1"), ExtratoRules.filterParams(filters).toList())
+        assertTrue(ExtratoRules.hasActiveFilters(filters))
+        assertEquals(1, ExtratoRules.countHiddenFilters(filters))
+    }
+
+    // 045: a compra no cartao na linha do tempo (o groupByDay, TypeBadge, amountClass e
+    // isEditableHere de Extrato.jsx).
+    @Test
+    fun aCardPurchaseIsShownButNeverCountedNorEditedHere() {
+        val purchase = ReviewRules.cardStatementRow(
+            br.financas.app.data.CardStatementDto(id = "p", date = "2026-10-24", amount = money("90"), installments = 3, cardName = "Itaú Visa"),
+        )
+        val refund = ReviewRules.cardStatementRow(
+            br.financas.app.data.CardStatementDto(id = "r", date = "2026-10-23", type = "REFUND", amount = money("20")),
+        )
+        assertFalse(ExtratoRules.isEditableHere(purchase))
+        assertFalse(ExtratoRules.canShare(purchase))
+        assertEquals("Itaú Visa", ExtratoRules.originLabel(purchase))
+        assertEquals("Cartão", ExtratoRules.originLabel(refund))
+        assertEquals("Cartão · 3x", ExtratoRules.typeBadge(purchase))
+        assertEquals("Estorno", ExtratoRules.typeBadge(refund))
+        assertEquals(-1, ExtratoRules.amountSign(purchase))
+        assertEquals(1, ExtratoRules.amountSign(refund))
+        assertTrue(ExtratoRules.isGain(refund))
+        assertFalse(ExtratoRules.isGain(purchase))
+
+        val expense = TransactionDto(id = "e", type = "EXPENSE", amount = money("10"), date = "2026-10-24")
+        val days = ExtratoRules.groupByDay(listOf(purchase, expense, refund), emptyMap())
+        // O dia com um lancamento de conta soma so ele; o dia so de cartao fica sem total.
+        assertEquals(0, money("-10").compareTo(days[0].total))
+        assertTrue(days[0].hasTotal)
+        assertFalse(days[1].hasTotal)
+        assertEquals(0, BigDecimal.ZERO.compareTo(days[1].total))
+    }
+
+    @Test
+    fun theReviewMarkIsForRowsRecordedAlone() {
+        val row = TransactionDto(id = "x", type = "EXPENSE", needsReview = true)
+        assertTrue(ExtratoRules.reviewMark(row))
+        assertFalse(ExtratoRules.reviewMark(row.copy(needsReview = false)))
+        assertFalse(ExtratoRules.reviewMark(row.copy(pending = true)))
+    }
+
+    @Test
     fun receiptsShowTypeAndSizeLikeTheWeb() {
         assertEquals("512 B", ExtratoRules.fileSize(512))
         assertEquals("120 kB", ExtratoRules.fileSize(122_880))

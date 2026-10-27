@@ -81,6 +81,7 @@ fun NativeTopBar(
                 color = palette.text,
                 modifier = Modifier.padding(start = 8.dp).weight(1f),
             )
+            ReviewPill()
             PendingPill()
             if (onToggleHidden != null) {
                 val eyeLabel = stringResource(if (hidden) R.string.lanc_show_values else R.string.lanc_hide_values)

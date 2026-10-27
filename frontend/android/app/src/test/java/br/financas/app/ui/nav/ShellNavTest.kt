@@ -12,7 +12,7 @@ class ShellNavTest {
         assertNull(ShellNav.sectionOf(NativeRoutes.LOGIN))
         assertNull(ShellNav.sectionOf(null))
         assertEquals(ShellNav.Section.HOME, ShellNav.sectionOf(NativeRoutes.HOME))
-        for (route in listOf(NativeRoutes.EXTRATO, NativeRoutes.INBOX, NativeRoutes.CARTOES, NativeRoutes.A_RECEBER)) {
+        for (route in listOf(NativeRoutes.EXTRATO, NativeRoutes.CARTOES, NativeRoutes.A_RECEBER)) {
             assertEquals(route, ShellNav.Section.LANCAMENTOS, ShellNav.sectionOf(route))
         }
         for (route in listOf(NativeRoutes.ORCAMENTO, NativeRoutes.RECORRENTES, NativeRoutes.METAS)) {
@@ -40,12 +40,6 @@ class ShellNavTest {
         assertFalse(ShellNav.showsNewEntry(NativeRoutes.LOGIN))
         assertFalse(ShellNav.backGoesHome(NativeRoutes.HOME))
         assertFalse(ShellNav.backGoesHome(NativeRoutes.LOGIN))
-        assertTrue(ShellNav.backGoesHome(NativeRoutes.INBOX))
-    }
-
-    @Test
-    fun aprovarGoesBackToExtrato() {
-        assertEquals(NativeRoutes.EXTRATO, ShellNav.backTarget(NativeRoutes.INBOX))
-        for (route in NativeRoutes.ALL - NativeRoutes.INBOX) assertNull(route, ShellNav.backTarget(route))
+        assertTrue(ShellNav.backGoesHome(NativeRoutes.EXTRATO))
     }
 }

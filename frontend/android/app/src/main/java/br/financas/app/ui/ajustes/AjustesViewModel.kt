@@ -104,6 +104,9 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     /** O item da Pluggy que esta em "Atualizar" (o botao dele gira). */
     var syncingItemId by mutableStateOf<String?>(null)
         private set
+    /** "Gravar sozinho" (045): null antes da primeira leitura. */
+    var autoRecord by mutableStateOf<Boolean?>(null)
+        private set
     var alwaysAsk by mutableStateOf<Boolean?>(null)
         private set
     var alwaysAskError by mutableStateOf("")
@@ -275,9 +278,13 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             graph.inbox.settings().collect { load ->
                 when (load) {
-                    is Load.Cached -> if (alwaysAsk == null) alwaysAsk = load.value.alwaysAsk
+                    is Load.Cached -> if (alwaysAsk == null) {
+                        alwaysAsk = load.value.alwaysAsk
+                        autoRecord = load.value.autoRecord
+                    }
                     is Load.Fresh -> {
                         alwaysAsk = load.value.alwaysAsk
+                        autoRecord = load.value.autoRecord
                         alwaysAskError = ""
                     }
                     is Load.Failed -> if (load.cached == null) alwaysAskError = app.getString(R.string.ajustes_aprovar_failed)
@@ -619,7 +626,17 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         write(R.string.ajustes_category_reactivate_failed, { repo.updateCategory(category.id, mapOf("archived_at" to null)) }) { changed(null) }
     }
 
-    // ---- Aprovar ----
+    // ---- Avisos do celular ----
+
+    /** Ligado: cada aviso vira lancamento na hora (e o que esperava grava agora); desligado, espera. */
+    fun setAutoRecord(value: Boolean) {
+        val before = autoRecord
+        autoRecord = value
+        write(R.string.ajustes_aprovar_save_failed, { graph.inbox.setAutoRecord(value) }, onFail = { autoRecord = before }) { body ->
+            autoRecord = body.autoRecord
+            changed(app.getString(if (value) R.string.ajustes_auto_record_on else R.string.ajustes_auto_record_off))
+        }
+    }
 
     fun setAlwaysAsk(value: Boolean) {
         val before = alwaysAsk

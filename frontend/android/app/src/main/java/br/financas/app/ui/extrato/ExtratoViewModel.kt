@@ -16,13 +16,17 @@ import br.financas.app.data.AccountDto
 import br.financas.app.data.ApiException
 import br.financas.app.data.AppGraph
 import br.financas.app.data.AttachmentOwner
+import br.financas.app.data.CardStatementDto
 import br.financas.app.data.CategoryDto
 import br.financas.app.data.ExportColumnDto
 import br.financas.app.data.HomeDto
+import br.financas.app.data.InboxItemDto
+import br.financas.app.data.InboxRepository
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.InvestmentMovementDto
 import br.financas.app.data.InvestmentProceedDto
 import br.financas.app.data.Load
+import br.financas.app.data.ReviewItemDto
 import br.financas.app.data.StatementTotalsDto
 import br.financas.app.data.TransactionDto
 import br.financas.app.outbox.OutboxStore
@@ -33,6 +37,7 @@ import br.financas.app.rules.InvestmentStatement
 import br.financas.app.rules.OutboxItems
 import br.financas.app.rules.OutboxPending
 import br.financas.app.rules.PendingItem
+import br.financas.app.rules.ReviewRules
 import br.financas.app.rules.Sharing
 import br.financas.app.rules.StatementEntry
 import br.financas.app.rules.TransactionEditForm
@@ -42,6 +47,7 @@ import br.financas.app.ui.lancamentos.AttachmentsState
 import br.financas.app.ui.lancamentos.NativeFiles
 import br.financas.app.ui.lancamentos.normalizedShare
 import br.financas.app.ui.lancamentos.writeErrorOf
+import br.financas.app.ui.nav.NativeLinks
 import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.theme.ShellPrefs
 import kotlinx.coroutines.Dispatchers
@@ -80,11 +86,19 @@ object ExtratoMemory {
 /** O formato e as colunas da exportacao (o ExportSheet da web). */
 data class ExportChoice(val format: String = "xlsx", val columns: Set<String> = emptySet())
 
+/** O que o dono escolheu num movimento que nao gravou sozinho: a outra conta, o valor em reais. */
+data class WaitingChoice(val accountId: String = "", val transferAccountId: String = "", val amount: String = "")
+
 /**
  * O Extrato nativo (04-extrato.md), as duas vistas. Contas: GET /api/transactions em paginas de
  * 200 com os totais do servidor (services/transaction_pages.py), os pendentes da fila por cima da
  * primeira pagina sem filtro, o saldo e as projecoes de GET /api/home. Investimentos: as
  * operacoes e os proventos (rules/InvestmentStatement.kt). Editar e excluir so com o servidor.
+ *
+ * Gravar sozinho e revisar (045): no alto de Contas, Revisar (GET /api/review: "É meu" e a
+ * categoria, POST /api/review) e o que nao gravou sozinho (GET /api/inbox, a outra conta da
+ * transferencia ou o valor em reais, e o approve); na linha do tempo, as compras no cartao (GET
+ * /api/cc-expenses/statement com os mesmos filtros), fora dos totais (rules/ReviewRules.kt).
  */
 class ExtratoViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -130,7 +144,31 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         private set
     var categories by mutableStateOf<List<CategoryDto>>(emptyList())
         private set
-    var inboxCount by mutableStateOf(0)
+    // ---- Revisar e as compras no cartao (045) ----
+
+    /** As compras no cartao com os filtros da tela; null antes da primeira leitura. */
+    var cardRows by mutableStateOf<List<CardStatementDto>?>(null)
+        private set
+    var reviewItems by mutableStateOf<List<ReviewItemDto>>(emptyList())
+        private set
+    /** Quantos movimentos nao gravaram sozinhos (o `waiting` de GET /api/review). */
+    var reviewWaiting by mutableStateOf(0)
+        private set
+    /** A categoria escolhida por item (reviewKey -> category_id); o resto vai como sugerido. */
+    var reviewChosen by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+    var reviewShowAll by mutableStateOf(false)
+        private set
+    /** O botao que esta enviando: a reviewKey de um item, ou BUSY_ALL. */
+    var reviewBusy by mutableStateOf("")
+        private set
+    var reviewError by mutableStateOf("")
+        private set
+    var waitingItems by mutableStateOf<List<InboxItemDto>>(emptyList())
+        private set
+    var waitingChoices by mutableStateOf<Map<String, WaitingChoice>>(emptyMap())
+        private set
+    var waitingBusy by mutableStateOf("")
         private set
 
     var offline by mutableStateOf(false)
@@ -188,6 +226,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     private var listJob: Job? = null
+    private var cardJob: Job? = null
 
     // Sobe a cada leitura nova da primeira pagina: uma pagina seguinte pedida antes dela e descartada.
     private var listGeneration = 0
@@ -203,10 +242,14 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
 
     val filtersActive: Boolean get() = ExtratoRules.hasActiveFilters(filters)
 
-    /** As linhas da lista: os pendentes da fila no topo (so sem filtro, como na web) e as do servidor. */
+    /**
+     * As linhas da lista: os pendentes da fila no topo (so sem filtro, como na web) e as do
+     * servidor com as compras no cartao entre elas (paginado, so ate o dia mais antigo carregado).
+     */
     val statementRows: List<TransactionDto>
         get() {
-            val server = rows.orEmpty()
+            val loaded = rows.orEmpty()
+            val server = ReviewRules.mergeStatement(loaded, cardRows, ReviewRules.statementUntil(loaded, hasMore))
             if (filtersActive || pending.isEmpty()) return server
             val defaultId = accounts.firstOrNull { it.isDefault }?.id.orEmpty()
             val local = OutboxPending.pendingAsTransactions(pending, defaultId).map { item ->
@@ -258,7 +301,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         readHome()
         readAccounts()
         readCategories()
-        readInboxCount()
+        readReview()
         if (view == ExtratoMemory.VIEW_INVESTIMENTOS) readInvestments()
     }
 
@@ -267,6 +310,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         listGeneration += 1
         val params = ExtratoRules.filterParams(filters)
         filtering = true
+        readCards(params)
         listJob = viewModelScope.launch {
             // A busca espera 250 ms depois da ultima tecla (o useDebouncedValue da web).
             if (rows != null) delay(DEBOUNCE_MS)
@@ -384,13 +428,60 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun readInboxCount() {
-        viewModelScope.launch {
-            graph.inbox.count().collect { load ->
+    /** As compras no cartao com os mesmos filtros (o mesmo atraso da busca). Sem rede, a copia. */
+    private fun readCards(params: Map<String, String>) {
+        cardJob?.cancel()
+        cardJob = viewModelScope.launch {
+            if (cardRows != null) delay(DEBOUNCE_MS)
+            graph.review.cardStatement(params).collect { load ->
                 when (load) {
-                    is Load.Cached -> Unit
-                    is Load.Fresh -> inboxCount = load.value.pendingCount ?: 0
-                    is Load.Failed -> if (load.error is ApiException.Network) inboxCount = 0
+                    is Load.Cached -> cardRows = load.value
+                    is Load.Fresh -> cardRows = load.value
+                    // Um servidor antigo (sem a rota) ou um filtro recusado: so as contas.
+                    is Load.Failed -> if (load.cached == null) cardRows = emptyList()
+                }
+            }
+        }
+    }
+
+    /** GET /api/review: a fila e quantos esperam; com algum esperando, os itens deles. */
+    private fun readReview() {
+        viewModelScope.launch {
+            graph.review.queue().collect { load ->
+                val queue = when (load) {
+                    is Load.Cached -> load.value
+                    is Load.Fresh -> load.value
+                    is Load.Failed -> {
+                        if (load.error !is ApiException.Network && load.cached == null) {
+                            reviewItems = emptyList()
+                            reviewWaiting = 0
+                        }
+                        null
+                    }
+                } ?: return@collect
+                reviewItems = queue.items
+                reviewWaiting = queue.waiting
+                // O que nao esta mais na fila deixa de ter escolha guardada.
+                val keys = queue.items.map(ReviewRules::reviewKey).toSet()
+                reviewChosen = reviewChosen.filterKeys { it in keys }
+                if (load is Load.Fresh) {
+                    if (queue.waiting > 0) readWaiting() else waitingItems = emptyList()
+                }
+            }
+        }
+    }
+
+    private fun readWaiting() {
+        viewModelScope.launch {
+            graph.inbox.list(InboxRepository.VIEW_PENDING).collect { load ->
+                when (load) {
+                    is Load.Cached -> if (waitingItems.isEmpty()) waitingItems = load.value.items
+                    is Load.Fresh -> {
+                        waitingItems = load.value.items
+                        val ids = waitingItems.map { it.id }.toSet()
+                        waitingChoices = waitingChoices.filterKeys { it in ids }
+                    }
+                    is Load.Failed -> Unit
                 }
             }
         }
@@ -456,8 +547,18 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         if (next == ExtratoMemory.VIEW_INVESTIMENTOS) readInvestments()
     }
 
-    /** A vista pedida por quem abriu (o ?ver= da web); null mantem a ultima. */
+    /**
+     * A vista pedida por quem abriu (o ?ver= da web); null mantem a ultima. "revisar" (a pilula, o
+     * antigo Aprovar): Contas com o filtro "Só a revisar", o Revisar no alto.
+     */
     fun requestView(requested: String?) {
+        if (requested == NativeLinks.VIEW_REVIEW) {
+            if (view != ExtratoMemory.VIEW_CONTAS) chooseView(ExtratoMemory.VIEW_CONTAS)
+            changeFilters(ExtratoFilters(review = "1"))
+            filtersOpen = true
+            reviewShowAll = false
+            return
+        }
         if (requested == ExtratoMemory.VIEW_CONTAS || requested == ExtratoMemory.VIEW_INVESTIMENTOS) {
             view = requested
             ExtratoMemory.saveView(app, requested)
@@ -497,6 +598,103 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
 
     fun changeInvQuery(query: String) {
         invQuery = query
+    }
+
+    // ---- Revisar (045) ----
+
+    fun chooseReviewCategory(item: ReviewItemDto, categoryId: String) {
+        reviewChosen = reviewChosen + (ReviewRules.reviewKey(item) to categoryId)
+    }
+
+    fun toggleReviewShowAll() {
+        reviewShowAll = !reviewShowAll
+    }
+
+    fun dismissReviewError() {
+        reviewError = ""
+    }
+
+    /** "É meu" ([items] = o item) ou "Confirmar todos" (a fila, com as categorias da tela). */
+    fun confirmReview(items: List<ReviewItemDto>, busyKey: String) {
+        if (reviewBusy.isNotEmpty() || items.isEmpty()) return
+        reviewBusy = busyKey
+        reviewError = ""
+        val payload = ReviewRules.reviewPayload(items, reviewChosen)
+        graph.appScope.launch {
+            val result = graph.review.confirm(payload)
+            reviewBusy = ""
+            val error = writeErrorOf(app, result, R.string.review_failed)
+            if (error == null) {
+                val reviewed = (result as InboxWrite.Done).value.reviewed
+                reviewItems = ReviewRules.withoutConfirmed(reviewItems, items)
+                changed(ReviewRules.confirmedText(reviewed))
+            } else if (cleared) {
+                Toast.makeText(app, error, Toast.LENGTH_LONG).show()
+            } else {
+                reviewError = error
+            }
+        }
+    }
+
+    // ---- O que nao gravou sozinho (sem a tela Aprovar) ----
+
+    fun changeWaiting(item: InboxItemDto, choice: WaitingChoice) {
+        waitingChoices = waitingChoices + (item.id to choice)
+    }
+
+    fun waitingChoice(item: InboxItemDto): WaitingChoice = waitingChoices[item.id] ?: WaitingChoice()
+
+    fun waitingAmount(item: InboxItemDto): BigDecimal? =
+        (parseMoneyInput(waitingChoice(item).amount) as? MoneyInput.Amount)?.value
+
+    /** "Gravar": com a outra conta (ou o valor em reais) escolhida; nada lembrado. */
+    fun recordWaiting(item: InboxItemDto) {
+        val choice = waitingChoice(item)
+        val amount = waitingAmount(item)
+        val missing = ReviewRules.waitingMissing(item, choice.accountId, choice.transferAccountId, amount)
+        if (missing.isNotEmpty()) {
+            reviewError = missing
+            return
+        }
+        val body = ReviewRules.waitingApproveBody(item, choice.accountId, choice.transferAccountId, amount)
+        decideWaiting(item, app.getString(R.string.review_waiting_recorded)) { graph.inbox.approve(item.id, body) }
+    }
+
+    /** "Não é entre minhas contas": a ponta que avisou vira despesa (saiu) ou receita (entrou). */
+    fun recordWaitingSingle(item: InboxItemDto) {
+        decideWaiting(item, app.getString(R.string.review_waiting_recorded)) { graph.inbox.approve(item.id, ReviewRules.waitingSingleBody(item)) }
+    }
+
+    fun askDenyWaiting(item: InboxItemDto) {
+        confirm = ConfirmRequest(
+            title = app.getString(R.string.review_waiting_deny_title),
+            message = app.getString(R.string.review_waiting_deny_message, ReviewRules.waitingTitle(item)),
+            confirmLabel = app.getString(R.string.review_waiting_deny),
+        ) { decideWaiting(item, app.getString(R.string.review_waiting_denied)) { graph.inbox.deny(item.id, item.version) } }
+    }
+
+    private fun decideWaiting(item: InboxItemDto, success: String, action: suspend () -> InboxWrite<*>) {
+        if (waitingBusy.isNotEmpty()) return
+        waitingBusy = item.id
+        reviewError = ""
+        graph.appScope.launch {
+            val result = action()
+            waitingBusy = ""
+            val error = when (result) {
+                // Outro aparelho mexeu no item: a lista se rele e o dono confere.
+                is InboxWrite.Conflict -> br.financas.app.rules.InboxRules.CONFLICT_MESSAGE
+                else -> writeErrorOf(app, result, R.string.review_failed)
+            }
+            if (error == null) {
+                waitingItems = waitingItems.filter { it.id != item.id }
+                changed(success)
+            } else if (cleared) {
+                Toast.makeText(app, error, Toast.LENGTH_LONG).show()
+            } else {
+                reviewError = error
+                if (result is InboxWrite.Conflict) readReview()
+            }
+        }
     }
 
     // ---- Editar e excluir ----
@@ -681,6 +879,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         const val DEBOUNCE_MS = 250L
+        const val BUSY_ALL = "all"
     }
 }
 

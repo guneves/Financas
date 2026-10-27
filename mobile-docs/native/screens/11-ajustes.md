@@ -131,7 +131,14 @@ default categories on first use.
   igual a essa." / `Ja existe uma regra para "<p>".`, "O valor minimo nao pode passar do maximo.",
   "Escolha ao menos um lancamento em 'transaction_ids'.", 404 "Regra nao encontrada.".
 
-### Aprovar — native **early** (one toggle; also offer it inside native Aprovar)
+### Avisos do celular (anchor `#aprovar`) — built; was "Aprovar"
+Since 2026-10-27 (045), as on the web: "Gravar sozinho" (`auto_record` of `GET/PATCH
+/api/inbox/settings`, on by default; toasts "Os avisos viram lançamento na hora; revise no Extrato."
+/ "Os avisos voltam a esperar; resolva no Extrato, em Revisar.") and "Sempre perguntar a
+conta/cartão", disabled while Gravar sozinho is on. The phone has no Aprovar screen; the Open Finance
+texts say "no Revisar" where the web says "no Aprovar". The original spec below is history.
+
+#### Original spec
 - Checkbox "Sempre perguntar a conta/cartão" + explanation ("…"Aprovar prontos" não leva nenhum…").
 - `GET /api/inbox/settings` → `{always_ask}` (key `['aprovar', 'ajustes']`); `PATCH` `{always_ask:
   bool}` (400 "Envie always_ask como true ou false."); toast "Aprovar vai pedir a conta/cartão de todo

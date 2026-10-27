@@ -49,7 +49,7 @@ import br.financas.app.core.formatSignedCurrency
 import br.financas.app.data.TransactionDto
 import br.financas.app.data.storedTimeLabel
 import br.financas.app.rules.ExtratoRules
-import br.financas.app.rules.InboxRules
+import br.financas.app.rules.ReviewRules
 import br.financas.app.rules.InvestmentStatement
 import br.financas.app.rules.Sharing
 import br.financas.app.rules.SharedRow
@@ -86,7 +86,8 @@ import java.time.LocalDate
 
 /**
  * O Extrato nativo (04-extrato.md): pages/lancamentos/Extrato.jsx e ExtratoInvestimentos.jsx em
- * Compose. [onTab] troca de aba de Lancamentos; [onOpenWeb] abre uma tela ainda React.
+ * Compose. [onTab] troca de aba de Lancamentos (uma compra no cartao abre Cartoes); [onOpenWeb]
+ * abre uma tela ainda React. No alto de Contas, Revisar e o que nao gravou sozinho (ReviewSection).
  */
 @Composable
 fun ExtratoScreen(
@@ -138,7 +139,6 @@ fun ExtratoScreen(
                 onBack = onBack,
                 onToggleHidden = viewModel::toggleHidden,
                 onTab = onTab,
-                inboxCount = viewModel.inboxCount,
             )
         },
     ) { padding ->
@@ -188,7 +188,10 @@ private fun LazyListScope.contasView(viewModel: ExtratoViewModel, onTab: (Lancam
             )
         }
     }
-    item(key = "alerts") { ContasAlerts(viewModel, onTab) }
+    item(key = "alerts") { ContasAlerts(viewModel) }
+    // Gravar sozinho e revisar (045): o unico trabalho do dono, no alto.
+    item(key = "review") { ReviewPanel(viewModel) }
+    item(key = "waiting") { WaitingPanel(viewModel) }
     item(key = "header") {
         val header = viewModel.header
         if (header != null) {
@@ -218,8 +221,13 @@ private fun LazyListScope.contasView(viewModel: ExtratoViewModel, onTab: (Lancam
             val today = LocalDate.now()
             // A chave leva a posicao: um pendente da fila com data antiga abre o mesmo dia duas vezes.
             ExtratoRules.groupByDay(shown, viewModel.dayTotals).forEachIndexed { index, day ->
-                stickyHeader(key = "day:$index:${day.date}") { DayHeader(ExtratoRules.dayLabel(day.date, today), formatSignedCurrency(day.total)) }
-                day.items.forEach { row -> item(key = "row:${row.id}") { TransactionRow(row, viewModel) } }
+                stickyHeader(key = "day:$index:${day.date}") {
+                    // Um dia so de compras no cartao nao tem total: elas nao mexem em conta.
+                    DayHeader(ExtratoRules.dayLabel(day.date, today), if (day.hasTotal) formatSignedCurrency(day.total) else "")
+                }
+                day.items.forEach { row ->
+                    item(key = "row:${ReviewRules.statementKey(row)}") { TransactionRow(row, viewModel, onOpenCards = { onTab(LancamentosTab.CARTOES) }) }
+                }
             }
             item(key = "more") { MoreFooter(viewModel) }
         }
@@ -227,7 +235,7 @@ private fun LazyListScope.contasView(viewModel: ExtratoViewModel, onTab: (Lancam
 }
 
 @Composable
-private fun ContasAlerts(viewModel: ExtratoViewModel, onTab: (LancamentosTab) -> Unit) {
+private fun ContasAlerts(viewModel: ExtratoViewModel) {
     val dismiss = stringResource(R.string.lanc_dismiss)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (viewModel.offline) {
@@ -240,15 +248,7 @@ private fun ContasAlerts(viewModel: ExtratoViewModel, onTab: (LancamentosTab) ->
         }
         AlertMessage(message = viewModel.loadError, tone = AlertTone.WARNING, dismissLabel = dismiss)
         AlertMessage(message = viewModel.actionError, tone = AlertTone.WARNING, dismissLabel = dismiss, onDismiss = viewModel::dismissActionError)
-        if (viewModel.inboxCount > 0) {
-            val palette = LocalPalette.current
-            Panel(onClick = { onTab(LancamentosTab.APROVAR) }) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(InboxRules.pendingNoticeText(viewModel.inboxCount), color = palette.info, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Text(stringResource(R.string.lanc_tab_aprovar), color = palette.info, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-            }
-        }
+        AlertMessage(message = viewModel.reviewError, tone = AlertTone.WARNING, dismissLabel = dismiss, onDismiss = viewModel::dismissReviewError)
     }
 }
 
@@ -364,6 +364,16 @@ private fun FilterPanel(viewModel: ExtratoViewModel) {
                     onSelect = { viewModel.changeFilters(filters.copy(categoryId = it)) },
                 )
             }
+            Field(stringResource(R.string.extrato_filter_review)) {
+                SelectField(
+                    value = filters.review,
+                    options = listOf(
+                        SelectOption("", stringResource(R.string.extrato_filter_review_all)),
+                        SelectOption("1", stringResource(R.string.extrato_filter_review_only)),
+                    ),
+                    onSelect = { viewModel.changeFilters(filters.copy(review = it)) },
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Field(stringResource(R.string.extrato_filter_min), Modifier.weight(1f)) {
                     AppTextField(filters.minAmount, { viewModel.changeFilters(filters.copy(minAmount = it)) }, keyboardType = KeyboardType.Decimal)
@@ -384,17 +394,20 @@ private fun DayHeader(label: String, total: String) {
         modifier = Modifier.fillMaxWidth().background(palette.background).padding(horizontal = 4.dp, vertical = 8.dp),
     ) {
         Text(label, color = palette["zinc-700"], fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Text(total, color = palette.muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        if (total.isNotEmpty()) Text(total, color = palette.muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel) {
+private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel, onOpenCards: () -> Unit) {
     val palette = LocalPalette.current
     val editable = ExtratoRules.isEditableHere(row)
+    val card = ReviewRules.isCardRow(row)
     val actions = rowActions(row, viewModel)
     val onTap: () -> Unit = when {
+        // A compra no cartao se edita (e se paga) em Cartoes.
+        card -> onOpenCards
         editable -> { { viewModel.startEditing(row) } }
         !row.pending -> { { viewModel.openAttachments(row) } }
         else -> { {} }
@@ -409,7 +422,17 @@ private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel) {
                 .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(ExtratoRules.title(row), color = palette.text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        ExtratoRules.title(row),
+                        color = palette.text,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (ExtratoRules.reviewMark(row)) Badge(stringResource(R.string.extrato_review_mark), BadgeTone.WARNING)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     val second = buildString {
                         append(if (row.type == ExtratoRules.TRANSFER) "${viewModel.accountName(row.accountId)} → ${viewModel.accountName(row.transferAccountId)}" else row.category.orEmpty())
@@ -425,9 +448,9 @@ private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel) {
                 if (share.isNotEmpty()) Text(share, color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                val color = when (row.type) {
-                    ExtratoRules.TRANSFER -> palette.muted
-                    ExtratoRules.INCOME -> palette["emerald-700"]
+                val color = when {
+                    !card && row.type == ExtratoRules.TRANSFER -> palette.muted
+                    ExtratoRules.isGain(row) -> palette["emerald-700"]
                     else -> palette.text
                 }
                 Text(formatSignedCurrency(row.amount, ExtratoRules.amountSign(row)), color = color, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -442,7 +465,7 @@ private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel) {
 
 @Composable
 private fun rowActions(row: TransactionDto, viewModel: ExtratoViewModel): List<MenuAction> {
-    if (row.pending) return emptyList()
+    if (row.pending || ReviewRules.isCardRow(row)) return emptyList()
     val receipts = if (row.attachmentCount > 0) stringResource(R.string.attach_menu_count, row.attachmentCount) else stringResource(R.string.attach_menu)
     val list = mutableListOf<MenuAction>()
     if (ExtratoRules.isEditableHere(row)) list += MenuAction(stringResource(R.string.extrato_edit)) { viewModel.startEditing(row) }

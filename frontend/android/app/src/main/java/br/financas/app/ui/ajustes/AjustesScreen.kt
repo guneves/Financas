@@ -806,16 +806,38 @@ private fun AprovarSection(viewModel: AjustesViewModel) {
             HorizontalDivider(color = palette["zinc-100"])
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AlertMessage(viewModel.alwaysAskError, AlertTone.DANGER, stringResource(R.string.lanc_dismiss))
-                val checked = viewModel.alwaysAsk ?: false
-                val enabled = viewModel.alwaysAsk != null && !viewModel.busy
-                Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled) { viewModel.setAlwaysAsk(!checked) }) {
-                    Checkbox(checked, { viewModel.setAlwaysAsk(it) }, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent))
-                    Column(Modifier.padding(top = 12.dp)) {
-                        Text(stringResource(R.string.ajustes_always_ask), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
-                        Text(stringResource(R.string.ajustes_always_ask_hint), fontSize = 14.sp, color = palette["zinc-600"])
-                    }
-                }
+                val loaded = viewModel.alwaysAsk != null && !viewModel.busy
+                // Sem resposta ainda, vale o padrao do servidor: ligado.
+                val autoRecord = viewModel.autoRecord ?: true
+                SettingCheck(
+                    checked = autoRecord,
+                    enabled = loaded,
+                    title = stringResource(R.string.ajustes_auto_record),
+                    hint = stringResource(R.string.ajustes_auto_record_hint),
+                    onChange = viewModel::setAutoRecord,
+                )
+                // "Sempre perguntar" so vale com Gravar sozinho desligado.
+                SettingCheck(
+                    checked = viewModel.alwaysAsk ?: false,
+                    enabled = loaded && !autoRecord,
+                    title = stringResource(R.string.ajustes_always_ask),
+                    hint = stringResource(R.string.ajustes_always_ask_hint),
+                    onChange = viewModel::setAlwaysAsk,
+                )
             }
+        }
+    }
+}
+
+/** Uma caixa de marcar com o titulo e a explicacao (o <label> com checkbox da web). */
+@Composable
+private fun SettingCheck(checked: Boolean, enabled: Boolean, title: String, hint: String, onChange: (Boolean) -> Unit) {
+    val palette = LocalPalette.current
+    Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) }) {
+        Checkbox(checked, onChange, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent))
+        Column(Modifier.padding(top = 12.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = if (enabled) palette.text else palette.muted)
+            Text(hint, fontSize = 14.sp, color = palette["zinc-600"])
         }
     }
 }

@@ -225,7 +225,7 @@ class InboxRulesTest {
         // matchedInboxNotice: o port e InboxNotice (InboxNoticeTest.kt tem os outros casos).
         assertEquals(
             true,
-            InboxNotice.matchedInboxNotice(JSONObject().put("matched_inbox", true), "Despesa").startsWith("Despesa: já esperava"),
+            InboxNotice.matchedInboxNotice(JSONObject().put("matched_inbox", true), "Despesa").startsWith("Despesa: já tinha chegado"),
         )
         assertEquals("", InboxNotice.matchedInboxNotice(JSONArray().put(JSONObject().put("id", "x")), "Compra"))
         assertEquals(

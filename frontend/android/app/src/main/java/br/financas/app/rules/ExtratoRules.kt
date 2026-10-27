@@ -1,7 +1,7 @@
 // Porte: mudou um, muda o outro, com um teste de cada lado.
 // Par: as regras do Extrato da web — as inline de pages/lancamentos/Extrato.jsx (isEditableHere,
 // isInvoicePayment, isInvestmentCash, canShare, originLabel, dayLabel, TypeBadge, amountText,
-// groupByDay, os filtros), isInvestmentOutflow/isInvestmentInflow de lib/transactions.js e
+// groupByDay, os filtros, a compra no cartao na linha do tempo e ReviewMark), isInvestmentOutflow/isInvestmentInflow de lib/transactions.js e
 // transactionEditForm/transactionEditPayload de lib/transactionEdit.js (transactionEdit.test.js).
 // Aqui: ExtratoRulesTest.kt (os casos de transactionEdit.test.js, e novos para o que a web nao testa).
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
@@ -22,10 +22,15 @@ data class ExtratoFilters(
     val categoryId: String = "",
     val minAmount: String = "",
     val maxAmount: String = "",
+    /** "1": so o que gravou sozinho e espera a revisao (045). */
+    val review: String = "",
 )
 
-/** Um dia do extrato: as linhas e o total (entrou menos saiu). */
-data class StatementDay(val date: String, val items: List<TransactionDto>, val total: BigDecimal)
+/**
+ * Um dia do extrato: as linhas e o total (entrou menos saiu). [hasTotal] falso num dia so de
+ * compras no cartao (045): elas nao mexem em conta, o dia nao mostra total.
+ */
+data class StatementDay(val date: String, val items: List<TransactionDto>, val total: BigDecimal, val hasTotal: Boolean = true)
 
 /** O formulario de edicao (transactionEditForm). */
 data class TransactionEditForm(
@@ -48,8 +53,12 @@ object ExtratoRules {
     private val DERIVED_SOURCE_TYPES = listOf("INVESTMENT_TRANSACTION", "INVESTMENT_PROCEED", "CC_INVOICE_PAYMENT", "CC_AUTOPAY")
     private val INVOICE_PAYMENT_TYPES = listOf("CC_INVOICE_PAYMENT", "CC_AUTOPAY")
 
-    /** Linhas criadas por outra tela (carteira, fatura) e pendentes da fila nao se editam aqui. */
-    fun isEditableHere(row: TransactionDto): Boolean = !row.pending && row.sourceType !in DERIVED_SOURCE_TYPES
+    /**
+     * Linhas criadas por outra tela (carteira, fatura), pendentes da fila e compras no cartao (se
+     * editam em Cartoes) nao se editam aqui.
+     */
+    fun isEditableHere(row: TransactionDto): Boolean =
+        !row.pending && !ReviewRules.isCardRow(row) && row.sourceType !in DERIVED_SOURCE_TYPES
 
     /** O pagamento de uma fatura nao se edita, mas se desfaz (037). */
     fun isInvoicePayment(row: TransactionDto): Boolean = !row.pending && row.sourceType in INVOICE_PAYMENT_TYPES
@@ -59,7 +68,8 @@ object ExtratoRules {
         !row.pending && row.sourceType == "INVESTMENT_TRANSACTION" && !row.sourceId.isNullOrEmpty()
 
     /** "De quem é?" so em despesa e receita comuns. */
-    fun canShare(row: TransactionDto): Boolean = row.type != TRANSFER && row.sourceType !in INVESTMENT_SOURCE_TYPES
+    fun canShare(row: TransactionDto): Boolean =
+        row.type != TRANSFER && !ReviewRules.isCardRow(row) && row.sourceType !in INVESTMENT_SOURCE_TYPES
 
     // Investimento pela origem da linha (039), nunca pela categoria. A transferencia para a
     // Corretora continua uma transferencia no Extrato (a decisao do dono, como hoje na web).
@@ -71,6 +81,7 @@ object ExtratoRules {
 
     /** De onde veio uma linha que nao se edita aqui. */
     fun originLabel(row: TransactionDto): String = when {
+        ReviewRules.isCardRow(row) -> row.cardName?.takeIf { it.isNotEmpty() } ?: "Cartão"
         row.pending -> if (row.pendingStatus == "needs_attention") "Recusado pelo servidor" else "Pendente de envio"
         row.sourceType == "INVESTMENT_TRANSACTION" -> "Pela carteira"
         row.sourceType == "INVESTMENT_PROCEED" -> "Provento"
@@ -80,18 +91,26 @@ object ExtratoRules {
 
     /** A etiqueta so do que nao e receita nem despesa comum; null nas outras. */
     fun typeBadge(row: TransactionDto): String? = when {
+        ReviewRules.isCardRow(row) -> ReviewRules.cardTag(row)
         row.type == TRANSFER -> "Transferência"
         isInvestmentOutflow(row) -> "Investimento"
         isInvestmentInflow(row) -> "Resgate"
         else -> null
     }
 
-    /** O sinal do valor na lista: transferencia sem sinal, receita +, o resto -. */
-    fun amountSign(row: TransactionDto): Int = when (row.type) {
-        TRANSFER -> 0
-        INCOME -> 1
+    /** O sinal do valor na lista: transferencia sem sinal, receita e estorno +, o resto -. */
+    fun amountSign(row: TransactionDto): Int = when {
+        ReviewRules.isCardRow(row) -> ReviewRules.cardAmountSign(row)
+        row.type == TRANSFER -> 0
+        row.type == INCOME -> 1
         else -> -1
     }
+
+    /** O valor em verde: receita e estorno (o sinal +). */
+    fun isGain(row: TransactionDto): Boolean = amountSign(row) > 0
+
+    /** "A revisar": gravado sozinho e ainda nao confirmado (o ReviewMark da web). */
+    fun reviewMark(row: TransactionDto): Boolean = row.needsReview && !row.pending
 
     /** A primeira linha da linha: a descricao, senao a categoria. */
     fun title(row: TransactionDto): String = row.description?.takeIf { it.isNotEmpty() } ?: row.category.orEmpty()
@@ -124,6 +143,7 @@ object ExtratoRules {
     /**
      * Os dias na ordem da lista. O total de cada dia vem do servidor ([dayTotals], o dia inteiro,
      * de todas as paginas); um dia sem total do servidor (so pendentes da fila) soma as linhas.
+     * As compras no cartao nunca somam, e um dia so delas fica sem total.
      */
     fun groupByDay(rows: List<TransactionDto>, dayTotals: Map<String, BigDecimal>): List<StatementDay> {
         val groups = mutableListOf<Pair<String, MutableList<TransactionDto>>>()
@@ -140,7 +160,7 @@ object ExtratoRules {
                     else -> acc
                 }
             }
-            StatementDay(date, items, total)
+            StatementDay(date, items, total, hasTotal = items.any { !ReviewRules.isCardRow(it) })
         }
     }
 
@@ -157,6 +177,7 @@ object ExtratoRules {
             "category_id" to filters.categoryId,
             "min_amount" to amountParam(filters.minAmount),
             "max_amount" to amountParam(filters.maxAmount),
+            "review" to filters.review,
         )
         return params.filterValues { it.isNotBlank() }
     }

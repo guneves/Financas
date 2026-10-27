@@ -122,7 +122,6 @@ fun CartoesScreen(
                 onBack = onBack,
                 onToggleHidden = viewModel::toggleHidden,
                 onTab = onTab,
-                inboxCount = viewModel.inboxCount,
             )
         },
     ) { padding ->

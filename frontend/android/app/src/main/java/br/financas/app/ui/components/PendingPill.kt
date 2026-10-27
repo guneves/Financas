@@ -23,14 +23,18 @@ import br.financas.app.R
 import br.financas.app.ui.theme.LocalPalette
 
 /**
- * O que a casca mostra no topo de cada pagina (a pilula de pendentes do Layout.jsx): as paginas
- * so leem; quem abre a folha e a casca. null fora da casca (o "+ Novo", o login).
+ * O que a casca mostra no topo de cada pagina (as pilulas de pendentes e de revisar do
+ * Layout.jsx): as paginas so leem; quem abre a folha (ou o Extrato) e a casca. null fora da casca
+ * (o "+ Novo", o login).
  */
 data class ShellChrome(
     val pendingCount: Int,
     val attention: Boolean,
     val offline: Boolean,
     val onOpenPending: () -> Unit,
+    /** Gravados sozinhos esperando "é meu" (045, GET /api/review). */
+    val reviewCount: Int = 0,
+    val onOpenReview: () -> Unit = {},
 )
 
 val LocalShellChrome = compositionLocalOf<ShellChrome?> { null }
@@ -71,6 +75,37 @@ fun PendingPill() {
                     modifier = Modifier.padding(start = if (chrome.offline) 6.dp else 0.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * A pilula de revisar (ReviewPill do Layout.jsx): ambar, "<n>" com o sino; o que a notificacao e o
+ * banco gravaram sozinhos e espera o dono confirmar. Abre o Extrato no Revisar. Some sem nada.
+ */
+@Composable
+fun ReviewPill() {
+    val chrome = LocalShellChrome.current ?: return
+    val count = chrome.reviewCount
+    if (count <= 0) return
+    val palette = LocalPalette.current
+    val label = stringResource(R.string.shell_review_pill, count)
+    Surface(
+        onClick = chrome.onOpenReview,
+        shape = RoundedCornerShape(50),
+        color = palette["amber-50"],
+        border = BorderStroke(1.dp, palette.warning.copy(alpha = 0.35f)),
+        modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = label },
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp)) {
+            Icon(AppIcons.BellRing, contentDescription = null, tint = palette["amber-800"], modifier = Modifier.size(16.dp))
+            Text(
+                text = count.toString(),
+                color = palette["amber-800"],
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(start = 6.dp),
+            )
         }
     }
 }

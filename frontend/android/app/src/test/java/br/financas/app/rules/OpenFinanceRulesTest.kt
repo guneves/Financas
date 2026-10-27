@@ -53,12 +53,12 @@ class OpenFinanceRulesTest {
     @Test
     fun syncSummary() {
         assertEquals(
-            "2 movimentos novos no Aprovar, 1 juntou-se a um aviso, 1 saiu (o banco desfez).",
+            "2 movimentos novos no Revisar, 1 juntou-se a um aviso, 1 saiu (o banco desfez).",
             OpenFinanceRules.syncSummary(mapOf("new" to 2, "merged" to 1), 1),
         )
         assertEquals("Nada novo.", OpenFinanceRules.syncSummary(mapOf("known" to 4), 0))
         assertEquals(
-            "3 lançamentos gravados, 1 ligado ao que você lançou, 1 movimento novo no Aprovar, 2 operações na carteira.",
+            "3 lançamentos gravados, 1 ligado ao que você lançou, 1 movimento novo no Revisar, 2 operações na carteira.",
             OpenFinanceRules.syncSummary(
                 mapOf("new" to 5), 0, mapOf("recorded" to 3, "linked" to 1, "held" to 1), mapOf("recorded" to 2),
             ),
@@ -84,11 +84,11 @@ class OpenFinanceRulesTest {
         assertEquals(OpenFinanceRules.CheckSummary("none", ""), OpenFinanceRules.checkSummary(false, 0, 0, 0))
         assertEquals(OpenFinanceRules.CheckSummary("match", "Movimentos conferem"), OpenFinanceRules.checkSummary(true, 0, 0, 0))
         assertEquals(
-            OpenFinanceRules.CheckSummary("match", "Movimentos conferem · 2 esperam no Aprovar"),
+            OpenFinanceRules.CheckSummary("match", "Movimentos conferem · 2 esperam no Revisar"),
             OpenFinanceRules.checkSummary(true, 0, 0, 2),
         )
         assertEquals(
-            OpenFinanceRules.CheckSummary("drift", "1 só no banco · 3 só no app · 1 espera no Aprovar"),
+            OpenFinanceRules.CheckSummary("drift", "1 só no banco · 3 só no app · 1 espera no Revisar"),
             OpenFinanceRules.checkSummary(true, 1, 3, 1),
         )
         assertEquals(OpenFinanceRules.CheckSummary("drift", "2 só no banco"), OpenFinanceRules.checkSummary(true, 2, 0, 0))
@@ -106,7 +106,7 @@ class OpenFinanceRulesTest {
     @Test
     fun checkReasonsInPortuguese() {
         assertEquals("pagamento de fatura sem o pagamento no app", OpenFinanceRules.checkReasonLabel("invoice_payment_missing"))
-        assertEquals("recusado no Aprovar", OpenFinanceRules.checkReasonLabel("denied"))
+        assertEquals("descartado no Revisar", OpenFinanceRules.checkReasonLabel("denied"))
         assertEquals("", OpenFinanceRules.checkReasonLabel("xyz"))
     }
 
@@ -130,7 +130,7 @@ class OpenFinanceRulesTest {
     @Test
     fun autoRecordHintSaysWhyItCannotTurnOn() {
         assertEquals("A. B.", OpenFinanceRules.autoRecordHint(false, listOf("A.", "B.")))
-        assertTrue(OpenFinanceRules.autoRecordHint(true, emptyList()).contains("Flash"))
-        assertTrue(OpenFinanceRules.autoRecordHint(false, emptyList()).contains("Aprovar"))
+        assertTrue(OpenFinanceRules.autoRecordHint(true, emptyList()).contains("Revisar"))
+        assertTrue(OpenFinanceRules.autoRecordHint(false, emptyList()).contains("revisar"))
     }
 }

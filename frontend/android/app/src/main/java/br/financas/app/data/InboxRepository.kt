@@ -14,7 +14,7 @@ fun interface Sender {
 }
 
 /**
- * O resultado de uma escrita de Aprovar. Nada vai para a fila: toda decisao precisa da resposta
+ * O resultado de uma escrita so com o servidor (o nome vem de Aprovar). Nada vai para a fila: toda decisao precisa da resposta
  * do servidor (a versao do item e o 409 contam com isso).
  */
 sealed interface InboxWrite<out T> {
@@ -56,9 +56,9 @@ suspend fun sendWrite(sender: Sender, method: String, path: String, body: String
 }
 
 /**
- * Aprovar (Lancamentos > Aprovar) sobre a API: as leituras com a copia guardada primeiro
- * (CachedReader), as escritas so com o servidor, sempre com a `version` do item no corpo (quem
- * monta o corpo e rules/InboxRules.kt).
+ * Os itens dos avisos do celular sobre a API (a tela Aprovar saiu do celular; o que nao grava
+ * sozinho se resolve em Revisar, no Extrato): as leituras com a copia guardada primeiro
+ * (CachedReader), as escritas so com o servidor, sempre com a `version` do item no corpo.
  */
 class InboxRepository(
     private val reader: CachedReader,
@@ -110,6 +110,10 @@ class InboxRepository(
 
     suspend fun setAlwaysAsk(value: Boolean): InboxWrite<InboxSettingsDto> =
         write("PATCH", SETTINGS_PATH, mapOf("always_ask" to value), InboxSettingsDto.serializer())
+
+    /** "Gravar sozinho" (045): ligado, o servidor grava na hora o que esperava. */
+    suspend fun setAutoRecord(value: Boolean): InboxWrite<InboxSettingsDto> =
+        write("PATCH", SETTINGS_PATH, mapOf("auto_record" to value), InboxSettingsDto.serializer())
 
     // O item decidido vem com o pending_count no mesmo objeto.
     private suspend fun decision(method: String, path: String, body: Map<String, Any?>): InboxWrite<InboxDecision> =

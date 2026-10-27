@@ -73,8 +73,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     var hidden by mutableStateOf(false)
         private set
 
-    var inboxCount by mutableStateOf(0)
-        private set
 
     /** O erro da leitura de /api/home; uma leitura nova que chega o limpa. */
     var loadError by mutableStateOf("")
@@ -155,7 +153,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         readBudget()
         readPanels()
         readPending()
-        readInboxCount()
     }
 
     /** Puxar para atualizar: o giro fica ate /api/home responder. */
@@ -255,18 +252,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun readInboxCount() {
-        viewModelScope.launch {
-            graph.inbox.count().collect { load ->
-                when (load) {
-                    is Load.Cached -> Unit
-                    is Load.Fresh -> inboxCount = load.value.pendingCount ?: 0
-                    // Sem conexao a pilula some, como na web.
-                    is Load.Failed -> if (load.error is ApiException.Network) inboxCount = 0
-                }
-            }
-        }
-    }
 
     private fun expire(message: String?) {
         sessionExpired = true

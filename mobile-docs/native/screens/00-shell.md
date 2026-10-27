@@ -9,6 +9,12 @@
 | Endpoints | `POST /api/auth/login`, `POST /api/auth/signup`, `GET /api/inbox/count`; the bell reads Início's queries (`GET /api/transactions`, `GET /api/cc-expenses`, `GET /api/accounts?include_archived=1`, `GET /api/credit-cards`, `GET /api/recurring`, `GET /api/budgets?month=`, see `03-inicio.md`); `GET /api/investments/portfolio?refresh_prices=false` (assets for the investment modal); APK: `<baseUrl>/apk/version.json` via `ApkUpdatePlugin` |
 | Client rules | `lib/navigation.js` (`sections`, `findSection()`), `lib/attentionRules.js` (`attentionItems()` …, via `lib/attention.js` `useAttentionItems()`), `lib/outboxRules.js` (`NEEDS_ATTENTION`, `KIND_LABELS`, `itemAmount()`, `itemDate()`), `lib/appBundleRules.js` (`apkPrompt()`, `installStatusMessage()`), `lib/privacy.js` (`usePrivateFormatter()`) |
 
+> **2026-10-27 (045):** the Aprovar pill, tab badge and "Novo para aprovar" notification are gone
+> from the phone. In their place the amber **review pill** ("<n> para revisar", bell-ring + number;
+> `ReviewPill` in every header, count = `count` of `GET /api/review`, read by `ShellViewModel` on
+> resume, on every data change and every 60 s while resumed) opens the Extrato in review mode; the
+> Extrato tab shows "Extrato · N". The old notification channel `financas_inbox` is deleted on start.
+
 ## What it is for
 The frame every screen lives in: the bottom navigation and header on the phone, the counters that
 say "something waits for you" (Aprovar, pending outbox, the bell), the privacy eye, the theme, the

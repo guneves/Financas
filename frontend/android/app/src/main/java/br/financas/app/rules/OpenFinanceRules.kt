@@ -8,7 +8,9 @@ import java.math.RoundingMode
  * e mapear ficam na web. Port de `lib/openFinance.js` (itemStatus, itemProblem, accountLabel,
  * balanceCheck, syncSummary, syncHoursLabel, syncHoursChoices, checkSummary, itemBankName,
  * checkReasonLabel, balanceExplanation, autoRecordHint): mudou um, muda o outro, com um teste de cada lado
- * (OpenFinanceRulesTest.kt copia os casos de openFinance.test.js).
+ * (OpenFinanceRulesTest.kt copia os casos de openFinance.test.js). Uma diferenca de proposito: o
+ * celular nao tem a tela Aprovar (045), entao onde a web diz "no Aprovar" aqui e "no Revisar" (o
+ * Extrato, onde o que espera se resolve no celular).
  */
 object OpenFinanceRules {
 
@@ -80,7 +82,7 @@ object OpenFinanceRules {
         val parts = mutableListOf<String>()
         if (recorded > 0) parts += if (recorded == 1) "1 lançamento gravado" else "$recorded lançamentos gravados"
         if (linked > 0) parts += if (linked == 1) "1 ligado ao que você lançou" else "$linked ligados ao que você lançou"
-        if (fresh > 0) parts += if (fresh == 1) "1 movimento novo no Aprovar" else "$fresh movimentos novos no Aprovar"
+        if (fresh > 0) parts += if (fresh == 1) "1 movimento novo no Revisar" else "$fresh movimentos novos no Revisar"
         if (joined > 0) parts += if (joined == 1) "1 juntou-se a um aviso" else "$joined juntaram-se a avisos"
         if (operations > 0) parts += if (operations == 1) "1 operação na carteira" else "$operations operações na carteira"
         if (gone > 0) parts += if (gone == 1) "1 saiu (o banco desfez)" else "$gone saíram (o banco desfez)"
@@ -117,7 +119,7 @@ object OpenFinanceRules {
         val parts = mutableListOf<String>()
         if (bankOnly > 0) parts += if (bankOnly == 1) "1 só no banco" else "$bankOnly só no banco"
         if (appOnly > 0) parts += if (appOnly == 1) "1 só no app" else "$appOnly só no app"
-        if (awaiting > 0) parts += if (awaiting == 1) "1 espera no Aprovar" else "$awaiting esperam no Aprovar"
+        if (awaiting > 0) parts += if (awaiting == 1) "1 espera no Revisar" else "$awaiting esperam no Revisar"
         if (bankOnly == 0 && appOnly == 0) {
             return CheckSummary(
                 "match",
@@ -133,8 +135,8 @@ object OpenFinanceRules {
         bankName.orEmpty().ifEmpty { connectorName.orEmpty().ifEmpty { "Open Finance" } }
 
     private val CHECK_REASONS: Map<String, String> = mapOf(
-        "awaiting" to "espera no Aprovar",
-        "denied" to "recusado no Aprovar",
+        "awaiting" to "espera no Revisar",
+        "denied" to "descartado no Revisar",
         "unmapped" to "a conta ainda sem destino",
         "changed_after_edit" to "o banco mudou o valor depois que você editou",
         "invoice_payment_missing" to "pagamento de fatura sem o pagamento no app",
@@ -164,7 +166,7 @@ object OpenFinanceRules {
             if (cents != 0L) lines += "${money(BigDecimal.valueOf(cents, 2))} $text"
         }
         part(bankOnly, "de movimentos só no banco")
-        part(awaiting, "esperando no Aprovar")
+        part(awaiting, "esperando no Revisar")
         part(appOnly, "de lançamentos só no app")
         part(before, "de antes da conferência (confira o saldo inicial da conta)")
         return lines
@@ -173,10 +175,10 @@ object OpenFinanceRules {
     /** O texto de "Gravar sozinho": o que faz ligado, ou por que nao liga (auto_record_blockers). */
     @JvmStatic
     fun autoRecordHint(autoRecord: Boolean, blockers: List<String>): String = when {
-        autoRecord -> "Os movimentos dos bancos conectados viram lançamentos sozinhos. O Aprovar fica para o Flash e " +
-            "para o que só você decide (uma transferência sem a outra ponta, um investimento)."
+        autoRecord -> "Os movimentos dos bancos conectados viram lançamentos sozinhos. O Revisar, no Extrato, fica " +
+            "para o que só você decide (uma transferência sem a outra ponta, outra moeda)."
         blockers.isNotEmpty() -> blockers.joinToString(" ")
-        else -> "Ligado, o que a Pluggy traz é lançado sem passar pelo Aprovar; o que já espera lá vindo dela é " +
+        else -> "Ligado, o que a Pluggy traz é lançado sozinho, para você só revisar; o que já espera vindo dela é " +
             "lançado na hora."
     }
 }
