@@ -77,6 +77,8 @@ data class HomeDto(
     @SerialName("next_closing_date") val nextClosingDate: String? = null,
     /** O saldo em contas menos o cartao em aberto (Extrato e Cartoes); null num servidor antigo. */
     val projections: HomeProjectionsDto? = null,
+    /** Quantos gravados sozinhos esperam Revisar (045); 0 num servidor antigo. */
+    @SerialName("review_count") val reviewCount: Int = 0,
 )
 
 /** projections de GET /api/home (balance_projections em services/home.py). */

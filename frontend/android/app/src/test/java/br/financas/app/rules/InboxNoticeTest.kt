@@ -14,14 +14,14 @@ class InboxNoticeTest {
 
     @Test
     fun aMatchedCreationSaysSo() {
-        assertTrue(matchedInboxNotice(JSONObject().put("matched_inbox", true), "Despesa").startsWith("Despesa: já esperava"))
+        assertTrue(matchedInboxNotice(JSONObject().put("matched_inbox", true), "Despesa").startsWith("Despesa: já tinha chegado"))
         assertEquals("", matchedInboxNotice(JSONArray().put(JSONObject().put("id", "x")), "Compra"))
     }
 
     @Test
     fun theWholeText() {
         assertEquals(
-            "Despesa de R\$ 10: já esperava em Aprovar (do celular ou do banco). Ficou um lançamento só.",
+            "Despesa de R\$ 10: já tinha chegado pelo celular ou pelo banco. Ficou um lançamento só.",
             matchedInboxNotice(JSONObject().put("matched_inbox", true), "Despesa de R\$ 10"),
         )
     }

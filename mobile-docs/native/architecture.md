@@ -20,8 +20,9 @@ endpoints the React app (now browser only) calls.
 - `NativeActivity` starts on `login` without a `Session`, else on `home`. Around every page: the
   bottom bar (Início, Lançamentos, Planejar, Investir, Ajustes; `ShellNav`), the "+" (the native
   "+ Novo", `NewEntryActivity`, Cartão inside Cartões), the APK banner and the Pendentes sheet.
-  Back with nothing below goes to Início; on Início it moves the task to the back. Aprovar always
-  goes back to Extrato (`ShellNav.backTarget()`).
+  Back with nothing below goes to Início; on Início it moves the task to the back. There is no
+  Aprovar page (045): the review pill (`ReviewPill`, count from `GET /api/review`, re-read every
+  minute while resumed) opens the Extrato in review mode.
 - Switching a tab or a bottom-bar section saves the page that leaves (`popUpTo { saveState }`) and
   restores the one that comes back (`restoreState`): its ViewModel, data and scroll survive, so a
   tab shows at once where it was and re-reads behind. Pages fade in 120 ms (`PAGE_FADE_MS`), and

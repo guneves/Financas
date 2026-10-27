@@ -73,6 +73,7 @@ import br.financas.app.ui.components.AppIcons
 import br.financas.app.ui.components.FitText
 import br.financas.app.ui.components.ListSkeleton
 import br.financas.app.ui.components.PendingPill
+import br.financas.app.ui.components.ReviewPill
 import br.financas.app.ui.components.Panel
 import br.financas.app.ui.components.Badge
 import br.financas.app.ui.components.BadgeTone
@@ -89,7 +90,7 @@ private class NoticeVisuals(override val message: String, val info: Boolean) : S
 /**
  * Inicio nativo (mobile-docs/native/screens/03-inicio.md): o pages/Dashboard.jsx em Compose, com
  * o cabecalho da casca (Aprovar, pendentes, o sino, o olho). [onOpenWeb] abre o link de um painel
- * (um caminho da web, NativeLinks); [onOpenInbox] abre Aprovar. A barra de baixo e o "+" sao da
+ * (um caminho da web, NativeLinks). A barra de baixo e o "+" sao da
  * casca (NativeActivity).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -97,7 +98,6 @@ private class NoticeVisuals(override val message: String, val info: Boolean) : S
 fun HomeScreen(
     viewModel: HomeViewModel,
     onOpenWeb: (String) -> Unit,
-    onOpenInbox: () -> Unit,
 ) {
     val palette = LocalPalette.current
     val snackbar = remember { SnackbarHostState() }
@@ -144,7 +144,7 @@ fun HomeScreen(
                 }
             }
         },
-        topBar = { HomeTopBar(viewModel, onOpenInbox) },
+        topBar = { HomeTopBar(viewModel) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = viewModel.refreshing,
@@ -204,7 +204,7 @@ fun HomeScreen(
 // ---- Cabecalho e barra de baixo (os do Layout.jsx no celular) ----
 
 @Composable
-private fun HomeTopBar(viewModel: HomeViewModel, onOpenInbox: () -> Unit) {
+private fun HomeTopBar(viewModel: HomeViewModel) {
     val palette = LocalPalette.current
     val hidden = viewModel.hidden
     Row(
@@ -232,7 +232,7 @@ private fun HomeTopBar(viewModel: HomeViewModel, onOpenInbox: () -> Unit) {
                 modifier = Modifier.padding(start = 10.dp),
             )
         }
-        if (viewModel.inboxCount > 0) InboxPill(viewModel.inboxCount, onOpenInbox)
+        ReviewPill()
         PendingPill()
         BellButton(viewModel.attention.size, viewModel::openBell)
         RoundIconButton(
@@ -291,31 +291,6 @@ private fun BellButton(count: Int, onClick: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                 )
             }
-        }
-    }
-}
-
-/** A pilula de Aprovar: ambar, o que espera a decisao do dono. Abre Aprovar nativo. */
-@Composable
-private fun InboxPill(count: Int, onClick: () -> Unit) {
-    val palette = LocalPalette.current
-    val label = stringResource(R.string.home_inbox_pill, count)
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = palette["amber-50"],
-        border = BorderStroke(1.dp, palette.warning.copy(alpha = 0.35f)),
-        modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = label },
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp)) {
-            Icon(AppIcons.BellRing, contentDescription = null, tint = palette["amber-800"], modifier = Modifier.size(16.dp))
-            Text(
-                text = count.toString(),
-                color = palette["amber-800"],
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(start = 6.dp),
-            )
         }
     }
 }

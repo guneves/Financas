@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import br.financas.app.R
 import br.financas.app.core.formatCurrency
 import br.financas.app.data.InboxWrite
+import br.financas.app.rules.ReviewRules
 import br.financas.app.rules.ShareForm
 import br.financas.app.rules.Sharing
 import br.financas.app.ui.components.AppIcons
@@ -41,6 +42,7 @@ import br.financas.app.ui.components.Field
 import br.financas.app.ui.components.NativeTopBar
 import br.financas.app.ui.components.TopTab
 import br.financas.app.ui.components.FitText
+import br.financas.app.ui.components.LocalShellChrome
 import br.financas.app.ui.components.Panel
 import br.financas.app.ui.components.SelectField
 import br.financas.app.ui.components.SelectOption
@@ -49,7 +51,7 @@ import br.financas.app.ui.theme.LocalPalette
 import java.math.BigDecimal
 
 /** As abas de Lancamentos que este APK tem em nativo (a ordem da web: lib/navigation.js). */
-enum class LancamentosTab { EXTRATO, APROVAR, CARTOES, A_RECEBER }
+enum class LancamentosTab { EXTRATO, CARTOES, A_RECEBER }
 
 /** O texto de uma escrita que nao deu (ou null quando deu): a mensagem do servidor, como chegou. */
 fun writeErrorOf(app: Application, result: InboxWrite<*>, fallback: Int): String? = when (result) {
@@ -76,17 +78,16 @@ fun LancamentosTopBar(
     onBack: () -> Unit,
     onToggleHidden: () -> Unit,
     onTab: (LancamentosTab) -> Unit,
-    inboxCount: Int = 0,
 ) {
-    val aprovar = stringResource(R.string.lanc_tab_aprovar)
+    // A aba Extrato conta o que espera Revisar (045), como a da web; o numero vem da casca.
+    val reviewCount = LocalShellChrome.current?.reviewCount ?: 0
     NativeTopBar(
         title = title,
         hidden = hidden,
         onBack = onBack,
         onToggleHidden = onToggleHidden,
         tabs = listOf(
-            TopTab(stringResource(R.string.lanc_tab_extrato), current == LancamentosTab.EXTRATO) { onTab(LancamentosTab.EXTRATO) },
-            TopTab(if (inboxCount > 0) "$aprovar · $inboxCount" else aprovar, current == LancamentosTab.APROVAR) { onTab(LancamentosTab.APROVAR) },
+            TopTab(ReviewRules.tabLabel(stringResource(R.string.lanc_tab_extrato), reviewCount), current == LancamentosTab.EXTRATO) { onTab(LancamentosTab.EXTRATO) },
             TopTab(stringResource(R.string.lanc_tab_cartoes), current == LancamentosTab.CARTOES) { onTab(LancamentosTab.CARTOES) },
             TopTab(stringResource(R.string.lanc_tab_a_receber), current == LancamentosTab.A_RECEBER) { onTab(LancamentosTab.A_RECEBER) },
         ),

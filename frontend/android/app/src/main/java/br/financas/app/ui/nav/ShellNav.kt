@@ -14,7 +14,7 @@ object ShellNav {
         AJUSTES(NativeRoutes.AJUSTES),
     }
 
-    private val LANCAMENTOS = setOf(NativeRoutes.EXTRATO, NativeRoutes.INBOX, NativeRoutes.CARTOES, NativeRoutes.A_RECEBER)
+    private val LANCAMENTOS = setOf(NativeRoutes.EXTRATO, NativeRoutes.CARTOES, NativeRoutes.A_RECEBER)
     private val PLANEJAR = setOf(NativeRoutes.ORCAMENTO, NativeRoutes.RECORRENTES, NativeRoutes.METAS)
 
     /** A secao acesa na barra; null no login (sem barra). */
@@ -39,13 +39,4 @@ object ShellNav {
      * fundo sem morrer; em qualquer outra, volta ao Inicio.
      */
     fun backGoesHome(route: String?): Boolean = route != null && route != NativeRoutes.HOME && route != NativeRoutes.LOGIN
-
-    /**
-     * A pagina para onde o voltar leva, seja o que estiver por baixo: Aprovar volta ao Extrato
-     * (venha da aba, do Inicio ou da notificacao). null: o voltar de sempre.
-     */
-    fun backTarget(route: String?): String? = when (route) {
-        NativeRoutes.INBOX -> NativeRoutes.EXTRATO
-        else -> null
-    }
 }

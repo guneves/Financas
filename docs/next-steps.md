@@ -9,97 +9,102 @@
 
 ## 1. Open work, in priority order
 
-### Open Finance in Investimentos — positions from the broker (owner's priority, 2026-10-27)
-The owner: "where Open Finance will help the most is inside the investments area … auto-updates my
-positions so I don't have to manually". Decided with the owner: **operations through approval**,
-never overwriting positions. Positions, weighted average cost, realized results and the monthly
-DARF are all computed from the operations, so writing a quantity directly would break all three.
-- [ ] **First, check what the owner's connection actually sends.** The owner is on the free plan
-  (one CPF) with the **MeuPluggy** connector. With the item connected, call `GET /investments?itemId=`
-  and `GET /investments/{id}/transactions` from a scratch script on the server (`pluggy_client`,
-  the owner's credentials). Record which brokers or banks appear, which types (`EQUITY`, `ETF`,
-  `FIXED_INCOME`, `MUTUAL_FUND`, `SECURITY`, `COE`), whether each comes with `code`/ISIN, `quantity`,
-  `amount`, `balance` and transactions (`BUY`/`SELL`/`TAX`/`TRANSFER`, date, quantity, value). If
-  MeuPluggy does not share investments, stop and tell the owner. Nothing below is possible without that data.
-- [ ] Design (write it here before building): a Pluggy investment transaction becomes a proposed
-  operation in an "Aprovar investimentos" list (or a new kind in Aprovar), matched to the asset by
-  ticker/ISIN (unknown asset → asset creation offered), idempotent by `pluggy:<id>`
-  (`source_type`/`source_id` like other materialized rows), the cash leg through the Corretora per
-  `metadata.cash_account_id`. Proventos: StatusInvest already computes ações/FIIs (026); a Pluggy
-  dividend should **pair** with the computed one, never duplicate it. Tesouro and fixed income: Pluggy
-  gives a position value; compare it, never mark to it (Tesouro has its own PU, `services/treasury.py`).
-- [ ] A position check like the bank Conferência: Pluggy quantity per asset against
-  `build_portfolio_snapshot()` quantity, so anything missed shows up.
+### Auto-record → reconcile → review (045, 2026-10-27) — what is left
+The paradigm (CLAUDE.md › "Auto-record → reconcile → review"): every notification is recorded at
+once, Pluggy reconciles it (and feeds Investimentos), the owner only confirms and categorizes in
+the Extrato's Revisar panel. Built on `main` for the server and the web; see `done-tasks.md`.
 
-### Open Finance (Pluggy) as a source for Aprovar (2026-10-27) — what is left
-Merged to `main` on 2026-10-27 (see `done-tasks.md`; setup and limits in `DEPLOY.md` › "Open
-Finance (Pluggy)"). The owner decided: Pluggy **and** phone notifications both feed Aprovar, with no
-"Pluggy only" switch. On the bank side Open Finance is also a **Conferência** (it only points, never
-adjusts). Design, as built:
-- **Tables (043)**: `open_finance_items` (one connection: status, executionStatus, Pluggy's error,
-  last pull), `open_finance_accounts` (each Pluggy account, its balance, the owner's mapping to one
-  account or one credit card, the card's learned sign) and `open_finance_transactions` (each pulled
-  transaction, unique `pluggy:<id>` per user, its role and the `inbox_items` row it feeds).
-- **Inbox source: its own table, not `notify_detections`** — that table's identity is the phone's
-  `dedupKey`/`posted_ms` (a 10-minute pairing window) and its `kind`/`role` are CHECK-bound to
-  notifications; a Pluggy row has another identity, rarely a time of day, installments, and must
-  exist before its account is mapped. `services/inbox.py` reads both where sources matter.
-- **Sign convention, verified in the sandbox (Pluggy Bank, 2026-10-27)**: bank accounts follow
-  `type` (DEBIT negative = out, CREDIT positive = in). **Cards contradict the docs**: the docs say
-  "positive amounts indicate debits", the sandbox sends purchases as `type: CREDIT` with negative
-  amounts. Each card learns its purchase sign: an invoice payment in the pull (`05100000`, an inflow
-  by definition), else the majority (≥ 3 rows), else the docs' `+`.
-- **Dates**: `T03:00:00.000Z` (sandbox) and `T00:00:00.000Z` (docs) are a date; another time is
-  converted to `-03:00`.
-- **Pull**: `GET /v2/transactions` by `dateFrom` (last pull − 7 days; first: 30 days, Ajustes),
-  following `next`. `PATCH /items/{id}` asks the bank for new data: Pluggy refuses another within
-  1 h (seen live) and each one spends the CPF's monthly quota, so the thread runs every 6 h and the
-  button only reads inside that hour.
+**Owner, after the deploy:**
+- [ ] Both switches come **on by default** (`AUTO_RECORD_DEFAULT`): the first phone upload records
+  every pending notification, and the first Pluggy pull records the Pluggy backlog of mapped
+  accounts. Check the card purchase sign first (the item below in the 044 section), or turn
+  Ajustes › Open Finance › Gravar sozinho off until then.
+- [ ] Ajustes › Avisos do celular: "Gravar sozinho" on. Make a Flash and an Itaú purchase; each must
+  appear in Extrato › Revisar within seconds, then disappear with "É meu".
+- [ ] After a Pluggy pull, the same purchases must still be **one** row each (now marked
+  `OPEN_FINANCE` in the database) and the Conferência must read "Confere".
+- [ ] Decide whether "Ignorar avisos dos bancos conectados" stays: with notifications recording
+  first, leaving it off is the new default flow (on, connected banks are recorded by Pluggy only).
 
-Open:
-- [ ] **MeuPluggy** (the owner's connector, free plan): `connector_name` is probably "MeuPluggy",
-  not the bank. Aprovar's source line ("Open Finance <banco> · <conta>"), the mapping suggestion
-  (`suggest_target()` compares the bank name) and the Desconectar confirmation (types the connector
-  name) all use it. After the first connection, look at what the item and accounts are named, and
-  use the account's institution if MeuPluggy sends one. Check too whether `PATCH /items` (ask the bank
-  for new data) works on a MeuPluggy item or whether MeuPluggy refreshes on its own schedule.
-- [ ] Owner, on the phone after the deploy: the Conferência line per account ("Movimentos
-  conferem" / "Movimentos com diferença", the lists), "Busca automática" changed on one device and
-  seen on the other, "Trazer pendentes" on with a real open-invoice purchase (does the bank keep the
-  same id when it posts?). All pass in pytest; none seen with real data.
-- [ ] Conferência limits: it matches same signed cents within 3 days, so two equal purchases that
-  each have a wrong twin can pair across; a card purchase entered with another total beyond n cents
-  shows on both sides. It starts at the first movement Pluggy brought, so older lançamentos are never
-  compared.
-- [ ] **Owner, after the deploy — the first real connection** (web, Ajustes › Open Finance):
-  connect the bank, map each account, then in Aprovar check that **card purchases come as −R$
-  purchases, not as + credits/"Estorno"**. If they come inverted, the learned sign is wrong:
-  `SELECT name, charge_sign, charge_sign_source FROM open_finance_accounts` and report it (the
-  sandbox and the docs disagree, so this is the one thing no test can settle).
-- [ ] Owner, real data: a bank notification and the Pluggy row of the same purchase are one item
-  (the notification first, then "Atualizar"); a Pix between two connected accounts is one
-  Transferência; an installment purchase arrives once with the total and its later installments
-  never show up. All pass in pytest and the sandbox has no such cases to click.
-- [ ] Owner: the CPF limit — if Pluggy refuses a connection, its message shows in Ajustes and
-  nothing retries. Watch whether 4 automatic updates a day fit the bank's monthly quota; raise
-  `OPEN_FINANCE_SYNC_SECONDS` in the server's `.env` if "Atualizar" starts failing late in a month.
-- [ ] Open Finance connectors send no `totalAmount` (docs): the purchase total is installment × n,
-  so R$ 100 in 3× arrives as R$ 99,99. Fix the total in Aprovar before approving if it matters.
-- [ ] A transaction the bank posts with a date older than the 7-day overlap is never pulled
-  (`dateFrom` filters by transaction date; `createdAtFrom` cannot be combined with it). If the
-  owner sees one missing, widen `OVERLAP_DAYS` or pull a second pass by `createdAtFrom`.
-- [ ] Changing an account's mapping later does not move items already pending (they keep the old
-  account); edit them in Aprovar.
-- [ ] Not built: offering "Pagar fatura" when the bank shows an invoice payment (today it is only
-  recorded as `INVOICE_PAYMENT` and never becomes an item); Pluggy's category as an import-rule
-  suggestion (it is only shown on the source line); learning "it's me" (031) from a Pluggy
-  transfer's counterparty (only notifications teach it).
-- [ ] A bank movement Pluggy calls an investment (`03xxxxxx`, e.g. "COMPRA TESOURO DIRETO") comes
-  as a plain despesa/receita item; if it was an aporte, change it to a transfer to the Corretora in
-  Aprovar (039: investimento is never a category).
-- [ ] APK: Ajustes › Open Finance shows status, balances, the Conferência, "Atualizar", "Busca
-  automática" and "Trazer pendentes"; connecting, reconnecting, mapping and the first-sync window stay
-  on the web (no WebView). Check on the phone with the debug APK, light and dark.
+**Not built / limits:**
+- [ ] **APK on the phone (built 2026-10-27, not run on a device)**: install the update after the PR
+  merges (the deploy's apk job; the app offers it). Walk: a Flash/Itaú purchase appears in Extrato ›
+  Revisar within a minute (the pill "N para revisar" too); "É meu" clears it; a card purchase shows in
+  the timeline with "Cartão · Nx" and no day total of its own; tapping it opens Cartões; no Aprovar
+  anywhere (tabs, Início, notifications); an own Pix with one side shows under "Não gravou sozinho"
+  and "Gravar" with the other account makes one transfer. Light and dark.
+- [ ] An own transfer with one side waits until the other side arrives (the Extrato says
+  "N movimentos não puderam ser gravados sozinhos · Ver"). A transfer to an account that is neither
+  connected nor notifies (another bank) needs the owner there.
+- [ ] Review has no "não é meu" action: an error is deleted with the row's normal Excluir (a
+  Pluggy row deleted this way is not re-recorded: its item stays decided). A fraud is real money:
+  keep the row and contest with the bank.
+- [ ] Pluggy corrects a notification-recorded row only when it is untouched; amounts are matched
+  exactly (or installment vs total), so a different amount (IOF, foreign purchase) is a second
+  movement, not a correction.
+- [ ] Editing a row (PATCH) does not clear `needs_review`; only Revisar does.
+- [ ] "Sempre perguntar a conta/cartão" only matters with Gravar sozinho off (disabled in Ajustes
+  otherwise); `inbox_hints` are no longer learned while auto-recording (`remember: False`).
+
+### Open Finance as the only source for connected banks (044, 2026-10-27) — what is left
+Built on `main` (see `done-tasks.md`, CLAUDE.md › "Gravar sozinho", DEPLOY.md › Open Finance). The
+owner's decisions: Pluggy (MeuPluggy, free plan) is the only source for Itaú, BTG and BB, recorded
+automatically; Aprovar stays for Flash and what only the owner decides; GET only, never more often
+than every 6 h; BTG Investimentos goes into Investimentos.
+
+**Owner, after the deploy (in this order; nothing of it ran on real data yet). Since 045 the
+Pluggy switch is on by default and Aprovar is out of the tabs — read the 045 section first:**
+- [ ] Ajustes › Open Finance (web): map every account. Expected: Itaú → "Itaú"; BTG Banking →
+  "BTG conta corrente"; Cartão BTG BLACK → "BTG black"; **BTG Investimentos → "BTG Corretora"** (now
+  allowed: it is the broker's cash); BB checking → "BB"; OUROCARD FACIL VISA → "BB ourocard"; the
+  second Ourocard → **"Não usar"**. Suggestions now come from the account name.
+- [ ] "Atualizar" each connection, then turn on **Gravar sozinho** (refused with the reason while an
+  account lacks a destination or a connection has no pull in 48 h). The toast says how many of the
+  ~210 waiting items were recorded/linked; what stays in Aprovar should be only transfers missing
+  their other side and investments on a bank account.
+- [ ] Before that, in Aprovar, check once that **card purchases come as −R$ purchases, not +
+  credits/"Estorno"** (`SELECT name, charge_sign, charge_sign_source FROM open_finance_accounts`):
+  the auto engine records whatever sign was learned.
+- [ ] Turn on **Ignorar avisos dos bancos conectados**; check a Flash purchase still reaches Aprovar
+  and an Itaú/BTG/BB notification does not.
+- [ ] **Histórico**: "Ver prévia" with 365 days, read the counts per account, then "Trazer o
+  histórico". Afterwards every account should read "Confere"; if not, "Ver a conferência" now says
+  why per line and how the balance difference splits (only bank / awaiting / only app / before the
+  window — the last one is the account's initial balance in the app).
+- [ ] Investimentos: after a pull, Ajustes › Open Finance › "Carteira da corretora" shows quantities
+  per asset and the cash (with "a liquidar" for D+1/D+2). The BTG operations of the last months may
+  link to typed ones (same asset, quantity, ±2 days) or be recorded; check the Extrato
+  (investimentos) for duplicates before trusting it.
+
+**Unknown until the first real pull (code has fallbacks; adjust on the real rows):**
+- [ ] Whether MeuPluggy's investment transactions have an `id` (the key falls back to investment +
+  trade date + type + quantity + amount), the shape of `expenses` (number or object; both handled),
+  and whether `/investments/{id}/transactions` paginates as assumed (`page`/`totalPages`).
+- [ ] Whether ETFs/FIIs come as `EQUITY` (the probe said all 17 equities are `EQUITY/STOCK`); the
+  app's own class (or the B3 catalog) decides; an unknown ticker is `HELD unknown_asset`.
+- [ ] The Pluggy category table (`open_finance_categories.py`) was written from Pluggy's public tree;
+  tune it on what the owner's rows actually carry.
+- [ ] The BTG Investimentos account's own categories: only `04…`/Pix/TED rows become transfers;
+  if aportes arrive with another category they will be `COVERED` and the bank side will wait in
+  Aprovar as a one-sided transfer.
+
+**Not built / limits:**
+- [ ] Fixed income, Tesouro, custody `TRANSFER` and `INTEREST` operations are `HELD` and only listed
+  ("operações para você lançar"); recording them needs per-title metadata (`services/treasury.py`,
+  coupons 040).
+- [ ] A `conflict` (the bank changed/dropped a row the owner had edited) has no "resolvido" action:
+  the owner edits or deletes the lançamento; the line stays in the Conferência.
+- [ ] A transfer to an account that is not connected (Flash, another bank) stays in Aprovar for the
+  owner; a Pix to someone else is held 2 days (`TRANSFER_HOLD_DAYS`) and then recorded as
+  despesa/receita.
+- [ ] The APK shows the switches, reasons and the balance explanation, but not the history preview,
+  the portfolio check or "Não usar" (web only, like mapping).
+- [ ] The web screen was not opened in a browser this session (vite build and node tests only).
+- [ ] Carried over from 043: a posting dated older than the 7-day overlap is never pulled (widen
+  `OVERLAP_DAYS` or use the history); a mapping change does not move items already pending;
+  connectors send no `totalAmount` (R$ 100 in 3× arrives as R$ 99,99); learning "it's me" (031)
+  from a Pluggy counterparty; Conferência matching limits (same signed cents ≤ 3 days, n-cents
+  tolerance on installments; it starts at the first row Pluggy brought).
 
 ### Plano do mês a partir da renda — what is left
 The backend (038) and the Orçamento redesign are in (see `done-tasks.md`, 2026-10-19). Open:

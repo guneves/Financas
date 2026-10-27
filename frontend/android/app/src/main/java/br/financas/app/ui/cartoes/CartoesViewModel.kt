@@ -93,8 +93,6 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
         private set
     var hidden by mutableStateOf(ShellPrefs.valuesHidden(application) ?: false)
         private set
-    var inboxCount by mutableStateOf(0)
-        private set
 
     var offline by mutableStateOf(false)
         private set
@@ -200,7 +198,6 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
         readAccounts()
         readCards()
         readPending()
-        readInboxCount()
     }
 
     private fun readInvoices() {
@@ -277,17 +274,6 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun readInboxCount() {
-        viewModelScope.launch {
-            graph.inbox.count().collect { load ->
-                when (load) {
-                    is Load.Cached -> Unit
-                    is Load.Fresh -> inboxCount = load.value.pendingCount ?: 0
-                    is Load.Failed -> if (load.error is ApiException.Network) inboxCount = 0
-                }
-            }
-        }
-    }
 
     fun toggleHidden() {
         hidden = !hidden

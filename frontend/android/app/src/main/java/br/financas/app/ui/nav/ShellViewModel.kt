@@ -12,7 +12,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import br.financas.app.R
+import br.financas.app.data.ApiException
 import br.financas.app.data.AppGraph
+import br.financas.app.data.Load
 import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.OutboxEvents
 import br.financas.app.outbox.OutboxStore
@@ -46,6 +48,10 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Os itens da fila do usuario da sessao, na ordem de envio. */
     var rows by mutableStateOf<List<PendingRow>>(emptyList())
+        private set
+
+    /** Gravados sozinhos esperando "é meu" (045): a pilula ambar e o numero da aba Extrato. */
+    var reviewCount by mutableStateOf(0)
         private set
 
     /** Sem rede de verdade por baixo (a VPN nao conta): a pilula diz "Sem conexão". */
@@ -123,6 +129,24 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
                 PendingRows.forUser(OutboxStore.get(app).all().map { it.toString() }, graph.sessionUserId())
             }
             if (rows.isEmpty()) syncWarning = ""
+        }
+        refreshReview()
+    }
+
+    /**
+     * GET /api/review: quantos esperam a revisao (a leitura tambem grava o que esperava o prazo).
+     * Sem rede fica o ultimo numero; um erro do servidor apaga a pilula.
+     */
+    fun refreshReview() {
+        viewModelScope.launch {
+            graph.review.queue().collect { load ->
+                when (load) {
+                    is Load.Cached -> if (reviewCount == 0) reviewCount = load.value.count
+                    is Load.Fresh -> reviewCount = load.value.count
+                    is Load.Failed ->
+                        if (load.error !is ApiException.Network) reviewCount = 0
+                }
+            }
         }
     }
 

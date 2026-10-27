@@ -17,17 +17,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 import br.financas.app.outbox.Session;
-import br.financas.app.ui.inbox.InboxNotifier;
 
 /**
- * Manda a fila de deteccoes para o Aprovar, com o app fechado (DetectionWorker). Em lotes, na
+ * Manda a fila de deteccoes para o servidor, com o app fechado (DetectionWorker). Em lotes, na
  * ordem em que as notificacoes chegaram. Cada resposta 200 traz um resultado por deteccao, e
  * qualquer resultado (nova, juntada, repetida, ja conhecida, invalida) e final: sai da fila.
  * Sem rede ou 5xx: fica para a proxima rodada. 401 ou sem login: espera o proximo login. Outro
  * 4xx no lote inteiro: o lote nao serve e sai (nao trava a fila para sempre).
  *
- * Uma deteccao que vira item novo (ou entra num item) poe a notificacao "Novo para aprovar"
- * (ui/inbox/InboxNotifier), que abre Aprovar nativo no item.
+ * O servidor grava na hora o que chegou (045, services/auto_record.py): a resposta traz
+ * `auto_recorded` ao lado de `results`, e o dono so revisa no Extrato. Nada de aviso local.
  */
 public final class DetectionSender {
 
@@ -46,38 +45,22 @@ public final class DetectionSender {
             DetectionQueue queue = DetectionQueue.get(app);
             Session session = Session.load(app);
             if (session == null) return queue.count() > 0 ? "login" : "";
-            List<String> arrived = new ArrayList<>();
-            try {
-                while (true) {
-                    List<JSONObject> batch = queue.oldest(BATCH);
-                    if (batch.isEmpty()) return "";
-                    JSONArray list = new JSONArray();
-                    List<String> keys = new ArrayList<>();
-                    for (JSONObject item : batch) {
-                        list.put(item);
-                        keys.add(item.optString("key"));
-                    }
-                    Answer answer = post(session, list);
-                    int status = answer.status;
-                    if (status == -1 || status >= 500) return "offline";
-                    if (status == 401) return "login";
-                    if (status != 200) Log.w(TAG, "Lote de deteccoes recusado: HTTP " + status);
-                    else arrived.addAll(InboxNotifier.newItemIds(answer.body));
-                    queue.remove(keys);
+            while (true) {
+                List<JSONObject> batch = queue.oldest(BATCH);
+                if (batch.isEmpty()) return "";
+                JSONArray list = new JSONArray();
+                List<String> keys = new ArrayList<>();
+                for (JSONObject item : batch) {
+                    list.put(item);
+                    keys.add(item.optString("key"));
                 }
-            } finally {
-                notifyArrived(app, arrived);
+                Answer answer = post(session, list);
+                int status = answer.status;
+                if (status == -1 || status >= 500) return "offline";
+                if (status == 401) return "login";
+                if (status != 200) Log.w(TAG, "Lote de deteccoes recusado: HTTP " + status);
+                queue.remove(keys);
             }
-        }
-    }
-
-    // "Novo para aprovar": nunca derruba o envio (a fila ja saiu).
-    private static void notifyArrived(Context app, List<String> itemIds) {
-        if (itemIds.isEmpty()) return;
-        try {
-            InboxNotifier.show(app, itemIds);
-        } catch (RuntimeException error) {
-            Log.w(TAG, "Aviso de Aprovar falhou", error);
         }
     }
 
@@ -125,7 +108,7 @@ public final class DetectionSender {
         }
     }
 
-    /** Um 200 que nao e a resposta do Aprovar (proxy, portal) nao prova que chegou. */
+    /** Um 200 que nao e a resposta de /api/inbox/detections (proxy, portal) nao prova que chegou. */
     private static boolean isResults(String body) {
         try {
             return new JSONObject(body).has("results");

@@ -89,7 +89,7 @@ class TestBankAccount:
         world.sync(item_id)
         check = account_of(world)["check"]
         assert (check["bank_only_count"], check["awaiting_count"]) == (0, 1)
-        assert check["awaiting"] == [{"date": "2026-10-20", "amount": -45.9, "description": "PADARIA"}]
+        assert check["awaiting"] == [{"date": "2026-10-20", "amount": -45.9, "description": "PADARIA", "reason": "awaiting"}]
 
     def test_a_denied_item_is_bank_only(self, world):
         item_id, _p, made = connected(world)
@@ -98,7 +98,7 @@ class TestBankAccount:
         [item] = world.pending()
         world.call("post", f"/api/inbox/{item['id']}/deny", json={"version": item["version"]})
         check = account_of(world)["check"]
-        assert check["bank_only"] == [{"date": "2026-10-20", "amount": -45.9, "description": "PADARIA"}]
+        assert check["bank_only"] == [{"date": "2026-10-20", "amount": -45.9, "description": "PADARIA", "reason": "denied"}]
 
     def test_an_extra_typed_entry_is_app_only(self, world):
         item_id, _p, made = connected(world)
@@ -111,7 +111,7 @@ class TestBankAccount:
             "description": "padaria de novo",
         })
         check = account_of(world)["check"]
-        assert check["app_only"] == [{"date": "2026-10-21", "amount": -45.9, "description": "padaria de novo"}]
+        assert check["app_only"] == [{"date": "2026-10-21", "amount": -45.9, "description": "padaria de novo", "reason": "not_in_bank"}]
         assert check["bank_only_count"] == 0
 
     def test_a_typed_entry_for_an_awaiting_item_is_not_app_only(self, world):
@@ -147,7 +147,7 @@ class TestBankAccount:
             "account_id": other, "transfer_account_id": mine, "amount": 300, "date": "2026-10-22",
         })
         check = account_of(world)["check"]
-        assert check["app_only"] == [{"date": "2026-10-22", "amount": 300.0, "description": check["app_only"][0]["description"]}]
+        assert check["app_only"] == [{"date": "2026-10-22", "amount": 300.0, "description": check["app_only"][0]["description"], "reason": "not_in_bank"}]
 
     def test_nothing_is_written(self, world):
         item_id, _p, made = connected(world)
@@ -195,7 +195,7 @@ class TestCard:
             "installments": 1, "category": "Outros",
         })
         check = account_of(world, "CREDIT")["check"]
-        assert check["app_only"] == [{"date": "2026-10-22", "amount": -77.0, "description": "SEM PAR"}]
+        assert check["app_only"] == [{"date": "2026-10-22", "amount": -77.0, "description": "SEM PAR", "reason": "not_in_bank"}]
 
     def test_the_invoice_payment_is_not_a_card_movement(self, world):
         item_id, _p, made = connected(world, bank=False, card=True)

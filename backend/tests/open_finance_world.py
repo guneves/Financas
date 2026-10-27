@@ -81,6 +81,8 @@ class FakePluggy:
         self.items = {}
         self.accounts = {}
         self.transactions = {}
+        self.investments = {}
+        self.investment_transactions = {}
         self.calls = []
 
     # -- montar o mundo --------------------------------------------------
@@ -100,10 +102,12 @@ class FakePluggy:
         self.accounts[item_id] = []
         return item_id
 
-    def add_account(self, item_id, kind="BANK", name="Conta Corrente", number="0001/12345-0", balance=1000.0):
+    def add_account(self, item_id, kind="BANK", name="Conta Corrente", number="0001/12345-0", balance=1000.0,
+                    subtype=None):
         account_id = pluggy_id()
         self.accounts[item_id].append({
-            "id": account_id, "type": kind, "subtype": "CHECKING_ACCOUNT" if kind == "BANK" else "CREDIT_CARD",
+            "id": account_id, "type": kind,
+            "subtype": subtype or ("CHECKING_ACCOUNT" if kind == "BANK" else "CREDIT_CARD"),
             "name": name, "number": number, "balance": balance, "currencyCode": "BRL",
         })
         self.transactions[account_id] = []
@@ -112,6 +116,32 @@ class FakePluggy:
     def add_tx(self, account_id, *txs):
         self.transactions[account_id].extend(txs)
         return txs[0]["id"] if len(txs) == 1 else [tx["id"] for tx in txs]
+
+    def add_position(self, item_id, code, quantity, kind="EQUITY", subtype="STOCK", value=10.0, day="2026-10-26",
+                     name=None):
+        """Uma posicao da corretora (`GET /investments`), como o MeuPluggy manda
+        a do BTG (2026-10-27): renda variavel e EQUITY/STOCK, a data e D-1."""
+        investment_id = pluggy_id()
+        self.investments.setdefault(item_id, []).append({
+            "id": investment_id, "code": code, "name": name or code, "type": kind, "subtype": subtype,
+            "quantity": quantity, "value": value, "balance": round(quantity * value, 2), "status": "ACTIVE",
+            "date": day_iso(day), "currencyCode": "BRL",
+        })
+        self.investment_transactions[investment_id] = []
+        return investment_id
+
+    def add_operation(self, investment_id, kind, quantity, price, trade_day, op_id=None, expenses=None):
+        amount = round(quantity * price, 2)
+        fee = sum(expenses.values()) if isinstance(expenses, dict) else (expenses or 0)
+        row = {
+            "type": kind, "quantity": quantity, "value": price, "amount": amount,
+            "netAmount": amount + fee if kind == "BUY" else amount - fee,
+            "tradeDate": day_iso(trade_day), "date": day_iso(trade_day), "expenses": expenses,
+        }
+        if op_id is not False:
+            row["id"] = op_id or pluggy_id()
+        self.investment_transactions[investment_id].append(row)
+        return row.get("id")
 
     def drop_tx(self, account_id, tx_id):
         self.transactions[account_id] = [tx for tx in self.transactions[account_id] if tx["id"] != tx_id]
@@ -124,14 +154,10 @@ class FakePluggy:
 
     def get_item(self, item_id):
         self.calls.append(("get_item", item_id))
+        if getattr(self, "fail_with", None):
+            raise self.fail_with
         if item_id not in self.items:
             raise pluggy_client.PluggyError("Item nao encontrado.", status=404)
-        return dict(self.items[item_id])
-
-    def update_item(self, item_id):
-        self.calls.append(("update_item", item_id))
-        if getattr(self, "refuse_update", None):
-            raise self.refuse_update
         return dict(self.items[item_id])
 
     def delete_item(self, item_id):
@@ -145,6 +171,14 @@ class FakePluggy:
     def list_transactions(self, account_id, date_from, date_to=None):
         self.calls.append(("list_transactions", account_id, date_from))
         return [dict(tx) for tx in self.transactions.get(account_id, []) if tx["date"][:10] >= date_from]
+
+    def list_investments(self, item_id):
+        self.calls.append(("list_investments", item_id))
+        return [dict(row) for row in self.investments.get(item_id, [])]
+
+    def list_investment_transactions(self, investment_id):
+        self.calls.append(("list_investment_transactions", investment_id))
+        return [dict(row) for row in self.investment_transactions.get(investment_id, [])]
 
     def windows(self, account_id):
         return [call[2] for call in self.calls if call[0] == "list_transactions" and call[1] == account_id]

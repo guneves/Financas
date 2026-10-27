@@ -97,8 +97,14 @@ class AppGraph private constructor(context: Context) {
     val categories = CategoriesRepository(reader)
     val cards = CardsRepository(reader)
 
-    /** Aprovar: leituras com a copia guardada, decisoes so com o servidor (nunca na fila), sem prazo. */
+    /**
+     * Os avisos do celular (os ajustes e o que nao gravou sozinho): leituras com a copia guardada,
+     * decisoes so com o servidor (nunca na fila), sem prazo.
+     */
     val inbox = InboxRepository(reader, Sender { method, path, body -> writeApi.send(method, path, body) })
+
+    /** Revisar e as compras no cartao do Extrato (045); confirmar so com o servidor, sem prazo. */
+    val review = ReviewRepository(reader, Sender { method, path, body -> writeApi.send(method, path, body) })
 
     /** Inicio: o saldo, o mes, os avisos e o orcamento; pagar fatura e lancar recorrencias. */
     val home = HomeRepository(reader, Sender { method, path, body -> writeApi.send(method, path, body) })
@@ -125,7 +131,7 @@ class AppGraph private constructor(context: Context) {
         files = writeApi,
     )
 
-    /** Ajustes: contas, cartoes, categorias, Aprovar e o perfil; escritas sem prazo. */
+    /** Ajustes: contas, cartoes, categorias, os avisos do celular e o perfil; escritas sem prazo. */
     val ajustes = AjustesRepository(
         reader = reader,
         sender = Sender { method, path, body -> writeApi.send(method, path, body) },

@@ -1,6 +1,7 @@
 package br.financas.app.ui.nav
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -11,7 +12,18 @@ class NativeLinksTest {
         assertEquals(NativeLinks.Target(NativeRoutes.EXTRATO), NativeLinks.targetFor("/lancamentos/extrato"))
         assertEquals(NativeLinks.Target(NativeRoutes.EXTRATO, "investimentos"), NativeLinks.targetFor("/lancamentos/extrato?ver=investimentos"))
         assertEquals(NativeLinks.Target(NativeRoutes.CARTOES), NativeLinks.targetFor("/lancamentos/cartoes"))
-        assertEquals(NativeLinks.Target(NativeRoutes.INBOX), NativeLinks.targetFor("/lancamentos/aprovar"))
+    }
+
+    @Test
+    fun aprovarIsGoneAndOpensTheExtratoInReview() {
+        // 045: a tela Aprovar saiu do celular; o link (e o antigo /aprovar) abre o Revisar.
+        val review = NativeLinks.Target(NativeRoutes.EXTRATO, NativeLinks.VIEW_REVIEW)
+        assertEquals(review, NativeLinks.targetFor("/lancamentos/aprovar"))
+        assertEquals(review, NativeLinks.targetFor("/aprovar"))
+        assertEquals(review, NativeLinks.targetFor("/lancamentos/extrato?review=1"))
+        assertEquals(review, NativeLinks.targetFor(br.financas.app.rules.ReviewRules.REVIEW_PATH))
+        assertEquals(NativeLinks.Target(NativeRoutes.EXTRATO), NativeLinks.targetFor("/lancamentos/extrato?review=0"))
+        assertFalse(NativeRoutes.ALL.contains("inbox"))
     }
 
     @Test

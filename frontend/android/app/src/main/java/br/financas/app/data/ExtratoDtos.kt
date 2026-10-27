@@ -26,6 +26,16 @@ data class TransactionDto(
     @SerialName("share_person") val sharePerson: String? = null,
     @SerialName("share_others_amount") val shareOthersAmount: Money? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    /** Gravado sozinho (045) e ainda nao revisado: "A revisar". */
+    @SerialName("needs_review") val needsReview: Flag = false,
+    /**
+     * "card": uma compra no cartao na linha do tempo (rules/ReviewRules.cardStatementRow, nunca
+     * vem de /api/transactions); null num lancamento de conta.
+     */
+    val kind: String? = null,
+    @SerialName("client_id") val clientId: String? = null,
+    @SerialName("card_name") val cardName: String? = null,
+    val installments: Int? = null,
     /** Linha da fila (nunca vem do servidor): "Pendente de envio" / "Recusado pelo servidor". */
     val pending: Boolean = false,
     @SerialName("pending_status") val pendingStatus: String? = null,

@@ -188,6 +188,11 @@ class InboxRepositoryTest {
 
         assertFalse((repo.setAlwaysAsk(false) as InboxWrite.Done).value.alwaysAsk)
         assertEquals(Triple("PATCH", "/api/inbox/settings", """{"always_ask":false}"""), server.calls[3])
+
+        // Gravar sozinho (045): sem a chave (servidor antigo) vale ligado, como na web.
+        assertTrue((repo.setAutoRecord(true) as InboxWrite.Done).value.autoRecord)
+        assertEquals(Triple("PATCH", "/api/inbox/settings", """{"auto_record":true}"""), server.calls[4])
+        assertFalse(ApiJson.decodeFromString(InboxSettingsDto.serializer(), """{"always_ask":false,"auto_record":false}""").autoRecord)
     }
 
     @Test

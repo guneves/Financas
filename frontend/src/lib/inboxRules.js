@@ -48,7 +48,10 @@ export function sourceLabel(source) {
 // Uma transacao do Open Finance (043): o banco, a conta, a descricao do banco,
 // a parcela; "saiu" quando a Pluggy a desfez antes da aprovacao.
 function openFinanceSourceLabel(source) {
-  const bank = source.connector_name ? `Open Finance ${source.connector_name}` : 'Open Finance'
+  // O banco da conta (bank_name), nunca o conector: no MeuPluggy ele e
+  // "MeuPluggy" para os tres bancos.
+  const name = source.bank_name || source.connector_name
+  const bank = name ? `Open Finance ${name}` : 'Open Finance'
   const installment = source.installment_number && source.total_installments > 1
     ? `parcela ${source.installment_number}/${source.total_installments}`
     : ''

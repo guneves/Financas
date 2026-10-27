@@ -181,10 +181,10 @@ class TestAmbiguousBank:
 
 class TestAlwaysAsk:
     def test_off_by_default_and_per_user(self, client, auth, other_user):
-        assert client.get("/api/inbox/settings", headers=auth).get_json() == {"always_ask": False}
-        assert set_always_ask(client, auth, True) == {"always_ask": True}
-        assert client.get("/api/inbox/settings", headers=auth).get_json() == {"always_ask": True}
-        assert client.get("/api/inbox/settings", headers=other_user["headers"]).get_json() == {"always_ask": False}
+        assert client.get("/api/inbox/settings", headers=auth).get_json()["always_ask"] is False
+        assert set_always_ask(client, auth, True)["always_ask"] is True
+        assert client.get("/api/inbox/settings", headers=auth).get_json()["always_ask"] is True
+        assert client.get("/api/inbox/settings", headers=other_user["headers"]).get_json()["always_ask"] is False
 
     def test_refuses_anything_but_a_boolean(self, client, auth):
         response = client.patch("/api/inbox/settings", json={"always_ask": "sim"}, headers=auth)

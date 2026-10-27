@@ -89,6 +89,9 @@ EXPECTED_ROUTES = {
     ("/api/goals/<goal_id>", "DELETE,GET,PATCH"),
     ("/api/monthly-plan", "DELETE,GET,PUT"),
     # Open Finance pela Pluggy (routes/open_finance.py).
+    ("/api/review", "GET"),
+    ("/api/review", "POST"),
+    ("/api/cc-expenses/statement", "GET"),
     ("/api/open-finance", "GET"),
     ("/api/open-finance/settings", "GET,PATCH"),
     ("/api/open-finance/connect-token", "POST"),
@@ -96,6 +99,8 @@ EXPECTED_ROUTES = {
     ("/api/open-finance/items/<item_id>/sync", "POST"),
     ("/api/open-finance/items/<item_id>", "DELETE"),
     ("/api/open-finance/accounts/<account_id>", "PUT"),
+    ("/api/open-finance/history/preview", "POST"),
+    ("/api/open-finance/history/apply", "POST"),
     ("/api/corporate-actions/<action_id>", "DELETE"),
     ("/api/investments/price-by-asset/<asset_id>", "PATCH"),
     ("/api/investments/price-by-ticker", "PATCH"),

@@ -4,15 +4,23 @@
   token (`connect_token()`), o widget Pluggy Connect abre com ele e devolve o
   `itemId`, que `register_item()` guarda com as contas do item.
 - **Mapear** (`map_account()`): cada conta BANK da Pluggy a uma conta ativa do
-  dono (nunca a Corretora), cada CREDIT a um cartao ativo com credito. Uma
-  sugestao pelo banco e pelo final vem na listagem; so o dono confirma.
+  dono, cada CREDIT a um cartao ativo com credito, ou "nao usar" (044). A
+  Corretora so recebe a conta de investimentos da corretora (044): o caixa
+  da carteira. Uma sugestao pelo nome da conta (o MeuPluggy, o conector do
+  plano gratis, nao diz o banco; a conta diz) vem na listagem; so o dono confirma.
 - **Puxar** (`sync_item()`): o servidor so e alcancavel na tailnet, entao nao
   ha webhook. O botao "Atualizar" e a thread de services/open_finance_refresh.py
-  pedem dados novos ao banco (`PATCH /items/{id}`, que gasta o limite mensal da
-  instituicao por CPF; nunca para um item que espera o dono) e puxam as
-  transacoes desde o ultimo pull menos OVERLAP_DAYS (o primeiro: a janela que o
-  dono escolheu, 30 dias por padrao). Tudo vai para o Aprovar
-  (services/open_finance_inbox.py).
+  so LEEM (GET) o que a Pluggy ja trouxe do banco — ela atualiza sozinha, de 6
+  em 6 a 24 h; pedir dados novos (`PATCH /items`) gastaria o limite mensal do
+  CPF e o app nunca pede. As transacoes vem desde o ultimo pull menos
+  OVERLAP_DAYS (o primeiro: a janela que o dono escolheu, 30 dias por padrao)
+  e vao para o Aprovar (services/open_finance_inbox.py); com "Gravar sozinho"
+  ligado, o item pronto e aprovado na hora (services/open_finance_auto.py).
+  As posicoes e operacoes da corretora vem no mesmo pull
+  (services/open_finance_investments.py).
+- **Historico** (`history_preview()` / `history_apply()`): o que a Pluggy tem
+  de N dias atras, contado por conta (ligado, a gravar, so no app) antes; aplicado
+  so na confirmacao. Nada digitado pelo dono e apagado.
 - **Desconectar** (`disconnect()`): apaga o item na Pluggy e arquiva o nosso;
   os lancamentos ja gravados e os itens do Aprovar ficam.
 - **Conferir saldo** (`list_view()`): por conta mapeada, o saldo da Pluggy ao
@@ -32,7 +40,6 @@ import pluggy_client
 from applog import get_logger
 from config import (
     OPEN_FINANCE_SYNC_SECONDS,
-    OPEN_FINANCE_UPDATE_WAIT_SECONDS,
     PLUGGY_BASE_URL,
     PLUGGY_CLIENT_ID,
     PLUGGY_CLIENT_SECRET,
@@ -41,7 +48,15 @@ from config import (
 from dates import parse_iso_date
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services import inbox, invoices, open_finance_check, open_finance_inbox
+from services import (
+    inbox,
+    invoices,
+    open_finance_auto,
+    open_finance_check,
+    open_finance_inbox,
+    open_finance_investments,
+    realized_results,
+)
 from services.accounts import account_balance_rows
 from services.import_rules import import_rules_for_matching
 from validators import ValidationError
@@ -58,26 +73,27 @@ DEFAULT_FIRST_SYNC_DAYS = 30
 # A Pluggy guarda ate 12 meses de transacoes.
 MAX_FIRST_SYNC_DAYS = 365
 # Busca automatica por usuario (Ajustes): 0 = so o botao "Atualizar". Nunca
-# abaixo de 1 h (a Pluggy recusa e cada pedido gasta o limite mensal do CPF).
+# abaixo de 6 h (dono, 2026-10-27): a Pluggy so traz dado novo do banco de 6
+# em 6 a 24 h, ler mais vezes nao adianta.
 SYNC_HOURS_SETTING = "open_finance_sync_hours"
+MIN_SYNC_HOURS = 6
 MAX_SYNC_HOURS = 24
 DEFAULT_SYNC_HOURS = 6
 INCLUDE_PENDING_SETTING = "open_finance_include_pending"
-# Nao ha `auto_approve`: nada e gravado sem a aprovacao do dono, entao essa
-# preferencia nao existe nem e guardada.
+# Gravar sozinho (044): services/open_finance_auto.py; "Ignorar avisos dos
+# bancos conectados": services/inbox.py.
+AUTO_RECORD_SETTING = open_finance_auto.AUTO_RECORD_SETTING
+IGNORE_NOTIFICATIONS_SETTING = inbox.IGNORE_CONNECTED_NOTIFICATIONS_SETTING
+# O historico (preview -> apply): ate onde a Pluggy guarda.
+DEFAULT_HISTORY_DAYS = 365
 # Status em que so o dono resolve (nova senha, um codigo, aceitar termos no
-# banco): nada pede atualizacao, a mensagem fica em Ajustes.
+# banco): a mensagem fica em Ajustes.
 OWNER_ACTION_STATUSES = {"LOGIN_ERROR", "WAITING_USER_INPUT"}
 OWNER_ACTION_EXECUTIONS = {
     "INVALID_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_NEEDS_ACTION", "USER_NOT_SUPPORTED",
     "ACCOUNT_CREDENTIALS_RESET", "USER_AUTHORIZATION_NOT_GRANTED", "USER_AUTHORIZATION_REVOKED",
     "USER_AUTHORIZATION_PENDING", "INVALID_CREDENTIALS_MFA",
 }
-# A Pluggy recusa outro pedido de dados novos menos de 1 h depois do ultimo
-# ("Client updates on this item are allowed at most every 1 hours", visto em
-# 2026-10-27; conectar conta como um). Antes disso, "Atualizar" so le.
-MIN_UPDATE_INTERVAL_SECONDS = 3600
-UPDATE_POLL_SECONDS = 3
 PLUGGY_ID_PATTERN = re.compile(r"^[0-9A-Fa-f-]{8,64}$")
 
 _client = None
@@ -168,16 +184,20 @@ def default_sync_hours():
     6 h se ele desligou a thread (aí nada roda sozinho para ninguém)."""
     if OPEN_FINANCE_SYNC_SECONDS <= 0:
         return DEFAULT_SYNC_HOURS
-    return min(max(round(OPEN_FINANCE_SYNC_SECONDS / 3600), 1), MAX_SYNC_HOURS)
+    return min(max(round(OPEN_FINANCE_SYNC_SECONDS / 3600), MIN_SYNC_HOURS), MAX_SYNC_HOURS)
 
 
 def sync_hours(conn, current_user_id):
+    """0 (so o botao) ou MIN_SYNC_HOURS..MAX_SYNC_HOURS; um valor antigo abaixo
+    de 6 h (o limite era 1 h ate 044) sobe para 6."""
     value = inbox.setting_value(conn, current_user_id, SYNC_HOURS_SETTING)
     try:
         hours = int(value)
     except (TypeError, ValueError):
         return default_sync_hours()
-    return hours if 0 <= hours <= MAX_SYNC_HOURS else default_sync_hours()
+    if hours == 0:
+        return 0
+    return max(hours, MIN_SYNC_HOURS) if 0 < hours <= MAX_SYNC_HOURS else default_sync_hours()
 
 
 def include_pending(conn, current_user_id):
@@ -188,16 +208,31 @@ def settings(conn, current_user_id):
     return {
         "first_sync_days": first_sync_days(conn, current_user_id),
         "sync_hours": sync_hours(conn, current_user_id),
+        "min_sync_hours": MIN_SYNC_HOURS,
         "include_pending": include_pending(conn, current_user_id),
         "auto_sync_available": OPEN_FINANCE_SYNC_SECONDS > 0,
+        "auto_record": open_finance_auto.enabled(conn, current_user_id),
+        "auto_record_blockers": open_finance_auto.blockers(conn, current_user_id, time.time()),
+        "ignore_notifications": inbox.ignore_connected_notifications(conn, current_user_id),
     }
 
 
-SETTINGS_FIELDS = ("first_sync_days", "sync_hours", "include_pending")
+SETTINGS_FIELDS = (
+    "first_sync_days", "sync_hours", "include_pending", "auto_record", "ignore_notifications",
+)
+
+
+def _bool_field(payload, key):
+    if not isinstance(payload[key], bool):
+        raise ValidationError(f"Envie {key} como true ou false.")
+    return payload[key]
 
 
 def update_settings(conn, current_user_id, payload):
-    """PATCH parcial: valida tudo antes de gravar qualquer coisa."""
+    """PATCH parcial: valida tudo antes de gravar qualquer coisa. Ligar
+    `auto_record` e recusado enquanto houver conta sem destino ou conexao sem
+    pull recente; ligado, o que ja esperava no Aprovar vindo da Pluggy e
+    gravado numa passada (`auto_recorded` na resposta)."""
     if not isinstance(payload, dict):
         raise ValidationError("Envie um objeto JSON.")
     unknown = sorted(set(payload) - set(SETTINGS_FIELDS))
@@ -212,19 +247,32 @@ def update_settings(conn, current_user_id, payload):
         hours = payload["sync_hours"]
         if isinstance(hours, bool) or not isinstance(hours, int):
             raise ValidationError("Informe a busca automática em horas (0 desliga).")
-        if not 0 <= hours <= MAX_SYNC_HOURS:
+        if hours != 0 and not MIN_SYNC_HOURS <= hours <= MAX_SYNC_HOURS:
             raise ValidationError(
-                f"A busca automática vai de 1 a {MAX_SYNC_HOURS} horas, ou 0 para desligar: "
-                "a Pluggy recusa mais de uma atualização por hora."
+                f"A busca automática vai de {MIN_SYNC_HOURS} a {MAX_SYNC_HOURS} horas, ou 0 para desligar: "
+                f"a Pluggy só traz dados novos do banco de {MIN_SYNC_HOURS} em {MIN_SYNC_HOURS} horas ou mais."
             )
         writes.append((SYNC_HOURS_SETTING, str(hours)))
     if "include_pending" in payload:
-        if not isinstance(payload["include_pending"], bool):
-            raise ValidationError("Envie include_pending como true ou false.")
-        writes.append((INCLUDE_PENDING_SETTING, "1" if payload["include_pending"] else "0"))
+        writes.append((INCLUDE_PENDING_SETTING, "1" if _bool_field(payload, "include_pending") else "0"))
+    if "ignore_notifications" in payload:
+        writes.append((IGNORE_NOTIFICATIONS_SETTING, "1" if _bool_field(payload, "ignore_notifications") else "0"))
+    turning_on = False
+    if "auto_record" in payload:
+        wanted = _bool_field(payload, "auto_record")
+        if wanted and not open_finance_auto.enabled(conn, current_user_id):
+            problems = open_finance_auto.blockers(conn, current_user_id, time.time())
+            if problems:
+                raise ValidationError("Gravar sozinho ainda não pode ligar: " + " ".join(problems))
+            turning_on = True
+        writes.append((AUTO_RECORD_SETTING, "1" if wanted else "0"))
     for key, value in writes:
         inbox.save_setting(conn, current_user_id, key, value)
-    return settings(conn, current_user_id)
+    body = settings(conn, current_user_id)
+    if turning_on:
+        body["auto_recorded"] = open_finance_auto.record_pending(conn, current_user_id, _today())
+        logger.info("Open Finance: gravar sozinho ligado", extra={"user_id": current_user_id, **body["auto_recorded"]})
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -381,22 +429,33 @@ def register_item(current_user_id, pluggy_item_id):
         _upsert_accounts(conn, current_user_id, of_item_id, accounts)
     if pluggy_item.get("status") == "UPDATED":
         try:
-            sync_item(current_user_id, of_item_id, request_update=False)
+            sync_item(current_user_id, of_item_id)
         except PluggyError as exc:
             logger.warning("Open Finance: primeiro pull falhou", extra={"error": str(exc)})
     return of_item_id
 
 
+def item_bank_name(conn, current_user_id, item_row):
+    """O banco de uma conexao para a tela: o que os nomes das contas dizem (o
+    MeuPluggy nao diz o banco), senao o conector."""
+    names = [account["name"] for account in item_accounts(conn, current_user_id, item_row["id"]) if account["name"]]
+    labels = {inbox.open_finance_bank_name(name, None) for name in names if inbox.issuer_of_institution(name)}
+    if len(labels) == 1:
+        return labels.pop()
+    return inbox.open_finance_bank_name(names[0] if names else None, item_row["connector_name"]) or "Open Finance"
+
+
 def disconnect(current_user_id, of_item_id, confirm):
     """Apaga o item na Pluggy e arquiva o nosso. `confirm` tem de ser o nome
-    do banco (a guarda dos endpoints destrutivos). Nenhum lancamento muda; os
-    itens pendentes do Aprovar ficam para o dono decidir."""
+    do banco (a guarda dos endpoints destrutivos; sem diferenca de
+    maiusculas/acentos). Nenhum lancamento muda; os itens pendentes do Aprovar
+    ficam para o dono decidir."""
     with get_db() as conn:
         row = fetch_item(conn, current_user_id, of_item_id)
+        expected = item_bank_name(conn, current_user_id, row) if row else None
     if not row:
         raise LookupError("Conexao nao encontrada.")
-    expected = row["connector_name"] or "Open Finance"
-    if str(confirm or "").strip() != expected:
+    if inbox.normalized(str(confirm or "")) != inbox.normalized(expected):
         raise ValidationError(f"Confirme com o nome do banco: {expected}.")
     if is_configured():
         client().delete_item(row["pluggy_item_id"])
@@ -414,9 +473,15 @@ def disconnect(current_user_id, of_item_id, confirm):
 
 def map_account(current_user_id, of_account_id, payload):
     """Liga uma conta da Pluggy a uma conta (BANK) ou a um cartao (CREDIT) do
-    dono; `null` desliga. O que ja foi puxado sem mapeamento entra no Aprovar."""
+    dono; `null` desliga; `{"ignore": true}` e "nao usar" (044: fica puxada,
+    nunca gera nada). O que ja foi puxado sem mapeamento entra no Aprovar (e,
+    com "Gravar sozinho", e gravado)."""
     if not isinstance(payload, dict):
         raise ValidationError("Envie um objeto JSON.")
+    if "ignore" in payload:
+        if not isinstance(payload["ignore"], bool) or set(payload) != {"ignore"}:
+            raise ValidationError("Envie so ignore: true ou false.")
+        return _set_ignored(current_user_id, of_account_id, payload["ignore"])
     with get_db() as conn:
         account = conn.execute(
             """
@@ -431,7 +496,7 @@ def map_account(current_user_id, of_account_id, payload):
         if account["type"] == "BANK":
             target = _target_id(payload, "account_id")
             if target:
-                _require_bank_target(conn, current_user_id, target)
+                _require_bank_target(conn, current_user_id, target, account)
             column, other = "account_id", "card_id"
         else:
             target = _target_id(payload, "card_id")
@@ -452,18 +517,43 @@ def map_account(current_user_id, of_account_id, payload):
                 raise ValidationError("Outra conta do Open Finance ja vai para este destino.")
         conn.execute(
             f"""
-            UPDATE open_finance_accounts SET {column} = ?, {other} = NULL, mapped_at = ?, updated_at = ?
+            UPDATE open_finance_accounts SET {column} = ?, {other} = NULL, mapped_at = ?, ignored_at = NULL,
+                updated_at = ?
             WHERE id = ? AND user_id = ?
             """,
             (target, utc_timestamp() if target else None, utc_timestamp(), of_account_id, current_user_id),
         )
         account = open_finance_inbox.fetch_account(conn, current_user_id, of_account_id)
         placed = []
+        recorded = None
         if target:
             placed = open_finance_inbox.place_unmapped(
                 conn, current_user_id, account, import_rules_for_matching(conn, current_user_id),
             )
-    return {"placed": len(placed)}
+            if open_finance_auto.enabled(conn, current_user_id):
+                recorded = open_finance_auto.record_pending(conn, current_user_id, _today())
+    return {"placed": len(placed), "auto_recorded": recorded}
+
+
+def _set_ignored(current_user_id, of_account_id, ignored):
+    with get_db() as conn:
+        account = conn.execute(
+            """
+            SELECT a.* FROM open_finance_accounts a
+            JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
+            WHERE a.id = ? AND a.user_id = ? AND i.archived_at IS NULL
+            """,
+            (of_account_id, current_user_id),
+        ).fetchone()
+        if not account:
+            raise LookupError("Conta do Open Finance nao encontrada.")
+        if ignored and (account["account_id"] or account["card_id"]):
+            raise ValidationError("Tire o destino desta conta antes de marcar \"não usar\".")
+        conn.execute(
+            "UPDATE open_finance_accounts SET ignored_at = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (utc_timestamp() if ignored else None, utc_timestamp(), of_account_id, current_user_id),
+        )
+    return {"placed": 0, "auto_recorded": None}
 
 
 def _target_id(payload, key):
@@ -477,7 +567,14 @@ def _target_id(payload, key):
     return value
 
 
-def _require_bank_target(conn, current_user_id, account_id):
+def is_investment_account(of_account):
+    """A conta da Pluggy e o caixa da corretora ("BTG Investimentos"): pelo nome
+    ou pelo subtipo."""
+    text = inbox.normalized(f"{of_account['name'] or ''} {of_account['subtype'] or ''}")
+    return any(word in text.split() for word in ("investimentos", "investimento", "investments", "corretora"))
+
+
+def _require_bank_target(conn, current_user_id, account_id, of_account=None):
     row = conn.execute(
         "SELECT * FROM accounts WHERE id = ? AND user_id = ?", (account_id, current_user_id),
     ).fetchone()
@@ -485,9 +582,11 @@ def _require_bank_target(conn, current_user_id, account_id):
         raise ValidationError("Conta nao encontrada.")
     if row["archived_at"]:
         raise ValidationError("Conta esta arquivada.")
-    if row["type"] == "BROKERAGE":
-        # O dinheiro da carteira tem o caminho dele (039): o Open Finance nao entra.
-        raise ValidationError("A Corretora nao recebe movimentos do Open Finance.")
+    if row["type"] == "BROKERAGE" and not (of_account is not None and is_investment_account(of_account)):
+        # O dinheiro da carteira tem o caminho dele (039): so a conta de
+        # investimentos da corretora vai para a Corretora (044), e dela so a
+        # transferencia com o banco vira lancamento.
+        raise ValidationError("A Corretora so recebe a conta de investimentos da corretora.")
     if (row["currency"] or "BRL") != "BRL":
         raise ValidationError("Conta nao e em reais.")
 
@@ -507,8 +606,11 @@ def _require_card_target(conn, current_user_id, card_id):
 def suggest_target(conn, current_user_id, account_row, connector_name):
     """Um palpite para o dono confirmar: no cartao, o final do numero no nome
     do cartao, senao o unico cartao do banco; na conta, a unica conta ativa
-    do banco (campo banco ou nome). Nunca gravado sozinho."""
-    issuer = inbox.issuer_of_institution(connector_name)
+    do banco (campo banco ou nome); a conta de investimentos da corretora, a
+    Corretora. O banco sai do nome da conta da Pluggy ("Cartão BTG BLACK") —
+    no MeuPluggy o conector nao diz o banco —, senao do conector. Nunca
+    gravado sozinho."""
+    issuer = inbox.issuer_of_institution(account_row["name"]) or inbox.issuer_of_institution(connector_name)
     taken_column = "card_id" if account_row["type"] == "CREDIT" else "account_id"
     taken = {
         row[taken_column] for row in conn.execute(
@@ -532,10 +634,13 @@ def suggest_target(conn, current_user_id, account_row, connector_name):
             if len(by_issuer) == 1:
                 return by_issuer[0]["id"]
         return None
+    brokerage = is_investment_account(account_row)
     accounts = [
         row for row in inbox._active_accounts(conn, current_user_id)
-        if row["type"] != "BROKERAGE" and (row["currency"] or "BRL") == "BRL" and row["id"] not in taken
+        if (row["type"] == "BROKERAGE") == brokerage and (row["currency"] or "BRL") == "BRL" and row["id"] not in taken
     ]
+    if brokerage:
+        return accounts[0]["id"] if len(accounts) == 1 else None
     if issuer in inbox.ISSUER_ALIASES:
         aliases = inbox.ISSUER_ALIASES[issuer]
         by_issuer = [row for row in accounts if inbox._mentions(row["institution"], aliases) or inbox._mentions(row["name"], aliases)]
@@ -564,85 +669,66 @@ def _seconds(stamp):
         return 0
 
 
-def _request_update(row, now_seconds):
-    """Pedir dados novos ao banco agora? Nao para um item que espera o dono
-    (a Pluggy recusaria, e repetir gasta o limite), nem menos de 1 h depois do
-    ultimo pedido nosso ou da ultima leitura da Pluggy."""
-    if needs_owner(row):
-        return False
-    for stamp in (row["update_requested_at"], row["pluggy_updated_at"]):
-        if stamp and now_seconds - _seconds(stamp) < MIN_UPDATE_INTERVAL_SECONDS:
-            return False
-    return True
-
-
-def sync_item(current_user_id, of_item_id, request_update=True, wait_seconds=None, today=None):
-    """Um pull completo de um item. Devolve um resumo
-    {status, accounts, counts: {new, merged, ...}, removed}."""
+def sync_item(current_user_id, of_item_id, today=None, history_from=None):
+    """Um pull completo de um item, so com GET: o item, as contas, as
+    transacoes de cada conta e, na corretora, as posicoes e operacoes.
+    `history_from` (AAAA-MM-DD) puxa dessa data em todas as contas (o historico).
+    Devolve {status, counts: {new, merged, ...}, removed, auto_recorded?, investments?}."""
     _require_configured()
-    wait_seconds = OPEN_FINANCE_UPDATE_WAIT_SECONDS if wait_seconds is None else wait_seconds
     lock = _sync_lock(current_user_id)
-    if not lock.acquire(timeout=max(5, wait_seconds + 60)):
+    if not lock.acquire(timeout=120):
         raise ValidationError("Outra atualizacao do Open Finance esta em andamento.")
     try:
-        return _sync_item_locked(current_user_id, of_item_id, request_update, wait_seconds, today or _today())
+        return _sync_item_locked(current_user_id, of_item_id, today or _today(), history_from)
     finally:
         lock.release()
 
 
-def _sync_item_locked(current_user_id, of_item_id, request_update, wait_seconds, today):
+def _record_refusal(current_user_id, of_item_id, exc):
+    """A Pluggy recusou (ou nao respondeu): a mensagem fica no item, que Ajustes
+    mostra, e no log do container (um limite esgotado aparece nos dois)."""
+    logger.warning(
+        "Open Finance: a Pluggy recusou o pull",
+        extra={"user_id": current_user_id, "item": of_item_id, "status": exc.status, "code": exc.code,
+               "error": str(exc)[:300]},
+    )
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE open_finance_items SET last_sync_error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (str(exc)[:300], utc_timestamp(), of_item_id, current_user_id),
+        )
+
+
+def _sync_item_locked(current_user_id, of_item_id, today, history_from):
     with get_db() as conn:
         row = fetch_item(conn, current_user_id, of_item_id)
         if not row:
             raise LookupError("Conexao nao encontrada.")
         row = row_to_dict(row)
         windows = {
-            account["pluggy_account_id"]: _date_from(conn, current_user_id, account, today)
+            account["pluggy_account_id"]: history_from or _date_from(conn, current_user_id, account, today)
             for account in item_accounts(conn, current_user_id, of_item_id)
         }
         with_pending = include_pending(conn, current_user_id)
+        first_days = first_sync_days(conn, current_user_id)
     api = client()
     try:
-        pluggy_item = None
-        if request_update and _request_update(row, time.time()):
-            try:
-                pluggy_item = api.update_item(row["pluggy_item_id"]) or {}
-            except PluggyError as exc:
-                if exc.network or (exc.status or 0) >= 500:
-                    raise
-                # A Pluggy recusou o pedido (intervalo, limite do mes): le o que ja tem.
-                logger.info("Open Finance: pedido de atualizacao recusado", extra={"status": exc.status})
-        if pluggy_item is not None:
-            with get_db() as conn:
-                conn.execute(
-                    "UPDATE open_finance_items SET update_requested_at = ? WHERE id = ? AND user_id = ?",
-                    (utc_timestamp(), of_item_id, current_user_id),
-                )
-            deadline = time.monotonic() + wait_seconds
-            while pluggy_item.get("status") == "UPDATING" and time.monotonic() < deadline:
-                time.sleep(UPDATE_POLL_SECONDS)
-                pluggy_item = api.get_item(row["pluggy_item_id"]) or {}
-            if pluggy_item.get("status") in (None, "UPDATING") and wait_seconds:
-                pluggy_item = api.get_item(row["pluggy_item_id"]) or pluggy_item
-        else:
-            pluggy_item = api.get_item(row["pluggy_item_id"]) or {}
+        pluggy_item = api.get_item(row["pluggy_item_id"]) or {}
         accounts = api.list_accounts(row["pluggy_item_id"])
         pulled = {}
         for raw in accounts:
             if not _account_type(raw) or not raw.get("id"):
                 continue
-            date_from = windows.get(raw["id"]) or _day_text(today - timedelta(days=DEFAULT_FIRST_SYNC_DAYS))
+            date_from = windows.get(raw["id"]) or history_from or _day_text(today - timedelta(days=first_days))
             pulled[raw["id"]] = (date_from, api.list_transactions(raw["id"], date_from))
     except PluggyError as exc:
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE open_finance_items SET last_sync_error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-                (str(exc)[:300], utc_timestamp(), of_item_id, current_user_id),
-            )
+        _record_refusal(current_user_id, of_item_id, exc)
         raise
+    investments = open_finance_investments.fetch(api, row["pluggy_item_id"], logger)
 
     counts = {}
     removed = 0
+    auto = None
     today_text = _day_text(today)
     with get_db() as conn:
         _save_item_status(conn, current_user_id, of_item_id, pluggy_item)
@@ -677,38 +763,214 @@ def _sync_item_locked(current_user_id, of_item_id, request_update, wait_seconds,
                 batch.append((tx["date"], tx["direction"] != "OUT", account, tx))
             seen = {str(raw.get("id")) for raw in transactions if isinstance(raw, dict)}
             removed += open_finance_inbox.vanish_missing(conn, current_user_id, account, seen, date_from, today_text)
-            conn.execute(
-                "UPDATE open_finance_accounts SET synced_until = ? WHERE id = ? AND user_id = ?",
-                (today_text, account["id"], current_user_id),
-            )
+            if not account["synced_until"] or account["synced_until"] < today_text:
+                conn.execute(
+                    "UPDATE open_finance_accounts SET synced_until = ? WHERE id = ? AND user_id = ?",
+                    (today_text, account["id"], current_user_id),
+                )
         # Na ordem do tempo, todas as contas juntas: a saida de uma conta e a
         # entrada na outra se encontram no mesmo pull.
         for _date, _incoming, account, tx in sorted(batch, key=lambda entry: (entry[0], entry[1])):
             status = open_finance_inbox.ingest(conn, current_user_id, account, tx, rules, stamp)
             counts[status] = counts.get(status, 0) + 1
+        if investments is not None:
+            investments = open_finance_investments.apply(conn, current_user_id, of_item_id, investments, today)
+        if open_finance_auto.enabled(conn, current_user_id):
+            auto = open_finance_auto.record_pending(conn, current_user_id, today)
         conn.execute(
             "UPDATE open_finance_items SET last_sync_at = ?, last_sync_error = NULL, updated_at = ? WHERE id = ? AND user_id = ?",
             (stamp, stamp, of_item_id, current_user_id),
         )
+    if open_finance_investments.recorded_any(investments):
+        realized_results.refresh_realized_results(current_user_id)
     logger.info(
         "Open Finance: pull",
         extra={"user_id": current_user_id, "item": of_item_id, "status": pluggy_item.get("status"), **counts,
-               "removed": removed},
+               "removed": removed, "auto_recorded": auto},
     )
-    return {"status": pluggy_item.get("status"), "counts": counts, "removed": removed}
+    result = {"status": pluggy_item.get("status"), "counts": counts, "removed": removed}
+    if auto is not None:
+        result["auto_recorded"] = auto
+    if investments is not None:
+        result["investments"] = investments
+    return result
 
 
-def sync_user(current_user_id, request_update=True):
+def sync_user(current_user_id):
     """Todas as conexoes ativas do usuario; uma que falha nao impede as outras."""
     results = {}
     with get_db() as conn:
         ids = [row["id"] for row in active_items(conn, current_user_id)]
     for of_item_id in ids:
         try:
-            results[of_item_id] = sync_item(current_user_id, of_item_id, request_update=request_update)
+            results[of_item_id] = sync_item(current_user_id, of_item_id)
         except (PluggyError, ValidationError, LookupError) as exc:
             results[of_item_id] = {"error": str(exc)}
     return results
+
+
+# ---------------------------------------------------------------------------
+# Historico: comparar tudo que ja aconteceu, contar, e so gravar confirmado
+# ---------------------------------------------------------------------------
+
+def _parse_history_days(value):
+    if value is None:
+        return DEFAULT_HISTORY_DAYS
+    if isinstance(value, bool):
+        raise ValidationError("Informe os dias do histórico.")
+    try:
+        days = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("Informe os dias do histórico.") from exc
+    if not 1 <= days <= MAX_FIRST_SYNC_DAYS:
+        raise ValidationError(f"O histórico vai de 1 a {MAX_FIRST_SYNC_DAYS} dias.")
+    return days
+
+
+def history_preview(current_user_id, days=None, today=None):
+    """Le (GET) o que a Pluggy tem dos ultimos `days` dias em cada conta mapeada
+    e conta, sem gravar nada: `linked` (ja ligado a um lancamento), `to_link`
+    (um lancamento do app e o mesmo movimento: sera ligado), `to_record` (sera
+    gravado, a revisar; 045: o investimento numa conta de banco tambem),
+    `waiting` (sempre 0 desde 045, mantido para as telas), `covered` (parcela 2..n, pagamento de fatura, caixa da
+    corretora) e `app_only` (lancamentos do app que o banco nao tem: ficam
+    como estao, nunca apagados)."""
+    _require_configured()
+    days = _parse_history_days(days)
+    today = today or _today()
+    history_from = _day_text(today - timedelta(days=days))
+    with get_db() as conn:
+        items = [row_to_dict(row) for row in active_items(conn, current_user_id)]
+        accounts = {
+            row["pluggy_account_id"]: row_to_dict(row)
+            for item in items for row in item_accounts(conn, current_user_id, item["id"])
+            if not row["ignored_at"] and (row["account_id"] or row["card_id"])
+        }
+        with_pending = include_pending(conn, current_user_id)
+    api = client()
+    pulled = {}
+    for pluggy_account_id in accounts:
+        try:
+            pulled[pluggy_account_id] = api.list_transactions(pluggy_account_id, history_from)
+        except PluggyError as exc:
+            logger.warning("Open Finance: historico recusado", extra={"status": exc.status, "error": str(exc)[:300]})
+            raise
+    result = []
+    with get_db() as conn:
+        for pluggy_account_id, account in accounts.items():
+            counts = {"linked": 0, "to_link": 0, "to_record": 0, "waiting": 0, "covered": 0}
+            bank_entries = []
+            claimed = set()
+            for raw in pulled[pluggy_account_id]:
+                try:
+                    tx = open_finance_inbox.normalize_transaction(
+                        raw, account["type"], account["charge_sign"] or 1, include_pending=with_pending,
+                    )
+                except open_finance_inbox.Skip:
+                    continue
+                counts[_preview_status(conn, current_user_id, account, tx, claimed, today)] += 1
+                bank_entries.append(tx)
+            counts["app_only"] = _app_only_count(conn, current_user_id, account, bank_entries, history_from, today)
+            result.append({
+                "id": account["id"],
+                "name": account["name"],
+                "type": account["type"],
+                "bank_name": inbox.open_finance_bank_name(account["name"], None),
+                "target_name": _target_name(conn, current_user_id, account),
+                **counts,
+            })
+    return {"days": days, "from": history_from, "accounts": result}
+
+
+def _target_name(conn, current_user_id, account):
+    if account["account_id"]:
+        row = conn.execute("SELECT name FROM accounts WHERE id = ? AND user_id = ?",
+                           (account["account_id"], current_user_id)).fetchone()
+    else:
+        row = conn.execute("SELECT name FROM credit_cards WHERE id = ? AND user_id = ?",
+                           (account["card_id"], current_user_id)).fetchone()
+    return row["name"] if row else None
+
+
+def _preview_status(conn, current_user_id, account, tx, claimed, today):
+    known = open_finance_inbox.fetch_row(conn, current_user_id, tx["dedup_key"])
+    if known and known["target_id"]:
+        return "linked"
+    if known and known["role"] in ("COVERED", "INVOICE_PAYMENT"):
+        return "covered"
+    if tx["movement"] == "INVOICE_PAYMENT":
+        return "covered"
+    if account["type"] == "CREDIT" and tx["direction"] == "OUT" and (tx["installment_number"] or 1) > 1:
+        return "covered"
+    brokerage = account["type"] == "BANK" and open_finance_inbox.is_brokerage(conn, current_user_id, account["account_id"])
+    if brokerage and tx["movement"] not in ("TRANSFER", "SELF_TRANSFER"):
+        return "covered"
+    entry_type = "CARD" if account["type"] == "CREDIT" else ("EXPENSE" if tx["direction"] == "OUT" else "INCOME")
+    candidates = inbox.existing_rows(
+        conn, current_user_id, entry_type=entry_type, direction=tx["direction"], cents=tx["amount_cents"],
+        date_text=tx["date"], account_id=account["account_id"], card_id=account["card_id"],
+    )
+    for candidate in candidates:
+        key = (candidate["table"], candidate["id"])
+        if key in claimed or open_finance_auto._linked_elsewhere(conn, current_user_id, candidate, ""):
+            continue
+        claimed.add(key)
+        return "to_link"
+    # Uma transferencia entre contas conectadas vira UMA (as duas pontas chegam
+    # no mesmo historico); com terceiros, despesa/receita.
+    return "to_record"
+
+
+def _app_only_count(conn, current_user_id, account, bank_entries, date_from, today):
+    """Os lancamentos do app nesta conta, na janela, que nenhum movimento do
+    banco explica (a mesma regra da Conferencia)."""
+    card = account["type"] == "CREDIT"
+    entries = []
+    for tx in bank_entries:
+        if card and tx["movement"] == "INVOICE_PAYMENT":
+            continue
+        if card and tx["direction"] == "OUT" and (tx["installment_number"] or 1) > 1:
+            continue
+        entries.append({
+            "id": tx["dedup_key"], "date": tx["date"],
+            "cents": -tx["amount_cents"] if tx["direction"] == "OUT" else tx["amount_cents"],
+            "tolerance": (tx["total_installments"] or 1) if card and (tx["total_installments"] or 1) > 1 else 0,
+        })
+    target = account["card_id"] if card else account["account_id"]
+    if card:
+        app = open_finance_check._card_rows(conn, current_user_id, target, date_from, _day_text(today))
+    else:
+        app = open_finance_check._account_rows(conn, current_user_id, target, date_from, _day_text(today))
+    _bank_only, app_only = open_finance_check.match_movements(entries, app)
+    return len(app_only)
+
+
+def history_apply(current_user_id, days=None, confirm=False, today=None):
+    """Aplica o historico: puxa os ultimos `days` dias de cada conexao (GET) e
+    grava/liga o que o preview contou. Pede "Gravar sozinho" ligado e
+    `confirm: true`. Nada digitado pelo dono e apagado; o que so existe no
+    app fica, e a Conferencia o lista."""
+    if confirm is not True:
+        raise ValidationError("Confirme o histórico (confirm: true) depois de ver a prévia.")
+    days = _parse_history_days(days)
+    today = today or _today()
+    with get_db() as conn:
+        if not open_finance_auto.enabled(conn, current_user_id):
+            raise ValidationError("Ligue \"Gravar sozinho\" antes de trazer o histórico.")
+    history_from = _day_text(today - timedelta(days=days))
+    results = {}
+    with get_db() as conn:
+        ids = [row["id"] for row in active_items(conn, current_user_id)]
+    for of_item_id in ids:
+        try:
+            results[of_item_id] = sync_item(current_user_id, of_item_id, today=today, history_from=history_from)
+        except (PluggyError, ValidationError, LookupError) as exc:
+            results[of_item_id] = {"error": str(exc)}
+    with get_db() as conn:
+        # Uma transferencia segurada a espera da outra ponta, de dias atras, ja
+        # pode ser decidida depois de todas as conexoes puxadas.
+        auto = open_finance_auto.record_pending(conn, current_user_id, today)
+    return {"days": days, "from": history_from, "items": results, "auto_recorded": auto}
 
 
 # ---------------------------------------------------------------------------
@@ -740,14 +1002,19 @@ def list_view(current_user_id):
                     "charge_sign": account["charge_sign"],
                     "charge_sign_source": account["charge_sign_source"],
                     "synced_until": account["synced_until"],
+                    "ignored": bool(account["ignored_at"]),
+                    "brokerage": bool(account["account_id"]) and open_finance_inbox.is_brokerage(
+                        conn, current_user_id, account["account_id"],
+                    ),
                     "unmapped_count": conn.execute(
                         "SELECT COUNT(*) FROM open_finance_transactions WHERE user_id = ? AND of_account_id = ? AND role = 'UNMAPPED'",
                         (current_user_id, account["id"]),
                     ).fetchone()[0],
                     "suggested_id": None,
                 }
-                if not account["account_id"] and not account["card_id"]:
+                if not account["account_id"] and not account["card_id"] and not account["ignored_at"]:
                     entry["suggested_id"] = suggest_target(conn, current_user_id, account, row["connector_name"])
+                difference_cents = None
                 if account["account_id"] and account["account_id"] in balances:
                     mine = balances[account["account_id"]]
                     entry["target_name"] = mine["name"]
@@ -756,13 +1023,15 @@ def list_view(current_user_id):
                     entry["app_balance"] = rounded_money(mine["balance"])
                     if account["balance"] is not None:
                         entry["difference"] = rounded_money(account["balance"] - mine["balance"])
+                        difference_cents = int(round(entry["difference"] * 100))
                 elif account["card_id"]:
                     entry["target_name"] = names.get(account["card_id"])
-                entry["check"] = open_finance_check.account_check(conn, current_user_id, account)
+                entry["check"] = open_finance_check.account_check(conn, current_user_id, account, difference_cents)
                 accounts.append(entry)
             items.append({
                 "id": row["id"],
                 "connector_name": row["connector_name"],
+                "bank_name": item_bank_name(conn, current_user_id, row),
                 "status": row["status"],
                 "execution_status": row["execution_status"],
                 "error_code": row["error_code"],
@@ -774,4 +1043,7 @@ def list_view(current_user_id):
                 "accounts": accounts,
             })
         days = first_sync_days(conn, current_user_id)
-    return {"configured": configured, "first_sync_days": days, "items": items}
+        auto_record = open_finance_auto.enabled(conn, current_user_id)
+        portfolio = open_finance_investments.portfolio_check(conn, current_user_id)
+    return {"configured": configured, "first_sync_days": days, "auto_record": auto_record, "items": items,
+            "investments": portfolio}

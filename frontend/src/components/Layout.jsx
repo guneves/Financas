@@ -4,8 +4,9 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { apiFetch } from '../lib/api'
 import { displayName, getCurrentUser, signOut } from '../lib/auth'
 import { useServerReachable } from '../lib/connection'
-import { useInboxCount } from '../lib/inboxCount'
-import { APROVAR_PATH, findSection, sections, SETTINGS_PATH } from '../lib/navigation'
+import { REVIEW_PATH } from '../lib/review'
+import { useReviewQueue } from '../lib/reviewQueue'
+import { findSection, sections, SETTINGS_PATH } from '../lib/navigation'
 import { DataVersionContext, NewEntryContext } from '../lib/newEntry'
 import { useOutbox } from '../lib/outbox'
 import { NEEDS_ATTENTION } from '../lib/outboxRules'
@@ -151,15 +152,15 @@ function PendingPill({ count, attention, reachable, onClick, compact = false }) 
   )
 }
 
-// O que o celular e o banco trouxeram esperando aprovacao (Lancamentos ›
-// Aprovar). Ambar: e algo a decidir. Some quando nao ha nada.
-function InboxPill({ count, compact = false }) {
+// O que o celular e o banco gravaram sozinhos esperando o dono confirmar
+// (045, o painel Revisar do Extrato). Ambar: e algo a fazer. Some sem nada.
+function ReviewPill({ count, compact = false }) {
   if (!count) return null
-  const label = `${count} para aprovar`
+  const label = `${count} para revisar`
   return (
     <NavLink
-      to={APROVAR_PATH}
-      title="Movimentos do celular e do banco esperando sua aprovação"
+      to={REVIEW_PATH}
+      title="Lançamentos gravados sozinhos esperando você confirmar"
       aria-label={label}
       className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
     >
@@ -281,8 +282,8 @@ export default function Layout() {
   const closeInvestment = useCallback(() => setInvestmentOpen(false), [])
 
   const newEntryValue = useMemo(() => ({ openNewEntry }), [openNewEntry])
-  const inboxCount = useInboxCount()
-  const tabCounts = useMemo(() => ({ inbox: inboxCount }), [inboxCount])
+  const reviewCount = useReviewQueue().count
+  const tabCounts = useMemo(() => ({ review: reviewCount }), [reviewCount])
 
   const name = displayName(user)
   const initials = name
@@ -312,7 +313,7 @@ export default function Layout() {
               ))}
             </nav>
             <div className="flex-1" />
-            <InboxPill count={inboxCount} />
+            <ReviewPill count={reviewCount} />
             <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} />
             <AttentionBell />
             <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />
@@ -333,7 +334,7 @@ export default function Layout() {
           <div className="flex h-16 items-center justify-between gap-2 px-4">
             <BrandMark />
             <div className="flex items-center gap-2">
-              <InboxPill count={inboxCount} compact />
+              <ReviewPill count={reviewCount} compact />
               <PendingPill count={pending.length} attention={pendingAttention} reachable={reachable} onClick={openPending} compact />
               <AttentionBell />
               <PrivacyToggle hidden={valuesHidden} onToggle={toggleValuesHidden} />

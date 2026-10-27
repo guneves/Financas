@@ -9,6 +9,33 @@
 | Endpoints | `GET /api/transactions` (+ filters), `PATCH /api/transactions/<id>`, `DELETE /api/transactions/<id>`, `GET /api/transactions/export`, `DELETE /api/cc-expenses/payments/<id>`, `DELETE /api/investments/<id>`, `GET /api/accounts?include_archived=1`, `GET /api/categories`, `GET /api/credit-cards`, `GET /api/cc-expenses?status=OPEN`, `GET/POST /api/transactions/<id>/attachments`, `GET /api/transactions/<id>/attachments/<aid>/file`, `DELETE /api/transactions/<id>/attachments/<aid>`, `GET /api/exports/columns`, `GET /api/inbox/count`, `GET /api/investments?order=created_at&ascending=false`, `GET /api/investment-proceeds`, `POST /api/investment-proceeds/sync` |
 | Client rules | `lib/transactions.js` (`consolidatedBalance()`, `isInvestmentOutflow()`, `isInvestmentInflow()`, `INVESTMENT_SOURCE_TYPES`, `cardSignedAmount()`, `activeAccounts()`), `lib/outboxRules.js` (`pendingAsTransactions()`, `applyPendingToAccounts()`), `lib/sharing.js` (`shareSummary()`, `shareFormFrom()`, `shareFormError()`, `sharePayload()`), `lib/investmentStatement.js`, `lib/inboxRules.js` (`pendingNoticeText()`), `lib/monthlyPlan.js` (`parseMoneyInput()`), inline rules in `Extrato.jsx` and `useLancamentos.js` |
 
+## Revisar and card purchases (045, built 2026-10-27)
+- **Revisar** (`ui/extrato/ReviewSection.kt`, rules `rules/ReviewRules.kt`, port of `lib/review.js`):
+  at the top of Contas, from `GET /api/review`. One row per item: description (+ "Cartão" badge for a
+  card purchase), "dd/mm/aaaa · <place>" (`reviewPlace()`), signed amount (`reviewSign()`, not masked
+  by privacy, like the rows), a category picker (suggestion pre-filled; expense categories for
+  out/CARD, income for in/REFUND; the suggestion kept on top when it is not an option; none for a
+  transfer: "Transferência") and a full-width "É meu" (`POST /api/review` with that item). "Confirmar
+  todos (N)" sends all with the categories on screen (`reviewPayload()`: `category_id` only when
+  changed). First 5, "Mostrar todos (N)" / "Mostrar menos". Success: the row leaves, toast
+  "Confirmado." / "N lançamentos confirmados.", the queue, list and shell pill re-read.
+- **Não gravou sozinho**: when `waiting > 0`, the pending inbox items (`GET /api/inbox?view=pending`):
+  title, "when · origem → ?", the reason (`needText()`), and what the phone can fix — "De qual conta
+  saiu?" / "Para qual conta foi?" (active accounts minus the known side), "Valor em reais (R$)" —
+  then "Gravar" (`POST /api/inbox/<id>/approve` `{version, remember: false, …}`); a one-sided transfer
+  also offers "Não é entre minhas contas: despesa/receita" (`entry_type`); "Descartar" (deny, with a
+  confirm). Needs the phone does not ask (card, crédito/débito) say to turn Gravar sozinho on or use
+  the computer. A 409 shows the conflict text and re-reads.
+- **Card purchases** in the timeline: `GET /api/cc-expenses/statement` with the same filters, merged
+  by `mergeStatement()` (newest first; same day, later `created_at` first; with more pages only down
+  to the oldest loaded date). Tag "Cartão" / "Estorno" + " · Nx", amount − / + (refund green), second
+  line category · card name, no menu; tap opens Cartões. Never in the day total: a day with only card
+  rows shows none (`StatementDay.hasTotal`).
+- **"A revisar"** amber badge on rows with `needs_review`; filter "Revisão" (Todos / Só a revisar,
+  `review=1`, sent to both endpoints); the Extrato tab reads "Extrato · N"; review mode (the pill,
+  `/lancamentos/extrato?review=1`, the old Aprovar links) = Contas with that filter and the panel open.
+- The "N movimentos esperam aprovação · Aprovar" banner is gone.
+
 ## What it is for
 The list of every lançamento in the accounts, newest first, grouped by day: the owner checks what went out,
 searches a merchant, fixes a wrong amount or category, attaches a receipt, undoes an invoice payment. A

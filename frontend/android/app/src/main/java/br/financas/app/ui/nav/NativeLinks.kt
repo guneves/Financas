@@ -13,6 +13,9 @@ object NativeLinks {
      */
     data class Target(val route: String, val view: String? = null)
 
+    /** A vista do Extrato que abre no Revisar com o filtro "Só a revisar" (o ?review=1 da web). */
+    const val VIEW_REVIEW = "revisar"
+
     /** As secoes de Ajustes do celular; Regras de importação e Integrações sao so do computador. */
     val NATIVE_SETTINGS_SECTIONS = listOf("contas", "cartoes", "categorias", "aprovar", "open-finance", "aparencia", "perfil", "notificacoes", "versao")
 
@@ -23,10 +26,13 @@ object NativeLinks {
         val params = query.split('&').filter { it.isNotEmpty() }.associate { it.substringBefore('=') to it.substringAfter('=', "") }
         return when (path) {
             "/inicio", "/dashboard", "" -> Target(NativeRoutes.HOME)
-            "/lancamentos", "/lancamentos/extrato" ->
-                Target(NativeRoutes.EXTRATO, params["ver"]?.takeIf { it == "contas" || it == "investimentos" })
+            "/lancamentos", "/lancamentos/extrato" -> Target(
+                NativeRoutes.EXTRATO,
+                if (params["review"] == "1") VIEW_REVIEW else params["ver"]?.takeIf { it == "contas" || it == "investimentos" },
+            )
             "/lancamentos/cartoes" -> Target(NativeRoutes.CARTOES)
-            "/lancamentos/aprovar", "/aprovar" -> Target(NativeRoutes.INBOX)
+            // Aprovar saiu do celular (045): o que esperava se resolve no Revisar do Extrato.
+            "/lancamentos/aprovar", "/aprovar" -> Target(NativeRoutes.EXTRATO, VIEW_REVIEW)
             "/lancamentos/a-receber" -> Target(NativeRoutes.A_RECEBER)
             "/planejamento", "/planejamento/orcamento", "/orcamento" -> Target(NativeRoutes.ORCAMENTO)
             "/planejamento/recorrentes", "/recorrentes" -> Target(NativeRoutes.RECORRENTES)

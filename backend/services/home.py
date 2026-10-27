@@ -24,6 +24,7 @@ inteiros, sem erro de ponto flutuante. `local_today()` e lido por nome aqui.
 from decimal import Decimal
 
 from money import rounded_money
+from services import auto_record, review
 from services.accounts import account_balance_rows, ensure_default_account, serialize_account
 from services.card_invoices import invoice_summary, next_invoices, open_invoices
 from services.fx import with_balance_in_brl
@@ -203,8 +204,10 @@ def parse_months(raw):
 
 def prepare_reads(conn, current_user_id, today):
     """O que as leituras substituidas faziam antes de ler: a conta padrao, o
-    debito automatico vencido e os proventos pagos."""
+    debito automatico vencido, os proventos pagos e o que esperava o prazo
+    para gravar sozinho (045: o Samsung sem o banco, a transferencia sem par)."""
     ensure_default_account(conn, current_user_id)
+    auto_record.record_due(conn, current_user_id, today=today)
     apply_due_autopay(conn, current_user_id, today=today)
     apply_paid_proceeds(conn, current_user_id)
 
@@ -262,6 +265,8 @@ def build_home(conn, current_user_id, months=1):
         "today": today.strftime("%Y-%m-%d"),
         "month": current,
         "consolidated_balance": balance,
+        # Gravados sozinhos que esperam o dono dizer "e meu" e a categoria (045).
+        "review_count": review.count(conn, current_user_id),
         "projections": balance_projections(balance, invoices, today),
         "accounts": accounts,
         "summary": {

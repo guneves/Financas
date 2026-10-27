@@ -30,6 +30,8 @@ data class InboxSource(
     val counterparty: String? = null,
     // Open Finance (043): o banco, a conta, a descricao do banco, a parcela.
     val connectorName: String? = null,
+    /** O banco da conta (044): no MeuPluggy o conector e "MeuPluggy" para todos. */
+    val bankName: String? = null,
     val accountName: String? = null,
     val description: String? = null,
     val installmentNumber: Int? = null,
@@ -180,7 +182,8 @@ object InboxRules {
     /** Uma transacao do Open Finance (043): o banco, a conta, a descricao do banco,
      *  a parcela; "saiu do banco" quando a Pluggy a desfez antes da aprovacao. */
     private fun openFinanceSourceLabel(source: InboxSource): String {
-        val bank = if (!source.connectorName.isNullOrEmpty()) "Open Finance ${source.connectorName}" else "Open Finance"
+        val name = source.bankName.orEmpty().ifEmpty { source.connectorName.orEmpty() }
+        val bank = if (name.isNotEmpty()) "Open Finance $name" else "Open Finance"
         val total = source.totalInstallments ?: 0
         val installment = if (source.installmentNumber != null && total > 1) "parcela ${source.installmentNumber}/$total" else ""
         return listOf(

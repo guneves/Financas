@@ -1,5 +1,13 @@
 # Aprovar — native spec
 
+> **Removed from the phone (2026-10-27, migration 045).** A notification becomes a lançamento by
+> itself; the owner confirms "é meu" and the category in **Extrato › Revisar** (`04-extrato.md`).
+> What cannot be recorded alone (an own transfer with one side, another currency, everything with
+> Gravar sozinho off) is listed in the same place under "Não gravou sozinho". `ui/inbox/`, the
+> `inbox` route, the Aprovar tab and the "Novo para aprovar" notification are gone; the links
+> `/lancamentos/aprovar` and `/aprovar` open the Extrato in review mode. The text below describes the
+> web page (still reachable in the browser) and the removed native screen, for history.
+
 | | |
 |---|---|
 | Migration order | 2 (see `../migration-order.md`) |

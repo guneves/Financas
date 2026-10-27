@@ -25,6 +25,7 @@ from services.accounts import (
     resolve_category,
 )
 from services.fx import normalize_currency
+from services import auto_record
 from services.attachments import remove_attachment_files
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
@@ -79,6 +80,7 @@ def transaction_filter_clause(conn, current_user_id, args):
       carregam o nome (texto livre ou anteriores a 008) casam pelo nome
     - q: texto livre em descricao e categoria
     - min_amount / max_amount: faixa de valor, inclusiva
+    - review=1: so o gravado sozinho que espera a revisao (045)
     """
     clauses = ["user_id = ?"]
     params = [current_user_id]
@@ -145,6 +147,9 @@ def transaction_filter_clause(conn, current_user_id, args):
         clauses.append("amount <= ?")
         params.append(rounded_money(max_amount))
 
+    if str(args.get("review") or "") in ("1", "true"):
+        clauses.append("needs_review = 1")
+
     return " AND ".join(clauses), params
 
 
@@ -155,6 +160,7 @@ def transactions(current_user_id):
         with get_db() as conn:
             apply_due_autopay(conn, current_user_id)
             apply_paid_proceeds(conn, current_user_id)
+            auto_record.record_due(conn, current_user_id)
             try:
                 where, params = transaction_filter_clause(conn, current_user_id, request.args)
                 page_args = parse_page_args(request.args)

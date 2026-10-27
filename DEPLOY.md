@@ -189,13 +189,16 @@ response; the browser only ever gets a 30-minute connect token. With either empt
 is off and Ajustes › Open Finance says so; the healthcheck (Ajustes › Integrações) shows "Pluggy"
 as not configured.
 
-**Plan limits (free plan, 2026-10-27).** One CPF — the owner's. If Pluggy refuses a connection
-(another CPF, the limit reached), its message shows in Ajustes and nothing retries. Pluggy also
-refuses a second update request on an item within 1 hour, and each request spends the bank's
-monthly request quota for the CPF (once spent, updates resume next month). So:
-`OPEN_FINANCE_SYNC_SECONDS` (default 21600 = 4 a day; `0` turns the thread off for everyone), each
-user's "Busca automática" in Ajustes › Open Finance (0 or 1–24 h; unset = the server's value), and an item
-waiting for the owner (new password, a code, a consent) is never asked again until reconnected.
+**Plan limits (free plan via MeuPluggy, 2026-10-27).** One CPF — the owner's. If Pluggy refuses a
+connection (another CPF, the limit reached), its message shows in Ajustes and nothing retries. Asking
+the bank for new data (`PATCH /items`) spends the CPF's monthly request quota, and once spent the
+account is blocked until next month, so **the app never asks** (044): it only reads (GET) what
+Pluggy already gathered — Pluggy refreshes each bank by itself every 6–24 h. `pluggy_client.call()`
+refuses PATCH outright. `OPEN_FINANCE_SYNC_SECONDS` (default 21600 = every 6 h; `0` turns the
+thread off for everyone) and each user's "Busca automática" in Ajustes › Open Finance (0 or 6–24 h;
+an older value below 6 is read as 6). A Pluggy refusal is kept in the item's `last_sync_error`
+(shown in Ajustes) and logged as `Open Finance: a Pluggy recusou o pull` (status, code) in
+`docker compose logs`.
 
 **No webhooks.** The server is tailnet-only, so Pluggy cannot call it: the app pulls, on
 "Atualizar" and in the background thread. Each pull reads from the last pull minus 7 days (the
@@ -204,14 +207,27 @@ first one: Ajustes' "Primeira busca", 30 days by default); every transaction is 
 
 **Connect a bank** (web only, Ajustes › Open Finance): "Conectar banco" opens the Pluggy Connect
 widget (`pluggy-connect-sdk`, pinned); log in to the bank there. Then, for each account it lists,
-pick where it goes: a bank account to one of your accounts (never the Corretora), a card to a card
-with credit. A suggestion by bank or card final shows a "Confirmar" button; nothing is mapped
-silently, and an unmapped account produces nothing (its movements wait, counted, until mapped).
+pick where it goes: a bank account to one of your accounts, a card to a card with credit, the
+broker's investments account ("BTG Investimentos") to the Corretora, or "Não usar" (an account with
+no movements of yours). A suggestion by the account's bank name or card final shows a "Confirmar"
+button (with MeuPluggy the connector is "MeuPluggy" for every bank, so the account name decides);
+nothing is mapped silently, and an unmapped account produces nothing (its movements wait, counted,
+until mapped).
+
+**Gravar sozinho** (044, Ajustes › Open Finance): turns on only when every account of every
+connection has a destination or "Não usar" and every connection was pulled in the last 48 h. On, a
+pulled movement becomes a lançamento without Aprovar (what already waited there from Pluggy is
+recorded at once); Aprovar keeps Flash and what only the owner decides (a transfer whose other side
+never came, an investment on a bank account). **Ignorar avisos dos bancos conectados** drops phone
+notifications of connected banks (Flash still goes to Aprovar). **Histórico**: "Ver prévia" counts,
+per account, what the last N days would link/record and what is only in the app; "Trazer o
+histórico" applies it (needs Gravar sozinho). Nothing typed by the owner is deleted.
 The first real connection is the owner's check after the deploy — see `docs/handoff.md`.
 
 **Reconnect** (password changed, MFA): "⋯ › Reconectar" opens the widget on the same item.
 
-**Disconnect**: "⋯ › Desconectar" (confirm). It deletes the item at Pluggy and archives ours.
+**Disconnect**: "⋯ › Desconectar" (confirm; the API asks for the bank's name, e.g. "BTG Pactual",
+not "MeuPluggy"). It deletes the item at Pluggy and archives ours.
 Approved lançamentos stay; items still pending in Aprovar stay for you to decide.
 
 **Troubleshooting.** The item's status and Pluggy's error message are in Ajustes; the last failure

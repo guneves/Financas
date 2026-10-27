@@ -31,6 +31,7 @@ data class InboxSourceDto(
     @SerialName("counterparty_bank") val counterpartyBank: String? = null,
     // Open Finance (043).
     @SerialName("connector_name") val connectorName: String? = null,
+    @SerialName("bank_name") val bankName: String? = null,
     @SerialName("account_name") val accountName: String? = null,
     val description: String? = null,
     @SerialName("installment_number") val installmentNumber: Int? = null,
@@ -50,6 +51,7 @@ data class InboxSourceDto(
             cardName = cardName,
             counterparty = counterparty,
             connectorName = connectorName,
+            bankName = bankName,
             accountName = accountName,
             description = description,
             installmentNumber = installmentNumber,
@@ -243,6 +245,12 @@ data class InboxHintDto(
         )
 }
 
-/** GET/PATCH /api/inbox/settings: "Sempre perguntar a conta/cartão". */
+/**
+ * GET/PATCH /api/inbox/settings: "Gravar sozinho" (045, ligado sem escolha; um servidor antigo nao
+ * manda e vale ligado, como na web) e "Sempre perguntar a conta/cartão".
+ */
 @Serializable
-data class InboxSettingsDto(@SerialName("always_ask") val alwaysAsk: Flag = false)
+data class InboxSettingsDto(
+    @SerialName("always_ask") val alwaysAsk: Flag = false,
+    @SerialName("auto_record") val autoRecord: Flag = true,
+)

@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
@@ -58,6 +59,7 @@ import br.financas.app.R
 import br.financas.app.data.AppGraph
 import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.Session
+import br.financas.app.rules.ReviewRules
 import br.financas.app.ui.ajustes.AjustesScreen
 import br.financas.app.ui.ajustes.AjustesViewModel
 import br.financas.app.ui.areceber.AReceberScreen
@@ -70,9 +72,6 @@ import br.financas.app.ui.extrato.ExtratoScreen
 import br.financas.app.ui.extrato.ExtratoViewModel
 import br.financas.app.ui.home.HomeScreen
 import br.financas.app.ui.home.HomeViewModel
-import br.financas.app.ui.inbox.InboxNotifier
-import br.financas.app.ui.inbox.InboxScreen
-import br.financas.app.ui.inbox.InboxViewModel
 import br.financas.app.ui.investimentos.AlocacaoScreen
 import br.financas.app.ui.investimentos.AlocacaoViewModel
 import br.financas.app.ui.investimentos.CalculadoraScreen
@@ -102,14 +101,13 @@ import br.financas.app.ui.recorrentes.RecorrentesViewModel
 import br.financas.app.ui.theme.FinancasTheme
 import br.financas.app.ui.theme.LocalPalette
 import br.financas.app.ui.theme.ShellPrefs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** As rotas do NavHost da casca. */
 object NativeRoutes {
     /** Entrar (ui/login/): a primeira pagina sem sessao, e para onde um 401 leva. */
     const val LOGIN = "login"
-
-    /** Lancamentos › Aprovar (ui/inbox/). */
-    const val INBOX = "inbox"
 
     /** Inicio e o sino (ui/home/): a pagina de partida; voltar nela manda o app para o fundo. */
     const val HOME = "home"
@@ -144,28 +142,23 @@ object NativeRoutes {
     val INVESTMENTS: List<String> = listOf(POSICAO, OPERACOES, PROVENTOS, RENTABILIDADE, ALOCACAO, IR, CALCULADORA)
 
     /** As paginas com sessao (o login fica de fora: nenhuma intent abre direto nele). */
-    val ALL: List<String> = listOf(INBOX, HOME, EXTRATO, CARTOES, A_RECEBER, ORCAMENTO, RECORRENTES, METAS, AJUSTES) + INVESTMENTS
+    val ALL: List<String> = listOf(HOME, EXTRATO, CARTOES, A_RECEBER, ORCAMENTO, RECORRENTES, METAS, AJUSTES) + INVESTMENTS
 }
 
 /**
  * O app (00-shell.md): a casca nativa. Sem sessao abre no login; com ela, no Inicio. Em volta de
  * todas as paginas: a barra de baixo (as quatro secoes e Ajustes), o "+" do "+ Novo", a folha
  * Pendentes e o aviso do APK novo. Um 401 apaga a sessao (AppGraph) e volta ao login. Aberta pelo
- * icone (o alias .MainActivity) e pelas notificacoes (Aprovar: a pagina e o item a mostrar).
+ * icone (o alias .MainActivity) e por uma intent com a pagina (e a vista) a mostrar. A tela
+ * Aprovar saiu do celular (045): o aviso vira lancamento sozinho e o dono revisa no Extrato.
  */
 class NativeActivity : ComponentActivity() {
 
-    /** O item que a notificacao pediu (Aprovar rola ate ele); null depois de usado. */
-    private var focusItem by mutableStateOf<String?>(null)
-
-    /** Uma pagina pedida por uma intent (a notificacao de Aprovar); null depois de usada. */
+    /** Uma pagina pedida por uma intent; null depois de usada. */
     private var routeRequest by mutableStateOf<String?>(null)
 
     /** A vista do Extrato (ou a secao de Ajustes) pedida junto; null depois de usada. */
     private var viewRequest by mutableStateOf<String?>(null)
-
-    /** A pagina na frente (para o aviso de Aprovar); null antes da primeira. */
-    private var visibleRoute: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -177,23 +170,20 @@ class NativeActivity : ComponentActivity() {
         // Pendentes de uma sessao anterior (o app foi atualizado ou morto no meio).
         Outbox.resume(this)
         askNotificationPermission()
+        forgetInboxNotification()
         val signedIn = Session.load(this) != null
         if (savedInstanceState == null) {
             routeRequest = intent.getStringExtra(EXTRA_ROUTE)?.takeIf { it in NativeRoutes.ALL && it != NativeRoutes.HOME }
-            focusItem = intent.getStringExtra(EXTRA_ITEM)?.takeIf { it.isNotEmpty() }
             viewRequest = intent.getStringExtra(EXTRA_VIEW)?.takeIf { it.isNotEmpty() }
         }
         setContent {
             FinancasTheme(dark = dark) {
                 AppShell(
                     start = if (signedIn) NativeRoutes.HOME else NativeRoutes.LOGIN,
-                    focusItem = focusItem,
-                    onFocusConsumed = { focusItem = null },
                     routeRequest = routeRequest,
                     onRouteConsumed = { routeRequest = null },
                     viewRequest = viewRequest,
                     onViewConsumed = { viewRequest = null },
-                    onRouteShown = ::onRouteShown,
                     onMinimize = { moveTaskToBack(true) },
                     onNewEntry = ::openNewEntry,
                     onFixPending = ::openPendingFix,
@@ -206,22 +196,19 @@ class NativeActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.getStringExtra(EXTRA_ROUTE)?.takeIf { it in NativeRoutes.ALL }?.let { routeRequest = it }
-        intent.getStringExtra(EXTRA_ITEM)?.takeIf { it.isNotEmpty() }?.let { focusItem = it }
         intent.getStringExtra(EXTRA_VIEW)?.takeIf { it.isNotEmpty() }?.let { viewRequest = it }
     }
 
-    override fun onResume() {
-        super.onResume()
-        // Aprovar esta aberta: o "Novo para aprovar" ja foi visto.
-        if (visibleRoute == NativeRoutes.INBOX) InboxNotifier.cancel(this)
+    // O "Novo para aprovar" das versoes com a tela Aprovar: o aviso que ficou na barra e o canal
+    // dele saem (a notificacao do banco ja vira lancamento sozinha).
+    private fun forgetInboxNotification() {
+        NotificationManagerCompat.from(this).cancel(OLD_INBOX_NOTIFICATION_ID)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManagerCompat.from(this).deleteNotificationChannel(OLD_INBOX_CHANNEL)
+        }
     }
 
-    private fun onRouteShown(route: String?) {
-        visibleRoute = route
-        if (route == NativeRoutes.INBOX) InboxNotifier.cancel(this)
-    }
-
-    // Android 13+: sem esta permissao os avisos (Aprovar, "Sessão expirada") nao aparecem. Pedida
+    // Android 13+: sem esta permissao os avisos ("Sessão expirada") nao aparecem. Pedida
     // uma vez; recusada, o app segue sem eles.
     private fun askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -247,20 +234,22 @@ class NativeActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_ROUTE = "br.financas.app.nav.ROUTE"
-        const val EXTRA_ITEM = "br.financas.app.nav.ITEM"
         const val EXTRA_VIEW = "br.financas.app.nav.VIEW"
         private const val NOTIFICATION_PERMISSION_REQUEST = 1001
 
+        // O canal e o id do "Novo para aprovar" (o InboxNotifier que saiu com a tela Aprovar).
+        private const val OLD_INBOX_CHANNEL = "financas_inbox"
+        private const val OLD_INBOX_NOTIFICATION_ID = 4020
+
         /**
-         * [route]: uma de [NativeRoutes]; [itemId]: o item de Aprovar a mostrar (da notificacao);
-         * [view]: a vista do Extrato (contas | investimentos) ou a secao de Ajustes.
+         * [route]: uma de [NativeRoutes]; [view]: a vista do Extrato (contas | investimentos |
+         * revisar) ou a secao de Ajustes.
          */
         @JvmStatic
         @JvmOverloads
-        fun intent(context: Context, route: String, itemId: String? = null, view: String? = null): Intent =
+        fun intent(context: Context, route: String, view: String? = null): Intent =
             Intent(context, NativeActivity::class.java)
                 .putExtra(EXTRA_ROUTE, route)
-                .putExtra(EXTRA_ITEM, itemId.orEmpty())
                 .putExtra(EXTRA_VIEW, view.orEmpty())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
@@ -304,6 +293,9 @@ private fun NavHostController.openSection(section: ShellNav.Section) {
 
 private const val PAGE_FADE_MS = 120
 
+/** A cada quanto a pilula de revisar se rele com o app na frente (o refetchInterval da web). */
+private const val REVIEW_REFRESH_MS = 60_000L
+
 /** Sem sessao: o login, e nada por baixo dele. */
 private fun NavHostController.toLogin() {
     navigate(NativeRoutes.LOGIN) {
@@ -315,13 +307,10 @@ private fun NavHostController.toLogin() {
 @Composable
 private fun AppShell(
     start: String,
-    focusItem: String?,
-    onFocusConsumed: () -> Unit,
     routeRequest: String?,
     onRouteConsumed: () -> Unit,
     viewRequest: String?,
     onViewConsumed: () -> Unit,
-    onRouteShown: (String?) -> Unit,
     onMinimize: () -> Unit,
     onNewEntry: (String) -> Unit,
     onFixPending: (String) -> Unit,
@@ -367,11 +356,18 @@ private fun AppShell(
         onDispose { ShellEvents.clearListener(listener) }
     }
 
-    // A fila, a rede e o APK novo de novo a cada volta para a frente.
+    // A fila, a rede e o APK novo de novo a cada volta para a frente; a revisao tambem a cada
+    // minuto com o app na frente (o refetchInterval da web): o aviso do banco grava sozinho.
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             shell.refresh()
             shell.checkApk()
+            launch {
+                while (true) {
+                    delay(REVIEW_REFRESH_MS)
+                    shell.refreshReview()
+                }
+            }
         }
     }
 
@@ -379,10 +375,6 @@ private fun AppShell(
         shell.notices.collect { notice ->
             snackbar.showSnackbar(notice.message, duration = if (notice.long) SnackbarDuration.Long else SnackbarDuration.Short)
         }
-    }
-
-    LaunchedEffect(nav) {
-        nav.currentBackStackEntryFlow.collect { current -> onRouteShown(current.destination.route) }
     }
 
     // Um 401 (a sessao foi apagada pelo AppGraph): de volta ao login, com a fila guardada.
@@ -394,7 +386,7 @@ private fun AppShell(
         }
     }
 
-    // Uma intent pediu uma pagina (a notificacao de Aprovar): entra por cima do Inicio.
+    // Uma intent pediu uma pagina: entra por cima do Inicio.
     LaunchedEffect(routeRequest, route) {
         val requested = routeRequest ?: return@LaunchedEffect
         if (route == null || route == NativeRoutes.LOGIN) return@LaunchedEffect
@@ -416,7 +408,6 @@ private fun AppShell(
             when (tab) {
                 LancamentosTab.EXTRATO -> NativeRoutes.EXTRATO
                 LancamentosTab.CARTOES -> NativeRoutes.CARTOES
-                LancamentosTab.APROVAR -> NativeRoutes.INBOX
                 LancamentosTab.A_RECEBER -> NativeRoutes.A_RECEBER
             },
         )
@@ -451,6 +442,8 @@ private fun AppShell(
         attention = shell.attention,
         offline = shell.offline,
         onOpenPending = shell::openPending,
+        reviewCount = shell.reviewCount,
+        onOpenReview = { openLink(ReviewRules.REVIEW_PATH) },
     )
     val section = ShellNav.sectionOf(route)
     val palette = LocalPalette.current
@@ -479,29 +472,15 @@ private fun AppShell(
                     }
                     composable(NativeRoutes.HOME) {
                         val home: HomeViewModel = viewModel()
-                        HomeScreen(
-                            viewModel = home,
-                            onOpenWeb = openLink,
-                            onOpenInbox = { nav.openTab(NativeRoutes.INBOX) },
-                        )
-                    }
-                    composable(NativeRoutes.INBOX) {
-                        val inbox: InboxViewModel = viewModel()
-                        LaunchedEffect(focusItem) {
-                            if (focusItem != null) {
-                                inbox.focus(focusItem)
-                                onFocusConsumed()
-                            }
-                        }
-                        // Voltar (a seta e o do sistema) leva ao Extrato, nao ao que esta por baixo.
-                        val toExtrato: () -> Unit = { nav.openTab(ShellNav.backTarget(NativeRoutes.INBOX) ?: NativeRoutes.EXTRATO) }
-                        BackHandler(onBack = toExtrato)
-                        InboxScreen(viewModel = inbox, onBack = toExtrato)
+                        HomeScreen(viewModel = home, onOpenWeb = openLink)
                     }
                     composable(NativeRoutes.EXTRATO) {
                         val extrato: ExtratoViewModel = viewModel()
-                        LaunchedEffect(viewRequest) {
-                            val requested = viewRequest ?: ExtratoPendingView.value
+                        // A vista pedida pela intent ou por um link (a pilula de revisar, com o
+                        // Extrato ja aberto inclusive).
+                        val pendingView = ExtratoPendingView.value
+                        LaunchedEffect(viewRequest, pendingView) {
+                            val requested = viewRequest ?: pendingView
                             if (requested != null) {
                                 extrato.requestView(requested)
                                 ExtratoPendingView.value = null
@@ -605,7 +584,10 @@ internal object AjustesPendingSection {
     var value: String? = null
 }
 
-/** A vista do Extrato pedida por um link ("/lancamentos/extrato?ver=..."), lida ao abrir. */
+/**
+ * A vista do Extrato pedida por um link ("/lancamentos/extrato?ver=...", "?review=1"), lida ao
+ * abrir; estado de Compose, para o Extrato ja aberto tambem atender.
+ */
 internal object ExtratoPendingView {
-    var value: String? = null
+    var value: String? by mutableStateOf(null)
 }

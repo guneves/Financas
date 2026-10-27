@@ -14,6 +14,15 @@ import {
   syncHoursLabel,
   syncHoursChoices,
   checkSummary,
+  itemBankName,
+  isInvestmentAccount,
+  IGNORE_CHOICE,
+  checkReasonLabel,
+  balanceExplanation,
+  autoRecordHint,
+  historyLine,
+  portfolioSummary,
+  heldReasonLabel,
 } from './openFinance.js'
 
 test('item status in Portuguese with the badge tone', () => {
@@ -49,6 +58,17 @@ test('a bank account maps to an active BRL account, never the Corretora nor one 
   assert.deepEqual(mappingChoices(account, { accounts, items }).map((choice) => choice.value), ['a'])
 })
 
+test('the broker investments account maps only to the Corretora', () => {
+  const accounts = [
+    { id: 'a', name: 'BTG conta corrente', type: 'CHECKING' },
+    { id: 'b', name: 'BTG Corretora', type: 'BROKERAGE' },
+  ]
+  assert.deepEqual(mappingChoices({ id: 'x', type: 'BANK', name: 'BTG Investimentos' }, { accounts }).map((c) => c.value), ['b'])
+  assert.deepEqual(mappingChoices({ id: 'x', type: 'BANK', name: 'BTG Banking' }, { accounts }).map((c) => c.value), ['a'])
+  assert.equal(isInvestmentAccount({ name: 'Conta Investimento' }), true)
+  assert.equal(isInvestmentAccount({ name: 'Itaú Unibanco Conta' }), false)
+})
+
 test('a card maps only to a card with credit', () => {
   const cards = [
     { id: 'k1', name: 'Visa', credit_enabled: 1 },
@@ -62,6 +82,17 @@ test('the mapping payload uses the field of the account type', () => {
   assert.deepEqual(mappingPayload({ type: 'CREDIT' }, 'k1'), { card_id: 'k1' })
   assert.deepEqual(mappingPayload({ type: 'BANK' }, ''), { account_id: null })
   assert.equal(mappedId({ type: 'CREDIT', card_id: 'k1', account_id: 'a' }), 'k1')
+})
+
+test('"não usar" is its own choice', () => {
+  assert.deepEqual(mappingPayload({ type: 'CREDIT' }, IGNORE_CHOICE), { ignore: true })
+  assert.equal(mappedId({ type: 'CREDIT', ignored: true }), IGNORE_CHOICE)
+})
+
+test('the bank of a MeuPluggy connection is its accounts', () => {
+  assert.equal(itemBankName({ bank_name: 'BTG Pactual', connector_name: 'MeuPluggy' }), 'BTG Pactual')
+  assert.equal(itemBankName({ connector_name: 'Itaú' }), 'Itaú')
+  assert.equal(itemBankName({}), 'Open Finance')
 })
 
 test('balance check compares to the cent and never for cards', () => {
@@ -79,6 +110,10 @@ test('the widget item id', () => {
 test('sync summary', () => {
   assert.equal(syncSummary({ counts: { new: 2, merged: 1 }, removed: 1 }), '2 movimentos novos no Aprovar, 1 juntou-se a um aviso, 1 saiu (o banco desfez).')
   assert.equal(syncSummary({ counts: { known: 4 } }), 'Nada novo.')
+  assert.equal(
+    syncSummary({ counts: { new: 5 }, auto_recorded: { recorded: 3, linked: 1, held: 1 }, investments: { recorded: 2 } }),
+    '3 lançamentos gravados, 1 ligado ao que você lançou, 1 movimento novo no Aprovar, 2 operações na carteira.',
+  )
 })
 
 test('first sync days', () => {
@@ -90,10 +125,12 @@ test('first sync days', () => {
 test('sync hours labels and choices', () => {
   assert.equal(syncHoursLabel(0), 'Desligada')
   assert.equal(syncHoursLabel(6), 'A cada 6 h')
-  assert.deepEqual(syncHoursChoices(6).map((choice) => choice.value), [0, 1, 3, 6, 12, 24])
-  assert.deepEqual(syncHoursChoices(2).map((choice) => choice.value), [0, 1, 2, 3, 6, 12, 24])
-  assert.deepEqual(syncHoursChoices(30).map((choice) => choice.value), [0, 1, 3, 6, 12, 24])
-  assert.deepEqual(syncHoursChoices(null).map((choice) => choice.value), [0, 1, 3, 6, 12, 24])
+  assert.deepEqual(syncHoursChoices(6).map((choice) => choice.value), [0, 6, 12, 24])
+  assert.deepEqual(syncHoursChoices(8).map((choice) => choice.value), [0, 6, 8, 12, 24])
+  // Nunca abaixo de 6 h: um valor antigo de 1-5 h nao vira escolha.
+  assert.deepEqual(syncHoursChoices(2).map((choice) => choice.value), [0, 6, 12, 24])
+  assert.deepEqual(syncHoursChoices(30).map((choice) => choice.value), [0, 6, 12, 24])
+  assert.deepEqual(syncHoursChoices(null).map((choice) => choice.value), [0, 6, 12, 24])
 })
 
 test('check summary', () => {
@@ -102,4 +139,47 @@ test('check summary', () => {
   assert.deepEqual(checkSummary({ bank_only_count: 0, app_only_count: 0, awaiting_count: 2 }), { state: 'match', text: 'Movimentos conferem · 2 esperam no Aprovar' })
   assert.deepEqual(checkSummary({ bank_only_count: 1, app_only_count: 3, awaiting_count: 1 }), { state: 'drift', text: '1 só no banco · 3 só no app · 1 espera no Aprovar' })
   assert.deepEqual(checkSummary({ bank_only_count: 2, app_only_count: 0 }), { state: 'drift', text: '2 só no banco' })
+})
+
+test('check reasons in Portuguese', () => {
+  assert.equal(checkReasonLabel('invoice_payment_missing'), 'pagamento de fatura sem o pagamento no app')
+  assert.equal(checkReasonLabel('denied'), 'recusado no Aprovar')
+  assert.equal(checkReasonLabel('xyz'), '')
+})
+
+test('the balance difference is explained part by part', () => {
+  const money = (value) => value.toFixed(2)
+  assert.deepEqual(balanceExplanation({ difference: 0 }, money), [])
+  assert.deepEqual(balanceExplanation(null, money), [])
+  assert.deepEqual(
+    balanceExplanation({ difference: -5000, bank_only: -4590, awaiting: 0, app_only: -1000, before: 590 }, money),
+    [
+      '-45.90 de movimentos só no banco',
+      '-10.00 de lançamentos só no app',
+      '5.90 de antes da conferência (confira o saldo inicial da conta)',
+    ],
+  )
+})
+
+test('auto record hint says why it cannot turn on', () => {
+  assert.equal(autoRecordHint({ auto_record: false, auto_record_blockers: ['A.', 'B.'] }), 'A. B.')
+  assert.match(autoRecordHint({ auto_record: true }), /Flash/)
+  assert.match(autoRecordHint({ auto_record: false, auto_record_blockers: [] }), /Aprovar/)
+})
+
+test('history line per account', () => {
+  assert.equal(historyLine({ to_record: 12, to_link: 1, linked: 0, waiting: 2, app_only: 1 }),
+    '12 a gravar · 1 a ligar ao que você lançou · 2 ficam no Aprovar · 1 só no app (fica como está)')
+  assert.equal(historyLine({}), 'Nada a fazer')
+})
+
+test('portfolio summary and held reasons', () => {
+  assert.deepEqual(portfolioSummary(null), { state: 'none', text: '' })
+  assert.deepEqual(portfolioSummary({ mismatched_count: 0, held: [] }), { state: 'match', text: 'Carteira confere' })
+  assert.deepEqual(portfolioSummary({ mismatched_count: 2, held: [{}] }),
+    { state: 'drift', text: '2 ativos com quantidade diferente · 1 operação para você lançar' })
+  assert.equal(heldReasonLabel('corporate_action: Ha um desdobramento'), 'antes de um evento corporativo do ativo')
+  assert.equal(heldReasonLabel('refused: Venda maior que a quantidade disponivel na carteira.'),
+    'Venda maior que a quantidade disponivel na carteira.')
+  assert.equal(heldReasonLabel('type'), 'renda fixa, Tesouro, custódia ou cupom: lance você')
 })

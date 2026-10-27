@@ -68,7 +68,6 @@ fun AReceberScreen(
                 onBack = onBack,
                 onToggleHidden = viewModel::toggleHidden,
                 onTab = onTab,
-                inboxCount = viewModel.inboxCount,
             )
         },
     ) {
