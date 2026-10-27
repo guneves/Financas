@@ -91,9 +91,10 @@ and `docs/next-steps.md` first, as usual.
 
 ## Security and config
 
-- `PLUGGY_CLIENT_ID`, `PLUGGY_CLIENT_SECRET` in the environment only (read in `config.py`, documented
-  in `DEPLOY.md` and the compose file as secrets); never in the frontend, logs, API responses or
-  the repo. The integration is **off** when they are missing (Ajustes says so; no errors at boot).
+- `PLUGGY_CLIENT_ID`, `PLUGGY_CLIENT_SECRET` in the environment only, read in `config.py`. **They are
+  already set on the server** in `/srv/apps/financas/.env` (owner, 2026-10-27); add the empty
+  names to `.env.example` and `backend/.env.example` and document them in `DEPLOY.md`. Never in the
+  frontend, logs, API responses or the repo. The integration is **off** when they are missing (Ajustes says so; no errors at boot).
 - HTTP to Pluggy in a client module (`pluggy_client.py`, pure, like `brapi_client.py`) with
   timeouts, one retry on network errors, `applog` logging without tokens or transaction
   descriptions, and `integrations.record_provider_result("pluggy", ...)` so the healthcheck shows it.
