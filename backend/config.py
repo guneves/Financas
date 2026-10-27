@@ -207,3 +207,17 @@ LOG_TO_FILE = str(os.getenv("LOG_TO_FILE", "1")).strip().lower() not in {"0", "f
 # Aprovar (services/inbox.py): folga de datas ao procurar o lancamento que ja
 # existe para um movimento que o celular notificou.
 INBOX_MATCH_DAYS = read_int_env("INBOX_MATCH_DAYS", 3, minimum=0, maximum=10)
+
+# Open Finance pela Pluggy (pluggy_client.py, services/open_finance.py). As
+# credenciais ficam so aqui, no ambiente: nunca no frontend, em log ou em
+# resposta. Sem as duas, a integracao fica desligada (Ajustes diz isso).
+PLUGGY_CLIENT_ID = str(os.getenv("PLUGGY_CLIENT_ID", "") or "").strip()
+PLUGGY_CLIENT_SECRET = str(os.getenv("PLUGGY_CLIENT_SECRET", "") or "").strip()
+PLUGGY_BASE_URL = str(os.getenv("PLUGGY_BASE_URL", "https://api.pluggy.ai") or "").strip().rstrip("/")
+PLUGGY_TIMEOUT_SECONDS = read_float_env("PLUGGY_TIMEOUT_SECONDS", 20.0, minimum=1.0, maximum=120.0)
+# De quanto em quanto tempo a thread pede dados novos ao banco e puxa as
+# transacoes (services/open_finance_refresh.py). Pedir gasta o limite mensal
+# de requisicoes da instituicao por CPF: 6 h da 4 por dia. 0 desliga (testes).
+OPEN_FINANCE_SYNC_SECONDS = read_int_env("OPEN_FINANCE_SYNC_SECONDS", 6 * 3600, minimum=0)
+# "Atualizar" espera ate isto pela Pluggy terminar de buscar no banco antes de puxar.
+OPEN_FINANCE_UPDATE_WAIT_SECONDS = read_int_env("OPEN_FINANCE_UPDATE_WAIT_SECONDS", 30, minimum=0, maximum=120)

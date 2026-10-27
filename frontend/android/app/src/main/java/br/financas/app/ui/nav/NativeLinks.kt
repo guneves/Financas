@@ -14,7 +14,7 @@ object NativeLinks {
     data class Target(val route: String, val view: String? = null)
 
     /** As secoes de Ajustes do celular; Regras de importação e Integrações sao so do computador. */
-    val NATIVE_SETTINGS_SECTIONS = listOf("contas", "cartoes", "categorias", "aprovar", "aparencia", "perfil", "notificacoes", "versao")
+    val NATIVE_SETTINGS_SECTIONS = listOf("contas", "cartoes", "categorias", "aprovar", "open-finance", "aparencia", "perfil", "notificacoes", "versao")
 
     fun targetFor(route: String?): Target? {
         if (route.isNullOrEmpty()) return null

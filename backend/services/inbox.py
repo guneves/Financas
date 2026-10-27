@@ -856,7 +856,7 @@ ITEM_COLUMNS = (
     "occurred_at", "source_occurred_at", "description", "category", "category_id",
     "account_id", "card_id", "transfer_account_id", "needs", "guessed", "edited",
     "hint_key", "hint_label", "candidates", "client_key", "target_table", "target_id",
-    "decided_at",
+    "decided_at", "recurring_off",
 )
 
 
@@ -958,10 +958,22 @@ def _shift(date_text, days):
 
 
 def _has_detection_source(conn, current_user_id, item_id):
+    """O item ainda tem uma fonte viva: uma notificacao ou uma transacao do
+    Open Finance (043) que o alimenta."""
     return conn.execute(
         "SELECT 1 FROM notify_detections WHERE user_id = ? AND item_id = ? AND role = 'SOURCE' LIMIT 1",
         (current_user_id, item_id),
-    ).fetchone() is not None
+    ).fetchone() is not None or bool(open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,)))
+
+
+def open_finance_sources(conn, current_user_id, item_id, roles=None):
+    """As transacoes do Open Finance ligadas a um item (043)."""
+    sql = "SELECT * FROM open_finance_transactions WHERE user_id = ? AND item_id = ?"
+    params = [current_user_id, item_id]
+    if roles:
+        sql += f" AND role IN ({', '.join('?' for _ in roles)})"
+        params.extend(roles)
+    return conn.execute(sql + " ORDER BY date, created_at, id", params).fetchall()
 
 
 def _source_directions(conn, current_user_id, item_id):
@@ -972,6 +984,8 @@ def _source_directions(conn, current_user_id, item_id):
     ).fetchall():
         if row["kind"] in KIND_SHAPES:
             directions.add(KIND_SHAPES[row["kind"]][0])
+    for row in open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,)):
+        directions.add(row["direction"])
     return directions
 
 
@@ -1181,12 +1195,15 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
     start, end = _shift(date_text, -days), _shift(date_text, days)
     found = []
     if entry_type in (None, "CARD"):
+        # Um credito no cartao (o Open Finance traz estornos) procura estornos;
+        # o resto, compras.
+        card_kind = "REFUND" if entry_type == "CARD" and direction == "IN" else "PURCHASE"
         sql = """
             SELECT id, purchase_date AS date, amount, installment_info, card_id FROM cc_expenses e
             WHERE user_id = ? AND purchase_date BETWEEN ? AND ?
-              AND installment_info LIKE '1/%' AND kind = 'PURCHASE'
+              AND installment_info LIKE '1/%' AND kind = ?
         """
-        params = [current_user_id, start, end]
+        params = [current_user_id, start, end, card_kind]
         if card_id:
             sql += " AND card_id = ?"
             params.append(card_id)
@@ -1226,12 +1243,21 @@ def _installment_count(info):
 
 
 def _explained_by_notification(conn, current_user_id, entry):
+    """Outra fonte (notificacao ou transacao do Open Finance) ja explica este
+    lancamento: duas compras de mesmo valor no mesmo dia continuam duas."""
+    params = (current_user_id, entry["table"], entry["id"])
     return conn.execute(
         """
         SELECT 1 FROM notify_detections
         WHERE user_id = ? AND target_table = ? AND target_id = ? LIMIT 1
         """,
-        (current_user_id, entry["table"], entry["id"]),
+        params,
+    ).fetchone() is not None or conn.execute(
+        """
+        SELECT 1 FROM open_finance_transactions
+        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED' LIMIT 1
+        """,
+        params,
     ).fetchone() is not None
 
 
@@ -1562,7 +1588,13 @@ def _ingest_alone(conn, current_user_id, detection, rules):
                 learn_self(conn, current_user_id, [detection, *others])
             return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
 
-    # 2. Um item novo, com os lancamentos parecidos ja gravados (o dono pode
+    # 2. O Open Finance ja trouxe este movimento (a notificacao chegou depois,
+    # o celular estava sem rede): a mesma compra e o mesmo item.
+    of_item = open_finance_item_for_detection(conn, current_user_id, detection, target)
+    if of_item:
+        return _join_open_finance_item(conn, current_user_id, detection, of_item)
+
+    # 3. Um item novo, com os lancamentos parecidos ja gravados (o dono pode
     # ter digitado antes do aviso chegar): ele decide no Aprovar se e o mesmo.
     # Nada que uma notificacao trouxe se resolve sem passar por la.
     candidates = existing_rows(
@@ -1660,6 +1692,143 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
     )
     values["needs"] = recompute_needs(values)
     return insert_item(conn, current_user_id, values)
+
+
+# ---------------------------------------------------------------------------
+# Open Finance (043): a notificacao e a transacao da Pluggy do mesmo movimento
+# ---------------------------------------------------------------------------
+
+# A Pluggy da a data (quase nunca a hora); a notificacao, o instante. Um dia de
+# folga cobre a virada da meia-noite e o D+1 de quem lanca no dia seguinte.
+OPEN_FINANCE_PAIR_DAYS = 1
+PAIRABLE_STATES = (PENDING, APPROVED, MATCHED, DENIED)
+
+
+def _target_open(item, field, need):
+    """O campo do item nao contradiz: vazio, ou palpite que o dono nao tocou."""
+    return not item.get(field) or (need in (item.get("guessed") or []) and field not in (item.get("edited") or []))
+
+
+def open_finance_fits_item(item, *, entry_type, direction, account_id=None, card_id=None):
+    """Uma transacao do Open Finance (tipo, direcao e conta/cartao certos, do
+    mapeamento) pode ser o movimento deste item? O item pode nao saber o
+    metodo (compra sem credito/debito) e ter so palpites; o que ele SABE tem
+    de bater."""
+    item_type = item.get("entry_type")
+    if item_type == "TRANSFER":
+        if entry_type == "CARD":
+            return False
+        field, need = ("account_id", "account") if direction == "OUT" else ("transfer_account_id", "transfer_account")
+        return item.get(field) == account_id or _target_open(item, field, need)
+    if item.get("direction") != direction:
+        return False
+    if entry_type == "CARD":
+        if direction == "OUT" and item_type not in (None, "CARD"):
+            return False
+        if direction == "IN" and item_type not in ("CARD", "INCOME"):
+            return False
+        if item_type == "INCOME":
+            return True
+        return item.get("card_id") == card_id or _target_open(item, "card_id", "card")
+    if item_type not in (None, entry_type):
+        return False
+    return item.get("account_id") == account_id or _target_open(item, "account_id", "account")
+
+
+def notification_item_for_open_finance(conn, current_user_id, *, entry_type, direction, cents, date_text,
+                                       account_id=None, card_id=None):
+    """O item que uma notificacao ja abriu para este movimento (pendente ou ja
+    decidido), sem transacao do Open Finance ainda: a mesma compra, o mesmo item."""
+    rows = conn.execute(
+        f"""
+        SELECT i.* FROM inbox_items i
+        WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
+          AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
+          AND EXISTS (SELECT 1 FROM notify_detections d
+                      WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
+          AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
+                          WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED')
+        """,
+        (current_user_id, *PAIRABLE_STATES, _shift(date_text, -OPEN_FINANCE_PAIR_DAYS),
+         _shift(date_text, OPEN_FINANCE_PAIR_DAYS)),
+    ).fetchall()
+    found = [
+        row for row in rows
+        if _amount_matches(row, cents) and open_finance_fits_item(
+            item_dict(row), entry_type=entry_type, direction=direction, account_id=account_id, card_id=card_id,
+        )
+    ]
+    return _pick_closest(found, date_text)
+
+
+def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
+    """Uma notificacao que chega depois cabe no item que o Open Finance abriu?
+    O item sabe o cartao/conta (mapeamento); a notificacao so contradiz com o
+    que o dono lembrou, nunca com um palpite."""
+    item = item_dict(row)
+    of_rows = open_finance_sources(conn, current_user_id, row["id"], roles=(SOURCE, MATCHED, PAIRED))
+    if not of_rows:
+        return False
+    direction = target["direction"]
+    entry_type = target["entry_type"]
+    item_type = item.get("entry_type")
+    if item_type == "TRANSFER":
+        if detection["kind"] not in MOVEMENT_KINDS:
+            return False
+        side = item["account_id"] if direction == "OUT" else item["transfer_account_id"]
+        return not (target["remembered"] and target["account_id"] and side and target["account_id"] != side)
+    if item.get("direction") != direction:
+        return False
+    if item_type == "CARD":
+        if direction == "OUT" and entry_type not in (None, "CARD"):
+            return False
+        if direction == "IN" and detection["kind"] != "REFUND":
+            return False
+        return not (target["remembered"] and target["card_id"] and target["card_id"] != item.get("card_id"))
+    if entry_type is not None and entry_type != item_type:
+        return False
+    return not (target["remembered"] and target["account_id"] and target["account_id"] != item.get("account_id"))
+
+
+def open_finance_item_for_detection(conn, current_user_id, detection, target):
+    """O item que o Open Finance ja abriu para o movimento desta notificacao
+    (pendente ou decidido), ainda sem notificacao."""
+    when = date_of(detection["occurred_at"])
+    rows = conn.execute(
+        f"""
+        SELECT i.* FROM inbox_items i
+        WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
+          AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
+          AND NOT EXISTS (SELECT 1 FROM notify_detections d
+                          WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
+        """,
+        (current_user_id, *PAIRABLE_STATES, _shift(when, -OPEN_FINANCE_PAIR_DAYS), _shift(when, OPEN_FINANCE_PAIR_DAYS)),
+    ).fetchall()
+    found = [
+        row for row in rows
+        if _amount_matches(row, detection["amount_cents"])
+        and _detection_fits_open_finance(conn, current_user_id, detection, target, row)
+    ]
+    return _pick_closest(found, when)
+
+
+def _join_open_finance_item(conn, current_user_id, detection, row):
+    """A notificacao entra no item que o Open Finance abriu. O cartao/conta do
+    item (do mapeamento) fica; o estabelecimento da notificacao, que costuma
+    ser mais limpo que a descricao do banco, entra se o dono nao mexeu."""
+    item = item_dict(row)
+    if item["state"] != PENDING:
+        _insert_detection(
+            conn, current_user_id, detection, SOURCE if item["state"] != DENIED else PAIRED, item_id=item["id"],
+            target_table=item["target_table"], target_id=item["target_id"],
+        )
+        status = "denied" if item["state"] == DENIED else "matched"
+        return {"key": detection["key"], "status": status, "item_id": item["id"]}
+    _insert_detection(conn, current_user_id, detection, SOURCE, item_id=item["id"])
+    description = detection_description(detection)
+    if description and "description" not in set(item["edited"]) and item["entry_type"] != "TRANSFER":
+        save_item(conn, current_user_id, item, {"description": description})
+    return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1794,6 +1963,38 @@ def serialize_item(conn, current_user_id, row, names=None, recurrences=None, ask
             "counterparty": detection["counterparty"],
             "counterparty_bank": detection["counterparty_bank"],
             "received_at": detection["created_at"],
+        })
+    for row in conn.execute(
+        """
+        SELECT t.*, a.name AS of_account_name, a.number AS of_account_number, a.type AS of_account_type,
+               i.connector_name
+        FROM open_finance_transactions t
+        JOIN open_finance_accounts a ON a.id = t.of_account_id AND a.user_id = t.user_id
+        JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = t.user_id
+        WHERE t.user_id = ? AND t.item_id = ?
+        ORDER BY t.date, t.created_at, t.id
+        """,
+        (current_user_id, item["id"]),
+    ).fetchall():
+        sources.append({
+            "source": "open_finance",
+            "id": row["id"],
+            "role": row["role"],
+            "connector_name": row["connector_name"],
+            "account_name": row["of_account_name"],
+            "account_type": row["of_account_type"],
+            "direction": row["direction"],
+            "movement": row["movement"],
+            "amount": _reais(row["amount_cents"]),
+            "currency": row["currency"],
+            "date": row["date"],
+            "occurred_at": row["occurred_at"],
+            "description": row["description"],
+            "pluggy_category": row["pluggy_category"],
+            "installment_number": row["installment_number"],
+            "total_installments": row["total_installments"],
+            "counterparty": row["counterparty"],
+            "received_at": row["created_at"],
         })
     item["sources"] = sources
     if ask is None:

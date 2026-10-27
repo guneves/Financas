@@ -9,6 +9,60 @@
 
 ## 1. Open work, in priority order
 
+### Open Finance (Pluggy) as a source for Aprovar (2026-10-27) — what is left
+Built on `claude/pluggy-open-finance` (see `done-tasks.md`; setup and limits in `DEPLOY.md` › "Open
+Finance (Pluggy)"). Design, as built:
+- **Tables (043)**: `open_finance_items` (one connection: status, executionStatus, Pluggy's error,
+  last pull), `open_finance_accounts` (each Pluggy account, its balance, the owner's mapping to one
+  account or one credit card, the card's learned sign) and `open_finance_transactions` (each pulled
+  transaction, unique `pluggy:<id>` per user, its role and the `inbox_items` row it feeds).
+- **Inbox source: its own table, not `notify_detections`** — that table's identity is the phone's
+  `dedupKey`/`posted_ms` (a 10-minute pairing window) and its `kind`/`role` are CHECK-bound to
+  notifications; a Pluggy row has another identity, rarely a time of day, installments, and must
+  exist before its account is mapped. `services/inbox.py` reads both where sources matter.
+- **Sign convention, verified in the sandbox (Pluggy Bank, 2026-10-27)**: bank accounts follow
+  `type` (DEBIT negative = out, CREDIT positive = in). **Cards contradict the docs**: the docs say
+  "positive amounts indicate debits", the sandbox sends purchases as `type: CREDIT` with negative
+  amounts. Each card learns its purchase sign: an invoice payment in the pull (`05100000`, an inflow
+  by definition), else the majority (≥ 3 rows), else the docs' `+`.
+- **Dates**: `T03:00:00.000Z` (sandbox) and `T00:00:00.000Z` (docs) are a date; another time is
+  converted to `-03:00`.
+- **Pull**: `GET /v2/transactions` by `dateFrom` (last pull − 7 days; first: 30 days, Ajustes),
+  following `next`. `PATCH /items/{id}` asks the bank for new data: Pluggy refuses another within
+  1 h (seen live) and each one spends the CPF's monthly quota, so the thread runs every 6 h and the
+  button only reads inside that hour.
+
+Open:
+- [ ] **Owner, after the deploy — the first real connection** (web, Ajustes › Open Finance):
+  connect the bank, map each account, then in Aprovar check that **card purchases come as −R$
+  purchases, not as + credits/"Estorno"**. If they come inverted, the learned sign is wrong:
+  `SELECT name, charge_sign, charge_sign_source FROM open_finance_accounts` and report it (the
+  sandbox and the docs disagree, so this is the one thing no test can settle).
+- [ ] Owner, real data: a bank notification and the Pluggy row of the same purchase are one item
+  (the notification first, then "Atualizar"); a Pix between two connected accounts is one
+  Transferência; an installment purchase arrives once with the total and its later installments
+  never show up. All pass in pytest and the sandbox has no such cases to click.
+- [ ] Owner: the CPF limit — if Pluggy refuses a connection, its message shows in Ajustes and
+  nothing retries. Watch whether 4 automatic updates a day fit the bank's monthly quota; raise
+  `OPEN_FINANCE_SYNC_SECONDS` in the server's `.env` if "Atualizar" starts failing late in a month.
+- [ ] Open Finance connectors send no `totalAmount` (docs): the purchase total is installment × n,
+  so R$ 100 in 3× arrives as R$ 99,99. Fix the total in Aprovar before approving if it matters.
+- [ ] A transaction the bank posts with a date older than the 7-day overlap is never pulled
+  (`dateFrom` filters by transaction date; `createdAtFrom` cannot be combined with it). If the
+  owner sees one missing, widen `OVERLAP_DAYS` or pull a second pass by `createdAtFrom`.
+- [ ] Changing an account's mapping later does not move items already pending (they keep the old
+  account); edit them in Aprovar.
+- [ ] Not built: offering "Pagar fatura" when the bank shows an invoice payment (today it is only
+  recorded as `INVOICE_PAYMENT` and never becomes an item); Pluggy's category as an import-rule
+  suggestion (it is only shown on the source line); learning "it's me" (031) from a Pluggy
+  transfer's counterparty (only notifications teach it); including `PENDING` transactions (owner
+  decided to skip them for now).
+- [ ] A bank movement Pluggy calls an investment (`03xxxxxx`, e.g. "COMPRA TESOURO DIRETO") comes
+  as a plain despesa/receita item; if it was an aporte, change it to a transfer to the Corretora in
+  Aprovar (039: investimento is never a category).
+- [ ] APK: Ajustes › Open Finance shows status, balances and "Atualizar"; connecting, reconnecting
+  and mapping stay on the web (no WebView). Check on the phone with the debug APK, light and dark.
+
 ### Plano do mês a partir da renda — what is left
 The backend (038) and the Orçamento redesign are in (see `done-tasks.md`, 2026-10-19). Open:
 - [ ] Owner check on the phone: Orçamento's sliders (plan sheet and categories) — is a 1-point
@@ -711,6 +765,3 @@ Seen in Investidor10 PRO and not built; each needs the owner's call first.
 ## 2. Open decisions
 
 3. **Single-user or multi-user?** Schema is ready for either; SQLite is enough for personal use.
-4. **Bring Pluggy (Open Finance) back** — decided (owner, 2026-10-27): the free plan works for one
-   CPF, the owner's, which is all a single-user app needs. Ready to implement from
-   `docs/prompts/pluggy-open-finance.md`.

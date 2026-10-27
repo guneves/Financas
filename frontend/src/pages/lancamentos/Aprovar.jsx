@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, BellRing, CheckCheck, Inbox, Pencil, Repeat, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
+import { ArrowRight, BellRing, CheckCheck, Inbox, Landmark, Pencil, Repeat, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
 import { accountsApi, categoriesApi, creditCardsApi, inboxApi } from '../../lib/dataApi'
 import { creditCards } from '../../lib/cardFunctions'
 import {
@@ -64,15 +64,15 @@ function useInbox(view) {
   })
 }
 
+// Uma linha por fonte: o aviso do celular ou a transacao do Open Finance (043).
 function SourceLine({ source }) {
+  const Icon = source.source === 'open_finance' ? Landmark : Smartphone
   return (
     <li className="flex min-w-0 items-start gap-2 text-xs text-zinc-500">
-      <Smartphone className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span className="min-w-0">
         {sourceLabel(source)}
-        {source.source === 'notification'
-          ? ` · ${whenText(source.occurred_at)}`
-          : ` · ${formatDateBR(source.date)}`}
+        {` · ${whenText(source.occurred_at) || formatDateBR(source.date)}`}
         {source.role === 'PAIRED' ? ' · mesma compra' : ''}
       </span>
     </li>
@@ -543,7 +543,7 @@ export default function Aprovar() {
     <div className="mx-auto max-w-4xl space-y-5">
       <PageHeader
         title="Aprovar"
-        description="O que o celular encontrou. Nada entra no extrato até você aprovar, e a mesma compra aparece uma vez só."
+        description="O que o celular e o Open Finance encontraram. Nada entra no extrato até você aprovar, e a mesma compra aparece uma vez só."
         actions={(
           <>
             {ready.length ? (

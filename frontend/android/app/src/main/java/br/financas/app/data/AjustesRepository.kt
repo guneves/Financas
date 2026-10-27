@@ -43,6 +43,24 @@ class AjustesRepository(
 
     suspend fun archiveCategory(id: String): InboxWrite<Unit> = unit(send("DELETE", "$CATEGORIES_PATH/${enc(id)}", null))
 
+    // ---- Open Finance (043): so ler e "Atualizar"; conectar e mapear ficam na web ----
+
+    fun openFinance(): Flow<Load<OpenFinanceDto>> = reader.read(OPEN_FINANCE_PATH, OpenFinanceDto.serializer())
+
+    /** Pede dados novos ao banco (se a Pluggy deixa) e puxa para o Aprovar; a resposta e a lista nova. */
+    suspend fun syncOpenFinance(itemId: String): InboxWrite<OpenFinanceDto> =
+        when (val result = send("POST", "$OPEN_FINANCE_PATH/items/${enc(itemId)}/sync", emptyMap())) {
+            is InboxWrite.Done -> try {
+                InboxWrite.Done(ApiJson.decodeFromString(OpenFinanceDto.serializer(), result.value))
+            } catch (_: Exception) {
+                InboxWrite.Offline
+            }
+            is InboxWrite.Conflict -> result
+            is InboxWrite.Refused -> result
+            is InboxWrite.Offline -> result
+            is InboxWrite.SessionExpired -> result
+        }
+
     private suspend fun send(method: String, path: String, body: Map<String, Any?>?): InboxWrite<String> =
         sendWrite(sender, method, path, body?.let { JsonBody.encode(it) })
 
@@ -59,6 +77,7 @@ class AjustesRepository(
         const val ACCOUNTS_PATH = "/api/accounts"
         const val CARDS_PATH = "/api/credit-cards"
         const val CATEGORIES_PATH = "/api/categories"
+        const val OPEN_FINANCE_PATH = "/api/open-finance"
 
         private fun enc(part: String) = LancamentosRepository.encode(part)
     }

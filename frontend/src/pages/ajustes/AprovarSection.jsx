@@ -30,7 +30,7 @@ export default function AprovarSection() {
     <Panel id="aprovar" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Aprovar"
-        description="Os avisos dos bancos que esperam você em Lançamentos › Aprovar."
+        description="Os avisos dos bancos e o Open Finance que esperam você em Lançamentos › Aprovar."
       />
       <div className="space-y-3 p-5">
         {settingsQuery.isError ? <AlertMessage message={queryErrorMessage(settingsQuery, 'Não foi possível ler os ajustes de Aprovar.')} /> : null}

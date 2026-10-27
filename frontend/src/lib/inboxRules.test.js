@@ -105,6 +105,29 @@ test('only items with two or more live sources can be split', () => {
     { source: 'notification', role: 'CANCELLED' },
   ]
   assert.equal(splittableSources({ sources }).length, 2)
+  // Uma notificacao e uma transacao do Open Finance da mesma compra tambem se separam;
+  // a que saiu do banco (REMOVED) nao conta.
+  assert.equal(splittableSources({ sources: [
+    { source: 'notification', role: 'SOURCE' }, { source: 'open_finance', role: 'SOURCE' },
+  ] }).length, 2)
+  assert.deepEqual(splittableSources({ sources: [
+    { source: 'notification', role: 'SOURCE' }, { source: 'open_finance', role: 'REMOVED' },
+  ] }), [])
+})
+
+test('an Open Finance source says the bank, the account and the installment', () => {
+  assert.equal(
+    sourceLabel({
+      source: 'open_finance', connector_name: 'Itaú', account_name: 'Mastercard Black', description: 'LOJA X',
+      installment_number: 1, total_installments: 3, role: 'SOURCE',
+    }),
+    'Open Finance Itaú · Mastercard Black · LOJA X · parcela 1/3',
+  )
+  assert.equal(
+    sourceLabel({ source: 'open_finance', connector_name: 'BB', description: 'PIX', role: 'REMOVED' }),
+    'Open Finance BB · PIX · saiu do banco',
+  )
+  assert.equal(sourceLabel({ source: 'open_finance' }), 'Open Finance')
 })
 
 test('ready items, remember and the texts', () => {

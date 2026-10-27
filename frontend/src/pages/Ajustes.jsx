@@ -7,6 +7,7 @@ import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
 import IntegracoesSection from './ajustes/IntegracoesSection'
+import OpenFinanceSection from './ajustes/OpenFinanceSection'
 import PerfilSection from './ajustes/PerfilSection'
 import RegrasSection from './ajustes/RegrasSection'
 
@@ -16,6 +17,7 @@ const SECTION_LINKS = [
   { id: 'categorias', label: 'Categorias' },
   { id: 'regras-de-importacao', label: 'Regras de importação' },
   { id: 'aprovar', label: 'Aprovar' },
+  { id: 'open-finance', label: 'Open Finance' },
   { id: 'integracoes', label: 'Integrações' },
   { id: 'aparencia', label: 'Aparência' },
   { id: 'perfil', label: 'Perfil' },
@@ -42,7 +44,7 @@ function useHashScroll() {
   }, [hash])
 }
 
-// Configuracao feita uma vez: contas, cartoes, categorias, regras, Aprovar, integracoes,
+// Configuracao feita uma vez: contas, cartoes, categorias, regras, Aprovar, Open Finance, integracoes,
 // aparencia (tema), perfil
 // (e, no APK, as notificacoes dos bancos e a versao do app).
 export default function Ajustes() {
@@ -76,6 +78,7 @@ export default function Ajustes() {
       <CategoriasSection />
       <RegrasSection />
       <AprovarSection />
+      <OpenFinanceSection />
       <IntegracoesSection />
       <AparenciaSection />
       <PerfilSection />

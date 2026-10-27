@@ -12,7 +12,7 @@ from flask import Flask, request
 from flask_cors import CORS
 
 import tesouro_client
-from services import quote_refresh
+from services import open_finance_refresh, quote_refresh
 from gzip_responses import compress_response
 from applog import configure_logging
 from config import CORS_ORIGINS
@@ -32,6 +32,7 @@ from routes import (
     investments as investment_routes,
     market as market_routes,
     monthly_plan as monthly_plan_routes,
+    open_finance as open_finance_routes,
     proceeds as proceeds_routes,
     receivables as receivable_routes,
     recurring as recurring_routes,
@@ -68,6 +69,7 @@ for blueprint_module in (
     goal_routes,
     monthly_plan_routes,
     inbox_routes,
+    open_finance_routes,
     receivable_routes,
     home_routes,
     frontend_routes,
@@ -86,6 +88,8 @@ prune_orphan_attachment_files()
 tesouro_client.start_auto_refresh()
 # Cotacoes da renda variavel de hora em hora (QUOTE_AUTO_REFRESH_SECONDS).
 quote_refresh.start_auto_refresh()
+# Open Finance puxado de tempos em tempos (OPEN_FINANCE_SYNC_SECONDS; sem credenciais, nada).
+open_finance_refresh.start_auto_refresh()
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG") == "1", port=5000)

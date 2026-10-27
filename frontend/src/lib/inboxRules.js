@@ -38,10 +38,28 @@ const KIND_LABELS = {
 // De onde veio cada fonte do item, numa linha.
 export function sourceLabel(source) {
   if (!source) return ''
+  if (source.source === 'open_finance') return openFinanceSourceLabel(source)
   const app = source.app_label || source.app || 'Notificação'
   const kind = KIND_LABELS[source.kind]
   const card = source.card_last4 ? `final ${source.card_last4}` : source.card_name || ''
   return [`Notificação ${app}`, kind, card, source.counterparty || ''].filter(Boolean).join(' · ')
+}
+
+// Uma transacao do Open Finance (043): o banco, a conta, a descricao do banco,
+// a parcela; "saiu" quando a Pluggy a desfez antes da aprovacao.
+function openFinanceSourceLabel(source) {
+  const bank = source.connector_name ? `Open Finance ${source.connector_name}` : 'Open Finance'
+  const installment = source.installment_number && source.total_installments > 1
+    ? `parcela ${source.installment_number}/${source.total_installments}`
+    : ''
+  return [
+    bank,
+    source.account_name || '',
+    source.description || '',
+    installment,
+    source.counterparty || '',
+    source.role === 'REMOVED' ? 'saiu do banco' : '',
+  ].filter(Boolean).join(' · ')
 }
 
 // "via Samsung Wallet" quando so o Samsung avisou: o banco nao notificou.
@@ -134,11 +152,11 @@ export function decisionText(item) {
   return DECISION_LABELS[item?.state] || ''
 }
 
-// Fontes que podem ser separadas ("não é a mesma"): toda notificacao ligada
-// ao item.
+// Fontes que podem ser separadas ("não é a mesma"): toda notificacao e toda
+// transacao do Open Finance ligada ao item.
 export function splittableSources(item) {
   const sources = (item?.sources || []).filter((source) => (
-    source.source === 'notification' && ['SOURCE', 'PAIRED'].includes(source.role)
+    ['notification', 'open_finance'].includes(source.source) && ['SOURCE', 'PAIRED'].includes(source.role)
   ))
   return sources.length > 1 ? sources : []
 }

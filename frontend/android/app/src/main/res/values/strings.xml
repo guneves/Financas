@@ -717,6 +717,8 @@
     <string name="ajustes_categorias_hint">Criar, renomear e arquivar</string>
     <string name="ajustes_aprovar">Aprovar</string>
     <string name="ajustes_aprovar_hint">Sempre perguntar a conta/cartão</string>
+    <string name="ajustes_open_finance">Open Finance</string>
+    <string name="ajustes_open_finance_hint">Bancos conectados pela Pluggy e o Atualizar</string>
     <string name="ajustes_desktop_only">Regras de importação e Integrações (cotações e índices) ficam no computador, como Importar extrato.</string>
     <string name="ajustes_aparencia">Aparência</string>
     <string name="ajustes_aparencia_hint">Sistema, claro ou escuro</string>
@@ -837,7 +839,22 @@
     <string name="ajustes_category_archive_failed">Não foi possível arquivar a categoria.</string>
     <string name="ajustes_category_reactivate_failed">Não foi possível reativar a categoria.</string>
 
-    <string name="ajustes_aprovar_description">Os avisos dos bancos que esperam você em Lançamentos › Aprovar.</string>
+    <string name="ajustes_aprovar_description">Os avisos dos bancos e o Open Finance que esperam você em Lançamentos › Aprovar.</string>
+    <string name="ajustes_open_finance_description">Os movimentos das suas contas e cartões chegam pela Pluggy e esperam em Lançamentos › Aprovar. Nada é lançado sem você aprovar.</string>
+    <string name="ajustes_open_finance_desktop">Conectar um banco, reconectar e dizer para onde vai cada conta ficam no computador (Ajustes › Open Finance).</string>
+    <string name="ajustes_open_finance_off">Desligado: o servidor não tem as credenciais da Pluggy.</string>
+    <string name="ajustes_open_finance_empty">Nenhum banco conectado. Conecte pelo computador.</string>
+    <string name="ajustes_open_finance_failed">Não foi possível ler o Open Finance.</string>
+    <string name="ajustes_open_finance_sync_failed">Não foi possível atualizar este banco.</string>
+    <string name="ajustes_open_finance_refresh">Atualizar</string>
+    <string name="ajustes_open_finance_last_sync">Última busca: %1$s</string>
+    <string name="ajustes_open_finance_never">Ainda sem busca.</string>
+    <string name="ajustes_open_finance_goes_to">Vai para %1$s</string>
+    <string name="ajustes_open_finance_unmapped">Sem destino: escolha no computador (%1$d esperando).</string>
+    <string name="ajustes_open_finance_balance">No banco %1$s · no app %2$s</string>
+    <string name="ajustes_open_finance_match">Confere</string>
+    <string name="ajustes_open_finance_drift">Diferença %1$s</string>
+    <string name="ajustes_open_finance_card_balance">Fatura no banco: %1$s</string>
     <string name="ajustes_always_ask">Sempre perguntar a conta/cartão</string>
     <string name="ajustes_always_ask_hint">Todo item pede que você confirme para onde vai, mesmo o que o app já lembra. \"Aprovar prontos\" não leva nenhum: aprove um a um.</string>
     <string name="ajustes_aprovar_failed">Não foi possível ler os ajustes de Aprovar.</string>

@@ -170,6 +170,37 @@ class InboxRulesTest {
             InboxSource(source = "notification", role = "CANCELLED"),
         )
         assertEquals(2, splittableSources(InboxItem(sources = sources)).size)
+        // Uma notificacao e uma transacao do Open Finance da mesma compra tambem se separam;
+        // a que saiu do banco (REMOVED) nao conta.
+        assertEquals(
+            2,
+            splittableSources(InboxItem(sources = listOf(
+                InboxSource(source = "notification", role = "SOURCE"), InboxSource(source = "open_finance", role = "SOURCE"),
+            ))).size,
+        )
+        assertEquals(
+            emptyList<InboxSource>(),
+            splittableSources(InboxItem(sources = listOf(
+                InboxSource(source = "notification", role = "SOURCE"), InboxSource(source = "open_finance", role = "REMOVED"),
+            ))),
+        )
+    }
+
+    // node: 'an Open Finance source says the bank, the account and the installment'
+    @Test
+    fun anOpenFinanceSourceSaysTheBankTheAccountAndTheInstallment() {
+        assertEquals(
+            "Open Finance Itaú · Mastercard Black · LOJA X · parcela 1/3",
+            sourceLabel(InboxSource(
+                source = "open_finance", connectorName = "Itaú", accountName = "Mastercard Black", description = "LOJA X",
+                installmentNumber = 1, totalInstallments = 3, role = "SOURCE",
+            )),
+        )
+        assertEquals(
+            "Open Finance BB · PIX · saiu do banco",
+            sourceLabel(InboxSource(source = "open_finance", connectorName = "BB", description = "PIX", role = "REMOVED")),
+        )
+        assertEquals("Open Finance", sourceLabel(InboxSource(source = "open_finance")))
     }
 
     // node: 'ready items, remember and the texts'

@@ -349,6 +349,18 @@ export const inboxApi = {
   updateSettings: (payload) => apiFetch('/api/inbox/settings', { method: 'PATCH', body: JSON.stringify(payload) })
 }
 
+// Open Finance pela Pluggy (043): conectar (so na web), mapear, Atualizar,
+// Desconectar. O que a Pluggy traz vai para o Aprovar; nada aqui grava lancamento.
+export const openFinanceApi = {
+  overview: () => apiFetch('/api/open-finance'),
+  connectToken: (itemId) => postJson('/api/open-finance/connect-token', itemId ? { item_id: itemId } : {}),
+  register: (pluggyItemId) => postJson('/api/open-finance/items', { pluggy_item_id: pluggyItemId }),
+  sync: (itemId) => postJson(`/api/open-finance/items/${itemId}/sync`, {}),
+  disconnect: (itemId, confirm) => apiFetch(`/api/open-finance/items/${itemId}`, { method: 'DELETE', body: JSON.stringify({ confirm }) }),
+  map: (accountId, payload) => apiFetch(`/api/open-finance/accounts/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  updateSettings: (payload) => apiFetch('/api/open-finance/settings', { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
 // A receber (032): a parte dos outros nas despesas, ate o dono marcar que pagaram.
 export const receivablesApi = {
   list: (includeSettled = false) => apiFetch(`/api/receivables${queryString(includeSettled ? { include_settled: 1 } : {})}`),

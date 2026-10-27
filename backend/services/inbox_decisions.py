@@ -24,10 +24,11 @@ from config import INBOX_MATCH_DAYS
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import parse_money, rounded_money
-from services import inbox, recurring
+from services import inbox, open_finance_inbox, recurring
 from services.accounts import category_id_for_name, fetch_category, fetch_transaction_by_client_id
 from services.import_rules import DEFAULT_IMPORT_CATEGORIES
-from services.invoices import build_installment_rows, purchase_invoice_start, require_active_card
+from services.invoices import build_installment_rows, purchase_invoice_start, refund_invoice, require_active_card
+from source_types import OPEN_FINANCE_SOURCE_TYPE
 from validators import ValidationError
 
 EDITABLE_FIELDS = (
@@ -262,6 +263,8 @@ def create_entry(conn, current_user_id, item):
     amount = rounded_money(item["amount"])
     client_id = item.get("client_key")
     try:
+        if entry_type == "CARD" and item.get("direction") == "IN":
+            return "cc_expenses", _create_card_refund(conn, current_user_id, item, amount, date_text, client_id)
         if entry_type == "CARD":
             card = _card(conn, current_user_id, item["card_id"])
             rows = build_installment_rows(
@@ -329,9 +332,48 @@ def create_entry(conn, current_user_id, item):
                     item["occurred_at"],
                 ),
             )
+        _mark_open_finance_origin(conn, current_user_id, item, row_id)
         return "transactions", row_id
     except sqlite3.IntegrityError as exc:
         raise ValidationError("Nao foi possivel gravar o lancamento.") from exc
+
+
+def _create_card_refund(conn, current_user_id, item, amount, date_text, client_id):
+    """Um credito no cartao (o Open Finance traz estornos): uma linha REFUND
+    (033), 1/1, na fatura da data ou na primeira seguinte em aberto — o mesmo
+    de POST /api/cc-expenses/refunds."""
+    card = _card(conn, current_user_id, item["card_id"])
+    invoice = refund_invoice(conn, current_user_id, card, date_text)
+    row_id = new_id()
+    conn.execute(
+        """
+        INSERT INTO cc_expenses
+        (id, user_id, card_id, category, category_id, description, amount, purchase_date,
+         invoice_month, invoice_year, installment_info, status, client_id, kind, occurred_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '1/1', 'OPEN', ?, 'REFUND', ?)
+        """,
+        (
+            row_id, current_user_id, card["id"], item.get("category") or "Estorno", item.get("category_id"),
+            item.get("description") or "Estorno no cartão", amount, date_text, invoice["invoice_month"],
+            invoice["invoice_year"], client_id or new_id(), item["occurred_at"],
+        ),
+    )
+    return row_id
+
+
+def _mark_open_finance_origin(conn, current_user_id, item, row_id):
+    """O lancamento de um item que o Open Finance alimentou leva a origem
+    (source_type/source_id = a transacao da Pluggy) sob o indice unico
+    idx_transactions_user_source: a mesma transacao nunca vira dois. Numa
+    transferencia com as duas pontas, a de saida."""
+    rows = inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,))
+    if not rows:
+        return
+    row = next((entry for entry in rows if entry["direction"] == "OUT"), rows[0])
+    conn.execute(
+        "UPDATE transactions SET source_type = ?, source_id = ? WHERE id = ? AND user_id = ? AND source_type IS NULL",
+        (OPEN_FINANCE_SOURCE_TYPE, row["pluggy_transaction_id"], row_id, current_user_id),
+    )
 
 
 def _source_description(conn, current_user_id, item):
@@ -405,9 +447,18 @@ def remember_choice(conn, current_user_id, item, before):
 
 
 def _link_detections(conn, current_user_id, item_id, table, target_id):
+    """As fontes do item (notificacoes e transacoes do Open Finance) passam a
+    explicar o lancamento."""
     conn.execute(
         "UPDATE notify_detections SET target_table = ?, target_id = ? WHERE user_id = ? AND item_id = ?",
         (table, target_id, current_user_id, item_id),
+    )
+    conn.execute(
+        """
+        UPDATE open_finance_transactions SET target_table = ?, target_id = ?, updated_at = ?
+        WHERE user_id = ? AND item_id = ? AND role <> 'REMOVED'
+        """,
+        (table, target_id, utc_timestamp(), current_user_id, item_id),
     )
 
 
@@ -586,6 +637,10 @@ def _live_sources(conn, current_user_id, item_id):
     ]
 
 
+def _live_open_finance(conn, current_user_id, item_id):
+    return inbox.open_finance_sources(conn, current_user_id, item_id, roles=(inbox.SOURCE, inbox.PAIRED))
+
+
 def _back_to_one_side(conn, current_user_id, item):
     """Uma transferencia que perdeu uma ponta volta a despesa ou receita da
     ponta que ficou (o dono disse que nao era a mesma coisa)."""
@@ -615,9 +670,20 @@ def split_item(conn, current_user_id, item_id, payload):
     source = str(payload.get("source") or "")
     source_id = str(payload.get("source_id") or "")
     detections = _live_sources(conn, current_user_id, item["id"])
-    if len(detections) < 2:
+    of_rows = _live_open_finance(conn, current_user_id, item["id"])
+    if len(detections) + len(of_rows) < 2:
         raise ValidationError("Este item tem uma fonte so.")
-    if source == "notification":
+    if source == "open_finance":
+        row = next((entry for entry in of_rows if entry["id"] == source_id), None)
+        if not row:
+            raise ValidationError("Fonte nao encontrada neste item.")
+        new_id_ = open_finance_inbox.new_item_for_row(conn, current_user_id, row)
+        if item.get("client_key") == row["dedup_key"]:
+            remaining = detections[0]["dedup_key"] if detections else next(
+                (entry["dedup_key"] for entry in of_rows if entry["id"] != row["id"]), None,
+            )
+            inbox.save_item(conn, current_user_id, item, {"client_key": remaining})
+    elif source == "notification":
         row = next((entry for entry in detections if entry["id"] == source_id), None)
         if not row:
             raise ValidationError("Fonte nao encontrada neste item.")
@@ -687,7 +753,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
         match = _exact_pending(
             conn, current_user_id, cents=cents, date_text=row["purchase_date"], direction="OUT",
             accept=lambda item: item["entry_type"] == "CARD" and item["card_id"] == card_id
-            and "card" not in inbox._jlist(item["guessed"]),
+            and item["direction"] == "OUT" and "card" not in inbox._jlist(item["guessed"]),
         )
         if match:
             absorbed.append(_absorb(conn, current_user_id, match, table, row["id"]))

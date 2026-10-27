@@ -29,6 +29,12 @@ data class InboxSourceDto(
     @SerialName("card_name") val cardName: String? = null,
     val counterparty: String? = null,
     @SerialName("counterparty_bank") val counterpartyBank: String? = null,
+    // Open Finance (043).
+    @SerialName("connector_name") val connectorName: String? = null,
+    @SerialName("account_name") val accountName: String? = null,
+    val description: String? = null,
+    @SerialName("installment_number") val installmentNumber: Int? = null,
+    @SerialName("total_installments") val totalInstallments: Int? = null,
 ) {
     /** O que as regras (rules/InboxRules.kt) leem. */
     val rule: InboxSource
@@ -43,6 +49,11 @@ data class InboxSourceDto(
             cardLast4 = cardLast4,
             cardName = cardName,
             counterparty = counterparty,
+            connectorName = connectorName,
+            accountName = accountName,
+            description = description,
+            installmentNumber = installmentNumber,
+            totalInstallments = totalInstallments,
         )
 }
 

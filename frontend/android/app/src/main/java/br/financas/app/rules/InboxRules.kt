@@ -28,6 +28,12 @@ data class InboxSource(
     val cardLast4: String? = null,
     val cardName: String? = null,
     val counterparty: String? = null,
+    // Open Finance (043): o banco, a conta, a descricao do banco, a parcela.
+    val connectorName: String? = null,
+    val accountName: String? = null,
+    val description: String? = null,
+    val installmentNumber: Int? = null,
+    val totalInstallments: Int? = null,
 )
 
 /** A ocorrencia de recorrencia que aprovar da como feita (034), `item.recurring`. */
@@ -162,12 +168,29 @@ object InboxRules {
     @JvmStatic
     fun sourceLabel(source: InboxSource?): String {
         if (source == null) return ""
+        if (source.source == "open_finance") return openFinanceSourceLabel(source)
         val app = source.appLabel.orEmpty().ifEmpty { source.app.orEmpty() }.ifEmpty { "Notificação" }
         val kind = KIND_LABELS[source.kind].orEmpty()
         val card = if (!source.cardLast4.isNullOrEmpty()) "final ${source.cardLast4}" else source.cardName.orEmpty()
         return listOf("Notificação $app", kind, card, source.counterparty.orEmpty())
             .filter { it.isNotEmpty() }
             .joinToString(" · ")
+    }
+
+    /** Uma transacao do Open Finance (043): o banco, a conta, a descricao do banco,
+     *  a parcela; "saiu do banco" quando a Pluggy a desfez antes da aprovacao. */
+    private fun openFinanceSourceLabel(source: InboxSource): String {
+        val bank = if (!source.connectorName.isNullOrEmpty()) "Open Finance ${source.connectorName}" else "Open Finance"
+        val total = source.totalInstallments ?: 0
+        val installment = if (source.installmentNumber != null && total > 1) "parcela ${source.installmentNumber}/$total" else ""
+        return listOf(
+            bank,
+            source.accountName.orEmpty(),
+            source.description.orEmpty(),
+            installment,
+            source.counterparty.orEmpty(),
+            if (source.role == "REMOVED") "saiu do banco" else "",
+        ).filter { it.isNotEmpty() }.joinToString(" · ")
     }
 
     private const val SAMSUNG_WALLET = "com.samsung.android.spay"
@@ -280,7 +303,9 @@ object InboxRules {
     /** Fontes que podem ser separadas ("nao e a mesma"): toda notificacao ligada ao item. */
     @JvmStatic
     fun splittableSources(item: InboxItem?): List<InboxSource> {
-        val sources = item?.sources.orEmpty().filter { it.source == "notification" && it.role in setOf("SOURCE", "PAIRED") }
+        val sources = item?.sources.orEmpty().filter {
+            it.source in setOf("notification", "open_finance") && it.role in setOf("SOURCE", "PAIRED")
+        }
         return if (sources.size > 1) sources else emptyList()
     }
 

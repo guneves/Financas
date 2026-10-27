@@ -1,0 +1,569 @@
+"""Open Finance -> Aprovar (043): cada transacao da Pluggy vira, no maximo, um
+item do Aprovar — nada e gravado sem o dono aprovar.
+
+Duas metades:
+
+1. **Ler a Pluggy** (puro): `normalize_transaction()` tira de uma transacao da
+   API o que o app usa — direcao, valor em centavos, data local, parcela, se e
+   transferencia ou pagamento de fatura, quem esta do outro lado.
+   - Conta (BANK): `type` DEBIT sai, CREDIT entra (o sinal do valor, se faltar
+     o tipo). Visto no sandbox: DEBIT negativo, CREDIT positivo.
+   - Cartao (CREDIT): nem `type` nem o sinal valem as cegas. A doc da Pluggy
+     diz "positivo e debito"; o sandbox manda compras negativas com type
+     CREDIT. Cada cartao aprende o sinal de uma compra (`learn_charge_sign()`):
+     um pagamento de fatura no pull (categoria 05100000, entrada por
+     definicao) decide; senao a maioria (>= 3 transacoes); senao a doc (+).
+   - Data: a Pluggy manda AAAA-MM-DDT03:00:00.000Z (sandbox) ou T00:00:00.000Z
+     (doc) para "so a data"; outra hora e um instante, convertido para -03:00.
+2. **Por no Aprovar** (`ingest()`), reusando services/inbox.py:
+   - a mesma compra que uma notificacao ja trouxe e o MESMO item
+     (`inbox.notification_item_for_open_finance()`; o contrario, a notificacao
+     depois, em `inbox.open_finance_item_for_detection()`);
+   - as duas pontas de uma transferencia entre contas do dono (ambas
+     conectadas, ou uma notificada) sao UM item TRANSFER (`transfer_partner`);
+   - parcela 2..n de uma compra no cartao: COVERED, nunca item — aprovar a
+     compra (`POST /api/cc-expenses/purchases`, a parcela 1 com o total) ja
+     gera todas, na fatura que `compute_invoice_start()` diz;
+   - pagamento de fatura (na conta ou no cartao): nunca lancamento por aqui;
+     pagar e so `POST /api/cc-expenses/pay-invoice`;
+   - credito no cartao (estorno): item CARD de entrada, vira kind REFUND (033);
+   - o resto: item novo, com os lancamentos parecidos ja gravados.
+   - A categoria vem das regras de importacao, pela descricao, como numa
+     notificacao; a da Pluggy so aparece como informacao na fonte.
+
+Idempotente pela chave `pluggy:<id>` por usuario: puxar de novo, a folga de
+dias e reconectar nao duplicam. Uma transacao que some, ou muda de valor,
+antes da aprovacao faz o que o Aprovar ja faz quando a fonte some: o item
+sai (REMOVED) se nao tiver outra fonte.
+"""
+
+import re
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+from db import new_id, row_to_dict, utc_timestamp
+from services import inbox
+from services.accounts import category_id_for_name
+
+BRT = timezone(timedelta(hours=-3))
+DEDUP_PREFIX = "pluggy:"
+
+INVOICE_PAYMENT_CATEGORY = "05100000"
+SELF_TRANSFER_PREFIX = "04"
+# Transferencias (Pix, TED, DOC, mesma instituicao, para terceiros...) — o
+# boleto (05010000, 05090001) e conta paga, nao transferencia.
+TRANSFER_CATEGORIES = {
+    "05000000", "05020000", "05030000", "05040000", "05050000", "05060000", "05070000", "05080000",
+    "05090000", "05090002", "05090003", "05090004", "05090005",
+}
+BILL_CATEGORIES = {"05010000", "05090001"}
+TRANSFER_METHODS = {"PIX", "TED", "DOC", "TEF", "TRANSFERENCIA_MESMA_INSTITUICAO"}
+INVOICE_PAYMENT_TEXT = re.compile(
+    r"\b(PAGAMENTO (DE |DA )?FATURA|PAG(TO)? FATURA|PGTO FATURA|PAGAMENTO RECEBIDO|PAGAMENTO EFETUADO|"
+    r"PAGTO CARTAO|PAGAMENTO CARTAO|PGTO CARTAO)\b",
+)
+MIN_SIGN_SAMPLE = 3
+
+STATUS_SKIPPED_PENDING = "pending"
+
+
+class Skip(Exception):
+    """A transacao nao entra (pendente, valor zero): o motivo e a mensagem."""
+
+
+# ---------------------------------------------------------------------------
+# Puro: ler a Pluggy
+# ---------------------------------------------------------------------------
+
+def to_cents(value):
+    """Reais (numero da Pluggy, com sinal) em centavos inteiros, ROUND_HALF_UP
+    (o mesmo de rounded_money)."""
+    try:
+        return int((Decimal(str(value)) * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise Skip("valor invalido") from exc
+
+
+def local_moment(text):
+    """(data local, occurred_at) de uma data da Pluggy. Meia-noite UTC ou
+    meia-noite em -03:00 e "so a data"; outra hora vira AAAA-MM-DDTHH:MM:SS-03:00."""
+    raw = str(text or "").strip()
+    if not raw:
+        raise Skip("sem data")
+    if len(raw) == 10:
+        datetime.strptime(raw, "%Y-%m-%d")
+        return raw, raw
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise Skip("data invalida") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    utc = parsed.astimezone(timezone.utc)
+    if (utc.hour, utc.minute, utc.second, utc.microsecond) == (0, 0, 0, 0):
+        day = utc.strftime("%Y-%m-%d")
+        return day, day
+    local = parsed.astimezone(BRT)
+    day = local.strftime("%Y-%m-%d")
+    if (local.hour, local.minute, local.second) == (0, 0, 0):
+        return day, day
+    return day, local.isoformat(timespec="seconds")
+
+
+def _digits(value):
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def counterparty_doc(document):
+    """Os digitos do documento do outro lado, como a notificacao os da: de um
+    CPF so os seis do meio ("***.378.195-**"), para casar com o que o Aprovar
+    ja aprendeu (self:doc:); um CNPJ inteiro."""
+    value = document.get("value") if isinstance(document, dict) else document
+    digits = _digits(value)
+    if len(digits) == 11:
+        return digits[3:9]
+    return digits if 3 <= len(digits) <= 14 else None
+
+
+def _text(value, limit):
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit] or None
+
+
+def is_invoice_payment(raw):
+    if str(raw.get("categoryId") or "") == INVOICE_PAYMENT_CATEGORY:
+        return True
+    description = inbox.normalized(raw.get("description") or raw.get("descriptionRaw")).upper()
+    return bool(INVOICE_PAYMENT_TEXT.search(description))
+
+
+def movement_of(raw, account_type, direction):
+    """TRANSFER, SELF_TRANSFER, INVOICE_PAYMENT ou None."""
+    category_id = str(raw.get("categoryId") or "")
+    if is_invoice_payment(raw) and (account_type == "BANK") == (direction == "OUT"):
+        return "INVOICE_PAYMENT"
+    if account_type != "BANK":
+        return None
+    if category_id.startswith(SELF_TRANSFER_PREFIX):
+        return "SELF_TRANSFER"
+    payment = raw.get("paymentData") or {}
+    method = str(payment.get("paymentMethod") or raw.get("operationType") or "").upper()
+    if category_id in BILL_CATEGORIES or method == "BOLETO":
+        return None
+    if category_id in TRANSFER_CATEGORIES or method in TRANSFER_METHODS:
+        return "TRANSFER"
+    return None
+
+
+def learn_charge_sign(transactions, stored_sign=None, stored_source=None):
+    """(sinal de uma compra, como foi aprendido) num cartao. Um pagamento de
+    fatura e entrada por definicao; sem ele, a maioria (compras sao a maior
+    parte de qualquer fatura); sem amostra, o que ja se sabia ou a doc (+)."""
+    payments = []
+    others = []
+    for raw in transactions:
+        try:
+            cents = to_cents(raw.get("amount"))
+        except Skip:
+            continue
+        if not cents:
+            continue
+        (payments if is_invoice_payment(raw) else others).append(cents)
+    if payments:
+        return (-1 if payments[0] > 0 else 1), "payment"
+    if stored_source == "payment" and stored_sign:
+        return stored_sign, stored_source
+    positive = sum(1 for cents in others if cents > 0)
+    negative = len(others) - positive
+    if len(others) >= MIN_SIGN_SAMPLE and positive != negative:
+        return (1 if positive > negative else -1), "majority"
+    if stored_sign:
+        return stored_sign, stored_source
+    return 1, "default"
+
+
+def normalize_transaction(raw, account_type, charge_sign=1):
+    """Os campos do app de uma transacao da Pluggy, ou Skip."""
+    if not isinstance(raw, dict) or not raw.get("id"):
+        raise Skip("sem id")
+    if str(raw.get("status") or "POSTED").upper() == "PENDING":
+        # Ainda nao liquidada (compra na fatura aberta, parcela futura):
+        # pula, por decisao do dono; chega de novo quando liquidar.
+        raise Skip(STATUS_SKIPPED_PENDING)
+    amount = raw.get("amount")
+    currency = str(raw.get("currencyCode") or "BRL").upper()
+    if currency != "BRL" and raw.get("amountInAccountCurrency") is not None:
+        amount, currency = raw["amountInAccountCurrency"], "BRL"
+    signed = to_cents(amount)
+    if not signed:
+        raise Skip("valor zero")
+    if account_type == "CREDIT":
+        direction = "OUT" if (signed > 0) == (charge_sign > 0) else "IN"
+    else:
+        kind = str(raw.get("type") or "").upper()
+        direction = {"DEBIT": "OUT", "CREDIT": "IN"}.get(kind) or ("OUT" if signed < 0 else "IN")
+    metadata = raw.get("creditCardMetadata") or {}
+    installment_number = _positive_int(metadata.get("installmentNumber"))
+    total_installments = _positive_int(metadata.get("totalInstallments"))
+    if total_installments and total_installments > 72:
+        total_installments = None
+    cents = abs(signed)
+    when = raw.get("date")
+    if account_type == "CREDIT" and direction == "OUT":
+        # A compra e o dia em que ela foi feita, nao o da parcela na fatura.
+        when = metadata.get("purchaseDate") or metadata.get("transactionDateTime") or when
+        if total_installments and total_installments > 1 and (installment_number or 1) == 1:
+            total = metadata.get("totalAmount")
+            # Conectores Open Finance nao mandam totalAmount (doc): parcela x n.
+            cents = abs(to_cents(total)) if total not in (None, 0) else cents * total_installments
+    date_text, occurred_at = local_moment(when)
+    payment = raw.get("paymentData") or {}
+    other = (payment.get("receiver") if direction == "OUT" else payment.get("payer")) or {}
+    return {
+        "pluggy_transaction_id": str(raw["id"]),
+        "dedup_key": DEDUP_PREFIX + str(raw["id"]),
+        "direction": direction,
+        "amount_cents": cents,
+        "raw_amount_cents": signed,
+        "currency": currency,
+        "date": date_text,
+        "occurred_at": occurred_at,
+        "description": _text(raw.get("description") or raw.get("descriptionRaw"), 200),
+        "pluggy_type": _text(raw.get("type"), 20),
+        "pluggy_category": _text(raw.get("category"), 120),
+        "pluggy_category_id": _text(raw.get("categoryId"), 20),
+        "movement": movement_of(raw, account_type, direction),
+        "installment_number": installment_number,
+        "total_installments": total_installments,
+        "counterparty": _text(other.get("name"), 120),
+        "counterparty_doc": counterparty_doc(other.get("documentNumber")),
+    }
+
+
+def _positive_int(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+# ---------------------------------------------------------------------------
+# Por no Aprovar
+# ---------------------------------------------------------------------------
+
+ROW_FIELDS = (
+    "pluggy_transaction_id", "dedup_key", "direction", "amount_cents", "raw_amount_cents", "currency", "date",
+    "occurred_at", "description", "pluggy_type", "pluggy_category", "pluggy_category_id", "movement",
+    "installment_number", "total_installments", "counterparty", "counterparty_doc",
+)
+
+
+def fetch_row(conn, current_user_id, dedup_key):
+    return conn.execute(
+        "SELECT * FROM open_finance_transactions WHERE user_id = ? AND dedup_key = ?",
+        (current_user_id, dedup_key),
+    ).fetchone()
+
+
+def fetch_account(conn, current_user_id, of_account_id):
+    return conn.execute(
+        "SELECT * FROM open_finance_accounts WHERE id = ? AND user_id = ?",
+        (of_account_id, current_user_id),
+    ).fetchone()
+
+
+def _update_row(conn, current_user_id, row_id, **changes):
+    changes["updated_at"] = utc_timestamp()
+    assignments = ", ".join(f"{column} = ?" for column in changes)
+    conn.execute(
+        f"UPDATE open_finance_transactions SET {assignments} WHERE id = ? AND user_id = ?",
+        (*changes.values(), row_id, current_user_id),
+    )
+
+
+def mapped_target(account):
+    """(entry_type, account_id, card_id) do mapeamento, ou None sem mapeamento."""
+    if account["type"] == "CREDIT":
+        return ("CARD", None, account["card_id"]) if account["card_id"] else None
+    return (None, account["account_id"], None) if account["account_id"] else None
+
+
+def _entry_type(account, direction):
+    if account["type"] == "CREDIT":
+        return "CARD"
+    return "EXPENSE" if direction == "OUT" else "INCOME"
+
+
+def ingest(conn, current_user_id, account, tx, rules=None, seen_at=None):
+    """Grava (ou reconhece) uma transacao normalizada e a poe no Aprovar.
+    Devolve o status: new, merged, matched, denied, covered, invoice_payment,
+    unmapped ou known."""
+    seen_at = seen_at or utc_timestamp()
+    existing = fetch_row(conn, current_user_id, tx["dedup_key"])
+    if existing is None:
+        row_id = new_id()
+        values = {"id": row_id, "user_id": current_user_id, "of_account_id": account["id"], "role": "UNMAPPED",
+                  "last_seen_at": seen_at}
+        values.update({field: tx[field] for field in ROW_FIELDS})
+        conn.execute(
+            f"INSERT INTO open_finance_transactions ({', '.join(values)}) VALUES ({', '.join('?' for _ in values)})",
+            tuple(values.values()),
+        )
+        return place(conn, current_user_id, row_to_dict(_by_id(conn, current_user_id, row_id)), account, rules)
+
+    existing = row_to_dict(existing)
+    _update_row(conn, current_user_id, existing["id"], last_seen_at=seen_at)
+    changed = (existing["amount_cents"], existing["direction"]) != (tx["amount_cents"], tx["direction"])
+    if changed:
+        if existing["role"] in ("SOURCE", "PAIRED", "MATCHED") and not _item_pending(conn, current_user_id, existing):
+            # Ja decidido: o lancamento do dono fica como esta.
+            return "known"
+        if existing["role"] == "SOURCE":
+            vanish(conn, current_user_id, existing, reason="changed")
+        _update_row(
+            conn, current_user_id, existing["id"], role="UNMAPPED", item_id=None, target_table=None, target_id=None,
+            **{field: tx[field] for field in ROW_FIELDS if field != "dedup_key"},
+        )
+        return place(conn, current_user_id, row_to_dict(_by_id(conn, current_user_id, existing["id"])), account, rules)
+    if existing["role"] == "REMOVED" or (existing["role"] == "UNMAPPED" and mapped_target(account)):
+        return place(conn, current_user_id, existing, account, rules)
+    return "known"
+
+
+def _by_id(conn, current_user_id, row_id):
+    return conn.execute(
+        "SELECT * FROM open_finance_transactions WHERE id = ? AND user_id = ?", (row_id, current_user_id),
+    ).fetchone()
+
+
+def _item_pending(conn, current_user_id, row):
+    if not row.get("item_id"):
+        return True
+    item = inbox.fetch_item(conn, current_user_id, row["item_id"])
+    return bool(item) and item["state"] == inbox.PENDING
+
+
+def place(conn, current_user_id, row, account, rules=None):
+    """Decide o papel de uma linha ja gravada e liga ao item certo."""
+    target = mapped_target(account)
+    if target is None:
+        _update_row(conn, current_user_id, row["id"], role="UNMAPPED", item_id=None)
+        return "unmapped"
+    if row["movement"] == "INVOICE_PAYMENT":
+        _update_row(conn, current_user_id, row["id"], role="INVOICE_PAYMENT", item_id=None)
+        return "invoice_payment"
+    if account["type"] == "CREDIT" and row["direction"] == "OUT" and (row["installment_number"] or 1) > 1:
+        _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
+        return "covered"
+
+    entry_type = _entry_type(account, row["direction"])
+    _, account_id, card_id = target
+    cents = int(row["amount_cents"])
+
+    # 1. Uma notificacao ja trouxe este movimento: o mesmo item.
+    partner = inbox.notification_item_for_open_finance(
+        conn, current_user_id, entry_type=entry_type, direction=row["direction"], cents=cents,
+        date_text=row["date"], account_id=account_id, card_id=card_id,
+    )
+    if partner:
+        return _join_item(conn, current_user_id, row, inbox.item_dict(partner), entry_type, account_id, card_id)
+
+    # 2. A outra ponta de uma transferencia entre contas do dono.
+    if account["type"] == "BANK" and row["movement"] in ("TRANSFER", "SELF_TRANSFER"):
+        approved = inbox.approved_transfer_awaiting(
+            conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
+            date_text=row["date"],
+        )
+        if approved:
+            _update_row(
+                conn, current_user_id, row["id"], role="MATCHED", item_id=approved["id"],
+                target_table="transactions", target_id=approved["target_id"],
+            )
+            return "matched"
+        other = inbox.transfer_partner(
+            conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
+            date_text=row["date"], detection={"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]},
+        )
+        if other and _is_movement_item(conn, current_user_id, other):
+            _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=other["id"])
+            inbox.make_transfer(
+                conn, current_user_id, inbox.item_dict(other), account_id=account_id, direction=row["direction"],
+            )
+            return "merged"
+
+    # 3. Um item novo.
+    new_item_for_row(conn, current_user_id, row, account, rules)
+    return "new"
+
+
+def _is_movement_item(conn, current_user_id, item_row):
+    """So uma transferencia junta com transferencia: o item tem uma fonte que
+    e Pix/TED (notificacao ou Open Finance), ou ja e uma transferencia."""
+    if item_row["entry_type"] == "TRANSFER":
+        return True
+    for detection in inbox.item_detections(conn, current_user_id, item_row["id"]):
+        if detection["role"] == inbox.SOURCE and detection["kind"] in inbox.MOVEMENT_KINDS:
+            return True
+    return any(
+        source["movement"] in ("TRANSFER", "SELF_TRANSFER")
+        for source in inbox.open_finance_sources(conn, current_user_id, item_row["id"], roles=(inbox.SOURCE,))
+    )
+
+
+def _join_item(conn, current_user_id, row, item, entry_type, account_id, card_id):
+    """A transacao entra no item que a notificacao abriu. Pendente: o
+    cartao/conta do mapeamento (certo) entra onde o dono nao escolheu, e o que
+    era palpite deixa de ser."""
+    if item["state"] != inbox.PENDING:
+        role = "PAIRED" if item["state"] == inbox.DENIED else "MATCHED"
+        _update_row(
+            conn, current_user_id, row["id"], role=role, item_id=item["id"],
+            target_table=item.get("target_table"), target_id=item.get("target_id"),
+        )
+        return "denied" if role == "PAIRED" else "matched"
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
+    edited = set(item.get("edited") or [])
+    changes = {}
+    if item["entry_type"] == "TRANSFER":
+        field, need = ("account_id", "account") if row["direction"] == "OUT" else ("transfer_account_id", "transfer_account")
+        if field not in edited:
+            changes[field] = account_id
+            changes["guessed"] = [guess for guess in item.get("guessed") or [] if guess != need]
+    elif not ({"entry_type", "card_id", "account_id"} & edited):
+        if entry_type == "CARD":
+            changes.update({"entry_type": "CARD", "card_id": card_id, "account_id": None})
+            if row["direction"] == "IN":
+                changes["recurring_off"] = 1
+        else:
+            changes.update({"entry_type": entry_type, "account_id": account_id, "card_id": None})
+        changes["guessed"] = [guess for guess in item.get("guessed") or [] if guess not in ("card", "account")]
+    if changes:
+        merged = {**item, **changes}
+        changes["needs"] = inbox.recompute_needs(merged)
+        inbox.save_item(conn, current_user_id, item, changes)
+    return "merged"
+
+
+def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
+    """Abre um item so desta transacao (tambem o "nao e a mesma" do split)."""
+    row = row_to_dict(row) if not isinstance(row, dict) else row
+    if account is None:
+        account = fetch_account(conn, current_user_id, row["of_account_id"])
+    entry_type = _entry_type(account, row["direction"])
+    direction = row["direction"]
+    account_id = account["account_id"] if entry_type != "CARD" else None
+    card_id = account["card_id"] if entry_type == "CARD" else None
+    cents = int(row["amount_cents"])
+    amount = inbox._reais(cents)
+    candidates = inbox.existing_rows(
+        conn, current_user_id, entry_type=entry_type, direction=direction, cents=cents, date_text=row["date"],
+        account_id=account_id, card_id=card_id, for_notification=True,
+    )
+    installments = int(row["total_installments"] or 1) if entry_type == "CARD" and direction == "OUT" else 1
+    values = {
+        "reason": "several_candidates" if len(candidates) > 1 else ("possible_duplicate" if candidates else "new"),
+        "entry_type": entry_type,
+        "direction": direction,
+        "amount": amount,
+        "currency": row["currency"],
+        "installments": installments,
+        "occurred_at": row["occurred_at"],
+        "description": row["description"],
+        "account_id": account_id,
+        "card_id": card_id,
+        "transfer_account_id": None,
+        "guessed": [],
+        "candidates": candidates,
+        "client_key": row["dedup_key"],
+    }
+    if entry_type == "CARD" and direction == "IN":
+        # Estorno (033): a categoria "Estorno", e nunca a ocorrencia de uma
+        # recorrencia de despesa.
+        values["category"] = "Estorno"
+        values["category_id"] = category_id_for_name(conn, current_user_id, "Estorno")
+        values["recurring_off"] = 1
+    elif entry_type != "CARD" and row["movement"] in ("TRANSFER", "SELF_TRANSFER"):
+        hint = inbox.remembered_transfer(
+            conn, current_user_id, account_id=account_id, direction=direction, description=row["description"],
+        )
+        own = hint is not None or row["movement"] == "SELF_TRANSFER" or _is_self(conn, current_user_id, row)
+        if own:
+            other = hint["transfer_account_id"] if hint else None
+            origin, destination = (account_id, other) if direction == "OUT" else (other, account_id)
+            values.update({
+                "entry_type": "TRANSFER",
+                "direction": "OUT",
+                "account_id": origin,
+                "transfer_account_id": destination,
+                "reason": "own_transfer" if values["reason"] == "new" else values["reason"],
+                "description": inbox._transfer_description(conn, current_user_id, origin, destination, row["description"]),
+            })
+        elif (row["counterparty"] or row["counterparty_doc"]) and values["reason"] == "new":
+            values["reason"] = "external_transfer"
+    if "category" not in values:
+        values["category"], values["category_id"] = inbox.suggest_category(
+            conn, current_user_id, values["description"], values["entry_type"], amount, values["account_id"], rules,
+        )
+    values["needs"] = inbox.recompute_needs(values)
+    item_id = inbox.insert_item(conn, current_user_id, values)
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item_id, target_table=None, target_id=None)
+    return item_id
+
+
+def _is_self(conn, current_user_id, row):
+    """O outro lado e o proprio dono, aprendido no Aprovar (031): pelo
+    documento quando a Pluggy o da; pelo nome so sem documento."""
+    if row["counterparty_doc"]:
+        return inbox.fetch_hint(conn, current_user_id, inbox.SELF_DOC_PREFIX + row["counterparty_doc"]) is not None
+    name = inbox.normalized(row["counterparty"])
+    return bool(name) and inbox.fetch_hint(conn, current_user_id, inbox.SELF_NAME_PREFIX + name) is not None
+
+
+def vanish(conn, current_user_id, row, reason="vanished"):
+    """A transacao sumiu da Pluggy (ou mudou de valor) antes da aprovacao: a
+    linha sai e, sem outra fonte viva, o item tambem (REMOVED) — o mesmo que o
+    Aprovar faz com a compra que o banco negou. Um item ja decidido fica."""
+    item_id = row.get("item_id")
+    if item_id and not _item_pending(conn, current_user_id, row):
+        return False
+    _update_row(conn, current_user_id, row["id"], role="REMOVED")
+    if not item_id:
+        return True
+    item_row = inbox.fetch_item(conn, current_user_id, item_id)
+    if item_row and item_row["state"] == inbox.PENDING and not inbox._has_detection_source(conn, current_user_id, item_id):
+        inbox.save_item(
+            conn, current_user_id, inbox.item_dict(item_row),
+            {"state": inbox.REMOVED, "reason": reason, "decided_at": utc_timestamp()},
+        )
+    return True
+
+
+def vanish_missing(conn, current_user_id, account, seen_ids, date_from, date_to):
+    """Depois de um pull de [date_from, date_to]: o que estava pendente nessa
+    janela e a Pluggy nao devolveu mais, sumiu."""
+    rows = conn.execute(
+        """
+        SELECT * FROM open_finance_transactions
+        WHERE user_id = ? AND of_account_id = ? AND date BETWEEN ? AND ?
+          AND role IN ('SOURCE', 'UNMAPPED')
+        """,
+        (current_user_id, account["id"], date_from, date_to),
+    ).fetchall()
+    count = 0
+    for row in rows:
+        if row["pluggy_transaction_id"] in seen_ids:
+            continue
+        if vanish(conn, current_user_id, row_to_dict(row)):
+            count += 1
+    return count
+
+
+def place_unmapped(conn, current_user_id, account, rules=None):
+    """Mapeada a conta, o que ja foi puxado sem mapeamento entra no Aprovar."""
+    rows = conn.execute(
+        "SELECT * FROM open_finance_transactions WHERE user_id = ? AND of_account_id = ? AND role = 'UNMAPPED'"
+        " ORDER BY date, created_at, id",
+        (current_user_id, account["id"]),
+    ).fetchall()
+    return [place(conn, current_user_id, row_to_dict(row), account, rules) for row in rows]

@@ -1,4 +1,4 @@
-"""Healthcheck das integracoes: yfinance, brapi, BCB e o Tesouro.
+"""Healthcheck das integracoes: yfinance, brapi, BCB, o Tesouro e a Pluggy.
 
 `check_integrations()` faz um teste ativo em cada provedor (um ticker, uma
 serie curta), com o mesmo limite de tempo das buscas reais, e junta o ultimo
@@ -16,7 +16,7 @@ import tesouro_client
 from applog import get_logger
 from config import PRICE_FETCH_TIMEOUT_SECONDS
 from integrations import provider_snapshot
-from services import fixed_income, prices
+from services import fixed_income, open_finance, prices
 
 logger = get_logger(__name__)
 
@@ -104,11 +104,25 @@ def check_tesouro():
     return {"status": "ok", "detail": detail}
 
 
+def check_pluggy():
+    """Sem teste ativo: o POST /auth da Pluggy tem limite proprio. Le o ultimo
+    resultado das chamadas de verdade (conectar, Atualizar, a thread)."""
+    if not open_finance.is_configured():
+        return {"status": "not_configured", "detail": "PLUGGY_CLIENT_ID/SECRET vazios; o Open Finance fica desligado."}
+    last = provider_snapshot("pluggy")
+    if last.get("consecutive_failures"):
+        return {"status": "error", "detail": last.get("last_error") or "A última chamada falhou."}
+    if not last.get("last_success"):
+        return {"status": "ok", "detail": "Configurada; nenhuma chamada desde que o servidor subiu."}
+    return {"status": "ok", "detail": "Última chamada respondeu."}
+
+
 CHECKS = {
     "yfinance": ("Yahoo Finance (yfinance)", "Cotações de ações e FIIs", check_yfinance),
     "brapi": ("brapi", "Cotações da B3 (primário quando há token)", check_brapi),
     "bcb": ("Banco Central (SGS)", "CDI e IPCA da renda fixa", check_bcb),
     "tesouro": ("Tesouro Transparente", "Preço de mercado do Tesouro Direto", check_tesouro),
+    "pluggy": ("Pluggy (Open Finance)", "Movimentos das contas e cartões para o Aprovar", check_pluggy),
 }
 
 

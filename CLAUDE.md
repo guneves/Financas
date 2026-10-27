@@ -61,8 +61,10 @@ built by the real migrations — **`backend/finance.db` is never touched.**
 - A test never imports `db`, `routes.*` or `services.*` at the top; use a fixture or
   `importlib.import_module` inside the test. Pure modules (`brapi_client`, `statement_import`,
   `export_csv`, `market_catalog`, `irpf_text`) are fine at the top.
-- `conftest.py` blanks `BRAPI_TOKEN`, `TESOURO_PRICES_URL/FILE`, `HISTORY_CACHE_FILE`, sets
-  `QUOTE_AUTO_REFRESH_SECONDS=0` and `ALLOW_SIGNUP=1`. StatusInvest is patched in
+- `conftest.py` blanks `BRAPI_TOKEN`, `PLUGGY_CLIENT_ID/SECRET`, `TESOURO_PRICES_URL/FILE`,
+  `HISTORY_CACHE_FILE`, sets `QUOTE_AUTO_REFRESH_SECONDS=0`, `OPEN_FINANCE_SYNC_SECONDS=0` and
+  `ALLOW_SIGNUP=1`. Open Finance tests use `open_finance.set_client(FakePluggy())`
+  (`tests/open_finance_world.py`); `pluggy_client` tests patch `pluggy_client.urlopen`. StatusInvest is patched in
   `test_proceeds_sync.py` (`statusinvest_client.get_proceed_events`, plus `clear_cache()`); Tesouro
   prices via `tesouro_client.set_prices(...)` (and `None` after).
 - **Patch where the name is read, not where it is defined** — a wrong target silently does nothing:
@@ -235,6 +237,17 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `inbox_hints` (`self:doc:` / `self:name:`); BTG Investimentos transfers are always own. Pairing
   (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
   bank's notification wins over Samsung's.
+- **Open Finance (Pluggy) is a second source** (043, `services/open_finance.py` +
+  `open_finance_inbox.py`): pulled (no webhooks: the server is tailnet-only) into
+  `open_finance_transactions`, unique `pluggy:<id>` per user, feeding `inbox_items` like
+  notifications. A Pluggy account goes only where the owner mapped it (never the Corretora; a card
+  needs credit). A notification and a Pluggy row of one movement are **one item in either order**
+  (same cents, ≤ 1 day, the mapped target; `notification_item_for_open_finance()` /
+  `open_finance_item_for_detection()`); installments 2..n are `COVERED`, invoice payments never an
+  item, a card credit is a `REFUND` item; a row that vanishes or changes amount before approval
+  makes the item `REMOVED` (if no other source). Approval stamps `source_type = 'OPEN_FINANCE'`.
+  The card sign is learned per account (`learn_charge_sign()`): the sandbox contradicts the docs.
+  Pluggy refuses a second update request within 1 h; every request spends the CPF's monthly quota.
 
 ### Receipts
 - **A receipt is a file on disk referenced by a row** (014; card purchases 016): bytes in

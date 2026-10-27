@@ -49,10 +49,13 @@ import br.financas.app.core.maskEmail
 import br.financas.app.data.AccountDto
 import br.financas.app.data.CategoryDto
 import br.financas.app.data.CreditCardDto
+import br.financas.app.data.OpenFinanceItemDto
 import br.financas.app.rules.ApkUpdateTexts
 import br.financas.app.rules.Card
 import br.financas.app.rules.CardFunctions
 import br.financas.app.rules.NotifyTexts
+import br.financas.app.rules.OpenFinanceRules
+import br.financas.app.rules.PortfolioView
 import br.financas.app.rules.Settings
 import br.financas.app.ui.components.AlertMessage
 import br.financas.app.ui.components.AlertTone
@@ -61,6 +64,7 @@ import br.financas.app.ui.components.AppIcons
 import br.financas.app.ui.components.AppSheet
 import br.financas.app.ui.components.AppTextField
 import br.financas.app.ui.components.Badge
+import br.financas.app.ui.components.BadgeTone
 import br.financas.app.ui.components.ButtonVariant
 import br.financas.app.ui.components.ConfirmDialog
 import br.financas.app.ui.components.EmptyState
@@ -112,6 +116,7 @@ fun AjustesScreen(
             AjustesSection.CARTOES -> cartoes(viewModel, onOpenLink)
             AjustesSection.CATEGORIAS -> categorias(viewModel)
             AjustesSection.APROVAR -> item(key = "aprovar") { AprovarSection(viewModel) }
+            AjustesSection.OPEN_FINANCE -> item(key = "open-finance") { OpenFinanceSection(viewModel) }
             AjustesSection.APARENCIA -> item(key = "aparencia") { AparenciaSection(viewModel) }
             AjustesSection.PERFIL -> item(key = "perfil") { PerfilSection(viewModel, onSignedOut) }
             AjustesSection.NOTIFICACOES -> item(key = "notificacoes") { NotificacoesSection(viewModel) }
@@ -128,6 +133,7 @@ private fun titleOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CARTOES -> R.string.ajustes_cartoes
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias
     AjustesSection.APROVAR -> R.string.ajustes_aprovar
+    AjustesSection.OPEN_FINANCE -> R.string.ajustes_open_finance
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia
     AjustesSection.PERFIL -> R.string.ajustes_perfil
     AjustesSection.NOTIFICACOES -> R.string.ajustes_notificacoes
@@ -139,6 +145,7 @@ private fun hintOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CARTOES -> R.string.ajustes_cartoes_hint
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias_hint
     AjustesSection.APROVAR -> R.string.ajustes_aprovar_hint
+    AjustesSection.OPEN_FINANCE -> R.string.ajustes_open_finance_hint
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia_hint
     AjustesSection.PERFIL -> R.string.ajustes_perfil_hint
     AjustesSection.NOTIFICACOES -> R.string.ajustes_notificacoes_hint
@@ -582,6 +589,105 @@ private fun CategoryRow(category: CategoryDto, viewModel: AjustesViewModel) {
 }
 
 // ---- Aprovar, Aparencia, Perfil ----
+
+/** Open Finance (043): o estado de cada banco conectado, o saldo do banco ao lado do do app e o
+ *  "Atualizar". Conectar, reconectar e mapear ficam no computador (o widget da Pluggy e web). */
+@Composable
+private fun OpenFinanceSection(viewModel: AjustesViewModel) {
+    val palette = LocalPalette.current
+    val load = viewModel.openFinance
+    val data = load.value
+    Panel {
+        Column {
+            SectionHeader(stringResource(R.string.ajustes_open_finance), stringResource(R.string.ajustes_open_finance_description))
+            HorizontalDivider(color = palette["zinc-100"])
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AlertMessage(load.error, AlertTone.DANGER, stringResource(R.string.lanc_dismiss))
+                if (load.offline) Text(load.offlineText, fontSize = 13.sp, color = palette.muted)
+                when {
+                    data == null && !load.loaded -> ListSkeleton(rows = 2)
+                    data != null && !data.configured -> AlertMessage(stringResource(R.string.ajustes_open_finance_off), AlertTone.INFO, stringResource(R.string.lanc_dismiss))
+                    data != null && data.items.isEmpty() -> EmptyState(stringResource(R.string.ajustes_open_finance_empty))
+                }
+                data?.items.orEmpty().forEach { item -> OpenFinanceItemCard(item, viewModel) }
+                Text(stringResource(R.string.ajustes_open_finance_desktop), fontSize = 13.sp, color = palette.muted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenFinanceItemCard(item: OpenFinanceItemDto, viewModel: AjustesViewModel) {
+    val palette = LocalPalette.current
+    val status = OpenFinanceRules.itemStatus(item.status, item.needsOwner)
+    val problem = OpenFinanceRules.itemProblem(item.errorMessage, item.needsOwner, item.lastSyncError)
+    Surface(shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, palette.border), color = palette.surface) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(item.connectorName.orEmpty().ifEmpty { "Banco" }, fontWeight = FontWeight.SemiBold, color = palette.text, modifier = Modifier.weight(1f, fill = false))
+                Badge(status.label, badgeTone(status.tone))
+            }
+            Text(
+                if (item.lastSyncAt.isNullOrEmpty()) stringResource(R.string.ajustes_open_finance_never)
+                else stringResource(R.string.ajustes_open_finance_last_sync, PortfolioView.formatDateTime(item.lastSyncAt)),
+                fontSize = 13.sp,
+                color = palette.muted,
+            )
+            if (problem.isNotEmpty()) AlertMessage(problem, AlertTone.WARNING, stringResource(R.string.lanc_dismiss))
+            item.accounts.forEach { account ->
+                HorizontalDivider(color = palette["zinc-100"])
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(OpenFinanceRules.accountLabel(account.type, account.name, account.number), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = palette.text)
+                    Text(
+                        if (account.targetName != null) stringResource(R.string.ajustes_open_finance_goes_to, account.targetName)
+                        else stringResource(R.string.ajustes_open_finance_unmapped, account.unmappedCount),
+                        fontSize = 13.sp,
+                        color = palette["zinc-600"],
+                    )
+                    val check = OpenFinanceRules.balanceCheck(account.type, account.pluggyBalance, account.appBalance)
+                    if (check.state != "none") {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                stringResource(
+                                    R.string.ajustes_open_finance_balance,
+                                    moneyOrMasked(account.pluggyBalance, viewModel.hidden),
+                                    moneyOrMasked(account.appBalance, viewModel.hidden),
+                                ),
+                                fontSize = 13.sp,
+                                color = palette.muted,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (check.state == "match") Badge(stringResource(R.string.ajustes_open_finance_match), BadgeTone.SUCCESS)
+                            else Badge(stringResource(R.string.ajustes_open_finance_drift, moneyOrMasked(check.difference, viewModel.hidden)), BadgeTone.WARNING)
+                        }
+                    } else if (account.type == "CREDIT" && account.pluggyBalance != null) {
+                        Text(
+                            stringResource(R.string.ajustes_open_finance_card_balance, moneyOrMasked(account.pluggyBalance.abs(), viewModel.hidden)),
+                            fontSize = 13.sp,
+                            color = palette.muted,
+                        )
+                    }
+                }
+            }
+            AppButton(
+                stringResource(R.string.ajustes_open_finance_refresh),
+                { viewModel.syncOpenFinance(item) },
+                Modifier.fillMaxWidth(),
+                variant = ButtonVariant.SECONDARY,
+                loading = viewModel.syncingItemId == item.id,
+                enabled = !viewModel.busy,
+            )
+        }
+    }
+}
+
+private fun badgeTone(tone: String): BadgeTone = when (tone) {
+    "success" -> BadgeTone.SUCCESS
+    "info" -> BadgeTone.INFO
+    "warning" -> BadgeTone.WARNING
+    "danger" -> BadgeTone.DANGER
+    else -> BadgeTone.NEUTRAL
+}
 
 @Composable
 private fun AprovarSection(viewModel: AjustesViewModel) {

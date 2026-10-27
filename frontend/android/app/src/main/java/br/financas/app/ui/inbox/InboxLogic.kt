@@ -88,9 +88,10 @@ object InboxLogic {
         return item.sources.filter { (it.source to it.id) in ids }
     }
 
-    /** Uma linha de fonte: "Notificação Itaú · compra no crédito · final 1234 · 17/10/2026 às 22:30 · mesma compra". */
+    /** Uma linha de fonte: "Notificação Itaú · compra no crédito · final 1234 · 17/10/2026 às 22:30 · mesma compra"
+     *  ou "Open Finance Itaú · Conta Corrente · PADARIA · 20/10/2026". */
     fun sourceLine(source: InboxSourceDto): String {
-        val whenPart = if (source.source == "notification") InboxRules.whenText(source.occurredAt) else formatDateBR(source.date)
+        val whenPart = InboxRules.whenText(source.occurredAt).ifEmpty { formatDateBR(source.date) }
         val paired = if (source.role == "PAIRED") " · mesma compra" else ""
         return "${InboxRules.sourceLabel(source.rule)} · $whenPart$paired"
     }

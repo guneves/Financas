@@ -18,6 +18,8 @@ import br.financas.app.data.CreditCardDto
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.Load
 import br.financas.app.data.MeDto
+import br.financas.app.data.OpenFinanceDto
+import br.financas.app.data.OpenFinanceItemDto
 import br.financas.app.notify.NotifyAccess
 import br.financas.app.notify.NotifyEvents
 import br.financas.app.notify.NotifySettings
@@ -27,6 +29,7 @@ import br.financas.app.rules.ApkUpdateTexts
 import br.financas.app.rules.CardForm
 import br.financas.app.rules.CardFunctions
 import br.financas.app.rules.NotifyTexts
+import br.financas.app.rules.OpenFinanceRules
 import br.financas.app.rules.Settings
 import br.financas.app.ui.components.ConfirmRequest
 import br.financas.app.ui.nav.ShellEvents
@@ -50,6 +53,7 @@ enum class AjustesSection(val anchor: String) {
     CARTOES("cartoes"),
     CATEGORIAS("categorias"),
     APROVAR("aprovar"),
+    OPEN_FINANCE("open-finance"),
     APARENCIA("aparencia"),
     PERFIL("perfil"),
     NOTIFICACOES("notificacoes"),
@@ -94,6 +98,10 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     val cards = ScreenLoad<List<CreditCardDto>>()
     val categories = ScreenLoad<List<CategoryDto>>()
     val me = ScreenLoad<MeDto>()
+    val openFinance = ScreenLoad<OpenFinanceDto>()
+    /** O item da Pluggy que esta em "Atualizar" (o botao dele gira). */
+    var syncingItemId by mutableStateOf<String?>(null)
+        private set
     var alwaysAsk by mutableStateOf<Boolean?>(null)
         private set
     var alwaysAskError by mutableStateOf("")
@@ -227,6 +235,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             }
             AjustesSection.CATEGORIAS -> readCategories()
             AjustesSection.APROVAR -> readInboxSettings()
+            AjustesSection.OPEN_FINANCE -> readOpenFinance()
             AjustesSection.PERFIL -> readMe()
             AjustesSection.NOTIFICACOES -> readNotify()
             AjustesSection.VERSAO -> {
@@ -273,6 +282,10 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+    }
+
+    private fun readOpenFinance() {
+        viewModelScope.launch { openFinance.collect(app, repo.openFinance(), R.string.ajustes_open_finance_failed) }
     }
 
     /** Releia as listas que o "+ Novo" e Aprovar guardam (contas ativas, cartoes, categorias). */
@@ -608,6 +621,18 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         alwaysAsk = value
         write(R.string.ajustes_aprovar_save_failed, { graph.inbox.setAlwaysAsk(value) }, onFail = { alwaysAsk = before }) {
             changed(app.getString(if (value) R.string.ajustes_aprovar_on else R.string.ajustes_aprovar_off))
+        }
+    }
+
+    // ---- Open Finance (043): o estado e "Atualizar"; conectar e mapear ficam no computador ----
+
+    fun syncOpenFinance(item: OpenFinanceItemDto) {
+        if (busy) return
+        syncingItemId = item.id
+        write(R.string.ajustes_open_finance_sync_failed, { repo.syncOpenFinance(item.id) }, onFail = { syncingItemId = null }) { body ->
+            syncingItemId = null
+            openFinance.value = body
+            notice(OpenFinanceRules.syncSummary(body.result?.counts, body.result?.removed))
         }
     }
 

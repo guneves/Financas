@@ -135,7 +135,8 @@ Anyone who logs in as `<user>` can then run docker as root, which is effectively
 server. That is the trade accepted here. The rule deliberately has no `SETENV`.
 
 `/srv/apps/financas/.env` (from `.env.example`, `chmod 600`): `APP_PORT=8101`, `JWT_SECRET`
-(`openssl rand -hex 32`, changing it logs every device out) and `BRAPI_TOKEN`; the other
+(`openssl rand -hex 32`, changing it logs every device out), `BRAPI_TOKEN` and the Pluggy
+credentials (`PLUGGY_CLIENT_ID`, `PLUGGY_CLIENT_SECRET`; see "Open Finance (Pluggy)"); the other
 settings are in `backend/.env.example`. Edit it on the server only. No script or workflow ever
 writes it. The container reads it only when it is created: after an edit run
 `sudo docker compose up -d --force-recreate` — `docker compose restart` keeps the old
@@ -174,6 +175,47 @@ The APK has its API address baked in at build time (`-PfinancasApiBase`, default
 server's address in `app/build.gradle` and `mobile/build-apk.ps1`), so rebuild and install it once.
 
 APK updates after that: "Updating the phone", below.
+
+## Open Finance (Pluggy)
+
+The app pulls the owner's bank and card movements from Pluggy into **Lançamentos › Aprovar**;
+nothing is recorded without approval. Code: `backend/pluggy_client.py`, `services/open_finance*.py`,
+`routes/open_finance.py`, migration 043.
+
+**Secrets.** `PLUGGY_CLIENT_ID` and `PLUGGY_CLIENT_SECRET` (Pluggy dashboard › Applications) go in
+`/srv/apps/financas/.env` only — set there since 2026-10-27 — then
+`sudo docker compose up -d --force-recreate`. They never reach the frontend, a log or an API
+response; the browser only ever gets a 30-minute connect token. With either empty the integration
+is off and Ajustes › Open Finance says so; the healthcheck (Ajustes › Integrações) shows "Pluggy"
+as not configured.
+
+**Plan limits (free plan, 2026-10-27).** One CPF — the owner's. If Pluggy refuses a connection
+(another CPF, the limit reached), its message shows in Ajustes and nothing retries. Pluggy also
+refuses a second update request on an item within 1 hour, and each request spends the bank's
+monthly request quota for the CPF (once spent, updates resume next month). So:
+`OPEN_FINANCE_SYNC_SECONDS` (default 21600 = 4 a day, floor 1 h, `0` = button only), and an item
+waiting for the owner (new password, a code, a consent) is never asked again until reconnected.
+
+**No webhooks.** The server is tailnet-only, so Pluggy cannot call it: the app pulls, on
+"Atualizar" and in the background thread. Each pull reads from the last pull minus 7 days (the
+first one: Ajustes' "Primeira busca", 30 days by default); every transaction is keyed
+`pluggy:<id>`, so overlap and re-pulls never duplicate.
+
+**Connect a bank** (web only, Ajustes › Open Finance): "Conectar banco" opens the Pluggy Connect
+widget (`pluggy-connect-sdk`, pinned); log in to the bank there. Then, for each account it lists,
+pick where it goes: a bank account to one of your accounts (never the Corretora), a card to a card
+with credit. A suggestion by bank or card final shows a "Confirmar" button; nothing is mapped
+silently, and an unmapped account produces nothing (its movements wait, counted, until mapped).
+The first real connection is the owner's check after the deploy — see `docs/handoff.md`.
+
+**Reconnect** (password changed, MFA): "⋯ › Reconectar" opens the widget on the same item.
+
+**Disconnect**: "⋯ › Desconectar" (confirm). It deletes the item at Pluggy and archives ours.
+Approved lançamentos stay; items still pending in Aprovar stay for you to decide.
+
+**Troubleshooting.** The item's status and Pluggy's error message are in Ajustes; the last failure
+of a real call is under Integrações › Pluggy. Server logs: `sudo docker compose logs | grep -i pluggy`
+(method, path and status only — never tokens or transaction descriptions).
 
 ## Updating the phone
 

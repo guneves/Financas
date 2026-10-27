@@ -48,6 +48,12 @@ def app_module():
     # O token real do backend/.env nao vale nos testes: nenhum teste vai a brapi
     # sem pedir (monkeypatch.setenv + urlopen substituido).
     os.environ["BRAPI_TOKEN"] = ""
+    # Nem as credenciais da Pluggy: os testes de Open Finance usam um cliente
+    # falso (open_finance.set_client) ou um urlopen substituido.
+    os.environ["PLUGGY_CLIENT_ID"] = ""
+    os.environ["PLUGGY_CLIENT_SECRET"] = ""
+    os.environ["OPEN_FINANCE_SYNC_SECONDS"] = "0"
+    os.environ["OPEN_FINANCE_UPDATE_WAIT_SECONDS"] = "0"
 
     # config.py le o ambiente no import, e os modulos do app (db, auth...) copiam
     # os valores dele. Por isso nenhum teste importa esses modulos no topo do

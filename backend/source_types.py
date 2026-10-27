@@ -35,3 +35,8 @@ INVOICE_PAYMENT_LOCKED_MESSAGE = (
     "Este lancamento e o pagamento de uma fatura de cartao e fica vinculado a ela; "
     "nao pode ser editado nem excluido pelo extrato."
 )
+
+# Lancamento aprovado no Aprovar que veio do Open Finance (043): source_id = o
+# id da transacao na Pluggy. O lancamento continua editavel como um digitado;
+# a origem so impede que a mesma transacao vire dois lancamentos.
+OPEN_FINANCE_SOURCE_TYPE = "OPEN_FINANCE"
