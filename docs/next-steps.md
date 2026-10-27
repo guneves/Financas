@@ -18,7 +18,7 @@ and the DARF are computed from operations. **BTG Investimentos goes to the inves
 Pluggy account is the Corretora's cash, never an Aprovar source (today it is registered and left
 unmapped; the mapping refuses the Corretora on purpose).
 
-**What MeuPluggy sends for BTG (probed read-only 2026-10-27, item `f645e5ca-…`):**
+**What MeuPluggy sends for BTG (probed read-only 2026-10-27):**
 - Item products include `INVESTMENTS`, `INVESTMENTS_TRANSACTIONS`, `BROKERAGE_NOTE`.
 - `GET /investments?itemId=`: 36 positions. 17 `EQUITY/STOCK` (ações, ETFs and FIIs alike, e.g.
   AUPO11/ABTC11, so the app's own class wins), 6 CDB, 7 LCI + 1 LCA, 3 CRA, 2 `TREASURY`. All have

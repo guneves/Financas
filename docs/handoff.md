@@ -41,17 +41,33 @@ Local session on the owner's PC. `claude/pluggy-open-finance` (`c5f4e7e`) fast-f
   limits), done-tasks, CLAUDE.md (Aprovar › Open Finance), DEPLOY.md, `.env.example`.
 
 ### Not done, and why
-- **Investments via Open Finance**: only planned (next-steps, first section). First step: see what
-  the owner's MeuPluggy connection actually returns from `/investments`.
-- The Aprovar header line naming the source: dropped with the switch, since both sources are always on.
-- **Phone test (Part 2)**: results below as they come in.
+- **Investments via Open Finance**: probed, planned, not built (next-steps, first section).
+- The Aprovar header line naming the source: dropped with the switch.
+- **Phone test (Part 2)**: stopped at step 4. The owner changed direction (results below).
 
 ### Phone test results
-(filled in during the walk-through)
+- **Step 1 (deploy): passed.** Run green (test, build, deploy, apk); `/api/health` ok; Pluggy
+  "Configurada"; the settings endpoint answers its defaults. Integrations show "degraded" only from
+  Tesouro prices (stale to 15/10), unrelated.
+- **Step 2 (APK)**: the workflow publishes it at the server's `/apk/`; `android-check.yml` runs only
+  on PRs. Not yet installed by the owner.
+- **Step 3 (connect): passed, differently.** The owner had made three MeuPluggy connections on
+  Pluggy's side (BB, BTG, Itaú; Flash stays notifications-only). They were registered by item id
+  through `POST /api/open-finance/items` (no widget): all `UPDATED`, first 30-day pull ok, 7
+  accounts, ~210 rows waiting for mapping. Every `connector_name` is "MeuPluggy", so **no mapping
+  suggestion** came (it compares the connector name).
+- **Step 4 (map)**: handed to the owner, result not reported. BTG Investimentos cannot be mapped
+  (the Corretora is refused); it goes to Investimentos.
+- Steps 5–15: not done.
+- **Investments probe** (read-only, from the PC with `backend/.env`): BTG through MeuPluggy sends
+  36 positions and 71 operations with trade dates. Details are in `next-steps.md`.
 
 ### Next session
-1. Act on the phone-test failures recorded above.
-2. The investments step 1 (what MeuPluggy sends), then the design in next-steps.
+1. **`docs/prompts/open-finance-only.md`**, the owner's decisions from the end of this session:
+   Pluggy becomes the only source for connected banks, recorded automatically (Aprovar only for
+   Flash). BTG Investimentos goes into Investimentos automatically. The whole history is compared,
+   then linked or recorded (preview → apply). The pull runs hourly (check the quota first).
+2. Before building: ask the owner what was mapped in step 4 and what the second Ourocard is.
 
 ### Lessons (non-obvious)
 - The owner uses the **MeuPluggy** connector on the free plan (one CPF): the connector name is
