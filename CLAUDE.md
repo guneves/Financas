@@ -62,7 +62,8 @@ built by the real migrations — **`backend/finance.db` is never touched.**
   `importlib.import_module` inside the test. Pure modules (`brapi_client`, `statement_import`,
   `export_csv`, `market_catalog`, `irpf_text`) are fine at the top.
 - `conftest.py` blanks `BRAPI_TOKEN`, `PLUGGY_CLIENT_ID/SECRET`, `TESOURO_PRICES_URL/FILE`,
-  `HISTORY_CACHE_FILE`, sets `QUOTE_AUTO_REFRESH_SECONDS=0`, `OPEN_FINANCE_SYNC_SECONDS=0` and
+  `HISTORY_CACHE_FILE`, sets `QUOTE_AUTO_REFRESH_SECONDS=0`, `OPEN_FINANCE_SYNC_SECONDS=0`,
+  `AUTO_RECORD_DEFAULT=0` (Aprovar tests; `test_auto_record.py` turns it on per user) and
   `ALLOW_SIGNUP=1`. Open Finance tests use `open_finance.set_client(FakePluggy())`
   (`tests/open_finance_world.py`); `pluggy_client` tests patch `pluggy_client.urlopen`. StatusInvest is patched in
   `test_proceeds_sync.py` (`statusinvest_client.get_proceed_events`, plus `clear_cache()`); Tesouro
@@ -224,10 +225,50 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `apply` rewrites only the sent ids, re-checking the rule. Transfers, investment cash, proventos
   and invoice payments are out of reach.
 
-### Aprovar (the inbox)
-- Detections arrive as parsed fields at `POST /api/inbox/detections`; nothing is recorded without
-  approval (Pluggy rows with "Gravar sozinho" on are approved by the server, below), and a look-alike
-  of an existing lançamento is a pending item with a candidate.
+### Auto-record → reconcile → review (045, owner 2026-10-27)
+The paradigm: **notifications record, Pluggy reconciles (and feeds Investimentos), the owner only
+confirms and categorizes.** The inbox engine below (`inbox_items`, pairing, hints) still runs, but
+as plumbing: an item lives for milliseconds, then `approve_item()` records it.
+- **A notification is a lançamento at once** (`services/auto_record.py`, called after
+  `POST /api/inbox/detections` and by `record_due()` on `GET /api/transactions`, `/api/home`,
+  `/api/review`): Flash and every bank. What the item doesn't know is guessed
+  (`services/inbox_defaults.py`: no credit/debit → the guessed card else debit; no card → the
+  issuer's first card else the first credit card; no account → the issuer's account else the
+  default one, never the Corretora) and nothing is remembered (`remember: False`). A look-alike the
+  owner typed is linked (`free_candidates()`), never duplicated, and needs no review.
+- **Only these wait**: a Samsung-only purchase for `NOTIFY_WINDOW_MS` (the bank's notice becomes the
+  source), an **own transfer with one side** until the other side arrives (recording a despesa then
+  a receita would split one transfer; it stays in Aprovar, which the Extrato points to as
+  `waiting`), another currency. Aprovar left the tabs; its page and API stay for those and for the
+  brake.
+- **The switches** default to `AUTO_RECORD_DEFAULT` (config, on): `auto_record` in
+  `GET/PATCH /api/inbox/settings` (notifications) and in `/api/open-finance/settings` (Pluggy).
+  Off is the emergency brake: back to Aprovar. `conftest.py` sets `AUTO_RECORD_DEFAULT=0` so the
+  Aprovar tests see pending items; `test_auto_record.py` turns them on per user.
+- **Review** (`services/review.py`, `GET/POST /api/review`): an auto-recorded row has
+  `needs_review = 1` (`transactions` and every installment of a card purchase, by `client_id`);
+  typed and screen-generated rows are 0. Reviewing = "é meu" + optional `category_id` (a transfer
+  keeps its category); a batch is all or nothing (404 on an unknown id). The Extrato shows the
+  `ReviewPanel` (one tap per row, "Confirmar todos"), an "A revisar" badge, `?review=1`; the header
+  pill and the Extrato tab count it (`review_count` in `GET /api/home`).
+- **Pluggy reconciles what a notification recorded** (`reconcile_recorded()` in
+  `open_finance_inbox.py`): the item keeps `auto_recorded_at` + `recorded_snapshot`. Same date and
+  target and still untouched (equals the snapshot and `needs_review = 1`) → the Pluggy row becomes
+  the source (transaction `source_type = 'OPEN_FINANCE'`, card `client_id = 'pluggy:<id>'`, OF
+  snapshot), so later bank changes apply as for a Pluggy-recorded row; another date or account/card
+  → the row is deleted and the item re-recorded the bank's way right after the pull; reviewed,
+  edited or a transfer → only `MATCHED`.
+- **Card purchases are in the Extrato** (`GET /api/cc-expenses/statement`,
+  `services/card_statement.py`): one row per purchase (total, installments, `needs_review`), the
+  Extrato's filters (type EXPENSE = purchases, INCOME = refunds, TRANSFER or an account → none),
+  merged client-side by `mergeStatement()` (`lib/review.js`; paged: only down to the oldest loaded
+  day). They never count in the day total or the filter totals (the invoice payment moves the
+  account); a day with only card rows shows no total.
+
+### The inbox engine (Aprovar)
+- Detections arrive as parsed fields at `POST /api/inbox/detections` and become items; with the
+  switches on they are recorded right away (above), and a look-alike of an existing lançamento is
+  an item with a candidate.
 - **Settles a recurrence's occurrence** (034, `suggest_for_item()`: same type, ±7 days, exact amount
   or within 20% with a shared word/category; INCOME within 20% regardless). Approving writes a
   `recurring_settlements` row; "Não é esta" sets `recurring_off`.
@@ -238,7 +279,7 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `inbox_hints` (`self:doc:` / `self:name:`); BTG Investimentos transfers are always own. Pairing
   (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
   bank's notification wins over Samsung's.
-- **Open Finance (Pluggy) is the source for connected banks** (043, 044, `services/open_finance.py` +
+- **Open Finance (Pluggy) reconciles the connected banks** (043, 044, 045, `services/open_finance.py` +
   `open_finance_inbox.py`): pulled (no webhooks: the server is tailnet-only) into
   `open_finance_transactions`, unique `pluggy:<id>` per user, feeding `inbox_items` like
   notifications. A Pluggy account goes only where the owner mapped it (a card needs credit; the
@@ -261,10 +302,12 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   (source OPEN_FINANCE + `source_id` = Pluggy id; a card purchase `client_id = 'pluggy:<id>'`).
   Turning it on is refused (400) unless every BANK/CREDIT account of every active connection is
   mapped or "não usar" and each connection was pulled OK in the last 48 h (`blockers()`); on, the
-  Pluggy backlog in Aprovar is recorded in one pass. **Aprovar stays for Flash and what only the
-  owner decides**: a transfer missing its other side (held `TRANSFER_HOLD_DAYS` = 2 so the other
-  bank's pull can pair them; after that, without a pair, a Pix to someone else is a despesa/receita
-  and an own transfer stays), an investment (Pluggy category 03, not provento) on a bank account.
+  Pluggy backlog in Aprovar is recorded in one pass. Since 045 it is on unless the owner turned it
+  off, and what an item lacks is guessed (`fill_defaults()`), recorded with `needs_review = 1`.
+  **Only a transfer waits**: a Pix held `TRANSFER_HOLD_DAYS` = 2 so the other bank's pull can pair
+  it (after that, without a pair, a Pix to someone else is a despesa/receita), an own transfer until
+  its other side arrives. An investment (Pluggy category 03, not provento) on a bank account is
+  recorded as despesa/receita for review (it used to wait).
   A look-alike the owner typed is **linked** (first free candidate), never duplicated; manual rows
   are never deleted. On the Corretora account only bank ↔ Corretora transfers become rows
   (aporte/resgate, 039); the rest is `COVERED`. A bank invoice payment links to the app's

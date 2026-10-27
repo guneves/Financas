@@ -211,6 +211,9 @@ export const ccExpensesApi = {
     body: JSON.stringify(payload)
   }),
   candidates: (params) => apiFetch(`/api/cc-expenses/candidates${queryString(params)}`),
+  // As compras no cartao para o Extrato (045): uma linha por compra, com os
+  // filtros do extrato.
+  statement: (params = {}) => apiFetch(`/api/cc-expenses/statement${queryString(params)}`),
   // De quem e a compra (032): vale para todas as parcelas.
   updateShare: (id, payload) => apiFetch(`/api/cc-expenses/${id}/share`, {
     method: 'PATCH',
@@ -347,6 +350,13 @@ export const inboxApi = {
   forgetHint: (id) => apiFetch(`/api/inbox/hints/${id}`, { method: 'DELETE' }),
   settings: () => apiFetch('/api/inbox/settings'),
   updateSettings: (payload) => apiFetch('/api/inbox/settings', { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+// Revisar (045): o que gravou sozinho espera o dono dizer "e meu" e a
+// categoria. `confirm` recebe [{table, id, category_id?}].
+export const reviewApi = {
+  list: () => apiFetch('/api/review'),
+  confirm: (items) => postJson('/api/review', { items })
 }
 
 // Open Finance pela Pluggy (043): conectar (so na web), mapear, Atualizar,

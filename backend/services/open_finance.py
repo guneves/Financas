@@ -831,8 +831,8 @@ def history_preview(current_user_id, days=None, today=None):
     """Le (GET) o que a Pluggy tem dos ultimos `days` dias em cada conta mapeada
     e conta, sem gravar nada: `linked` (ja ligado a um lancamento), `to_link`
     (um lancamento do app e o mesmo movimento: sera ligado), `to_record` (sera
-    gravado), `waiting` (fica no Aprovar: transferencia sem a outra ponta,
-    investimento), `covered` (parcela 2..n, pagamento de fatura, caixa da
+    gravado, a revisar; 045: o investimento numa conta de banco tambem),
+    `waiting` (sempre 0 desde 045, mantido para as telas), `covered` (parcela 2..n, pagamento de fatura, caixa da
     corretora) e `app_only` (lancamentos do app que o banco nao tem: ficam
     como estao, nunca apagados)."""
     _require_configured()
@@ -905,12 +905,6 @@ def _preview_status(conn, current_user_id, account, tx, claimed, today):
     brokerage = account["type"] == "BANK" and open_finance_inbox.is_brokerage(conn, current_user_id, account["account_id"])
     if brokerage and tx["movement"] not in ("TRANSFER", "SELF_TRANSFER"):
         return "covered"
-    category = str(tx["pluggy_category_id"] or "")
-    if (
-        account["type"] == "BANK" and not brokerage and category.startswith(open_finance_auto.INVESTMENT_CATEGORY_PREFIX)
-        and category != open_finance_auto.PROCEEDS_CATEGORY
-    ):
-        return "waiting"
     entry_type = "CARD" if account["type"] == "CREDIT" else ("EXPENSE" if tx["direction"] == "OUT" else "INCOME")
     candidates = inbox.existing_rows(
         conn, current_user_id, entry_type=entry_type, direction=tx["direction"], cents=tx["amount_cents"],

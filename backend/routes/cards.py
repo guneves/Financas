@@ -28,6 +28,7 @@ from services.attachments import (
     remove_attachment_files,
     same_purchase_sql,
 )
+from services.card_statement import card_purchases
 from services.inbox_decisions import absorb_created
 from services.sharing import update_purchase_share
 from services.invoices import (
@@ -807,6 +808,20 @@ def cc_expense_candidates(current_user_id):
             ),
         ).fetchall()
     return jsonify([row_to_dict(row) for row in rows]), 200
+
+
+@bp.route("/api/cc-expenses/statement", methods=["GET"])
+@token_required
+def cc_expense_statement(current_user_id):
+    """As compras no cartao para o Extrato (045): uma linha por compra, com os
+    filtros do extrato (services/card_statement.py)."""
+    with get_db() as conn:
+        apply_due_autopay(conn, current_user_id)
+        try:
+            items = card_purchases(conn, current_user_id, request.args)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+    return jsonify(items), 200
 
 
 @bp.route("/api/cc-expenses/<item_id>/share", methods=["PATCH"])

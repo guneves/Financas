@@ -352,14 +352,16 @@ class TestTransfers:
         assert world.pending() == []
         assert {of_tx(user["id"], dividend)["role"], of_tx(user["id"], buy)["role"]} == {"COVERED"}
 
-    def test_an_investment_on_a_bank_account_waits_for_the_owner(self, world):
+    def test_an_investment_on_a_bank_account_is_recorded_for_review(self, world):
+        # 045: nada espera o dono; aporte ou despesa, ele decide na revisao.
         item_id, _p, made = connected(world)
         auto_on(world)
         world.fake.add_tx(made["bank"][0], bank_tx(-1000, "2026-10-20", "COMPRA TESOURO DIRETO",
                                                    category_id="03020000"))
         world.sync(item_id)
-        assert world.transactions(made["bank"][2]) == []
-        assert len(world.pending()) == 1
+        [row] = world.transactions(made["bank"][2])
+        assert (row["type"], row["amount"], row["needs_review"]) == ("EXPENSE", 1000.0, 1)
+        assert world.pending() == []
 
 
 class TestCategories:

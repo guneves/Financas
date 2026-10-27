@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Check, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, Undo2, X } from 'lucide-react'
+import { Check, CreditCard, Download, Landmark, Paperclip, Pencil, Plus, Receipt, Search, SlidersHorizontal, Trash2, TrendingUp, Undo2, X } from 'lucide-react'
 import { ccExpensesApi, investmentsApi, transactionsApi } from '../../lib/dataApi'
 import { useDataVersion, useNewEntry } from '../../lib/newEntry'
 import {
@@ -32,15 +32,17 @@ import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
 import { toast } from '../../lib/toast'
 import ExportSheet from '../../components/ExportSheet'
-import { keepPreviousData, queryErrorMessage, useInfiniteQuery } from '../../lib/queries'
+import { keepPreviousData, queryErrorMessage, useInfiniteQuery, useQuery } from '../../lib/queries'
 import { mergeTransactionPages, nextPageCursor, STATEMENT_PAGE_LIMIT } from '../../lib/transactionPages'
 import useDebouncedValue from '../../lib/useDebouncedValue'
 import ExtratoInvestimentos from './ExtratoInvestimentos'
-import { useInboxCount } from '../../lib/inboxCount'
-import { pendingNoticeText } from '../../lib/inboxRules'
 import { APROVAR_PATH } from '../../lib/navigation'
+import { cardAmountSign, isCardRow, mergeStatement, oldestDate, statementKey, waitingNoticeText } from '../../lib/review'
+import { useReviewQueue } from '../../lib/reviewQueue'
+import ReviewPanel from './ReviewPanel'
 
-const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
+// review=1: so o que gravou sozinho e espera a revisao (045).
+const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '', review: '' }
 
 // Os filtros moram na URL (?q=...&from=...): recarregar a pagina ou voltar
 // para ela mantem a busca. So as chaves de EMPTY_FILTERS sao lidas.
@@ -71,6 +73,17 @@ function countHiddenFilters(filters) {
 // do valor ja dizem entrada ou saida, e um "Despesa" vermelho em quase toda
 // linha era alarme sem motivo.
 function TypeBadge({ transaction }) {
+  // A compra no cartao (045) mora na linha do tempo, mas nao mexe em conta:
+  // a etiqueta a separa do resto. Parcelada, diz em quantas.
+  if (isCardRow(transaction)) {
+    const parts = Number(transaction.installments) > 1 ? ` · ${transaction.installments}x` : ''
+    return (
+      <Badge>
+        <CreditCard className="mr-1 h-3 w-3" aria-hidden="true" />
+        {transaction.type === 'REFUND' ? 'Estorno' : 'Cartão'}{parts}
+      </Badge>
+    )
+  }
   if (transaction.type === 'TRANSFER') return <Badge>Transferência</Badge>
   // Aporte sai da conta, mas nao e despesa; o resgate volta, mas nao e receita.
   if (isInvestmentOutflow(transaction)) return <Badge>Investimento</Badge>
@@ -79,11 +92,13 @@ function TypeBadge({ transaction }) {
 }
 
 function amountClass(transaction) {
+  if (isCardRow(transaction)) return cardAmountSign(transaction) > 0 ? 'text-emerald-700' : 'text-zinc-950'
   if (transaction.type === 'TRANSFER') return 'text-zinc-500'
   return transaction.type === 'INCOME' ? 'text-emerald-700' : 'text-zinc-950'
 }
 
 function amountText(transaction) {
+  if (isCardRow(transaction)) return formatSignedCurrency(transaction.amount, cardAmountSign(transaction))
   const sign = transaction.type === 'TRANSFER' ? 0 : transaction.type === 'INCOME' ? 1 : -1
   return formatSignedCurrency(transaction.amount, sign)
 }
@@ -91,17 +106,19 @@ function amountText(transaction) {
 // Extrato agrupado por dia (a lista ja vem do mais novo para o mais antigo).
 // O total do dia e o que entrou menos o que saiu na lista mostrada;
 // transferencia nao entra, como no consolidado. No extrato filtrado o total
-// vem do servidor (`dayTotals`), sobre o dia inteiro.
+// vem do servidor (`dayTotals`), sobre o dia inteiro. Um dia so de compras no
+// cartao (045) nao tem total: elas nao mexem em conta.
 function groupByDay(transactions, dayTotals = null) {
   const groups = []
   transactions.forEach((transaction) => {
     const date = transaction.date || ''
     let group = groups[groups.length - 1]
     if (!group || group.date !== date) {
-      group = { date, items: [], total: 0 }
+      group = { date, items: [], total: 0, hasTotal: false }
       groups.push(group)
     }
     group.items.push(transaction)
+    if (!isCardRow(transaction)) group.hasTotal = true
     if (transaction.type === 'INCOME') group.total += Number(transaction.amount || 0)
     else if (transaction.type === 'EXPENSE') group.total -= Number(transaction.amount || 0)
   })
@@ -131,11 +148,17 @@ function dayLabel(date) {
   })
 }
 
+// Gravado sozinho e ainda nao revisado (045): o painel Revisar confirma.
+function ReviewMark({ transaction }) {
+  if (!transaction.needs_review) return null
+  return <Badge tone="warning">A revisar</Badge>
+}
+
 // Lancamentos criados por outra tela (carteira, fatura) so se editam la.
 // Um pendente (lib/outbox.js) ainda nao existe no servidor: corrige-se ou
 // descarta-se em "Pendentes", nao aqui.
 function isEditableHere(transaction) {
-  if (transaction.pending) return false
+  if (transaction.pending || isCardRow(transaction)) return false
   return !['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED', 'CC_INVOICE_PAYMENT', 'CC_AUTOPAY'].includes(transaction.source_type)
 }
 
@@ -177,6 +200,7 @@ function AttachmentMark({ transaction }) {
 }
 
 function originLabel(transaction) {
+  if (isCardRow(transaction)) return transaction.card_name || 'Cartão'
   if (transaction.pending) return transaction.pending_status === 'needs_attention' ? 'Recusado pelo servidor' : 'Pendente de envio'
   if (transaction.source_type === 'INVESTMENT_TRANSACTION') return 'Pela carteira'
   if (transaction.source_type === 'INVESTMENT_PROCEED') return 'Provento'
@@ -259,8 +283,9 @@ function ExtratoContas({ viewSwitch }) {
     accountName,
   } = useLancamentos()
 
-  // O que o celular traz espera o dono em Lancamentos › Aprovar.
-  const pendingApproval = useInboxCount()
+  // Gravar sozinho (045): o que espera o dono confirmar, e o que nao gravou
+  // sozinho (fica no Aprovar).
+  const review = useReviewQueue()
 
   const [saving, setSaving] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -305,10 +330,24 @@ function ExtratoContas({ viewSwitch }) {
   const filterError = filtersActive ? queryErrorMessage(filteredQuery, 'Não foi possível aplicar os filtros.') : ''
   const filteredPages = filtersActive && filteredQuery.data ? mergeTransactionPages(filteredQuery.data.pages) : null
 
-  const statementTransactions = filteredPages?.items ?? transactions
+  // As compras no cartao (045), com os mesmos filtros: entram na linha do
+  // tempo entre os lancamentos. Paginado, so ate o dia mais antigo carregado.
+  const cardFilters = filtersActive ? debouncedFilters : EMPTY_FILTERS
+  const cardQuery = useQuery({
+    queryKey: ['lancamentos', 'cartoes-extrato', cardFilters],
+    queryFn: () => ccExpensesApi.statement(cardFilters),
+    placeholderData: keepPreviousData,
+  })
+  const accountRows = filteredPages?.items ?? transactions
+  const statementTransactions = useMemo(() => mergeStatement(
+    accountRows,
+    cardQuery.data,
+    { until: filteredPages?.hasMore ? oldestDate(accountRows) : '' },
+  ), [accountRows, cardQuery.data, filteredPages?.hasMore])
+  const cardCount = statementTransactions.length - accountRows.length
   // Sem cascata nas linhas: um extrato se le de cima para baixo, e filtrar e
   // digitar. So o que acabou de ser gravado pisca, para ser achado.
-  const arrived = useArrivals(statementTransactions, useDataVersion())
+  const arrived = useArrivals(statementTransactions, useDataVersion(), statementKey)
 
   // Sem filtro, "Mostrar mais" sobre a lista ja carregada: volta a 100 linhas
   // a cada filtro novo. Com filtro, as paginas do servidor.
@@ -317,7 +356,7 @@ function ExtratoContas({ viewSwitch }) {
   const visibleTransactions = filteredPages ? statementTransactions : statementTransactions.slice(0, visibleCount)
   const dayTotals = filteredPages?.dayTotals
   const visibleDays = useMemo(() => groupByDay(visibleTransactions, dayTotals), [visibleTransactions, dayTotals])
-  const statementCount = filteredPages ? filteredPages.count : statementTransactions.length
+  const statementCount = filteredPages ? filteredPages.count + cardCount : statementTransactions.length
   const hiddenCount = statementCount - visibleTransactions.length
 
   // Exporta exatamente o que a tela mostra: o backend refaz a mesma consulta
@@ -512,7 +551,12 @@ function ExtratoContas({ viewSwitch }) {
 
   // Lancamento gerado por outra tela: sem editar aqui, so diz de onde veio.
   const rowActions = (transaction) => (
-    !isEditableHere(transaction) ? (
+    isCardRow(transaction) ? (
+      // A compra no cartao (045): parcelas, divisao e estorno ficam em Cartoes.
+      <Link to="/lancamentos/cartoes" className="self-center text-xs font-semibold text-zinc-500 underline-offset-2 hover:underline">
+        Ver em Cartões
+      </Link>
+    ) : !isEditableHere(transaction) ? (
       <>
         <span className="min-w-0 truncate self-center text-xs text-zinc-500" title={originLabel(transaction)}>{originLabel(transaction)}</span>
         {attachmentsButton(transaction)}
@@ -536,7 +580,7 @@ function ExtratoContas({ viewSwitch }) {
     <div className="space-y-6">
       <PageHeader
         title="Extrato"
-        description="Entradas, saídas e transferências das suas contas."
+        description="Entradas, saídas, transferências e compras no cartão, numa linha do tempo só."
         actions={(
           <>
             <Button
@@ -555,12 +599,14 @@ function ExtratoContas({ viewSwitch }) {
       {viewSwitch}
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
-      {pendingApproval ? (
+      {review.waiting ? (
         <AlertMessage tone="info">
-          {pendingNoticeText(pendingApproval)}{' '}
-          <Link to={APROVAR_PATH} className="font-semibold underline">Aprovar</Link>
+          {waitingNoticeText(review.waiting)}{' '}
+          <Link to={APROVAR_PATH} className="font-semibold underline">Ver</Link>
         </AlertMessage>
       ) : null}
+
+      <ReviewPanel items={review.items} categoryOptionsFor={categoryOptionsFor} onError={setDataError} />
 
       <ProjectionHeader
         balance={balance}
@@ -661,6 +707,12 @@ function ExtratoContas({ viewSwitch }) {
                   ))}
                 </select>
               </Field>
+              <Field label="Revisão">
+                <select value={filters.review} onChange={(event) => updateFilter('review', event.target.value)} className="app-select">
+                  <option value="">Todos</option>
+                  <option value="1">Só a revisar</option>
+                </select>
+              </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Valor mín.">
                   <input type="number" inputMode="decimal" min="0" step="0.01" value={filters.min_amount} onChange={(event) => updateFilter('min_amount', event.target.value)} className="app-input" />
@@ -707,7 +759,7 @@ function ExtratoContas({ viewSwitch }) {
                         <div className="flex items-baseline justify-between gap-4">
                           <span className="text-sm font-bold text-zinc-700 first-letter:uppercase">{dayLabel(group.date)}</span>
                           <span className="flex items-baseline">
-                            <span className="whitespace-nowrap text-sm font-semibold text-zinc-500 tabular">{formatSignedCurrency(group.total)}</span>
+                            <span className="whitespace-nowrap text-sm font-semibold text-zinc-500 tabular">{group.hasTotal ? formatSignedCurrency(group.total) : ''}</span>
                             {/* Largura da coluna de acoes: o total cai embaixo da coluna Valor. */}
                             <span className="w-44 shrink-0 lg:w-36" aria-hidden="true" />
                           </span>
@@ -735,15 +787,17 @@ function ExtratoContas({ viewSwitch }) {
                         ]
                       }
 
-                      const account = accountLabel(transaction)
+                      const account = isCardRow(transaction) ? (transaction.card_name || 'Cartão') : accountLabel(transaction)
+                      const rowKey = statementKey(transaction)
                       return (
-                        <tr key={transaction.id} className={cx('group', arrived.has(transaction.id) && 'animate-flash-emerald')}>
+                        <tr key={rowKey} className={cx('group', arrived.has(rowKey) && 'animate-flash-emerald')}>
                           {showAccount ? <td className="truncate text-zinc-600" title={account}>{account}</td> : null}
                           <td className="truncate font-medium text-zinc-800" title={transaction.category}>{transaction.category}</td>
                           <td>
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
                               <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
+                              <span className="shrink-0"><ReviewMark transaction={transaction} /></span>
                               <AttachmentMark transaction={transaction} />
                             </div>
                             <ShareMark transaction={transaction} />
@@ -766,7 +820,7 @@ function ExtratoContas({ viewSwitch }) {
                 <section key={group.date} aria-label={dayLabel(group.date)}>
                   <h3 className="flex items-baseline justify-between gap-3 bg-zinc-50/70 px-4 py-2 text-sm">
                     <span className="font-bold text-zinc-700 first-letter:uppercase">{dayLabel(group.date)}</span>
-                    <span className="whitespace-nowrap font-semibold text-zinc-500 tabular">{formatSignedCurrency(group.total)}</span>
+                    <span className="whitespace-nowrap font-semibold text-zinc-500 tabular">{group.hasTotal ? formatSignedCurrency(group.total) : ''}</span>
                   </h3>
                   <ul className="divide-y divide-zinc-100">
               {group.items.map((transaction) => {
@@ -808,6 +862,7 @@ function ExtratoContas({ viewSwitch }) {
                           {transaction.type === 'TRANSFER' ? accountLabel(transaction) : transaction.category}
                           {editable ? '' : ` · ${originLabel(transaction)}`}
                         </span>
+                        <ReviewMark transaction={transaction} />
                         <AttachmentMark transaction={transaction} />
                       </p>
                       {transaction.share_mode ? <p className="flex min-w-0"><ShareMark transaction={transaction} /></p> : null}
@@ -818,9 +873,19 @@ function ExtratoContas({ viewSwitch }) {
                     </div>
                   </>
                 )
+                const rowKey = statementKey(transaction)
                 return (
-                  <li key={transaction.id} className={cx(arrived.has(transaction.id) && 'animate-flash-emerald')}>
-                    {editable ? (
+                  <li key={rowKey} className={cx(arrived.has(rowKey) && 'animate-flash-emerald')}>
+                    {isCardRow(transaction) ? (
+                      // A compra no cartao: so aparece; edita-se em Cartoes.
+                      <Link
+                        to="/lancamentos/cartoes"
+                        aria-label={`${transaction.description || transaction.category} em Cartões`}
+                        className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-zinc-50"
+                      >
+                        {content}
+                      </Link>
+                    ) : editable ? (
                       <button
                         type="button"
                         onClick={() => startEditing(transaction)}

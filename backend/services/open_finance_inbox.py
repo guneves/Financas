@@ -55,7 +55,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import statement_import
 from db import new_id, row_to_dict, utc_timestamp
 from open_finance_categories import expected_type, pluggy_category_name
-from services import inbox
+from services import inbox, review
 from services.accounts import category_id_for_name, fetch_category
 from services.import_rules import import_rules_for_matching
 from source_types import INVOICE_PAYMENT_SOURCE_TYPES, OPEN_FINANCE_SOURCE_TYPE
@@ -453,6 +453,8 @@ def _join_item(conn, current_user_id, row, item, entry_type, account_id, card_id
     """A transacao entra no item que a notificacao abriu. Pendente: o
     cartao/conta do mapeamento (certo) entra onde o dono nao escolheu, e o que
     era palpite deixa de ser."""
+    if item["state"] == inbox.APPROVED and item.get("auto_recorded_at"):
+        return reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id, card_id)
     if item["state"] != inbox.PENDING:
         role = "PAIRED" if item["state"] == inbox.DENIED else "MATCHED"
         _update_row(
@@ -481,6 +483,112 @@ def _join_item(conn, current_user_id, row, item, entry_type, account_id, card_id
         changes["needs"] = inbox.recompute_needs(merged)
         inbox.save_item(conn, current_user_id, item, changes)
     return "merged"
+
+
+# ---------------------------------------------------------------------------
+# Conferencia do que a notificacao gravou (045)
+# ---------------------------------------------------------------------------
+
+def notification_untouched(conn, current_user_id, item):
+    """O lancamento que a notificacao gravou sozinha esta como nasceu e ainda
+    a revisar (revisado, o dono ja disse que esta certo: o banco nao o refaz)."""
+    table, target_id = item.get("target_table"), item.get("target_id")
+    if not item.get("recorded_snapshot") or not review.awaiting(conn, current_user_id, table, target_id):
+        return False
+    try:
+        recorded = json.loads(item["recorded_snapshot"])
+    except (TypeError, ValueError):
+        return False
+    return target_snapshot(conn, current_user_id, table, target_id) == recorded
+
+
+def bank_disagrees(item, row, entry_type, account_id, card_id):
+    """O banco diz outra data ou outra conta/cartao do que a notificacao gravou."""
+    if inbox.date_of(item["occurred_at"]) != row["date"]:
+        return True
+    if entry_type == "CARD":
+        return item["entry_type"] != "CARD" or item.get("card_id") != card_id
+    return item["entry_type"] != entry_type or item.get("account_id") != account_id
+
+
+def _drop_target(conn, current_user_id, item):
+    table, target_id = item["target_table"], item["target_id"]
+    conn.execute(
+        "DELETE FROM recurring_settlements WHERE user_id = ? AND target_table = ? AND target_id = ?",
+        (current_user_id, table, target_id),
+    )
+    if table == "transactions":
+        conn.execute("DELETE FROM transactions WHERE id = ? AND user_id = ?", (target_id, current_user_id))
+    else:
+        conn.execute(
+            """
+            DELETE FROM cc_expenses
+            WHERE user_id = ? AND client_id = (SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?)
+            """,
+            (current_user_id, target_id, current_user_id),
+        )
+    conn.execute(
+        "UPDATE notify_detections SET target_table = NULL, target_id = NULL WHERE user_id = ? AND item_id = ?",
+        (current_user_id, item["id"]),
+    )
+
+
+def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id, card_id):
+    """A transacao da Pluggy e o movimento que uma notificacao ja gravou
+    sozinha. Nunca vira um segundo lancamento:
+
+    - intocado e o banco concorda: a transacao passa a ser a fonte do
+      lancamento (origem OPEN_FINANCE, o snapshot), e o que o banco mudar
+      depois corrige como no gravado pela Pluggy (apply_change/apply_vanish);
+    - intocado e o banco diz outra data ou conta/cartao: o lancamento sai e o
+      item volta a esperar com o que o banco diz; a passada da Pluggy logo
+      depois do pull o grava de novo, a revisar;
+    - revisado ou editado (ou uma transferencia): so liga (MATCHED); a
+      Conferencia aponta o que nao bater.
+    """
+    table, target_id = item["target_table"], item["target_id"]
+    if item["entry_type"] == "TRANSFER" or not notification_untouched(conn, current_user_id, item):
+        _update_row(
+            conn, current_user_id, row["id"], role="MATCHED", item_id=item["id"],
+            target_table=table, target_id=target_id,
+        )
+        return "matched"
+    if bank_disagrees(item, row, entry_type, account_id, card_id):
+        _drop_target(conn, current_user_id, item)
+        _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"], target_table=None, target_id=None)
+        changes = {
+            "state": inbox.PENDING, "target_table": None, "target_id": None, "decided_at": None,
+            "auto_recorded_at": None, "recorded_snapshot": None, "occurred_at": row["occurred_at"] or row["date"],
+            "client_key": row["dedup_key"],
+            "guessed": [guess for guess in item.get("guessed") or [] if guess not in ("card", "account")],
+        }
+        if entry_type == "CARD":
+            changes.update({"entry_type": "CARD", "card_id": card_id, "account_id": None})
+        else:
+            changes.update({"entry_type": entry_type, "account_id": account_id, "card_id": None})
+        if changes["entry_type"] != item["entry_type"]:
+            changes["category"], changes["category_id"] = category_for_row(
+                conn, current_user_id, row, changes["entry_type"], item["amount"], changes["account_id"],
+            )
+        changes["needs"] = inbox.recompute_needs({**item, **changes})
+        inbox.save_item(conn, current_user_id, item, changes)
+        return "merged"
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"], target_table=table, target_id=target_id)
+    if table == "transactions":
+        conn.execute(
+            "UPDATE transactions SET source_type = ?, source_id = ? WHERE id = ? AND user_id = ? AND source_type IS NULL",
+            (OPEN_FINANCE_SOURCE_TYPE, row["pluggy_transaction_id"], target_id, current_user_id),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE cc_expenses SET client_id = ?
+            WHERE user_id = ? AND client_id = (SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?)
+            """,
+            (row["dedup_key"], current_user_id, target_id, current_user_id),
+        )
+    mark_auto_recorded(conn, current_user_id, item["id"], table, target_id)
+    return "matched"
 
 
 def new_item_for_row(conn, current_user_id, row, account=None, rules=None):

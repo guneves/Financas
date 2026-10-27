@@ -9,13 +9,48 @@
 
 ## 1. Open work, in priority order
 
+### Auto-record → reconcile → review (045, 2026-10-27) — what is left
+The paradigm (CLAUDE.md › "Auto-record → reconcile → review"): every notification is recorded at
+once, Pluggy reconciles it (and feeds Investimentos), the owner only confirms and categorizes in
+the Extrato's Revisar panel. Built on `main` for the server and the web; see `done-tasks.md`.
+
+**Owner, after the deploy:**
+- [ ] Both switches come **on by default** (`AUTO_RECORD_DEFAULT`): the first phone upload records
+  every pending notification, and the first Pluggy pull records the Pluggy backlog of mapped
+  accounts. Check the card purchase sign first (the item below in the 044 section), or turn
+  Ajustes › Open Finance › Gravar sozinho off until then.
+- [ ] Ajustes › Avisos do celular: "Gravar sozinho" on. Make a Flash and an Itaú purchase; each must
+  appear in Extrato › Revisar within seconds, then disappear with "É meu".
+- [ ] After a Pluggy pull, the same purchases must still be **one** row each (now marked
+  `OPEN_FINANCE` in the database) and the Conferência must read "Confere".
+- [ ] Decide whether "Ignorar avisos dos bancos conectados" stays: with notifications recording
+  first, leaving it off is the new default flow (on, connected banks are recorded by Pluggy only).
+
+**Not built / limits:**
+- [ ] **APK**: the native app still has its Aprovar screen and an Extrato without card purchases or
+  review. It keeps posting detections, so recording works; the review UI is web-only. Port
+  `ReviewPanel` and the card rows (`GET /api/review`, `GET /api/cc-expenses/statement`).
+- [ ] An own transfer with one side waits in Aprovar until the other side arrives (the Extrato says
+  "N movimentos não puderam ser gravados sozinhos · Ver"). A transfer to an account that is neither
+  connected nor notifies (another bank) needs the owner there.
+- [ ] Review has no "não é meu" action: an error is deleted with the row's normal Excluir (a
+  Pluggy row deleted this way is not re-recorded: its item stays decided). A fraud is real money:
+  keep the row and contest with the bank.
+- [ ] Pluggy corrects a notification-recorded row only when it is untouched; amounts are matched
+  exactly (or installment vs total), so a different amount (IOF, foreign purchase) is a second
+  movement, not a correction.
+- [ ] Editing a row (PATCH) does not clear `needs_review`; only Revisar does.
+- [ ] "Sempre perguntar a conta/cartão" only matters with Gravar sozinho off (disabled in Ajustes
+  otherwise); `inbox_hints` are no longer learned while auto-recording (`remember: False`).
+
 ### Open Finance as the only source for connected banks (044, 2026-10-27) — what is left
 Built on `main` (see `done-tasks.md`, CLAUDE.md › "Gravar sozinho", DEPLOY.md › Open Finance). The
 owner's decisions: Pluggy (MeuPluggy, free plan) is the only source for Itaú, BTG and BB, recorded
 automatically; Aprovar stays for Flash and what only the owner decides; GET only, never more often
 than every 6 h; BTG Investimentos goes into Investimentos.
 
-**Owner, after the deploy (in this order; nothing of it ran on real data yet):**
+**Owner, after the deploy (in this order; nothing of it ran on real data yet). Since 045 the
+Pluggy switch is on by default and Aprovar is out of the tabs — read the 045 section first:**
 - [ ] Ajustes › Open Finance (web): map every account. Expected: Itaú → "Itaú"; BTG Banking →
   "BTG conta corrente"; Cartão BTG BLACK → "BTG black"; **BTG Investimentos → "BTG Corretora"** (now
   allowed: it is the broker's cash); BB checking → "BB"; OUROCARD FACIL VISA → "BB ourocard"; the

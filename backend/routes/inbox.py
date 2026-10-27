@@ -11,7 +11,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db
-from services import inbox, inbox_decisions
+from services import auto_record, inbox, inbox_decisions
 from validators import ValidationError, parse_json_body, require_id_list, validation_error
 
 bp = Blueprint("inbox", __name__)
@@ -81,7 +81,9 @@ def post_detections(current_user_id):
             results = inbox.ingest_detections(conn, current_user_id, detections)
         except ValidationError as exc:
             return validation_error(str(exc))
-    return jsonify({"results": results}), 200
+        # Gravar sozinho (045): o que chegou vira lancamento agora, a revisar.
+        recorded = auto_record.record_notifications(conn, current_user_id)
+    return jsonify({"results": results, "auto_recorded": recorded}), 200
 
 
 @bp.route("/api/inbox/approve-ready", methods=["POST"])
@@ -102,17 +104,29 @@ def approve_ready(current_user_id):
 @bp.route("/api/inbox/settings", methods=["GET", "PATCH"])
 @token_required
 def inbox_settings(current_user_id):
-    """`always_ask`: "Sempre perguntar a conta/cartao" (desligado por padrao).
+    """`auto_record` (045): a notificacao vira lancamento na hora, a revisar
+    (ligado por padrao, AUTO_RECORD_DEFAULT); desligado, espera no Aprovar.
+    `always_ask`: "Sempre perguntar a conta/cartao" (desligado por padrao).
     Ligado, todo item pede confirmar a conta/cartao, inclusive o lembrado, e
     "Aprovar todos" nao leva nenhum."""
     if request.method == "PATCH":
         payload = parse_json_body()
-        if not isinstance(payload, dict) or not isinstance(payload.get("always_ask"), bool):
-            return validation_error("Envie always_ask como true ou false.")
+        if not isinstance(payload, dict) or not any(key in payload for key in ("always_ask", "auto_record")):
+            return validation_error("Envie always_ask ou auto_record como true ou false.")
+        if any(key in payload and not isinstance(payload[key], bool) for key in ("always_ask", "auto_record")):
+            return validation_error("Envie always_ask ou auto_record como true ou false.")
         with get_db() as conn:
-            inbox.set_always_ask(conn, current_user_id, payload["always_ask"])
+            if "always_ask" in payload:
+                inbox.set_always_ask(conn, current_user_id, payload["always_ask"])
+            if "auto_record" in payload:
+                inbox.save_setting(conn, current_user_id, auto_record.SETTING, "1" if payload["auto_record"] else "0")
+                if payload["auto_record"]:
+                    auto_record.record_notifications(conn, current_user_id)
     with get_db() as conn:
-        body = {"always_ask": inbox.always_ask(conn, current_user_id)}
+        body = {
+            "always_ask": inbox.always_ask(conn, current_user_id),
+            "auto_record": auto_record.enabled(conn, current_user_id),
+        }
     return jsonify(body), 200
 
 

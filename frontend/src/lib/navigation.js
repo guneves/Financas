@@ -1,5 +1,4 @@
 import {
-  BellRing,
   Briefcase,
   Calculator,
   CalendarDays,
@@ -29,9 +28,9 @@ export const sections = [
     path: '/lancamentos',
     icon: Receipt,
     tabs: [
-      { to: '/lancamentos/extrato', label: 'Extrato', icon: Wallet },
-      // O que o celular trouxe, esperando o dono (028).
-      { to: APROVAR_PATH, label: 'Aprovar', icon: BellRing, badge: 'inbox' },
+      // O que gravou sozinho e espera o dono confirmar (045). Aprovar saiu das
+      // abas: so o que nao grava sozinho fica la, e o Extrato aponta.
+      { to: '/lancamentos/extrato', label: 'Extrato', icon: Wallet, badge: 'review' },
       { to: '/lancamentos/cartoes', label: 'Cartões', icon: CreditCard },
       // A parte dos outros nas despesas, ate o dono marcar que pagaram (032).
       { to: '/lancamentos/a-receber', label: 'A receber', icon: Coins },

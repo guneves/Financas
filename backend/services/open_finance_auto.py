@@ -15,14 +15,22 @@ aprova sozinho cada item que nao precisa do dono, pela mesma aprovacao da tela
 source_type OPEN_FINANCE + source_id = id da Pluggy; a compra no cartao,
 client_id = 'pluggy:<id>'.
 
-Fica no Aprovar (o dono decide) o item que:
-- tem um campo a escolher (uma transferencia de uma ponta so: a outra conta);
-- e investimento numa conta de banco (categoria 03 da Pluggy, salvo provento):
-  aporte ou despesa, so o dono sabe;
-- e uma transferencia ainda dentro de TRANSFER_HOLD_DAYS dias: a outra ponta
-  pode chegar no pull de outro banco (cada banco atualiza numa hora) e as duas
-  sao UMA transferencia; passado o prazo, sem par, grava como despesa/receita;
-- nao tem fonte do Open Finance (notificacao: Flash).
+Nada espera o dono (045, dono 2026-10-27): o que o item nao sabe vira palpite
+(services/inbox_defaults.py) e o lancamento nasce a revisar
+(services/review.py). So espera o par a transferencia: um Pix ainda
+dentro de TRANSFER_HOLD_DAYS dias (a outra ponta pode chegar no pull de outro
+banco, cada banco atualiza numa hora, e as duas sao UMA transferencia; passado
+o prazo, sem par, e de outra pessoa: despesa/receita); e a transferencia entre
+contas do dono com uma ponta so, ate a outra chegar (gravar uma despesa e
+depois uma receita faria de uma transferencia dois movimentos; fica no
+Aprovar, que o Extrato aponta). Um investimento numa conta
+de banco (categoria 03 da Pluggy, salvo provento) grava como despesa/receita a
+revisar. O item sem fonte do Open Finance (notificacao) e de
+services/auto_record.py.
+
+O interruptor (`open_finance_auto_record`) sem escolha vale AUTO_RECORD_DEFAULT
+(ligado): mapear a conta ja e o consentimento. Desligado, a Pluggy so liga o
+que a notificacao ja gravou e o resto espera.
 
 Um lancamento ja gravado pelo dono que e o mesmo movimento (os "parecidos" do
 item, mesmo valor e data proxima) e LIGADO, nunca duplicado nem apagado; um
@@ -33,20 +41,21 @@ mudar o valor ou a transacao sumir, so o intocado e corrigido ou apagado.
 
 from datetime import datetime, timezone
 
+from config import AUTO_RECORD_DEFAULT
 from dates import parse_iso_date
-from services import inbox, inbox_decisions, open_finance_inbox
+from services import inbox, inbox_decisions, open_finance_inbox, review
+from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
 AUTO_RECORD_SETTING = "open_finance_auto_record"
 FRESH_PULL_HOURS = 48
 TRANSFER_HOLD_DAYS = 2
 TRANSFER_MOVEMENTS = ("TRANSFER", "SELF_TRANSFER")
-INVESTMENT_CATEGORY_PREFIX = "03"
-PROCEEDS_CATEGORY = "03060000"
 
 
 def enabled(conn, current_user_id):
-    return inbox.setting_value(conn, current_user_id, AUTO_RECORD_SETTING) == "1"
+    value = inbox.setting_value(conn, current_user_id, AUTO_RECORD_SETTING)
+    return AUTO_RECORD_DEFAULT if value is None else value == "1"
 
 
 def _seconds(stamp):
@@ -118,27 +127,21 @@ def _linked_elsewhere(conn, current_user_id, candidate, item_id):
 
 
 def hold_reason(conn, current_user_id, item, sources, today):
-    """Por que este item espera o dono (ou o par), ou None se grava sozinho."""
+    """Por que este item ainda espera (o par), ou None se grava sozinho."""
     if not sources:
         return "not_open_finance"
     for source in sources:
         account = open_finance_inbox.fetch_account(conn, current_user_id, source["of_account_id"])
         if not account or account["ignored_at"] or not open_finance_inbox.mapped_target(account):
             return "unmapped"
-        category = str(source["pluggy_category_id"] or "")
-        if (
-            account["type"] == "BANK" and category.startswith(INVESTMENT_CATEGORY_PREFIX) and category != PROCEEDS_CATEGORY
-            and not open_finance_inbox.is_brokerage(conn, current_user_id, account["account_id"])
-        ):
-            return "investment"
     is_transfer = any(source["movement"] in TRANSFER_MOVEMENTS for source in sources)
-    complete_transfer = item["entry_type"] == "TRANSFER" and not item["needs"]
+    complete_transfer = item["entry_type"] == "TRANSFER" and item.get("account_id") and item.get("transfer_account_id")
     if is_transfer and not complete_transfer:
         newest = max(_days_since(source["date"], today) for source in sources)
         if newest < TRANSFER_HOLD_DAYS or item["entry_type"] == "TRANSFER":
             return "awaiting_transfer"
-    if item["needs"]:
-        return "needs_decision"
+    if "amount" in (item.get("needs") or []):
+        return "foreign_currency"
     return None
 
 
@@ -149,11 +152,13 @@ def record_item(conn, current_user_id, row, today):
     sources = inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,))
     if hold_reason(conn, current_user_id, item, sources, today):
         return "held"
-    payload = {"version": row["version"], "remember": False}
-    free = [
-        candidate for candidate in item.get("candidates") or []
-        if not _linked_elsewhere(conn, current_user_id, candidate, item["id"])
-    ]
+    changes = fill_defaults(conn, current_user_id, item)
+    if changes is None:
+        return "held"
+    if changes:
+        inbox.save_item(conn, current_user_id, item, changes)
+    payload = {"version": item["version"], "remember": False}
+    free = free_candidates(conn, current_user_id, item)
     if free:
         payload["candidate"] = free[0]
     try:
@@ -162,6 +167,7 @@ def record_item(conn, current_user_id, row, today):
         return "held"
     if free:
         return "linked"
+    review.mark_for_review(conn, current_user_id, decided["target_table"], decided["target_id"])
     open_finance_inbox.mark_auto_recorded(
         conn, current_user_id, item["id"], decided["target_table"], decided["target_id"],
     )
