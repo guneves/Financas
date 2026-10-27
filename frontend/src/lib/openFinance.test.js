@@ -11,6 +11,9 @@ import {
   mappingChoices,
   mappingPayload,
   syncSummary,
+  syncHoursLabel,
+  syncHoursChoices,
+  checkSummary,
 } from './openFinance.js'
 
 test('item status in Portuguese with the badge tone', () => {
@@ -82,4 +85,21 @@ test('first sync days', () => {
   assert.equal(firstSyncDaysError('30'), '')
   assert.equal(firstSyncDaysError('0'), 'De 1 a 365 dias.')
   assert.equal(firstSyncDaysError('abc'), 'Informe um número de dias.')
+})
+
+test('sync hours labels and choices', () => {
+  assert.equal(syncHoursLabel(0), 'Desligada')
+  assert.equal(syncHoursLabel(6), 'A cada 6 h')
+  assert.deepEqual(syncHoursChoices(6).map((choice) => choice.value), [0, 1, 3, 6, 12, 24])
+  assert.deepEqual(syncHoursChoices(2).map((choice) => choice.value), [0, 1, 2, 3, 6, 12, 24])
+  assert.deepEqual(syncHoursChoices(30).map((choice) => choice.value), [0, 1, 3, 6, 12, 24])
+  assert.deepEqual(syncHoursChoices(null).map((choice) => choice.value), [0, 1, 3, 6, 12, 24])
+})
+
+test('check summary', () => {
+  assert.deepEqual(checkSummary(null), { state: 'none', text: '' })
+  assert.deepEqual(checkSummary({ bank_only_count: 0, app_only_count: 0, awaiting_count: 0 }), { state: 'match', text: 'Movimentos conferem' })
+  assert.deepEqual(checkSummary({ bank_only_count: 0, app_only_count: 0, awaiting_count: 2 }), { state: 'match', text: 'Movimentos conferem · 2 esperam no Aprovar' })
+  assert.deepEqual(checkSummary({ bank_only_count: 1, app_only_count: 3, awaiting_count: 1 }), { state: 'drift', text: '1 só no banco · 3 só no app · 1 espera no Aprovar' })
+  assert.deepEqual(checkSummary({ bank_only_count: 2, app_only_count: 0 }), { state: 'drift', text: '2 só no banco' })
 })

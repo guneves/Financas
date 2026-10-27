@@ -9,9 +9,33 @@
 
 ## 1. Open work, in priority order
 
+### Open Finance in Investimentos — positions from the broker (owner's priority, 2026-10-27)
+The owner: "where Open Finance will help the most is inside the investments area … auto-updates my
+positions so I don't have to manually". Decided with the owner: **operations through approval**,
+never overwriting positions. Positions, weighted average cost, realized results and the monthly
+DARF are all computed from the operations, so writing a quantity directly would break all three.
+- [ ] **First, check what the owner's connection actually sends.** The owner is on the free plan
+  (one CPF) with the **MeuPluggy** connector. With the item connected, call `GET /investments?itemId=`
+  and `GET /investments/{id}/transactions` from a scratch script on the server (`pluggy_client`,
+  the owner's credentials). Record which brokers or banks appear, which types (`EQUITY`, `ETF`,
+  `FIXED_INCOME`, `MUTUAL_FUND`, `SECURITY`, `COE`), whether each comes with `code`/ISIN, `quantity`,
+  `amount`, `balance` and transactions (`BUY`/`SELL`/`TAX`/`TRANSFER`, date, quantity, value). If
+  MeuPluggy does not share investments, stop and tell the owner. Nothing below is possible without that data.
+- [ ] Design (write it here before building): a Pluggy investment transaction becomes a proposed
+  operation in an "Aprovar investimentos" list (or a new kind in Aprovar), matched to the asset by
+  ticker/ISIN (unknown asset → asset creation offered), idempotent by `pluggy:<id>`
+  (`source_type`/`source_id` like other materialized rows), the cash leg through the Corretora per
+  `metadata.cash_account_id`. Proventos: StatusInvest already computes ações/FIIs (026); a Pluggy
+  dividend should **pair** with the computed one, never duplicate it. Tesouro and fixed income: Pluggy
+  gives a position value; compare it, never mark to it (Tesouro has its own PU, `services/treasury.py`).
+- [ ] A position check like the bank Conferência: Pluggy quantity per asset against
+  `build_portfolio_snapshot()` quantity, so anything missed shows up.
+
 ### Open Finance (Pluggy) as a source for Aprovar (2026-10-27) — what is left
-Built on `claude/pluggy-open-finance` (see `done-tasks.md`; setup and limits in `DEPLOY.md` › "Open
-Finance (Pluggy)"). Design, as built:
+Merged to `main` on 2026-10-27 (see `done-tasks.md`; setup and limits in `DEPLOY.md` › "Open
+Finance (Pluggy)"). The owner decided: Pluggy **and** phone notifications both feed Aprovar, with no
+"Pluggy only" switch. On the bank side Open Finance is also a **Conferência** (it only points, never
+adjusts). Design, as built:
 - **Tables (043)**: `open_finance_items` (one connection: status, executionStatus, Pluggy's error,
   last pull), `open_finance_accounts` (each Pluggy account, its balance, the owner's mapping to one
   account or one credit card, the card's learned sign) and `open_finance_transactions` (each pulled
@@ -33,6 +57,20 @@ Finance (Pluggy)"). Design, as built:
   button only reads inside that hour.
 
 Open:
+- [ ] **MeuPluggy** (the owner's connector, free plan): `connector_name` is probably "MeuPluggy",
+  not the bank. Aprovar's source line ("Open Finance <banco> · <conta>"), the mapping suggestion
+  (`suggest_target()` compares the bank name) and the Desconectar confirmation (types the connector
+  name) all use it. After the first connection, look at what the item and accounts are named, and
+  use the account's institution if MeuPluggy sends one. Check too whether `PATCH /items` (ask the bank
+  for new data) works on a MeuPluggy item or whether MeuPluggy refreshes on its own schedule.
+- [ ] Owner, on the phone after the deploy: the Conferência line per account ("Movimentos
+  conferem" / "Movimentos com diferença", the lists), "Busca automática" changed on one device and
+  seen on the other, "Trazer pendentes" on with a real open-invoice purchase (does the bank keep the
+  same id when it posts?). All pass in pytest; none seen with real data.
+- [ ] Conferência limits: it matches same signed cents within 3 days, so two equal purchases that
+  each have a wrong twin can pair across; a card purchase entered with another total beyond n cents
+  shows on both sides. It starts at the first movement Pluggy brought, so older lançamentos are never
+  compared.
 - [ ] **Owner, after the deploy — the first real connection** (web, Ajustes › Open Finance):
   connect the bank, map each account, then in Aprovar check that **card purchases come as −R$
   purchases, not as + credits/"Estorno"**. If they come inverted, the learned sign is wrong:
@@ -55,13 +93,13 @@ Open:
 - [ ] Not built: offering "Pagar fatura" when the bank shows an invoice payment (today it is only
   recorded as `INVOICE_PAYMENT` and never becomes an item); Pluggy's category as an import-rule
   suggestion (it is only shown on the source line); learning "it's me" (031) from a Pluggy
-  transfer's counterparty (only notifications teach it); including `PENDING` transactions (owner
-  decided to skip them for now).
+  transfer's counterparty (only notifications teach it).
 - [ ] A bank movement Pluggy calls an investment (`03xxxxxx`, e.g. "COMPRA TESOURO DIRETO") comes
   as a plain despesa/receita item; if it was an aporte, change it to a transfer to the Corretora in
   Aprovar (039: investimento is never a category).
-- [ ] APK: Ajustes › Open Finance shows status, balances and "Atualizar"; connecting, reconnecting
-  and mapping stay on the web (no WebView). Check on the phone with the debug APK, light and dark.
+- [ ] APK: Ajustes › Open Finance shows status, balances, the Conferência, "Atualizar", "Busca
+  automática" and "Trazer pendentes"; connecting, reconnecting, mapping and the first-sync window stay
+  on the web (no WebView). Check on the phone with the debug APK, light and dark.
 
 ### Plano do mês a partir da renda — what is left
 The backend (038) and the Orçamento redesign are in (see `done-tasks.md`, 2026-10-19). Open:

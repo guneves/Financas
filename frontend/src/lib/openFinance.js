@@ -1,5 +1,5 @@
 // Port: rules/OpenFinanceRules.kt (OpenFinanceRulesTest.kt) copia itemStatus, itemProblem, accountLabel,
-// balanceCheck e syncSummary — mudou um, muda o outro, com um teste de cada lado.
+// balanceCheck, syncSummary, syncHoursLabel, syncHoursChoices e checkSummary — mudou um, muda o outro, com um teste de cada lado.
 // Ajustes › Open Finance (043): os textos e as escolhas da tela, como funcoes
 // puras (testes em openFinance.test.js, `node --test`). As regras de verdade —
 // o que a Pluggy traz e para onde vai — estao no servidor
@@ -111,4 +111,44 @@ export function firstSyncDaysError(value) {
   const days = Number(text)
   if (days < 1 || days > 365) return 'De 1 a 365 dias.'
   return ''
+}
+
+// "Busca automatica" (Ajustes; sync_hours no servidor): 0 desliga, nunca
+// abaixo de 1 h (a Pluggy recusa e cada pedido gasta o limite do CPF). Um
+// valor fora da lista (gravado pela API) aparece tambem, para nao sumir.
+export const SYNC_HOURS_CHOICES = [0, 1, 3, 6, 12, 24]
+
+export function syncHoursLabel(hours) {
+  const value = Number(hours)
+  if (!value) return 'Desligada'
+  return `A cada ${value} h`
+}
+
+export function syncHoursChoices(current) {
+  const values = [...SYNC_HOURS_CHOICES]
+  const value = Number(current)
+  if (Number.isInteger(value) && value >= 0 && value <= 24 && !values.includes(value)) {
+    values.push(value)
+    values.sort((a, b) => a - b)
+  }
+  return values.map((hours) => ({ value: hours, label: syncHoursLabel(hours) }))
+}
+
+// A conferencia de uma conta (check do servidor): o banco contra o app, so
+// apontando. 'none' sem conferencia (sem mapeamento ou ainda sem busca),
+// 'match' sem diferenca, 'drift' com algo so de um lado. O que espera no
+// Aprovar nao e diferenca: so e dito.
+export function checkSummary(check) {
+  if (!check) return { state: 'none', text: '' }
+  const bank = Number(check.bank_only_count || 0)
+  const app = Number(check.app_only_count || 0)
+  const awaiting = Number(check.awaiting_count || 0)
+  const parts = []
+  if (bank) parts.push(bank === 1 ? '1 só no banco' : `${bank} só no banco`)
+  if (app) parts.push(app === 1 ? '1 só no app' : `${app} só no app`)
+  if (awaiting) parts.push(awaiting === 1 ? '1 espera no Aprovar' : `${awaiting} esperam no Aprovar`)
+  if (!bank && !app) {
+    return { state: 'match', text: parts.length ? `Movimentos conferem · ${parts.join(' · ')}` : 'Movimentos conferem' }
+  }
+  return { state: 'drift', text: parts.join(' · ') }
 }

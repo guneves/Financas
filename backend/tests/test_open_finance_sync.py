@@ -473,6 +473,7 @@ class TestBackgroundRound:
         refresh = importlib.import_module("services.open_finance_refresh")
         item_id, _p, made = connected(world)
         world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20"))
-        results = refresh.refresh_all_users()
+        refresh.reset_attempts()
+        results = refresh.refresh_all_users(__import__("time").time() + 7 * 3600)
         assert any(item_id in value for value in results.values())
         assert len(world.pending()) == 1

@@ -182,13 +182,15 @@ def learn_charge_sign(transactions, stored_sign=None, stored_source=None):
     return 1, "default"
 
 
-def normalize_transaction(raw, account_type, charge_sign=1):
+def normalize_transaction(raw, account_type, charge_sign=1, include_pending=False):
     """Os campos do app de uma transacao da Pluggy, ou Skip."""
     if not isinstance(raw, dict) or not raw.get("id"):
         raise Skip("sem id")
-    if str(raw.get("status") or "POSTED").upper() == "PENDING":
-        # Ainda nao liquidada (compra na fatura aberta, parcela futura):
-        # pula, por decisao do dono; chega de novo quando liquidar.
+    if not include_pending and str(raw.get("status") or "POSTED").upper() == "PENDING":
+        # Ainda nao liquidada (compra na fatura aberta, parcela futura): pula,
+        # salvo "Trazer pendentes" (Ajustes); chega de novo quando liquidar.
+        # Ligado, a mesma id liquidada atualiza a linha (ingest); uma id nova
+        # faz a velha sumir do pull e o item ir para REMOVED (vanish_missing).
         raise Skip(STATUS_SKIPPED_PENDING)
     amount = raw.get("amount")
     currency = str(raw.get("currencyCode") or "BRL").upper()
@@ -326,6 +328,12 @@ def ingest(conn, current_user_id, account, tx, rules=None, seen_at=None):
             **{field: tx[field] for field in ROW_FIELDS if field != "dedup_key"},
         )
         return place(conn, current_user_id, row_to_dict(_by_id(conn, current_user_id, existing["id"])), account, rules)
+    details = {field: tx[field] for field in ROW_FIELDS if field != "dedup_key" and existing[field] != tx[field]}
+    if details:
+        # Mesmo valor, outros detalhes (a pendente que liquidou): a linha
+        # acompanha; o item do Aprovar fica como o dono o deixou.
+        _update_row(conn, current_user_id, existing["id"], **details)
+        existing.update(details)
     if existing["role"] == "REMOVED" or (existing["role"] == "UNMAPPED" and mapped_target(account)):
         return place(conn, current_user_id, existing, account, rules)
     return "known"

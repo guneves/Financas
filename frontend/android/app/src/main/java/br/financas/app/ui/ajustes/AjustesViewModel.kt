@@ -20,6 +20,7 @@ import br.financas.app.data.Load
 import br.financas.app.data.MeDto
 import br.financas.app.data.OpenFinanceDto
 import br.financas.app.data.OpenFinanceItemDto
+import br.financas.app.data.OpenFinanceSettingsDto
 import br.financas.app.notify.NotifyAccess
 import br.financas.app.notify.NotifyEvents
 import br.financas.app.notify.NotifySettings
@@ -99,6 +100,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     val categories = ScreenLoad<List<CategoryDto>>()
     val me = ScreenLoad<MeDto>()
     val openFinance = ScreenLoad<OpenFinanceDto>()
+    val openFinanceSettings = ScreenLoad<OpenFinanceSettingsDto>()
     /** O item da Pluggy que esta em "Atualizar" (o botao dele gira). */
     var syncingItemId by mutableStateOf<String?>(null)
         private set
@@ -286,6 +288,9 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     private fun readOpenFinance() {
         viewModelScope.launch { openFinance.collect(app, repo.openFinance(), R.string.ajustes_open_finance_failed) }
+        viewModelScope.launch {
+            openFinanceSettings.collect(app, repo.openFinanceSettings(), R.string.ajustes_open_finance_failed)
+        }
     }
 
     /** Releia as listas que o "+ Novo" e Aprovar guardam (contas ativas, cartoes, categorias). */
@@ -633,6 +638,25 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             syncingItemId = null
             openFinance.value = body
             notice(OpenFinanceRules.syncSummary(body.result?.counts, body.result?.removed))
+        }
+    }
+
+    /** "Busca automatica" (0 desliga) e "Trazer pendentes": no servidor, como na web. */
+    fun setOpenFinanceSyncHours(hours: Int) = saveOpenFinanceSettings(
+        mapOf("sync_hours" to hours),
+        if (hours == 0) app.getString(R.string.ajustes_open_finance_auto_off)
+        else app.getString(R.string.ajustes_open_finance_auto_on, hours),
+    )
+
+    fun setOpenFinanceIncludePending(value: Boolean) = saveOpenFinanceSettings(
+        mapOf("include_pending" to value),
+        app.getString(if (value) R.string.ajustes_open_finance_pending_on else R.string.ajustes_open_finance_pending_off),
+    )
+
+    private fun saveOpenFinanceSettings(body: Map<String, Any?>, message: String) {
+        write(R.string.ajustes_open_finance_settings_failed, { repo.updateOpenFinanceSettings(body) }) { saved ->
+            openFinanceSettings.value = saved
+            notice(message)
         }
     }
 

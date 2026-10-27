@@ -7,62 +7,54 @@
 
 ---
 
-## Session — 2026-10-27 · Open Finance (Pluggy) as a source for Aprovar
+## Session — 2026-10-27 (2) · Open Finance settings, Conferência, merge to main
 
-Local session on the owner's PC, branch `claude/pluggy-open-finance` from `main` at `56379fa`,
-following `docs/prompts/pluggy-open-finance.md` (all six phases in one branch).
+Local session on the owner's PC. `claude/pluggy-open-finance` (`c5f4e7e`) fast-forwarded into
+`main` with the owner's OK, then this work on `main`.
 
 ### Done
-- **Backend**: migration 043 (`open_finance_items`, `_accounts`, `_transactions`; why a table of
-  its own and not `notify_detections` is in its header), `pluggy_client.py` (pure: API key reused
-  ~100 min, one retry on network errors, `/v2/transactions` by cursor, no secrets/descriptions in
-  logs, `integrations` for the healthcheck), `services/open_finance.py` (connect token, register,
-  map with suggestions, pull, disconnect with the bank-name guard, balance check),
-  `services/open_finance_inbox.py` (normalize + place into Aprovar), `routes/open_finance.py`
-  (7 routes, all `@token_required`), `services/open_finance_refresh.py` (thread, 6 h, `0` off),
-  Pluggy in the healthcheck. Hooks in `services/inbox.py` / `inbox_decisions.py`: both source
-  tables read where sources matter, pairing in both orders, card refunds approved as `REFUND`,
-  `source_type = 'OPEN_FINANCE'` on approval, split of an Open Finance source.
-- **Web**: Ajustes › Open Finance (connect via `pluggy-connect-sdk@2.14.2`, lazily loaded; map;
-  Atualizar; Reconectar; Desconectar; first-sync days; balance check masked in privacy mode);
-  Aprovar's source line shows "Open Finance <banco> · <conta> · …" with a bank icon.
-- **APK**: the source in Aprovar (`InboxRules.kt` port), Ajustes › Open Finance (status, balances,
-  Atualizar; `rules/OpenFinanceRules.kt` = `lib/openFinance.js`). Built locally: 507 JVM tests,
-  `assembleDebug` ok.
-- **Tests**: pytest green (≈ 115 new: `test_pluggy_client.py`, `test_open_finance_normalize.py`,
-  `_connect.py`, `_sync.py`); `npm test` 180 green; `vite build` ok.
-- **Sandbox end to end in Chromium** (Playwright, scratch DB, the owner's credentials from
-  `backend/.env`): widget → Sandbox → `user-ok`/`password-ok` → item registered → mapped → 8 items in
-  Aprovar → one card purchase approved (client_id `pluggy:<id>`, invoice 11/2026) → Desconectar.
-  The sandbox item was deleted from Pluggy afterwards. Screenshots were in the session scratchpad.
-- Docs: `next-steps.md` (design + what is left), `done-tasks.md`, `DEPLOY.md` › "Open Finance
-  (Pluggy)", both `.env.example`, `CLAUDE.md` (Aprovar and tests), native specs 02 and 11.
+- **Scope changed mid-session, by the owner.** The prompt asked for a "Só Open Finance" switch
+  (`aprovar_sources`). The owner then said Open Finance helps most in Investimentos, and that on the
+  bank side it should check for inconsistencies. Asked and decided: Pluggy **stays a source** of
+  Aprovar next to notifications, **no switch**, plus a Conferência. Investments go through approval
+  (operations, never overwritten positions) and are only planned for now. The half-built switch was
+  removed before commit.
+- `GET/PATCH /api/open-finance/settings`: `first_sync_days`, `sync_hours` (0 or 1–24, per user,
+  default the server's 6 h), `include_pending`. Everything validated before anything is written;
+  unknown keys refused. There is no `auto_approve`; a comment in `services/open_finance.py` says why.
+- `services/open_finance_refresh.py`: ticks every 15 min, `due_user_ids()` pulls a user whose oldest
+  item `last_sync_at` (or last attempt) is older than their interval. `OPEN_FINANCE_SYNC_SECONDS=0`
+  still turns the thread off for everyone.
+- `include_pending`: `normalize_transaction(..., include_pending=)`. When a known id comes back with
+  the same amount but other details (posted), the row updates in place; an id change goes through
+  the existing vanish → `REMOVED`.
+- **Conferência** (`services/open_finance_check.py`, `check` on each account in `list_view`):
+  bank-only, app-only, awaiting (pending in Aprovar); one to one, same signed cents ≤ 3 days, closest
+  first. On cards: one entry per purchase (`client_id`), n-cents tolerance for installments, invoice
+  payments out.
+- Web (Ajustes › Open Finance): the Conferência per account (badge + "Ver a conferência"), "Busca
+  automática" select, "Trazer pendentes" checkbox, first-sync field. APK: the same Conferência,
+  select and checkbox (first-sync stays on the web).
+- Tests: `test_open_finance_settings.py` (37), `test_open_finance_check.py` (20), full pytest green;
+  `npm test` 182; `vite build` ok; `gradlew testDebugUnitTest assembleDebug` 509 JVM tests, APK built.
+- Docs: next-steps (new "Open Finance in Investimentos" section, MeuPluggy checks, Conferência
+  limits), done-tasks, CLAUDE.md (Aprovar › Open Finance), DEPLOY.md, `.env.example`.
 
 ### Not done, and why
-- **No real bank yet** — by design, the first real connection is the owner's (after the deploy).
-  The list of what to check is in `next-steps.md` › "Open Finance (Pluggy) … — what is left";
-  the most important: **card purchases must come as −R$ purchases** (the sign is learned, see below).
-- Not built (listed in next-steps): offering "Pagar fatura" from a detected invoice payment,
-  Pluggy's category as a rule suggestion, learning "it's me" from a Pluggy transfer, `PENDING`
-  transactions (skipped, owner's call), webhooks (impossible: tailnet-only).
-- Not pushed or merged: the owner reviews the branch; `android-check.yml` will confirm the APK.
+- **Investments via Open Finance**: only planned (next-steps, first section). First step: see what
+  the owner's MeuPluggy connection actually returns from `/investments`.
+- The Aprovar header line naming the source: dropped with the switch, since both sources are always on.
+- **Phone test (Part 2)**: results below as they come in.
+
+### Phone test results
+(filled in during the walk-through)
 
 ### Next session
-1. If the owner ran the first real connection: act on what they report (card sign, pairing,
-   installments). Otherwise the items carried over from the previous handoff still stand: the phone
-   checks of 2026-10-25, the web Início on `/api/home/panels`, the desktop redesign plan.
+1. Act on the phone-test failures recorded above.
+2. The investments step 1 (what MeuPluggy sends), then the design in next-steps.
 
 ### Lessons (non-obvious)
-- **Pluggy's sandbox and docs disagree on card signs**: docs "positive = debit", sandbox
-  purchases are `type: CREDIT`, negative. Never trust one convention; `learn_charge_sign()` learns
-  it per card account and stores how.
-- **Pluggy refuses an update within 1 h** of the last one ("Client updates on this item are allowed
-  at most every 1 hours"), and connecting counts. A refused update must fall back to a plain pull.
-- `pluggy-connect-sdk` has only the named export `PluggyConnect`; its README's default import
-  fails at runtime ("is not a constructor") while `vite build` passes.
-- The page-based `GET /transactions` is deprecated (gone for new apps); `/v2/transactions` needs
-  no `pageSize`, and `dateFrom` cannot be combined with `createdAtFrom`.
-- `conftest.py` must blank `PLUGGY_CLIENT_ID/SECRET`: `load_dotenv()` would otherwise feed the real
-  credentials from `backend/.env` into the test process.
-- The local Android build needs network now (`--offline` misses new androidx artifacts).
-
+- The owner uses the **MeuPluggy** connector on the free plan (one CPF): the connector name is
+  probably not the bank's. Check what Aprovar and the suggestions show.
+- Tests share one SQLite across users: a "who is due" test must assert membership, not equality.
+- `bank_tx` dates in the fake must sit inside the 7-day overlap after the first pull, or nothing is pulled.

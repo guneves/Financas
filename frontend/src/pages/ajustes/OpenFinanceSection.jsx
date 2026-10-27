@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Landmark, Plus, RefreshCw } from 'lucide-react'
 import { accountsApi, creditCardsApi, openFinanceApi } from '../../lib/dataApi'
-import { AlertMessage, Badge, Button, EmptyState, Field, ListSkeleton, Menu, Panel, PanelHeader } from '../../components/ui'
+import { AlertMessage, Badge, Button, Collapsible, EmptyState, Field, ListSkeleton, Menu, Panel, PanelHeader } from '../../components/ui'
 import { confirmAction } from '../../lib/confirm'
 import { formatCurrency, formatDateBR, getLocalDateString } from '../../lib/format'
 import {
   accountLabel,
   balanceCheck,
+  checkSummary,
   connectedItemId,
   firstSyncDaysError,
   itemProblem,
@@ -14,6 +15,7 @@ import {
   mappedId,
   mappingChoices,
   mappingPayload,
+  syncHoursChoices,
   syncSummary,
 } from '../../lib/openFinance'
 import { usePrivateFormatter } from '../../lib/privacy'
@@ -22,6 +24,7 @@ import { toast } from '../../lib/toast'
 
 const NO_ITEMS = []
 const OVERVIEW_KEY = ['open-finance']
+const SETTINGS_KEY = ['open-finance', 'settings']
 
 function whenLabel(iso) {
   if (!iso) return ''
@@ -45,6 +48,52 @@ async function openPluggyConnect(connectToken, { onSuccess, onError, onClose }) 
   })
   await widget.init()
   return widget
+}
+
+function CheckList({ title, rows, money }) {
+  if (!rows?.length) return null
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold text-zinc-700">{title}</p>
+      <ul className="space-y-1">
+        {rows.map((row, index) => (
+          <li key={`${row.date}-${index}`} className="flex items-start justify-between gap-3 text-xs text-zinc-600">
+            <span className="min-w-0 break-words">{formatDateBR(row.date)} · {row.description || 'Sem descrição'}</span>
+            <span className="num shrink-0">{money(row.amount)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// Conferência: o banco contra o app, so apontando (nada e ajustado).
+function AccountCheck({ check, money }) {
+  const summary = checkSummary(check)
+  if (summary.state === 'none') return null
+  const hasRows = check.bank_only?.length || check.app_only?.length || check.awaiting?.length
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+        <Badge tone={summary.state === 'match' ? 'success' : 'warning'}>
+          {summary.state === 'match' ? 'Movimentos conferem' : 'Movimentos com diferença'}
+        </Badge>
+        {summary.state === 'drift' || check.awaiting_count ? <span>{summary.text}</span> : null}
+      </div>
+      {hasRows ? (
+        <Collapsible label="Ver a conferência" variant="secondary" size="sm">
+          <div className="space-y-3">
+            <CheckList title="Só no banco (recusado no Aprovar ou lançado com outro valor/data)" rows={check.bank_only} money={money} />
+            <CheckList title="Só no app (o banco não tem)" rows={check.app_only} money={money} />
+            <CheckList title="Esperando no Aprovar" rows={check.awaiting} money={money} />
+            <p className="text-xs text-zinc-500">
+              Desde {formatDateBR(check.from)}; pares de mesmo valor até 3 dias de distância.
+            </p>
+          </div>
+        </Collapsible>
+      ) : null}
+    </div>
+  )
 }
 
 function AccountRow({ account, item, choices, money, busy, onMap }) {
@@ -93,6 +142,7 @@ function AccountRow({ account, item, choices, money, busy, onMap }) {
       ) : account.type === 'CREDIT' && account.pluggy_balance != null ? (
         <p className="num text-xs text-zinc-500">Fatura no banco: {money(Math.abs(account.pluggy_balance))}</p>
       ) : null}
+      <AccountCheck check={account.check} money={money} />
     </li>
   )
 }
@@ -105,6 +155,7 @@ export default function OpenFinanceSection() {
   const overviewQuery = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => openFinanceApi.overview() })
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
   const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
+  const settingsQuery = useQuery({ queryKey: SETTINGS_KEY, queryFn: () => openFinanceApi.settings() })
   const money = usePrivateFormatter(formatCurrency)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -114,7 +165,8 @@ export default function OpenFinanceSection() {
   const items = data?.items || NO_ITEMS
   const accounts = accountsQuery.data || NO_ITEMS
   const cards = cardsQuery.data || NO_ITEMS
-  const daysValue = days === '' ? String(data?.first_sync_days ?? '') : days
+  const settings = settingsQuery.data
+  const daysValue = days === '' ? String(settings?.first_sync_days ?? data?.first_sync_days ?? '') : days
   const daysError = days === '' ? '' : firstSyncDaysError(days)
 
   const keep = (body) => {
@@ -177,13 +229,18 @@ export default function OpenFinanceSection() {
     else toast(body?.placed ? `Destino salvo. ${body.placed} movimento(s) foram para o Aprovar.` : 'Destino salvo.')
   })
 
-  const saveDays = () => run('days', async () => {
-    if (daysError) return
-    const body = await openFinanceApi.updateSettings({ first_sync_days: Number(days) })
+  const saveSettings = (key, payload, message) => run(key, async () => {
+    const body = await openFinanceApi.updateSettings(payload)
+    queryClient.setQueryData(SETTINGS_KEY, body)
     queryClient.setQueryData(OVERVIEW_KEY, (old) => (old ? { ...old, first_sync_days: body.first_sync_days } : old))
-    setDays('')
-    toast('Janela da primeira busca salva.')
+    toast(message)
+    return body
   })
+
+  const saveDays = async () => {
+    if (daysError) return
+    if (await saveSettings('days', { first_sync_days: Number(days) }, 'Janela da primeira busca salva.')) setDays('')
+  }
 
   return (
     <Panel id="open-finance" className="scroll-mt-20 lg:scroll-mt-8">
@@ -258,22 +315,63 @@ export default function OpenFinanceSection() {
             </section>
           )
         })}
-        {data?.configured ? (
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label="Primeira busca de um banco novo (dias)" hint={daysError || 'Até 365 dias; a Pluggy guarda 12 meses.'}>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={daysValue}
-                onChange={(event) => setDays(event.target.value)}
-                className="app-input w-28"
-              />
+        {data?.configured && settings ? (
+          <div className="space-y-4 border-t border-zinc-100 pt-4">
+            <Field
+              label="Busca automática"
+              hint={settings.auto_sync_available
+                ? 'Cada busca gasta o limite mensal do banco na Pluggy; menos de 1 h não é possível. "Atualizar" funciona sempre.'
+                : 'O servidor está com a busca automática desligada (OPEN_FINANCE_SYNC_SECONDS=0); só "Atualizar".'}
+            >
+              <select
+                value={settings.sync_hours}
+                disabled={busy === 'hours'}
+                onChange={(event) => {
+                  const hours = Number(event.target.value)
+                  saveSettings('hours', { sync_hours: hours }, hours ? `Busca automática a cada ${hours} h.` : 'Busca automática desligada.')
+                }}
+                className="app-input sm:w-56"
+              >
+                {syncHoursChoices(settings.sync_hours).map((choice) => (
+                  <option key={choice.value} value={choice.value}>{choice.label}</option>
+                ))}
+              </select>
             </Field>
-            {days !== '' ? (
-              <Button size="sm" variant="secondary" loading={busy === 'days'} disabled={Boolean(daysError)} onClick={saveDays}>
-                Salvar
-              </Button>
-            ) : null}
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={Boolean(settings.include_pending)}
+                disabled={busy === 'pending'}
+                onChange={(event) => saveSettings(
+                  'pending',
+                  { include_pending: event.target.checked },
+                  event.target.checked ? 'Pendentes do banco vêm para o Aprovar.' : 'Pendentes do banco ficam de fora.',
+                )}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-zinc-900">Trazer pendentes</span>
+                <span className="block text-sm text-zinc-600">
+                  Movimentos que o banco ainda não liquidou (compra na fatura aberta) também vão para o Aprovar. Se o banco trocar o movimento ao liquidar, o item pendente sai sozinho.
+                </span>
+              </span>
+            </label>
+            <div className="flex flex-wrap items-end gap-3">
+              <Field label="Primeira busca de um banco novo (dias)" hint={daysError || 'Até 365 dias; a Pluggy guarda 12 meses.'}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={daysValue}
+                  onChange={(event) => setDays(event.target.value)}
+                  className="app-input w-28"
+                />
+              </Field>
+              {days !== '' ? (
+                <Button size="sm" variant="secondary" loading={busy === 'days'} disabled={Boolean(daysError)} onClick={saveDays}>
+                  Salvar
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

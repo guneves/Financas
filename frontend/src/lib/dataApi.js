@@ -353,6 +353,7 @@ export const inboxApi = {
 // Desconectar. O que a Pluggy traz vai para o Aprovar; nada aqui grava lancamento.
 export const openFinanceApi = {
   overview: () => apiFetch('/api/open-finance'),
+  settings: () => apiFetch('/api/open-finance/settings'),
   connectToken: (itemId) => postJson('/api/open-finance/connect-token', itemId ? { item_id: itemId } : {}),
   register: (pluggyItemId) => postJson('/api/open-finance/items', { pluggy_item_id: pluggyItemId }),
   sync: (itemId) => postJson(`/api/open-finance/items/${itemId}/sync`, {}),

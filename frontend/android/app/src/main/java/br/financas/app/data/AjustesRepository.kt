@@ -47,6 +47,23 @@ class AjustesRepository(
 
     fun openFinance(): Flow<Load<OpenFinanceDto>> = reader.read(OPEN_FINANCE_PATH, OpenFinanceDto.serializer())
 
+    fun openFinanceSettings(): Flow<Load<OpenFinanceSettingsDto>> =
+        reader.read("$OPEN_FINANCE_PATH/settings", OpenFinanceSettingsDto.serializer())
+
+    /** PATCH parcial (sync_hours, include_pending); a resposta e o conjunto inteiro. */
+    suspend fun updateOpenFinanceSettings(body: Map<String, Any?>): InboxWrite<OpenFinanceSettingsDto> =
+        when (val result = send("PATCH", "$OPEN_FINANCE_PATH/settings", body)) {
+            is InboxWrite.Done -> try {
+                InboxWrite.Done(ApiJson.decodeFromString(OpenFinanceSettingsDto.serializer(), result.value))
+            } catch (_: Exception) {
+                InboxWrite.Offline
+            }
+            is InboxWrite.Conflict -> result
+            is InboxWrite.Refused -> result
+            is InboxWrite.Offline -> result
+            is InboxWrite.SessionExpired -> result
+        }
+
     /** Pede dados novos ao banco (se a Pluggy deixa) e puxa para o Aprovar; a resposta e a lista nova. */
     suspend fun syncOpenFinance(itemId: String): InboxWrite<OpenFinanceDto> =
         when (val result = send("POST", "$OPEN_FINANCE_PATH/items/${enc(itemId)}/sync", emptyMap())) {

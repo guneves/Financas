@@ -193,7 +193,8 @@ as not configured.
 (another CPF, the limit reached), its message shows in Ajustes and nothing retries. Pluggy also
 refuses a second update request on an item within 1 hour, and each request spends the bank's
 monthly request quota for the CPF (once spent, updates resume next month). So:
-`OPEN_FINANCE_SYNC_SECONDS` (default 21600 = 4 a day, floor 1 h, `0` = button only), and an item
+`OPEN_FINANCE_SYNC_SECONDS` (default 21600 = 4 a day; `0` turns the thread off for everyone), each
+user's "Busca automática" in Ajustes › Open Finance (0 or 1–24 h; unset = the server's value), and an item
 waiting for the owner (new password, a code, a consent) is never asked again until reconnected.
 
 **No webhooks.** The server is tailnet-only, so Pluggy cannot call it: the app pulls, on

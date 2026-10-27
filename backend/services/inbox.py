@@ -2051,6 +2051,25 @@ def list_items(conn, current_user_id, view="pending", limit=200):
 ALWAYS_ASK_SETTING = "inbox_always_ask"
 
 
+def setting_value(conn, current_user_id, key):
+    row = conn.execute(
+        "SELECT value FROM user_settings WHERE user_id = ? AND setting_key = ?",
+        (current_user_id, key),
+    ).fetchone()
+    return row["value"] if row else None
+
+
+def save_setting(conn, current_user_id, key, value):
+    conn.execute(
+        """
+        INSERT INTO user_settings (user_id, setting_key, value, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT (user_id, setting_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """,
+        (current_user_id, key, value, utc_timestamp()),
+    )
+
+
 def always_ask(conn, current_user_id):
     """"Sempre perguntar a conta/cartao" (Ajustes, desligado por padrao)."""
     row = conn.execute(

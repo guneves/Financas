@@ -58,4 +58,31 @@ class OpenFinanceRulesTest {
         )
         assertEquals("Nada novo.", OpenFinanceRules.syncSummary(mapOf("known" to 4), 0))
     }
+
+    // node: 'sync hours labels and choices'
+    @Test
+    fun syncHoursLabelsAndChoices() {
+        assertEquals("Desligada", OpenFinanceRules.syncHoursLabel(0))
+        assertEquals("A cada 6 h", OpenFinanceRules.syncHoursLabel(6))
+        assertEquals(listOf(0, 1, 3, 6, 12, 24), OpenFinanceRules.syncHoursChoices(6).map { it.first })
+        assertEquals(listOf(0, 1, 2, 3, 6, 12, 24), OpenFinanceRules.syncHoursChoices(2).map { it.first })
+        assertEquals(listOf(0, 1, 3, 6, 12, 24), OpenFinanceRules.syncHoursChoices(30).map { it.first })
+        assertEquals(listOf(0, 1, 3, 6, 12, 24), OpenFinanceRules.syncHoursChoices(null).map { it.first })
+    }
+
+    // node: 'check summary'
+    @Test
+    fun checkSummary() {
+        assertEquals(OpenFinanceRules.CheckSummary("none", ""), OpenFinanceRules.checkSummary(false, 0, 0, 0))
+        assertEquals(OpenFinanceRules.CheckSummary("match", "Movimentos conferem"), OpenFinanceRules.checkSummary(true, 0, 0, 0))
+        assertEquals(
+            OpenFinanceRules.CheckSummary("match", "Movimentos conferem · 2 esperam no Aprovar"),
+            OpenFinanceRules.checkSummary(true, 0, 0, 2),
+        )
+        assertEquals(
+            OpenFinanceRules.CheckSummary("drift", "1 só no banco · 3 só no app · 1 espera no Aprovar"),
+            OpenFinanceRules.checkSummary(true, 1, 3, 1),
+        )
+        assertEquals(OpenFinanceRules.CheckSummary("drift", "2 só no banco"), OpenFinanceRules.checkSummary(true, 2, 0, 0))
+    }
 }

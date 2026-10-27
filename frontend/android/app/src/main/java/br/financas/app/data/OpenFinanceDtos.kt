@@ -38,6 +38,34 @@ data class OpenFinanceAccountDto(
     @SerialName("account_id") val accountId: String? = null,
     @SerialName("card_id") val cardId: String? = null,
     @SerialName("unmapped_count") val unmappedCount: Int = 0,
+    /** A conferencia (services/open_finance_check.py): null sem mapeamento ou sem busca. */
+    val check: OpenFinanceCheckDto? = null,
+)
+
+@Serializable
+data class OpenFinanceCheckDto(
+    val from: String? = null,
+    @SerialName("bank_only") val bankOnly: List<OpenFinanceCheckRowDto> = emptyList(),
+    @SerialName("app_only") val appOnly: List<OpenFinanceCheckRowDto> = emptyList(),
+    @SerialName("bank_only_count") val bankOnlyCount: Int = 0,
+    @SerialName("app_only_count") val appOnlyCount: Int = 0,
+    @SerialName("awaiting_count") val awaitingCount: Int = 0,
+)
+
+@Serializable
+data class OpenFinanceCheckRowDto(
+    val date: String = "",
+    val amount: Money? = null,
+    val description: String? = null,
+)
+
+/** GET/PATCH /api/open-finance/settings: no servidor, o celular e o computador concordam. */
+@Serializable
+data class OpenFinanceSettingsDto(
+    @SerialName("first_sync_days") val firstSyncDays: Int = 30,
+    @SerialName("sync_hours") val syncHours: Int = 6,
+    @SerialName("include_pending") val includePending: Boolean = false,
+    @SerialName("auto_sync_available") val autoSyncAvailable: Boolean = true,
 )
 
 @Serializable

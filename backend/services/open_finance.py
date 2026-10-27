@@ -31,6 +31,7 @@ from datetime import datetime, timedelta
 import pluggy_client
 from applog import get_logger
 from config import (
+    OPEN_FINANCE_SYNC_SECONDS,
     OPEN_FINANCE_UPDATE_WAIT_SECONDS,
     PLUGGY_BASE_URL,
     PLUGGY_CLIENT_ID,
@@ -40,7 +41,7 @@ from config import (
 from dates import parse_iso_date
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services import inbox, invoices, open_finance_inbox
+from services import inbox, invoices, open_finance_check, open_finance_inbox
 from services.accounts import account_balance_rows
 from services.import_rules import import_rules_for_matching
 from validators import ValidationError
@@ -56,6 +57,14 @@ FIRST_SYNC_SETTING = "open_finance_first_days"
 DEFAULT_FIRST_SYNC_DAYS = 30
 # A Pluggy guarda ate 12 meses de transacoes.
 MAX_FIRST_SYNC_DAYS = 365
+# Busca automatica por usuario (Ajustes): 0 = so o botao "Atualizar". Nunca
+# abaixo de 1 h (a Pluggy recusa e cada pedido gasta o limite mensal do CPF).
+SYNC_HOURS_SETTING = "open_finance_sync_hours"
+MAX_SYNC_HOURS = 24
+DEFAULT_SYNC_HOURS = 6
+INCLUDE_PENDING_SETTING = "open_finance_include_pending"
+# Nao ha `auto_approve`: nada e gravado sem a aprovacao do dono, entao essa
+# preferencia nao existe nem e guardada.
 # Status em que so o dono resolve (nova senha, um codigo, aceitar termos no
 # banco): nada pede atualizacao, a mensagem fica em Ajustes.
 OWNER_ACTION_STATUSES = {"LOGIN_ERROR", "WAITING_USER_INPUT"}
@@ -136,7 +145,7 @@ def first_sync_days(conn, current_user_id):
     return min(max(value, 1), MAX_FIRST_SYNC_DAYS)
 
 
-def set_first_sync_days(conn, current_user_id, value):
+def _parse_first_sync_days(value):
     if isinstance(value, bool):
         raise ValidationError("Informe os dias da primeira busca.")
     try:
@@ -145,15 +154,77 @@ def set_first_sync_days(conn, current_user_id, value):
         raise ValidationError("Informe os dias da primeira busca.") from exc
     if not 1 <= days <= MAX_FIRST_SYNC_DAYS:
         raise ValidationError(f"A primeira busca vai de 1 a {MAX_FIRST_SYNC_DAYS} dias.")
-    conn.execute(
-        """
-        INSERT INTO user_settings (user_id, setting_key, value, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT (user_id, setting_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-        """,
-        (current_user_id, FIRST_SYNC_SETTING, str(days), utc_timestamp()),
-    )
     return days
+
+
+def set_first_sync_days(conn, current_user_id, value):
+    days = _parse_first_sync_days(value)
+    inbox.save_setting(conn, current_user_id, FIRST_SYNC_SETTING, str(days))
+    return days
+
+
+def default_sync_hours():
+    """O intervalo de quem nunca escolheu: o do servidor (OPEN_FINANCE_SYNC_SECONDS),
+    6 h se ele desligou a thread (aí nada roda sozinho para ninguém)."""
+    if OPEN_FINANCE_SYNC_SECONDS <= 0:
+        return DEFAULT_SYNC_HOURS
+    return min(max(round(OPEN_FINANCE_SYNC_SECONDS / 3600), 1), MAX_SYNC_HOURS)
+
+
+def sync_hours(conn, current_user_id):
+    value = inbox.setting_value(conn, current_user_id, SYNC_HOURS_SETTING)
+    try:
+        hours = int(value)
+    except (TypeError, ValueError):
+        return default_sync_hours()
+    return hours if 0 <= hours <= MAX_SYNC_HOURS else default_sync_hours()
+
+
+def include_pending(conn, current_user_id):
+    return inbox.setting_value(conn, current_user_id, INCLUDE_PENDING_SETTING) == "1"
+
+
+def settings(conn, current_user_id):
+    return {
+        "first_sync_days": first_sync_days(conn, current_user_id),
+        "sync_hours": sync_hours(conn, current_user_id),
+        "include_pending": include_pending(conn, current_user_id),
+        "auto_sync_available": OPEN_FINANCE_SYNC_SECONDS > 0,
+    }
+
+
+SETTINGS_FIELDS = ("first_sync_days", "sync_hours", "include_pending")
+
+
+def update_settings(conn, current_user_id, payload):
+    """PATCH parcial: valida tudo antes de gravar qualquer coisa."""
+    if not isinstance(payload, dict):
+        raise ValidationError("Envie um objeto JSON.")
+    unknown = sorted(set(payload) - set(SETTINGS_FIELDS))
+    if unknown:
+        raise ValidationError(f"Preferencia desconhecida: {', '.join(unknown)}.")
+    if not payload:
+        raise ValidationError("Envie ao menos uma preferencia.")
+    writes = []
+    if "first_sync_days" in payload:
+        writes.append((FIRST_SYNC_SETTING, str(_parse_first_sync_days(payload["first_sync_days"]))))
+    if "sync_hours" in payload:
+        hours = payload["sync_hours"]
+        if isinstance(hours, bool) or not isinstance(hours, int):
+            raise ValidationError("Informe a busca automática em horas (0 desliga).")
+        if not 0 <= hours <= MAX_SYNC_HOURS:
+            raise ValidationError(
+                f"A busca automática vai de 1 a {MAX_SYNC_HOURS} horas, ou 0 para desligar: "
+                "a Pluggy recusa mais de uma atualização por hora."
+            )
+        writes.append((SYNC_HOURS_SETTING, str(hours)))
+    if "include_pending" in payload:
+        if not isinstance(payload["include_pending"], bool):
+            raise ValidationError("Envie include_pending como true ou false.")
+        writes.append((INCLUDE_PENDING_SETTING, "1" if payload["include_pending"] else "0"))
+    for key, value in writes:
+        inbox.save_setting(conn, current_user_id, key, value)
+    return settings(conn, current_user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +600,7 @@ def _sync_item_locked(current_user_id, of_item_id, request_update, wait_seconds,
             account["pluggy_account_id"]: _date_from(conn, current_user_id, account, today)
             for account in item_accounts(conn, current_user_id, of_item_id)
         }
+        with_pending = include_pending(conn, current_user_id)
     api = client()
     try:
         pluggy_item = None
@@ -595,7 +667,9 @@ def _sync_item_locked(current_user_id, of_item_id, request_update, wait_seconds,
                     account["charge_sign"], account["charge_sign_source"] = sign, source
             for raw in transactions:
                 try:
-                    tx = open_finance_inbox.normalize_transaction(raw, account["type"], account["charge_sign"] or 1)
+                    tx = open_finance_inbox.normalize_transaction(
+                        raw, account["type"], account["charge_sign"] or 1, include_pending=with_pending,
+                    )
                 except open_finance_inbox.Skip as skip:
                     key = "skipped_pending" if str(skip) == open_finance_inbox.STATUS_SKIPPED_PENDING else "skipped"
                     counts[key] = counts.get(key, 0) + 1
@@ -684,6 +758,7 @@ def list_view(current_user_id):
                         entry["difference"] = rounded_money(account["balance"] - mine["balance"])
                 elif account["card_id"]:
                     entry["target_name"] = names.get(account["card_id"])
+                entry["check"] = open_finance_check.account_check(conn, current_user_id, account)
                 accounts.append(entry)
             items.append({
                 "id": row["id"],

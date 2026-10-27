@@ -6,7 +6,7 @@ Aprovar. As credenciais da Pluggy nunca saem do servidor — so o connect token,
 de 30 minutos, que so serve para abrir o widget.
 """
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db
@@ -47,17 +47,21 @@ def open_finance_overview(current_user_id):
     return jsonify(open_finance.list_view(current_user_id)), 200
 
 
-@bp.route("/api/open-finance/settings", methods=["PATCH"])
+@bp.route("/api/open-finance/settings", methods=["GET", "PATCH"])
 @token_required
 def open_finance_settings(current_user_id):
+    """As preferencias do Open Finance, no servidor (o celular e o computador
+    concordam): `first_sync_days` (1-365), `sync_hours` (0 ou 1-24) e
+    `include_pending`. PATCH parcial; `auto_sync_available` so se le."""
+    if request.method == "GET":
+        with get_db() as conn:
+            return jsonify(open_finance.settings(conn, current_user_id)), 200
     payload = parse_json_body()
-    if not isinstance(payload, dict) or "first_sync_days" not in payload:
-        return validation_error("Envie first_sync_days.")
 
     def action():
         with get_db() as conn:
-            days = open_finance.set_first_sync_days(conn, current_user_id, payload["first_sync_days"])
-        return jsonify({"first_sync_days": days}), 200
+            body = open_finance.update_settings(conn, current_user_id, payload)
+        return jsonify(body), 200
 
     return _run(action)
 

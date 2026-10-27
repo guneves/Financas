@@ -248,6 +248,12 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   makes the item `REMOVED` (if no other source). Approval stamps `source_type = 'OPEN_FINANCE'`.
   The card sign is learned per account (`learn_charge_sign()`): the sandbox contradicts the docs.
   Pluggy refuses a second update request within 1 h; every request spends the CPF's monthly quota.
+  Settings live in `user_settings` (`GET/PATCH /api/open-finance/settings`): `sync_hours` per user
+  (0 = button only; the thread ticks every 15 min and pulls whoever is due), `include_pending`,
+  `first_sync_days`. There is no auto-approve, by design. The **Conferência**
+  (`services/open_finance_check.py`, `check` on each account of `GET /api/open-finance`) only points:
+  bank-only, app-only, awaiting. Bank-side checking only; Pluggy stays a source of Aprovar, and
+  notifications too (the owner decided against a "Pluggy only" switch, 2026-10-27).
 
 ### Receipts
 - **A receipt is a file on disk referenced by a row** (014; card purchases 016): bytes in
