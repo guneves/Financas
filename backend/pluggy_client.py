@@ -9,7 +9,8 @@ fala com a API:
   chave por chamada e o jeito comum de bater no limite. Um 401 descarta a
   chave e tenta uma vez com outra.
 * `POST /connect_token` da o token do widget Pluggy Connect (30 min).
-* Itens (`GET/PATCH/DELETE /items/{id}`), contas (`GET /accounts?itemId=`) e
+* Itens (`GET/DELETE /items/{id}` — nunca PATCH: `call()` recusa), contas
+  (`GET /accounts?itemId=`), investimentos (`GET /investments`, 044) e
   transacoes por cursor (`GET /v2/transactions`, seguindo `next` ate null; o
   `/transactions` por pagina foi desligado para apps novos em 2026).
 
@@ -145,6 +146,8 @@ class PluggyClient:
 
     def call(self, method, path, *, body=None, query=None):
         """Uma chamada autenticada. Registra o resultado para o healthcheck."""
+        if method.upper() == "PATCH":
+            raise PluggyError("O app nao pede atualizacao ao banco (PATCH): so le o que a Pluggy ja tem.", status=0)
         try:
             try:
                 result = self._send(method, path, body=body, query=query, api_key=self._api_key_value())
@@ -180,10 +183,31 @@ class PluggyClient:
     def get_item(self, item_id):
         return self.call("GET", f"/items/{_path_id(item_id)}")
 
-    def update_item(self, item_id):
-        """Pede dados novos ao banco (o item vai para UPDATING). Gasta o limite
-        mensal de requisicoes da instituicao."""
-        return self.call("PATCH", f"/items/{_path_id(item_id)}", body={})
+    # Nao ha update_item (PATCH /items/{id}): pedir dados novos ao banco gasta
+    # o limite mensal do CPF no plano gratis do MeuPluggy, e esgotado bloqueia
+    # a conta ate o mes seguinte (dono, 2026-10-27). A Pluggy atualiza o banco
+    # sozinha (6-24 h); o app so le o que ela ja tem, por GET.
+
+    def list_investments(self, item_id):
+        """As posicoes de investimento do item (`GET /investments?itemId=`)."""
+        return self._pages("/investments", {"itemId": item_id})
+
+    def list_investment_transactions(self, investment_id):
+        """As operacoes de uma posicao (`GET /investments/{id}/transactions`)."""
+        return self._pages(f"/investments/{_path_id(investment_id)}/transactions", {})
+
+    def _pages(self, path, query):
+        """Uma listagem por pagina (`page`, `totalPages`), ate MAX_TRANSACTION_PAGES."""
+        results = []
+        for number in range(1, MAX_TRANSACTION_PAGES + 1):
+            page = self.call("GET", path, query={**query, "page": number, "pageSize": 500}) or {}
+            if isinstance(page, list):
+                return results + page
+            results.extend(page.get("results") or [])
+            if number >= int(page.get("totalPages") or 1):
+                return results
+        logger.warning("pluggy: paginas demais", extra={"provider": PROVIDER, "pages": MAX_TRANSACTION_PAGES})
+        return results
 
     def delete_item(self, item_id):
         try:

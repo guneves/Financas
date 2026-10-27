@@ -1,9 +1,11 @@
 """Open Finance pela Pluggy (Ajustes › Open Finance; regras em services/open_finance.py).
 
 Conectar e so na web (o widget Pluggy Connect); o APK le a lista e pode pedir
-"Atualizar". Nada aqui grava lancamento: o que a Pluggy traz vai para o
-Aprovar. As credenciais da Pluggy nunca saem do servidor — so o connect token,
-de 30 minutos, que so serve para abrir o widget.
+"Atualizar" (so le o que a Pluggy ja tem: nunca PATCH /items). O que a Pluggy
+traz vai para o Aprovar, ou, com "Gravar sozinho" ligado (044), vira
+lancamento sem esperar. O historico e previa -> confirmacao. As credenciais da
+Pluggy nunca saem do servidor — so o connect token, de 30 minutos, que so
+serve para abrir o widget.
 """
 
 from flask import Blueprint, jsonify, request
@@ -51,8 +53,11 @@ def open_finance_overview(current_user_id):
 @token_required
 def open_finance_settings(current_user_id):
     """As preferencias do Open Finance, no servidor (o celular e o computador
-    concordam): `first_sync_days` (1-365), `sync_hours` (0 ou 1-24) e
-    `include_pending`. PATCH parcial; `auto_sync_available` so se le."""
+    concordam): `first_sync_days` (1-365), `sync_hours` (0 ou 6-24),
+    `include_pending`, `auto_record` (gravar sozinho; ligar e recusado com
+    conta sem destino ou conexao sem pull nas ultimas 48 h) e
+    `ignore_notifications`. PATCH parcial; `auto_sync_available` e
+    `auto_record_blockers` so se leem."""
     if request.method == "GET":
         with get_db() as conn:
             return jsonify(open_finance.settings(conn, current_user_id)), 200
@@ -101,11 +106,11 @@ def open_finance_register(current_user_id):
 @bp.route("/api/open-finance/items/<item_id>/sync", methods=["POST"])
 @token_required
 def open_finance_sync(current_user_id, item_id):
-    """"Atualizar": pede dados novos ao banco (se nao pediu ha pouco e o item
-    nao espera o dono) e puxa para o Aprovar."""
+    """"Atualizar": le (GET) o que a Pluggy ja trouxe do banco e puxa para o
+    Aprovar (ou grava, com "Gravar sozinho")."""
 
     def action():
-        result = open_finance.sync_item(current_user_id, item_id, request_update=True)
+        result = open_finance.sync_item(current_user_id, item_id)
         body = open_finance.list_view(current_user_id)
         body["result"] = result
         return jsonify(body), 200
@@ -131,13 +136,46 @@ def open_finance_disconnect(current_user_id, item_id):
 @bp.route("/api/open-finance/accounts/<account_id>", methods=["PUT"])
 @token_required
 def open_finance_map(current_user_id, account_id):
-    """Mapeia uma conta da Pluggy: `account_id` (BANK) ou `card_id` (CREDIT); null desliga."""
+    """Mapeia uma conta da Pluggy: `account_id` (BANK) ou `card_id` (CREDIT); null
+    desliga; `{"ignore": true}` e "nao usar"."""
     payload = parse_json_body()
 
     def action():
         result = open_finance.map_account(current_user_id, account_id, payload)
         body = open_finance.list_view(current_user_id)
         body["placed"] = result["placed"]
+        return jsonify(body), 200
+
+    return _run(action)
+
+
+@bp.route("/api/open-finance/history/preview", methods=["POST"])
+@token_required
+def open_finance_history_preview(current_user_id):
+    """O historico dos ultimos `days` dias (padrao 365), contado por conta,
+    sem gravar nada: linked, to_link, to_record, waiting, covered, app_only."""
+    payload = parse_json_body()
+    days = payload.get("days") if isinstance(payload, dict) else None
+
+    def action():
+        return jsonify(open_finance.history_preview(current_user_id, days)), 200
+
+    return _run(action)
+
+
+@bp.route("/api/open-finance/history/apply", methods=["POST"])
+@token_required
+def open_finance_history_apply(current_user_id):
+    """Aplica o historico (`confirm: true`, com "Gravar sozinho" ligado): liga
+    o que ja existe, grava o resto; nada digitado e apagado."""
+    payload = parse_json_body()
+    if not isinstance(payload, dict):
+        return validation_error("Envie um objeto JSON.")
+
+    def action():
+        result = open_finance.history_apply(current_user_id, payload.get("days"), payload.get("confirm"))
+        body = open_finance.list_view(current_user_id)
+        body["history"] = result
         return jsonify(body), 200
 
     return _run(action)

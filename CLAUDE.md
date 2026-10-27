@@ -226,7 +226,8 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 
 ### Aprovar (the inbox)
 - Detections arrive as parsed fields at `POST /api/inbox/detections`; nothing is recorded without
-  approval, and a look-alike of an existing lançamento is a pending item with a candidate.
+  approval (Pluggy rows with "Gravar sozinho" on are approved by the server, below), and a look-alike
+  of an existing lançamento is a pending item with a candidate.
 - **Settles a recurrence's occurrence** (034, `suggest_for_item()`: same type, ±7 days, exact amount
   or within 20% with a shared word/category; INCOME within 20% regardless). Approving writes a
   `recurring_settlements` row; "Não é esta" sets `recurring_off`.
@@ -237,23 +238,61 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `inbox_hints` (`self:doc:` / `self:name:`); BTG Investimentos transfers are always own. Pairing
   (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
   bank's notification wins over Samsung's.
-- **Open Finance (Pluggy) is a second source** (043, `services/open_finance.py` +
+- **Open Finance (Pluggy) is the source for connected banks** (043, 044, `services/open_finance.py` +
   `open_finance_inbox.py`): pulled (no webhooks: the server is tailnet-only) into
   `open_finance_transactions`, unique `pluggy:<id>` per user, feeding `inbox_items` like
-  notifications. A Pluggy account goes only where the owner mapped it (never the Corretora; a card
-  needs credit). A notification and a Pluggy row of one movement are **one item in either order**
+  notifications. A Pluggy account goes only where the owner mapped it (a card needs credit; the
+  Corretora takes only the broker's investments account, `is_investment_account()`), or is
+  "não usar" (`ignored_at`). A notification and a Pluggy row of one movement are **one item in either order**
   (same cents, ≤ 1 day, the mapped target; `notification_item_for_open_finance()` /
   `open_finance_item_for_detection()`); installments 2..n are `COVERED`, invoice payments never an
   item, a card credit is a `REFUND` item; a row that vanishes or changes amount before approval
   makes the item `REMOVED` (if no other source). Approval stamps `source_type = 'OPEN_FINANCE'`.
   The card sign is learned per account (`learn_charge_sign()`): the sandbox contradicts the docs.
-  Pluggy refuses a second update request within 1 h; every request spends the CPF's monthly quota.
-  Settings live in `user_settings` (`GET/PATCH /api/open-finance/settings`): `sync_hours` per user
-  (0 = button only; the thread ticks every 15 min and pulls whoever is due), `include_pending`,
-  `first_sync_days`. There is no auto-approve, by design. The **Conferência**
-  (`services/open_finance_check.py`, `check` on each account of `GET /api/open-finance`) only points:
-  bank-only, app-only, awaiting. Bank-side checking only; Pluggy stays a source of Aprovar, and
-  notifications too (the owner decided against a "Pluggy only" switch, 2026-10-27).
+  **GET only** (owner, 2026-10-27): the app never asks the bank for new data (`PATCH /items` spends
+  the free MeuPluggy CPF quota and blocks the account for the month); `pluggy_client.call()` refuses
+  PATCH. Pluggy refreshes banks itself (6–24 h); the app reads what it has. Settings live in
+  `user_settings` (`GET/PATCH /api/open-finance/settings`): `sync_hours` per user (0 = button only,
+  else **6–24**; the thread ticks every 15 min and pulls whoever is due), `include_pending`,
+  `first_sync_days`, `auto_record`, `ignore_notifications`.
+- **Gravar sozinho** (044, owner's reversal of 2026-10-27: they checked the real data and trust it;
+  `services/open_finance_auto.py`): with `auto_record` on, a Pluggy movement of a mapped account
+  becomes a lançamento by itself — the same item, approved by `approve_item()` right after the pull
+  (source OPEN_FINANCE + `source_id` = Pluggy id; a card purchase `client_id = 'pluggy:<id>'`).
+  Turning it on is refused (400) unless every BANK/CREDIT account of every active connection is
+  mapped or "não usar" and each connection was pulled OK in the last 48 h (`blockers()`); on, the
+  Pluggy backlog in Aprovar is recorded in one pass. **Aprovar stays for Flash and what only the
+  owner decides**: a transfer missing its other side (held `TRANSFER_HOLD_DAYS` = 2 so the other
+  bank's pull can pair them; after that, without a pair, a Pix to someone else is a despesa/receita
+  and an own transfer stays), an investment (Pluggy category 03, not provento) on a bank account.
+  A look-alike the owner typed is **linked** (first free candidate), never duplicated; manual rows
+  are never deleted. On the Corretora account only bank ↔ Corretora transfers become rows
+  (aporte/resgate, 039); the rest is `COVERED`. A bank invoice payment links to the app's
+  pay-invoice/autopay row (`invoice_payment_link()`), never records one. Category: owner's import
+  rule, else Pluggy's category through `open_finance_categories.py`, else the default. **Mutation
+  guard**: an auto-recorded row keeps `recorded_snapshot`; if the bank changes the amount or drops
+  it, the lançamento is corrected/deleted only while it equals the snapshot (no edit, receipt) and
+  was created by that Pluggy row (`apply_change()` / `apply_vanish()`; never a transfer, never a
+  paid installment, never on an empty pull); otherwise `conflict` and the Conferência lists it.
+  **Ignorar avisos dos bancos conectados** (`ignore_notifications`): `ingest_detection()` returns
+  `ignored` for a bank whose account is mapped (by account/target name, or a Samsung card that is
+  mapped); Flash is never connected, so it still reaches Aprovar.
+- **History** (`history_preview()` / `history_apply()`, `POST /api/open-finance/history/preview|apply`):
+  preview reads N days (GET) and counts per account (linked, to_link, to_record, waiting, covered,
+  app_only) without writing; apply needs `confirm: true` and Gravar sozinho, re-pulls from that date
+  and runs the same engine. The **Conferência** (`services/open_finance_check.py`, `check` on each
+  account of `GET /api/open-finance`) only points: bank-only (with a `reason`), app-only, awaiting,
+  `conflicts`, and `explanation` (balance difference = bank-only + awaiting − app-only + before the
+  window).
+- **BTG Investimentos in Investimentos** (044, `services/open_finance_investments.py`): the same pull
+  reads `/investments` and each position's transactions (GET). Equity BUY/SELL become movements on
+  the trade date with cash through the Corretora (as typed ones), idempotent by
+  `open_finance_investment_operations.op_key`; a typed twin (same asset, signed quantity, ±2 days) is
+  linked; an unknown ticker, a sale without position, a date before the latest corporate action,
+  fixed income, TRANSFER and INTEREST are `HELD` for the owner. Deleting a recorded one is
+  `DISMISSED` for good. Positions are never written into the portfolio: `portfolio_check()` compares
+  quantities (D-1 position + later operations) and the broker cash, where trades of the last 2
+  business days are "a liquidar" (D+2 settlement).
 
 ### Receipts
 - **A receipt is a file on disk referenced by a row** (014; card purchases 016): bytes in

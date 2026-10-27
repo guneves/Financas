@@ -96,6 +96,8 @@ EXPECTED_ROUTES = {
     ("/api/open-finance/items/<item_id>/sync", "POST"),
     ("/api/open-finance/items/<item_id>", "DELETE"),
     ("/api/open-finance/accounts/<account_id>", "PUT"),
+    ("/api/open-finance/history/preview", "POST"),
+    ("/api/open-finance/history/apply", "POST"),
     ("/api/corporate-actions/<action_id>", "DELETE"),
     ("/api/investments/price-by-asset/<asset_id>", "PATCH"),
     ("/api/investments/price-by-ticker", "PATCH"),

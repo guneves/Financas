@@ -133,40 +133,35 @@ class TestIdempotency:
         world.sync(item_id)
         assert len(world.pending()) == 1
 
-    def test_a_manual_update_is_not_asked_twice_in_a_row(self, world):
-        item_id, _p, _made = connected(world)
-        world.sync(item_id)
-        world.sync(item_id)
-        assert len([call for call in world.fake.calls if call[0] == "update_item"]) == 1
-
-    def test_no_update_within_an_hour_of_pluggys_last_read(self, world):
-        # Conectar conta como uma atualizacao: a Pluggy recusa outra em menos de 1 h.
-        item_id, pluggy_item, made = connected(world)
-        recent = datetime.now().astimezone().isoformat()
-        world.fake.items[pluggy_item]["lastUpdatedAt"] = recent
-        db = importlib.import_module("db")
-        with db.get_db() as conn:
-            conn.execute("UPDATE open_finance_items SET pluggy_updated_at = ? WHERE id = ?", (recent, item_id))
+    def test_the_pull_only_reads(self, world):
+        # Nunca PATCH /items (044): pedir dados novos gasta o limite do CPF.
+        item_id, _p, made = connected(world)
         world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-26"))
         world.sync(item_id)
-        assert not [call for call in world.fake.calls if call[0] == "update_item"]
+        world.sync(item_id)
+        assert {call[0] for call in world.fake.calls} <= {
+            "get_item", "list_accounts", "list_transactions", "list_investments", "list_investment_transactions",
+        }
         assert len(world.pending()) == 1
 
-    def test_a_refused_update_still_pulls(self, world):
+    def test_the_real_client_refuses_patch(self):
         pluggy_client = importlib.import_module("pluggy_client")
-        item_id, _p, made = connected(world)
-        world.fake.refuse_update = pluggy_client.PluggyError(
-            "Client updates on this item are allowed at most every 1 hours.", status=400,
-        )
-        world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-26"))
-        body = world.sync(item_id)
-        assert body["result"]["counts"] == {"new": 1}
-        assert world.overview()["items"][0]["last_sync_error"] is None
+        api = pluggy_client.PluggyClient("id", "secret")
+        assert not hasattr(api, "update_item")
+        with pytest.raises(pluggy_client.PluggyError):
+            api.call("PATCH", "/items/abc")
+
+    def test_a_refusal_is_kept_for_ajustes(self, world):
+        pluggy_client = importlib.import_module("pluggy_client")
+        item_id, _p, _made = connected(world)
+        world.fake.fail_with = pluggy_client.PluggyError("Limite de requisicoes do mes atingido.", status=429)
+        world.sync(item_id, expected=400)
+        assert world.overview()["items"][0]["last_sync_error"] == "Limite de requisicoes do mes atingido."
 
     def test_pluggy_down_is_an_error_for_the_button(self, world):
         pluggy_client = importlib.import_module("pluggy_client")
         item_id, _p, _made = connected(world)
-        world.fake.refuse_update = pluggy_client.PluggyError("A Pluggy nao respondeu.")
+        world.fake.fail_with = pluggy_client.PluggyError("A Pluggy nao respondeu.")
         world.sync(item_id, expected=502)
         assert world.overview()["items"][0]["last_sync_error"] == "A Pluggy nao respondeu."
 

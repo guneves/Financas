@@ -215,9 +215,7 @@ PLUGGY_CLIENT_ID = str(os.getenv("PLUGGY_CLIENT_ID", "") or "").strip()
 PLUGGY_CLIENT_SECRET = str(os.getenv("PLUGGY_CLIENT_SECRET", "") or "").strip()
 PLUGGY_BASE_URL = str(os.getenv("PLUGGY_BASE_URL", "https://api.pluggy.ai") or "").strip().rstrip("/")
 PLUGGY_TIMEOUT_SECONDS = read_float_env("PLUGGY_TIMEOUT_SECONDS", 20.0, minimum=1.0, maximum=120.0)
-# De quanto em quanto tempo a thread pede dados novos ao banco e puxa as
-# transacoes (services/open_finance_refresh.py). Pedir gasta o limite mensal
-# de requisicoes da instituicao por CPF: 6 h da 4 por dia. 0 desliga (testes).
+# De quanto em quanto tempo a thread le (so GET) o que a Pluggy ja trouxe do
+# banco (services/open_finance_refresh.py), para quem nao escolheu em Ajustes.
+# Nunca abaixo de 6 h (dono, 2026-10-27). 0 desliga a thread (testes).
 OPEN_FINANCE_SYNC_SECONDS = read_int_env("OPEN_FINANCE_SYNC_SECONDS", 6 * 3600, minimum=0)
-# "Atualizar" espera ate isto pela Pluggy terminar de buscar no banco antes de puxar.
-OPEN_FINANCE_UPDATE_WAIT_SECONDS = read_int_env("OPEN_FINANCE_UPDATE_WAIT_SECONDS", 30, minimum=0, maximum=120)

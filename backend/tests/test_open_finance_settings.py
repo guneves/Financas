@@ -54,19 +54,21 @@ def epoch(text):
 class TestSettingsApi:
     def test_defaults(self, world):
         body = world.call("get", SETTINGS)
-        assert body == {"first_sync_days": 30, "sync_hours": 6, "include_pending": False,
-                        "auto_sync_available": False}
+        assert body == {"first_sync_days": 30, "sync_hours": 6, "min_sync_hours": 6, "include_pending": False,
+                        "auto_sync_available": False, "auto_record": False,
+                        "auto_record_blockers": ["Conecte um banco antes de gravar sozinho."],
+                        "ignore_notifications": False}
 
     def test_a_partial_patch_keeps_the_rest(self, world):
-        body = world.call("patch", SETTINGS, json={"sync_hours": 3})
-        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (3, 30, False)
+        body = world.call("patch", SETTINGS, json={"sync_hours": 8})
+        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (8, 30, False)
         body = world.call("patch", SETTINGS, json={"include_pending": True, "first_sync_days": 90})
-        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (3, 90, True)
-        assert world.call("get", SETTINGS)["sync_hours"] == 3
+        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (8, 90, True)
+        assert world.call("get", SETTINGS)["sync_hours"] == 8
         assert world.overview()["first_sync_days"] == 90
 
     @pytest.mark.parametrize("payload", [
-        {"sync_hours": 25}, {"sync_hours": -1}, {"sync_hours": 0.5}, {"sync_hours": "6"}, {"sync_hours": True},
+        {"sync_hours": 25}, {"sync_hours": -1}, {"sync_hours": 1}, {"sync_hours": 5}, {"sync_hours": 0.5}, {"sync_hours": "6"}, {"sync_hours": True},
         {"sync_hours": None},
         {"first_sync_days": 0}, {"first_sync_days": 366}, {"first_sync_days": "x"}, {"first_sync_days": True},
         {"include_pending": "true"}, {"include_pending": 1}, {"include_pending": None},
@@ -101,10 +103,10 @@ class TestSettingsApi:
 class TestPerUserInterval:
     def test_due_only_after_the_users_interval(self, world, refresh, user):
         item_id, _p, _made = connected(world)
-        world.call("patch", SETTINGS, json={"sync_hours": 3})
+        world.call("patch", SETTINGS, json={"sync_hours": 8})
         set_last_sync(item_id, "2026-10-27T10:00:00Z")
-        assert user["id"] not in refresh.due_user_ids(epoch("2026-10-27T12:59:00"))
-        assert user["id"] in refresh.due_user_ids(epoch("2026-10-27T13:00:00"))
+        assert user["id"] not in refresh.due_user_ids(epoch("2026-10-27T17:59:00"))
+        assert user["id"] in refresh.due_user_ids(epoch("2026-10-27T18:00:00"))
 
     def test_zero_is_never_due(self, world, refresh, user):
         item_id, _p, _made = connected(world)
@@ -125,13 +127,13 @@ class TestPerUserInterval:
 
     def test_the_round_pulls_and_records_the_attempt(self, world, refresh, monkeypatch, open_finance_module, user):
         item_id, _p, made = connected(world)
-        world.call("patch", SETTINGS, json={"sync_hours": 1})
-        set_last_sync(item_id, "2026-10-27T08:00:00Z")
+        world.call("patch", SETTINGS, json={"sync_hours": 6})
+        set_last_sync(item_id, "2026-10-27T02:00:00Z")
         world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20"))
         calls = []
         real = open_finance_module.sync_user
 
-        def failing(current_user_id, request_update=True):
+        def failing(current_user_id):
             calls.append(current_user_id)
             raise RuntimeError("Pluggy fora")
 
@@ -141,19 +143,19 @@ class TestPerUserInterval:
         refresh.refresh_all_users(now + 15 * 60)
         assert calls.count(user["id"]) == 1  # a falha nao repete a cada passo
         monkeypatch.setattr(open_finance_module, "sync_user", real)
-        results = refresh.refresh_all_users(now + 3600)
+        results = refresh.refresh_all_users(now + 6 * 3600)
         assert item_id in results[user["id"]]
         assert len(world.pending()) == 1
 
     def test_each_user_has_their_own_interval(self, world, refresh, client, user, other_user, fake_pluggy):
         item_id, _p, _made = connected(world)
         set_last_sync(item_id, "2026-10-27T10:00:00Z")
-        world.call("patch", SETTINGS, json={"sync_hours": 1})
+        world.call("patch", SETTINGS, json={"sync_hours": 6})
         other_world = World(client, other_user["headers"], fake_pluggy)
         other_item, _p2, _m2 = connected(other_world)
         set_last_sync(other_item, "2026-10-27T10:00:00Z")
         other_world.call("patch", SETTINGS, json={"sync_hours": 24})
-        due = refresh.due_user_ids(epoch("2026-10-27T11:00:00"))
+        due = refresh.due_user_ids(epoch("2026-10-27T16:00:00"))
         assert user["id"] in due and other_user["id"] not in due
         due = refresh.due_user_ids(epoch("2026-10-28T10:00:00"))
         assert user["id"] in due and other_user["id"] in due

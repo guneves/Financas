@@ -639,6 +639,31 @@ private fun OpenFinanceSettingsBlock(settings: OpenFinanceSettingsDto, viewModel
             fontSize = 13.sp,
             color = palette.muted,
         )
+        val canRecord = settings.autoRecord || settings.autoRecordBlockers.isEmpty()
+        Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled && canRecord) { viewModel.setOpenFinanceAutoRecord(!settings.autoRecord) }) {
+            Checkbox(
+                settings.autoRecord,
+                { viewModel.setOpenFinanceAutoRecord(it) },
+                enabled = enabled && canRecord,
+                colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent),
+            )
+            Column(Modifier.padding(top = 12.dp)) {
+                Text(stringResource(R.string.ajustes_open_finance_record), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
+                Text(OpenFinanceRules.autoRecordHint(settings.autoRecord, settings.autoRecordBlockers), fontSize = 14.sp, color = palette["zinc-600"])
+            }
+        }
+        Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled) { viewModel.setOpenFinanceIgnoreNotifications(!settings.ignoreNotifications) }) {
+            Checkbox(
+                settings.ignoreNotifications,
+                { viewModel.setOpenFinanceIgnoreNotifications(it) },
+                enabled = enabled,
+                colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent),
+            )
+            Column(Modifier.padding(top = 12.dp)) {
+                Text(stringResource(R.string.ajustes_open_finance_ignore), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
+                Text(stringResource(R.string.ajustes_open_finance_ignore_hint), fontSize = 14.sp, color = palette["zinc-600"])
+            }
+        }
         Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled) { viewModel.setOpenFinanceIncludePending(!settings.includePending) }) {
             Checkbox(
                 settings.includePending,
@@ -666,14 +691,20 @@ private fun OpenFinanceCheckBlock(check: OpenFinanceCheckDto?, hidden: Boolean) 
         )
     }
     if (summary.state == "drift" || check.awaitingCount > 0) Text(summary.text, fontSize = 13.sp, color = palette["zinc-600"])
-    listOf(R.string.ajustes_open_finance_check_bank to check.bankOnly, R.string.ajustes_open_finance_check_app to check.appOnly)
+    listOf(
+        R.string.ajustes_open_finance_check_bank to check.bankOnly,
+        R.string.ajustes_open_finance_check_app to check.appOnly,
+        R.string.ajustes_open_finance_check_conflicts to check.conflicts,
+    )
         .filter { it.second.isNotEmpty() }
         .forEach { (title, rows) ->
             Text(stringResource(title), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = palette["zinc-700"])
             rows.forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val reason = OpenFinanceRules.checkReasonLabel(row.reason)
                     Text(
-                        "${formatDateBR(row.date)} · ${row.description.orEmpty().ifEmpty { "Sem descrição" }}",
+                        "${formatDateBR(row.date)} · ${row.description.orEmpty().ifEmpty { "Sem descrição" }}" +
+                            (if (reason.isNotEmpty()) " · $reason" else ""),
                         fontSize = 12.sp,
                         color = palette["zinc-600"],
                         modifier = Modifier.weight(1f),
@@ -682,6 +713,14 @@ private fun OpenFinanceCheckBlock(check: OpenFinanceCheckDto?, hidden: Boolean) 
                 }
             }
         }
+    val explanation = check.explanation
+    if (explanation != null && !hidden) {
+        OpenFinanceRules.balanceExplanation(
+            explanation.difference, explanation.bankOnly, explanation.awaiting, explanation.appOnly, explanation.before,
+        ) { value -> moneyOrMasked(value, false) }.forEach { line ->
+            Text(line, fontSize = 12.sp, color = palette["zinc-600"])
+        }
+    }
 }
 
 @Composable
@@ -692,7 +731,7 @@ private fun OpenFinanceItemCard(item: OpenFinanceItemDto, viewModel: AjustesView
     Surface(shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, palette.border), color = palette.surface) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(item.connectorName.orEmpty().ifEmpty { "Banco" }, fontWeight = FontWeight.SemiBold, color = palette.text, modifier = Modifier.weight(1f, fill = false))
+                Text(OpenFinanceRules.itemBankName(item.bankName, item.connectorName), fontWeight = FontWeight.SemiBold, color = palette.text, modifier = Modifier.weight(1f, fill = false))
                 Badge(status.label, badgeTone(status.tone))
             }
             Text(

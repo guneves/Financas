@@ -435,4 +435,18 @@ class InboxRulesTest {
         assertEquals("k → conta removida (receita)", hintText(InboxHint(hintKey = "k", entryType = "INCOME")))
         assertEquals("Notificação com.itau · Pix enviado · Ana", sourceLabel(InboxSource(app = "com.itau", kind = "PIX_OUT", counterparty = "Ana")))
     }
+
+    // node: 'an Open Finance source names the bank, not the MeuPluggy connector'
+    @Test
+    fun anOpenFinanceSourceNamesTheBankNotTheMeuPluggyConnector() {
+        assertEquals(
+            "Open Finance BTG Pactual · BTG Banking · PIX",
+            sourceLabel(
+                InboxSource(
+                    source = "open_finance", connectorName = "MeuPluggy", bankName = "BTG Pactual",
+                    accountName = "BTG Banking", description = "PIX",
+                ),
+            ),
+        )
+    }
 }

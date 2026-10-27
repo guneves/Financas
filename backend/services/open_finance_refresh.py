@@ -4,12 +4,13 @@ O servidor so e alcancavel dentro da tailnet: a Pluggy nao chega nele por
 webhook. Uma thread acorda a cada TICK_SECONDS e chama `open_finance.sync_user()`
 para cada usuario cuja "Busca automatica" (Ajustes, `sync_hours`; quem nunca
 escolheu fica com OPEN_FINANCE_SYNC_SECONDS, 6 h) venceu desde o ultimo pull
-ou a ultima tentativa: pede dados novos ao banco e puxa o que chegou para o
-Aprovar. `sync_hours = 0` deixa so o botao "Atualizar". Pedir dados novos gasta o limite mensal de
-requisicoes da instituicao (compartilhado por todos os itens do CPF; esgotado,
-so volta no mes seguinte), entao o intervalo nao desce de 1 h, e um item que
-espera o dono (senha, codigo, termos) nunca e pedido — sync_item() pula o
-pedido e so le.
+ou a ultima tentativa. O pull e passivo (dono, 2026-10-27): so GET do que a
+Pluggy ja trouxe do banco — ela atualiza o banco sozinha, de 6 a 24 h. O app
+nunca pede dados novos (`PATCH /items`): no plano gratis do MeuPluggy isso
+gasta o limite mensal do CPF e, esgotado, bloqueia ate o mes seguinte. Por
+isso o intervalo nao desce de 6 h. `sync_hours = 0` deixa so o botao
+"Atualizar". Uma recusa da Pluggy fica em `last_sync_error` (Ajustes) e no
+log do container.
 
 OPEN_FINANCE_SYNC_SECONDS = 0 desliga a thread para todos (os testes, em
 conftest.py). Sem as credenciais da Pluggy, a thread
@@ -77,7 +78,7 @@ def refresh_all_users(now_seconds=None):
     for current_user_id in due_user_ids(now_seconds):
         _attempts[current_user_id] = now_seconds
         try:
-            results[current_user_id] = open_finance.sync_user(current_user_id, request_update=True)
+            results[current_user_id] = open_finance.sync_user(current_user_id)
         except Exception as exc:  # a rodada nao para por um usuario
             logger.warning(f"Open Finance automatico falhou para {current_user_id}: {exc}")
     return results

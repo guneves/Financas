@@ -840,7 +840,7 @@
     <string name="ajustes_category_reactivate_failed">Não foi possível reativar a categoria.</string>
 
     <string name="ajustes_aprovar_description">Os avisos dos bancos e o Open Finance que esperam você em Lançamentos › Aprovar.</string>
-    <string name="ajustes_open_finance_description">Os movimentos das suas contas e cartões chegam pela Pluggy e esperam em Lançamentos › Aprovar. Nada é lançado sem você aprovar.</string>
+    <string name="ajustes_open_finance_description">Os movimentos das suas contas e cartões chegam pela Pluggy. Com \"Gravar sozinho\", viram lançamentos; sem ele, esperam em Lançamentos › Aprovar.</string>
     <string name="ajustes_open_finance_desktop">Conectar um banco, reconectar e dizer para onde vai cada conta ficam no computador (Ajustes › Open Finance).</string>
     <string name="ajustes_open_finance_off">Desligado: o servidor não tem as credenciais da Pluggy.</string>
     <string name="ajustes_open_finance_empty">Nenhum banco conectado. Conecte pelo computador.</string>
@@ -860,7 +860,7 @@
     <string name="ajustes_open_finance_check_bank">Só no banco</string>
     <string name="ajustes_open_finance_check_app">Só no app</string>
     <string name="ajustes_open_finance_auto">Busca automática</string>
-    <string name="ajustes_open_finance_auto_hint">Cada busca gasta o limite mensal do banco na Pluggy; menos de 1 h não é possível. \"Atualizar\" funciona sempre.</string>
+    <string name="ajustes_open_finance_auto_hint">O app só lê o que a Pluggy já trouxe do banco (ela atualiza sozinha, de 6 a 24 h); nunca menos de 6 h. \"Atualizar\" lê na hora.</string>
     <string name="ajustes_open_finance_auto_server_off">O servidor está com a busca automática desligada; só \"Atualizar\".</string>
     <string name="ajustes_open_finance_auto_on">Busca automática a cada %1$d h.</string>
     <string name="ajustes_open_finance_auto_off">Busca automática desligada.</string>
@@ -869,6 +869,14 @@
     <string name="ajustes_open_finance_pending_on">Pendentes do banco vêm para o Aprovar.</string>
     <string name="ajustes_open_finance_pending_off">Pendentes do banco ficam de fora.</string>
     <string name="ajustes_open_finance_settings_failed">Não foi possível salvar o ajuste do Open Finance.</string>
+    <string name="ajustes_open_finance_record">Gravar sozinho</string>
+    <string name="ajustes_open_finance_record_on">Gravar sozinho ligado.</string>
+    <string name="ajustes_open_finance_record_off">Gravar sozinho desligado: tudo volta a esperar no Aprovar.</string>
+    <string name="ajustes_open_finance_ignore">Ignorar avisos dos bancos conectados</string>
+    <string name="ajustes_open_finance_ignore_hint">Os avisos do celular dos bancos que chegam pela Pluggy não viram itens (seria a mesma compra duas vezes). Os do Flash continuam no Aprovar.</string>
+    <string name="ajustes_open_finance_ignore_on">Avisos dos bancos conectados ignorados.</string>
+    <string name="ajustes_open_finance_ignore_off">Avisos dos bancos conectados voltam ao Aprovar.</string>
+    <string name="ajustes_open_finance_check_conflicts">Você editou e o banco mudou depois (o app não mexeu)</string>
     <string name="ajustes_always_ask">Sempre perguntar a conta/cartão</string>
     <string name="ajustes_always_ask_hint">Todo item pede que você confirme para onde vai, mesmo o que o app já lembra. \"Aprovar prontos\" não leva nenhum: aprove um a um.</string>
     <string name="ajustes_aprovar_failed">Não foi possível ler os ajustes de Aprovar.</string>

@@ -17,6 +17,8 @@ data class OpenFinanceDto(
 data class OpenFinanceItemDto(
     val id: String = "",
     @SerialName("connector_name") val connectorName: String? = null,
+    /** O banco pelos nomes das contas (044): o MeuPluggy nao diz o banco. */
+    @SerialName("bank_name") val bankName: String? = null,
     val status: String? = null,
     @SerialName("execution_status") val executionStatus: String? = null,
     @SerialName("error_message") val errorMessage: String? = null,
@@ -38,6 +40,8 @@ data class OpenFinanceAccountDto(
     @SerialName("account_id") val accountId: String? = null,
     @SerialName("card_id") val cardId: String? = null,
     @SerialName("unmapped_count") val unmappedCount: Int = 0,
+    /** "Nao usar" (044): a conta fica puxada, nunca gera nada. */
+    val ignored: Boolean = false,
     /** A conferencia (services/open_finance_check.py): null sem mapeamento ou sem busca. */
     val check: OpenFinanceCheckDto? = null,
 )
@@ -50,6 +54,19 @@ data class OpenFinanceCheckDto(
     @SerialName("bank_only_count") val bankOnlyCount: Int = 0,
     @SerialName("app_only_count") val appOnlyCount: Int = 0,
     @SerialName("awaiting_count") val awaitingCount: Int = 0,
+    /** Gravados sozinhos que o banco mudou depois que o dono editou (044). */
+    val conflicts: List<OpenFinanceCheckRowDto> = emptyList(),
+    /** De onde vem a diferenca de saldo, em centavos (044). */
+    val explanation: OpenFinanceExplanationDto? = null,
+)
+
+@Serializable
+data class OpenFinanceExplanationDto(
+    val difference: Long = 0,
+    @SerialName("bank_only") val bankOnly: Long = 0,
+    val awaiting: Long = 0,
+    @SerialName("app_only") val appOnly: Long = 0,
+    val before: Long = 0,
 )
 
 @Serializable
@@ -57,6 +74,7 @@ data class OpenFinanceCheckRowDto(
     val date: String = "",
     val amount: Money? = null,
     val description: String? = null,
+    val reason: String? = null,
 )
 
 /** GET/PATCH /api/open-finance/settings: no servidor, o celular e o computador concordam. */
@@ -66,6 +84,11 @@ data class OpenFinanceSettingsDto(
     @SerialName("sync_hours") val syncHours: Int = 6,
     @SerialName("include_pending") val includePending: Boolean = false,
     @SerialName("auto_sync_available") val autoSyncAvailable: Boolean = true,
+    /** "Gravar sozinho" (044) e por que ainda nao pode ligar. */
+    @SerialName("auto_record") val autoRecord: Boolean = false,
+    @SerialName("auto_record_blockers") val autoRecordBlockers: List<String> = emptyList(),
+    /** "Ignorar avisos dos bancos conectados" (044). */
+    @SerialName("ignore_notifications") val ignoreNotifications: Boolean = false,
 )
 
 @Serializable
@@ -73,4 +96,8 @@ data class OpenFinanceSyncResultDto(
     val status: String? = null,
     val counts: Map<String, Int> = emptyMap(),
     val removed: Int = 0,
+    /** Com "Gravar sozinho": recorded, linked, held (044). */
+    @SerialName("auto_recorded") val autoRecorded: Map<String, Int>? = null,
+    /** As operacoes da corretora: recorded, linked, held, dismissed (044). */
+    val investments: Map<String, Int>? = null,
 )

@@ -359,7 +359,9 @@ export const openFinanceApi = {
   sync: (itemId) => postJson(`/api/open-finance/items/${itemId}/sync`, {}),
   disconnect: (itemId, confirm) => apiFetch(`/api/open-finance/items/${itemId}`, { method: 'DELETE', body: JSON.stringify({ confirm }) }),
   map: (accountId, payload) => apiFetch(`/api/open-finance/accounts/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) }),
-  updateSettings: (payload) => apiFetch('/api/open-finance/settings', { method: 'PATCH', body: JSON.stringify(payload) })
+  updateSettings: (payload) => apiFetch('/api/open-finance/settings', { method: 'PATCH', body: JSON.stringify(payload) }),
+  historyPreview: (days) => postJson('/api/open-finance/history/preview', { days }),
+  historyApply: (days) => postJson('/api/open-finance/history/apply', { days, confirm: true }),
 }
 
 // A receber (032): a parte dos outros nas despesas, ate o dono marcar que pagaram.

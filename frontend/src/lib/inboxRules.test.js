@@ -214,3 +214,10 @@ test('an ambiguous item never offers to remember, and says why', () => {
   assert.match(ambiguousText({ ambiguous: true, entry_type: 'CARD' }), /mais de um cartão/)
   assert.equal(ambiguousText({ ambiguous: false }), '')
 })
+
+test('an Open Finance source names the bank, not the MeuPluggy connector', () => {
+  assert.equal(
+    sourceLabel({ source: 'open_finance', connector_name: 'MeuPluggy', bank_name: 'BTG Pactual', account_name: 'BTG Banking', description: 'PIX' }),
+    'Open Finance BTG Pactual · BTG Banking · PIX',
+  )
+})

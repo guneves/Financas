@@ -637,7 +637,11 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         write(R.string.ajustes_open_finance_sync_failed, { repo.syncOpenFinance(item.id) }, onFail = { syncingItemId = null }) { body ->
             syncingItemId = null
             openFinance.value = body
-            notice(OpenFinanceRules.syncSummary(body.result?.counts, body.result?.removed))
+            notice(
+                OpenFinanceRules.syncSummary(
+                    body.result?.counts, body.result?.removed, body.result?.autoRecorded, body.result?.investments,
+                ),
+            )
         }
     }
 
@@ -651,6 +655,17 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     fun setOpenFinanceIncludePending(value: Boolean) = saveOpenFinanceSettings(
         mapOf("include_pending" to value),
         app.getString(if (value) R.string.ajustes_open_finance_pending_on else R.string.ajustes_open_finance_pending_off),
+    )
+
+    /** "Gravar sozinho" (044): o servidor recusa ligar com conta sem destino ou sem busca recente. */
+    fun setOpenFinanceAutoRecord(value: Boolean) = saveOpenFinanceSettings(
+        mapOf("auto_record" to value),
+        app.getString(if (value) R.string.ajustes_open_finance_record_on else R.string.ajustes_open_finance_record_off),
+    )
+
+    fun setOpenFinanceIgnoreNotifications(value: Boolean) = saveOpenFinanceSettings(
+        mapOf("ignore_notifications" to value),
+        app.getString(if (value) R.string.ajustes_open_finance_ignore_on else R.string.ajustes_open_finance_ignore_off),
     )
 
     private fun saveOpenFinanceSettings(body: Map<String, Any?>, message: String) {

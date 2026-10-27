@@ -7,70 +7,82 @@
 
 ---
 
-## Session — 2026-10-27 (2) · Open Finance settings, Conferência, merge to main
+## Session — 2026-10-27 (3) · Open Finance as the only source, BTG into Investimentos
 
-Local session on the owner's PC. `claude/pluggy-open-finance` (`c5f4e7e`) fast-forwarded into
-`main` with the owner's OK, then this work on `main`.
+Local session on the owner's PC, on `main`, from `docs/prompts/open-finance-only.md` (pasted). The
+owner added mid-session: **only GET, and never update more often than every 6 hours**.
 
 ### Done
-- **Scope changed mid-session, by the owner.** The prompt asked for a "Só Open Finance" switch
-  (`aprovar_sources`). The owner then said Open Finance helps most in Investimentos, and that on the
-  bank side it should check for inconsistencies. Asked and decided: Pluggy **stays a source** of
-  Aprovar next to notifications, **no switch**, plus a Conferência. Investments go through approval
-  (operations, never overwritten positions) and are only planned for now. The half-built switch was
-  removed before commit.
-- `GET/PATCH /api/open-finance/settings`: `first_sync_days`, `sync_hours` (0 or 1–24, per user,
-  default the server's 6 h), `include_pending`. Everything validated before anything is written;
-  unknown keys refused. There is no `auto_approve`; a comment in `services/open_finance.py` says why.
-- `services/open_finance_refresh.py`: ticks every 15 min, `due_user_ids()` pulls a user whose oldest
-  item `last_sync_at` (or last attempt) is older than their interval. `OPEN_FINANCE_SYNC_SECONDS=0`
-  still turns the thread off for everyone.
-- `include_pending`: `normalize_transaction(..., include_pending=)`. When a known id comes back with
-  the same amount but other details (posted), the row updates in place; an id change goes through
-  the existing vanish → `REMOVED`.
-- **Conferência** (`services/open_finance_check.py`, `check` on each account in `list_view`):
-  bank-only, app-only, awaiting (pending in Aprovar); one to one, same signed cents ≤ 3 days, closest
-  first. On cards: one entry per purchase (`client_id`), n-cents tolerance for installments, invoice
-  payments out.
-- Web (Ajustes › Open Finance): the Conferência per account (badge + "Ver a conferência"), "Busca
-  automática" select, "Trazer pendentes" checkbox, first-sync field. APK: the same Conferência,
-  select and checkbox (first-sync stays on the web).
-- Tests: `test_open_finance_settings.py` (37), `test_open_finance_check.py` (20), full pytest green;
-  `npm test` 182; `vite build` ok; `gradlew testDebugUnitTest assembleDebug` 509 JVM tests, APK built.
-- Docs: next-steps (new "Open Finance in Investimentos" section, MeuPluggy checks, Conferência
-  limits), done-tasks, CLAUDE.md (Aprovar › Open Finance), DEPLOY.md, `.env.example`.
+- **Migration 044**: `open_finance_accounts.ignored_at` ("não usar"),
+  `open_finance_transactions.auto_recorded_at / recorded_snapshot / conflict /
+  conflict_amount_cents`, tables `open_finance_investment_operations` and `open_finance_positions`.
+- **GET only** (Step 5 + the owner's message): `PluggyClient.update_item` removed and `call()`
+  refuses PATCH; `sync_item()` reads item, accounts, transactions and investments only;
+  `sync_hours` is 0 or 6–24 (an old 1–5 reads as 6); config default stays 6 h. Refusals are kept in
+  `last_sync_error` and logged (`Open Finance: a Pluggy recusou o pull`, with status/code).
+- **Switch and guard** (Step 1): `auto_record` and `ignore_notifications` in
+  `GET/PATCH /api/open-finance/settings`; turning `auto_record` on is refused (400, Portuguese,
+  listing each blocker) unless every BANK/CREDIT account of every active item is mapped or ignored
+  and each item has `last_sync_at` within 48 h. `auto_record_blockers` is in the GET.
+- **Engine** (Step 2, `services/open_finance_auto.py`): after every pull, each pending item with a
+  Pluggy source is approved through the normal `approve_item()` (remember off), so every rule of
+  Aprovar applies (installments, refunds, transfers as one row, recurrence settlement). Held: a
+  transfer still missing its other side (2-day hold, then a Pix to someone else is recorded as
+  despesa/receita), an investment category on a bank account, `needs`. A typed look-alike is
+  linked (first candidate no other Pluggy row explains). Backlog: turning the switch on runs the
+  same pass. Corretora mapping is allowed only for the broker's investments account; its non-transfer
+  rows are `COVERED`. Bank invoice payments link to the app's pay-invoice/autopay row. Category:
+  rule → `open_finance_categories.py` → default ("Outros"/"Receita" — the app has no literal
+  "Sem categoria" for a lançamento; that name is only the budget remainder). Mutation guard by
+  snapshot (`apply_change()`, `apply_vanish()`; never on an empty pull, never a transfer, never a
+  paid installment, never a typed row).
+- **Notifications** (decision 2): `ingest_detection()` returns `ignored` for a connected bank (by
+  Pluggy account name or the mapped target's name/bank; a Samsung card that is mapped). Flash stays.
+- **History + Conferência** (Step 3): `POST /api/open-finance/history/preview` (counts per account,
+  writes nothing) and `/apply` (`confirm: true`, needs the switch; re-pulls from N days and runs the
+  engine). The Conferência now gives a `reason` per line, `conflicts`, and `explanation` of the
+  balance difference (bank-only + awaiting − app-only + "before the window").
+- **Investments** (Step 4, `services/open_finance_investments.py`): positions saved; equity BUY/SELL
+  recorded on the trade date with cash through the Corretora; idempotent; typed twins linked;
+  unknown ticker / sale without position / before a corporate action / fixed income / TRANSFER /
+  INTEREST → `HELD`; deleting a recorded one → `DISMISSED`. `portfolio_check()` in `GET
+  /api/open-finance` (`investments`): quantity per asset (D-1 position + later operations), broker
+  cash with "a liquidar" for trades of the last 2 business days.
+- **Small fixes** (Step 6): `bank_name` on items and Aprovar sources (web and APK show it);
+  `suggest_target()` uses the account name (and suggests the Corretora for the investments
+  account); Desconectar confirms with the bank's name (case/accents ignored).
+- **Screens**: web Ajustes › Open Finance — "Não usar" option, Gravar sozinho and Ignorar avisos
+  checkboxes, reasons/conflicts/explanation in the Conferência, "Carteira da corretora", Histórico
+  (prévia → trazer). APK — the two switches, reasons, conflicts and explanation, bank name.
+- Tests: `test_open_finance_auto.py` (61), `test_open_finance_investments.py` (25), older Open
+  Finance tests updated (GET-only, 6 h floor, reasons); full pytest green; `npm test` 191;
+  `vite build` ok; `gradlew testDebugUnitTest assembleDebug` 514 JVM tests, APK built.
+- Docs: CLAUDE.md (the reversal, GET only, Gravar sozinho, history, investments), DEPLOY.md,
+  `.env.example`, next-steps, done-tasks.
 
 ### Not done, and why
-- **Investments via Open Finance**: probed, planned, not built (next-steps, first section).
-- The Aprovar header line naming the source: dropped with the switch.
-- **Phone test (Part 2)**: stopped at step 4. The owner changed direction (results below).
-
-### Phone test results
-- **Step 1 (deploy): passed.** Run green (test, build, deploy, apk); `/api/health` ok; Pluggy
-  "Configurada"; the settings endpoint answers its defaults. Integrations show "degraded" only from
-  Tesouro prices (stale to 15/10), unrelated.
-- **Step 2 (APK)**: the workflow publishes it at the server's `/apk/`; `android-check.yml` runs only
-  on PRs. Not yet installed by the owner.
-- **Step 3 (connect): passed, differently.** The owner had made three MeuPluggy connections on
-  Pluggy's side (BB, BTG, Itaú; Flash stays notifications-only). They were registered by item id
-  through `POST /api/open-finance/items` (no widget): all `UPDATED`, first 30-day pull ok, 7
-  accounts, ~210 rows waiting for mapping. Every `connector_name` is "MeuPluggy", so **no mapping
-  suggestion** came (it compares the connector name).
-- **Step 4 (map)**: handed to the owner, result not reported. BTG Investimentos cannot be mapped
-  (the Corretora is refused); it goes to Investimentos.
-- Steps 5–15: not done.
-- **Investments probe** (read-only, from the PC with `backend/.env`): BTG through MeuPluggy sends
-  36 positions and 71 operations with trade dates. Details are in `next-steps.md`.
+- **Nothing ran against the real Pluggy.** Mapping, switch, history and the investments sync are
+  for the owner after the deploy (next-steps lists the order). The card purchase sign is still
+  unverified on real data, and the engine will record whatever sign was learned — check it first.
+- **Fixed income / Tesouro / custody TRANSFER / INTEREST** operations are only `HELD` and listed:
+  recording them needs per-title metadata that the probe did not settle.
+- **The web screen was not opened in a browser** (build + node tests only). The APK was built, not
+  installed.
+- History preview, portfolio check and "Não usar" are web-only (mapping already was).
+- No "resolvido" action for a Conferência `conflict`.
+- `docs/prompts/open-finance-only.md` stays as the record of the request.
 
 ### Next session
-1. **`docs/prompts/open-finance-only.md`**, the owner's decisions from the end of this session:
-   Pluggy becomes the only source for connected banks, recorded automatically (Aprovar only for
-   Flash). BTG Investimentos goes into Investimentos automatically. The whole history is compared,
-   then linked or recorded (preview → apply). The pull runs hourly (check the quota first).
-2. Before building: ask the owner what was mapped in step 4 and what the second Ourocard is.
+1. Owner's walk-through on real data (next-steps, first section), then fix what the real rows show:
+   investment transaction ids/`expenses`/pagination, the category table, broker account categories.
+2. If the owner wants: record fixed-income/Tesouro operations from Pluggy (per-title metadata).
 
 ### Lessons (non-obvious)
-- The owner uses the **MeuPluggy** connector on the free plan (one CPF): the connector name is
-  probably not the bank's. Check what Aprovar and the suggestions show.
-- Tests share one SQLite across users: a "who is due" test must assert membership, not equality.
-- `bank_tx` dates in the fake must sit inside the 7-day overlap after the first pull, or nothing is pulled.
+- `parse_iso_date()` returns a `datetime`, not a `date`: subtracting it from `local_today()` raises,
+  and `.isoformat()` adds `T00:00:00` (breaks text BETWEEN on dates). Use `.date()`.
+- In the fake, `connected()` already pulls once, so later rows must be dated inside the 7-day
+  overlap (≥ 2026-10-20 with today 2026-10-27) or they are never pulled.
+- Transactions are edited with `PATCH /api/transactions/<id>` (no PUT).
+- `open_finance_transactions.role` is CHECK-bound: new states went into new columns (`conflict`)
+  or reused `COVERED` rather than a table rebuild.
+- `pytest-xdist` is not installed: `-n auto` exits without running.

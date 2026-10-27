@@ -1406,6 +1406,10 @@ def ingest_detection(conn, current_user_id, detection, rules=None):
     if known:
         return {"key": detection["key"], "status": "known", "item_id": known["item_id"]}
 
+    if ignore_connected_notifications(conn, current_user_id) and from_connected_bank(conn, current_user_id, detection):
+        # O Open Finance traz este movimento (044): o aviso nao vira nada.
+        return {"key": detection["key"], "status": "ignored", "item_id": None}
+
     repeated = _repeated_posting(conn, current_user_id, detection)
     if repeated:
         _insert_detection(
@@ -1981,6 +1985,7 @@ def serialize_item(conn, current_user_id, row, names=None, recurrences=None, ask
             "id": row["id"],
             "role": row["role"],
             "connector_name": row["connector_name"],
+            "bank_name": open_finance_bank_name(row["of_account_name"], row["connector_name"]),
             "account_name": row["of_account_name"],
             "account_type": row["of_account_type"],
             "direction": row["direction"],
@@ -2088,3 +2093,78 @@ def set_always_ask(conn, current_user_id, value):
         """,
         (current_user_id, ALWAYS_ASK_SETTING, "1" if value else "0", utc_timestamp()),
     )
+
+
+# ---------------------------------------------------------------------------
+# Notificacoes de bancos conectados pelo Open Finance (044)
+# ---------------------------------------------------------------------------
+
+# Ajustes › Open Finance, "Ignorar avisos dos bancos conectados": a Pluggy ja
+# traz esses movimentos, e a notificacao seria a mesma compra duas vezes. O
+# Flash (sem Open Finance) continua pelas notificacoes.
+IGNORE_CONNECTED_NOTIFICATIONS_SETTING = "open_finance_ignore_notifications"
+ISSUER_LABELS = {"itau": "Itaú", "bb": "Banco do Brasil", "btg": "BTG Pactual", "flash": "Flash"}
+# Conectores que juntam varios bancos (o plano gratis da Pluggy): o nome dele
+# nao diz o banco, o da conta diz.
+AGGREGATOR_CONNECTORS = {"meupluggy", "meu pluggy"}
+
+
+def ignore_connected_notifications(conn, current_user_id):
+    return setting_value(conn, current_user_id, IGNORE_CONNECTED_NOTIFICATIONS_SETTING) == "1"
+
+
+def open_finance_bank_name(account_name, connector_name):
+    """O banco de uma conta da Pluggy para a tela: pelo nome da conta ("Cartão
+    BTG BLACK" -> BTG Pactual); senao o conector, se ele for um banco; senao o
+    nome da conta."""
+    issuer = issuer_of_institution(account_name)
+    if issuer:
+        return ISSUER_LABELS.get(issuer, account_name)
+    connector = (connector_name or "").strip()
+    if connector and normalized(connector) not in AGGREGATOR_CONNECTORS:
+        issuer = issuer_of_institution(connector)
+        return ISSUER_LABELS.get(issuer, connector) if issuer else connector
+    return account_name or connector or None
+
+
+def connected_targets(conn, current_user_id):
+    """(emissores, cartoes, contas) com uma conta da Pluggy mapeada numa
+    conexao ativa. O emissor vem do nome da conta da Pluggy e do nome/banco do
+    destino no app."""
+    rows = conn.execute(
+        """
+        SELECT a.name AS pluggy_name, a.account_id, a.card_id, ac.name AS account_name, ac.institution,
+               c.name AS card_name
+        FROM open_finance_accounts a
+        JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
+        LEFT JOIN accounts ac ON ac.id = a.account_id AND ac.user_id = a.user_id
+        LEFT JOIN credit_cards c ON c.id = a.card_id AND c.user_id = a.user_id
+        WHERE a.user_id = ? AND i.archived_at IS NULL AND a.ignored_at IS NULL
+          AND (a.account_id IS NOT NULL OR a.card_id IS NOT NULL)
+        """,
+        (current_user_id,),
+    ).fetchall()
+    issuers, cards, accounts = set(), set(), set()
+    for row in rows:
+        for text in (row["pluggy_name"], row["account_name"], row["institution"], row["card_name"]):
+            issuer = issuer_of_institution(text)
+            if issuer:
+                issuers.add(issuer)
+        if row["card_id"]:
+            cards.add(row["card_id"])
+        if row["account_id"]:
+            accounts.add(row["account_id"])
+    return issuers, cards, accounts
+
+
+def from_connected_bank(conn, current_user_id, detection):
+    """A notificacao e de um banco que o Open Finance ja traz: o app do banco,
+    ou o Samsung Wallet com um cartao mapeado."""
+    issuers, cards, _accounts = connected_targets(conn, current_user_id)
+    issuer = issuer_of(detection)
+    if issuer and issuer in issuers:
+        return True
+    if detection.get("app") == SAMSUNG_WALLET:
+        card_id = pick_card(_cards(conn, current_user_id), detection, only_one_counts=False)
+        return bool(card_id) and card_id in cards
+    return False

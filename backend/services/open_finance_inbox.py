@@ -28,8 +28,18 @@ Duas metades:
      pagar e so `POST /api/cc-expenses/pay-invoice`;
    - credito no cartao (estorno): item CARD de entrada, vira kind REFUND (033);
    - o resto: item novo, com os lancamentos parecidos ja gravados.
-   - A categoria vem das regras de importacao, pela descricao, como numa
-     notificacao; a da Pluggy so aparece como informacao na fonte.
+   - A categoria: a regra de importacao do dono pela descricao; senao a da
+     Pluggy traduzida (open_finance_categories.py); senao a padrao.
+   - Na Corretora (a conta "BTG Investimentos"), so a transferencia com o
+     banco vira item (aporte/resgate, 039); o resto e COVERED: as operacoes
+     da carteira explicam aquele dinheiro.
+   - O pagamento de fatura na conta liga ao pagamento que o app ja tem
+     (pay-invoice ou debito automatico), nunca grava outro.
+
+Com o interruptor ligado (044, services/open_finance_auto.py), o item pronto
+nao espera o dono: e aprovado na hora. Uma transacao ja gravada sozinha que
+muda de valor ou some e corrigida/apagada so se o lancamento esta como nasceu
+(`apply_change()` / `apply_vanish()`); editado, fica `conflict`.
 
 Idempotente pela chave `pluggy:<id>` por usuario: puxar de novo, a folga de
 dias e reconectar nao duplicam. Uma transacao que some, ou muda de valor,
@@ -37,13 +47,18 @@ antes da aprovacao faz o que o Aprovar ja faz quando a fonte some: o item
 sai (REMOVED) se nao tiver outra fonte.
 """
 
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+import statement_import
 from db import new_id, row_to_dict, utc_timestamp
+from open_finance_categories import expected_type, pluggy_category_name
 from services import inbox
-from services.accounts import category_id_for_name
+from services.accounts import category_id_for_name, fetch_category
+from services.import_rules import import_rules_for_matching
+from source_types import INVOICE_PAYMENT_SOURCE_TYPES, OPEN_FINANCE_SOURCE_TYPE
 
 BRT = timezone(timedelta(hours=-3))
 DEDUP_PREFIX = "pluggy:"
@@ -65,6 +80,8 @@ INVOICE_PAYMENT_TEXT = re.compile(
 MIN_SIGN_SAMPLE = 3
 
 STATUS_SKIPPED_PENDING = "pending"
+# O pagamento de fatura do banco e o do app: mesmo valor, ate tantos dias.
+INVOICE_PAYMENT_LINK_DAYS = 3
 
 
 class Skip(Exception):
@@ -319,8 +336,9 @@ def ingest(conn, current_user_id, account, tx, rules=None, seen_at=None):
     changed = (existing["amount_cents"], existing["direction"]) != (tx["amount_cents"], tx["direction"])
     if changed:
         if existing["role"] in ("SOURCE", "PAIRED", "MATCHED") and not _item_pending(conn, current_user_id, existing):
-            # Ja decidido: o lancamento do dono fica como esta.
-            return "known"
+            # Ja decidido: so o gravado sozinho e ainda intocado se corrige;
+            # o resto fica como esta, apontado na Conferencia.
+            return apply_change(conn, current_user_id, existing, tx)
         if existing["role"] == "SOURCE":
             vanish(conn, current_user_id, existing, reason="changed")
         _update_row(
@@ -359,8 +377,20 @@ def place(conn, current_user_id, row, account, rules=None):
         _update_row(conn, current_user_id, row["id"], role="UNMAPPED", item_id=None)
         return "unmapped"
     if row["movement"] == "INVOICE_PAYMENT":
-        _update_row(conn, current_user_id, row["id"], role="INVOICE_PAYMENT", item_id=None)
+        link = invoice_payment_link(conn, current_user_id, row, account) if account["type"] == "BANK" else None
+        _update_row(
+            conn, current_user_id, row["id"], role="INVOICE_PAYMENT", item_id=None,
+            target_table="transactions" if link else None, target_id=link,
+        )
         return "invoice_payment"
+    if (
+        account["type"] == "BANK" and row["movement"] not in ("TRANSFER", "SELF_TRANSFER")
+        and is_brokerage(conn, current_user_id, account["account_id"])
+    ):
+        # O caixa da carteira: compra, venda, taxa, provento ja tem o caminho
+        # deles (as operacoes e os proventos gravam o lancamento na Corretora).
+        _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
+        return "covered"
     if account["type"] == "CREDIT" and row["direction"] == "OUT" and (row["installment_number"] or 1) > 1:
         _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
         return "covered"
@@ -510,13 +540,72 @@ def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
         elif (row["counterparty"] or row["counterparty_doc"]) and values["reason"] == "new":
             values["reason"] = "external_transfer"
     if "category" not in values:
-        values["category"], values["category_id"] = inbox.suggest_category(
-            conn, current_user_id, values["description"], values["entry_type"], amount, values["account_id"], rules,
+        values["category"], values["category_id"] = category_for_row(
+            conn, current_user_id, row, values["entry_type"], amount, values["account_id"], rules,
         )
     values["needs"] = inbox.recompute_needs(values)
     item_id = inbox.insert_item(conn, current_user_id, values)
     _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item_id, target_table=None, target_id=None)
     return item_id
+
+
+def category_for_row(conn, current_user_id, row, entry_type, amount, account_id=None, rules=None):
+    """(nome, id): a regra do dono pela descricao; senao a categoria da Pluggy
+    traduzida, se o dono tem uma ativa com esse nome; senao a padrao."""
+    if entry_type == "TRANSFER":
+        return inbox.TRANSFER_CATEGORY, None
+    transaction_type = "INCOME" if entry_type == "INCOME" else "EXPENSE"
+    if rules is None:
+        rules = import_rules_for_matching(conn, current_user_id)
+    rule = statement_import.first_matching_rule(
+        rules, row.get("description") or "", transaction_type, amount, account_id if entry_type != "CARD" else None,
+    )
+    if rule:
+        return rule["category"], rule["category_id"]
+    name = pluggy_category_name(row.get("pluggy_category_id"))
+    if name and expected_type(name) == transaction_type:
+        category_id = category_id_for_name(conn, current_user_id, name)
+        category = fetch_category(conn, current_user_id, category_id) if category_id else None
+        if category and not category["archived_at"]:
+            return name, category_id
+    return inbox.suggest_category(conn, current_user_id, None, entry_type, amount, account_id, rules=[])
+
+
+def is_brokerage(conn, current_user_id, account_id):
+    if not account_id:
+        return False
+    row = conn.execute(
+        "SELECT type FROM accounts WHERE id = ? AND user_id = ?", (account_id, current_user_id),
+    ).fetchone()
+    return bool(row) and row["type"] == "BROKERAGE"
+
+
+def invoice_payment_link(conn, current_user_id, row, account):
+    """O pagamento de fatura que o app ja tem para esta saida do banco (o
+    pay-invoice ou o debito automatico, na conta mapeada, mesmo valor, ate
+    INVOICE_PAYMENT_LINK_DAYS dias) e que nenhuma outra transacao explica."""
+    if row["direction"] != "OUT" or not account["account_id"]:
+        return None
+    kinds = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
+    found = conn.execute(
+        f"""
+        SELECT t.id, t.date FROM transactions t
+        WHERE t.user_id = ? AND t.account_id = ? AND t.source_type IN ({', '.join('?' for _ in kinds)})
+          AND CAST(ROUND(t.amount * 100) AS INTEGER) = ? AND t.date BETWEEN ? AND ?
+          AND NOT EXISTS (
+              SELECT 1 FROM open_finance_transactions o
+              WHERE o.user_id = t.user_id AND o.target_table = 'transactions' AND o.target_id = t.id
+                AND o.id <> ? AND o.role <> 'REMOVED'
+          )
+        """,
+        (
+            current_user_id, account["account_id"], *kinds, int(row["amount_cents"]),
+            inbox._shift(row["date"], -INVOICE_PAYMENT_LINK_DAYS), inbox._shift(row["date"], INVOICE_PAYMENT_LINK_DAYS),
+            row["id"],
+        ),
+    ).fetchall()
+    found = sorted(found, key=lambda entry: (inbox._date_gap(entry["date"], row["date"]), entry["date"], entry["id"]))
+    return found[0]["id"] if found else None
 
 
 def _is_self(conn, current_user_id, row):
@@ -549,7 +638,9 @@ def vanish(conn, current_user_id, row, reason="vanished"):
 
 def vanish_missing(conn, current_user_id, account, seen_ids, date_from, date_to):
     """Depois de um pull de [date_from, date_to]: o que estava pendente nessa
-    janela e a Pluggy nao devolveu mais, sumiu."""
+    janela e a Pluggy nao devolveu mais, sumiu. O que ja foi gravado sozinho
+    passa pela guarda de apply_vanish() (so sai se o dono nunca o tocou); um
+    pull que voltou vazio nao apaga nada gravado: pode ser a Pluggy, nao o banco."""
     rows = conn.execute(
         """
         SELECT * FROM open_finance_transactions
@@ -562,9 +653,212 @@ def vanish_missing(conn, current_user_id, account, seen_ids, date_from, date_to)
     for row in rows:
         if row["pluggy_transaction_id"] in seen_ids:
             continue
-        if vanish(conn, current_user_id, row_to_dict(row)):
+        row = row_to_dict(row)
+        if row["auto_recorded_at"] and not _item_pending(conn, current_user_id, row):
+            if seen_ids and apply_vanish(conn, current_user_id, row) == "removed":
+                count += 1
+            continue
+        if vanish(conn, current_user_id, row):
             count += 1
     return count
+
+
+# ---------------------------------------------------------------------------
+# O que foi gravado sozinho (044): como nasceu, e a guarda de mudanca
+# ---------------------------------------------------------------------------
+
+TRANSACTION_SNAPSHOT_COLUMNS = (
+    "account_id", "transfer_account_id", "amount", "date", "category_id", "description", "type",
+    "share_mode", "share_others_amount", "share_person",
+)
+CARD_SNAPSHOT_COLUMNS = (
+    "card_id", "amount", "purchase_date", "category_id", "description", "kind",
+    "share_mode", "share_others_amount", "share_person",
+)
+
+
+def _snapshot_cents(value):
+    return int(round(float(value) * 100))
+
+
+def target_snapshot(conn, current_user_id, table, target_id):
+    """O que o dono pode mudar num lancamento, como esta agora (None se nao
+    existe): os campos, os comprovantes e se ja e ocorrencia de recorrencia.
+    Na compra no cartao, todas as parcelas da compra (o client_id)."""
+    if table == "transactions":
+        row = conn.execute(
+            f"SELECT {', '.join(TRANSACTION_SNAPSHOT_COLUMNS)} FROM transactions WHERE id = ? AND user_id = ?",
+            (target_id, current_user_id),
+        ).fetchone()
+        if not row:
+            return None
+        snapshot = {column: row[column] for column in TRANSACTION_SNAPSHOT_COLUMNS}
+        snapshot["amount"] = _snapshot_cents(snapshot["amount"])
+        snapshot["attachments"] = conn.execute(
+            "SELECT COUNT(*) FROM transaction_attachments WHERE user_id = ? AND transaction_id = ?",
+            (current_user_id, target_id),
+        ).fetchone()[0]
+    elif table == "cc_expenses":
+        first = conn.execute(
+            "SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+        ).fetchone()
+        if not first:
+            return None
+        rows = conn.execute(
+            f"""
+            SELECT id, {', '.join(CARD_SNAPSHOT_COLUMNS)} FROM cc_expenses
+            WHERE user_id = ? AND client_id = ? ORDER BY invoice_year, invoice_month, id
+            """,
+            (current_user_id, first["client_id"]),
+        ).fetchall()
+        snapshot = {"rows": [
+            [_snapshot_cents(row[column]) if column == "amount" else row[column] for column in CARD_SNAPSHOT_COLUMNS]
+            for row in rows
+        ]}
+        ids = [row["id"] for row in rows]
+        snapshot["attachments"] = conn.execute(
+            f"SELECT COUNT(*) FROM cc_expense_attachments WHERE user_id = ? AND cc_expense_id IN ({', '.join('?' for _ in ids)})",
+            (current_user_id, *ids),
+        ).fetchone()[0]
+    else:
+        return None
+    snapshot["settled"] = conn.execute(
+        "SELECT COUNT(*) FROM recurring_settlements WHERE user_id = ? AND target_table = ? AND target_id = ?",
+        (current_user_id, table, target_id),
+    ).fetchone()[0]
+    return snapshot
+
+
+def _dump(snapshot):
+    return json.dumps(snapshot, sort_keys=True)
+
+
+def mark_auto_recorded(conn, current_user_id, item_id, table, target_id, stamp=None):
+    """As fontes de um item que o app gravou sozinho guardam como o lancamento
+    nasceu. (A ocorrencia de recorrencia que a aprovacao deu ja esta no snapshot.)"""
+    conn.execute(
+        """
+        UPDATE open_finance_transactions SET auto_recorded_at = ?, recorded_snapshot = ?, updated_at = ?
+        WHERE user_id = ? AND item_id = ? AND role = 'SOURCE'
+        """,
+        (stamp or utc_timestamp(), _dump(target_snapshot(conn, current_user_id, table, target_id)), utc_timestamp(),
+         current_user_id, item_id),
+    )
+
+
+def untouched(conn, current_user_id, row):
+    """O lancamento que esta transacao gravou sozinha esta como nasceu."""
+    if not row.get("auto_recorded_at") or not row.get("recorded_snapshot") or not row.get("target_id"):
+        return False
+    try:
+        recorded = json.loads(row["recorded_snapshot"])
+    except (TypeError, ValueError):
+        return False
+    current = target_snapshot(conn, current_user_id, row["target_table"], row["target_id"])
+    return current is not None and current == recorded
+
+
+def own_target(conn, current_user_id, row):
+    """O lancamento foi gravado por esta transacao (nunca um digitado pelo dono
+    que ela so ligou): a origem dele e ela."""
+    if row.get("target_table") == "transactions":
+        target = conn.execute(
+            "SELECT source_type, source_id FROM transactions WHERE id = ? AND user_id = ?",
+            (row["target_id"], current_user_id),
+        ).fetchone()
+        return bool(target) and (target["source_type"], target["source_id"]) == (
+            OPEN_FINANCE_SOURCE_TYPE, row["pluggy_transaction_id"],
+        )
+    if row.get("target_table") == "cc_expenses":
+        target = conn.execute(
+            "SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?", (row["target_id"], current_user_id),
+        ).fetchone()
+        return bool(target) and target["client_id"] == row["dedup_key"]
+    return False
+
+
+def _flag(conn, current_user_id, row, conflict, cents=None):
+    _update_row(conn, current_user_id, row["id"], conflict=conflict, conflict_amount_cents=cents)
+    return "conflict"
+
+
+def apply_change(conn, current_user_id, row, tx):
+    """O banco mudou o valor de uma transacao ja decidida. Gravada sozinha,
+    intocada, na mesma direcao e de uma linha so (um lancamento, ou uma compra
+    1/1 em aberto): o lancamento acompanha. Senao nada muda e a Conferencia
+    aponta (`conflict = 'changed'`)."""
+    if (
+        tx["direction"] != row["direction"]
+        or not untouched(conn, current_user_id, row)
+        or not own_target(conn, current_user_id, row)
+    ):
+        return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+    amount = inbox._reais(tx["amount_cents"])
+    if row["target_table"] == "transactions":
+        conn.execute(
+            "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
+            (amount, row["target_id"], current_user_id),
+        )
+    else:
+        rows = conn.execute(
+            "SELECT id, status FROM cc_expenses WHERE user_id = ? AND client_id = ?",
+            (current_user_id, row["dedup_key"]),
+        ).fetchall()
+        if len(rows) != 1 or rows[0]["status"] != "OPEN":
+            return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+        conn.execute(
+            "UPDATE cc_expenses SET amount = ? WHERE id = ? AND user_id = ?", (amount, rows[0]["id"], current_user_id),
+        )
+    if row.get("item_id"):
+        item_row = inbox.fetch_item(conn, current_user_id, row["item_id"])
+        if item_row:
+            inbox.save_item(conn, current_user_id, inbox.item_dict(item_row), {"amount": amount})
+    _update_row(
+        conn, current_user_id, row["id"], conflict=None, conflict_amount_cents=None,
+        recorded_snapshot=_dump(target_snapshot(conn, current_user_id, row["target_table"], row["target_id"])),
+        **{field: tx[field] for field in ROW_FIELDS if field != "dedup_key"},
+    )
+    return "corrected"
+
+
+def apply_vanish(conn, current_user_id, row):
+    """A transacao gravada sozinha sumiu do banco. Intocada e de quem ela
+    gravou — nunca um digitado, nunca uma transferencia, nunca uma compra com
+    parcela ja paga: o lancamento sai. Senao fica (`conflict = 'vanished'`)."""
+    if row.get("conflict") == "vanished":
+        return "conflict"
+    removable = untouched(conn, current_user_id, row) and own_target(conn, current_user_id, row)
+    if removable and row["target_table"] == "transactions":
+        kind = conn.execute(
+            "SELECT type FROM transactions WHERE id = ? AND user_id = ?", (row["target_id"], current_user_id),
+        ).fetchone()
+        removable = bool(kind) and kind["type"] != "TRANSFER"
+    if removable and row["target_table"] == "cc_expenses":
+        removable = not conn.execute(
+            "SELECT 1 FROM cc_expenses WHERE user_id = ? AND client_id = ? AND status <> 'OPEN'",
+            (current_user_id, row["dedup_key"]),
+        ).fetchone()
+    if not removable:
+        return _flag(conn, current_user_id, row, "vanished")
+    # A ocorrencia de recorrencia que a aprovacao deu volta a ficar em aberto.
+    conn.execute(
+        "DELETE FROM recurring_settlements WHERE user_id = ? AND target_table = ? AND target_id = ?",
+        (current_user_id, row["target_table"], row["target_id"]),
+    )
+    if row["target_table"] == "transactions":
+        conn.execute("DELETE FROM transactions WHERE id = ? AND user_id = ?", (row["target_id"], current_user_id))
+    else:
+        conn.execute("DELETE FROM cc_expenses WHERE user_id = ? AND client_id = ?", (current_user_id, row["dedup_key"]))
+    _update_row(conn, current_user_id, row["id"], role="REMOVED", target_table=None, target_id=None)
+    if row.get("item_id"):
+        item_row = inbox.fetch_item(conn, current_user_id, row["item_id"])
+        if item_row:
+            inbox.save_item(
+                conn, current_user_id, inbox.item_dict(item_row),
+                {"state": inbox.REMOVED, "reason": "vanished", "target_table": None, "target_id": None,
+                 "decided_at": utc_timestamp()},
+            )
+    return "removed"
 
 
 def place_unmapped(conn, current_user_id, account, rules=None):

@@ -5,16 +5,24 @@ import { AlertMessage, Badge, Button, Collapsible, EmptyState, Field, ListSkelet
 import { confirmAction } from '../../lib/confirm'
 import { formatCurrency, formatDateBR, getLocalDateString } from '../../lib/format'
 import {
+  IGNORE_CHOICE,
   accountLabel,
+  autoRecordHint,
   balanceCheck,
+  balanceExplanation,
+  checkReasonLabel,
   checkSummary,
   connectedItemId,
   firstSyncDaysError,
+  heldReasonLabel,
+  historyLine,
+  itemBankName,
   itemProblem,
   itemStatus,
   mappedId,
   mappingChoices,
   mappingPayload,
+  portfolioSummary,
   syncHoursChoices,
   syncSummary,
 } from '../../lib/openFinance'
@@ -58,7 +66,10 @@ function CheckList({ title, rows, money }) {
       <ul className="space-y-1">
         {rows.map((row, index) => (
           <li key={`${row.date}-${index}`} className="flex items-start justify-between gap-3 text-xs text-zinc-600">
-            <span className="min-w-0 break-words">{formatDateBR(row.date)} · {row.description || 'Sem descrição'}</span>
+            <span className="min-w-0 break-words">
+              {formatDateBR(row.date)} · {row.description || 'Sem descrição'}
+              {checkReasonLabel(row.reason) ? <span className="text-zinc-500"> · {checkReasonLabel(row.reason)}</span> : null}
+            </span>
             <span className="num shrink-0">{money(row.amount)}</span>
           </li>
         ))}
@@ -67,11 +78,21 @@ function CheckList({ title, rows, money }) {
   )
 }
 
-// Conferência: o banco contra o app, so apontando (nada e ajustado).
+// Conferência: o banco contra o app, so apontando (nada e ajustado). Com
+// diferenca de saldo, de onde ela vem; os gravados sozinhos que o banco mudou
+// depois que o dono editou ficam listados para ele decidir.
 function AccountCheck({ check, money }) {
   const summary = checkSummary(check)
   if (summary.state === 'none') return null
-  const hasRows = check.bank_only?.length || check.app_only?.length || check.awaiting?.length
+  const explained = balanceExplanation(check.explanation, money)
+  const conflicts = (check.conflicts || []).map((row) => ({
+    ...row,
+    description: `${row.description || 'Sem descrição'}${row.reason === 'changed'
+      ? ` · o banco agora diz ${money(row.bank_amount)}`
+      : ' · o banco não tem mais'}`,
+  }))
+  const hasRows = check.bank_only?.length || check.app_only?.length || check.awaiting?.length || conflicts.length
+    || explained.length
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
@@ -86,6 +107,15 @@ function AccountCheck({ check, money }) {
             <CheckList title="Só no banco (recusado no Aprovar ou lançado com outro valor/data)" rows={check.bank_only} money={money} />
             <CheckList title="Só no app (o banco não tem)" rows={check.app_only} money={money} />
             <CheckList title="Esperando no Aprovar" rows={check.awaiting} money={money} />
+            <CheckList title="Você editou e o banco mudou depois (o app não mexeu)" rows={conflicts} money={money} />
+            {explained.length ? (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-zinc-700">De onde vem a diferença de saldo</p>
+                <ul className="space-y-1 text-xs text-zinc-600">
+                  {explained.map((line) => <li key={line} className="num">{line}</li>)}
+                </ul>
+              </div>
+            ) : null}
             <p className="text-xs text-zinc-500">
               Desde {formatDateBR(check.from)}; pares de mesmo valor até 3 dias de distância.
             </p>
@@ -113,12 +143,18 @@ function AccountRow({ account, item, choices, money, busy, onMap }) {
           disabled={busy}
           onChange={(event) => onMap(account, event.target.value)}
           className="app-input"
-          aria-label={`Destino de ${accountLabel(account)} em ${item.connector_name || 'Open Finance'}`}
+          aria-label={`Destino de ${accountLabel(account)} em ${itemBankName(item)}`}
         >
           <option value="">Nenhum (não traz nada)</option>
+          <option value={IGNORE_CHOICE}>Não usar (esta conta não tem movimentos meus)</option>
           {choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
         </select>
       </Field>
+      {account.brokerage ? (
+        <p className="text-xs text-zinc-500">
+          O caixa da carteira: só a transferência com o banco vira lançamento (aporte/resgate); compras, vendas e proventos vêm pelas operações.
+        </p>
+      ) : null}
       {suggested ? (
         <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-600">
           <span>Parece ser {suggested.label}.</span>
@@ -127,7 +163,7 @@ function AccountRow({ account, item, choices, money, busy, onMap }) {
           </Button>
         </div>
       ) : null}
-      {!current && account.unmapped_count ? (
+      {!current && !account.ignored && account.unmapped_count ? (
         <p className="text-xs text-zinc-500">
           {account.unmapped_count === 1 ? '1 movimento espera' : `${account.unmapped_count} movimentos esperam`} esta escolha para ir ao Aprovar.
         </p>
@@ -147,10 +183,115 @@ function AccountRow({ account, item, choices, money, busy, onMap }) {
   )
 }
 
-// Ajustes › Open Finance (043): conectar um banco pela Pluggy (so aqui, na
-// web), dizer para qual conta/cartao do app vai cada conta dele, ver o estado
-// e o saldo do banco ao lado do do app. O que chega espera em Lancamentos ›
-// Aprovar: nada e lancado sem o dono aprovar.
+// A carteira da corretora contra a do app (044): quantidade por ativo, o
+// caixa (com o que esta a liquidar) e as operacoes que esperam o dono.
+function PortfolioCheck({ investments, money }) {
+  const summary = portfolioSummary(investments)
+  if (summary.state === 'none') return null
+  const cash = investments.cash
+  const mismatched = (investments.positions || []).filter((row) => row.matches === false)
+  return (
+    <section className="space-y-2 rounded-2xl border border-zinc-200 p-3" aria-label="Carteira da corretora">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-base font-semibold text-zinc-950">Carteira da corretora</p>
+        <Badge tone={summary.state === 'match' ? 'success' : 'warning'}>{summary.text}</Badge>
+      </div>
+      {cash ? (
+        <p className="num text-xs text-zinc-600">
+          Caixa na corretora {money(cash.pluggy_balance)} · na Corretora do app {money(cash.app_balance)}
+          {cash.unsettled ? ` · a liquidar ${money(cash.unsettled)}` : ''}
+          {cash.unexplained ? ` · sem explicação ${money(cash.unexplained)}` : ''}
+        </p>
+      ) : null}
+      {mismatched.length || investments.held?.length ? (
+        <Collapsible label="Ver a carteira" variant="secondary" size="sm">
+          <div className="space-y-3 text-xs text-zinc-600">
+            {mismatched.length ? (
+              <ul className="space-y-1">
+                {mismatched.map((row) => (
+                  <li key={row.code} className="num">
+                    {row.code}: corretora {row.pluggy_quantity} (em {formatDateBR(row.position_date)}) · app {row.app_quantity}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {investments.held?.length ? (
+              <ul className="space-y-1">
+                {investments.held.map((row, index) => (
+                  <li key={`${row.code}-${row.trade_date}-${index}`}>
+                    {formatDateBR(row.trade_date)} · {row.type} {row.code || row.name} · {heldReasonLabel(row.reason)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </Collapsible>
+      ) : null}
+    </section>
+  )
+}
+
+// O historico (044): o que a Pluggy tem dos ultimos dias, contado por conta,
+// antes de gravar; aplicar so confirmado. Nada digitado e apagado.
+function HistoryPanel({ enabled, busy, run }) {
+  const [days, setDays] = useState('365')
+  const [preview, setPreview] = useState(null)
+  const error = firstSyncDaysError(days)
+  const load = () => run('history', async () => {
+    setPreview(await openFinanceApi.historyPreview(Number(days)))
+  })
+  const apply = async () => {
+    if (!(await confirmAction({
+      title: 'Trazer o histórico?',
+      message: 'O que a prévia contou é gravado ou ligado ao que você já lançou. O que só existe no app fica como está.',
+      confirmLabel: 'Trazer',
+    }))) return
+    await run('history-apply', async () => {
+      const body = await openFinanceApi.historyApply(Number(days))
+      if (body?.items) queryClient.setQueryData(OVERVIEW_KEY, body)
+      const auto = body?.history?.auto_recorded || {}
+      toast(`Histórico trazido: ${auto.recorded || 0} gravado(s), ${auto.linked || 0} ligado(s).`)
+      setPreview(null)
+    })
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Histórico (dias para trás)" hint={error || 'Compara tudo que já aconteceu nas contas com destino.'}>
+          <input type="text" inputMode="numeric" value={days} onChange={(event) => setDays(event.target.value)} className="app-input w-28" />
+        </Field>
+        <Button size="sm" variant="secondary" loading={busy === 'history'} disabled={Boolean(error) || Boolean(busy)} onClick={load}>
+          Ver prévia
+        </Button>
+      </div>
+      {preview ? (
+        <div className="space-y-2">
+          <ul className="space-y-1 text-sm text-zinc-700">
+            {preview.accounts.map((account) => (
+              <li key={account.id}>
+                <span className="font-semibold">{account.target_name || account.name}</span>
+                <span className="text-zinc-600"> · {historyLine(account)}</span>
+              </li>
+            ))}
+          </ul>
+          {enabled ? (
+            <Button size="sm" loading={busy === 'history-apply'} disabled={Boolean(busy)} onClick={apply}>
+              Trazer o histórico
+            </Button>
+          ) : (
+            <p className="text-xs text-zinc-500">Ligue "Gravar sozinho" para trazer o histórico.</p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// Ajustes › Open Finance (043, 044): conectar um banco pela Pluggy (so aqui, na
+// web), dizer para qual conta/cartao do app vai cada conta dele (ou "nao
+// usar"), ver o estado e o saldo do banco ao lado do do app. Com "Gravar
+// sozinho", o que chega vira lancamento; desligado, espera em Lancamentos ›
+// Aprovar.
 export default function OpenFinanceSection() {
   const overviewQuery = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => openFinanceApi.overview() })
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
@@ -211,7 +352,7 @@ export default function OpenFinanceSection() {
   })
 
   const disconnect = async (item) => {
-    const name = item.connector_name || 'Open Finance'
+    const name = itemBankName(item)
     if (!(await confirmAction({
       title: `Desconectar ${name}?`,
       message: 'A conexão é apagada na Pluggy e nada mais chega deste banco. Os lançamentos já aprovados e o que espera no Aprovar ficam.',
@@ -225,7 +366,10 @@ export default function OpenFinanceSection() {
 
   const map = (account, value) => run(`map:${account.id}`, async () => {
     const body = keep(await openFinanceApi.map(account.id, mappingPayload(account, value)))
+    const recorded = body?.auto_recorded?.recorded || 0
     if (!value) toast('Esta conta não traz mais nada.')
+    else if (value === IGNORE_CHOICE) toast('Esta conta fica de fora.')
+    else if (recorded) toast(`Destino salvo. ${recorded} lançamento(s) gravado(s).`)
     else toast(body?.placed ? `Destino salvo. ${body.placed} movimento(s) foram para o Aprovar.` : 'Destino salvo.')
   })
 
@@ -246,7 +390,9 @@ export default function OpenFinanceSection() {
     <Panel id="open-finance" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Open Finance"
-        description="Os movimentos das suas contas e cartões chegam pela Pluggy e esperam em Lançamentos › Aprovar. Nada é lançado sem você aprovar."
+        description={settings?.auto_record
+          ? 'Os movimentos das suas contas e cartões chegam pela Pluggy e viram lançamentos sozinhos. O Aprovar fica para o Flash e o que só você decide.'
+          : 'Os movimentos das suas contas e cartões chegam pela Pluggy e esperam em Lançamentos › Aprovar.'}
         actions={data?.configured ? (
           <Button size="sm" icon={Plus} loading={busy === 'connect' || busy === 'register'} onClick={() => connect()}>
             Conectar banco
@@ -273,11 +419,11 @@ export default function OpenFinanceSection() {
           const status = itemStatus(item)
           const problem = itemProblem(item)
           return (
-            <section key={item.id} className="space-y-3 rounded-2xl border border-zinc-200 p-3" aria-label={item.connector_name || 'Conexão'}>
+            <section key={item.id} className="space-y-3 rounded-2xl border border-zinc-200 p-3" aria-label={itemBankName(item)}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-base font-semibold text-zinc-950">{item.connector_name || 'Banco'}</p>
+                    <p className="text-base font-semibold text-zinc-950">{itemBankName(item)}</p>
                     <Badge tone={status.tone}>{status.label}</Badge>
                   </div>
                   <p className="text-xs text-zinc-500">
@@ -290,7 +436,7 @@ export default function OpenFinanceSection() {
                     Atualizar
                   </Button>
                   <Menu
-                    label={`Mais ações de ${item.connector_name || 'conexão'}`}
+                    label={`Mais ações de ${itemBankName(item)}`}
                     items={[
                       { label: 'Reconectar (senha, código)', onSelect: () => connect(item) },
                       { label: 'Desconectar', tone: 'danger', onSelect: () => disconnect(item) },
@@ -315,12 +461,51 @@ export default function OpenFinanceSection() {
             </section>
           )
         })}
+        <PortfolioCheck investments={data?.investments} money={money} />
         {data?.configured && settings ? (
           <div className="space-y-4 border-t border-zinc-100 pt-4">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={Boolean(settings.auto_record)}
+                disabled={busy === 'auto' || (!settings.auto_record && (settings.auto_record_blockers || []).length > 0)}
+                onChange={async (event) => {
+                  const on = event.target.checked
+                  const body = await saveSettings('auto', { auto_record: on }, on ? 'Gravar sozinho ligado.' : 'Gravar sozinho desligado: tudo volta a esperar no Aprovar.')
+                  if (body?.auto_recorded?.recorded || body?.auto_recorded?.linked) {
+                    toast(`${body.auto_recorded.recorded} gravado(s) e ${body.auto_recorded.linked} ligado(s) do que esperava no Aprovar.`)
+                  }
+                }}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-zinc-900">Gravar sozinho</span>
+                <span className="block text-sm text-zinc-600">{autoRecordHint(settings)}</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={Boolean(settings.ignore_notifications)}
+                disabled={busy === 'notify'}
+                onChange={(event) => saveSettings(
+                  'notify',
+                  { ignore_notifications: event.target.checked },
+                  event.target.checked ? 'Avisos dos bancos conectados ignorados.' : 'Avisos dos bancos conectados voltam ao Aprovar.',
+                )}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-zinc-900">Ignorar avisos dos bancos conectados</span>
+                <span className="block text-sm text-zinc-600">
+                  Os avisos do celular dos bancos que chegam pela Pluggy não viram itens (seria a mesma compra duas vezes). Os do Flash continuam no Aprovar.
+                </span>
+              </span>
+            </label>
             <Field
               label="Busca automática"
               hint={settings.auto_sync_available
-                ? 'Cada busca gasta o limite mensal do banco na Pluggy; menos de 1 h não é possível. "Atualizar" funciona sempre.'
+                ? 'O app só lê o que a Pluggy já trouxe do banco (ela atualiza sozinha, de 6 a 24 h); nunca menos de 6 h. "Atualizar" lê na hora.'
                 : 'O servidor está com a busca automática desligada (OPEN_FINANCE_SYNC_SECONDS=0); só "Atualizar".'}
             >
               <select
@@ -372,6 +557,7 @@ export default function OpenFinanceSection() {
                 </Button>
               ) : null}
             </div>
+            {items.length ? <HistoryPanel enabled={Boolean(settings.auto_record)} busy={busy} run={run} /> : null}
           </div>
         ) : null}
       </div>

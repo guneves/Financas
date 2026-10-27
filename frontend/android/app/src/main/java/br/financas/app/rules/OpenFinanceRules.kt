@@ -6,8 +6,8 @@ import java.math.RoundingMode
 /**
  * Ajustes › Open Finance (043) no celular: so o estado das conexoes e o "Atualizar" — conectar
  * e mapear ficam na web. Port de `lib/openFinance.js` (itemStatus, itemProblem, accountLabel,
- * balanceCheck, syncSummary, syncHoursLabel, syncHoursChoices, checkSummary): mudou um, muda o
- * outro, com um teste de cada lado
+ * balanceCheck, syncSummary, syncHoursLabel, syncHoursChoices, checkSummary, itemBankName,
+ * checkReasonLabel, balanceExplanation, autoRecordHint): mudou um, muda o outro, com um teste de cada lado
  * (OpenFinanceRulesTest.kt copia os casos de openFinance.test.js).
  */
 object OpenFinanceRules {
@@ -61,22 +61,38 @@ object OpenFinanceRules {
         return BalanceCheck(if (difference.signum() == 0) "match" else "drift", difference)
     }
 
-    /** O resumo de um "Atualizar" para o toast. */
+    /** O resumo de um "Atualizar" para o toast. Com "Gravar sozinho" (044), o gravado/ligado sai do
+     *  "novo no Aprovar" (so fica o que espera o dono). */
     @JvmStatic
-    fun syncSummary(counts: Map<String, Int>?, removed: Int?): String {
-        val fresh = counts?.get("new") ?: 0
+    @JvmOverloads
+    fun syncSummary(
+        counts: Map<String, Int>?,
+        removed: Int?,
+        autoRecorded: Map<String, Int>? = null,
+        investments: Map<String, Int>? = null,
+    ): String {
+        val recorded = autoRecorded?.get("recorded") ?: 0
+        val linked = autoRecorded?.get("linked") ?: 0
+        val fresh = maxOf((counts?.get("new") ?: 0) - recorded - linked, 0)
         val joined = counts?.get("merged") ?: 0
+        val operations = investments?.get("recorded") ?: 0
         val gone = removed ?: 0
         val parts = mutableListOf<String>()
+        if (recorded > 0) parts += if (recorded == 1) "1 lançamento gravado" else "$recorded lançamentos gravados"
+        if (linked > 0) parts += if (linked == 1) "1 ligado ao que você lançou" else "$linked ligados ao que você lançou"
         if (fresh > 0) parts += if (fresh == 1) "1 movimento novo no Aprovar" else "$fresh movimentos novos no Aprovar"
         if (joined > 0) parts += if (joined == 1) "1 juntou-se a um aviso" else "$joined juntaram-se a avisos"
+        if (operations > 0) parts += if (operations == 1) "1 operação na carteira" else "$operations operações na carteira"
         if (gone > 0) parts += if (gone == 1) "1 saiu (o banco desfez)" else "$gone saíram (o banco desfez)"
         return if (parts.isEmpty()) "Nada novo." else parts.joinToString(", ") + "."
     }
 
-    /** "Busca automatica" (sync_hours no servidor): 0 desliga, nunca abaixo de 1 h. */
+    /** "Busca automatica" (sync_hours no servidor): 0 desliga, nunca abaixo de 6 h (dono, 2026-10-27:
+     *  a Pluggy so traz dado novo do banco de 6 a 24 h, e o app so le). */
+    const val MIN_SYNC_HOURS = 6
+
     @JvmField
-    val SYNC_HOURS_CHOICES: List<Int> = listOf(0, 1, 3, 6, 12, 24)
+    val SYNC_HOURS_CHOICES: List<Int> = listOf(0, 6, 12, 24)
 
     @JvmStatic
     fun syncHoursLabel(hours: Int?): String = if (hours == null || hours == 0) "Desligada" else "A cada $hours h"
@@ -85,7 +101,7 @@ object OpenFinanceRules {
     @JvmStatic
     fun syncHoursChoices(current: Int?): List<Pair<Int, String>> {
         val values = SYNC_HOURS_CHOICES.toMutableList()
-        if (current != null && current in 0..24 && current !in values) {
+        if (current != null && current in MIN_SYNC_HOURS..24 && current !in values) {
             values += current
             values.sort()
         }
@@ -109,5 +125,58 @@ object OpenFinanceRules {
             )
         }
         return CheckSummary("drift", parts.joinToString(" · "))
+    }
+
+    /** O banco de uma conexao: o que os nomes das contas dizem (bank_name; o MeuPluggy nao diz). */
+    @JvmStatic
+    fun itemBankName(bankName: String?, connectorName: String?): String =
+        bankName.orEmpty().ifEmpty { connectorName.orEmpty().ifEmpty { "Open Finance" } }
+
+    private val CHECK_REASONS: Map<String, String> = mapOf(
+        "awaiting" to "espera no Aprovar",
+        "denied" to "recusado no Aprovar",
+        "unmapped" to "a conta ainda sem destino",
+        "changed_after_edit" to "o banco mudou o valor depois que você editou",
+        "invoice_payment_missing" to "pagamento de fatura sem o pagamento no app",
+        "invoice_payment_linked" to "pagamento de fatura",
+        "different_amount_or_date" to "lançado com outro valor ou data",
+        "not_in_bank" to "o banco não tem",
+    )
+
+    /** Por que um movimento esta so de um lado (o `reason` de cada linha da conferencia). */
+    @JvmStatic
+    fun checkReasonLabel(reason: String?): String = CHECK_REASONS[reason].orEmpty()
+
+    /** De onde vem a diferenca de saldo (explanation do servidor, em centavos): linhas de texto, [] sem
+     *  diferenca. `money` formata reais. */
+    @JvmStatic
+    fun balanceExplanation(
+        difference: Long?,
+        bankOnly: Long,
+        awaiting: Long,
+        appOnly: Long,
+        before: Long,
+        money: (BigDecimal) -> String,
+    ): List<String> {
+        if (difference == null || difference == 0L) return emptyList()
+        val lines = mutableListOf<String>()
+        fun part(cents: Long, text: String) {
+            if (cents != 0L) lines += "${money(BigDecimal.valueOf(cents, 2))} $text"
+        }
+        part(bankOnly, "de movimentos só no banco")
+        part(awaiting, "esperando no Aprovar")
+        part(appOnly, "de lançamentos só no app")
+        part(before, "de antes da conferência (confira o saldo inicial da conta)")
+        return lines
+    }
+
+    /** O texto de "Gravar sozinho": o que faz ligado, ou por que nao liga (auto_record_blockers). */
+    @JvmStatic
+    fun autoRecordHint(autoRecord: Boolean, blockers: List<String>): String = when {
+        autoRecord -> "Os movimentos dos bancos conectados viram lançamentos sozinhos. O Aprovar fica para o Flash e " +
+            "para o que só você decide (uma transferência sem a outra ponta, um investimento)."
+        blockers.isNotEmpty() -> blockers.joinToString(" ")
+        else -> "Ligado, o que a Pluggy traz é lançado sem passar pelo Aprovar; o que já espera lá vindo dela é " +
+            "lançado na hora."
     }
 }
