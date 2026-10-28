@@ -52,6 +52,21 @@ def auto_on(world, expected=200):
     return world.call("patch", SETTINGS, expected=expected, json={"auto_record": True})
 
 
+def pin_today(monkeypatch, invoices_module, day):
+    """O relogio onde ele e lido: a puxada (services.open_finance) e a leitura
+    do Extrato (services.auto_record.record_due). No CI as duas ja seguraram
+    copias diferentes de services.invoices, e o Pix "de hoje" gravava pelo
+    relogio de verdade (2026-10-28 em UTC)."""
+    readers = (
+        invoices_module,
+        importlib.import_module("services.invoices"),
+        importlib.import_module("services.auto_record").invoices,
+        importlib.import_module("services.open_finance").invoices,
+    )
+    for module in {id(reader): reader for reader in readers}.values():
+        monkeypatch.setattr(module, "local_today", lambda: day)
+
+
 def of_tx(user_id, pluggy_id):
     [row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user_id, pluggy_id))
     return row
@@ -323,10 +338,10 @@ class TestTransfers:
         auto_on(world)
         world.fake.add_tx(pluggy_account, bank_tx(-80, "2026-10-26", "PIX FULANO", category_id="05070000",
                                                   counterparty="Fulano de Tal", doc="12345678901"))
-        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 10, 26).date())
+        pin_today(monkeypatch, invoices_module, datetime(2026, 10, 26).date())
         world.sync(item_id)
         assert world.transactions(mine) == []
-        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 10, 29).date())
+        pin_today(monkeypatch, invoices_module, datetime(2026, 10, 29).date())
         world.sync(item_id)
         [row] = world.transactions(mine)
         assert (row["type"], row["amount"]) == ("EXPENSE", 80.0)
