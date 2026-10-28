@@ -389,7 +389,7 @@ def place(conn, current_user_id, row, account, rules=None):
         )
         return "invoice_payment"
     if (
-        account["type"] == "BANK" and row["movement"] not in ("TRANSFER", "SELF_TRANSFER")
+        account["type"] == "BANK" and not is_broker_transfer(row)
         and is_brokerage(conn, current_user_id, account["account_id"])
     ):
         # O caixa da carteira: compra, venda, taxa, provento ja tem o caminho
@@ -399,8 +399,9 @@ def place(conn, current_user_id, row, account, rules=None):
     if account["type"] == "CREDIT" and row["direction"] == "OUT" and (row["installment_number"] or 1) > 1:
         _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
         return "covered"
-    if account["type"] == "BANK" and inbox.is_auto_invest(row["description"]):
-        # Rende Facil do BB: nunca no app, nem na conferencia.
+    if account["type"] == "BANK" and is_auto_invest_row(row):
+        # A aplicacao automatica (Rende Facil, conta remunerada): nunca no app,
+        # nem na conferencia.
         _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
         return "covered"
 
@@ -836,6 +837,29 @@ def category_for_row(conn, current_user_id, row, entry_type, amount, account_id=
         if category and not category["archived_at"]:
             return name, category_id
     return inbox.suggest_category(conn, current_user_id, None, entry_type, amount, account_id, rules=[])
+
+
+# "Automatic investment" da Pluggy (03010000): a aplicacao automatica que o
+# banco faz sozinho, como o texto de inbox.is_auto_invest().
+AUTO_INVEST_CATEGORY_PREFIX = "0301"
+
+# No caixa da corretora a Pluggy chama de "Same person transfer" tambem a
+# compra e a venda de renda fixa, o IR e o IOF (BTG, 2026-10-28): so a
+# transferencia de verdade e aporte/resgate; o resto e da carteira.
+BROKER_TRANSFER_TEXT = re.compile(r"\b(transferencia|pix|ted|doc|tef)\b")
+
+
+def is_auto_invest_row(row):
+    return inbox.is_auto_invest(row["description"]) or str(row["pluggy_category_id"] or "").startswith(
+        AUTO_INVEST_CATEGORY_PREFIX
+    )
+
+
+def is_broker_transfer(row):
+    """Uma linha do caixa da corretora que e transferencia com o dono."""
+    return row["movement"] in ("TRANSFER", "SELF_TRANSFER") and bool(
+        BROKER_TRANSFER_TEXT.search(inbox.normalized(row["description"]))
+    )
 
 
 def is_brokerage(conn, current_user_id, account_id):

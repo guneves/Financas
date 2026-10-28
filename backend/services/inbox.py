@@ -262,10 +262,12 @@ def normalized(value):
     return statement_import.normalize_description(value or "")
 
 
-# A aplicacao automatica do Banco do Brasil ("RENDE FACIL", "REND.FACIL"): o
-# dinheiro so dorme fora da conta corrente; o dono nunca quer isso no app (nem
-# lancamento, nem item, nem conferencia), 2026-10-27.
-AUTO_INVEST_TEXT = re.compile(r"\brende? facil\b")
+# A aplicacao automatica (o dinheiro so dorme fora da conta): o Rende Facil do
+# Banco do Brasil ("RENDE FACIL", "REND.FACIL") e a conta remunerada da BTG
+# ("CONTA REMUNERADA - APLICACAO AUTOMATICA", "- RESGATE APLICACAO"). O dono
+# nunca quer isso no app (nem lancamento, nem item, nem conferencia),
+# 2026-10-27 e 2026-10-28.
+AUTO_INVEST_TEXT = re.compile(r"\brende? facil\b|\bconta remunerada\b|\baplicacao automatica\b")
 
 
 def is_auto_invest(value):
