@@ -47,6 +47,10 @@ the Extrato's Revisar panel. Built on `main` for the server and the web; see `do
   otherwise); `inbox_hints` are no longer learned while auto-recording (`remember: False`).
 
 ### Open Finance as the only source for connected banks (044, 2026-10-27) — what is left
+- [ ] **Summed twins** (seen on real data, 2026-10-27): the BTG investment sync records one
+  operation per asset/day (AUPO11 −12) where the owner typed several (−3, −9); the typed-twin link
+  needs the same quantity, so it recorded a duplicate. Link an op to the typed trades of the same
+  asset, sign and day (±2) whose quantities sum to it. The 4 duplicates were deleted (DISMISSED).
 Built on `main` (see `done-tasks.md`, CLAUDE.md › "Gravar sozinho", DEPLOY.md › Open Finance). The
 owner's decisions: Pluggy (MeuPluggy, free plan) is the only source for Itaú, BTG and BB, recorded
 automatically; Aprovar stays for Flash and what only the owner decides; GET only, never more often

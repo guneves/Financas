@@ -394,6 +394,10 @@ def place(conn, current_user_id, row, account, rules=None):
     if account["type"] == "CREDIT" and row["direction"] == "OUT" and (row["installment_number"] or 1) > 1:
         _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
         return "covered"
+    if account["type"] == "BANK" and inbox.is_auto_invest(row["description"]):
+        # Rende Facil do BB: nunca no app, nem na conferencia.
+        _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
+        return "covered"
 
     entry_type = _entry_type(account, row["direction"])
     _, account_id, card_id = target

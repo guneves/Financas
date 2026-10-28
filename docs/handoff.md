@@ -7,53 +7,55 @@
 
 ---
 
-## Session — 2026-10-27 (5) · The phone on the 045 paradigm (no Aprovar)
+## Session — 2026-10-27 (6) · The owner's data aligned with Pluggy; Rende Fácil out
 
-Local session on the owner's PC, from a pasted request (it was cut off mid step 4, "a badge…"; steps
-5–6 were inferred from the docs: the review badges/pill, waiting items in Revisar, the Ajustes
-switch). Branch `claude/apk-revisar`, opened as a PR at the owner's request — **not merged, not
-deployed**.
+Local session, owner's request: fix every record of their account against Pluggy. SSH to the server
+was refused by the harness ("Production Reads"), so the data work ran **through the app's API in
+the owner's logged-in Chrome tab** (`claude-in-chrome`), with the owner's explicit OK to insert and
+delete. Code: branch `claude/rende-facil`, merged to `main` and pushed (deploys) at the owner's request.
 
-### Done
-- **Aprovar gone from the APK**: `ui/inbox/` deleted (Screen, ViewModel, EditSheet, Notifier, Logic +
-  `InboxLogicTest`), `NativeRoutes.INBOX`, `LancamentosTab.APROVAR`, `ShellNav.backTarget()`, the
-  focus-item intent extra, every `inboxCount`/"para aprovar" pill. `/lancamentos/aprovar`, `/aprovar`
-  and `?review=1` open the Extrato in review mode (`NativeLinks.VIEW_REVIEW`). The old notification
-  and its channel `financas_inbox` are removed on start. `DetectionSender` posts exactly as before;
-  only the local notification after the response is gone.
-- **Revisar** (`ui/extrato/ReviewSection.kt`): queue from `GET /api/review`, category picker, "É meu",
-  "Confirmar todos (N)", first 5 + "Mostrar todos". **Não gravou sozinho**: the waiting inbox items
-  with the other account / amount in reais → approve (`remember: false`), "não é entre minhas contas"
-  → despesa/receita, Descartar. Uses the existing inbox endpoints — **no server change**.
-- **Card purchases** in the Extrato timeline (`GET /api/cc-expenses/statement`, same filters, paged
-  merge), tag, signs, no day total, tap → Cartões. "A revisar" mark, "Revisão" filter.
-- **Shell**: `ReviewPill` in every header (count from `GET /api/review`, re-read on resume, data
-  change and every 60 s); Extrato tab "Extrato · N".
-- **Ajustes › Avisos do celular**: Gravar sozinho switch (`auto_record`) + "Sempre perguntar"
-  (disabled while on). Phone texts that said "Aprovar" (Open Finance summaries, the "+ Novo" matched
-  toast, notification help) now point to Revisar — a deliberate divergence from the web port, noted
-  in `OpenFinanceRules.kt` / `InboxNotice.kt`.
-- Rules/tests: `rules/ReviewRules.kt` (port of `lib/review.js` + waiting rules) with
-  `ReviewRulesTest`; `ExtratoRules` card-row cases; `ReviewRepositoryTest`; nav tests updated.
-  Local: `testDebugUnitTest` 526 green, `assembleDebug` ok; pytest 1942; npm test 200; vite build ok.
-- Docs: specs 00, 02 (marked removed), 04, 11, architecture, CLAUDE.md.
+### Done (production data, via the API)
+- Targets the owner gave, all met: BTG conta corrente 170, BTG black next invoice 1.467,59
+  (Pluggy 1.328,22 + today's 139,37), BB 25, BB ourocard 19, Itaú 0, Flash 34,72; BTG investimentos
+  kept at the owner's 8,94; new account **Wise** (559,43: three BTG Pix to Wise Brasil Câmbio).
+- Deleted: duplicates ("1% cartão" = Pluggy InternalTransfer; CCR 4,10 on BB = the ourocard one),
+  every manual "Normalização/Saldo/Aporte/Salários" balancing row, BB Rende Fácil rows, 4 BTG
+  investment movements the Pluggy sync created at 23:59 that summed same-day typed trades (AUPO11,
+  TIMS3 — they doubled quantities; deleting = DISMISSED for good).
+- Recorded the 14 waiting + 6 denied Pluggy rows: BTG TEFs = transfers with BTG investimentos; BTG
+  Pix 2.400/1.620 = transfers to BTG investimentos (owner: not spending); BB Pix 02/10 = transfers
+  to BTG investimentos (a guess); TedSalary 1.680 = Salário; Wagner 2.400 to BB = receita.
+- BTG black invoice 10/2026 rebuilt (4 Pluggy purchases + "Compras antes do app" 1.188,14) and paid
+  by pay-invoice on 05/10 = the bank's 1.337,95 boleto. "emprestimo pai" 5.390 → 5.400; Flash→BB
+  280 dated 26/10; ourocard "Ajuste para a fatura do banco" 0,81. Opening balances set: BTG 394,03,
+  BB to land on 25, BTG investimentos to land on 8,94.
+- October Gastar: 5.880 → **1.172,73** (owner: "less than 1.500").
+
+### Done (code, branch `claude/rende-facil`)
+- `inbox.is_auto_invest()`; Pluggy rows "RENDE FACIL"/"REND.FACIL" are `COVERED` in `place()`;
+  the phone notice is `ignored`; migration 046 covers rows already pulled and denies pending items.
+  `test_rende_facil.py` (12, fail without the fix). Full suite: 1953 passed, 1 failed (below).
 
 ### Not done, and why
-- **Not run on a device**: no phone or emulator was attached to adb. The Acceptance walk is in
-  next-steps.
-- **Not pushed to main**: the owner asked for a PR. Merging deploys the server too (045 switches on)
-  and builds the signed APK; check the apk job is green and `version.json`'s versionCode went up.
-- With Gravar sozinho off, items needing a card or crédito/débito cannot be resolved on the phone
-  (the row says so). Swipe actions in Revisar not built.
-- `InboxRules.kt` and the DTOs stay (waiting rows use them); most of InboxRules is now unused on the
-  phone — can be trimmed later.
+- Mapping **BTG Investimentos → Corretora** and the zero-balance second Ourocard → "Não usar" (the
+  two Gravar sozinho blockers) not done: mapping the broker could duplicate the manual aporte/resgate
+  transfers; the owner should decide (see the 044 section of next-steps).
+- 42 rows in Revisar left for the owner. Guesses to confirm: BB Pix 02/10 (1.810) → BTG
+  investimentos; Pix 74,14 on 28/09 as receita; ourocard 0,81 adjustment; Wagner's 2.400/5.400
+  recorded as receita (October income looks high because of them).
+- The Pluggy investment sync summed same-day trades into one operation, so the typed-twin link
+  (same quantity) missed: a code fix is still open (link a Pluggy op to a set of typed trades of the
+  same asset/day whose quantities sum to it).
 
 ### Next session
-1. Owner: merge the PR, install the update, walk the next-steps item.
-2. Then the 045/044 checks on real data.
+1. Owner: after this deploy (it also carries PR #50, the APK without Aprovar), install the APK
+   update and walk its next-steps item; check BB's Conferência (046 drops the Rende Fácil rows).
+2. Fix the summed-twin case in `services/open_finance_investments.py`.
 
 ### Lessons (non-obvious)
-- Bash heredocs with Kotlin `$` strings and quotes broke here: write edit scripts with Write and run
-  them with python (as the memory note says).
-- `adb` is not on PATH: `$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe`.
-- pytest's summary only prints with `-o addopts=""` in this repo's config.
+- `test_fixed_income_interest.py::TestTheCouponReachesTheAccount` fails locally between 21:00 and
+  midnight BRT (UTC is already tomorrow); it passes in CI (UTC). Pre-existing.
+- The Chrome tool hides a JS result that echoes certain strings ("[BLOCKED: Cookie/query string
+  data]") — the code still ran; re-read state instead of re-running writes.
+- The Conferência pairs by amount/date (±3 days), not by link: re-typing a row with the bank's
+  amount and date is enough to clear it.

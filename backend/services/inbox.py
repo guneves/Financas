@@ -262,6 +262,16 @@ def normalized(value):
     return statement_import.normalize_description(value or "")
 
 
+# A aplicacao automatica do Banco do Brasil ("RENDE FACIL", "REND.FACIL"): o
+# dinheiro so dorme fora da conta corrente; o dono nunca quer isso no app (nem
+# lancamento, nem item, nem conferencia), 2026-10-27.
+AUTO_INVEST_TEXT = re.compile(r"\brende? facil\b")
+
+
+def is_auto_invest(value):
+    return bool(AUTO_INVEST_TEXT.search(normalized(value)))
+
+
 def counterpart_text(value):
     """A descricao sem numeros (autorizacao, agencia, hora): o que se repete
     entre duas transferencias para a mesma pessoa."""
@@ -1405,6 +1415,9 @@ def ingest_detection(conn, current_user_id, detection, rules=None):
     ).fetchone()
     if known:
         return {"key": detection["key"], "status": "known", "item_id": known["item_id"]}
+
+    if is_auto_invest(detection.get("merchant")):
+        return {"key": detection["key"], "status": "ignored", "item_id": None}
 
     if ignore_connected_notifications(conn, current_user_id) and from_connected_bank(conn, current_user_id, detection):
         # O Open Finance traz este movimento (044): o aviso nao vira nada.
