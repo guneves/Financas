@@ -4,8 +4,8 @@
 // Conta global (dono, 2026-10-27): a conta em dolar (Wise) e a unica tela do app
 // fora de reais. Ela mostra o saldo e o extrato na moeda da conta e, embaixo, um
 // "≈ R$ …" pelo cambio de hoje (PTAX, services/fx.py) ou "sem câmbio hoje". Em
-// qualquer outro lugar a conta aparece em reais (accountBalanceBrl()) e o
-// Inicio soma ela convertida no saldo em contas.
+// qualquer outro lugar a conta aparece em reais (accountBalanceBrl()), mas fica
+// fora do saldo em contas do Inicio (dono, 2026-10-28).
 //
 // O Pix de uma conta em reais para ela e UMA transferencia (047): `amount` e o
 // que saiu em reais, `transfer_amount` o que entrou em dolar. Sem

@@ -129,7 +129,7 @@ export default function Cartoes() {
   )
 
   // A fatura em aberto com o vencimento mais proximo (atrasadas primeiro),
-  // marcada pelo servidor: a tela a abre e o "Pagar fatura" do topo a paga.
+  // marcada pelo servidor: o "Pagar fatura" do topo a paga.
   const nearestInvoice = useMemo(() => {
     for (const cardGroup of openInvoicesByCard) {
       const invoice = cardGroup.invoices.find((entry) => entry.nearest)
@@ -138,9 +138,8 @@ export default function Cartoes() {
     return null
   }, [openInvoicesByCard])
 
-  const isInvoiceExpanded = (key) => (
-    key in toggledInvoices ? toggledInvoices[key] : key === nearestInvoice?.key
-  )
+  // Tudo fechado ao abrir a tela (dono, 2026-10-28): so o toque abre.
+  const isInvoiceExpanded = (key) => Boolean(toggledInvoices[key])
 
   const toggleInvoice = (key) => {
     setToggledInvoices((prev) => ({ ...prev, [key]: !isInvoiceExpanded(key) }))
@@ -393,10 +392,10 @@ export default function Cartoes() {
   }
 
   // As compras no debito do cartao (049): despesas da conta dele, sem fatura,
-  // da mais nova para a mais antiga. Num cartao so debito ficam abertas.
+  // da mais nova para a mais antiga. Fechadas ao abrir a tela, como as faturas.
   const renderDebit = (cardGroup) => {
     const { debit } = cardGroup
-    const open = cardGroup.cardId in showDebit ? showDebit[cardGroup.cardId] : cardGroup.withoutInvoices
+    const open = Boolean(showDebit[cardGroup.cardId])
     const rows = debit.rows
     return (
       <div className="border-t border-zinc-100">

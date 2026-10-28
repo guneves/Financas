@@ -224,12 +224,18 @@ def account_list(conn, current_user_id):
     ]
 
 
+def is_foreign_currency(account):
+    return str(account.get("currency") or "BRL").upper() != "BRL"
+
+
 def consolidated_balance(accounts):
-    """Saldo em contas: a soma do `balance_brl` de toda conta que nao e
-    Corretora, arquivadas inclusive; sem cambio hoje (None) fica de fora."""
+    """Saldo em contas: a soma do saldo de toda conta em reais que nao e
+    Corretora, arquivadas inclusive. A Conta global (dono, 2026-10-28) fica de
+    fora: o saldo dela so aparece na tela dela, em dolar."""
     total = sum(
         (Decimal(str(account["balance_brl"])) for account in accounts
-         if not is_portfolio(account) and account.get("balance_brl") is not None),
+         if not is_portfolio(account) and not is_foreign_currency(account)
+         and account.get("balance_brl") is not None),
         Decimal("0"),
     )
     return rounded_money(total)

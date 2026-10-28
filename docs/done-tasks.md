@@ -190,6 +190,7 @@
 | Conta global, the rest: the dollars that arrived (`transfer_amount`) can be typed when approving a Pix from reais to it — web Aprovar's edit sheet ("Entrou (US$)", `crossCurrencyOf()`, `changesFromDraft(item, draft, crossCurrency)`) and the APK's "Não gravou sozinho" (`ReviewRules.waitingTransferCurrency()`); the APK's Conta global gets "Pix para cá" (`GlobalAccount.pixMissing()/pixBody()`, POST /api/transfers with `client_id`, never queued) and "Carregar mais" (`inboxRules.test.js`, `globalAccount.test.js`, `ReviewRulesTest.kt`, `GlobalAccountTest.kt`) | 2026-10-28 |
 | Trade cash on the liquidation date: the Corretora lançamento of an operation is dated D+2 business days on B3 (holiday calendar in `services/settlement.py`), D+1 abroad, same day otherwise; `metadata.settlement_date` / `settlement_amount` (Pluggy's `netAmount`) override it; existing rows moved by `resync_investment_cash_dates()`. **Conta investimento** in Posição (`GET /api/investments/settlement`, `services/broker_cash.py`): saldo hoje, em trânsito (operations + announced proventos), saldo. Web (Posição card, settlement fields in the operation edit) and APK (`rules/BrokerSettlement.kt`, Posição). pytest `test_broker_settlement.py`, JVM `BrokerSettlementTest` | 2026-10-28 |
 | Cartões: edit category/description of a card purchase (all installments, paid too), purchases by date, debit purchases on the card (049), installment-in-paid-invoice and archived-card autopay fixes | 2026-10-28 |
+| Conta global out of "Saldo em contas"; Cartões opens all collapsed | 2026-10-28 |
 
 ---
 

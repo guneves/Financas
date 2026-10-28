@@ -82,8 +82,8 @@
     <string name="home_no_rate">sem câmbio hoje</string>
     <string name="home_global_account">Conta global</string>
     <string name="global_title">Conta global</string>
-    <string name="global_description">%1$s · em %2$s. Fora daqui o app é em reais: no Início ela entra convertida no saldo em contas.</string>
-    <string name="global_balance">Saldo em conta</string>
+    <string name="global_description">%1$s · em %2$s. Fora daqui o app é em reais; o saldo dela não entra no saldo em contas do Início.</string>
+    <string name="global_balance">Saldo em dólar</string>
     <string name="global_brl_hint">≈ %1$s pelo câmbio de hoje (PTAX)</string>
     <string name="global_in">Entradas</string>
     <string name="global_out">Saídas</string>
