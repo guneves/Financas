@@ -95,6 +95,10 @@ class LancamentosRepository(
     suspend fun createTransfer(body: Map<String, Any?>): InboxWrite<Unit> =
         unit(sendWrite(sender, "POST", TRANSFERS_PATH, JsonBody.encode(body)))
 
+    /** Categoria e descricao da compra (ou estorno): todas as parcelas, pagas inclusive. */
+    suspend fun updatePurchase(purchaseId: String, body: Map<String, Any?>): InboxWrite<Unit> =
+        unit(sendWrite(sender, "PATCH", "/api/cc-expenses/purchases/${encode(purchaseId)}", JsonBody.encode(body)))
+
     suspend fun updateShare(purchaseId: String, body: Map<String, Any?>): InboxWrite<Unit> =
         unit(sendWrite(sender, "PATCH", "/api/cc-expenses/${encode(purchaseId)}/share", JsonBody.encode(body)))
 

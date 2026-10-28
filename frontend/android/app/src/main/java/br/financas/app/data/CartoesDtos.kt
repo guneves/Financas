@@ -66,13 +66,42 @@ data class NearestInvoiceRefDto(
     @SerialName("invoice_year") val invoiceYear: Int,
 )
 
-/** GET /api/cc-invoices: os cartoes (por nome) com as faturas em aberto. */
+/** Uma compra no debito (049): uma despesa da conta do cartao, sem fatura. */
+@Serializable
+data class DebitPurchaseDto(
+    val id: String,
+    val date: String? = null,
+    val description: String? = null,
+    val category: String? = null,
+    @SerialName("category_id") val categoryId: String? = null,
+    val amount: Money = BigDecimal.ZERO,
+    @SerialName("account_id") val accountId: String? = null,
+    @SerialName("attachment_count") val attachmentCount: Int = 0,
+    @SerialName("share_mode") val shareMode: String? = null,
+    @SerialName("share_person") val sharePerson: String? = null,
+    @SerialName("share_others_amount") val shareOthersAmount: Money? = null,
+)
+
+/** As compras no debito de um cartao (services/debit_purchases.py), da mais nova para a mais antiga. */
+@Serializable
+data class DebitCardDto(
+    @SerialName("card_id") val cardId: String,
+    @SerialName("card_name") val cardName: String = "",
+    @SerialName("credit_enabled") val creditEnabled: Boolean = true,
+    @SerialName("account_id") val accountId: String? = null,
+    @SerialName("account_name") val accountName: String? = null,
+    @SerialName("month_total") val monthTotal: Money = BigDecimal.ZERO,
+    val purchases: List<DebitPurchaseDto> = emptyList(),
+)
+
+/** GET /api/cc-invoices: os cartoes (por nome) com as faturas em aberto e as compras no debito. */
 @Serializable
 data class CcInvoicesDto(
     val today: String? = null,
     val nearest: NearestInvoiceRefDto? = null,
     @SerialName("open_total") val openTotal: Money = BigDecimal.ZERO,
     val cards: List<InvoiceCardDto> = emptyList(),
+    @SerialName("debit_cards") val debitCards: List<DebitCardDto> = emptyList(),
 )
 
 /** Uma parcela de GET /api/cc-expenses/candidates?id= (todas as da compra, pagas inclusive). */

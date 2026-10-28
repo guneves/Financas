@@ -7,6 +7,37 @@
 
 ---
 
+## Session — 2026-10-28 · Cartões: edit card purchases, date order, debit purchases, card bugs
+
+Owner asked: edit a credit-card purchase's category, card purchases sorted by date, debit-card
+purchases on the same screen, check the card logic for bugs, then a PR. Branch
+`claude/magical-cerf-uy4k4q`.
+
+### Done
+- `PATCH /api/cc-expenses/purchases/<id>` (category by id, description; every installment, paid
+  ones too; refunds too). Web `CardPurchaseEditSheet` on Cartões (tap a purchase / "Editar
+  categoria") and on the Extrato's card rows (paid purchases are not in Cartões). APK: the same
+  sheet (`ui/lancamentos/PurchaseEdit.kt`) on Cartões and on the Extrato's card rows.
+- Invoice purchases sorted by purchase date, newest first (`purchases_by_date()`; was by description).
+- 049 `transactions.card_id`: a debit purchase knows its card (POST /api/transactions `card_id`,
+  validated against the card's debit account; "+ Novo" sends it via `debitPurchasePayload()`; Aprovar via the item's notify_detections; cleared by a
+  PATCH that moves it off the card's account/EXPENSE). `GET /api/cc-invoices` → `debit_cards`
+  (`services/debit_purchases.py`: current + previous month). Cartões shows "No débito" inside the
+  card's panel and a panel for a card with no open invoice (the Flash).
+- Bugs: installments 2..n of an old purchase could land in an already-paid invoice and stay open
+  forever (`purchase_invoices()` skips paid ones per installment); autopay ran for archived and
+  debit-only cards.
+- Tests: `test_card_purchase_edit.py` (16), `test_cc_invoices.py` updated, route map; node
+  `cardGroups.test.js`, `cardPurchaseEdit.test.js`; `CardRulesTest.kt` (+3). Full pytest green,
+  node green, vite build OK, APK JVM tests (47 classes) green. Screenshots of Cartões checked.
+
+### Not done, and why
+- APK Compose code not compiled (no Android SDK here); CI's apk job is the first build.
+- Older debit purchases of a card with both functions stay unlinked (no reliable way to tell).
+
+### Lessons
+- The JVM check project needs `jvmToolchain(21)` here (no JDK 17), and retries on Maven 429.
+
 ## Session — 2026-10-28 · Conta global: the last code gaps; check of `main`
 
 Owner asked to finish the pending work of `docs/prompts/global-account-usd.md`, make sure the Conta

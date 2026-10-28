@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import br.financas.app.R
 import br.financas.app.core.MoneyInput
+import br.financas.app.core.formatCurrency
 import br.financas.app.core.getLocalDateString
 import br.financas.app.core.parseMoneyInput
 import br.financas.app.data.AccountDto
@@ -44,6 +45,8 @@ import br.financas.app.rules.TransactionEditForm
 import br.financas.app.ui.components.ConfirmRequest
 import br.financas.app.ui.home.HomeLogic
 import br.financas.app.ui.lancamentos.AttachmentsState
+import br.financas.app.ui.lancamentos.EditTarget
+import br.financas.app.ui.lancamentos.PurchaseEditState
 import br.financas.app.ui.lancamentos.NativeFiles
 import br.financas.app.ui.lancamentos.normalizedShare
 import br.financas.app.ui.lancamentos.writeErrorOf
@@ -203,6 +206,9 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         private set
 
     val attachments = AttachmentsState(app, repo, viewModelScope, confirm = { confirm = it }, onChanged = ::refreshAll)
+
+    /** Categoria e descricao de uma compra no cartao (a paga so aparece aqui, nao em Cartoes). */
+    val cardEdit = PurchaseEditState(app, repo, graph.appScope, isCleared = { cleared }, onSaved = { changed(it) })
 
     // ---- Exportar ----
 
@@ -725,6 +731,27 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // ---- Editar e excluir ----
+
+    /** A compra no cartao (045): uma linha com o total; a edicao vale para todas as parcelas. */
+    fun editCardPurchase(row: TransactionDto) {
+        val installments = row.installments ?: 1
+        val total = formatCurrency(row.amount)
+        val amount = if (installments > 1) "$total em $installments parcelas" else total
+        cardEdit.open(
+            EditTarget(
+                id = row.id,
+                debit = false,
+                refund = row.type == "REFUND",
+                subtitle = listOfNotNull(row.cardName?.takeIf { it.isNotEmpty() }, amount).joinToString(" · "),
+                currentDescription = row.description,
+                currentCategoryId = row.categoryId,
+                currentCategory = row.category,
+                installments = installments,
+                description = row.description.orEmpty(),
+                categoryId = row.categoryId.orEmpty(),
+            ),
+        )
+    }
 
     fun startEditing(row: TransactionDto) {
         editing = row

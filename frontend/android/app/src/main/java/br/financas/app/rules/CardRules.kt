@@ -3,7 +3,8 @@
 // cardPurchase.test.js), formatInvoiceLabel de pages/lancamentos/helpers.js e as regras inline de
 // pages/lancamentos/Cartoes.jsx (getInvoiceStatus, paymentHint, a conta sugerida, os textos de
 // excluir), CardRefundSheet.jsx (a mensagem do estorno) e CardShareSheet.jsx (o total e a divisao
-// atual, em centavos). Aqui: CardRulesTest.kt. As faturas, o total, "Próxima", fechada/paga e
+// atual, em centavos), lib/cardPurchaseEdit.js (purchaseEditPayload) e lib/cardGroups.js (os
+// cartoes so com debito). Aqui: CardRulesTest.kt. As faturas, o total, "Próxima", fechada/paga e
 // atrasada vem prontos de GET /api/cc-invoices: nada disso e calculado aqui.
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
 package br.financas.app.rules
@@ -12,6 +13,7 @@ import br.financas.app.core.formatCurrency
 import br.financas.app.core.formatDateBR
 import br.financas.app.data.AccountDto
 import br.financas.app.data.CardInvoiceDto
+import br.financas.app.data.DebitCardDto
 import br.financas.app.data.InvoiceCardDto
 import br.financas.app.data.PurchaseInstallmentDto
 import java.math.BigDecimal
@@ -168,5 +170,38 @@ object CardRules {
             ShareItem(it.shareMode, it.sharePerson, if (it.shareMode == Sharing.SPLIT) othersTotal else it.shareOthersAmount)
         }
         return ShareStart(total, Sharing.shareFormFrom(item), rows.size)
+    }
+
+    /** A edicao de uma compra: so o que mudou (`payload` null = nada) ou o erro. */
+    data class EditResult(val payload: Map<String, Any?>?, val error: String?)
+
+    fun purchaseEditPayload(currentDescription: String?, currentCategoryId: String?, description: String, categoryId: String): EditResult {
+        val text = description.trim()
+        if (text.isEmpty()) return EditResult(null, "Informe a descrição da compra.")
+        if (text.length > 500) return EditResult(null, "A descrição pode ter até 500 caracteres.")
+        val payload = linkedMapOf<String, Any?>()
+        if (text != currentDescription.orEmpty().trim()) payload["description"] = text
+        if (categoryId.isNotEmpty() && categoryId != currentCategoryId.orEmpty()) payload["category_id"] = categoryId
+        return EditResult(payload.takeIf { it.isNotEmpty() }, null)
+    }
+
+    /** As compras no debito de um cartao com fatura em aberto (o bloco "No débito" do painel dele). */
+    fun debitOf(card: InvoiceCardDto, debitCards: List<DebitCardDto>): DebitCardDto? =
+        debitCards.firstOrNull { it.cardId == card.cardId }
+
+    /** Os cartoes sem fatura em aberto e com compra no debito: um painel cada, depois dos outros. */
+    fun debitOnlyCards(invoiceCards: List<InvoiceCardDto>, debitCards: List<DebitCardDto>): List<DebitCardDto> {
+        val withInvoices = invoiceCards.map { it.cardId }.toSet()
+        return debitCards.filter { it.cardId !in withInvoices && it.purchases.isNotEmpty() }
+    }
+
+    /** "Débito · sai de Flash" (so debito) ou "Nenhuma fatura em aberto". */
+    fun debitCardSubtitle(card: DebitCardDto): String =
+        if (card.creditEnabled) "Nenhuma fatura em aberto" else "Débito · sai de ${card.accountName ?: "—"}"
+
+    /** "No débito · sai de Conta BTG · 2 compras". */
+    fun debitSectionLabel(card: DebitCardDto): String {
+        val count = if (card.purchases.size == 1) "1 compra" else "${card.purchases.size} compras"
+        return "No débito · sai de ${card.accountName ?: "—"} · $count"
     }
 }

@@ -5,6 +5,8 @@ package br.financas.app.rules
 
 import br.financas.app.data.AccountDto
 import br.financas.app.data.CardInvoiceDto
+import br.financas.app.data.DebitCardDto
+import br.financas.app.data.DebitPurchaseDto
 import br.financas.app.data.InvoiceCardDto
 import br.financas.app.data.PurchaseInstallmentDto
 import org.junit.Assert.assertEquals
@@ -144,5 +146,34 @@ class CardRulesTest {
         assertEquals("Próximas 2 faturas", CardRules.futureLabel(future))
         assertEquals("Fatura seguinte", CardRules.futureLabel(future.take(1)))
         assertMoney("66.67", CardRules.futureTotal(future))
+    }
+
+    // node (cardPurchaseEdit.test.js): 'sends only what changed'
+    @Test
+    fun theEditSendsOnlyWhatChanged() {
+        assertEquals(mapOf("category_id" to "cat-b"), CardRules.purchaseEditPayload("Loja", "cat-a", "Loja", "cat-b").payload)
+        assertEquals(mapOf("description" to "Cinema"), CardRules.purchaseEditPayload("Loja", "cat-a", " Cinema ", "cat-a").payload)
+        assertNull(CardRules.purchaseEditPayload("Loja", "cat-a", "Loja ", "cat-a").payload)
+        assertNull(CardRules.purchaseEditPayload("Loja", null, "Loja", "").payload)
+    }
+
+    // node: 'the description is required and bounded'
+    @Test
+    fun theEditNeedsADescription() {
+        assertEquals("Informe a descrição da compra.", CardRules.purchaseEditPayload("Loja", "cat-a", "  ", "cat-a").error)
+        assertEquals(true, CardRules.purchaseEditPayload("Loja", "cat-a", "x".repeat(501), "cat-a").error != null)
+    }
+
+    // node (cardGroups.test.js): 'a debit-only card with purchases comes after the credit cards'
+    @Test
+    fun aCardWithoutInvoicesShowsOnlyWithDebitPurchases() {
+        val nubank = InvoiceCardDto(cardId = "nu", cardName = "Nubank")
+        val btg = DebitCardDto(cardId = "nu", cardName = "Nubank", purchases = listOf(DebitPurchaseDto(id = "a")))
+        val flash = DebitCardDto(cardId = "flash", cardName = "Flash", creditEnabled = false, accountName = "Flash", purchases = listOf(DebitPurchaseDto(id = "f")))
+        val empty = DebitCardDto(cardId = "empty", creditEnabled = false, purchases = emptyList())
+        assertEquals(listOf("flash"), CardRules.debitOnlyCards(listOf(nubank), listOf(btg, flash, empty)).map { it.cardId })
+        assertEquals("nu", CardRules.debitOf(nubank, listOf(btg, flash))?.cardId)
+        assertEquals("Débito · sai de Flash", CardRules.debitCardSubtitle(flash))
+        assertEquals("No débito · sai de Flash · 1 compra", CardRules.debitSectionLabel(flash))
     }
 }

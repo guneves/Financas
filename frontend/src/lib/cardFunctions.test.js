@@ -66,6 +66,6 @@ test('what the form still needs', () => {
 test('a debit purchase is an expense in the card account', () => {
   assert.deepEqual(
     debitPurchasePayload(flash, { amount: 46.81, date: '2026-10-21', categoryId: 'cat', category: 'Alimentação', description: 'Padaria' }),
-    { amount: 46.81, date: '2026-10-21', category_id: 'cat', category: 'Alimentação', description: 'Padaria', type: 'EXPENSE', account_id: 'conta-flash' },
+    { amount: 46.81, date: '2026-10-21', category_id: 'cat', category: 'Alimentação', description: 'Padaria', type: 'EXPENSE', account_id: 'conta-flash', card_id: 'f' },
   )
 })
