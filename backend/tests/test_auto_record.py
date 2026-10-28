@@ -415,6 +415,17 @@ class TestBancoDoBrasilRoundsUp:
         [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], tx_id))
         assert (of_row["role"], of_row["target_id"]) == ("INVOICE_PAYMENT", payment)
 
+    @pytest.mark.parametrize("description", ["PGTO DEBITO CONTA 4765 000002144", "PGTO. CASH AG. 4765 000476500 20"])
+    def test_the_ourocard_payment_is_never_a_refund(self, world, description):
+        # O Ourocard recebe o pagamento como "PGTO DEBITO CONTA" / "PGTO. CASH"
+        # na categoria Transfer (2026-10-28): virava estorno na fatura.
+        item_id, _p, made = connected(world, connector_name="Banco do Brasil", bank=False, card=True)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        world.fake.add_tx(made["card"][0], card_tx(-915.28, "2026-10-21", description, category_id="05020000"))
+        world.sync(item_id)
+        assert world.card_rows(made["card"][2]) == []
+        assert world.pending() == []
+
     def test_another_bank_keeps_the_exact_cents(self, world):
         item_id, _p, made = connected(world, connector_name="Itaú")
         world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
