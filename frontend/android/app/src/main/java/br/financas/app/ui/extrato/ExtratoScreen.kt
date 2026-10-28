@@ -48,6 +48,7 @@ import br.financas.app.R
 import br.financas.app.core.formatSignedCurrency
 import br.financas.app.data.TransactionDto
 import br.financas.app.data.storedTimeLabel
+import br.financas.app.rules.EntryOptions
 import br.financas.app.rules.ExtratoRules
 import br.financas.app.rules.ReviewRules
 import br.financas.app.rules.InvestmentStatement
@@ -79,6 +80,7 @@ import br.financas.app.ui.lancamentos.AttachmentsSheet
 import br.financas.app.ui.lancamentos.LancamentosTab
 import br.financas.app.ui.lancamentos.LancamentosTopBar
 import br.financas.app.ui.lancamentos.ProjectionHeader
+import br.financas.app.ui.lancamentos.PurchaseEditSheet
 import br.financas.app.ui.lancamentos.moneyOrMasked
 import br.financas.app.ui.theme.LocalPalette
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -168,6 +170,7 @@ fun ExtratoScreen(
 
     viewModel.editing?.let { row -> viewModel.editForm?.let { form -> EditTransactionSheet(row, form, viewModel) } }
     AttachmentsSheet(viewModel.attachments)
+    PurchaseEditSheet(viewModel.cardEdit, EntryOptions.filterCategoryOptions(viewModel.categoryOptions, ExtratoRules.EXPENSE))
     if (viewModel.exportOpen) ExportSheet(viewModel)
     ConfirmDialog(request = viewModel.confirm, cancelLabel = stringResource(R.string.lanc_cancel), onDismiss = viewModel::dismissConfirm)
 }
@@ -404,10 +407,17 @@ private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel, onO
     val palette = LocalPalette.current
     val editable = ExtratoRules.isEditableHere(row)
     val card = ReviewRules.isCardRow(row)
-    val actions = rowActions(row, viewModel)
+    val actions = if (card) {
+        // A compra no cartao: categoria e descricao aqui; parcelas, estorno e fatura em Cartoes.
+        listOf(
+            MenuAction(stringResource(R.string.cartoes_menu_edit)) { viewModel.editCardPurchase(row) },
+            MenuAction(stringResource(R.string.extrato_open_cards)) { onOpenCards() },
+        )
+    } else {
+        rowActions(row, viewModel)
+    }
     val onTap: () -> Unit = when {
-        // A compra no cartao se edita (e se paga) em Cartoes.
-        card -> onOpenCards
+        card -> { { viewModel.editCardPurchase(row) } }
         editable -> { { viewModel.startEditing(row) } }
         !row.pending -> { { viewModel.openAttachments(row) } }
         else -> { {} }

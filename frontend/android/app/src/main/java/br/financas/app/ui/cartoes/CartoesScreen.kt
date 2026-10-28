@@ -46,6 +46,8 @@ import br.financas.app.core.formatCurrency
 import br.financas.app.core.formatDateBR
 import br.financas.app.core.formatSignedCurrency
 import br.financas.app.data.CardInvoiceDto
+import br.financas.app.data.DebitCardDto
+import br.financas.app.data.DebitPurchaseDto
 import br.financas.app.data.InvoiceCardDto
 import br.financas.app.data.InvoicePurchaseDto
 import br.financas.app.rules.CardRules
@@ -77,6 +79,7 @@ import br.financas.app.ui.lancamentos.AttachmentsSheet
 import br.financas.app.ui.lancamentos.LancamentosTab
 import br.financas.app.ui.lancamentos.LancamentosTopBar
 import br.financas.app.ui.lancamentos.ProjectionHeader
+import br.financas.app.ui.lancamentos.PurchaseEditSheet
 import br.financas.app.ui.lancamentos.ShareFields
 import br.financas.app.ui.theme.LocalPalette
 
@@ -127,6 +130,7 @@ fun CartoesScreen(
     ) { padding ->
         val data = viewModel.data
         val cards = viewModel.invoiceCards
+        val debitOnly = viewModel.debitOnlyCards
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 32.dp),
@@ -146,7 +150,7 @@ fun CartoesScreen(
             }
             when {
                 data == null || viewModel.cards == null -> item(key = "skeleton") { ListSkeleton(rows = 4) }
-                viewModel.creditCards.isEmpty() && cards.isEmpty() -> item(key = "no-cards") {
+                viewModel.creditCards.isEmpty() && cards.isEmpty() && debitOnly.isEmpty() -> item(key = "no-cards") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         EmptyState(
                             title = stringResource(R.string.cartoes_no_cards_title),
@@ -160,10 +164,14 @@ fun CartoesScreen(
                         )
                     }
                 }
-                cards.isEmpty() -> item(key = "empty") {
+                cards.isEmpty() && debitOnly.isEmpty() -> item(key = "empty") {
                     EmptyState(title = stringResource(R.string.cartoes_empty_title), message = stringResource(R.string.cartoes_empty_message))
                 }
-                else -> items(cards, key = { it.cardId }) { card -> CardPanel(card, viewModel) }
+                else -> {
+                    items(cards, key = { it.cardId }) { card -> CardPanel(card, viewModel) }
+                    // Os cartoes sem fatura em aberto e com compra no debito (o Flash), depois (049).
+                    items(debitOnly, key = { "debit:${it.cardId}" }) { card -> DebitCardPanel(card, viewModel) }
+                }
             }
         }
     }
@@ -171,6 +179,7 @@ fun CartoesScreen(
     viewModel.paying?.let { PaySheet(it, viewModel) }
     viewModel.refund?.let { RefundSheet(it, viewModel) }
     viewModel.share?.let { ShareSheet(it, viewModel) }
+    PurchaseEditSheet(viewModel.edit, viewModel.expenseCategoryOptions)
     AttachmentsSheet(viewModel.attachments)
     ConfirmDialog(request = viewModel.confirm, cancelLabel = stringResource(R.string.lanc_cancel), onDismiss = viewModel::dismissConfirm)
 }
@@ -251,7 +260,111 @@ private fun CardPanel(card: InvoiceCardDto, viewModel: CartoesViewModel) {
                     }
                 }
             }
+            CardRules.debitOf(card, viewModel.debitCards)?.let { debit ->
+                HorizontalDivider(color = palette["zinc-100"])
+                DebitBlock(debit, viewModel, withoutInvoices = false)
+            }
         }
+    }
+}
+
+/** Um cartao sem fatura em aberto, so com compras no debito (049): o Flash. */
+@Composable
+private fun DebitCardPanel(card: DebitCardDto, viewModel: CartoesViewModel) {
+    val palette = LocalPalette.current
+    Panel {
+        Column {
+            Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp), verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(card.cardName, color = palette.text, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(CardRules.debitCardSubtitle(card), color = palette.muted, fontSize = 13.sp)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(stringResource(R.string.cartoes_debit_month), color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(formatCurrency(card.monthTotal), color = palette.text, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            }
+            HorizontalDivider(color = palette["zinc-100"])
+            DebitBlock(card, viewModel, withoutInvoices = true)
+        }
+    }
+}
+
+/** "No débito": as despesas da conta do cartao, da mais nova para a mais antiga. */
+@Composable
+private fun DebitBlock(card: DebitCardDto, viewModel: CartoesViewModel, withoutInvoices: Boolean) {
+    val palette = LocalPalette.current
+    val open = viewModel.isDebitOpen(card.cardId, withoutInvoices)
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { viewModel.toggleDebit(card.cardId, withoutInvoices) }
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Chevron(open)
+            Text(
+                CardRules.debitSectionLabel(card),
+                color = palette["zinc-600"],
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Text(formatCurrency(card.monthTotal), color = palette["zinc-600"], fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        }
+        if (open) {
+            Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 10.dp)) {
+                if (card.purchases.isEmpty()) {
+                    Text(stringResource(R.string.cartoes_debit_empty), color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
+                }
+                card.purchases.forEachIndexed { index, purchase ->
+                    if (index > 0) HorizontalDivider(color = palette["zinc-100"])
+                    DebitRow(purchase, card, viewModel)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebitRow(purchase: DebitPurchaseDto, card: DebitCardDto, viewModel: CartoesViewModel) {
+    val palette = LocalPalette.current
+    val receipts = if (purchase.attachmentCount > 0) stringResource(R.string.attach_menu_count, purchase.attachmentCount) else stringResource(R.string.attach_menu)
+    val name = purchase.description?.takeIf { it.isNotEmpty() } ?: purchase.category.orEmpty()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
+    ) {
+        Column(
+            Modifier.weight(1f).clickable { viewModel.openDebitEdit(purchase, card.cardName) },
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(name, color = palette["zinc-900"], fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (purchase.attachmentCount > 0) Icon(AppIcons.Paperclip, contentDescription = null, tint = palette["zinc-400"], modifier = Modifier.size(14.dp))
+            }
+            Text(
+                "${purchase.category?.takeIf { it.isNotEmpty() } ?: "Outros"} · ${formatDateBR(purchase.date)}",
+                color = palette.muted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val share = Sharing.shareSummary(SharedRow(purchase.amount, purchase.shareMode, purchase.sharePerson, purchase.shareOthersAmount))
+            if (share.isNotEmpty()) Text(share, color = palette.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(formatCurrency(purchase.amount), color = palette.text, fontWeight = FontWeight.SemiBold)
+        OverflowMenu(
+            actions = listOf(
+                MenuAction(stringResource(R.string.cartoes_menu_edit)) { viewModel.openDebitEdit(purchase, card.cardName) },
+                MenuAction(receipts) { viewModel.openDebitAttachments(purchase) },
+            ),
+            label = stringResource(R.string.lanc_actions_of, name),
+        )
     }
 }
 
@@ -330,13 +443,16 @@ private fun StatusBadge(invoice: CardInvoiceDto, future: Boolean) {
 private fun PurchaseRow(purchase: InvoicePurchaseDto, card: InvoiceCardDto, viewModel: CartoesViewModel) {
     val palette = LocalPalette.current
     val receipts = if (purchase.attachmentCount > 0) stringResource(R.string.attach_menu_count, purchase.attachmentCount) else stringResource(R.string.attach_menu)
+    val editLabel = stringResource(R.string.cartoes_menu_edit)
     val actions = if (purchase.isRefund) {
         listOf(
+            MenuAction(editLabel) { viewModel.openEdit(purchase, card.cardName) },
             MenuAction(receipts) { viewModel.openAttachments(purchase) },
             MenuAction(stringResource(R.string.cartoes_menu_delete_refund)) { viewModel.askDelete(purchase) },
         )
     } else {
         listOf(
+            MenuAction(editLabel) { viewModel.openEdit(purchase, card.cardName) },
             MenuAction(stringResource(R.string.cartoes_menu_refund)) { viewModel.openRefund(purchase, card.cardId) },
             MenuAction(stringResource(R.string.cartoes_menu_share)) { viewModel.openShare(purchase) },
             MenuAction(receipts) { viewModel.openAttachments(purchase) },
@@ -348,7 +464,11 @@ private fun PurchaseRow(purchase: InvoicePurchaseDto, card: InvoiceCardDto, view
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        // O toque na compra edita categoria e descricao (todas as parcelas).
+        Column(
+            Modifier.weight(1f).clickable { viewModel.openEdit(purchase, card.cardName) },
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(purchase.description.orEmpty(), color = palette["zinc-900"], fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (purchase.attachmentCount > 0) Icon(AppIcons.Paperclip, contentDescription = null, tint = palette["zinc-400"], modifier = Modifier.size(14.dp))

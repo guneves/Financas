@@ -86,5 +86,7 @@ export function debitPurchasePayload(card, { amount, date, categoryId, category,
     description,
     type: 'EXPENSE',
     account_id: card.debit_account_id,
+    // O cartao que fez a compra (049): a tela Cartoes a lista no debito dele.
+    card_id: card.id,
   }
 }

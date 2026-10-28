@@ -481,6 +481,14 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   phone must show "Nova versão disponível" and install it from the app, data kept. Each deploy now
   adds ~5 min of runner time and a new `financas-<code>.apk` (the last three stay on the server).
 
+### Card purchase edit and debit on Cartões (049, 2026-10-28) — what is left
+- **APK not compiled**: `PurchaseEdit.kt`, `CartoesScreen/ViewModel.kt`, `ExtratoScreen/ViewModel.kt`
+  were checked by reading; only `rules/`/`data/` ran (JVM). CI's apk job is the first real build.
+- Owner: walk Cartões on the phone — tap a purchase → category; Flash and the BTG debit list.
+- Old debit purchases of a card with **both** functions have no `card_id` (only new ones from
+  "+ Novo"/Aprovar); a debit-only card lists all expenses of its account. A Pluggy-recorded debit
+  purchase never gets `card_id` (Pluggy doesn't say the card).
+
 ### Card débito and hourly quotes (2026-10-22) — what is left
 - [ ] **Owner walk-through.** Ajustes › Cartões: create the Flash as "Débito" with a "Flash" account
   (any type but Corretora), give the BTG card "Os dois" with BTG Banking as the debit account. Then
