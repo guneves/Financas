@@ -320,6 +320,10 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   **Ignorar avisos dos bancos conectados** (`ignore_notifications`): `ingest_detection()` returns
   `ignored` for a bank whose account is mapped (by account/target name, or a Samsung card that is
   mapped); Flash is never connected, so it still reaches Aprovar.
+- **BB Rende Fácil is never in the app** (046, owner 2026-10-27): the bank's automatic investment
+  ("RENDE FACIL"/"REND.FACIL", `inbox.is_auto_invest()`) is `COVERED` in `place()` (no item, no
+  lançamento, not in the Conferência) and its phone notice is `ignored`. So BB's app balance leaves
+  out what sits in Rende Fácil; the owner's targets are the checking balance.
 - **History** (`history_preview()` / `history_apply()`, `POST /api/open-finance/history/preview|apply`):
   preview reads N days (GET) and counts per account (linked, to_link, to_record, waiting, covered,
   app_only) without writing; apply needs `confirm: true` and Gravar sozinho, re-pulls from that date

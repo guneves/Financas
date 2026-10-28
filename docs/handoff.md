@@ -7,69 +7,56 @@
 
 ---
 
-## Session — 2026-10-27 (4) · Auto-record → reconcile → review (045)
+## Session — 2026-10-27 (6) · The owner's data aligned with Pluggy; Rende Fácil out
 
-Local session on the owner's PC, on `main`, from a pasted request: every notification is recorded at
-once, the Aprovar queue goes away, Pluggy reconciles (and feeds Investimentos), card purchases join
-the Extrato, and the owner's only job is confirming + categorizing.
+Local session, owner's request: fix every record of their account against Pluggy. SSH to the server
+was refused by the harness ("Production Reads"), so the data work ran **through the app's API in
+the owner's logged-in Chrome tab** (`claude-in-chrome`), with the owner's explicit OK to insert and
+delete. Code: branch `claude/rende-facil` (from `main`) — **not merged, not deployed**.
 
-### Done
-- **Migration 045**: `transactions.needs_review`, `cc_expenses.needs_review` (default 0, partial
-  indexes), `inbox_items.auto_recorded_at / recorded_snapshot`.
-- **Notifications record at once** (`services/auto_record.py`): after `POST /api/inbox/detections`
-  and in `record_due()` on reads of `/api/transactions`, `/api/home`, `/api/review`. Missing targets
-  are guessed (`services/inbox_defaults.py`), nothing remembered; typed look-alikes linked
-  (`free_candidates()`, also checks other inbox items). Waits only: Samsung-only (10 min), own
-  transfer with one side, other currency.
-- **Pluggy engine** (`open_finance_auto.py`) uses the same defaults and marks rows for review; an
-  investment category on a bank account is now recorded (was held); the history preview no longer
-  counts it as `waiting`.
-- **Reconciliation** (`open_finance_inbox.reconcile_recorded()`): a Pluggy row matching a
-  notification-recorded item links silently (source OPEN_FINANCE / card `client_id = pluggy:<id>`,
-  OF snapshot) when untouched; other date or card/account → delete + re-record the bank's way; reviewed
-  or edited → MATCHED only.
-- **Switches default on** via `AUTO_RECORD_DEFAULT` (config): `auto_record` in
-  `/api/inbox/settings` (new) and in `/api/open-finance/settings` (was off by default). Tests run
-  with it off (conftest) except `test_auto_record.py`.
-- **Review**: `services/review.py`, `routes/review.py` (`GET /api/review` → items/count/waiting;
-  `POST /api/review` batch, all or nothing); `?review=1` on `/api/transactions`; `review_count` in
-  `/api/home`.
-- **Card purchases in the Extrato**: `GET /api/cc-expenses/statement` (`services/card_statement.py`,
-  one row per purchase, Extrato filters); merged in the web by `lib/review.js` `mergeStatement()`.
-- **Web**: `ReviewPanel` on the Extrato (category select + "É meu", "Confirmar todos"), "A revisar"
-  badge, "Revisão" filter, card rows with a "Cartão · Nx" tag and "Ver em Cartões"; header pill and
-  Extrato tab count reviews; Aprovar out of the tabs (route kept; the Extrato links to it when
-  something waits); Ajustes "Avisos do celular" with the Gravar sozinho switch. `lib/inboxCount.js`
-  removed.
-- Tests: `test_auto_record.py` (33); OF/inbox tests adjusted (investment now recorded, settings shape);
-  full pytest **1942 passed**; `npm test` 200; `vite build` ok. Clicked through on a scratch app with
-  Playwright at 1400 px and 390 px (review panel, one-tap confirm, card rows, filter) — no console
-  errors.
-- Docs: CLAUDE.md (new section "Auto-record → reconcile → review", inbox engine renamed, Gravar
-  sozinho updated, conftest note), next-steps (new 045 section), done-tasks.
+### Done (production data, via the API)
+- Targets the owner gave, all met: BTG conta corrente 170, BTG black next invoice 1.467,59
+  (Pluggy 1.328,22 + today's 139,37), BB 25, BB ourocard 19, Itaú 0, Flash 34,72; BTG investimentos
+  kept at the owner's 8,94; new account **Wise** (559,43: three BTG Pix to Wise Brasil Câmbio).
+- Deleted: duplicates ("1% cartão" = Pluggy InternalTransfer; CCR 4,10 on BB = the ourocard one),
+  every manual "Normalização/Saldo/Aporte/Salários" balancing row, BB Rende Fácil rows, 4 BTG
+  investment movements the Pluggy sync created at 23:59 that summed same-day typed trades (AUPO11,
+  TIMS3 — they doubled quantities; deleting = DISMISSED for good).
+- Recorded the 14 waiting + 6 denied Pluggy rows: BTG TEFs = transfers with BTG investimentos; BTG
+  Pix 2.400/1.620 = transfers to BTG investimentos (owner: not spending); BB Pix 02/10 = transfers
+  to BTG investimentos (a guess); TedSalary 1.680 = Salário; Wagner 2.400 to BB = receita.
+- BTG black invoice 10/2026 rebuilt (4 Pluggy purchases + "Compras antes do app" 1.188,14) and paid
+  by pay-invoice on 05/10 = the bank's 1.337,95 boleto. "emprestimo pai" 5.390 → 5.400; Flash→BB
+  280 dated 26/10; ourocard "Ajuste para a fatura do banco" 0,81. Opening balances set: BTG 394,03,
+  BB to land on 25, BTG investimentos to land on 8,94.
+- October Gastar: 5.880 → **1.172,73** (owner: "less than 1.500").
+
+### Done (code, branch `claude/rende-facil`)
+- `inbox.is_auto_invest()`; Pluggy rows "RENDE FACIL"/"REND.FACIL" are `COVERED` in `place()`;
+  the phone notice is `ignored`; migration 046 covers rows already pulled and denies pending items.
+  `test_rende_facil.py` (12, fail without the fix). Full suite: 1953 passed, 1 failed (below).
 
 ### Not done, and why
-- **APK not touched**: it still shows its Aprovar screen and an Extrato without card rows/review.
-  Recording works for it (server-side); the review UI is web-only. Next step if the owner wants it.
-- **Own one-sided transfers still wait in Aprovar** — deliberate deviation from "nothing waits":
-  recording them as despesa and later receiving the other side as receita would split one transfer
-  into two movements (and history imports pull banks one at a time). The Extrato points to them.
-- No "não é meu" button (delete covers errors; fraud is real money). Amount differences (IOF) are
-  not reconciled as corrections. PATCH does not clear `needs_review`.
-- Nothing ran on real data. The defaults flip **on** at deploy: the first phone upload and Pluggy
-  pull will record backlogs — the card-sign check in next-steps still applies.
+- **Not deployed**: merging `claude/rende-facil` to `main` deploys it (and runs 046). Until then the
+  Conferência lists BB's 7 old Rende Fácil rows as "só no banco", and new ones would be recorded.
+- Mapping **BTG Investimentos → Corretora** and the zero-balance second Ourocard → "Não usar" (the
+  two Gravar sozinho blockers) not done: mapping the broker could duplicate the manual aporte/resgate
+  transfers; the owner should decide (see the 044 section of next-steps).
+- 42 rows in Revisar left for the owner. Guesses to confirm: BB Pix 02/10 (1.810) → BTG
+  investimentos; Pix 74,14 on 28/09 as receita; ourocard 0,81 adjustment; Wagner's 2.400/5.400
+  recorded as receita (October income looks high because of them).
+- The Pluggy investment sync summed same-day trades into one operation, so the typed-twin link
+  (same quantity) missed: a code fix is still open (link a Pluggy op to a set of typed trades of the
+  same asset/day whose quantities sum to it).
 
 ### Next session
-1. Owner's check on real data (next-steps › 045, then the 044 list).
-2. APK: review panel and card rows in the native Extrato.
+1. Owner: merge `claude/rende-facil` (deploy), then check the Conferência.
+2. Fix the summed-twin case in `services/open_finance_investments.py`.
 
 ### Lessons (non-obvious)
-- `local_today()` lives in `services/invoices.py`, not `dates.py`.
-- Holding by transaction date breaks history backfills (each connection's pull runs the engine
-  before the other bank's rows exist): that's why own transfers wait for their pair, not a deadline.
-- Category creation takes `kind`, not `type`.
-- In headless Playwright the first `text=Revisar` match is the hidden header pill on phone; wait for
-  `text=Extrato da conta >> visible=true`.
-
----
-
+- `test_fixed_income_interest.py::TestTheCouponReachesTheAccount` fails locally between 21:00 and
+  midnight BRT (UTC is already tomorrow); it passes in CI (UTC). Pre-existing.
+- The Chrome tool hides a JS result that echoes certain strings ("[BLOCKED: Cookie/query string
+  data]") — the code still ran; re-read state instead of re-running writes.
+- The Conferência pairs by amount/date (±3 days), not by link: re-typing a row with the bank's
+  amount and date is enough to clear it.
