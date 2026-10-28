@@ -40,6 +40,7 @@ import { APROVAR_PATH } from '../../lib/navigation'
 import { cardAmountSign, isCardRow, mergeStatement, oldestDate, statementKey, waitingNoticeText } from '../../lib/review'
 import { useReviewQueue } from '../../lib/reviewQueue'
 import ReviewPanel from './ReviewPanel'
+import CardPurchaseEditSheet from './CardPurchaseEditSheet'
 
 // review=1: so o que gravou sozinho e espera a revisao (045).
 const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '', review: '' }
@@ -291,6 +292,19 @@ function ExtratoContas({ viewSwitch }) {
   const [exportOpen, setExportOpen] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState(null)
+  // Compra no cartao com categoria/descricao em edicao (as parcelas juntas).
+  const [cardEditFor, setCardEditFor] = useState(null)
+  const editCardPurchase = (transaction) => setCardEditFor({
+    kind: 'card',
+    id: transaction.id,
+    description: transaction.description,
+    category: transaction.category,
+    category_id: transaction.category_id,
+    amount: transaction.amount,
+    refund: transaction.type === 'REFUND',
+    installmentTotal: transaction.installments,
+    cardName: transaction.card_name,
+  })
   const [editForm, setEditForm] = useState({ amount: '', date: '', category_id: '', description: '', type: 'EXPENSE', account_id: '', transfer_account_id: '', share: shareFormFrom(null) })
 
   // Filtros do extrato: aplicados no backend (GET /api/transactions?...).
@@ -552,10 +566,14 @@ function ExtratoContas({ viewSwitch }) {
   // Lancamento gerado por outra tela: sem editar aqui, so diz de onde veio.
   const rowActions = (transaction) => (
     isCardRow(transaction) ? (
-      // A compra no cartao (045): parcelas, divisao e estorno ficam em Cartoes.
-      <Link to="/lancamentos/cartoes" className="self-center text-xs font-semibold text-zinc-500 underline-offset-2 hover:underline">
-        Ver em Cartões
-      </Link>
+      // A compra no cartao (045): categoria e descricao aqui (a paga nao esta
+      // mais em Cartoes); parcelas, divisao e estorno ficam em Cartoes.
+      <div className="flex min-w-0 items-center justify-end gap-1.5">
+        <IconButton label="Editar categoria" icon={Pencil} size="sm" onClick={() => editCardPurchase(transaction)} />
+        <Link to="/lancamentos/cartoes" className="self-center text-xs font-semibold text-zinc-500 underline-offset-2 hover:underline">
+          Ver em Cartões
+        </Link>
+      </div>
     ) : !isEditableHere(transaction) ? (
       <>
         <span className="min-w-0 truncate self-center text-xs text-zinc-500" title={originLabel(transaction)}>{originLabel(transaction)}</span>
@@ -877,14 +895,15 @@ function ExtratoContas({ viewSwitch }) {
                 return (
                   <li key={rowKey} className={cx(arrived.has(rowKey) && 'animate-flash-emerald')}>
                     {isCardRow(transaction) ? (
-                      // A compra no cartao: so aparece; edita-se em Cartoes.
-                      <Link
-                        to="/lancamentos/cartoes"
-                        aria-label={`${transaction.description || transaction.category} em Cartões`}
+                      // A compra no cartao: o toque edita categoria e descricao.
+                      <button
+                        type="button"
+                        onClick={() => editCardPurchase(transaction)}
+                        aria-label={`Editar ${transaction.description || transaction.category}`}
                         className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-zinc-50"
                       >
                         {content}
-                      </Link>
+                      </button>
                     ) : editable ? (
                       <button
                         type="button"
@@ -955,6 +974,12 @@ function ExtratoContas({ viewSwitch }) {
         transaction={attachmentsFor}
         onClose={() => setAttachmentsFor(null)}
         onChanged={fetchData}
+      />
+      <CardPurchaseEditSheet
+        target={cardEditFor}
+        categoryOptions={categoryOptionsFor('EXPENSE')}
+        onClose={() => setCardEditFor(null)}
+        onSaved={fetchData}
       />
       <ExportSheet
         open={exportOpen}

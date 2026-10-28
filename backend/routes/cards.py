@@ -41,7 +41,7 @@ from services.invoices import (
     invoice_label,
     invoice_open_lines,
     local_today,
-    purchase_invoice_start,
+    purchase_invoices,
     refund_invoice,
     require_active_card,
     serialize_cc_expense,
@@ -579,7 +579,9 @@ def create_cc_purchase(current_user_id):
             purchase_id = client_id or new_id()
             # Numa fatura ja paga a compra ficaria em aberto para sempre (o
             # debito nao roda de novo): ela comeca na primeira nao paga.
-            start = purchase_invoice_start(conn, current_user_id, card, purchase["purchase_date"])
+            start = purchase_invoices(
+                conn, current_user_id, card, purchase["purchase_date"], purchase["installments"],
+            )
             rows = build_installment_rows(purchase, card, start)
             inserted = []
             for row in rows:
@@ -669,6 +671,51 @@ def delete_cc_purchase(current_user_id, item_id):
         )
     remove_attachment_files(current_user_id, stored_names)
     return jsonify({"deleted": len(open_ids), "kept_paid": len(ids) - len(open_ids), "ids": open_ids}), 200
+
+
+@bp.route("/api/cc-expenses/purchases/<item_id>", methods=["PATCH"])
+@token_required
+def update_cc_purchase(current_user_id, item_id):
+    """Corrige a categoria e/ou a descricao de uma compra no cartao (ou de um
+    estorno): todas as parcelas dela juntas, pagas inclusive.
+
+    Valor, data, cartao e parcelas nao mudam aqui: eles decidem as faturas
+    (exclua e lance de novo). A categoria e pelo id (035), como no "+ Novo".
+    """
+    payload = parse_json_body()
+    if not isinstance(payload, dict):
+        return validation_error("Informe a compra.")
+    with get_db() as conn:
+        ids = cc_purchase_expense_ids(conn, current_user_id, item_id)
+        if not ids:
+            return jsonify({"error": "Compra nao encontrada."}), 404
+        first = conn.execute(
+            "SELECT * FROM cc_expenses WHERE id = ? AND user_id = ?", (ids[0], current_user_id),
+        ).fetchone()
+        updates = {}
+        try:
+            if "category" in payload or "category_id" in payload:
+                updates["category"], updates["category_id"] = resolve_category(
+                    conn, current_user_id, payload, current=first,
+                )
+            if "description" in payload:
+                updates["description"] = require_string(payload, "description", "Descricao", max_length=500)
+        except ValidationError as exc:
+            return validation_error(str(exc))
+        if not updates:
+            return validation_error("Informe a categoria ou a descricao.")
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(
+            f"UPDATE cc_expenses SET {assignments} WHERE user_id = ? AND id IN ({placeholders})",
+            (*updates.values(), current_user_id, *ids),
+        )
+        rows = conn.execute(
+            f"SELECT * FROM cc_expenses WHERE user_id = ? AND id IN ({placeholders})"
+            " ORDER BY invoice_year, invoice_month, id",
+            (current_user_id, *ids),
+        ).fetchall()
+    return jsonify([row_to_dict(row) for row in rows]), 200
 
 
 @bp.route("/api/cc-expenses/refunds", methods=["POST"])
@@ -827,7 +874,8 @@ def cc_expense_statement(current_user_id):
 @bp.route("/api/cc-expenses/<item_id>/share", methods=["PATCH"])
 @token_required
 def update_cc_purchase_share(current_user_id, item_id):
-    """De quem e a compra (032): a unica coisa que se edita numa compra no cartao.
+    """De quem e a compra (032); categoria e descricao vao por
+    PATCH /api/cc-expenses/purchases/<id>.
 
     Vale para a compra inteira — todas as parcelas, cada uma com a sua fatia
     da parte dos outros (services/sharing.py).

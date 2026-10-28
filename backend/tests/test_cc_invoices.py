@@ -172,7 +172,7 @@ def test_one_next_per_card_by_due_date_paid_ignored(world, clock):
 
 
 def test_nearest_overdue_first_else_first_next(world, clock):
-    assert world.invoices() == {"today": "2026-10-20", "nearest": None, "open_total": 0, "cards": []}
+    assert world.invoices() == {"today": "2026-10-20", "nearest": None, "open_total": 0, "cards": [], "debit_cards": []}
 
     card = world.card()
     late = world.card("Tarde", due_day=5, closing_day=25)
@@ -203,14 +203,16 @@ def test_future_is_after_first_not_closed(world, clock):
     ]
 
 
-def test_sorted_by_card_name_then_month_then_description(world, clock):
+def test_sorted_by_card_name_then_month_then_purchase_date(world, clock):
+    """As compras de uma fatura vao pela data da compra, a mais nova primeiro
+    (dono, 2026-10-28), nunca pela descricao nem pela ordem em que entraram."""
     zeta = world.card("Zeta")
     alamo = world.card("álamo")
     beta = world.card("Beta")
     for card in (zeta, alamo, beta):
         world.purchase(card, 10, "2026-11-04", "uber")
-        world.purchase(card, 10, "2026-11-04", "Água")
-        world.purchase(card, 10, "2026-11-04", "Bar")
+        world.purchase(card, 10, "2026-11-06", "Água")
+        world.purchase(card, 10, "2026-11-05", "Bar")
         world.purchase(card, 10, "2026-10-10", "Antes")
 
     data = world.invoices()
@@ -218,6 +220,9 @@ def test_sorted_by_card_name_then_month_then_description(world, clock):
     first = data["cards"][0]
     assert [item["key"] for item in first["invoices"]] == ["2026-11", "2026-12"]
     assert [item["description"] for item in first["invoices"][1]["purchases"]] == ["Água", "Bar", "uber"]
+    assert [item["purchase_date"] for item in first["invoices"][1]["purchases"]] == [
+        "2026-11-06", "2026-11-05", "2026-11-04",
+    ]
     assert first["total"] == 40 and data["open_total"] == 120
 
 

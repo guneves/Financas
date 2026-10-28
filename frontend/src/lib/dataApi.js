@@ -214,6 +214,11 @@ export const ccExpensesApi = {
   // As compras no cartao para o Extrato (045): uma linha por compra, com os
   // filtros do extrato.
   statement: (params = {}) => apiFetch(`/api/cc-expenses/statement${queryString(params)}`),
+  // Categoria e descricao de uma compra (ou estorno): todas as parcelas, pagas inclusive.
+  updatePurchase: (id, payload) => apiFetch(`/api/cc-expenses/purchases/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
   // De quem e a compra (032): vale para todas as parcelas.
   updateShare: (id, payload) => apiFetch(`/api/cc-expenses/${id}/share`, {
     method: 'PATCH',

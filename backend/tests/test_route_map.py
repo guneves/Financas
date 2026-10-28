@@ -31,6 +31,7 @@ EXPECTED_ROUTES = {
     ("/api/cc-expenses/payments/<item_id>", "DELETE"),
     ("/api/cc-expenses/purchases", "POST"),
     ("/api/cc-expenses/purchases/<item_id>", "DELETE"),
+    ("/api/cc-expenses/purchases/<item_id>", "PATCH"),
     ("/api/cc-expenses/refunds", "POST"),
     ("/api/cc-expenses/<item_id>/share", "PATCH"),
     # Inicio, avisos e faturas (routes/home.py).
