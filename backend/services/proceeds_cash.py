@@ -17,7 +17,7 @@ com valor zero ou volta a ser agendado. Sem conta da carteira nada novo e
 gravado.
 """
 
-from dates import parse_iso_date
+from dates import parse_iso_date, parse_iso_datetime
 from db import encode_metadata, parse_metadata_value
 from money import rounded_money
 from services.investments import PORTFOLIO_ACCOUNT_TYPE, portfolio_cash_account_id
@@ -40,8 +40,10 @@ def portfolio_since(account):
     parsed = parse_iso_date(value) if isinstance(value, str) else None
     if parsed:
         return parsed.date().isoformat()
-    # Conta criada ja como Corretora: desde o dia em que foi criada.
-    return str(account["created_at"] or "")[:10]
+    # Conta criada ja como Corretora: desde o dia (local, como local_today) em
+    # que foi criada; created_at e UTC, e depois das 21h ja seria amanha.
+    created = parse_iso_datetime(account["created_at"])
+    return created.astimezone().date().isoformat() if created else ""
 
 
 def mark_portfolio_since(metadata_value):

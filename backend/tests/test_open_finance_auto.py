@@ -323,6 +323,7 @@ class TestTransfers:
         auto_on(world)
         world.fake.add_tx(pluggy_account, bank_tx(-80, "2026-10-26", "PIX FULANO", category_id="05070000",
                                                   counterparty="Fulano de Tal", doc="12345678901"))
+        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 10, 26).date())
         world.sync(item_id)
         assert world.transactions(mine) == []
         monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 10, 29).date())

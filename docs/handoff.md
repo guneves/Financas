@@ -7,6 +7,24 @@
 
 ---
 
+## Addendum — 2026-10-27 (9) · Failed deploy fixed, `main` pushed
+
+The deploy of `174924f` (conta-global) failed in CI on one test; fixed and pushed `main` (which also
+carries session 8's `of-duplicate-guard` merge, so both are now deployed).
+- `test_open_finance_auto.py::test_a_pix_to_someone_else_is_held_two_days_then_recorded` was a date
+  bomb: the first sync used the real clock, so once today was ≥ 2026-10-28 (CI is UTC) the 2-day hold
+  on a 2026-10-26 Pix had expired. It now pins `local_today` to the Pix day for the first sync.
+- Real bug found locally after 21:00: a Corretora without `metadata.portfolio_since` fell back to
+  `created_at[:10]`, a **UTC** date, so a provento paid today was skipped in Brazil's evening
+  (`test_fixed_income_interest.py` failed locally, never in UTC CI). `portfolio_since()` now converts
+  `created_at` to the local date, like `local_today()`.
+- Lesson: tests with hard-coded October 2026 dates near "today" break as the clock passes them; pin
+  `invoices.local_today` for every sync, and run the suite in the evening too (UTC vs local).
+- Not done here (the owner routed it to the other session): "remove all Para revisar flags" —
+  clear `needs_review` so the app starts clean for daily use.
+
+---
+
 ## Session — 2026-10-27 (8) · Pluggy duplicates of notification rows
 
 Owner asked to check that notifications record at once and Pluggy (every 6 h) fills what is missing,
