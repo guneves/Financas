@@ -23,6 +23,9 @@ class InvestimentosRepository(
 
     fun portfolio(): Flow<Load<PortfolioDto>> = reader.read(PORTFOLIO_PATH, PortfolioDto.serializer())
 
+    /** A conta investimento (049); 404 sem Corretora. */
+    fun settlement(): Flow<Load<SettlementDto>> = reader.read(SETTLEMENT_PATH, SettlementDto.serializer())
+
     fun operations(): Flow<Load<List<OperationDto>>> =
         reader.read(LancamentosRepository.INVESTMENTS_PATH, ListSerializer(OperationDto.serializer()))
 
@@ -187,6 +190,7 @@ class InvestimentosRepository(
 
     companion object {
         const val PORTFOLIO_PATH = "/api/investments/portfolio?refresh_prices=false"
+        const val SETTLEMENT_PATH = "/api/investments/settlement"
         const val CORPORATE_ACTIONS_PATH = "/api/corporate-actions"
         const val ASSETS_PATH = "/api/assets"
         const val PORTFOLIO_EXPORT_PATH = "/api/investments/portfolio/export"

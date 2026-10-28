@@ -18,13 +18,12 @@ import {
   SummaryPanel,
   cx,
 } from '../../components/ui'
-import { accountsApi, investmentsApi } from '../../lib/dataApi'
-import { useQuery } from '../../lib/queries'
-import { isPortfolioAccount, portfolioCashBalance } from '../../lib/transactions'
+import { investmentsApi } from '../../lib/dataApi'
 import { formatCurrency, formatDateBR, formatPercent, formatQuantity, formatSignedCurrency, getLocalDateString } from '../../lib/format'
 import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import { toast } from '../../lib/toast'
 import PortfolioOverview from './PortfolioOverview'
+import ContaInvestimento from './ContaInvestimento'
 import {
   formatDateTime,
   getClassLabel,
@@ -314,6 +313,8 @@ export default function Posicao() {
 
       {assets.length > 0 && totals ? <PortfolioSummary totals={totals} /> : null}
 
+      <ContaInvestimento />
+
       {assets.length > 0 ? (
         <PortfolioOverview assets={assets} getClassLabel={getClassLabel} />
       ) : null}
@@ -440,22 +441,13 @@ export default function Posicao() {
 // liquido estimado (IR regressivo da renda fixa), como o backend soma. Os
 // valores somem no modo privado; o percentual fica, como a rentabilidade.
 //
-// O saldo das contas Corretora aparece so aqui (dono, 2026-10-17): e o dinheiro
-// da carteira que ainda nao virou ativo, e o Inicio nao o conta.
+// O saldo da Corretora fica na Conta investimento logo abaixo (049): hoje, em
+// transito e depois de liquidar; o Inicio nao o conta.
 function PortfolioSummary({ totals }) {
   const money = usePrivateFormatter(formatCurrency)
   const hidden = useValuesHidden()
   const result = totals.value - totals.invested
   const resultPercent = totals.invested > 0 ? (result / totals.invested) * 100 : 0
-  const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
-  const brokerages = (accountsQuery.data || []).filter(isPortfolioAccount)
-  const cashFigure = brokerages.length
-    ? [{
-        label: 'Saldo na corretora',
-        value: money(portfolioCashBalance(brokerages)),
-        hint: brokerages.length === 1 ? brokerages[0].name : `${brokerages.length} contas Corretora`,
-      }]
-    : []
   return (
     <SummaryPanel
       lead={{ label: 'Carteira', value: money(totals.value), hint: 'Valor de mercado bruto' }}
@@ -468,7 +460,6 @@ function PortfolioSummary({ totals }) {
           tone: hidden ? 'neutral' : result >= 0 ? 'gain' : 'loss',
         },
         { label: 'Líquido estimado', value: money(totals.netValue), hint: 'Após IR e custódia da renda fixa' },
-        ...cashFigure,
       ]}
     />
   )

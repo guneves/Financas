@@ -159,6 +159,8 @@ export default function Operacoes() {
       is_treasury_buy: mov.asset_category === 'TESOURO' && !mov.metadata?.is_redemption && Number(mov.quantity) > 0,
       treasury_units: mov.metadata?.treasury_units ? String(mov.metadata.treasury_units).replace('.', ',') : '',
       movement_date: movementDate ? String(movementDate).slice(0, 10) : '',
+      settlement_date: mov.metadata?.settlement_date || '',
+      settlement_amount: mov.metadata?.settlement_amount ? String(mov.metadata.settlement_amount).replace('.', ',') : '',
       cash_link: cashLink,
       saved_cash_account_id: cashLink.accountId,
     })
@@ -197,6 +199,15 @@ export default function Operacoes() {
       delete metadata.sale_date
       delete metadata.redemption_date
       metadata.other_costs = otherCosts
+      // Liquidacao (049): vazio volta para a conta do app (D+2 na B3, valor da operacao).
+      const settlementAmount = editModal.settlement_amount === '' ? null : parseNumberInput(editModal.settlement_amount)
+      if (settlementAmount !== null && (!Number.isFinite(settlementAmount) || settlementAmount <= 0)) {
+        throw new Error('Informe um valor liquidado válido.')
+      }
+      delete metadata.settlement_date
+      delete metadata.settlement_amount
+      if (editModal.settlement_date) metadata.settlement_date = editModal.settlement_date
+      if (settlementAmount !== null) metadata.settlement_amount = settlementAmount
       // A conta da carteira, ou `null` quando marcado "Não descontar de nenhuma conta".
       Object.assign(metadata, cashLinkMetadata(editModal.cash_link, { editing: true }))
 
@@ -443,6 +454,17 @@ export default function Operacoes() {
             <Field label="Data da operação">
               <input type="date" value={editModal.movement_date} onChange={(e) => setEditField('movement_date', e.target.value)} className="app-input" required />
             </Field>
+
+            {editModal.cash_link?.enabled && editModal.cash_link?.accountId ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Liquidação (opcional)" hint="Vazio: D+2 úteis na B3, no dia para renda fixa.">
+                  <input type="date" value={editModal.settlement_date} min={editModal.movement_date || undefined} onChange={(e) => setEditField('settlement_date', e.target.value)} className="app-input" />
+                </Field>
+                <Field label="Valor liquidado (R$, opcional)" hint="Como na nota: com taxas.">
+                  <input type="text" inputMode="decimal" value={editModal.settlement_amount} onChange={(e) => setEditField('settlement_amount', e.target.value)} placeholder="Ex: 5.201,57" className="app-input" />
+                </Field>
+              </div>
+            ) : null}
 
             <CashLinkField
               value={editModal.cash_link}
