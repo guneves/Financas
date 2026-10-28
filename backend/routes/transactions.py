@@ -17,14 +17,13 @@ from export_csv import ColumnError
 from responses import export_response, read_export_options
 from services.accounts import (
     CLIENT_ID_OTHER_KIND_MESSAGE,
-    TRANSFER_CURRENCY_MESSAGE,
     fetch_account,
     fetch_transaction_by_client_id,
     keep_or_require_account,
     resolve_account_id,
     resolve_category,
+    transfer_amount_for,
 )
-from services.fx import normalize_currency
 from services import auto_record
 from services.attachments import remove_attachment_files
 from services.inbox_decisions import absorb_created
@@ -105,6 +104,13 @@ def transaction_filter_clause(conn, current_user_id, args):
     if account_id:
         clauses.append("(account_id = ? OR transfer_account_id = ?)")
         params.extend([account_id, account_id])
+    else:
+        # O Extrato e em reais: o que a conta global (outra moeda) movimenta
+        # sozinha fica na tela dela; a transferencia de reais para ela fica.
+        clauses.append(
+            "NOT EXISTS (SELECT 1 FROM accounts fa WHERE fa.id = transactions.account_id"
+            " AND fa.user_id = transactions.user_id AND COALESCE(fa.currency, 'BRL') <> 'BRL')"
+        )
 
     category_id = str(args.get("category_id") or "").strip()
     if category_id:
@@ -378,26 +384,29 @@ def update_transaction(current_user_id, item_id):
         except ValidationError as exc:
             return validation_error(str(exc))
 
-        if not updates:
-            return validation_error("Informe ao menos um campo para atualizar.")
-
         origin = updates.get("account_id", item["account_id"])
         destination = updates.get("transfer_account_id", item["transfer_account_id"])
         if item["type"] == "TRANSFER" and origin == destination:
             return validation_error("Origem e destino devem ser contas diferentes.")
-        if item["type"] == "TRANSFER" and ("account_id" in updates or "transfer_account_id" in updates):
-            # A mesma regra da criacao (POST /api/transfers): um valor so nao
-            # serve para duas moedas.
-            currencies = {
-                normalize_currency(row["currency"])
-                for row in (
-                    fetch_account(conn, current_user_id, origin),
-                    fetch_account(conn, current_user_id, destination),
-                )
-                if row
-            }
-            if len(currencies) > 1:
-                return validation_error(TRANSFER_CURRENCY_MESSAGE)
+        if item["type"] == "TRANSFER" and (
+            "account_id" in updates or "transfer_account_id" in updates or "transfer_amount" in payload
+        ):
+            # A mesma regra da criacao (POST /api/transfers): entre moedas, o
+            # valor que entrou no destino (047); na mesma moeda, nenhum.
+            try:
+                origin_row = fetch_account(conn, current_user_id, origin)
+                destination_row = fetch_account(conn, current_user_id, destination)
+                if origin_row and destination_row:
+                    transfer_amount = transfer_amount_for(origin_row, destination_row, payload, current=item)
+                    if transfer_amount != item["transfer_amount"]:
+                        updates["transfer_amount"] = transfer_amount
+            except ValidationError as exc:
+                return validation_error(str(exc))
+        elif "transfer_amount" in payload:
+            return validation_error("Valor no destino so se aplica a transferencias.")
+
+        if not updates:
+            return validation_error("Informe ao menos um campo para atualizar.")
 
         assignments = ", ".join(f"{column} = ?" for column in updates)
         conn.execute(

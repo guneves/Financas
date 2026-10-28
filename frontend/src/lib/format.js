@@ -24,6 +24,23 @@ export function formatCurrency(value) {
   }).format(Number(value || 0)))
 }
 
+// So a tela da Conta global (pages/ContaGlobal.jsx) mostra outra moeda: o saldo
+// e o extrato da conta em dolar, "US$ 46,10". Em qualquer outro lugar e real.
+export function formatForeignCurrency(value, currency = 'USD') {
+  return withTrueMinus(new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency,
+  }).format(Number(value || 0)))
+}
+
+export function formatSignedForeignCurrency(value, sign, currency = 'USD') {
+  const amount = Math.abs(Number(value || 0))
+  const direction = sign ?? Math.sign(Number(value || 0))
+  const body = formatForeignCurrency(amount, currency)
+  if (!direction || amount === 0) return body
+  return `${direction > 0 ? '+' : MINUS}${body}`
+}
+
 // Valor com sinal explicito, para listas de entradas e saidas: "+R$ 8.500,00",
 // "−R$ 1.048,22". `sign` (1, -1 ou 0) vale quando o valor vem sempre positivo
 // e o sentido esta no tipo do lancamento; zero sai sem sinal. O espaco depois

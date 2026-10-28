@@ -55,7 +55,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import statement_import
 from db import new_id, row_to_dict, utc_timestamp
 from open_finance_categories import expected_type, pluggy_category_name
-from services import inbox, review
+from services import global_account, inbox, review
 from services.accounts import category_id_for_name, fetch_category
 from services.import_rules import import_rules_for_matching
 from source_types import INVOICE_PAYMENT_SOURCE_TYPES, OPEN_FINANCE_SOURCE_TYPE
@@ -199,8 +199,12 @@ def learn_charge_sign(transactions, stored_sign=None, stored_source=None):
     return 1, "default"
 
 
-def normalize_transaction(raw, account_type, charge_sign=1, include_pending=False):
-    """Os campos do app de uma transacao da Pluggy, ou Skip."""
+def normalize_transaction(raw, account_type, charge_sign=1, include_pending=False, account_currency="BRL"):
+    """Os campos do app de uma transacao da Pluggy, ou Skip.
+
+    O valor fica na moeda da conta: a compra no exterior de um cartao em reais
+    vem em `amountInAccountCurrency`; na conta global (USD) o valor em dolar ja
+    e o da conta e nunca vira real."""
     if not isinstance(raw, dict) or not raw.get("id"):
         raise Skip("sem id")
     if not include_pending and str(raw.get("status") or "POSTED").upper() == "PENDING":
@@ -210,9 +214,10 @@ def normalize_transaction(raw, account_type, charge_sign=1, include_pending=Fals
         # faz a velha sumir do pull e o item ir para REMOVED (vanish_missing).
         raise Skip(STATUS_SKIPPED_PENDING)
     amount = raw.get("amount")
-    currency = str(raw.get("currencyCode") or "BRL").upper()
-    if currency != "BRL" and raw.get("amountInAccountCurrency") is not None:
-        amount, currency = raw["amountInAccountCurrency"], "BRL"
+    account_currency = str(account_currency or "BRL").upper()
+    currency = str(raw.get("currencyCode") or account_currency).upper()
+    if currency != account_currency and raw.get("amountInAccountCurrency") is not None:
+        amount, currency = raw["amountInAccountCurrency"], account_currency
     signed = to_cents(amount)
     if not signed:
         raise Skip("valor zero")
@@ -411,7 +416,14 @@ def place(conn, current_user_id, row, account, rules=None):
     if partner:
         return _join_item(conn, current_user_id, row, inbox.item_dict(partner), entry_type, account_id, card_id)
 
-    # 2. A outra ponta de uma transferencia entre contas do dono.
+    # 2. A outra ponta de uma transferencia para a conta global (em dolar):
+    #    o par e pela contraparte e pelo dia, nunca pelos centavos.
+    if account["type"] == "BANK":
+        crossed = _place_cross_currency(conn, current_user_id, row, account_id, cents)
+        if crossed:
+            return crossed
+
+    # 3. A outra ponta de uma transferencia entre contas do dono.
     if account["type"] == "BANK" and row["movement"] in ("TRANSFER", "SELF_TRANSFER"):
         approved = inbox.approved_transfer_awaiting(
             conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
@@ -434,9 +446,143 @@ def place(conn, current_user_id, row, account, rules=None):
             )
             return "merged"
 
-    # 3. Um item novo.
+    # 4. Um item novo.
     new_item_for_row(conn, current_user_id, row, account, rules)
     return "new"
+
+
+def _place_cross_currency(conn, current_user_id, row, account_id, cents):
+    """A conta global (services/global_account.py): a entrada em dolar acha a
+    saida em reais que a espera (ou a transferencia ja no app), e a saida em
+    reais acha a entrada em dolar. Devolve o status, ou None (segue o resto)."""
+    if global_account.is_foreign(conn, current_user_id, account_id):
+        if row["direction"] != "IN":
+            return None
+        target = _app_account(conn, current_user_id, account_id)
+        recorded = global_account.recorded_transfer(conn, current_user_id, target, cents, row["date"])
+        if recorded:
+            if recorded["transfer_amount"] is None:
+                # A conta virou global depois: o valor em dolar e o do banco.
+                conn.execute(
+                    "UPDATE transactions SET transfer_amount = ? WHERE id = ? AND user_id = ?",
+                    (inbox._reais(cents), recorded["id"], current_user_id),
+                )
+            _update_row(
+                conn, current_user_id, row["id"], role="MATCHED", item_id=None,
+                target_table="transactions", target_id=recorded["id"],
+            )
+            return "matched"
+        waiting = global_account.awaiting_real_side(conn, current_user_id, target, cents, row["date"])
+        if not waiting:
+            return None
+        item = inbox.item_dict(waiting)
+        _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
+        changes = {
+            "transfer_account_id": target["id"],
+            "transfer_amount": inbox._reais(cents),
+            "guessed": [guess for guess in item.get("guessed") or [] if guess != "transfer_account"],
+            "description": global_account.transfer_description(
+                global_account.account_name(conn, current_user_id, item["account_id"]), target["name"],
+            ),
+        }
+        changes["needs"] = inbox.recompute_needs({**item, **changes})
+        inbox.save_item(conn, current_user_id, item, changes)
+        return "merged"
+
+    destination = global_account.destination_for_row(conn, current_user_id, row, account_id)
+    if destination is None:
+        return None
+    waiting = global_account.awaiting_foreign_side(conn, current_user_id, destination, cents, row["date"])
+    if not waiting:
+        return _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, destination, cents)
+    item = inbox.item_dict(waiting)
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
+    changes = {
+        "entry_type": "TRANSFER",
+        "direction": "OUT",
+        "account_id": account_id,
+        "transfer_account_id": destination["id"],
+        "amount": inbox._reais(cents),
+        "currency": "BRL",
+        "transfer_amount": item["amount"],
+        # A data da transferencia e a da saida.
+        "occurred_at": row["occurred_at"],
+        "category": inbox.TRANSFER_CATEGORY,
+        "category_id": None,
+        "edited": [field for field in item.get("edited") or [] if field != "amount"],
+        "reason": "own_transfer",
+        "description": global_account.transfer_description(
+            global_account.account_name(conn, current_user_id, account_id), destination["name"],
+        ),
+    }
+    changes["needs"] = inbox.recompute_needs({**item, **changes})
+    inbox.save_item(conn, current_user_id, item, changes)
+    return "merged"
+
+
+def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, destination, cents):
+    """O credito em dolar ja virou receita sozinho (puxado antes, sem par em
+    TRANSFER_HOLD_DAYS) e ainda esta como nasceu: a mesma linha vira a
+    transferencia — nunca receita em dolar mais despesa em reais."""
+    candidates = []
+    for entry in conn.execute(
+        """
+        SELECT o.*, i.id AS the_item, i.target_id AS the_target, t.amount AS dollars,
+               substr(i.occurred_at, 1, 10) AS item_date
+        FROM open_finance_transactions o
+        JOIN inbox_items i ON i.id = o.item_id AND i.user_id = o.user_id
+        JOIN transactions t ON t.id = i.target_id AND t.user_id = i.user_id
+        WHERE o.user_id = ? AND o.role = 'SOURCE' AND o.direction = 'IN' AND o.auto_recorded_at IS NOT NULL
+          AND i.state = 'APPROVED' AND i.target_table = 'transactions'
+          AND t.type = 'INCOME' AND t.account_id = ?
+        """,
+        (current_user_id, destination["id"]),
+    ).fetchall():
+        source = row_to_dict(entry)
+        source.update(target_table="transactions", target_id=source["the_target"])
+        if untouched(conn, current_user_id, source):
+            candidates.append({**source, "id": source["the_item"], "date": source["item_date"]})
+    best = global_account._best(
+        conn, current_user_id, normalize_currency_of(destination), row["date"], candidates,
+        brl_of=lambda candidate: cents, foreign_of=lambda candidate: inbox._cents(candidate["dollars"]),
+    )
+    if not best:
+        return None
+    item = inbox.item_dict(inbox.fetch_item(conn, current_user_id, best["the_item"]))
+    target_id = best["the_target"]
+    description = global_account.transfer_description(
+        global_account.account_name(conn, current_user_id, account_id), destination["name"],
+    )
+    conn.execute(
+        """
+        UPDATE transactions SET type = 'TRANSFER', account_id = ?, transfer_account_id = ?, amount = ?,
+            transfer_amount = ?, date = ?, occurred_at = ?, category = ?, category_id = NULL, description = ?,
+            source_id = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (account_id, destination["id"], inbox._reais(cents), best["dollars"], row["date"], row["occurred_at"],
+         inbox.TRANSFER_CATEGORY, description, row["pluggy_transaction_id"], target_id, current_user_id),
+    )
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
+    inbox.save_item(conn, current_user_id, item, {
+        "entry_type": "TRANSFER", "direction": "OUT", "account_id": account_id,
+        "transfer_account_id": destination["id"], "amount": inbox._reais(cents), "currency": "BRL",
+        "transfer_amount": best["dollars"], "occurred_at": row["occurred_at"],
+        "category": inbox.TRANSFER_CATEGORY, "category_id": None, "description": description,
+    })
+    mark_auto_recorded(conn, current_user_id, item["id"], "transactions", target_id)
+    return "merged"
+
+
+def normalize_currency_of(account):
+    return str(account["currency"] or "BRL").upper()
+
+
+def _app_account(conn, current_user_id, account_id):
+    return conn.execute(
+        "SELECT id, name, institution, currency FROM accounts WHERE id = ? AND user_id = ?",
+        (account_id, current_user_id),
+    ).fetchone()
 
 
 def _is_movement_item(conn, current_user_id, item_row):
@@ -637,9 +783,12 @@ def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
         hint = inbox.remembered_transfer(
             conn, current_user_id, account_id=account_id, direction=direction, description=row["description"],
         )
-        own = hint is not None or row["movement"] == "SELF_TRANSFER" or _is_self(conn, current_user_id, row)
+        to_global = global_account.destination_for_row(conn, current_user_id, row, account_id) is not None
+        own = to_global or hint is not None or row["movement"] == "SELF_TRANSFER" or _is_self(conn, current_user_id, row)
         if own:
-            other = hint["transfer_account_id"] if hint else None
+            # Para a conta global, o destino so entra com a ponta em dolar
+            # (_place_cross_currency): ate la a transferencia espera.
+            other = hint["transfer_account_id"] if hint and not to_global else None
             origin, destination = (account_id, other) if direction == "OUT" else (other, account_id)
             values.update({
                 "entry_type": "TRANSFER",
@@ -651,6 +800,11 @@ def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
             })
         elif (row["counterparty"] or row["counterparty_doc"]) and values["reason"] == "new":
             values["reason"] = "external_transfer"
+    if (row["currency"] or "BRL") != "BRL" and account_id and (
+        global_account.account_currency(conn, current_user_id, account_id) == row["currency"]
+    ):
+        # A conta global: o valor ja e o da conta, nada a converter.
+        values["edited"] = ["amount"]
     if "category" not in values:
         values["category"], values["category_id"] = category_for_row(
             conn, current_user_id, row, values["entry_type"], amount, values["account_id"], rules,
@@ -799,13 +953,17 @@ def target_snapshot(conn, current_user_id, table, target_id):
     Na compra no cartao, todas as parcelas da compra (o client_id)."""
     if table == "transactions":
         row = conn.execute(
-            f"SELECT {', '.join(TRANSACTION_SNAPSHOT_COLUMNS)} FROM transactions WHERE id = ? AND user_id = ?",
+            f"SELECT {', '.join(TRANSACTION_SNAPSHOT_COLUMNS)}, transfer_amount FROM transactions WHERE id = ? AND user_id = ?",
             (target_id, current_user_id),
         ).fetchone()
         if not row:
             return None
         snapshot = {column: row[column] for column in TRANSACTION_SNAPSHOT_COLUMNS}
         snapshot["amount"] = _snapshot_cents(snapshot["amount"])
+        if row["transfer_amount"] is not None:
+            # Entre moedas (047); so quando existe, para os snapshots de antes
+            # continuarem iguais.
+            snapshot["transfer_amount"] = _snapshot_cents(row["transfer_amount"])
         snapshot["attachments"] = conn.execute(
             "SELECT COUNT(*) FROM transaction_attachments WHERE user_id = ? AND transaction_id = ?",
             (current_user_id, target_id),

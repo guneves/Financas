@@ -43,7 +43,8 @@ class SettingsTest {
         assertEquals(Settings.AccountMenu(makeDefault = true, linkToPortfolio = true, unlinkFromPortfolio = false), Settings.accountMenu("CHECKING", false, "BRL"))
         assertEquals(Settings.AccountMenu(makeDefault = false, linkToPortfolio = false, unlinkFromPortfolio = false), Settings.accountMenu("CHECKING", true, "BRL"))
         assertEquals(Settings.AccountMenu(makeDefault = false, linkToPortfolio = false, unlinkFromPortfolio = true), Settings.accountMenu("BROKERAGE", false, "BRL"))
-        assertEquals(Settings.AccountMenu(makeDefault = true, linkToPortfolio = false, unlinkFromPortfolio = false), Settings.accountMenu("SAVINGS", false, "USD"))
+        // A conta em outra moeda (Conta global) nunca e a padrao nem a da carteira.
+        assertEquals(Settings.AccountMenu(makeDefault = false, linkToPortfolio = false, unlinkFromPortfolio = false), Settings.accountMenu("SAVINGS", false, "USD"))
     }
 
     @Test
@@ -74,5 +75,21 @@ class SettingsTest {
         assertFalse(Settings.canSaveUsername("Ana", "Ana"))
         assertFalse(Settings.canSaveUsername("A", null))
         assertTrue(Settings.canSaveUsername("Bia", "Ana"))
+    }
+
+    @Test
+    fun aContaGlobalEUmTipoSoDaNovaConta() {
+        assertEquals("Conta global (US$)", Settings.NEW_ACCOUNT_TYPES.last().second)
+        assertEquals(Settings.ACCOUNT_TYPES, Settings.NEW_ACCOUNT_TYPES.dropLast(1))
+        val global = Settings.newAccountBody("Wise", Settings.GLOBAL_TYPE, "Wise", java.math.BigDecimal.ZERO)
+        assertEquals("CHECKING", global["type"])
+        assertEquals("USD", global["currency"])
+        val plain = Settings.newAccountBody("BB", "SAVINGS", "", java.math.BigDecimal.ONE)
+        assertEquals("SAVINGS", plain["type"])
+        assertFalse(plain.containsKey("currency"))
+        assertEquals("Conta global (USD)", Settings.accountLabel("CHECKING", "USD"))
+        assertEquals("Poupança", Settings.accountLabel("SAVINGS", "BRL"))
+        // Nunca a padrao.
+        assertFalse(Settings.accountMenu("CHECKING", false, "USD").makeDefault)
     }
 }

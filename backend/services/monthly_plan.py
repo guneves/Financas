@@ -78,7 +78,8 @@ INVEST_DEADLINE_DAYS = 7
 
 
 def month_banking_totals(conn, current_user_id, month):
-    """(gasto nas contas, gasto no cartao, receita) do mes, em reais.
+    """(gasto nas contas, gasto no cartao, receita) do mes, em reais (a conta
+    global, em outra moeda, fica de fora).
 
     So a parte do dono (032): o que era de outra pessoa nao e gasto nem renda dele.
     """
@@ -96,6 +97,11 @@ def month_banking_totals(conn, current_user_id, month):
           AND substr(date, 1, 7) = ?
           AND COALESCE(source_type, '') NOT IN ({skipped_placeholders})
           AND COALESCE(category, '') NOT LIKE 'Pagamento Fatura%'
+          AND NOT EXISTS (
+              SELECT 1 FROM accounts a
+              WHERE a.id = transactions.account_id AND a.user_id = transactions.user_id
+                AND COALESCE(a.currency, 'BRL') <> 'BRL'
+          )
         """,
         (current_user_id, month, *skipped_types),
     ).fetchone()

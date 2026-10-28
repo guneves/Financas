@@ -7,55 +7,61 @@
 
 ---
 
-## Session — 2026-10-27 (6) · The owner's data aligned with Pluggy; Rende Fácil out
+## Session — 2026-10-27 (7) · Conta global (Wise in US$)
 
-Local session, owner's request: fix every record of their account against Pluggy. SSH to the server
-was refused by the harness ("Production Reads"), so the data work ran **through the app's API in
-the owner's logged-in Chrome tab** (`claude-in-chrome`), with the owner's explicit OK to insert and
-delete. Code: branch `claude/rende-facil`, merged to `main` and pushed (deploys) at the owner's request.
+Local session, owner's prompt `docs/prompts/global-account-usd.md`. Branch `claude/conta-global`
+from `main` (local `main` was 4 commits ahead of `origin/main`; the branch carries them).
+**Not merged, not pushed, not deployed** (the prompt says ask first). The owner's data is untouched.
 
-### Done (production data, via the API)
-- Targets the owner gave, all met: BTG conta corrente 170, BTG black next invoice 1.467,59
-  (Pluggy 1.328,22 + today's 139,37), BB 25, BB ourocard 19, Itaú 0, Flash 34,72; BTG investimentos
-  kept at the owner's 8,94; new account **Wise** (559,43: three BTG Pix to Wise Brasil Câmbio).
-- Deleted: duplicates ("1% cartão" = Pluggy InternalTransfer; CCR 4,10 on BB = the ourocard one),
-  every manual "Normalização/Saldo/Aporte/Salários" balancing row, BB Rende Fácil rows, 4 BTG
-  investment movements the Pluggy sync created at 23:59 that summed same-day typed trades (AUPO11,
-  TIMS3 — they doubled quantities; deleting = DISMISSED for good).
-- Recorded the 14 waiting + 6 denied Pluggy rows: BTG TEFs = transfers with BTG investimentos; BTG
-  Pix 2.400/1.620 = transfers to BTG investimentos (owner: not spending); BB Pix 02/10 = transfers
-  to BTG investimentos (a guess); TedSalary 1.680 = Salário; Wagner 2.400 to BB = receita.
-- BTG black invoice 10/2026 rebuilt (4 Pluggy purchases + "Compras antes do app" 1.188,14) and paid
-  by pay-invoice on 05/10 = the bank's 1.337,95 boleto. "emprestimo pai" 5.390 → 5.400; Flash→BB
-  280 dated 26/10; ourocard "Ajuste para a fatura do banco" 0,81. Opening balances set: BTG 394,03,
-  BB to land on 25, BTG investimentos to land on 8,94.
-- October Gastar: 5.880 → **1.172,73** (owner: "less than 1.500").
+### Done (code)
+- **047** `transactions.transfer_amount` / `inbox_items.transfer_amount`: a cross-currency transfer
+  is one row, `amount` out in the origin's currency, `transfer_amount` in at the destination.
+  `transfer_amount_for()` (POST /api/transfers and PATCH): required across currencies, refused
+  otherwise. `account_balance_rows()` counts a cross-currency transfer without it as 0.
+- Accounts: currency validated on create; a foreign account is never the default
+  (`DEFAULT_ACCOUNT_ORDER`, PATCH 400) nor BROKERAGE. `PATCH /api/accounts/<id> {currency}` turns a
+  reais account that only received BRL transfers (no initial balance, not mapped) into USD
+  (`global_account.convert_to_foreign()`): the owner's "Wise" fits.
+- Pluggy: USD↔USD mapping and suggestion, mismatch refused; `normalize_transaction(account_currency=)`
+  keeps US$ rows in US$ (`edited: ["amount"]` so they need no conversion). `services/global_account.py`
+  + `open_finance_inbox._place_cross_currency()` (new `place()` step 2): BRL Pix naming the global
+  account waits as an own transfer; the dollar credit pairs by day ±1 and counterparty, ties by
+  closest PTAX; an untouched auto-recorded US$ receita is turned into the transfer when the BRL side
+  arrives late; a credit matching a transfer in the app fills `transfer_amount`. Hold: a US$ credit
+  waits `TRANSFER_HOLD_DAYS`; a TRANSFER to a foreign account without `transfer_amount` is never
+  "complete". Snapshot carries `transfer_amount` only when set (old snapshots stay equal).
+  Conferência counts `COALESCE(transfer_amount, amount)` on the incoming side.
+- Reais totals skip the foreign account's own rows: `banking_month_rows`, `month_banking_totals`,
+  budgets, `GET /api/transactions` without `account_id`, review queue and count.
+- Web: `pages/ContaGlobal.jsx` (`/inicio/conta-global`), `lib/globalAccount.js` (+ test),
+  `formatForeignCurrency()`; "Conta global ›" under Início's accounts; Ajustes › Contas type
+  "Conta global (US$)", the row links to the screen; "+ Novo" lists only reais accounts.
+- APK: `ui/globalaccount/`, `rules/GlobalAccount.kt` (+ test), `core/Format.kt`, route + link,
+  Início entry, Ajustes type/link/menu, NewEntry filter; spec `mobile-docs/native/screens/17-conta-global.md`.
+- Docs: CLAUDE.md (reais-only exception, Conta global, two-amount transfers, Pluggy rules), memory
+  `app-is-in-reais`.
+- Tests: pytest 1971 passed + 1 known failure (below), `test_global_account.py` 18; node 204;
+  JVM 531 (local `gradlew --offline`), debug APK assembled locally.
 
-### Done (code, branch `claude/rende-facil`)
-- `inbox.is_auto_invest()`; Pluggy rows "RENDE FACIL"/"REND.FACIL" are `COVERED` in `place()`;
-  the phone notice is `ignored`; migration 046 covers rows already pulled and denies pending items.
-  `test_rende_facil.py` (12, fail without the fix). Full suite: 1953 passed, 1 failed (below).
+### Decision written down
+Wise **counts in the consolidated balance converted to reais** (`balance_brl`, as before). Its own
+US$ despesas/receitas count in **no** reais total (not converted into the month).
 
 ### Not done, and why
-- Mapping **BTG Investimentos → Corretora** and the zero-balance second Ourocard → "Não usar" (the
-  two Gravar sozinho blockers) not done: mapping the broker could duplicate the manual aporte/resgate
-  transfers; the owner should decide (see the 044 section of next-steps).
-- 42 rows in Revisar left for the owner. Guesses to confirm: BB Pix 02/10 (1.810) → BTG
-  investimentos; Pix 74,14 on 28/09 as receita; ourocard 0,81 adjustment; Wagner's 2.400/5.400
-  recorded as receita (October income looks high because of them).
-- The Pluggy investment sync summed same-day trades into one operation, so the typed-twin link
-  (same quantity) missed: a code fix is still open (link a Pluggy op to a set of typed trades of the
-  same asset/day whose quantities sum to it).
+- **The owner's data** (convert Wise, map Pluggy Wise, pull, check balances): needs the deploy first
+  and the owner's OK per write batch; steps in next-steps › "Conta global".
+- No visual check of the web screen or the phone screen (build and tests only).
+- Phone: no "Pix para cá" (web only); statement = first page. Web Aprovar has no `transfer_amount` field.
 
 ### Next session
-1. Owner: after this deploy (it also carries PR #50, the APK without Aprovar), install the APK
-   update and walk its next-steps item; check BB's Conferência (046 drops the Rende Fácil rows).
-2. Fix the summed-twin case in `services/open_finance_investments.py`.
+1. Ask the owner to merge/deploy `claude/conta-global`, then run the data steps in next-steps.
+2. Owner walks 17-conta-global.md's Acceptance on the phone.
 
 ### Lessons (non-obvious)
-- `test_fixed_income_interest.py::TestTheCouponReachesTheAccount` fails locally between 21:00 and
-  midnight BRT (UTC is already tomorrow); it passes in CI (UTC). Pre-existing.
-- The Chrome tool hides a JS result that echoes certain strings ("[BLOCKED: Cookie/query string
-  data]") — the code still ran; re-read state instead of re-running writes.
-- The Conferência pairs by amount/date (±3 days), not by link: re-typing a row with the bank's
-  amount and date is enough to clear it.
+- A second pull re-reads only from `synced_until - OVERLAP_DAYS` (7): tests with old Pix dates must
+  clear `synced_until` (`pull()` in `test_global_account.py`) or the rows never arrive.
+- `test_fixed_income_interest.py::TestTheCouponReachesTheAccount` still fails locally after 21:00 BRT.
+- Bash heredocs on this machine broke on a Kotlin file with `•` and `$`; write such files with Write.
+
+---
+

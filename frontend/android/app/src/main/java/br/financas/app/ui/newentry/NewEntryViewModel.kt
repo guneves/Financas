@@ -20,6 +20,7 @@ import br.financas.app.outbox.OutboxStore
 import br.financas.app.outbox.OutboxWorker
 import br.financas.app.rules.CategoryOption
 import br.financas.app.rules.EntryOptions
+import br.financas.app.rules.GlobalAccount
 import br.financas.app.rules.InboxNotice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -108,7 +109,8 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
     val categoryOptions: List<CategoryOption>
         get() = EntryOptions.buildCategoryOptions(lists.categories ?: emptyList())
 
-    val accounts: List<AccountDto> get() = lists.accounts ?: emptyList()
+    // So contas em reais: a conta global (outra moeda) e a tela dela (ui/globalaccount/).
+    val accounts: List<AccountDto> get() = (lists.accounts ?: emptyList()).filter { !GlobalAccount.isGlobal(it) }
     val cards: List<CreditCardDto> get() = lists.cards ?: emptyList()
     val defaultAccountId: String get() = EntryOptions.pickDefaultAccountId(accounts)
 

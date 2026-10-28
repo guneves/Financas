@@ -310,6 +310,7 @@ def budget_month_lines(conn, current_user_id, month):
           AND substr(t.date, 1, 7) = ?
           AND COALESCE(t.source_type, '') NOT IN ({skipped_placeholders})
           AND COALESCE(t.category, '') NOT LIKE 'Pagamento Fatura%'
+          AND COALESCE(a.currency, 'BRL') = 'BRL'
         ORDER BY t.date, t.created_at, t.id
         """,
         (current_user_id, month, *skipped_types),

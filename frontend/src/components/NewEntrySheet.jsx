@@ -18,6 +18,7 @@ import { parseMoneyInput } from '../lib/monthlyPlan'
 import { matchedInboxNotice } from '../lib/inboxRules'
 import { toast } from '../lib/toast'
 import { useQuery } from '../lib/queries'
+import { isBrlAccount } from '../lib/portfolioAccount'
 import { cardMethods, debitPurchasePayload, hasCredit, resolveCardMethod } from '../lib/cardFunctions'
 
 const FORM_ID = 'new-entry-form'
@@ -99,7 +100,9 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
   const categoriesQuery = useQuery({ queryKey: ['categorias', 'ativas'], queryFn: () => categoriesApi.list() })
   const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
-  const accounts = accountsQuery.data || NO_ITEMS
+  // So contas em reais: a conta global (outra moeda) registra o Pix na tela
+  // dela, com o valor que entrou (pages/ContaGlobal.jsx).
+  const accounts = useMemo(() => (accountsQuery.data || NO_ITEMS).filter(isBrlAccount), [accountsQuery.data])
   const categories = categoriesQuery.data || NO_ITEMS
   const cards = cardsQuery.data || NO_ITEMS
   const loading = open && (accountsQuery.isPending || categoriesQuery.isPending || cardsQuery.isPending)

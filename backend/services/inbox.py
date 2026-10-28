@@ -826,7 +826,9 @@ def missing_targets(draft):
 
 def recompute_needs(item):
     """needs de um item a partir do rascunho: o metodo, se nao ha tipo; o
-    cartao/contas que o tipo pede e estao vazios; o valor, em outra moeda."""
+    cartao/contas que o tipo pede e estao vazios; o valor, em outra moeda (a
+    linha da Pluggy da conta global ja vem na moeda da conta: `edited` traz
+    "amount")."""
     needs = []
     if item.get("entry_type") is None:
         needs.append("method")
@@ -866,7 +868,7 @@ ITEM_COLUMNS = (
     "occurred_at", "source_occurred_at", "description", "category", "category_id",
     "account_id", "card_id", "transfer_account_id", "needs", "guessed", "edited",
     "hint_key", "hint_label", "candidates", "client_key", "target_table", "target_id",
-    "decided_at", "recurring_off",
+    "decided_at", "recurring_off", "transfer_amount",
 )
 
 

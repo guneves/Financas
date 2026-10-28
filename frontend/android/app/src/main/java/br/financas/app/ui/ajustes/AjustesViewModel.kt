@@ -356,7 +356,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
                 return
             }
         }
-        val body = linkedMapOf<String, Any?>("name" to form.name, "type" to form.type, "institution" to form.institution, "initial_balance" to balance)
+        val body = Settings.newAccountBody(form.name, form.type, form.institution, balance)
         write(R.string.ajustes_account_create_failed, { repo.createAccount(body) }) {
             accountForm = AccountForm()
             accountFormOpen = false

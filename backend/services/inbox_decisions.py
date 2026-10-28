@@ -33,7 +33,7 @@ from validators import ValidationError
 
 EDITABLE_FIELDS = (
     "entry_type", "amount", "occurred_at", "description", "category", "category_id",
-    "account_id", "card_id", "transfer_account_id", "installments",
+    "account_id", "card_id", "transfer_account_id", "installments", "transfer_amount",
 )
 NEED_OF_FIELD = {"card_id": "card", "account_id": "account", "transfer_account_id": "transfer_account"}
 DIRECTION_OF_TYPE = {"EXPENSE": "OUT", "CARD": "OUT", "TRANSFER": "OUT", "INCOME": "IN"}
@@ -67,7 +67,7 @@ def _load(conn, current_user_id, item_id, *, version=None, states=(inbox.PENDING
 # O rascunho
 # ---------------------------------------------------------------------------
 
-def _account(conn, current_user_id, account_id, label):
+def _account(conn, current_user_id, account_id, label, currency="BRL"):
     row = conn.execute(
         "SELECT * FROM accounts WHERE id = ? AND user_id = ?",
         (account_id, current_user_id),
@@ -76,8 +76,23 @@ def _account(conn, current_user_id, account_id, label):
         raise ValidationError(f"{label} nao encontrada.")
     if row["archived_at"]:
         raise ValidationError(f"{label} esta arquivada.")
-    if (row["currency"] or "BRL") != "BRL":
-        raise ValidationError(f"{label} nao e em reais.")
+    if (row["currency"] or "BRL") != (currency or "BRL"):
+        if (currency or "BRL") == "BRL":
+            raise ValidationError(f"{label} nao e em reais.")
+        raise ValidationError(f"{label} nao e em {currency}.")
+    return row
+
+
+def _any_account(conn, current_user_id, account_id, label):
+    """A conta ativa, em qualquer moeda (o destino de uma transferencia entre moedas)."""
+    row = conn.execute(
+        "SELECT * FROM accounts WHERE id = ? AND user_id = ?",
+        (account_id, current_user_id),
+    ).fetchone()
+    if not row:
+        raise ValidationError(f"{label} nao encontrada.")
+    if row["archived_at"]:
+        raise ValidationError(f"{label} esta arquivada.")
     return row
 
 
@@ -110,6 +125,9 @@ def parse_changes(conn, current_user_id, item, payload):
                 raise ValidationError("Tipo invalido.")
         elif field == "amount":
             value = parse_money(payload, "amount", "Valor")
+        elif field == "transfer_amount":
+            # Quanto entrou na conta em outra moeda (047); a aprovacao confere.
+            value = None if value in (None, "") else parse_money(payload, "transfer_amount", "Valor no destino")
         elif field == "occurred_at":
             fallback = inbox.offset_of(item["occurred_at"]) or inbox.offset_of(item["source_occurred_at"])
             value = inbox.normalize_occurred_at(value, fallback)
@@ -129,7 +147,8 @@ def parse_changes(conn, current_user_id, item, payload):
         elif field in ("account_id", "transfer_account_id"):
             value = _text_or_none(value, 64)
             if value:
-                _account(conn, current_user_id, value, "Conta")
+                # A moeda (conta global) e conferida na aprovacao.
+                _any_account(conn, current_user_id, value, "Conta")
         elif field == "card_id":
             value = _text_or_none(value, 64)
             if value:
@@ -217,6 +236,7 @@ NEED_MESSAGES = {
     "account": "Escolha a conta.",
     "transfer_account": "Escolha a conta de destino.",
     "amount": "Confira o valor em reais (a compra foi em outra moeda).",
+    "transfer_amount": "Informe quanto entrou na conta em outra moeda.",
 }
 
 
@@ -227,11 +247,18 @@ def _ensure_complete(conn, current_user_id, item):
     if entry_type == "CARD":
         _card(conn, current_user_id, item["card_id"])
     else:
-        _account(conn, current_user_id, item["account_id"], "Conta")
+        origin = _account(conn, current_user_id, item["account_id"], "Conta", item.get("currency"))
     if entry_type == "TRANSFER":
-        _account(conn, current_user_id, item["transfer_account_id"], "Conta de destino")
         if item["account_id"] == item["transfer_account_id"]:
             raise ValidationError("Origem e destino devem ser contas diferentes.")
+        # Para a conta global (047): o destino em outra moeda leva o valor que
+        # entrou nele; na mesma moeda, nenhum.
+        destination = _any_account(conn, current_user_id, item["transfer_account_id"], "Conta de destino")
+        cross = (destination["currency"] or "BRL") != (origin["currency"] or "BRL")
+        if cross and not item.get("transfer_amount"):
+            raise ValidationError(NEED_MESSAGES["transfer_amount"])
+        if item.get("transfer_amount") and not cross:
+            raise ValidationError("O valor no destino so existe entre contas de moedas diferentes.")
     if not item.get("category"):
         item["category"], item["category_id"] = inbox.suggest_category(
             conn, current_user_id, item.get("description"), entry_type, item["amount"], item.get("account_id"),
@@ -308,12 +335,13 @@ def create_entry(conn, current_user_id, item):
             conn.execute(
                 """
                 INSERT INTO transactions
-                (id, user_id, account_id, transfer_account_id, amount, date, category, category_id,
-                 description, type, client_id, occurred_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER', ?, ?)
+                (id, user_id, account_id, transfer_account_id, amount, transfer_amount, date, category,
+                 category_id, description, type, client_id, occurred_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER', ?, ?)
                 """,
                 (
-                    row_id, current_user_id, item["account_id"], item["transfer_account_id"], amount, date_text,
+                    row_id, current_user_id, item["account_id"], item["transfer_account_id"], amount,
+                    rounded_money(item["transfer_amount"]) if item.get("transfer_amount") else None, date_text,
                     item["category"] or inbox.TRANSFER_CATEGORY, item.get("category_id"),
                     item.get("description"), client_id, item["occurred_at"],
                 ),

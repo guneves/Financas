@@ -587,8 +587,13 @@ def _require_bank_target(conn, current_user_id, account_id, of_account=None):
         # investimentos da corretora vai para a Corretora (044), e dela so a
         # transferencia com o banco vira lancamento.
         raise ValidationError("A Corretora so recebe a conta de investimentos da corretora.")
-    if (row["currency"] or "BRL") != "BRL":
-        raise ValidationError("Conta nao e em reais.")
+    # A moeda casa (conta global, 2026-10-27): a conta em dolar da Pluggy so
+    # vai para a conta em dolar do app, e uma em reais so para uma em reais.
+    of_currency = str((of_account["currency"] if of_account is not None else None) or "BRL").upper()
+    if (row["currency"] or "BRL").upper() != of_currency:
+        if of_currency == "BRL":
+            raise ValidationError("Conta nao e em reais.")
+        raise ValidationError(f"A conta do banco e em {of_currency}: escolha uma conta do app em {of_currency}.")
 
 
 def _require_card_target(conn, current_user_id, card_id):
@@ -637,9 +642,12 @@ def suggest_target(conn, current_user_id, account_row, connector_name):
     brokerage = is_investment_account(account_row)
     accounts = [
         row for row in inbox._active_accounts(conn, current_user_id)
-        if (row["type"] == "BROKERAGE") == brokerage and (row["currency"] or "BRL") == "BRL" and row["id"] not in taken
+        if (row["type"] == "BROKERAGE") == brokerage
+        and (row["currency"] or "BRL").upper() == str(account_row["currency"] or "BRL").upper()
+        and row["id"] not in taken
     ]
-    if brokerage:
+    if brokerage or str(account_row["currency"] or "BRL").upper() != "BRL":
+        # A Corretora, e a conta global: a unica da moeda.
         return accounts[0]["id"] if len(accounts) == 1 else None
     if issuer in inbox.ISSUER_ALIASES:
         aliases = inbox.ISSUER_ALIASES[issuer]
@@ -755,6 +763,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from):
                 try:
                     tx = open_finance_inbox.normalize_transaction(
                         raw, account["type"], account["charge_sign"] or 1, include_pending=with_pending,
+                        account_currency=account["currency"],
                     )
                 except open_finance_inbox.Skip as skip:
                     key = "skipped_pending" if str(skip) == open_finance_inbox.STATUS_SKIPPED_PENDING else "skipped"
@@ -865,6 +874,7 @@ def history_preview(current_user_id, days=None, today=None):
                 try:
                     tx = open_finance_inbox.normalize_transaction(
                         raw, account["type"], account["charge_sign"] or 1, include_pending=with_pending,
+                        account_currency=account["currency"],
                     )
                 except open_finance_inbox.Skip:
                     continue

@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 
 from config import AUTO_RECORD_DEFAULT
 from dates import parse_iso_date
-from services import inbox, inbox_decisions, open_finance_inbox, review
+from services import global_account, inbox, inbox_decisions, open_finance_inbox, review
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
@@ -134,8 +134,14 @@ def hold_reason(conn, current_user_id, item, sources, today):
         account = open_finance_inbox.fetch_account(conn, current_user_id, source["of_account_id"])
         if not account or account["ignored_at"] or not open_finance_inbox.mapped_target(account):
             return "unmapped"
-    is_transfer = any(source["movement"] in TRANSFER_MOVEMENTS for source in sources)
-    complete_transfer = item["entry_type"] == "TRANSFER" and item.get("account_id") and item.get("transfer_account_id")
+    # Um credito na conta global (em dolar) pode ser a outra ponta de um Pix
+    # em reais (services/global_account.py): espera como uma transferencia.
+    dollar_side = item["entry_type"] == "INCOME" and global_account.is_foreign(conn, current_user_id, item.get("account_id"))
+    is_transfer = dollar_side or any(source["movement"] in TRANSFER_MOVEMENTS for source in sources)
+    complete_transfer = (
+        item["entry_type"] == "TRANSFER" and item.get("account_id") and item.get("transfer_account_id")
+        and (item.get("transfer_amount") or not global_account.is_foreign(conn, current_user_id, item["transfer_account_id"]))
+    )
     if is_transfer and not complete_transfer:
         newest = max(_days_since(source["date"], today) for source in sources)
         if newest < TRANSFER_HOLD_DAYS or item["entry_type"] == "TRANSFER":

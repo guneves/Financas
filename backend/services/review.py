@@ -15,6 +15,12 @@ from validators import ValidationError
 
 TABLES = ("transactions", "cc_expenses")
 MAX_ITEMS = 200
+# A conta global (outra moeda) revisa na tela dela (GET /api/transactions?
+# account_id=<ela>&review=1): a fila e o contador daqui sao em reais.
+IN_REAIS = (
+    "NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = t.account_id AND a.user_id = t.user_id"
+    " AND COALESCE(a.currency, 'BRL') <> 'BRL')"
+)
 
 
 def mark_for_review(conn, current_user_id, table, target_id):
@@ -52,7 +58,7 @@ def _transaction_items(conn, current_user_id):
         FROM transactions t
         LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
         LEFT JOIN accounts d ON d.id = t.transfer_account_id AND d.user_id = t.user_id
-        WHERE t.user_id = ? AND t.needs_review = 1
+        WHERE t.user_id = ? AND t.needs_review = 1 AND COALESCE(a.currency, 'BRL') = 'BRL'
         """,
         (current_user_id,),
     ).fetchall()
@@ -126,7 +132,8 @@ def queue(conn, current_user_id):
 
 def count(conn, current_user_id):
     transactions = conn.execute(
-        "SELECT COUNT(*) FROM transactions WHERE user_id = ? AND needs_review = 1", (current_user_id,),
+        f"SELECT COUNT(*) FROM transactions t WHERE t.user_id = ? AND t.needs_review = 1 AND {IN_REAIS}",
+        (current_user_id,),
     ).fetchone()[0]
     purchases = conn.execute(
         "SELECT COUNT(DISTINCT client_id) FROM cc_expenses WHERE user_id = ? AND needs_review = 1",
