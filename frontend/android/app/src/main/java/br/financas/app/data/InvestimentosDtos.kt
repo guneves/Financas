@@ -94,6 +94,40 @@ data class PortfolioDto(
     @SerialName("realized_result") val realizedResult: RealizedResultDto? = null,
 )
 
+/** Um valor em transito da conta investimento: a operacao (ou o provento) que ainda vai liquidar. */
+@Serializable
+data class SettlementItemDto(
+    val id: String = "",
+    val date: String? = null,
+    val description: String? = null,
+    val amount: Money? = null,
+    val kind: String? = null,
+    @SerialName("investment_id") val investmentId: String? = null,
+)
+
+/** O saldo que a Pluggy le da corretora, para conferir com o de hoje. */
+@Serializable
+data class SettlementPluggyDto(
+    val balance: Money? = null,
+    @SerialName("balance_at") val balanceAt: String? = null,
+    @SerialName("as_of") val asOf: String? = null,
+    @SerialName("app_balance") val appBalance: Money? = null,
+    val difference: Money? = null,
+)
+
+/** GET /api/investments/settlement (049): o caixa da Corretora hoje, em transito e depois de liquidar. */
+@Serializable
+data class SettlementDto(
+    @SerialName("account_id") val accountId: String? = null,
+    @SerialName("account_name") val accountName: String? = null,
+    val today: String? = null,
+    val settled: Money? = null,
+    @SerialName("in_transit") val inTransit: List<SettlementItemDto> = emptyList(),
+    @SerialName("in_transit_total") val inTransitTotal: Money? = null,
+    val expected: Money? = null,
+    val pluggy: SettlementPluggyDto? = null,
+)
+
 /** Um mes de GET /api/investments/history (Evolucao do Patrimonio). */
 @Serializable
 data class EvolutionPointDto(

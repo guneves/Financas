@@ -3,15 +3,15 @@
 | | |
 |---|---|
 | Migration order | 7 (see `../migration-order.md`) — **first of the Investimentos area** (7a): the most opened investments screen, read-heavy, and the host of "Resgatar" and of the "Registrar operação" sheet (`13-investimentos-operacoes.md`) |
-| Status | **Built** 2026-10-24 (session D, `claude/native-session-d`, native-level 8): `ui/investimentos/PosicaoScreen.kt` + `PosicaoViewModel.kt`, rules `PortfolioView.kt` (tabs, groups, menu, delete target, donut slices, bar stacking, quote labels; tested). The redemption calls `POST /api/investments/redemptions` with a `client_id` (a double tap never redeems twice) and is refused offline like the quote writes and deletes; "Registrar operação"/"Vender" open the shared sheet (`LaunchSheet.kt`, `13-…`), which is queued offline. Not built: pull-to-refresh, swipe on a card, haptic on a finished refresh. Owner's phone check pending. |
-| React source | `frontend/src/pages/Investments.jsx` (route wrapper), `pages/investimentos/Posicao.jsx` (`PortfolioSummary`, `QuoteSheet`, `RedeemSheet`, `QuoteUpdateResult`, `QuoteValue`, `NetValue`, `Profit`, `PositionCard`/`PositionRow`, `TreasuryCard`/`TreasuryRow`/`TreasuryTable`, `TreasurySourceNote`, `TreasuryDetailSheet`, `GroupToggle`), `pages/investimentos/PortfolioOverview.jsx`, `pages/investimentos/useInvestments.js`, `pages/investimentos/helpers.js`, `components/CashLinkField.jsx`, `components/InvestmentLaunchModal.jsx`, `components/ExportSheet.jsx`, `components/charts.jsx` (`DonutChart`, `ChartTooltip`, `LegendDot`, `FLOW`, `CHART`) |
+| Status | **Built** 2026-10-24 (session D, `claude/native-session-d`, native-level 8): `ui/investimentos/PosicaoScreen.kt` + `PosicaoViewModel.kt`, rules `PortfolioView.kt` (tabs, groups, menu, delete target, donut slices, bar stacking, quote labels; tested). The redemption calls `POST /api/investments/redemptions` with a `client_id` (a double tap never redeems twice) and is refused offline like the quote writes and deletes; "Registrar operação"/"Vender" open the shared sheet (`LaunchSheet.kt`, `13-…`), which is queued offline. Not built: pull-to-refresh, swipe on a card, haptic on a finished refresh. Owner's phone check pending. **Conta investimento** (049) ported 2026-10-28 (`claude/settlement-apk`): `ContaInvestimento` in `PosicaoScreen.kt`, `PosicaoViewModel.settlement`, rule `rules/BrokerSettlement.kt` (tested); "Saldo na corretora" removed from the summary. |
+| React source | `frontend/src/pages/Investments.jsx` (route wrapper), `pages/investimentos/Posicao.jsx` (`PortfolioSummary`, `ContaInvestimento` from `pages/investimentos/ContaInvestimento.jsx`, `QuoteSheet`, `RedeemSheet`, `QuoteUpdateResult`, `QuoteValue`, `NetValue`, `Profit`, `PositionCard`/`PositionRow`, `TreasuryCard`/`TreasuryRow`/`TreasuryTable`, `TreasurySourceNote`, `TreasuryDetailSheet`, `GroupToggle`), `pages/investimentos/PortfolioOverview.jsx`, `pages/investimentos/useInvestments.js`, `pages/investimentos/helpers.js`, `components/CashLinkField.jsx`, `components/InvestmentLaunchModal.jsx`, `components/ExportSheet.jsx`, `components/charts.jsx` (`DonutChart`, `ChartTooltip`, `LegendDot`, `FLOW`, `CHART`) |
 | Route(s) | `/investimentos/posicao` (`/investimentos` and legacy `/investments` redirect here); tab "Posição" of section "Investimentos" ("Investir" in the bottom bar) |
-| Endpoints | `GET /api/investments/portfolio?refresh_prices=false`, `GET /api/investments?order=created_at&ascending=false` (shared hook), `GET /api/investments/history?months=`, `GET /api/accounts`, `POST /api/investments/update-prices`, `PATCH /api/investments/price-by-asset/<asset_id>`, `POST /api/investments` (redemption), `DELETE /api/investments/<id>`, `DELETE /api/investments/by-asset/<asset_id>?asset_class=`, `GET /api/investments/portfolio/export`, `GET /api/exports/columns`, `POST /api/investment-proceeds/sync` |
-| Client rules | `lib/treasury.js` (`allocateTreasuryRedemption()`, `treasuryRateText()`, `treasuryRateLabel()`, `treasuryMarketRateText()`, `isMarketValued()`), `lib/fixedIncome.js` (`describeFixedIncome()`, `FIXED_INCOME_TYPES`), `lib/portfolioAccount.js` (`emptyCashLink()`, `cashLinkMetadata()`, `portfolioAccounts()`, `pickPortfolioAccountId()`), `lib/transactions.js` (`isPortfolioAccount()`, `portfolioCashBalance()`, `accountBalanceBrl()`), `pages/investimentos/helpers.js` (`quoteSourceLabel()`, `quoteStatusLabel()`, `formatDateTime()`, `parseNumberInput()`, `getClassLabel()`), inline in `Posicao.jsx` (`groupAssets()`, `groupKeyAndLabel()`, `variableGroupKey()`, `positionMenuItems()`), inline in `PortfolioOverview.jsx` (allocation by category, bar stacking), `lib/proceedsSync.js` (`useProceedsSync()`) |
+| Endpoints | `GET /api/investments/portfolio?refresh_prices=false`, `GET /api/investments?order=created_at&ascending=false` (shared hook), `GET /api/investments/history?months=`, `GET /api/investments/settlement`, `GET /api/accounts`, `POST /api/investments/update-prices`, `PATCH /api/investments/price-by-asset/<asset_id>`, `POST /api/investments` (redemption), `DELETE /api/investments/<id>`, `DELETE /api/investments/by-asset/<asset_id>?asset_class=`, `GET /api/investments/portfolio/export`, `GET /api/exports/columns`, `POST /api/investment-proceeds/sync` |
+| Client rules | `lib/treasury.js` (`allocateTreasuryRedemption()`, `treasuryRateText()`, `treasuryRateLabel()`, `treasuryMarketRateText()`, `isMarketValued()`), `lib/fixedIncome.js` (`describeFixedIncome()`, `FIXED_INCOME_TYPES`), `lib/portfolioAccount.js` (`emptyCashLink()`, `cashLinkMetadata()`, `portfolioAccounts()`, `pickPortfolioAccountId()`), `lib/transactions.js` (`isPortfolioAccount()`, `accountBalanceBrl()`), `pages/investimentos/helpers.js` (`quoteSourceLabel()`, `quoteStatusLabel()`, `formatDateTime()`, `parseNumberInput()`, `getClassLabel()`), inline in `Posicao.jsx` (`groupAssets()`, `groupKeyAndLabel()`, `variableGroupKey()`, `positionMenuItems()`), inline in `PortfolioOverview.jsx` (allocation by category, bar stacking), `lib/proceedsSync.js` (`useProceedsSync()`) |
 
 ## What it is for
-What the owner holds, what it is worth and how it is doing: the portfolio total, the cash still in
-the Corretora, each position with its quote and return, Tesouro Direto marked to market. On the
+What the owner holds, what it is worth and how it is doing: the portfolio total, the Corretora's
+cash (today, in transit, after settlement), each position with its quote and return, Tesouro Direto marked to market. On the
 phone it is opened a few times a month to check the portfolio and, less often, to sell or redeem.
 
 ## What it shows
@@ -31,10 +31,18 @@ Top to bottom (phone layout = the `xl:hidden` branch of the React page).
    abertas"); "Resultado" = `current_balance − total_invested`, signed, tone gain/loss, hint
    "<±x,xx%> bruto" (% = result / invested × 100; the server already returns the same number as
    `gross_portfolio_profitability`); "Líquido estimado" = `current_net_balance` ("Após IR e custódia
-   da renda fixa"); **"Saldo na corretora"** = `portfolioCashBalance()` over the active accounts of
-   type `BROKERAGE` (`GET /api/accounts`, each `balance_brl ?? balance`), hint = the account name or
-   "N contas Corretora"; the figure is absent with no Corretora account. All R$ masked in privacy
-   mode; the % stays. This is the **only** place the Corretora balance appears (Início skips it).
+   da renda fixa"). All R$ masked in privacy mode; the % stays. The old "Saldo na corretora" figure
+   is gone (049): the Corretora's cash is the Conta investimento right below.
+4a. **Conta investimento** (`ContaInvestimento`, 049, `GET /api/investments/settlement`; shown even
+   without positions; nothing at all on 404 = no Corretora). A second summary: lead "Saldo hoje" =
+   `settled`, hint "Confere com a corretora" when `pluggy` and |`pluggy.difference`| < 0,01, else
+   "Corretora: R$ <pluggy.balance> (<±difference>)", else (no Pluggy) `account_name`; "Em trânsito" =
+   `in_transit_total` signed, green > 0 / red < 0 / neutral at 0 or in privacy, hint "N a liquidar"
+   or "Nada a liquidar"; "Saldo" = `expected` ("Depois de tudo liquidar"). Then, when `in_transit`
+   is not empty, the panel "Valores em trânsito" / "Cada operação mexe no caixa na data de
+   liquidação.": per item `description`, "Liquida em dd/mm/aaaa" ("Pagamento em" for
+   `kind = 'proceed'`), the signed `amount` (emerald ≥ 0, rose < 0). All R$ masked in privacy mode.
+   This is the **only** place the Corretora balance appears (Início skips it).
 5. **Alocação** donut (`PortfolioOverview`): "Valor de mercado bruto por categoria de ativo." Slices
    = sum of `current_value` per `category_label` (fallback `getClassLabel(class)`), centre label
    "Carteira", sorted desc, max 6 slices (rest "Outros"/"Demais" in `OTHER_COLOR`), colours
@@ -142,6 +150,10 @@ esta arquivada.", "O lancamento no extrato e em reais: escolha uma conta em reai
 - `GET /api/investments/history?months=N` (1–60) → `evolution[]` {`month`, `month_key`,
   `patrimonio`, `patrimonioBruto`, `valorAplicado`, `ganhoCapitalBruto`, `ganhoCapitalReal`}. Key
   `['investimentos','historico',months]`. The response also carries `historical_prices`, unused.
+- `GET /api/investments/settlement` → `account_id`, `account_name`, `today`, `settled`,
+  `in_transit[]` {`id`, `date`, `description`, `amount` (signed), `kind` operation/proceed/other,
+  `investment_id`}, `in_transit_total`, `expected`, `pluggy` {`balance`, `balance_at`, `as_of`,
+  `app_balance`, `difference`} or null; 404 without a Corretora. Key `['investimentos','liquidacao']`.
 - `GET /api/accounts` → `type`, `name`, `balance`/`balance_brl`, `archived_at`. Key
   `['contas','ativas']` (shared with `CashLinkField`).
 - `POST /api/investment-proceeds/sync` on open (at most every 10 min) and 1.5 s after any
@@ -171,8 +183,8 @@ esta arquivada.", "O lancamento no extrato e em reais: escolha uma conta em reai
 - **Grouping into tabs and groups** `groupAssets()` / `groupKeyAndLabel()` / `variableGroupKey()`
   — inline, no test. **Port** with new tests (order, "Sem tipo", "Sem indexador").
 - **Menu items** `positionMenuItems()` — inline. Port.
-- **Saldo na corretora** `portfolioCashBalance()` (`transactions.test.js`). Port (or an endpoint
-  field; it is a sum of balances).
+- **Conta investimento** — the server computes settled/in transit/expected; the screen only picks
+  the hint, the tone and the date label (`rules/BrokerSettlement.kt`, `BrokerSettlementTest`).
 - **Resultado %** — inline. Use `gross_portfolio_profitability` from the server instead.
 - **Allocation donut** (Σ `current_value` by `category_label`) and **bar stacking** (base/ganho/
   perda) — inline in `PortfolioOverview.jsx`, no test. Port with tests.
@@ -197,7 +209,7 @@ esta arquivada.", "O lancamento no extrato e em reais: escolha uma conta em reai
 
 ## Conventions that apply
 - "Investments and banking are separate areas; a movement's cash goes through the portfolio
-  account" — Saldo na corretora shows here only; the redemption carries `cash_account_id` or
+  account" — the Corretora's cash (Conta investimento) shows here only; the redemption carries `cash_account_id` or
   `null`.
 - "Tesouro Direto is marked to market and grouped by title" — one row per title with `lots`; a
   grouped redemption is one row per purchase, oldest first.
@@ -214,7 +226,13 @@ Instant open from the cached portfolio; pull-to-refresh = "Atualizar cotações"
 for Vender/Resgatar; the detail sheet as a full-height bottom sheet; haptic on a finished refresh.
 
 ## Acceptance
-- [ ] Carteira, Valor aplicado, Resultado, Líquido estimado and Saldo na corretora equal the web's.
+- [ ] Carteira, Valor aplicado, Resultado and Líquido estimado equal the web's; there is no
+      "Saldo na corretora" figure.
+- [ ] Conta investimento: Saldo hoje, Em trânsito (signed, green/red, "N a liquidar"/"Nada a
+      liquidar") and Saldo equal the web's; the hint reads "Confere com a corretora" when Pluggy
+      agrees, "Corretora: R$ X (±diff)" when not, the account name without Pluggy; "Valores em
+      trânsito" lists each item with "Liquida em"/"Pagamento em" and its signed amount; without a
+      Corretora (404) nothing shows; privacy masks every R$.
 - [ ] Each tab groups exactly as the web (same order, same counts and totals).
 - [ ] A Tesouro title with two purchases is one card; "Detalhes do título" lists both purchases.
 - [ ] A partial redemption of a grouped title creates one Resgate per purchase, oldest first, and

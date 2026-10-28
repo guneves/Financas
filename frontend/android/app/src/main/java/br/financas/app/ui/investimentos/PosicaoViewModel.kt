@@ -13,13 +13,16 @@ import br.financas.app.core.formatCurrency
 import br.financas.app.core.getLocalDateString
 import br.financas.app.core.moneyInputValue
 import br.financas.app.data.AccountDto
+import br.financas.app.data.ApiException
 import br.financas.app.data.AppGraph
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.InvestmentHistoryDto
 import br.financas.app.data.InvestimentosRepository
+import br.financas.app.data.Load
 import br.financas.app.data.PortfolioAssetDto
 import br.financas.app.data.PortfolioDto
 import br.financas.app.data.QuoteUpdateDto
+import br.financas.app.data.SettlementDto
 import br.financas.app.outbox.OutboxRules
 import br.financas.app.rules.Operations
 import br.financas.app.rules.PortfolioAccount
@@ -58,6 +61,10 @@ class PosicaoViewModel(application: Application) : AndroidViewModel(application)
     val portfolio = ScreenLoad<PortfolioDto>()
     val accounts = ScreenLoad<List<AccountDto>>()
     val history = ScreenLoad<InvestmentHistoryDto>()
+
+    /** A Conta investimento (049); null sem Corretora (404) ou antes de chegar: a tela nao mostra nada. */
+    var settlement by mutableStateOf<SettlementDto?>(null)
+        private set
 
     var hidden by mutableStateOf(ShellPrefs.valuesHidden(application) ?: false)
         private set
@@ -125,6 +132,7 @@ class PosicaoViewModel(application: Application) : AndroidViewModel(application)
             accounts.collect(app, graph.accounts.accounts(), R.string.inv_load_failed)
             launchSheet.accountsChanged(accounts.value)
         }
+        viewModelScope.launch { readSettlement() }
         readHistory()
         ProceedsSync.onOpen(app) { reread() }
     }
@@ -132,6 +140,17 @@ class PosicaoViewModel(application: Application) : AndroidViewModel(application)
     private fun reread() {
         if (!cleared) refreshAll()
         ShellEvents.emitDataChanged()
+    }
+
+    /** Copia guardada primeiro; 404 (sem Corretora) apaga; outra falha deixa o que havia, sem aviso (a web so some). */
+    private suspend fun readSettlement() {
+        repo.settlement().collect { load ->
+            when (load) {
+                is Load.Cached -> settlement = load.value
+                is Load.Fresh -> settlement = load.value
+                is Load.Failed -> if ((load.error as? ApiException.Http)?.status == 404) settlement = null
+            }
+        }
     }
 
     private fun readHistory() {
