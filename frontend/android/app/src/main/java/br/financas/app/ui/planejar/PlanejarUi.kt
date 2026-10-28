@@ -165,8 +165,15 @@ fun PlanejarScaffold(
     }
 }
 
-/** Um numero do SummaryPanel: rotulo, valor, dica e a cor (perda em rose, apagado em cinza). */
-data class SummaryValue(val label: String, val value: String, val hint: String? = null, val loss: Boolean = false, val muted: Boolean = false)
+/** Um numero do SummaryPanel: rotulo, valor, dica e a cor (perda em rose, ganho em emerald, apagado em cinza). */
+data class SummaryValue(
+    val label: String,
+    val value: String,
+    val hint: String? = null,
+    val loss: Boolean = false,
+    val muted: Boolean = false,
+    val gain: Boolean = false,
+)
 
 /** O SummaryPanel de components/ui.jsx: o numero principal em destaque e os outros embaixo. */
 @Composable
@@ -174,6 +181,7 @@ fun SummaryPanel(lead: SummaryValue, figures: List<SummaryValue>) {
     val palette = LocalPalette.current
     fun color(item: SummaryValue): Color = when {
         item.loss -> palette.loss
+        item.gain -> palette.gain
         item.muted -> palette.muted
         else -> palette.text
     }

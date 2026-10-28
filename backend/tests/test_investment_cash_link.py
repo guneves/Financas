@@ -175,7 +175,8 @@ class TestALinkedBuyIsAnOutflowInTheChosenAccount:
         assert entry["id"] == f"cash:{investment['id']}"
         assert entry["type"] == "EXPENSE"
         assert entry["amount"] == pytest.approx(1000.0)
-        assert entry["date"] == "2026-02-10"
+        # O caixa mexe na liquidacao (049): terca 10/02 -> quinta 12/02 (D+2).
+        assert entry["date"] == "2026-02-12"
         # Investimento nao e categoria (039): um rotulo, sem category_id.
         assert entry["category"] == "Aporte"
         assert entry["category_id"] is None
@@ -216,7 +217,7 @@ class TestALinkedSaleIsAnInflow:
         assert entry["type"] == "INCOME"
         # 40 x 15,00 - 12,50 de custos.
         assert entry["amount"] == pytest.approx(587.5)
-        assert entry["date"] == "2026-03-10"
+        assert entry["date"] == "2026-03-12"  # D+2 (049)
         assert entry["account_id"] == account_id
         # The buy was not linked, so the sale is the only thing the account saw.
         assert balance_of(client, auth, account_id) == pytest.approx(587.5)
@@ -303,7 +304,7 @@ class TestEditingTheMovement:
         assert after["id"] == before["id"]
         assert after["account_id"] == account_id
         assert after["amount"] == pytest.approx(1000.0)
-        assert after["date"] == "2026-02-11"
+        assert after["date"] == "2026-02-13"  # operacao em 11/02, liquida D+2 (049)
 
     def test_a_patch_without_metadata_keeps_the_link(self, client, auth):
         account_id = default_account_id(client, auth)

@@ -41,11 +41,12 @@ import br.financas.app.core.formatSignedCurrency
 import br.financas.app.core.shortMonthLabel
 import br.financas.app.data.PortfolioAssetDto
 import br.financas.app.data.QuoteUpdateDto
+import br.financas.app.data.SettlementDto
+import br.financas.app.rules.BrokerSettlement
 import br.financas.app.rules.FixedIncome
 import br.financas.app.rules.HomeFlow
 import br.financas.app.rules.Operations
 import br.financas.app.rules.PortfolioView
-import br.financas.app.rules.Settings
 import br.financas.app.rules.TreasuryLabels
 import br.financas.app.ui.charts.BarColumn
 import br.financas.app.ui.charts.DonutChart
@@ -118,6 +119,10 @@ fun PosicaoScreen(viewModel: PosicaoViewModel, onBack: () -> Unit, onTab: (Inves
         val data = viewModel.portfolio.value
         if (data != null && assets.isNotEmpty()) {
             item(key = "summary") { PortfolioSummary(viewModel) }
+        }
+        // A Conta investimento logo abaixo do resumo (049), mesmo sem posicoes, como na web.
+        viewModel.settlement?.let { settlement -> item(key = "settlement") { ContaInvestimento(settlement, hidden) } }
+        if (data != null && assets.isNotEmpty()) {
             item(key = "allocation") { AllocationPanel(assets, hidden) }
             item(key = "evolution") { EvolutionPanel(viewModel) }
         }
@@ -171,8 +176,7 @@ private fun PortfolioSummary(viewModel: PosicaoViewModel) {
     val result = value - invested
     // O percentual do servidor (gross_portfolio_profitability), o mesmo que a web calcula.
     val percent = data.grossProfitability
-    val brokerages = viewModel.accounts.value.orEmpty().filter { it.isBrokerage }
-    val figures = mutableListOf(
+    val figures = listOf(
         SummaryValue(stringResource(R.string.inv_summary_invested), moneyOrMasked(invested, hidden), stringResource(R.string.inv_summary_invested_hint)),
         SummaryValue(
             stringResource(R.string.inv_summary_result),
@@ -182,18 +186,82 @@ private fun PortfolioSummary(viewModel: PosicaoViewModel) {
         ),
         SummaryValue(stringResource(R.string.inv_summary_net), moneyOrMasked(data.currentNetBalance, hidden), stringResource(R.string.inv_summary_net_hint)),
     )
-    if (brokerages.isNotEmpty()) {
-        val cash = br.financas.app.rules.PortfolioView.portfolioCashBalance(brokerages.map { Settings.accountBalanceBrl(it.balance, it.balanceBrl, it.currency) })
-        figures += SummaryValue(
-            stringResource(R.string.inv_summary_cash),
-            moneyOrMasked(cash, hidden),
-            if (brokerages.size == 1) brokerages[0].name else stringResource(R.string.inv_summary_cash_many, brokerages.size),
-        )
-    }
     SummaryPanel(
         lead = SummaryValue(stringResource(R.string.inv_summary_portfolio), moneyOrMasked(value, hidden), stringResource(R.string.inv_summary_portfolio_hint)),
         figures = figures,
     )
+}
+
+/**
+ * A Conta investimento (ContaInvestimento.jsx, 049): o caixa da Corretora como a corretora o ve.
+ * "Saldo hoje" e o que ja liquidou, "Em trânsito" o que vai liquidar (D+2 na B3) e os proventos
+ * anunciados, "Saldo" o que sobra depois de tudo. O servidor faz a conta.
+ */
+@Composable
+private fun ContaInvestimento(view: SettlementDto, hidden: Boolean) {
+    val palette = LocalPalette.current
+    val transit = view.inTransit
+    val signed = { value: BigDecimal? -> if (hidden) HomeLogic.MASKED_CURRENCY else formatSignedCurrency(value) }
+    val pluggy = view.pluggy
+    val hint = when (val chosen = BrokerSettlement.hint(pluggy != null, pluggy?.balance, pluggy?.difference, view.accountName)) {
+        BrokerSettlement.Hint.Matches -> stringResource(R.string.inv_settlement_matches)
+        is BrokerSettlement.Hint.Broker -> stringResource(R.string.inv_settlement_broker, moneyOrMasked(chosen.balance, hidden), signed(chosen.difference))
+        is BrokerSettlement.Hint.Account -> chosen.name
+    }
+    val tone = BrokerSettlement.transitTone(view.inTransitTotal, hidden)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SummaryPanel(
+            lead = SummaryValue(stringResource(R.string.inv_settlement_today), moneyOrMasked(view.settled, hidden), hint.ifEmpty { null }),
+            figures = listOf(
+                SummaryValue(
+                    stringResource(R.string.inv_settlement_transit),
+                    signed(view.inTransitTotal),
+                    if (transit.isNotEmpty()) stringResource(R.string.inv_settlement_transit_count, transit.size) else stringResource(R.string.inv_settlement_transit_none),
+                    loss = tone == BrokerSettlement.Tone.LOSS,
+                    gain = tone == BrokerSettlement.Tone.GAIN,
+                ),
+                SummaryValue(stringResource(R.string.inv_settlement_expected), moneyOrMasked(view.expected, hidden), stringResource(R.string.inv_settlement_expected_hint)),
+            ),
+        )
+        if (transit.isNotEmpty()) {
+            Panel {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PanelTitle(stringResource(R.string.inv_settlement_list_title), stringResource(R.string.inv_settlement_list_description))
+                    transit.forEachIndexed { index, item ->
+                        if (index > 0) HorizontalDivider(color = palette["zinc-100"])
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(item.description.orEmpty(), color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    stringResource(
+                                        if (BrokerSettlement.isPayment(item.kind)) R.string.inv_settlement_pays_on else R.string.inv_settlement_settles_on,
+                                        formatDateBR(item.date),
+                                    ),
+                                    color = palette.muted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            val amount = item.amount ?: BigDecimal.ZERO
+                            Text(
+                                signed(item.amount),
+                                color = when {
+                                    hidden -> palette.text
+                                    amount.signum() >= 0 -> palette["emerald-700"]
+                                    else -> palette["rose-700"]
+                                },
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** As cores da rosca e das series: SERIES[i] por posicao, o resto OTHER_COLOR (chart-other = zinc-400). */

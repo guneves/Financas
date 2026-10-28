@@ -253,8 +253,4 @@ object PortfolioView {
         }
         return DATE_TIME.format(instant)
     }
-
-    /** O saldo das contas Corretora (portfolioCashBalance): balance_brl, senao balance; null vale 0. */
-    fun portfolioCashBalance(balances: List<BigDecimal?>): BigDecimal =
-        balances.fold(BigDecimal.ZERO) { acc, value -> acc + (value ?: BigDecimal.ZERO) }
 }

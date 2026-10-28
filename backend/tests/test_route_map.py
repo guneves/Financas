@@ -71,6 +71,7 @@ EXPECTED_ROUTES = {
     ("/api/investments/contributions", "GET"),
     ("/api/investments/returns", "GET"),
     ("/api/investments/portfolio", "GET"),
+    ("/api/investments/settlement", "GET"),
     ("/api/investments/portfolio/export", "GET"),
     ("/api/investments/export", "GET"),
     ("/api/investment-proceeds/export", "GET"),

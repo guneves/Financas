@@ -65,7 +65,9 @@ class TestOperations:
         assert movement["metadata"]["purchase_date"] == "2026-10-20"
         assert movement["metadata"]["other_costs"] == 2.5
         cash = world.transactions(corretora)
-        assert [(row["type"], row["amount"], row["date"]) for row in cash] == [("EXPENSE", 3850.0, "2026-10-20")]
+        # O caixa e o liquidado (netAmount, com a taxa) na liquidacao D+2 (049).
+        assert movement["metadata"]["settlement_amount"] == 3852.5
+        assert [(row["type"], row["amount"], row["date"]) for row in cash] == [("EXPENSE", 3852.5, "2026-10-22")]
 
     def test_a_repeat_pull_is_a_no_op(self, world):
         item_id, pluggy_item, _corretora = broker(world)
@@ -215,11 +217,11 @@ class TestPortfolioCheck:
             "account_id": corretora, "amount": 5000, "date": "2026-10-01", "type": "INCOME", "category": "Receita",
         })
         position = world.fake.add_position(pluggy_item, "PETR4", 100)
-        # Comprou ontem: o app ja tirou 3.850, a corretora so tira no D+2.
+        # Comprou ontem: o lancamento fica no D+2 (28/10), em transito hoje (27/10).
         world.fake.add_operation(position, "BUY", 100, 38.5, "2026-10-26")
         world.sync(item_id)
         cash = world.overview()["investments"]["cash"]
-        assert (cash["difference"], cash["unsettled"], cash["unexplained"]) == (3850.0, 3850.0, 0.0)
+        assert (cash["app_balance"], cash["difference"], cash["unsettled"]) == (5000.0, 0.0, -3850.0)
 
     def test_held_operations_are_listed(self, world):
         item_id, pluggy_item, _corretora = broker(world)
@@ -232,14 +234,6 @@ class TestPortfolioCheck:
     def test_no_positions_no_check(self, world):
         broker(world)
         assert world.overview()["investments"] is None
-
-
-def test_business_days_back():
-    module = importlib.import_module("services.open_finance_investments")
-    from datetime import date
-
-    assert module.business_days_back(date(2026, 10, 27), 2) == date(2026, 10, 23)  # terca -> sexta
-    assert module.business_days_back(date(2026, 10, 29), 2) == date(2026, 10, 27)
 
 
 @pytest.mark.parametrize("value, total", [(None, 0), (2.5, 2.5), ({"brokerageFee": 2.5, "b3": 0.37}, 2.87), (-1, 0)])
