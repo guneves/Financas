@@ -78,4 +78,29 @@ class GlobalAccountTest {
         assertEquals("US$${NBSP}0,00", formatSignedForeignCurrency(BigDecimal.ZERO, 1))
         assertEquals("€${NBSP}1.234,50", formatForeignCurrency(BigDecimal("1234.5"), "EUR"))
     }
+
+    @Test
+    fun aPixFromReaisCarriesBothAmounts() {
+        // "Pix para ca" (pages/ContaGlobal.jsx): as mesmas frases e o mesmo pedido da web.
+        val wise = AccountDto(id = "wise", name = "Wise", currency = "USD")
+        val accounts = listOf(
+            AccountDto(id = "btg", name = "BTG conta corrente"),
+            wise,
+            AccountDto(id = "corretora", name = "BTG Corretora", type = "BROKERAGE"),
+        )
+        assertEquals(listOf("btg"), GlobalAccount.pixSources(accounts).map { it.id })
+        val empty = GlobalAccount.PixForm(date = "2026-10-06")
+        assertEquals("Escolha a conta em reais de onde saiu o Pix.", GlobalAccount.pixMissing(empty, "USD"))
+        val from = empty.copy(accountId = "btg")
+        assertEquals("Informe quanto saiu em reais.", GlobalAccount.pixMissing(from, "USD"))
+        assertEquals("Informe quanto entrou em USD.", GlobalAccount.pixMissing(from.copy(amount = "253,53"), "USD"))
+        assertEquals("Informe quanto entrou em USD.", GlobalAccount.pixMissing(from.copy(amount = "253,53", transferAmount = "0"), "USD"))
+        val ready = from.copy(amount = "253,53", transferAmount = "46,10")
+        assertEquals("", GlobalAccount.pixMissing(ready, "USD"))
+        assertEquals(
+            """{"account_id":"btg","transfer_account_id":"wise","amount":253.53,"transfer_amount":46.1,"date":"2026-10-06","description":"Pix para Wise","client_id":"c1"}""",
+            br.financas.app.data.JsonBody.encode(GlobalAccount.pixBody(ready, wise, "c1")),
+        )
+        assertEquals("Câmbio", GlobalAccount.pixBody(ready.copy(description = " Câmbio "), wise, "c1")["description"])
+    }
 }

@@ -196,10 +196,17 @@ private fun WaitingItemRow(item: InboxItemDto, viewModel: ExtratoViewModel) {
                 AppTextField(choice.amount, { viewModel.changeWaiting(item, choice.copy(amount = it)) }, keyboardType = KeyboardType.Decimal)
             }
         }
+        val transferCurrency = viewModel.waitingTransferCurrency(item)
+        if (!computer && transferCurrency != null) {
+            // Pix de reais para a conta global (047): quanto entrou nela, na moeda dela.
+            Field(stringResource(R.string.review_waiting_transfer_amount, transferCurrency)) {
+                AppTextField(choice.transferAmount, { viewModel.changeWaiting(item, choice.copy(transferAmount = it)) }, keyboardType = KeyboardType.Decimal)
+            }
+        }
         if (computer) {
             AlertMessage(stringResource(R.string.review_waiting_computer), AlertTone.INFO, stringResource(R.string.lanc_dismiss))
         } else {
-            val missing = ReviewRules.waitingMissing(item, choice.accountId, choice.transferAccountId, viewModel.waitingAmount(item))
+            val missing = viewModel.waitingMissing(item)
             AppButton(
                 text = stringResource(R.string.review_waiting_record),
                 onClick = { viewModel.recordWaiting(item) },

@@ -200,11 +200,17 @@ export function draftFromItem(item) {
     card_id: item?.card_id || '',
     transfer_account_id: item?.transfer_account_id || '',
     installments: item?.installments || 1,
+    // Quanto entrou no destino em outra moeda (conta global, 047).
+    transfer_amount: item?.transfer_amount ?? '',
   }
 }
 
 // O PATCH/approve: so o que mudou em relacao ao item, mais a versao.
-export function changesFromDraft(item, draft) {
+// `crossCurrency` (crossCurrencyOf() das contas escolhidas): a moeda do destino
+// numa transferencia entre moedas, que leva `transfer_amount`; null quando as
+// duas contas sao da mesma moeda (ele sai); undefined quando nao se sabe (uma
+// das contas fora da lista): fica como esta.
+export function changesFromDraft(item, draft, crossCurrency) {
   const original = draftFromItem(item)
   const changes = {}
   if (draft.entry_type && draft.entry_type !== original.entry_type) changes.entry_type = draft.entry_type
@@ -226,6 +232,12 @@ export function changesFromDraft(item, draft) {
   })
   if (Number(draft.installments || 1) !== Number(original.installments || 1)) {
     changes.installments = Number(draft.installments) || 1
+  }
+  const before = original.transfer_amount === '' ? null : Number(original.transfer_amount)
+  if (draft.entry_type !== 'TRANSFER' || crossCurrency !== undefined) {
+    const typed = draft.entry_type === 'TRANSFER' && crossCurrency ? parseMoneyInput(draft.transfer_amount) : null
+    const received = Number.isFinite(typed) ? typed : null
+    if (received !== before) changes.transfer_amount = received
   }
   return { version: item?.version, ...changes }
 }

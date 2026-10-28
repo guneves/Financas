@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Status | Built 2026-10-27 on `claude/conta-global`: `ui/globalaccount/` (`NativeRoutes.CONTA_GLOBAL`, link `/inicio/conta-global`), `rules/GlobalAccount.kt` (port of `lib/globalAccount.js`, JVM tests with the node cases), `formatForeignCurrency()` in `core/Format.kt`; the Início entry under the account strip, the "Conta global" link and the "Conta global (US$)" type in Ajustes › Contas, "+ Novo" without the dollar account. Debug APK built locally, 531 JVM tests green; waiting for the owner's phone check. Not built on the phone: "Pix para cá" (web only) |
+| Status | Built 2026-10-27 on `claude/conta-global`: `ui/globalaccount/` (`NativeRoutes.CONTA_GLOBAL`, link `/inicio/conta-global`), `rules/GlobalAccount.kt` (port of `lib/globalAccount.js`, JVM tests with the node cases), `formatForeignCurrency()` in `core/Format.kt`; the Início entry under the account strip, the "Conta global" link and the "Conta global (US$)" type in Ajustes › Contas, "+ Novo" without the dollar account. Debug APK built locally, 531 JVM tests green; waiting for the owner's phone check. 2026-10-28: "Pix para cá" (sheet, `GlobalAccount.pixMissing()`/`pixBody()`, POST /api/transfers with `client_id`, online only) and "Carregar mais" (next pages) |
 | React source | `frontend/src/pages/ContaGlobal.jsx` |
 | Route(s) | `/inicio/conta-global` (`?conta=<id>` when there is more than one) |
-| Endpoints | `GET /api/accounts`, `GET /api/transactions?account_id=<id>` (first page), `POST /api/review` |
+| Endpoints | `GET /api/accounts`, `GET /api/transactions?account_id=<id>` (paged, "Carregar mais"), `POST /api/review`, `POST /api/transfers` |
 | Client rules | `lib/globalAccount.js` (`globalStatement()`, `globalTotals()`, `brlHint()`, `impliedRate()`), `formatForeignCurrency()` in `lib/format.js` |
 
 ## What it is for
@@ -30,3 +30,5 @@ Everywhere else the account shows in reais and counts converted in Início's bal
 - [ ] The three Pix of October show the dollars Wise credited.
 - [ ] Privacy mode masks the balance and the "≈ R$".
 - [ ] Ajustes › Contas: Wise says "Conta global (USD)" and opens this screen.
+- [ ] "Pix para cá": De BTG, Saiu R$ 10,00, Entrou US$ 1,80 → one row "+US$ 1,80 · saiu R$ 10,00";
+  BTG's balance drops R$ 10,00 and nothing shows in Resumo do mês. Without connection: an error, nothing queued.

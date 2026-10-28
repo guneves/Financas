@@ -12,6 +12,8 @@ package br.financas.app.rules
 
 import br.financas.app.data.AccountDto
 import br.financas.app.data.TransactionDto
+import br.financas.app.core.MoneyInput
+import br.financas.app.core.parseMoneyInput
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -76,4 +78,45 @@ object GlobalAccount {
         if (row.pending || native.signum() == 0 || source.signum() == 0) return null
         return source.divide(native, 4, RoundingMode.HALF_UP)
     }
+
+    // ---- "Pix para ca" (pages/ContaGlobal.jsx, savePix) ----
+
+    /** O formulario do Pix de uma conta em reais para a conta global: os dois valores, como texto. */
+    data class PixForm(
+        val accountId: String = "",
+        val amount: String = "",
+        val transferAmount: String = "",
+        val date: String = "",
+        val description: String = "",
+    )
+
+    /** As contas de onde sai o Pix: ativas, em reais, nunca a Corretora. */
+    fun pixSources(accounts: List<AccountDto>): List<AccountDto> =
+        accounts.filter { !it.isArchived && currencyOf(it) == "BRL" && it.type != "BROKERAGE" }
+
+    private fun positive(text: String): BigDecimal? =
+        (parseMoneyInput(text) as? MoneyInput.Amount)?.value?.takeIf { it.signum() > 0 }
+
+    /** O que falta, com as frases da web; "" quando da para salvar. */
+    fun pixMissing(form: PixForm, currency: String): String = when {
+        form.accountId.isEmpty() -> "Escolha a conta em reais de onde saiu o Pix."
+        positive(form.amount) == null -> "Informe quanto saiu em reais."
+        positive(form.transferAmount) == null -> "Informe quanto entrou em $currency."
+        form.date.isEmpty() -> "Informe a data."
+        else -> ""
+    }
+
+    /**
+     * POST /api/transfers: uma transferencia so (047), `amount` o que saiu em reais e
+     * `transfer_amount` o que entrou na conta global. O client_id faz a repeticao voltar a mesma.
+     */
+    fun pixBody(form: PixForm, account: AccountDto, clientId: String): Map<String, Any?> = linkedMapOf(
+        "account_id" to form.accountId,
+        "transfer_account_id" to account.id,
+        "amount" to positive(form.amount),
+        "transfer_amount" to positive(form.transferAmount),
+        "date" to form.date,
+        "description" to form.description.trim().ifEmpty { "Pix para ${account.name}" },
+        "client_id" to clientId,
+    )
 }

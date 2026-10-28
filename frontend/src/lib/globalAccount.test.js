@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   brlHint,
+  crossCurrencyOf,
   globalAccounts,
   globalStatement,
   globalTotals,
@@ -69,4 +70,12 @@ test('formatador em dolar', () => {
   assert.equal(formatSignedForeignCurrency(9.99, -1), '−US$ 9,99')
   assert.equal(formatSignedForeignCurrency(46.1, 1), '+US$ 46,10')
   assert.equal(formatSignedForeignCurrency(0, 1), 'US$ 0,00')
+})
+
+test('so uma transferencia entre moedas pede o valor no destino', () => {
+  assert.equal(crossCurrencyOf({ currency: 'BRL' }, { currency: 'USD' }), 'USD')
+  assert.equal(crossCurrencyOf({ currency: 'USD' }, { currency: 'BRL' }), 'BRL')
+  assert.equal(crossCurrencyOf({}, { currency: 'BRL' }), null)
+  assert.equal(crossCurrencyOf({ currency: 'USD' }, { currency: 'usd' }), null)
+  assert.equal(crossCurrencyOf(null, { currency: 'USD' }), null)
 })

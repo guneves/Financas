@@ -90,3 +90,12 @@ export function impliedRate(row) {
   if (!row || row.pending || !row.native || !row.source_amount) return null
   return Math.round((row.source_amount / row.native) * 10000) / 10000
 }
+
+// Uma transferencia entre moedas (047) precisa do valor que entrou no destino
+// (`transfer_amount`): a moeda do destino quando ela difere da origem, senao
+// null (mesma moeda: um valor so). Sem uma das contas, null.
+export function crossCurrencyOf(origin, destination) {
+  if (!origin || !destination) return null
+  const to = accountCurrency(destination)
+  return accountCurrency(origin) === to ? null : to
+}

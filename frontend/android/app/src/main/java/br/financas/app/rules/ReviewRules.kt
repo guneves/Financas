@@ -213,16 +213,36 @@ object ReviewRules {
 
     /**
      * POST /api/inbox/<id>/approve com o que o dono escolheu ({version, remember: false, account_id
-     * / transfer_account_id, amount}). Nada lembrado: como o gravar sozinho.
+     * / transfer_account_id, amount, transfer_amount}). Nada lembrado: como o gravar sozinho.
      */
-    fun waitingApproveBody(item: InboxItemDto, accountId: String?, transferAccountId: String?, amount: BigDecimal?): Map<String, Any?> {
+    fun waitingApproveBody(
+        item: InboxItemDto,
+        accountId: String?,
+        transferAccountId: String?,
+        amount: BigDecimal?,
+        transferAmount: BigDecimal? = null,
+    ): Map<String, Any?> {
         val body = linkedMapOf<String, Any?>()
         if (item.version != null) body["version"] = item.version
         body["remember"] = false
         if (!accountId.isNullOrEmpty()) body["account_id"] = accountId
         if (!transferAccountId.isNullOrEmpty()) body["transfer_account_id"] = transferAccountId
         if (amount != null) body["amount"] = amount
+        if (transferAmount != null) body["transfer_amount"] = transferAmount
         return body
+    }
+
+    /**
+     * A moeda do destino quando a transferencia e entre moedas (o Pix de reais para a conta global,
+     * 047) e o item ainda nao sabe quanto entrou nele (`transfer_amount`): o servidor recusa sem
+     * isso. As contas sao as escolhidas, senao as do item; sem saber a moeda de uma delas, null.
+     */
+    fun waitingTransferCurrency(item: InboxItemDto, accounts: List<AccountDto>, accountId: String?, transferAccountId: String?): String? {
+        if (item.entryType != "TRANSFER" || item.transferAmount != null) return null
+        val origin = accounts.firstOrNull { it.id == (accountId?.takeIf { id -> id.isNotEmpty() } ?: item.accountId) } ?: return null
+        val destination = accounts.firstOrNull { it.id == (transferAccountId?.takeIf { id -> id.isNotEmpty() } ?: item.transferAccountId) } ?: return null
+        val to = GlobalAccount.currencyOf(destination)
+        return if (GlobalAccount.currencyOf(origin) == to) null else to
     }
 
     /** "Não é entre minhas contas": grava como despesa ou receita na conta que avisou. */
@@ -239,11 +259,19 @@ object ReviewRules {
         accounts.filter { !it.isArchived && it.id != item.accountId && it.id != item.transferAccountId }
 
     /** O que falta escolher antes de gravar (o botao fica apagado): "" quando esta tudo. */
-    fun waitingMissing(item: InboxItemDto, accountId: String?, transferAccountId: String?, amount: BigDecimal?): String {
+    fun waitingMissing(
+        item: InboxItemDto,
+        accountId: String?,
+        transferAccountId: String?,
+        amount: BigDecimal?,
+        transferCurrency: String? = null,
+        transferAmount: BigDecimal? = null,
+    ): String {
         val fixes = waitingFixes(item)
         if (WaitingFix.ACCOUNT in fixes && accountId.isNullOrEmpty()) return InboxRules.needText("account")
         if (WaitingFix.TRANSFER_ACCOUNT in fixes && transferAccountId.isNullOrEmpty()) return InboxRules.needText("transfer_account")
         if (WaitingFix.AMOUNT in fixes && (amount == null || amount.signum() <= 0)) return "Informe o valor em reais."
+        if (transferCurrency != null && (transferAmount == null || transferAmount.signum() <= 0)) return "Informe quanto entrou em $transferCurrency."
         return ""
     }
 }
