@@ -14,6 +14,8 @@ carries session 8's `of-duplicate-guard` merge, so both are now deployed).
 - `test_open_finance_auto.py::test_a_pix_to_someone_else_is_held_two_days_then_recorded` was a date
   bomb: the first sync used the real clock, so once today was ≥ 2026-10-28 (CI is UTC) the 2-day hold
   on a 2026-10-26 Pix had expired. It now pins `local_today` to the Pix day for the first sync.
+  The pin alone didn't work: `services/auto_record.py` imported `local_today` by name, so
+  `record_due()` (on GET /api/transactions) used the real clock; it now calls `invoices.local_today()`.
 - Real bug found locally after 21:00: a Corretora without `metadata.portfolio_since` fell back to
   `created_at[:10]`, a **UTC** date, so a provento paid today was skipped in Brazil's evening
   (`test_fixed_income_interest.py` failed locally, never in UTC CI). `portfolio_since()` now converts

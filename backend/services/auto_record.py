@@ -34,7 +34,7 @@ import time
 from config import AUTO_RECORD_DEFAULT
 from db import utc_timestamp
 from services import inbox, inbox_decisions, open_finance_auto, open_finance_inbox, review
-from services.invoices import local_today
+import services.invoices as invoices
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
@@ -118,7 +118,7 @@ def record_notifications(conn, current_user_id, now_ms=None, today=None):
     if not enabled(conn, current_user_id):
         return counts
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
-    today = today or local_today()
+    today = today or invoices.local_today()
     rows = conn.execute(
         """
         SELECT DISTINCT i.id FROM inbox_items i
@@ -142,7 +142,7 @@ def record_due(conn, current_user_id, now_ms=None, today=None):
     """A passada das leituras: o que esperava o prazo (o Samsung sem o banco,
     a transferencia sem par) grava quando o prazo passa. A Pluggy, se o
     interruptor dela esta ligado, tambem (o par de transferencia que venceu)."""
-    today = today or local_today()
+    today = today or invoices.local_today()
     counts = record_notifications(conn, current_user_id, now_ms, today)
     if open_finance_auto.enabled(conn, current_user_id):
         for key, value in open_finance_auto.record_pending(conn, current_user_id, today).items():
