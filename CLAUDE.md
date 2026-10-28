@@ -397,7 +397,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   uses the Corretora (`portfolio_cash_account_id()`); `null` = "Não descontar". Paid proventos land
   in it (`apply_paid_proceeds()`, `INVESTMENT_PROCEED`) from `metadata.portfolio_since` on. Its
   balance shows only in Investimentos.
-- **Trade cash moves on the liquidation date** (049, owner 2026-10-28; `services/settlement.py`):
+- **Trade cash moves on the liquidation date** (owner 2026-10-28, no migration; `services/settlement.py`):
   the linked lançamento is dated D+2 business days for STOCKS/REIT (B3 calendar: weekends, national
   holidays, Carnival/Good Friday/Corpus Christi, 24 and 31/12), D+1 abroad, same day otherwise;
   `metadata.settlement_date` overrides, never before the trade (400); `metadata.settlement_amount`
