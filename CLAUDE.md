@@ -313,7 +313,12 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   Corretora takes only the broker's investments account, `is_investment_account()`), or is
   "não usar" (`ignored_at`). A notification and a Pluggy row of one movement are **one item in either order**
   (same cents, ≤ 1 day, the mapped target; `notification_item_for_open_finance()` /
-  `open_finance_item_for_detection()`); installments 2..n are `COVERED`, invoice payments never an
+  `open_finance_item_for_detection()`). With no pair on the day, a bank row also pairs with a
+  notification that already became a lançamento up to `OPEN_FINANCE_LATE_POST_DAYS` (5) before it
+  (the bank posts late), never a second row. **Banco do Brasil rounds up** (owner, 2026-10-27:
+  18,19 reaches Pluggy as 19,00): for a `ROUNDS_UP_ISSUERS` connection a whole-reais amount pairs
+  with the one it rounds up from (`rounded_up()`), the notification's cents stay, and the invoice
+  payment link accepts it too; installments 2..n are `COVERED`, invoice payments never an
   item, a card credit is a `REFUND` item; a row that vanishes or changes amount before approval
   makes the item `REMOVED` (if no other source). Approval stamps `source_type = 'OPEN_FINANCE'`.
   The card sign is learned per account (`learn_charge_sign()`): the sandbox contradicts the docs.

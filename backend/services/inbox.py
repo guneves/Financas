@@ -956,9 +956,9 @@ def _pending_items(conn, current_user_id, *, cents, date_text, days, direction=N
     return [row for row in rows if _amount_matches(row, cents)]
 
 
-def _amount_matches(item_row, cents):
+def _amount_matches(item_row, cents, rounds_up=False):
     total = _cents(item_row["amount"])
-    if total == cents:
+    if total == cents or (rounds_up and rounded_up(total, cents)):
         return True
     installments = int(item_row["installments"] or 1)
     # No cartao a notificacao pode dizer a parcela ou o total.
@@ -1721,6 +1721,38 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
 # folga cobre a virada da meia-noite e o D+1 de quem lanca no dia seguinte.
 OPEN_FINANCE_PAIR_DAYS = 1
 PAIRABLE_STATES = (PENDING, APPROVED, MATCHED, DENIED)
+# O banco pode lancar dias depois do aviso (o debito do fim de semana, o
+# feriado). Sem par no dia, a Pluggy ainda procura, ate estes dias antes da
+# data dela, a notificacao que ja virou lancamento: senao gravaria o mesmo
+# movimento duas vezes. So para tras e so o que ja tem lancamento (o pendente
+# e o descartado ficam no dia).
+OPEN_FINANCE_LATE_POST_DAYS = 5
+RECORDED_STATES = (APPROVED, MATCHED)
+# O Banco do Brasil manda a Pluggy o valor arredondado para cima, em reais
+# inteiros (dono, 2026-10-27: 18,19 chega 19,00). A notificacao tem os
+# centavos certos; o par aceita o valor que arredonda para o do banco.
+ROUNDS_UP_ISSUERS = {"bb"}
+
+
+def rounded_up(true_cents, bank_cents):
+    """O valor do banco e o verdadeiro arredondado para cima, em reais inteiros."""
+    return int(bank_cents) % 100 == 0 and 0 < int(bank_cents) - int(true_cents) < 100
+
+
+def open_finance_rounds_up(conn, current_user_id, of_account_id):
+    """A conta da Pluggy e de um banco que arredonda o valor (ROUNDS_UP_ISSUERS)."""
+    row = conn.execute(
+        """
+        SELECT a.name, i.connector_name FROM open_finance_accounts a
+        JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
+        WHERE a.id = ? AND a.user_id = ?
+        """,
+        (of_account_id, current_user_id),
+    ).fetchone()
+    if not row:
+        return False
+    issuer = issuer_of_institution(row["connector_name"]) or issuer_of_institution(row["name"])
+    return issuer in ROUNDS_UP_ISSUERS
 
 
 def _target_open(item, field, need):
@@ -1755,29 +1787,35 @@ def open_finance_fits_item(item, *, entry_type, direction, account_id=None, card
 
 
 def notification_item_for_open_finance(conn, current_user_id, *, entry_type, direction, cents, date_text,
-                                       account_id=None, card_id=None):
+                                       account_id=None, card_id=None, rounds_up=False):
     """O item que uma notificacao ja abriu para este movimento (pendente ou ja
-    decidido), sem transacao do Open Finance ainda: a mesma compra, o mesmo item."""
-    rows = conn.execute(
-        f"""
-        SELECT i.* FROM inbox_items i
-        WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
-          AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
-          AND EXISTS (SELECT 1 FROM notify_detections d
-                      WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
-          AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
-                          WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED')
-        """,
-        (current_user_id, *PAIRABLE_STATES, _shift(date_text, -OPEN_FINANCE_PAIR_DAYS),
-         _shift(date_text, OPEN_FINANCE_PAIR_DAYS)),
-    ).fetchall()
-    found = [
-        row for row in rows
-        if _amount_matches(row, cents) and open_finance_fits_item(
-            item_dict(row), entry_type=entry_type, direction=direction, account_id=account_id, card_id=card_id,
-        )
-    ]
-    return _pick_closest(found, date_text)
+    decidido), sem transacao do Open Finance ainda: a mesma compra, o mesmo item.
+    Sem par no dia (+-1), o que ja virou lancamento ate OPEN_FINANCE_LATE_POST_DAYS
+    antes (o banco lancou depois). `rounds_up`: o banco arredondou o valor."""
+    def look(states, date_from, date_to):
+        rows = conn.execute(
+            f"""
+            SELECT i.* FROM inbox_items i
+            WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in states)})
+              AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
+              AND EXISTS (SELECT 1 FROM notify_detections d
+                          WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
+              AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
+                              WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED')
+            """,
+            (current_user_id, *states, date_from, date_to),
+        ).fetchall()
+        found = [
+            row for row in rows
+            if _amount_matches(row, cents, rounds_up) and open_finance_fits_item(
+                item_dict(row), entry_type=entry_type, direction=direction, account_id=account_id, card_id=card_id,
+            )
+        ]
+        return _pick_closest(found, date_text)
+
+    return look(
+        PAIRABLE_STATES, _shift(date_text, -OPEN_FINANCE_PAIR_DAYS), _shift(date_text, OPEN_FINANCE_PAIR_DAYS),
+    ) or look(RECORDED_STATES, _shift(date_text, -OPEN_FINANCE_LATE_POST_DAYS), _shift(date_text, -OPEN_FINANCE_PAIR_DAYS - 1))
 
 
 def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
@@ -1825,10 +1863,20 @@ def open_finance_item_for_detection(conn, current_user_id, detection, target):
     ).fetchall()
     found = [
         row for row in rows
-        if _amount_matches(row, detection["amount_cents"])
+        if (
+            _amount_matches(row, detection["amount_cents"])
+            or (rounded_up(detection["amount_cents"], _cents(row["amount"])) and _item_rounds_up(conn, current_user_id, row))
+        )
         and _detection_fits_open_finance(conn, current_user_id, detection, target, row)
     ]
     return _pick_closest(found, when)
+
+
+def _item_rounds_up(conn, current_user_id, row):
+    return any(
+        open_finance_rounds_up(conn, current_user_id, source["of_account_id"])
+        for source in open_finance_sources(conn, current_user_id, row["id"], roles=(SOURCE,))
+    )
 
 
 def _join_open_finance_item(conn, current_user_id, detection, row):
