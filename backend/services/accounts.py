@@ -5,7 +5,8 @@ e grava a categoria pelo *nome* em `transactions.category` (`resolve_category`).
 """
 
 from db import serialize_metadata_row
-from money import rounded_money
+from money import parse_money, rounded_money
+from services.fx import normalize_currency
 from validators import ValidationError, optional_string, require_string
 
 
@@ -41,7 +42,11 @@ def default_account_id(current_user_id):
 # carteira (Corretora, cujo saldo so aparece em Investimentos), pelo nome — a
 # ordem da lista de contas, que e a que as telas mostram. A marcada e gravada,
 # para servidor e telas lerem a mesma (is_default).
-DEFAULT_ACCOUNT_ORDER = "is_default DESC, type = 'BROKERAGE', name COLLATE NOCASE, created_at, id"
+# A padrao recebe o lancamento sem conta, em reais: nunca a Corretora nem a
+# conta global (outra moeda), se houver outra.
+DEFAULT_ACCOUNT_ORDER = (
+    "is_default DESC, type = 'BROKERAGE', COALESCE(currency, 'BRL') <> 'BRL', name COLLATE NOCASE, created_at, id"
+)
 
 
 def ensure_default_account(conn, current_user_id):
@@ -125,12 +130,30 @@ def keep_or_require_account(conn, current_user_id, raw, current_id, label="Conta
     return require_account(conn, current_user_id, raw, label)["id"]
 
 
-# Uma transferencia e uma linha com um valor so; entre moedas o valor que sai
-# e o que entra sao diferentes.
-TRANSFER_CURRENCY_MESSAGE = (
-    "Contas em moedas diferentes: lance uma despesa na origem e uma receita no destino, "
-    "cada uma na moeda da conta."
-)
+# Uma transferencia e uma linha; entre moedas (047) o valor que entra no
+# destino, na moeda dele, vai em transfer_amount.
+TRANSFER_CURRENCY_MESSAGE = "Contas em moedas diferentes: informe o valor que entrou no destino."
+SAME_CURRENCY_MESSAGE = "O valor no destino so existe entre contas de moedas diferentes."
+
+
+def transfer_amount_for(origin, destination, payload, current=None):
+    """O `transfer_amount` de uma transferencia de origin para destination.
+
+    Mesma moeda: None (entra o mesmo valor que sai); mandar um e recusado.
+    Moedas diferentes: o do payload, senao o que a linha ja tinha (`current`);
+    sem nenhum, recusado — nunca dolar contado como real.
+    """
+    cross = normalize_currency(origin["currency"]) != normalize_currency(destination["currency"])
+    sent = payload.get("transfer_amount") not in (None, "")
+    if not cross:
+        if sent:
+            raise ValidationError(SAME_CURRENCY_MESSAGE)
+        return None
+    if sent:
+        return parse_money(payload, "transfer_amount", "Valor no destino")
+    if current is not None and current["transfer_amount"]:
+        return current["transfer_amount"]
+    raise ValidationError(TRANSFER_CURRENCY_MESSAGE)
 
 
 def resolve_account_id(conn, current_user_id, payload, key="account_id", label="Conta"):
@@ -268,7 +291,9 @@ def account_balance_rows(conn, current_user_id):
     """Saldo por conta: inicial + receitas - despesas -/+ transferencias.
 
     TRANSFER sai de account_id e entra em transfer_account_id, por isso aparece
-    duas vezes aqui com sinais opostos e some do consolidado.
+    duas vezes aqui com sinais opostos e some do consolidado. Entre moedas
+    (047) entra `transfer_amount`, na moeda do destino; sem ele (a conta virou
+    global depois), nada entra ate a Pluggy ou o dono dizer quanto.
     """
     return conn.execute(
         """
@@ -288,8 +313,12 @@ def account_balance_rows(conn, current_user_id):
                     WHERE t.user_id = a.user_id AND t.account_id = a.id
                 ), 0)
               + COALESCE((
-                    SELECT SUM(t.amount)
+                    SELECT SUM(COALESCE(
+                        t.transfer_amount,
+                        CASE WHEN COALESCE(o.currency, 'BRL') = COALESCE(a.currency, 'BRL') THEN t.amount ELSE 0 END
+                    ))
                     FROM transactions t
+                    LEFT JOIN accounts o ON o.id = t.account_id AND o.user_id = t.user_id
                     WHERE t.user_id = a.user_id
                       AND t.type = 'TRANSFER'
                       AND t.transfer_account_id = a.id

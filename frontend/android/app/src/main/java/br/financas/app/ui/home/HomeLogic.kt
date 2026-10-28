@@ -28,8 +28,11 @@ data class HomeAccount(
     val isDefault: Boolean,
     val balanceBrl: BigDecimal?,
     val estimated: Boolean,
+    /** A Conta global e a conta em outra moeda: aqui em reais, como as outras. */
+    val currency: String = "BRL",
 ) {
     val isBrokerage: Boolean get() = type == AccountDto.TYPE_BROKERAGE
+    val isGlobal: Boolean get() = currency.uppercase() != "BRL"
 }
 
 /** GET /api/home com os pendentes por cima: o que o hero, o resumo e os graficos leem. */
@@ -93,6 +96,7 @@ object HomeLogic {
                     isDefault = account.isDefault,
                     balanceBrl = adjusted?.balanceBrl ?: account.balanceBrl,
                     estimated = adjusted?.balanceEstimated ?: false,
+                    currency = account.currency,
                 )
             },
             summary = data.summary,

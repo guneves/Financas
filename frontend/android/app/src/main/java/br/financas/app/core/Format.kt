@@ -49,6 +49,32 @@ fun formatSignedCurrency(value: BigDecimal?, sign: Int? = null): String {
     return (if (direction > 0) "+" else MINUS) + body
 }
 
+/**
+ * So a tela da Conta global (ui/globalaccount/) mostra outra moeda: "US$ 46,10", "€ 1.234,50".
+ * O simbolo e o do Intl do pt-BR; uma moeda sem simbolo conhecido sai com o codigo.
+ */
+fun formatForeignCurrency(value: BigDecimal?, currency: String = "USD"): String {
+    val number = value ?: BigDecimal.ZERO
+    return signPrefix(number) + foreignSymbol(currency) + NBSP + grouped(number.abs(), 2, 2)
+}
+
+fun formatSignedForeignCurrency(value: BigDecimal?, sign: Int? = null, currency: String = "USD"): String {
+    val number = value ?: BigDecimal.ZERO
+    val amount = number.abs()
+    val direction = sign ?: number.signum()
+    val body = formatForeignCurrency(amount, currency)
+    if (direction == 0 || amount.signum() == 0) return body
+    return (if (direction > 0) "+" else MINUS) + body
+}
+
+private fun foreignSymbol(currency: String): String = when (currency.uppercase()) {
+    "BRL" -> "R$"
+    "USD" -> "US$"
+    "EUR" -> "€"
+    "GBP" -> "£"
+    else -> currency.uppercase()
+}
+
 /** Preco unitario de ativo: de 2 a 6 casas ("R$ 0,000001"). */
 fun formatUnitCurrency(value: BigDecimal?): String = currency(value ?: BigDecimal.ZERO, 2, 6)
 

@@ -19,6 +19,8 @@ data class TransactionDto(
     @SerialName("category_id") val categoryId: String? = null,
     @SerialName("account_id") val accountId: String? = null,
     @SerialName("transfer_account_id") val transferAccountId: String? = null,
+    /** O que entrou no destino em outra moeda (047, a Conta global); null = o mesmo `amount`. */
+    @SerialName("transfer_amount") val transferAmount: Money? = null,
     @SerialName("source_type") val sourceType: String? = null,
     @SerialName("source_id") val sourceId: String? = null,
     @SerialName("attachment_count") val attachmentCount: Int = 0,

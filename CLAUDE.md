@@ -200,8 +200,33 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `OTHERS`. Balances never change; budget, plan and Início count only the owner's part
   (`own_amount_sql()` / `ownAmount()`). A receber lists the others' part until `share_settled_at`.
 - **The app is reais-only on screen**: no currency choice, no foreign symbol; an account balance
-  shows `accountBalanceBrl()` or "sem câmbio hoje". The foreign-currency backend (018) stays,
-  API-only. Exception: the IR tab's "Aplicações no exterior" when the year has a foreign result.
+  shows `accountBalanceBrl()` or "sem câmbio hoje". Exceptions: the IR tab's "Aplicações no
+  exterior" when the year has a foreign result, and **the Conta global** (below).
+- **Conta global** (047, owner 2026-10-27; `services/global_account.py`, `lib/globalAccount.js`,
+  `rules/GlobalAccount.kt`): the owner's Wise USD account. The **one** screen in another currency is
+  `/inicio/conta-global`, opened from "Conta global" under the accounts on Início and from Ajustes ›
+  Contas: balance and statement in US$ (`formatForeignCurrency()`), a "≈ R$ …" from today's PTAX
+  (`balance_brl`) or "sem câmbio hoje". The only currency choice is the "Conta global (US$)" type
+  of Ajustes › Nova conta (CHECKING + `currency: USD`). Everywhere else it is in reais: Início's
+  tile and the **consolidated balance count it converted** (`balance_brl`, as before). A foreign
+  account is never the default nor the Corretora. Its own despesas/receitas stay out of every reais
+  total (Resumo do mês, plan, budget, the Extrato without `account_id`, the review queue/count):
+  they are listed and reviewed on its screen. "+ Novo" doesn't offer it.
+- **A transfer between currencies is one row with two amounts** (047): `amount` leaves
+  `account_id` in its currency, `transfer_amount` lands in `transfer_account_id` (NULL = same
+  currency). `POST /api/transfers` and the PATCH require it across currencies and refuse it
+  otherwise (`transfer_amount_for()`); a balance counts a cross-currency transfer without it as 0
+  (never R$ as US$). A transfer is never income nor expense. A reais account that only received
+  transfers can become USD (`PATCH /api/accounts/<id> {currency}`, `convert_to_foreign()`); its
+  transfers wait for Pluggy to fill `transfer_amount`.
+- **Pluggy and the Conta global**: a USD Pluggy account maps only to a USD account (and BRL to BRL);
+  its rows stay in US$ end to end (`normalize_transaction(account_currency=)`, item, lançamento,
+  snapshot, Conferência). A BRL Pix whose counterparty/description names the global account
+  ("WISE BRASIL CORRETORA DE CAMBIO") is an own transfer that waits for the dollar side; the Wise
+  credit pairs with it by day (±1) and counterparty, never by cents; two on one day go to the pair
+  whose rate is closest to the PTAX (`place()` step 2, `_place_cross_currency()`). A Wise credit
+  waits `TRANSFER_HOLD_DAYS` like a Pix; recorded alone and untouched, the BRL side later turns it
+  into the transfer. A credit matching a transfer already in the app fills its `transfer_amount`.
 - **The monthly plan starts from income** (025, 038, `services/monthly_plan.py`): `PUT
   /api/monthly-plan` writes `income_amount` (> 0) and `invest_percent`/`spend_percent` (sum ≤ 100).
   Every R$ is computed on read via `percent_of()`; percentages are TEXT read as `Decimal`, never

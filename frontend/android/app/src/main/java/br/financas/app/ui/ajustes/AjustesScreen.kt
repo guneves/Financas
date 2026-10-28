@@ -55,6 +55,7 @@ import br.financas.app.data.OpenFinanceSettingsDto
 import br.financas.app.rules.ApkUpdateTexts
 import br.financas.app.rules.Card
 import br.financas.app.rules.CardFunctions
+import br.financas.app.rules.GlobalAccount
 import br.financas.app.rules.NotifyTexts
 import br.financas.app.rules.OpenFinanceRules
 import br.financas.app.core.formatDateBR
@@ -273,7 +274,7 @@ private fun LazyListScope.contas(viewModel: AjustesViewModel, onOpenLink: (Strin
                         stringResource(R.string.ajustes_type),
                         hint = if (form.type == "BROKERAGE") stringResource(R.string.ajustes_brokerage_hint) else null,
                     ) {
-                        SelectField(form.type, Settings.ACCOUNT_TYPES.map { SelectOption(it.first, it.second) }, { viewModel.changeAccountForm(form.copy(type = it)) })
+                        SelectField(form.type, Settings.NEW_ACCOUNT_TYPES.map { SelectOption(it.first, it.second) }, { viewModel.changeAccountForm(form.copy(type = it)) })
                     }
                     Field(stringResource(R.string.ajustes_institution)) {
                         AppTextField(form.institution, { viewModel.changeAccountForm(form.copy(institution = it)) })
@@ -300,9 +301,18 @@ private fun AccountRow(account: AccountDto, viewModel: AjustesViewModel, onOpenL
                 if (account.id == viewModel.portfolioAccountId) Badge(stringResource(R.string.ajustes_portfolio_badge))
             }
             val institution = account.institution?.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty()
-            Text(Settings.accountTypeLabel(account.type) + institution, fontSize = 13.sp, color = palette.muted)
+            Text(Settings.accountLabel(account.type, account.currency) + institution, fontSize = 13.sp, color = palette.muted)
         }
-        if (account.isBrokerage) {
+        if (GlobalAccount.isGlobal(account)) {
+            // O saldo em dolar so na tela dela.
+            Text(
+                stringResource(R.string.home_global_account),
+                color = palette["emerald-700"],
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                modifier = Modifier.heightIn(min = 48.dp).clickable { onOpenLink("/inicio/conta-global") }.padding(horizontal = 8.dp, vertical = 14.dp),
+            )
+        } else if (account.isBrokerage) {
             // O saldo da Corretora so aparece em Investimentos.
             Text(
                 stringResource(R.string.ajustes_in_investments),

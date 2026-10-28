@@ -160,7 +160,7 @@ fun HomeScreen(
                 if (view == null || home == null) {
                     item(key = "skeleton") { ListSkeleton(rows = 4) }
                 } else {
-                    item(key = "hero") { BalanceHero(view, hidden) }
+                    item(key = "hero") { BalanceHero(view, hidden, onOpenWeb) }
                     item(key = "summary") { MonthSummary(view.summary, hidden, onOpenWeb) }
                     item(key = "invoice") { NextInvoiceTile(home, onOpenWeb) }
                     val shown = viewModel.shownAttention
@@ -329,7 +329,7 @@ private fun Alerts(viewModel: HomeViewModel, onOpenWeb: (String) -> Unit) {
 // ---- Saldo em conta ----
 
 @Composable
-private fun BalanceHero(view: HomeView, hidden: Boolean) {
+private fun BalanceHero(view: HomeView, hidden: Boolean, onOpenWeb: (String) -> Unit) {
     val palette = LocalPalette.current
     val title = stringResource(R.string.home_balance_title)
     Surface(
@@ -367,6 +367,22 @@ private fun BalanceHero(view: HomeView, hidden: Boolean) {
             if (strip.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(strip, key = { it.id }) { account -> AccountChip(account, hidden) }
+                }
+            }
+            // A conta em dolar: aqui em reais, como as outras; o saldo em US$ so na tela dela.
+            if (strip.any { it.isGlobal && !it.archived }) {
+                val label = stringResource(R.string.home_global_account)
+                Surface(
+                    onClick = { onOpenWeb("/inicio/conta-global") },
+                    shape = RoundedCornerShape(12.dp),
+                    color = palette.brand,
+                    contentColor = palette["brand-soft"],
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp)) {
+                        Text(label, color = palette["brand-soft"], fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Icon(AppIcons.ChevronRight, contentDescription = null, tint = palette["brand-soft"], modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                    }
                 }
             }
         }

@@ -113,6 +113,9 @@ def banking_month_rows(conn, current_user_id):
         LEFT JOIN accounts origin ON origin.id = t.account_id AND origin.user_id = t.user_id
         LEFT JOIN accounts target ON target.id = t.transfer_account_id AND target.user_id = t.user_id
         WHERE t.user_id = ?
+          -- A conta global (outra moeda) fica fora dos totais em reais; a
+          -- transferencia para ela e so transferencia.
+          AND (t.type = 'TRANSFER' OR COALESCE(origin.currency, 'BRL') = 'BRL')
         GROUP BY substr(t.date, 1, 7)
         """,
         (current_user_id,),

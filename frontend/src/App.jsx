@@ -11,6 +11,7 @@ import Layout from './components/Layout'
 // mostra o carregamento dentro da area da pagina, com a navegacao ja montada.
 const PAGE_LOADERS = {
   Dashboard: () => import('./pages/Dashboard'),
+  ContaGlobal: () => import('./pages/ContaGlobal'),
   Extrato: () => import('./pages/lancamentos/Extrato'),
   Aprovar: () => import('./pages/lancamentos/Aprovar'),
   Cartoes: () => import('./pages/lancamentos/Cartoes'),
@@ -29,6 +30,7 @@ const PAGE_LOADERS = {
 }
 
 const Dashboard = lazy(PAGE_LOADERS.Dashboard)
+const ContaGlobal = lazy(PAGE_LOADERS.ContaGlobal)
 const Extrato = lazy(PAGE_LOADERS.Extrato)
 const Aprovar = lazy(PAGE_LOADERS.Aprovar)
 const Cartoes = lazy(PAGE_LOADERS.Cartoes)
@@ -92,6 +94,8 @@ export default function App() {
         {session && (
           <Route element={<Layout />}>
             <Route path="/inicio" element={<Dashboard />} />
+            {/* A unica tela em outra moeda (lib/globalAccount.js). */}
+            <Route path="/inicio/conta-global" element={<ContaGlobal />} />
 
             <Route path="/lancamentos" element={<Navigate to="/lancamentos/extrato" replace />} />
             <Route path="/lancamentos/extrato" element={<Extrato />} />

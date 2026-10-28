@@ -7,6 +7,7 @@ import { moneyInputValue, parseMoneyInput } from '../../lib/monthlyPlan'
 import { usePrivateFormatter } from '../../lib/privacy'
 import { PORTFOLIO_ACCOUNT_TYPE, isBrlAccount, pickPortfolioAccountId } from '../../lib/portfolioAccount'
 import { accountBalanceBrl } from '../../lib/transactions'
+import { GLOBAL_ACCOUNT_LABEL, accountCurrency, isGlobalAccount } from '../../lib/globalAccount'
 import {
   AlertMessage,
   Badge,
@@ -33,7 +34,10 @@ export const ACCOUNT_TYPE_LABELS = {
   OTHER: 'Outra',
 }
 
-// O app e so em reais: a conta nao tem moeda para escolher.
+// O app e em reais: a unica moeda a escolher e a da Conta global (US$), um
+// tipo so desta lista (lib/globalAccount.js); no servidor ela e CHECKING em USD.
+const GLOBAL_TYPE = 'GLOBAL_USD'
+const NEW_ACCOUNT_TYPES = { ...ACCOUNT_TYPE_LABELS, [GLOBAL_TYPE]: 'Conta global (US$)' }
 const emptyAccountForm = () => ({ name: '', type: 'CHECKING', institution: '', initial_balance: '' })
 
 const NO_ITEMS = []
@@ -80,11 +84,13 @@ export default function ContasSection() {
     setSaving(true)
     setError('')
     try {
+      const global = accountForm.type === GLOBAL_TYPE
       await accountsApi.create({
         name: accountForm.name,
-        type: accountForm.type,
+        type: global ? 'CHECKING' : accountForm.type,
         institution: accountForm.institution,
         initial_balance: initialBalance ?? 0,
+        ...(global ? { currency: 'USD' } : {}),
       })
       await fetchAccounts()
       toast(`Conta "${accountForm.name}" criada.`)
@@ -174,7 +180,7 @@ export default function ContasSection() {
     const isPortfolio = account.type === PORTFOLIO_ACCOUNT_TYPE
     return [
       { label: 'Editar conta', icon: Pencil, onSelect: () => openEdit(account) },
-      !account.is_default && !isPortfolio
+      !account.is_default && !isPortfolio && !isGlobalAccount(account)
         ? { label: 'Tornar padrão', icon: Star, onSelect: () => updateAccount(account, { is_default: true }, `"${account.name}" é a conta padrão.`, 'Não foi possível trocar a conta padrão.') }
         : null,
       !isPortfolio && !account.is_default && isBrlAccount(account)
@@ -224,7 +230,7 @@ export default function ContasSection() {
                     {account.id === portfolioAccountId ? <Badge>Carteira</Badge> : null}
                   </p>
                   <p className="text-sm text-zinc-600">
-                    {ACCOUNT_TYPE_LABELS[account.type] || account.type}
+                    {isGlobalAccount(account) ? `${GLOBAL_ACCOUNT_LABEL} (${accountCurrency(account)})` : ACCOUNT_TYPE_LABELS[account.type] || account.type}
                     {account.institution ? ` · ${account.institution}` : ''}
                   </p>
                 </div>
@@ -234,6 +240,11 @@ export default function ContasSection() {
                   {account.type === PORTFOLIO_ACCOUNT_TYPE ? (
                     <Link to="/investimentos" className="whitespace-nowrap text-right text-sm font-semibold text-emerald-700 underline-offset-2 hover:underline">
                       Em Investimentos
+                    </Link>
+                  ) : isGlobalAccount(account) ? (
+                    // O saldo em dolar so na tela dela.
+                    <Link to={`/inicio/conta-global?conta=${account.id}`} className="flex min-h-11 items-center whitespace-nowrap text-right text-sm font-semibold text-emerald-700 underline-offset-2 hover:underline">
+                      {GLOBAL_ACCOUNT_LABEL}
                     </Link>
                   ) : (
                     <span className={cx('whitespace-nowrap text-right font-bold', (accountBalanceBrl(account) ?? 0) >= 0 ? 'text-zinc-950' : 'text-rose-600')}>
@@ -275,9 +286,14 @@ export default function ContasSection() {
             <Field label="Nome">
               <input type="text" placeholder="Ex: Nubank" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} className="app-input" required />
             </Field>
-            <Field label="Tipo" hint={accountForm.type === PORTFOLIO_ACCOUNT_TYPE ? 'Conta da carteira: as operações de investimento saem dela.' : undefined}>
+            <Field
+              label="Tipo"
+              hint={accountForm.type === PORTFOLIO_ACCOUNT_TYPE
+                ? 'Conta da carteira: as operações de investimento saem dela.'
+                : accountForm.type === GLOBAL_TYPE ? 'Em dólar: saldo e extrato em US$ na tela Conta global; no Início, convertida.' : undefined}
+            >
               <select value={accountForm.type} onChange={(event) => setAccountForm({ ...accountForm, type: event.target.value })} className="app-select">
-                {Object.entries(ACCOUNT_TYPE_LABELS).map(([value, label]) => (
+                {Object.entries(NEW_ACCOUNT_TYPES).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
               </select>
@@ -285,8 +301,8 @@ export default function ContasSection() {
             <Field label="Instituição">
               <input type="text" placeholder="Opcional" value={accountForm.institution} onChange={(event) => setAccountForm({ ...accountForm, institution: event.target.value })} className="app-input" />
             </Field>
-            <Field label="Saldo inicial">
-              <input type="text" placeholder="0,00" value={accountForm.initial_balance} onChange={(event) => setAccountForm({ ...accountForm, initial_balance: event.target.value })} className="app-input" />
+            <Field label={accountForm.type === GLOBAL_TYPE ? 'Saldo inicial (US$)' : 'Saldo inicial'}>
+              <input type="text" inputMode="decimal" placeholder="0,00" value={accountForm.initial_balance} onChange={(event) => setAccountForm({ ...accountForm, initial_balance: event.target.value })} className="app-input" />
             </Field>
             <div className="flex items-end">
               <Button type="submit" loading={saving} className="w-full">Salvar</Button>
@@ -314,8 +330,8 @@ export default function ContasSection() {
           <Field label="Instituição">
             <input type="text" placeholder="Opcional" value={editForm.institution} onChange={(event) => setEditForm({ ...editForm, institution: event.target.value })} className="app-input" />
           </Field>
-          <Field label="Saldo inicial">
-            <input type="text" placeholder="0,00" value={editForm.initial_balance} onChange={(event) => setEditForm({ ...editForm, initial_balance: event.target.value })} className="app-input" />
+          <Field label={isGlobalAccount(editing) ? `Saldo inicial (${accountCurrency(editing)})` : 'Saldo inicial'}>
+            <input type="text" inputMode="decimal" placeholder="0,00" value={editForm.initial_balance} onChange={(event) => setEditForm({ ...editForm, initial_balance: event.target.value })} className="app-input" />
           </Field>
         </form>
       </Sheet>

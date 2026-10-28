@@ -26,6 +26,7 @@ object NativeLinks {
         val params = query.split('&').filter { it.isNotEmpty() }.associate { it.substringBefore('=') to it.substringAfter('=', "") }
         return when (path) {
             "/inicio", "/dashboard", "" -> Target(NativeRoutes.HOME)
+            "/inicio/conta-global" -> Target(NativeRoutes.CONTA_GLOBAL)
             "/lancamentos", "/lancamentos/extrato" -> Target(
                 NativeRoutes.EXTRATO,
                 if (params["review"] == "1") VIEW_REVIEW else params["ver"]?.takeIf { it == "contas" || it == "investimentos" },

@@ -152,7 +152,7 @@ def _account_rows(conn, current_user_id, account_id, date_from, date_to):
         SELECT id, date, description,
             CASE
                 WHEN type = 'INCOME' THEN amount
-                WHEN type = 'TRANSFER' AND transfer_account_id = ? AND account_id != ? THEN amount
+                WHEN type = 'TRANSFER' AND transfer_account_id = ? AND account_id != ? THEN COALESCE(transfer_amount, amount)
                 ELSE -amount
             END AS signed
         FROM transactions

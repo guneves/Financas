@@ -20,6 +20,7 @@ import {
   BellRing,
   CheckCircle2,
   ChevronRight,
+  Globe2,
   CreditCard,
   LineChart as LineChartIcon,
   ListChecks,
@@ -72,6 +73,7 @@ import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString,
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
 import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, isCardRefund, isInvestmentOutflow, isInvoicePayment } from '../lib/transactions'
 import { toast } from '../lib/toast'
+import { GLOBAL_ACCOUNT_LABEL, globalAccounts } from '../lib/globalAccount'
 import { ownAmount } from '../lib/sharing'
 import { flowPoint, flowSummary as flowSummaryOf, savingsRateText } from '../lib/homeFlow'
 
@@ -1010,6 +1012,18 @@ function BalanceHero({ total, accounts, monthName, className = '' }) {
             )
           })}
         </ul>
+      ) : null}
+      {/* A conta em dolar: aqui em reais, como as outras; o saldo em US$ so na
+          tela dela (lib/globalAccount.js). */}
+      {globalAccounts(accounts).length > 0 ? (
+        <Link
+          to="/inicio/conta-global"
+          className="-my-1 inline-flex min-h-11 items-center gap-1.5 self-start rounded-xl text-sm font-semibold text-brand-soft hover:text-brand-ink"
+        >
+          <Globe2 className="h-4 w-4" aria-hidden="true" />
+          {GLOBAL_ACCOUNT_LABEL}
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
       ) : null}
     </section>
   )

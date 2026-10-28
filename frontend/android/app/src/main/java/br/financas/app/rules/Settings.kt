@@ -22,6 +22,32 @@ object Settings {
 
     fun accountTypeLabel(type: String?): String = ACCOUNT_TYPES.firstOrNull { it.first == type }?.second ?: type.orEmpty()
 
+    /**
+     * A Conta global (2026-10-27): o unico lugar onde uma moeda aparece e este tipo do seletor de
+     * "Nova conta"; no servidor ela e CHECKING em USD (GLOBAL_TYPE de ContasSection.jsx).
+     */
+    const val GLOBAL_TYPE = "GLOBAL_USD"
+    val NEW_ACCOUNT_TYPES: List<Pair<String, String>> = ACCOUNT_TYPES + (GLOBAL_TYPE to "Conta global (US$)")
+
+    /** O rotulo da linha: "Conta global (USD)" na conta em outra moeda, senao o do tipo. */
+    fun accountLabel(type: String?, currency: String?): String {
+        val code = (currency ?: "BRL").ifBlank { "BRL" }.uppercase()
+        return if (code != "BRL") "Conta global ($code)" else accountTypeLabel(type)
+    }
+
+    /** O corpo do POST /api/accounts da "Nova conta" (o que handleCreateAccount manda). */
+    fun newAccountBody(name: String, type: String, institution: String, initialBalance: BigDecimal): Map<String, Any?> {
+        val global = type == GLOBAL_TYPE
+        val body = linkedMapOf<String, Any?>(
+            "name" to name,
+            "type" to if (global) "CHECKING" else type,
+            "institution" to institution,
+            "initial_balance" to initialBalance,
+        )
+        if (global) body["currency"] = "USD"
+        return body
+    }
+
     /** KIND_LABELS de CategoriasSection.jsx. */
     val CATEGORY_KINDS: List<Pair<String, String>> = listOf("EXPENSE" to "Despesa", "INCOME" to "Receita", "BOTH" to "Ambos")
 
@@ -52,7 +78,8 @@ object Settings {
         val portfolio = type == "BROKERAGE"
         val brl = currency.isNullOrEmpty() || currency.uppercase() == "BRL"
         return AccountMenu(
-            makeDefault = !isDefault && !portfolio,
+            // A conta global (outra moeda) nunca e a padrao: o lancamento sem conta e em reais.
+            makeDefault = !isDefault && !portfolio && brl,
             linkToPortfolio = !portfolio && !isDefault && brl,
             unlinkFromPortfolio = portfolio,
         )

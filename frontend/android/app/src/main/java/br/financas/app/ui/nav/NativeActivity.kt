@@ -64,6 +64,8 @@ import br.financas.app.ui.ajustes.AjustesScreen
 import br.financas.app.ui.ajustes.AjustesViewModel
 import br.financas.app.ui.areceber.AReceberScreen
 import br.financas.app.ui.areceber.AReceberViewModel
+import br.financas.app.ui.globalaccount.GlobalAccountScreen
+import br.financas.app.ui.globalaccount.GlobalAccountViewModel
 import br.financas.app.ui.cartoes.CartoesScreen
 import br.financas.app.ui.components.LocalShellChrome
 import br.financas.app.ui.components.ShellChrome
@@ -120,6 +122,9 @@ object NativeRoutes {
 
     /** Lancamentos › A receber (ui/areceber/). */
     const val A_RECEBER = "a-receber"
+
+    /** A Conta global, a conta em dolar (ui/globalaccount/): aberta pelo Inicio e por Ajustes › Contas. */
+    const val CONTA_GLOBAL = "conta-global"
 
     /** Planejar › Orcamento, Recorrentes e Metas (ui/orcamento/, ui/recorrentes/, ui/metas/). */
     const val ORCAMENTO = "orcamento"
@@ -492,6 +497,10 @@ private fun AppShell(
                     composable(NativeRoutes.CARTOES) {
                         val cartoes: CartoesViewModel = viewModel()
                         CartoesScreen(viewModel = cartoes, onBack = back, onTab = openTab, onOpenWeb = openLink, onNewPurchase = { onNewEntry("CARD") })
+                    }
+                    composable(NativeRoutes.CONTA_GLOBAL) {
+                        val global: GlobalAccountViewModel = viewModel()
+                        GlobalAccountScreen(viewModel = global, onBack = back)
                     }
                     composable(NativeRoutes.A_RECEBER) {
                         val receivables: AReceberViewModel = viewModel()

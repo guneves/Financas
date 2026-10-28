@@ -35,6 +35,7 @@ class NativeLinksTest {
         assertNull(NativeLinks.targetFor(null))
         assertEquals(NativeLinks.Target(NativeRoutes.EXTRATO), NativeLinks.targetFor("/lancamentos/extrato?ver=outra"))
         assertEquals(NativeLinks.Target(NativeRoutes.HOME), NativeLinks.targetFor("/inicio"))
+        assertEquals(NativeLinks.Target(NativeRoutes.CONTA_GLOBAL), NativeLinks.targetFor("/inicio/conta-global?conta=x"))
     }
 
     @Test

@@ -15,7 +15,6 @@ from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
 from money import parse_money, rounded_money
 from services.accounts import (
     CLIENT_ID_OTHER_KIND_MESSAGE,
-    TRANSFER_CURRENCY_MESSAGE,
     account_balance_rows,
     category_id_for_name,
     ensure_default_account,
@@ -27,8 +26,10 @@ from services.accounts import (
     resolve_category,
     seed_default_categories,
     serialize_account,
+    transfer_amount_for,
 )
-from services.fx import normalize_currency, with_balance_in_brl
+from services.fx import BASE_CURRENCY, SUPPORTED_CURRENCIES, normalize_currency, with_balance_in_brl
+from services import global_account
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.investments import PORTFOLIO_ACCOUNT_TYPE
@@ -76,7 +77,11 @@ def accounts(current_user_id):
         initial_balance = rounded_money(
             parse_optional_number(payload, "initial_balance", "Saldo inicial") or 0
         )
-        currency = (optional_string(payload, "currency", max_length=3) or "BRL").upper()
+        currency = normalize_currency(optional_string(payload, "currency", max_length=3))
+        if currency not in SUPPORTED_CURRENCIES:
+            raise ValidationError(f"Moeda nao suportada: {currency}.")
+        if currency != BASE_CURRENCY and account_type == PORTFOLIO_ACCOUNT_TYPE:
+            raise ValidationError("A Corretora e em reais.")
     except ValidationError as exc:
         return validation_error(str(exc))
 
@@ -151,6 +156,25 @@ def account_detail(current_user_id, account_id):
 
         payload = parse_json_body()
         updates = {}
+        if "currency" in payload:
+            # Virar conta global (2026-10-27): so a conta que so recebeu Pix
+            # de contas em reais (services/global_account.py). A moeda nunca
+            # volta nem muda de outro jeito.
+            currency = normalize_currency(payload.get("currency"))
+            if currency == normalize_currency(account["currency"]):
+                payload = {key: value for key, value in payload.items() if key != "currency"}
+            else:
+                try:
+                    if currency not in SUPPORTED_CURRENCIES or currency == BASE_CURRENCY:
+                        raise ValidationError("A moeda de uma conta nao muda depois de criada.")
+                    if normalize_currency(account["currency"]) != BASE_CURRENCY:
+                        raise ValidationError("A moeda de uma conta nao muda depois de criada.")
+                    global_account.convert_to_foreign(conn, current_user_id, account, currency)
+                except ValidationError as exc:
+                    return validation_error(str(exc))
+                payload = {key: value for key, value in payload.items() if key != "currency"}
+                if not payload:
+                    return jsonify(serialize_account(fetch_account(conn, current_user_id, account_id))), 200
         try:
             if "name" in payload:
                 updates["name"] = require_string(payload, "name", "Nome da conta")
@@ -170,11 +194,17 @@ def account_detail(current_user_id, account_id):
             return validation_error(str(exc))
 
         final_type = updates.get("type", account["type"])
+        if final_type == PORTFOLIO_ACCOUNT_TYPE and normalize_currency(account["currency"]) != BASE_CURRENCY:
+            return validation_error("A Corretora e em reais.")
         archived_after = updates.get("archived_at", account["archived_at"])
         make_default = payload.get("is_default") is True
         if make_default:
             if archived_after:
                 return validation_error("Uma conta arquivada nao pode ser a padrao.")
+            if normalize_currency(account["currency"]) != BASE_CURRENCY:
+                # A conta global (outra moeda) nunca e a padrao: o lancamento
+                # sem conta e em reais.
+                return validation_error("Uma conta em outra moeda nao pode ser a padrao.")
             if final_type == PORTFOLIO_ACCOUNT_TYPE:
                 # O saldo da Corretora so aparece em Investimentos; a padrao e
                 # onde cai o lancamento sem conta, e ele sumiria do Inicio.
@@ -249,8 +279,8 @@ def create_transfer(current_user_id):
             )
             if origin["id"] == destination["id"]:
                 raise ValidationError("Origem e destino devem ser contas diferentes.")
-            if normalize_currency(origin["currency"]) != normalize_currency(destination["currency"]):
-                raise ValidationError(TRANSFER_CURRENCY_MESSAGE)
+            # Entre moedas (047): o que entrou no destino, na moeda dele.
+            transfer_amount = transfer_amount_for(origin, destination, payload)
             category, category_id = resolve_category(conn, current_user_id, payload, required=False)
         except ValidationError as exc:
             return validation_error(str(exc))
@@ -261,9 +291,9 @@ def create_transfer(current_user_id):
             conn.execute(
                 """
                 INSERT INTO transactions
-                (id, user_id, account_id, transfer_account_id, amount, date,
+                (id, user_id, account_id, transfer_account_id, amount, transfer_amount, date,
                  category, category_id, description, type, client_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER', ?)
                 """,
                 (
                     item_id,
@@ -271,6 +301,7 @@ def create_transfer(current_user_id):
                     origin["id"],
                     destination["id"],
                     amount,
+                    transfer_amount,
                     date_value,
                     category or TRANSFER_CATEGORY,
                     category_id,
@@ -397,6 +428,25 @@ def category_detail(current_user_id, category_id):
 
         payload = parse_json_body()
         updates = {}
+        if "currency" in payload:
+            # Virar conta global (2026-10-27): so a conta que so recebeu Pix
+            # de contas em reais (services/global_account.py). A moeda nunca
+            # volta nem muda de outro jeito.
+            currency = normalize_currency(payload.get("currency"))
+            if currency == normalize_currency(account["currency"]):
+                payload = {key: value for key, value in payload.items() if key != "currency"}
+            else:
+                try:
+                    if currency not in SUPPORTED_CURRENCIES or currency == BASE_CURRENCY:
+                        raise ValidationError("A moeda de uma conta nao muda depois de criada.")
+                    if normalize_currency(account["currency"]) != BASE_CURRENCY:
+                        raise ValidationError("A moeda de uma conta nao muda depois de criada.")
+                    global_account.convert_to_foreign(conn, current_user_id, account, currency)
+                except ValidationError as exc:
+                    return validation_error(str(exc))
+                payload = {key: value for key, value in payload.items() if key != "currency"}
+                if not payload:
+                    return jsonify(serialize_account(fetch_account(conn, current_user_id, account_id))), 200
         try:
             if "name" in payload:
                 updates["name"] = require_string(payload, "name", "Nome da categoria")
