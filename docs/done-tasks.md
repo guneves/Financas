@@ -187,6 +187,7 @@
 | Owner's data aligned with Pluggy (production, through the API) and BB Rende Fácil never in the app (046: `inbox.is_auto_invest()`, `COVERED` in `place()`, phone notice `ignored`; `test_rende_facil.py`) | 2026-10-27 |
 | Conta global (047): Wise USD account with its own screen in US$ (`/inicio/conta-global`, web + APK), transfers with `transfer_amount`, USD↔USD Pluggy mapping, rows kept in US$, BRL Pix ↔ Wise credit paired by day/counterparty/PTAX, a reais account convertible to USD, reais totals without the foreign account (`test_global_account.py`, `globalAccount.test.js`, `GlobalAccountTest.kt`) | 2026-10-27 |
 | No duplicate when Pluggy brings what a notification recorded: the bank posting up to 5 days later pairs with the recorded notification (`OPEN_FINANCE_LATE_POST_DAYS`); Banco do Brasil's rounded-up amount (18,19 → 19,00) pairs with the notification and the invoice payment (`ROUNDS_UP_ISSUERS`, `rounded_up()`); `test_auto_record.py` | 2026-10-27 |
+| Conta global, the rest: the dollars that arrived (`transfer_amount`) can be typed when approving a Pix from reais to it — web Aprovar's edit sheet ("Entrou (US$)", `crossCurrencyOf()`, `changesFromDraft(item, draft, crossCurrency)`) and the APK's "Não gravou sozinho" (`ReviewRules.waitingTransferCurrency()`); the APK's Conta global gets "Pix para cá" (`GlobalAccount.pixMissing()/pixBody()`, POST /api/transfers with `client_id`, never queued) and "Carregar mais" (`inboxRules.test.js`, `globalAccount.test.js`, `ReviewRulesTest.kt`, `GlobalAccountTest.kt`) | 2026-10-28 |
 
 ---
 

@@ -136,6 +136,8 @@ data class InboxItemDto(
     @SerialName("card_name") val cardName: String? = null,
     @SerialName("transfer_account_id") val transferAccountId: String? = null,
     @SerialName("transfer_account_name") val transferAccountName: String? = null,
+    /** O que entra no destino em outra moeda (conta global, 047); null na mesma moeda. */
+    @SerialName("transfer_amount") val transferAmount: Money? = null,
     val needs: List<String> = emptyList(),
     val confirm: List<String> = emptyList(),
     val edited: List<JsonElement> = emptyList(),

@@ -7,63 +7,43 @@
 
 ---
 
-## Addendum — 2026-10-27 (9) · Failed deploy fixed, `main` pushed
+## Session — 2026-10-28 · Conta global: the last code gaps; check of `main`
 
-The deploy of `174924f` (conta-global) failed in CI on one test; fixed and pushed `main` (which also
-carries session 8's `of-duplicate-guard` merge, so both are now deployed).
-- `test_open_finance_auto.py::test_a_pix_to_someone_else_is_held_two_days_then_recorded` was a date
-  bomb: the first sync used the real clock, so once today was ≥ 2026-10-28 (CI is UTC) the 2-day hold
-  on a 2026-10-26 Pix had expired. It now pins `local_today` to the Pix day for the first sync.
-  The pin alone didn't work: `services/auto_record.py` imported `local_today` by name, so
-  `record_due()` (on GET /api/transactions) used the real clock; it now calls `invoices.local_today()`.
-- Real bug found locally after 21:00: a Corretora without `metadata.portfolio_since` fell back to
-  `created_at[:10]`, a **UTC** date, so a provento paid today was skipped in Brazil's evening
-  (`test_fixed_income_interest.py` failed locally, never in UTC CI). `portfolio_since()` now converts
-  `created_at` to the local date, like `local_today()`.
-- Lesson: tests with hard-coded October 2026 dates near "today" break as the clock passes them; pin
-  `invoices.local_today` for every sync, and run the suite in the evening too (UTC vs local).
-- Not done here (the owner routed it to the other session): "remove all Para revisar flags" —
-  clear `needs_review` so the app starts clean for daily use.
-
----
-
-## Session — 2026-10-27 (8) · Pluggy duplicates of notification rows
-
-Owner asked to check that notifications record at once and Pluggy (every 6 h) fills what is missing,
-then to fix the duplicate found. Branch `claude/of-duplicate-guard` from `main`, merged locally into
-`main`. **Not pushed, not deployed** (pushing `main` deploys; `main` also carries conta-global).
+Owner asked to finish the pending work of `docs/prompts/global-account-usd.md`, make sure the Conta
+global works, and check the last merge. Branch `claude/epic-volta-ujrt5i` from `main` (PR opened).
 
 ### Done
-- Verified (code + tests): notifications record at once (`auto_record.record_notifications()` after
-  every POST /api/inbox/detections; Samsung-only waits 10 min and records on the next read of
-  Extrato/Início/Revisar); the Pluggy thread pulls each user every `sync_hours` (6) and records what
-  no lançamento explains; a matched notification row keeps `needs_review = 1` (Pluggy never
-  confirms for the owner — by design).
-- **Bug fixed:** a notification-recorded row whose bank row came >1 day later was recorded twice
-  (the notification's row is "taken" by its APPROVED item, so `free_candidates()` skipped it).
-  `notification_item_for_open_finance()` now falls back to APPROVED/MATCHED notification items up to
-  `OPEN_FINANCE_LATE_POST_DAYS` = 5 before the bank date (backwards only); `reconcile_recorded()`
-  then redoes an untouched row at the bank's date or only links a reviewed one.
-- **BB rounds up** (owner, mid-session: 18,19 shows as 19,00 in Pluggy): `ROUNDS_UP_ISSUERS = {"bb"}`,
-  `rounded_up()`, `open_finance_rounds_up()` (connector/account name → issuer). Applies to the
-  notification pairing both ways and to `invoice_payment_link()` (exact cents preferred).
-- Tests: `test_auto_record.py` +9 (4 late-posting, 5 BB incl. an Itaú control). Full pytest: all
-  pass except the known `test_fixed_income_interest.py::TestTheCouponReachesTheAccount` (after
-  21:00 BRT).
+- **Last merges checked** (`ccf2ba0` Ourocard "PGTO DEBITO CONTA"/"PGTO. CASH", `97ba9fa` BTG
+  "CardBankslip" → invoice payment, never a refund/transfer half): code read, full pytest on `main`
+  green (all ~1600), node 204/204.
+- **Real gap fixed:** a reais Pix to Wise waiting for its dollar side could not be resolved anywhere:
+  approving it is refused without `transfer_amount`, and neither the web Aprovar nor the APK asked
+  for it. Web Aprovar's edit sheet shows "Entrou (US$)" for a cross-currency transfer
+  (`crossCurrencyOf()`, `changesFromDraft(item, draft, crossCurrency)`: `undefined` = currencies
+  unknown, leave it; `null` = same currency, clear it); the APK's "Não gravou sozinho" asks
+  "Quanto entrou (USD)" (`ReviewRules.waitingTransferCurrency()`, `InboxItemDto.transferAmount`).
+- APK Conta global: **"Pix para cá"** (sheet; `GlobalAccount.pixSources/pixMissing/pixBody`, the web's
+  messages; POST /api/transfers with a `client_id`, online only, never queued) and **"Carregar mais"**.
+- Tests: `inboxRules.test.js`, `globalAccount.test.js` (+2), `ReviewRulesTest.kt`,
+  `GlobalAccountTest.kt` (+2). node 206/206; vite build OK.
 
 ### Not done, and why
-- A different amount from another bank (IOF, international) still records twice: not safely
-  separable from a second purchase; the Conferência shows the notification row as app-only.
-- BB's rounding was taken from the owner's message, not seen in real data (the dev DB has only test
-  rows): if BB also rounds Pluggy-only rows, those lançamentos carry 19,00 (nothing to compare with).
-- When the notification arrives after a BB Pluggy row, they pair but the lançamento keeps 19,00.
+- **The APK was not compiled.** The container has no Android SDK (dl.google.com is blocked). The pure
+  `rules/`, `core/`, `data/` code and their tests ran on a plain-JVM Gradle project (380 tests green);
+  the Compose/ViewModel changes (`GlobalAccountScreen/ViewModel.kt`, `ReviewSection.kt`,
+  `ExtratoViewModel.kt`) were checked by reading only. CI's apk job is the first real build.
+- **Owner's data steps** (Wise → USD, map the Pluggy Wise account, check the three October Pix):
+  need production, reachable only through the owner's tailnet/Chrome; nothing ran here. Steps are in
+  `next-steps.md`.
+- A waiting dollar credit can't be paired by hand with a reais account (server refuses another
+  currency as origin); left as is, written down in next-steps.
 
 ### Next session
-1. Owner: push `main` to deploy (conta-global + this fix), then watch the next 6 h pull for BB.
-2. Then the conta-global data steps in next-steps.
+1. Merge the PR (deploys), install the APK, walk `17-conta-global.md`'s Acceptance.
+2. The owner's data steps in next-steps › Conta global.
 
 ### Lessons (non-obvious)
-- Tests whose bank rows must arrive on a second pull need dates within `synced_until - 7 days`.
-
----
-
+- To run the APK's JVM tests without the SDK: a Kotlin-JVM Gradle project whose source sets point at
+  `app/src/{main,test}/java/br/financas/app/{rules,core,data}` (exclude `AppGraph.kt`), with
+  kotlinx-serialization, coroutines, okhttp 4.12, org.json, junit. Maven Central answers 429 at
+  first: retry; once cached it builds in ~20 s.

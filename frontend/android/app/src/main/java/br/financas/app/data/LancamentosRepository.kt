@@ -91,6 +91,10 @@ class LancamentosRepository(
             is InboxWrite.SessionExpired -> result
         }
 
+    /** POST /api/transfers sem a fila: o Pix para a conta global leva dois valores (047). */
+    suspend fun createTransfer(body: Map<String, Any?>): InboxWrite<Unit> =
+        unit(sendWrite(sender, "POST", TRANSFERS_PATH, JsonBody.encode(body)))
+
     suspend fun updateShare(purchaseId: String, body: Map<String, Any?>): InboxWrite<Unit> =
         unit(sendWrite(sender, "PATCH", "/api/cc-expenses/${encode(purchaseId)}/share", JsonBody.encode(body)))
 
@@ -167,6 +171,7 @@ class LancamentosRepository(
         const val EXPORT_COLUMNS_PATH = "/api/exports/columns"
         const val EXPORT_PATH = "/api/transactions/export"
         const val REFUNDS_PATH = "/api/cc-expenses/refunds"
+        const val TRANSFERS_PATH = "/api/transfers"
 
         /** Os filtros com valor, na ordem dada, mais limit e cursor: o queryString() da web. */
         fun pagePath(filters: Map<String, String>, cursor: String?): String {

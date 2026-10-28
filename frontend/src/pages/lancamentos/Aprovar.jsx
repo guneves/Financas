@@ -47,6 +47,7 @@ import {
   targetText,
   whenText,
 } from '../../lib/inboxRules'
+import { accountCurrency, crossCurrencyOf } from '../../lib/globalAccount'
 import { buildCategoryOptions, filterCategoryOptions } from './helpers'
 
 const NO_ITEMS = []
@@ -319,7 +320,13 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
   const categoryType = type === 'INCOME' ? 'INCOME' : 'EXPENSE'
   const categories = filterCategoryOptions(categoryOptions, categoryType)
   const itemCategory = draftFromItem(item).category_id
-  const changes = changesFromDraft(item, draft)
+  const accountsById = Object.fromEntries(accounts.map((account) => [account.id, account]))
+  // Para a conta global (047): o que saiu e o que entrou, cada um na sua moeda.
+  const origin = accountsById[draft.account_id]
+  const destination = accountsById[draft.transfer_account_id]
+  const crossCurrency = type === 'TRANSFER' && (!origin || !destination) ? undefined : crossCurrencyOf(origin, destination)
+  const originCurrency = accountCurrency(accountsById[draft.account_id] || { currency: item.currency })
+  const changes = changesFromDraft(item, draft, crossCurrency)
   const footer = (
     <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
       <Button type="button" variant="secondary" size="lg" onClick={() => onSave(item, changes, false)} loading={saving === 'save'}>
@@ -346,7 +353,7 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
             onChange={(value) => setDraft({ ...draft, entry_type: value })}
           />
         </div>
-        <Field label="Valor (R$)" className="col-span-2">
+        <Field label={originCurrency === 'BRL' ? 'Valor (R$)' : `Valor (${originCurrency})`} className="col-span-2">
           <input type="text" inputMode="decimal" autoComplete="off" value={draft.amount} onChange={set('amount')} className="app-input text-2xl font-bold" />
         </Field>
         <Field label="Data" className="min-w-0">
@@ -402,6 +409,11 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
                 <option key={account.id} value={account.id}>{account.name}</option>
               ))}
             </select>
+          </Field>
+        ) : null}
+        {crossCurrency ? (
+          <Field label={`Entrou (${crossCurrency})`} className="col-span-2" hint="O valor que chegou na conta global, na moeda dela.">
+            <input type="text" inputMode="decimal" autoComplete="off" placeholder="0,00" value={draft.transfer_amount} onChange={set('transfer_amount')} className="app-input" />
           </Field>
         ) : null}
         {type === 'TRANSFER' ? (
