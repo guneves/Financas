@@ -412,6 +412,7 @@ def place(conn, current_user_id, row, account, rules=None):
     partner = inbox.notification_item_for_open_finance(
         conn, current_user_id, entry_type=entry_type, direction=row["direction"], cents=cents,
         date_text=row["date"], account_id=account_id, card_id=card_id,
+        rounds_up=inbox.open_finance_rounds_up(conn, current_user_id, account["id"]),
     )
     if partner:
         return _join_item(conn, current_user_id, row, inbox.item_dict(partner), entry_type, account_id, card_id)
@@ -849,15 +850,19 @@ def is_brokerage(conn, current_user_id, account_id):
 def invoice_payment_link(conn, current_user_id, row, account):
     """O pagamento de fatura que o app ja tem para esta saida do banco (o
     pay-invoice ou o debito automatico, na conta mapeada, mesmo valor, ate
-    INVOICE_PAYMENT_LINK_DAYS dias) e que nenhuma outra transacao explica."""
+    INVOICE_PAYMENT_LINK_DAYS dias) e que nenhuma outra transacao explica.
+    No banco que arredonda (inbox.ROUNDS_UP_ISSUERS), o valor que arredonda
+    para o do banco tambem."""
     if row["direction"] != "OUT" or not account["account_id"]:
         return None
     kinds = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
+    cents = int(row["amount_cents"])
+    lowest = cents - 99 if inbox.open_finance_rounds_up(conn, current_user_id, account["id"]) and cents % 100 == 0 else cents
     found = conn.execute(
         f"""
-        SELECT t.id, t.date FROM transactions t
+        SELECT t.id, t.date, CAST(ROUND(t.amount * 100) AS INTEGER) AS cents FROM transactions t
         WHERE t.user_id = ? AND t.account_id = ? AND t.source_type IN ({', '.join('?' for _ in kinds)})
-          AND CAST(ROUND(t.amount * 100) AS INTEGER) = ? AND t.date BETWEEN ? AND ?
+          AND CAST(ROUND(t.amount * 100) AS INTEGER) BETWEEN ? AND ? AND t.date BETWEEN ? AND ?
           AND NOT EXISTS (
               SELECT 1 FROM open_finance_transactions o
               WHERE o.user_id = t.user_id AND o.target_table = 'transactions' AND o.target_id = t.id
@@ -865,12 +870,15 @@ def invoice_payment_link(conn, current_user_id, row, account):
           )
         """,
         (
-            current_user_id, account["account_id"], *kinds, int(row["amount_cents"]),
+            current_user_id, account["account_id"], *kinds, lowest, cents,
             inbox._shift(row["date"], -INVOICE_PAYMENT_LINK_DAYS), inbox._shift(row["date"], INVOICE_PAYMENT_LINK_DAYS),
             row["id"],
         ),
     ).fetchall()
-    found = sorted(found, key=lambda entry: (inbox._date_gap(entry["date"], row["date"]), entry["date"], entry["id"]))
+    found = sorted(
+        found,
+        key=lambda entry: (entry["cents"] != cents, inbox._date_gap(entry["date"], row["date"]), entry["date"], entry["id"]),
+    )
     return found[0]["id"] if found else None
 
 

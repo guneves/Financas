@@ -11,7 +11,9 @@ O que estes testes protegem:
 - o que o dono ja digitou e ligado, nunca duplicado, e nao pede revisao;
 - a Pluggy confere o que a notificacao gravou: mesmo movimento, a transacao
   so se liga (origem OPEN_FINANCE); outra data ou outro cartao, o lancamento
-  intocado e refeito do jeito do banco; revisado, fica;
+  intocado e refeito do jeito do banco; revisado, fica; o banco que lanca
+  ate 5 dias depois do aviso e o mesmo movimento, nunca um segundo; o BB, que
+  arredonda o valor para cima (18,19 -> 19,00), tambem;
 - revisar: confirma e (opcional) troca a categoria, na compra todas as
   parcelas; lote tudo ou nada; user_id;
 - as compras no cartao no Extrato: uma linha por compra, com os filtros.
@@ -280,6 +282,54 @@ class TestPluggyReconciles:
         [after] = world.transactions(mine)
         assert (after["id"], after["date"], after["needs_review"]) == (row["id"], "2026-10-20", 0)
 
+    def test_the_bank_posting_days_later_is_the_same_movement(self, world):
+        # O debito do fim de semana: o aviso no sabado, o banco na segunda.
+        item_id, _p, made = connected(world, connector_name="Itaú")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 17, 14, 0), app=ITAU))
+        world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20", "COMPRA CARTAO DEB PADARIA"))
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        assert (row["date"], row["source_type"], row["needs_review"]) == ("2026-10-20", "OPEN_FINANCE", 1)
+        assert world.pending() == []
+
+    def test_a_reviewed_row_posted_days_later_is_only_linked(self, world, user):
+        item_id, _p, made = connected(world, connector_name="Itaú")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 17, 14, 0), app=ITAU))
+        [row] = world.transactions(mine)
+        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"]})
+        pluggy_id = world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["date"]) == (row["id"], "2026-10-17")
+        [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], pluggy_id))
+        assert (of_row["role"], of_row["target_id"]) == ("MATCHED", row["id"])
+
+    def test_a_week_later_is_another_purchase(self, world):
+        item_id, _p, made = connected(world, connector_name="Itaú")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 13, 14, 0), app=ITAU))
+        world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20", "COMPRA CARTAO DEB PADARIA"))
+        world.sync(item_id)
+        assert sorted(row["date"] for row in world.transactions(mine)) == ["2026-10-13", "2026-10-20"]
+
+    def test_the_same_amount_on_the_notified_day_keeps_its_pair(self, world):
+        # Duas compras iguais, so a primeira avisou: cada linha do banco e uma.
+        item_id, _p, made = connected(world, connector_name="Itaú")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 800, at=ms(2026, 10, 21, 8, 0), app=ITAU))
+        world.fake.add_tx(made["bank"][0], bank_tx(-8, "2026-10-21", "CAFE"))
+        world.fake.add_tx(made["bank"][0], bank_tx(-8, "2026-10-23", "CAFE"))
+        world.sync(item_id)
+        rows = world.transactions(mine)
+        assert sorted(row["date"] for row in rows) == ["2026-10-21", "2026-10-23"]
+        assert {row["source_type"] for row in rows} == {"OPEN_FINANCE"}
+
     def test_pluggy_alone_is_recorded_for_review(self, world):
         item_id, _p, made = connected(world)
         world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
@@ -287,6 +337,72 @@ class TestPluggyReconciles:
         world.sync(item_id)
         [row] = world.transactions(made["bank"][2])
         assert row["needs_review"] == 1
+
+
+BB = "br.com.bb.android"
+
+
+class TestBancoDoBrasilRoundsUp:
+    """O BB manda a Pluggy o valor arredondado para cima, em reais inteiros
+    (dono, 2026-10-27: 18,19 chega 19,00). A notificacao tem os centavos."""
+
+    def test_a_debit_notified_with_cents_is_the_same_movement(self, world, user):
+        item_id, _p, made = connected(world, connector_name="Banco do Brasil")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1819, at=ms(2026, 10, 21, 12, 0), app=BB))
+        [before] = world.transactions(mine)
+        pluggy_id = world.fake.add_tx(made["bank"][0], bank_tx(-19, "2026-10-21", "COMPRA COM CARTAO"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"], after["source_type"]) == (before["id"], 18.19, "OPEN_FINANCE")
+        [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], pluggy_id))
+        assert (of_row["role"], of_row["target_id"]) == ("SOURCE", before["id"])
+
+    def test_a_card_purchase_notified_with_cents_is_one_purchase(self, world):
+        item_id, _p, made = connected(world, connector_name="Banco do Brasil", bank=False, card=True)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 1819, at=ms(2026, 10, 22, 9, 0), app=BB))
+        world.fake.add_tx(made["card"][0], card_tx(19, "2026-10-22", "LOJA", docs_sign=True))
+        world.sync(item_id)
+        [row] = world.call("get", "/api/cc-expenses")
+        assert (row["card_id"], row["amount"]) == (made["card"][2], 18.19)
+
+    def test_the_notification_after_the_bank_joins_its_item(self, world):
+        # O celular ficou sem rede: a Pluggy (19,00) chegou antes do aviso (18,19).
+        item_id, _p, made = connected(world, connector_name="Banco do Brasil")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        world.fake.add_tx(made["bank"][0], bank_tx(-19, "2026-10-21", "COMPRA COM CARTAO"))
+        world.sync(item_id)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1819, at=ms(2026, 10, 21, 12, 0), app=BB))
+        assert len(world.transactions(mine)) == 1
+
+    def test_the_invoice_payment_links_to_the_apps_payment(self, world, user):
+        item_id, _p, made = connected(world, connector_name="Banco do Brasil")
+        pluggy_account, _of, mine = made["bank"]
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        payment = world.call("post", "/api/transactions", json={
+            "account_id": mine, "amount": 18.19, "date": "2026-10-21", "type": "EXPENSE", "category": "Outros",
+            "description": "Fatura",
+        })["id"]
+        db = importlib.import_module("db")
+        with db.get_db() as conn:
+            conn.execute("UPDATE transactions SET source_type = 'CC_INVOICE_PAYMENT', source_id = 'x' WHERE id = ?", (payment,))
+        tx_id = world.fake.add_tx(pluggy_account, bank_tx(-19, "2026-10-21", "PAGAMENTO FATURA", category_id="05100000"))
+        world.sync(item_id)
+        assert [row["id"] for row in world.transactions(mine)] == [payment]
+        [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], tx_id))
+        assert (of_row["role"], of_row["target_id"]) == ("INVOICE_PAYMENT", payment)
+
+    def test_another_bank_keeps_the_exact_cents(self, world):
+        item_id, _p, made = connected(world, connector_name="Itaú")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1819, at=ms(2026, 10, 21, 12, 0), app=ITAU))
+        world.fake.add_tx(made["bank"][0], bank_tx(-19, "2026-10-21", "COMPRA COM CARTAO"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(mine)) == [18.19, 19.0]
 
 
 def test_pluggy_is_on_by_default_when_the_owner_never_chose(client, auth, fake_pluggy, monkeypatch):

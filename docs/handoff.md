@@ -7,61 +7,43 @@
 
 ---
 
-## Session — 2026-10-27 (7) · Conta global (Wise in US$)
+## Session — 2026-10-27 (8) · Pluggy duplicates of notification rows
 
-Local session, owner's prompt `docs/prompts/global-account-usd.md`. Branch `claude/conta-global`
-from `main` (local `main` was 4 commits ahead of `origin/main`; the branch carries them).
-**Not merged, not pushed, not deployed** (the prompt says ask first). The owner's data is untouched.
+Owner asked to check that notifications record at once and Pluggy (every 6 h) fills what is missing,
+then to fix the duplicate found. Branch `claude/of-duplicate-guard` from `main`, merged locally into
+`main`. **Not pushed, not deployed** (pushing `main` deploys; `main` also carries conta-global).
 
-### Done (code)
-- **047** `transactions.transfer_amount` / `inbox_items.transfer_amount`: a cross-currency transfer
-  is one row, `amount` out in the origin's currency, `transfer_amount` in at the destination.
-  `transfer_amount_for()` (POST /api/transfers and PATCH): required across currencies, refused
-  otherwise. `account_balance_rows()` counts a cross-currency transfer without it as 0.
-- Accounts: currency validated on create; a foreign account is never the default
-  (`DEFAULT_ACCOUNT_ORDER`, PATCH 400) nor BROKERAGE. `PATCH /api/accounts/<id> {currency}` turns a
-  reais account that only received BRL transfers (no initial balance, not mapped) into USD
-  (`global_account.convert_to_foreign()`): the owner's "Wise" fits.
-- Pluggy: USD↔USD mapping and suggestion, mismatch refused; `normalize_transaction(account_currency=)`
-  keeps US$ rows in US$ (`edited: ["amount"]` so they need no conversion). `services/global_account.py`
-  + `open_finance_inbox._place_cross_currency()` (new `place()` step 2): BRL Pix naming the global
-  account waits as an own transfer; the dollar credit pairs by day ±1 and counterparty, ties by
-  closest PTAX; an untouched auto-recorded US$ receita is turned into the transfer when the BRL side
-  arrives late; a credit matching a transfer in the app fills `transfer_amount`. Hold: a US$ credit
-  waits `TRANSFER_HOLD_DAYS`; a TRANSFER to a foreign account without `transfer_amount` is never
-  "complete". Snapshot carries `transfer_amount` only when set (old snapshots stay equal).
-  Conferência counts `COALESCE(transfer_amount, amount)` on the incoming side.
-- Reais totals skip the foreign account's own rows: `banking_month_rows`, `month_banking_totals`,
-  budgets, `GET /api/transactions` without `account_id`, review queue and count.
-- Web: `pages/ContaGlobal.jsx` (`/inicio/conta-global`), `lib/globalAccount.js` (+ test),
-  `formatForeignCurrency()`; "Conta global ›" under Início's accounts; Ajustes › Contas type
-  "Conta global (US$)", the row links to the screen; "+ Novo" lists only reais accounts.
-- APK: `ui/globalaccount/`, `rules/GlobalAccount.kt` (+ test), `core/Format.kt`, route + link,
-  Início entry, Ajustes type/link/menu, NewEntry filter; spec `mobile-docs/native/screens/17-conta-global.md`.
-- Docs: CLAUDE.md (reais-only exception, Conta global, two-amount transfers, Pluggy rules), memory
-  `app-is-in-reais`.
-- Tests: pytest 1971 passed + 1 known failure (below), `test_global_account.py` 18; node 204;
-  JVM 531 (local `gradlew --offline`), debug APK assembled locally.
-
-### Decision written down
-Wise **counts in the consolidated balance converted to reais** (`balance_brl`, as before). Its own
-US$ despesas/receitas count in **no** reais total (not converted into the month).
+### Done
+- Verified (code + tests): notifications record at once (`auto_record.record_notifications()` after
+  every POST /api/inbox/detections; Samsung-only waits 10 min and records on the next read of
+  Extrato/Início/Revisar); the Pluggy thread pulls each user every `sync_hours` (6) and records what
+  no lançamento explains; a matched notification row keeps `needs_review = 1` (Pluggy never
+  confirms for the owner — by design).
+- **Bug fixed:** a notification-recorded row whose bank row came >1 day later was recorded twice
+  (the notification's row is "taken" by its APPROVED item, so `free_candidates()` skipped it).
+  `notification_item_for_open_finance()` now falls back to APPROVED/MATCHED notification items up to
+  `OPEN_FINANCE_LATE_POST_DAYS` = 5 before the bank date (backwards only); `reconcile_recorded()`
+  then redoes an untouched row at the bank's date or only links a reviewed one.
+- **BB rounds up** (owner, mid-session: 18,19 shows as 19,00 in Pluggy): `ROUNDS_UP_ISSUERS = {"bb"}`,
+  `rounded_up()`, `open_finance_rounds_up()` (connector/account name → issuer). Applies to the
+  notification pairing both ways and to `invoice_payment_link()` (exact cents preferred).
+- Tests: `test_auto_record.py` +9 (4 late-posting, 5 BB incl. an Itaú control). Full pytest: all
+  pass except the known `test_fixed_income_interest.py::TestTheCouponReachesTheAccount` (after
+  21:00 BRT).
 
 ### Not done, and why
-- **The owner's data** (convert Wise, map Pluggy Wise, pull, check balances): needs the deploy first
-  and the owner's OK per write batch; steps in next-steps › "Conta global".
-- No visual check of the web screen or the phone screen (build and tests only).
-- Phone: no "Pix para cá" (web only); statement = first page. Web Aprovar has no `transfer_amount` field.
+- A different amount from another bank (IOF, international) still records twice: not safely
+  separable from a second purchase; the Conferência shows the notification row as app-only.
+- BB's rounding was taken from the owner's message, not seen in real data (the dev DB has only test
+  rows): if BB also rounds Pluggy-only rows, those lançamentos carry 19,00 (nothing to compare with).
+- When the notification arrives after a BB Pluggy row, they pair but the lançamento keeps 19,00.
 
 ### Next session
-1. Ask the owner to merge/deploy `claude/conta-global`, then run the data steps in next-steps.
-2. Owner walks 17-conta-global.md's Acceptance on the phone.
+1. Owner: push `main` to deploy (conta-global + this fix), then watch the next 6 h pull for BB.
+2. Then the conta-global data steps in next-steps.
 
 ### Lessons (non-obvious)
-- A second pull re-reads only from `synced_until - OVERLAP_DAYS` (7): tests with old Pix dates must
-  clear `synced_until` (`pull()` in `test_global_account.py`) or the rows never arrive.
-- `test_fixed_income_interest.py::TestTheCouponReachesTheAccount` still fails locally after 21:00 BRT.
-- Bash heredocs on this machine broke on a Kotlin file with `•` and `$`; write such files with Write.
+- Tests whose bank rows must arrive on a second pull need dates within `synced_until - 7 days`.
 
 ---
 
