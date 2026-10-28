@@ -913,7 +913,9 @@ def _preview_status(conn, current_user_id, account, tx, claimed, today):
     if account["type"] == "CREDIT" and tx["direction"] == "OUT" and (tx["installment_number"] or 1) > 1:
         return "covered"
     brokerage = account["type"] == "BANK" and open_finance_inbox.is_brokerage(conn, current_user_id, account["account_id"])
-    if brokerage and tx["movement"] not in ("TRANSFER", "SELF_TRANSFER"):
+    if brokerage and not open_finance_inbox.is_broker_transfer(tx):
+        return "covered"
+    if account["type"] == "BANK" and open_finance_inbox.is_auto_invest_row(tx):
         return "covered"
     entry_type = "CARD" if account["type"] == "CREDIT" else ("EXPENSE" if tx["direction"] == "OUT" else "INCOME")
     candidates = inbox.existing_rows(
