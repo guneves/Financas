@@ -395,6 +395,26 @@ class TestBancoDoBrasilRoundsUp:
         [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], tx_id))
         assert (of_row["role"], of_row["target_id"]) == ("INVOICE_PAYMENT", payment)
 
+    def test_btg_card_bankslip_is_an_invoice_payment(self, world, user):
+        # A BTG paga a fatura com "CardBankslip" na categoria "Same person
+        # transfer" (2026-10-28): sem isto, metade de uma transferencia a espera.
+        item_id, _p, made = connected(world, connector_name="BTG Pactual")
+        pluggy_account, _of, mine = made["bank"]
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        payment = world.call("post", "/api/transactions", json={
+            "account_id": mine, "amount": 644.48, "date": "2026-10-21", "type": "EXPENSE", "category": "Outros",
+            "description": "Fatura",
+        })["id"]
+        db = importlib.import_module("db")
+        with db.get_db() as conn:
+            conn.execute("UPDATE transactions SET source_type = 'CC_INVOICE_PAYMENT', source_id = 'x' WHERE id = ?", (payment,))
+        tx_id = world.fake.add_tx(pluggy_account, bank_tx(-644.48, "2026-10-21", "CardBankslip", category_id="04000000"))
+        world.sync(item_id)
+        assert [row["id"] for row in world.transactions(mine)] == [payment]
+        assert world.pending() == []
+        [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], tx_id))
+        assert (of_row["role"], of_row["target_id"]) == ("INVOICE_PAYMENT", payment)
+
     def test_another_bank_keeps_the_exact_cents(self, world):
         item_id, _p, made = connected(world, connector_name="Itaú")
         world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
