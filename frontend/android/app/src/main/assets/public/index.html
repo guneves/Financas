@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Finanças</title>
+    <meta name="theme-color" content="#EFF2ED" />
+    <!-- Tema antes da primeira pintura, senao o modo escuro pisca claro.
+         Mesma regra de src/lib/theme.js. -->
+    <script>
+      try {
+        var t = localStorage.getItem('@financeMVP:theme')
+        var dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-Dvk1YNvU.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DeRpe2qp.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
