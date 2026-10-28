@@ -186,7 +186,7 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
 
     fun isExpanded(card: InvoiceCardDto, invoice: CardInvoiceDto): Boolean {
         val key = invoiceKey(card, invoice)
-        return toggled[key] ?: invoice.nearest
+        return toggled[key] ?: false // tudo fechado ao abrir a tela (dono, 2026-10-28)
     }
 
     fun toggle(card: InvoiceCardDto, invoice: CardInvoiceDto) {
@@ -205,7 +205,7 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
     /** Os cartoes so com compras no debito (sem fatura em aberto): um painel cada. */
     val debitOnlyCards: List<DebitCardDto> get() = CardRules.debitOnlyCards(invoiceCards, debitCards)
 
-    fun isDebitOpen(cardId: String, withoutInvoices: Boolean): Boolean = debitToggled[cardId] ?: withoutInvoices
+    fun isDebitOpen(cardId: String, withoutInvoices: Boolean): Boolean = debitToggled[cardId] ?: false
 
     fun toggleDebit(cardId: String, withoutInvoices: Boolean) {
         debitToggled = debitToggled + (cardId to !isDebitOpen(cardId, withoutInvoices))

@@ -3,7 +3,7 @@
 //
 // Conta global (dono, 2026-10-27): a conta em dolar (Wise) e a unica tela do app fora de reais.
 // Saldo e extrato na moeda da conta, e embaixo um "~ R$" pelo cambio de hoje (PTAX) ou "sem
-// cambio hoje". Fora dela tudo e real: o Inicio soma a conta convertida no saldo em contas.
+// cambio hoje". Fora dela tudo e real, mas o saldo dela fica fora do saldo em contas do Inicio (2026-10-28).
 //
 // O Pix de uma conta em reais para ela e UMA transferencia (047): `amount` e o que saiu em reais,
 // `transfer_amount` o que entrou em dolar; sem ele, o dolar e "a conferir" e fica fora do saldo.

@@ -30,7 +30,7 @@ invoice and after a refund shows up in the bank app.
    - **Current invoices**: every invoice up to and including the first not-yet-closed one (overdue and closed
      ones first, in date order). **Future invoices** after it are folded into one row "Fatura seguinte" /
      "Próximas N faturas · até MM/AAAA" with their total, expandable (grey background).
-   - **Invoice row** (tap toggles; by default only the nearest invoice is expanded): "MM/AAAA"; badges —
+   - **Invoice row** (tap toggles; every invoice and débito list starts collapsed — owner 2026-10-28): "MM/AAAA"; badges —
      total < 0 → "Crédito" (green); else (not future) "Em atraso" (danger, `isPastDue(invoice_due_date,
      today)`: after the due day), "Fechada" (warning, `invoice_closed`), or "Aberta"; "Próxima" on the nearest
      one. Total `formatCurrency(Σ cardSignedAmount)`. Hint line (`paymentHint()`): "O crédito do estorno abate a
@@ -152,7 +152,7 @@ are the server's now. What stays on the client is listed as ported in `rules/Car
 - "Budget spent (decision 1)" — not shown here, but a refund subtracts in its month elsewhere.
 
 ## Native-only improvements
-- Card carousel at the top (one card per page) with the nearest invoice expanded.
+- Card carousel at the top (one card per page) (all collapsed on open).
 - "Pagar" with a bottom sheet and haptic confirmation; a home-screen widget "Próxima fatura" (shared with
   Início).
 - Queue refunds offline (they already carry `client_id`), if the owner wants it — a decision, not a default.
