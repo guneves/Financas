@@ -397,6 +397,15 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   uses the Corretora (`portfolio_cash_account_id()`); `null` = "Não descontar". Paid proventos land
   in it (`apply_paid_proceeds()`, `INVESTMENT_PROCEED`) from `metadata.portfolio_since` on. Its
   balance shows only in Investimentos.
+- **Trade cash moves on the liquidation date** (049, owner 2026-10-28; `services/settlement.py`):
+  the linked lançamento is dated D+2 business days for STOCKS/REIT (B3 calendar: weekends, national
+  holidays, Carnival/Good Friday/Corpus Christi, 24 and 31/12), D+1 abroad, same day otherwise;
+  `metadata.settlement_date` overrides, never before the trade (400); `metadata.settlement_amount`
+  (the note's net value, fees included; Pluggy's `netAmount`) overrides the cash amount. **Conta
+  investimento** (`GET /api/investments/settlement`, `services/broker_cash.py`, Posição): Saldo hoje
+  = Corretora rows dated ≤ today, Em trânsito = later rows + announced proventos (payment > today),
+  Saldo = both; it moves rows still on the trade date (`resync_investment_cash_dates()`).
+  `cash_check()` compares Pluggy's balance with the app up to Pluggy's balance day.
 - An operation's sign is its type: `PATCH /api/investments/<id>` keeps the stored sign.
 - **Proventos of ações/FIIs are computed** (026, `proceeds_sync.py`): StatusInvest value × position
   on the data com; idempotent by `sync_key`; typed ones are never touched, edited ones are

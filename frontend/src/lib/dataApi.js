@@ -258,6 +258,7 @@ export const investmentsApi = {
   realizedResults: () => apiFetch('/api/investment-realized-results'),
   history: (params = {}) => apiFetch(`/api/investments/history${queryString(params)}`),
   returns: (params = {}) => apiFetch(`/api/investments/returns${queryString(params)}`),
+  settlement: () => apiFetch('/api/investments/settlement'),
   create: (payload) => apiFetch('/api/investments', {
     method: 'POST',
     body: JSON.stringify(payload)

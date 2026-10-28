@@ -23,10 +23,10 @@ da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
   COVERED (services/open_finance_inbox.py), nunca um segundo provento.
 - **Desfazer**: apagar a operacao no Extrato. A linha daqui fica DISMISSED e
   nunca volta.
-- **Liquidacao**: acoes/ETFs liquidam em D+1/D+2. O app tira o dinheiro da
-  Corretora no pregao; a corretora, na liquidacao. A diferenca de caixa
-  coberta pelas operacoes dos ultimos SETTLEMENT_BUSINESS_DAYS dias uteis e
-  "a liquidar", nao divergencia (`portfolio_check()`).
+- **Liquidacao** (049): o lancamento de cada operacao fica na data da
+  liquidacao (`services/settlement.py`), com o valor liquidado da Pluggy
+  (`netAmount`); o caixa se compara so com o que liquidou ate o dia do saldo
+  da Pluggy (`cash_check()`), o resto esta em transito (`broker_cash.py`).
 """
 
 from datetime import timedelta
@@ -38,7 +38,7 @@ from dates import parse_iso_date
 from db import encode_metadata, new_id, utc_timestamp
 from money import rounded_money
 from services import invoices
-from services.accounts import account_balance_rows
+from services.broker_cash import broker_settlement
 from services.corporate_actions import ensure_outside_corporate_actions
 from services.investments import (
     CASH_ACCOUNT_KEY,
@@ -54,11 +54,11 @@ from services.investments import (
     validate_investment_movement,
 )
 from services.prices import ticker_key
+from services.settlement import SETTLEMENT_AMOUNT_KEY
 from validators import ValidationError, safe_float
 
 OP_KEY_PREFIX = "pluggy-inv:"
 LINK_DAYS = 2
-SETTLEMENT_BUSINESS_DAYS = 2
 RECORDED_TYPES = {"BUY", "SELL"}
 EQUITY_TYPES = {"EQUITY", "ETF"}
 QUANTITY_TOLERANCE = 0.000001
@@ -142,17 +142,6 @@ def normalize_operation(position, raw):
     }
 
 
-def business_days_back(day, count):
-    """O dia `count` dias uteis antes de `day` (fim de semana nao conta)."""
-    current = day
-    left = count
-    while left > 0:
-        current -= timedelta(days=1)
-        if current.weekday() < 5:
-            left -= 1
-    return current
-
-
 # ---------------------------------------------------------------------------
 # Gravar
 # ---------------------------------------------------------------------------
@@ -211,6 +200,9 @@ def _insert_movement(conn, current_user_id, asset_class, op):
     }
     if signed < 0:
         metadata["sale_price"] = op["unit_price"]
+    if op.get("net_amount"):
+        # O que a corretora liquidou de fato (com taxas): o caixa usa este (049).
+        metadata[SETTLEMENT_AMOUNT_KEY] = op["net_amount"]
     cash_account = portfolio_cash_account_id(conn, current_user_id)
     if cash_account:
         metadata[CASH_ACCOUNT_KEY] = cash_account
@@ -380,8 +372,7 @@ def portfolio_check(conn, current_user_id, today=None):
       da posicao, D-1) mais as operacoes depois dela, contra a do app;
       renda fixa e Tesouro so com o valor (nunca marcados por ele).
     - `cash`: o saldo da conta da corretora na Pluggy contra o da Corretora no
-      app; `unsettled` e o que as operacoes dos ultimos dias uteis explicam
-      (a liquidar), `unexplained` o resto.
+      app ate o dia do saldo da Pluggy; `unsettled` e o que esta em transito.
     - `held`: operacoes que esperam o dono, com o motivo.
     """
     positions = conn.execute(
@@ -430,41 +421,23 @@ def portfolio_check(conn, current_user_id, today=None):
 
 
 def cash_check(conn, current_user_id, today):
-    account = conn.execute(
-        """
-        SELECT a.balance, a.account_id FROM open_finance_accounts a
-        JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
-        JOIN accounts ac ON ac.id = a.account_id AND ac.user_id = a.user_id
-        WHERE a.user_id = ? AND i.archived_at IS NULL AND ac.type = 'BROKERAGE'
-        LIMIT 1
-        """,
-        (current_user_id,),
-    ).fetchone()
-    if not account or account["balance"] is None:
+    """O caixa da corretora na Pluggy contra o da Corretora no app (049).
+
+    O lancamento de cada operacao fica na data da liquidacao, entao o app se
+    compara so com o que esta datado ate o dia do saldo da Pluggy; `unsettled`
+    e o que ainda esta em transito (operacoes e proventos depois de hoje).
+    """
+    view = broker_settlement(conn, current_user_id, today)
+    if not view or not view["pluggy"] or view["pluggy"]["app_balance"] is None:
         return None
-    app = next((row for row in account_balance_rows(conn, current_user_id) if row["id"] == account["account_id"]), None)
-    if not app:
-        return None
-    since = business_days_back(today, SETTLEMENT_BUSINESS_DAYS).isoformat()
-    unsettled = 0.0
-    for row in conn.execute(
-        """
-        SELECT op_type, amount, net_amount, expenses FROM open_finance_investment_operations
-        WHERE user_id = ? AND state IN ('RECORDED', 'LINKED') AND trade_date > ?
-        """,
-        (current_user_id, since),
-    ).fetchall():
-        value = safe_float(row["net_amount"]) or safe_float(row["amount"])
-        # Compra ainda nao liquidada: o banco ainda tem o dinheiro que o app ja tirou.
-        unsettled += value if row["op_type"] == "BUY" else -value
-    difference = rounded_money(safe_float(account["balance"]) - safe_float(app["balance"]))
-    unsettled = rounded_money(unsettled)
+    pluggy = view["pluggy"]
     return {
-        "pluggy_balance": rounded_money(account["balance"]),
-        "app_balance": rounded_money(app["balance"]),
-        "difference": difference,
-        "unsettled": unsettled,
-        "unexplained": rounded_money(difference - unsettled),
+        "pluggy_balance": pluggy["balance"],
+        "app_balance": pluggy["app_balance"],
+        "as_of": pluggy["as_of"],
+        "difference": pluggy["difference"],
+        "unsettled": view["in_transit_total"],
+        "unexplained": pluggy["difference"],
     }
 
 

@@ -38,6 +38,7 @@ from services.accounts import fetch_account
 from services import market_listing
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from services.prices import ticker_key
+from services.settlement import SETTLEMENT_DATE_KEY, settlement_amount, settlement_date
 from source_types import INVESTMENT_CASH_SOURCE_TYPE
 from validators import MAX_YEAR, MIN_YEAR, ValidationError, safe_float
 
@@ -92,12 +93,12 @@ def investment_transaction_date(metadata, created_at=None):
     return datetime.now().strftime("%Y-%m-%d")
 
 
-MOVEMENT_DATE_KEYS = ("redemption_date", "sale_date", "purchase_date")
+MOVEMENT_DATE_KEYS = ("redemption_date", "sale_date", "purchase_date", SETTLEMENT_DATE_KEY)
 # Teto de quantidade e de preco de uma operacao: acima disso e digitacao, e o
 # custo (quantidade x preco) virava infinito, o resultado realizado NaN e o
 # banco recusava a gravacao — de toda operacao seguinte do dono.
 MAX_MOVEMENT_NUMBER = 1_000_000_000_000
-MOVEMENT_NUMBER_KEYS = ("other_costs", "sale_price", "treasury_units", "fx_rate")
+MOVEMENT_NUMBER_KEYS = ("other_costs", "sale_price", "treasury_units", "fx_rate", "settlement_amount")
 
 
 def validate_movement_metadata(metadata):
@@ -115,6 +116,10 @@ def validate_movement_metadata(metadata):
         parsed = parse_iso_date(value) if isinstance(value, str) else None
         if not parsed or not MIN_YEAR <= parsed.year <= MAX_YEAR:
             raise ValidationError("Data da operacao deve estar no formato AAAA-MM-DD.")
+    settles = parse_iso_date(metadata.get(SETTLEMENT_DATE_KEY))
+    traded = next((parse_iso_date(metadata.get(key)) for key in MOVEMENT_DATE_KEYS[:3] if metadata.get(key)), None)
+    if settles and traded and settles < traded:
+        raise ValidationError("A liquidacao nao pode ser antes da operacao.")
     for key in MOVEMENT_NUMBER_KEYS:
         value = metadata.get(key)
         if value in (None, ""):
@@ -201,6 +206,20 @@ def investment_cash_description(investment):
         "REDEMPTION": "Resgate de investimento",
     }
     return f"{labels.get(movement_type, 'Movimento de investimento')}: {ticker}"
+
+
+def investment_cash_date(investment):
+    """A data do lancamento ligado: a liquidacao da operacao."""
+    trade_date = investment.get("transaction_date") or investment_transaction_date(
+        investment.get("metadata") or {},
+        investment.get("created_at"),
+    )
+    return settlement_date(
+        str(trade_date)[:10],
+        investment.get("asset_class"),
+        investment.get("asset_currency") or BASE_CURRENCY,
+        investment.get("metadata"),
+    )
 
 
 def investment_cash_metadata(investment):
@@ -310,6 +329,9 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
         investment = convert_movement_to_brl(investment, rate, rate)
     amount = investment_cash_amount(investment)
     cash_type = investment_cash_type(investment)
+    if amount is not None:
+        # O valor liquidado de verdade (taxas, LIQ BOLSA) manda sobre a conta.
+        amount = settlement_amount(investment.get("metadata")) or amount
     investment_id = investment.get("id")
     if not investment_id:
         return False
@@ -324,10 +346,8 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
         )
         return False
 
-    transaction_date = investment.get("transaction_date") or investment_transaction_date(
-        investment.get("metadata") or {},
-        investment.get("created_at"),
-    )
+    # O caixa mexe na liquidacao (D+2 na B3), nao no pregao (049).
+    transaction_date = investment_cash_date(investment)
     description = investment_cash_description(investment)
     metadata = investment_cash_metadata(investment)
 
@@ -389,6 +409,35 @@ def sync_investment_cash_transaction(conn, current_user_id, investment):
         ),
     )
     return True
+
+
+def resync_investment_cash_dates(conn, current_user_id):
+    """Leva cada lancamento ligado para a data (e o valor) da liquidacao (049).
+
+    Idempotente; so regrava a operacao cujo lancamento esta fora do lugar, para
+    a leitura nao refazer o cambio de toda operacao em moeda estrangeira.
+    """
+    cash_rows = {
+        row["source_id"]: row
+        for row in conn.execute(
+            "SELECT source_id, date, amount FROM transactions WHERE user_id = ? AND source_type = ?",
+            (current_user_id, INVESTMENT_CASH_SOURCE_TYPE),
+        ).fetchall()
+    }
+    changed = 0
+    for row in fetch_investment_rows(conn, current_user_id):
+        current = cash_rows.get(row["id"])
+        if not current:
+            continue
+        investment = serialize_investment(row)
+        expected_amount = settlement_amount(investment.get("metadata"))
+        if str(current["date"])[:10] == investment_cash_date(investment) and (
+            expected_amount is None or rounded_money(current["amount"]) == expected_amount
+        ):
+            continue
+        sync_investment_cash_transaction(conn, current_user_id, investment)
+        changed += 1
+    return changed
 
 
 def delete_investment_cash_transaction(conn, current_user_id, investment_id):

@@ -53,10 +53,12 @@ from services.fixed_income import (
 )
 from services.asset_categories import categories_by_asset
 from services.treasury import finish_treasury_refresh, redemption_parts, start_treasury_refresh
+from services.broker_cash import broker_settlement
 from services.investments import (
     CASH_ACCOUNT_KEY,
     MAX_MOVEMENT_NUMBER,
     delete_investment_cash_transaction,
+    resync_investment_cash_dates,
     fetch_investment_rows,
     fetch_investments,
     fetch_position_quantity,
@@ -977,6 +979,18 @@ def update_price_by_ticker(current_user_id):
 def should_refresh_market_prices():
     value = str(request.args.get("refresh_prices", "false")).strip().lower()
     return value not in {"0", "false", "no", "off"}
+
+
+@bp.route("/api/investments/settlement", methods=["GET"])
+@token_required
+def get_broker_settlement(current_user_id):
+    """Conta investimento: saldo hoje, valores em transito e saldo depois (049)."""
+    with get_db() as conn:
+        resync_investment_cash_dates(conn, current_user_id)
+        view = broker_settlement(conn, current_user_id)
+    if view is None:
+        return jsonify({"error": "Sem conta Corretora."}), 404
+    return jsonify(view), 200
 
 
 @bp.route("/api/investments/portfolio", methods=["GET"])
