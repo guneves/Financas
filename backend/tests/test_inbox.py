@@ -20,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("any_bank_notifications")
+
 BRT = timezone(timedelta(hours=-3))
 ITAU = "com.itau"
 BB = "br.com.bb.android"

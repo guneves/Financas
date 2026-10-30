@@ -24,8 +24,8 @@ Duas metades:
    - parcela 2..n de uma compra no cartao: COVERED, nunca item — aprovar a
      compra (`POST /api/cc-expenses/purchases`, a parcela 1 com o total) ja
      gera todas, na fatura que `compute_invoice_start()` diz;
-   - pagamento de fatura (na conta ou no cartao): nunca lancamento por aqui;
-     pagar e so `POST /api/cc-expenses/pay-invoice`;
+   - pagamento de fatura (na conta ou no cartao): nunca despesa; na conta ele
+     paga a fatura depois do pull (services/open_finance_invoices.py);
    - credito no cartao (estorno): item CARD de entrada, vira kind REFUND (033);
    - o resto: item novo, com os lancamentos parecidos ja gravados.
    - A categoria: a regra de importacao do dono pela descricao; senao a da
@@ -34,7 +34,8 @@ Duas metades:
      banco vira item (aporte/resgate, 039); o resto e COVERED: as operacoes
      da carteira explicam aquele dinheiro.
    - O pagamento de fatura na conta liga ao pagamento que o app ja tem
-     (pay-invoice ou debito automatico), nunca grava outro.
+     (pay-invoice), nunca grava outro; sem ele, o pull o grava pela baixa da
+     fatura (services/open_finance_invoices.py).
 
 Com o interruptor ligado (044, services/open_finance_auto.py), o item pronto
 nao espera o dono: e aprovado na hora. Uma transacao ja gravada sozinha que
@@ -47,6 +48,7 @@ antes da aprovacao faz o que o Aprovar ja faz quando a fonte some: o item
 sai (REMOVED) se nao tiver outra fonte.
 """
 
+import calendar
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -54,7 +56,14 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import statement_import
 from db import new_id, row_to_dict, utc_timestamp
-from open_finance_categories import expected_type, pluggy_category_name
+from open_finance_categories import (
+    cnae_categories,
+    display_name,
+    expected_type,
+    keyword_categories,
+    plain_text,
+    pluggy_category_names,
+)
 from services import global_account, inbox, review
 from services.accounts import category_id_for_name, fetch_category
 from services.import_rules import import_rules_for_matching
@@ -243,6 +252,7 @@ def normalize_transaction(raw, account_type, charge_sign=1, include_pending=Fals
     date_text, occurred_at = local_moment(when)
     payment = raw.get("paymentData") or {}
     other = (payment.get("receiver") if direction == "OUT" else payment.get("payer")) or {}
+    merchant = raw.get("merchant") if isinstance(raw.get("merchant"), dict) else {}
     return {
         "pluggy_transaction_id": str(raw["id"]),
         "dedup_key": DEDUP_PREFIX + str(raw["id"]),
@@ -261,6 +271,10 @@ def normalize_transaction(raw, account_type, charge_sign=1, include_pending=Fals
         "total_installments": total_installments,
         "counterparty": _text(other.get("name"), 120),
         "counterparty_doc": counterparty_doc(other.get("documentNumber")),
+        "merchant_name": _text(merchant.get("name") or merchant.get("businessName"), 120),
+        "merchant_cnpj": _digits(merchant.get("cnpj"))[:14] or None,
+        "merchant_cnae": _digits(merchant.get("cnae"))[:7] or None,
+        "posted_on": local_moment(raw.get("date"))[0] if raw.get("date") else date_text,
     }
 
 
@@ -279,7 +293,8 @@ def _positive_int(value):
 ROW_FIELDS = (
     "pluggy_transaction_id", "dedup_key", "direction", "amount_cents", "raw_amount_cents", "currency", "date",
     "occurred_at", "description", "pluggy_type", "pluggy_category", "pluggy_category_id", "movement",
-    "installment_number", "total_installments", "counterparty", "counterparty_doc",
+    "installment_number", "total_installments", "counterparty", "counterparty_doc", "merchant_name",
+    "merchant_cnpj", "merchant_cnae", "posted_on",
 )
 
 
@@ -339,6 +354,8 @@ def ingest(conn, current_user_id, account, tx, rules=None, seen_at=None):
     existing = row_to_dict(existing)
     _update_row(conn, current_user_id, existing["id"], last_seen_at=seen_at)
     changed = (existing["amount_cents"], existing["direction"]) != (tx["amount_cents"], tx["direction"])
+    if changed and existing["role"] == "INVOICE_PAYMENT" and existing["target_id"]:
+        return apply_payment_change(conn, current_user_id, existing, tx)
     if changed:
         if existing["role"] in ("SOURCE", "PAIRED", "MATCHED") and not _item_pending(conn, current_user_id, existing):
             # Ja decidido: so o gravado sozinho e ainda intocado se corrige;
@@ -418,6 +435,17 @@ def place(conn, current_user_id, row, account, rules=None):
     if partner:
         return _join_item(conn, current_user_id, row, inbox.item_dict(partner), entry_type, account_id, card_id)
 
+    # 1b. Uma transferencia que o app ja tem com uma conta sem Pluggy (a Flash):
+    #     esta transacao e a ponta do banco dela, nunca um segundo movimento.
+    if account["type"] == "BANK":
+        recorded = recorded_transfer_for_row(conn, current_user_id, row, account_id, cents)
+        if recorded:
+            _update_row(
+                conn, current_user_id, row["id"], role="MATCHED", item_id=None,
+                target_table="transactions", target_id=recorded,
+            )
+            return "matched"
+
     # 2. A outra ponta de uma transferencia para a conta global (em dolar):
     #    o par e pela contraparte e pelo dia, nunca pelos centavos.
     if account["type"] == "BANK":
@@ -451,6 +479,39 @@ def place(conn, current_user_id, row, account, rules=None):
     # 4. Um item novo.
     new_item_for_row(conn, current_user_id, row, account, rules)
     return "new"
+
+
+def recorded_transfer_for_row(conn, current_user_id, row, account_id, cents):
+    """A transferencia ja gravada (esta conta deste lado, mesmo valor, ate
+    TRANSFER_MATCH_DAYS dias) cuja outra conta nao tem Pluggy, entao a outra ponta
+    nunca vem. Uma por transacao: a que nenhuma outra da Pluggy ja explica."""
+    if row["direction"] == "OUT":
+        side, other, value = "t.account_id", "t.transfer_account_id", "t.amount"
+    else:
+        side, other, value = "t.transfer_account_id", "t.account_id", "COALESCE(t.transfer_amount, t.amount)"
+    found = conn.execute(
+        f"""
+        SELECT t.id, t.date FROM transactions t
+        WHERE t.user_id = ? AND t.type = 'TRANSFER' AND {side} = ? AND {other} IS NOT NULL
+          AND CAST(ROUND({value} * 100) AS INTEGER) = ? AND t.date BETWEEN ? AND ?
+          AND NOT EXISTS (
+              SELECT 1 FROM open_finance_accounts a
+              JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
+              WHERE a.user_id = t.user_id AND a.account_id = {other} AND i.archived_at IS NULL
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM open_finance_transactions o
+              WHERE o.user_id = t.user_id AND o.target_table = 'transactions' AND o.target_id = t.id
+                AND o.id <> ? AND o.role <> 'REMOVED'
+          )
+        """,
+        (
+            current_user_id, account_id, cents, inbox._shift(row["date"], -inbox.TRANSFER_MATCH_DAYS),
+            inbox._shift(row["date"], inbox.TRANSFER_MATCH_DAYS), row["id"],
+        ),
+    ).fetchall()
+    found = sorted(found, key=lambda entry: (inbox._date_gap(entry["date"], row["date"]), entry["date"], entry["id"]))
+    return found[0]["id"] if found else None
 
 
 def _place_cross_currency(conn, current_user_id, row, account_id, cents):
@@ -767,7 +828,9 @@ def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
         "currency": row["currency"],
         "installments": installments,
         "occurred_at": row["occurred_at"],
-        "description": row["description"],
+        "description": display_name(
+            row["description"], row.get("merchant_name"), row.get("counterparty"), row["movement"], direction,
+        ),
         "account_id": account_id,
         "card_id": card_id,
         "transfer_account_id": None,
@@ -817,26 +880,59 @@ def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
     return item_id
 
 
-def category_for_row(conn, current_user_id, row, entry_type, amount, account_id=None, rules=None):
-    """(nome, id): a regra do dono pela descricao; senao a categoria da Pluggy
-    traduzida, se o dono tem uma ativa com esse nome; senao a padrao."""
-    if entry_type == "TRANSFER":
-        return inbox.TRANSFER_CATEGORY, None
-    transaction_type = "INCOME" if entry_type == "INCOME" else "EXPENSE"
-    if rules is None:
-        rules = import_rules_for_matching(conn, current_user_id)
-    rule = statement_import.first_matching_rule(
-        rules, row.get("description") or "", transaction_type, amount, account_id if entry_type != "CARD" else None,
-    )
-    if rule:
-        return rule["category"], rule["category_id"]
-    name = pluggy_category_name(row.get("pluggy_category_id"))
-    if name and expected_type(name) == transaction_type:
+def _first_active_category(conn, current_user_id, names, transaction_type):
+    """(nome, id) do primeiro nome que o dono tem ativo, ou None."""
+    for name in names:
+        if expected_type(name) != transaction_type:
+            continue
         category_id = category_id_for_name(conn, current_user_id, name)
         category = fetch_category(conn, current_user_id, category_id) if category_id else None
         if category and not category["archived_at"]:
             return name, category_id
-    return inbox.suggest_category(conn, current_user_id, None, entry_type, amount, account_id, rules=[])
+    return None
+
+
+CONFIDENT_CATEGORY_SOURCES = ("rule", "merchant", "cnae")
+
+
+def category_decision(conn, current_user_id, row, entry_type, amount, account_id=None, rules=None):
+    """(nome, id, de onde veio): a regra do dono (`rule`), a tabela de
+    comerciantes (`merchant`), o CNAE (`cnae`), a categoria da Pluggy (`pluggy`),
+    a padrao (`default`). Os tres primeiros dizem o que a compra e
+    (CONFIDENT_CATEGORY_SOURCES); os outros sao palpites largos."""
+    if entry_type == "TRANSFER":
+        return inbox.TRANSFER_CATEGORY, None, "transfer"
+    transaction_type = "INCOME" if entry_type == "INCOME" else "EXPENSE"
+    if rules is None:
+        rules = import_rules_for_matching(conn, current_user_id)
+    merchant = row.get("merchant_name")
+    named = display_name(row.get("description"))
+    for text in dict.fromkeys(filter(None, (row.get("description"), merchant, named))):
+        rule = statement_import.first_matching_rule(
+            rules, text, transaction_type, amount, account_id if entry_type != "CARD" else None,
+        )
+        if rule:
+            return rule["category"], rule["category_id"], "rule"
+    if transaction_type == "EXPENSE":
+        found = _first_active_category(
+            conn, current_user_id, keyword_categories(merchant, row.get("counterparty"), named), transaction_type,
+        )
+        if found:
+            return (*found, "merchant")
+        found = _first_active_category(conn, current_user_id, cnae_categories(row.get("merchant_cnae")), transaction_type)
+        if found:
+            return (*found, "cnae")
+    found = _first_active_category(
+        conn, current_user_id, pluggy_category_names(row.get("pluggy_category_id")), transaction_type,
+    )
+    if found:
+        return (*found, "pluggy")
+    return (*inbox.suggest_category(conn, current_user_id, None, entry_type, amount, account_id, rules=[]), "default")
+
+
+def category_for_row(conn, current_user_id, row, entry_type, amount, account_id=None, rules=None):
+    """(nome, id) de category_decision()."""
+    return category_decision(conn, current_user_id, row, entry_type, amount, account_id, rules)[:2]
 
 
 # "Automatic investment" da Pluggy (03010000): a aplicacao automatica que o
@@ -1123,6 +1219,31 @@ def apply_change(conn, current_user_id, row, tx):
     return "corrected"
 
 
+def apply_payment_change(conn, current_user_id, row, tx):
+    """O banco mudou o valor de um pagamento de fatura ja gravado: nunca um
+    segundo pagamento. O que esta transacao gravou acompanha; o pagamento feito no
+    app (so ligado) fica como esta, apontado na Conferencia."""
+    target = conn.execute(
+        "SELECT source_type, source_id FROM transactions WHERE id = ? AND user_id = ?",
+        (row["target_id"], current_user_id),
+    ).fetchone()
+    mine = (
+        target and tx["direction"] == row["direction"] and target["source_type"] in INVOICE_PAYMENT_SOURCE_TYPES
+        and str(target["source_id"] or "").endswith(str(row["pluggy_transaction_id"]))
+    )
+    if not mine:
+        return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+    conn.execute(
+        "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
+        (inbox._reais(tx["amount_cents"]), row["target_id"], current_user_id),
+    )
+    _update_row(
+        conn, current_user_id, row["id"], conflict=None, conflict_amount_cents=None,
+        **{field: tx[field] for field in ROW_FIELDS if field != "dedup_key"},
+    )
+    return "corrected"
+
+
 def apply_vanish(conn, current_user_id, row):
     """A transacao gravada sozinha sumiu do banco. Intocada e de quem ela
     gravou — nunca um digitado, nunca uma transferencia, nunca uma compra com
@@ -1161,6 +1282,67 @@ def apply_vanish(conn, current_user_id, row):
                  "decided_at": utc_timestamp()},
             )
     return "removed"
+
+
+def _months_back(date_text, months):
+    year, month, day = (int(part) for part in date_text[:10].split("-"))
+    index = year * 12 + (month - 1) - months
+    year, month = index // 12, index % 12 + 1
+    return f"{year:04d}-{month:02d}-{min(day, calendar.monthrange(year, month)[1]):02d}"
+
+
+def _installment_cents(row):
+    count = int(row["total_installments"])
+    return int(row["amount_cents"]) // count if (row["installment_number"] or 1) == 1 else int(row["amount_cents"])
+
+
+def adopt_orphan_installments(conn, current_user_id, account, rules=None):
+    """No historico, as parcelas de uma compra feita antes do que a Pluggy
+    guarda: a parcela 1 nunca chega e parcela 2..n e COVERED, entao a compra
+    sumiria (com as parcelas que ainda vao vencer). A menor parcela vista vira o
+    item da compra inteira, parcela x n, na data da compra; o valor gravado na
+    linha da Pluggy nao muda (o proximo pull compara com ele). Devolve quantas."""
+    if account["type"] != "CREDIT":
+        return 0
+    rows = [row_to_dict(row) for row in conn.execute(
+        """
+        SELECT * FROM open_finance_transactions
+        WHERE user_id = ? AND of_account_id = ? AND direction = 'OUT' AND total_installments > 1
+          AND role <> 'REMOVED'
+        ORDER BY date, posted_on, id
+        """,
+        (current_user_id, account["id"]),
+    ).fetchall()]
+    purchases = {}
+    for row in rows:
+        count = int(row["total_installments"])
+        group = purchases.setdefault((plain_text(display_name(row["description"])), count), [])
+        cents = _installment_cents(row)
+        series = next((entry for entry in group if abs(entry["cents"] - cents) <= count), None)
+        if series is None:
+            series = {"cents": cents, "rows": []}
+            group.append(series)
+        series["rows"].append(row)
+    adopted = 0
+    for group in purchases.values():
+        for series in group:
+            members = series["rows"]
+            if any((row["installment_number"] or 1) == 1 or row["role"] != "COVERED" for row in members):
+                continue
+            lowest = min(row["installment_number"] for row in members)
+            for row in members:
+                if row["installment_number"] != lowest:
+                    continue
+                date_text = row["date"]
+                if row.get("posted_on") in (None, date_text):
+                    # O conector nao mandou a data da compra: a parcela k caiu
+                    # k-1 meses depois da primeira.
+                    date_text = _months_back(date_text, lowest - 1)
+                draft = {**row, "date": date_text, "occurred_at": date_text, "installment_number": 1,
+                         "amount_cents": int(row["amount_cents"]) * int(row["total_installments"])}
+                new_item_for_row(conn, current_user_id, draft, account, rules)
+                adopted += 1
+    return adopted
 
 
 def place_unmapped(conn, current_user_id, account, rules=None):

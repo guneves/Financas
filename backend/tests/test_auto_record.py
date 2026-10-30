@@ -2,12 +2,12 @@
 
 O que estes testes protegem:
 
-- a notificacao (Flash e todos os bancos) vira lancamento na hora, sem
-  Aprovar, e nasce a revisar; o que ela nao sabe vira palpite (o cartao do
-  emissor, a conta padrao), nunca uma espera;
-- so espera: o aviso do Samsung sem o do banco (NOTIFY_WINDOW_MS) e a
-  transferencia entre contas do dono com uma ponta so; o interruptor desligado
-  volta ao Aprovar;
+- a notificacao vira lancamento na hora, sem Aprovar, e nasce a revisar; o que
+  ela nao sabe vira palpite (o cartao do emissor, a conta padrao), nunca uma
+  espera (so o Flash chega aqui desde 2026-10-30, test_flash_only.py; estes
+  testes passam da porta para cobrir o motor e o que ja foi gravado);
+- so espera a transferencia entre contas do dono com uma ponta so; o
+  interruptor desligado volta ao Aprovar;
 - o que o dono ja digitou e ligado, nunca duplicado, e nao pede revisao;
 - a Pluggy confere o que a notificacao gravou: mesmo movimento, a transacao
   so se liga (origem OPEN_FINANCE); outra data ou outro cartao, o lancamento
@@ -26,6 +26,8 @@ import pytest
 
 from open_finance_world import World, bank_tx, card_tx, connected, fake_pluggy, open_finance_module  # noqa: F401
 from test_inbox import ITAU, SAMSUNG, create_account, create_card, detection, ms, send
+
+pytestmark = pytest.mark.usefixtures("any_bank_notifications")
 
 FLASH = "br.com.flashapp"
 INBOX_SETTINGS = "/api/inbox/settings"
@@ -166,26 +168,13 @@ class TestNotificationsRecordAlone:
 
 
 class TestWhatWaits:
-    def test_samsung_alone_waits_for_the_bank_then_records(self, client, auth, auto, user):
-        create_card(client, auth)
-        now = int(time.time() * 1000)
-        send(client, auth, detection("PURCHASE", 4590, at=now, app=SAMSUNG, card_name="Itaú Visa"))
-        assert card_rows(client, auth) == []
-        auto_record = importlib.import_module("services.auto_record")
-        db = importlib.import_module("db")
-        inbox = importlib.import_module("services.inbox")
-        with db.get_db() as conn:
-            counts = auto_record.record_notifications(conn, user["id"], now_ms=now + inbox.NOTIFY_WINDOW_MS + 1)
-        assert counts["recorded"] == 1
-        assert len(card_rows(client, auth)) == 1
-
-    def test_samsung_then_the_bank_is_one_row_with_the_banks_words(self, client, auth, auto):
+    def test_samsung_then_the_bank_is_one_row(self, client, auth, auto):
         create_card(client, auth)
         now = int(time.time() * 1000)
         send(client, auth, detection("PURCHASE", 4590, at=now, app=SAMSUNG, merchant="Padaria"))
+        assert len(card_rows(client, auth)) == 1
         send(client, auth, detection("CREDIT_PURCHASE", 4590, at=now + 5000, merchant="PADARIA BOM PAO"))
-        [row] = card_rows(client, auth)
-        assert row["description"] == "PADARIA BOM PAO"
+        assert len(card_rows(client, auth)) == 1
 
     def test_the_bank_then_samsung_is_one_row(self, client, auth, auto):
         create_card(client, auth)

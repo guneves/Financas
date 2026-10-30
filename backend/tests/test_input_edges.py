@@ -134,7 +134,7 @@ class TestDates:
             response = client.post("/api/transactions", json=expense(account_id, date=value), headers=auth)
             assert response.status_code == 201, response.get_data(as_text=True)
 
-    def test_an_inbox_date_without_time_is_checked_like_one_with_time(self, client, auth):
+    def test_an_inbox_date_without_time_is_checked_like_one_with_time(self, client, auth, any_bank_notifications):
         create_account(client, auth, "Itaú")
         response = client.post("/api/inbox/detections", json={"detections": [{
             "key": uuid.uuid4().hex, "app": "com.itau", "kind": "PIX_OUT", "amount_cents": 4590,

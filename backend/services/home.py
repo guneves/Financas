@@ -14,8 +14,8 @@ todo o historico, aqui, em centavos inteiros (proposta home-attention-invoices.m
    (ele e a soma de compras ja contadas), mas mexe no saldo.
 3. A compra no cartao conta inteira no mes da compra, paga ou em aberto; o
    estorno (033) abate inteiro no mes dele e nunca e dividido.
-4. O saldo de fim de mes parte do saldo inicial das contas que nao sao
-   Corretora (arquivadas inclusive) mais tudo antes da janela.
+4. O saldo de fim de mes parte do saldo inicial das contas em reais que nao
+   sao Corretora (arquivadas inclusive; a Conta global fica de fora) mais tudo antes da janela.
 
 Cada linha vira centavos como no cliente (`Math.round(x * 100)`): a soma e de
 inteiros, sem erro de ponto flutuante. `local_today()` e lido por nome aqui.
@@ -144,6 +144,12 @@ def is_portfolio(account):
     return account.get("type") == PORTFOLIO_ACCOUNT_TYPE
 
 
+def is_foreign(account):
+    """A Conta global (047): conta em outra moeda. Fica fora do saldo em contas
+    (dono, 2026-10-30): so aparece na propria tela e em Ajustes > Contas."""
+    return str(account.get("currency") or "BRL").upper() != "BRL"
+
+
 def _reais(cents):
     return rounded_money(Decimal(int(cents or 0)) / 100)
 
@@ -157,7 +163,7 @@ def monthly_flow(conn, current_user_id, accounts, keys):
     opening = sum(
         int(Decimal(str(account.get("initial_balance") or 0)).scaleb(2).to_integral_value())
         for account in accounts
-        if not is_portfolio(account)
+        if not is_portfolio(account) and not is_foreign(account)
     )
     for row in banking_month_rows(conn, current_user_id):
         month = row["month"] or ""
@@ -224,17 +230,13 @@ def account_list(conn, current_user_id):
     ]
 
 
-def is_foreign_currency(account):
-    return str(account.get("currency") or "BRL").upper() != "BRL"
-
-
 def consolidated_balance(accounts):
     """Saldo em contas: a soma do saldo de toda conta em reais que nao e
     Corretora, arquivadas inclusive. A Conta global (dono, 2026-10-28) fica de
     fora: o saldo dela so aparece na tela dela, em dolar."""
     total = sum(
         (Decimal(str(account["balance_brl"])) for account in accounts
-         if not is_portfolio(account) and not is_foreign_currency(account)
+         if not is_portfolio(account) and not is_foreign(account)
          and account.get("balance_brl") is not None),
         Decimal("0"),
     )

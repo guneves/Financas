@@ -23,6 +23,12 @@ export const isGlobalAccount = (account) => Boolean(account) && accountCurrency(
 export const globalAccounts = (accounts = []) =>
   accounts.filter((account) => isGlobalAccount(account) && !account.archived_at)
 
+// As contas do "Saldo em conta": sem a global (dono, 2026-10-30). O total do
+// servidor (`consolidated_balance`) tambem a deixa de fora, entao o total e a
+// soma das contas listadas. A global so aparece na entrada "Conta global", na
+// tela dela e em Ajustes > Contas.
+export const withoutGlobal = (accounts = []) => accounts.filter((account) => !isGlobalAccount(account))
+
 // A linha do extrato da conta global, vista dela: valor na moeda dela, com
 // sinal (+ entra, − sai), ou `pending` quando o dolar de uma transferencia de
 // reais ainda nao chegou. `counterpart` e a outra conta da transferencia.

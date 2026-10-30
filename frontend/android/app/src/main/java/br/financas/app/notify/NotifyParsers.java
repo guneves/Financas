@@ -102,6 +102,8 @@ public final class NotifyParsers {
         String folded = fold(text);
 
         boolean samsung = NotifyPairing.SAMSUNG_WALLET.equals(row.packageName);
+        // So o cartao do Flash no Samsung Wallet (dono, 2026-10-30).
+        if (samsung && !NotifyRules.accepts(row, false)) return null;
         String kind = kindOf(folded);
         // O Samsung de 2026-10 nao diz "compra": o texto e so lugar e valor.
         String samsungLine = samsung ? samsungLineMerchant(row) : null;

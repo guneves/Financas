@@ -11,7 +11,6 @@ O que estes testes protegem:
 - o que o dono ja digitou e ligado, nunca duplicado nem apagado;
 - valor mudado / transacao sumida: corrigido ou apagado so se intocado;
 - categoria: regra do dono, senao a da Pluggy traduzida, senao a padrao;
-- avisos dos bancos conectados ignorados (com a preferencia), Flash nao;
 - historico: previa sem gravar, aplicar so confirmado;
 - o MeuPluggy: o banco vem do nome da conta (fonte, sugestao, Desconectar);
 - outro usuario nao e tocado.
@@ -274,14 +273,17 @@ class TestAutoRecord:
         row = of_tx(user["id"], tx_id)
         assert (row["role"], row["target_id"]) == ("INVOICE_PAYMENT", payment)
 
-    def test_an_unpaid_invoice_payment_is_never_recorded(self, world):
+    def test_a_bank_invoice_payment_with_no_invoice_is_a_payment_never_a_despesa(self, world):
+        # O dinheiro saiu (dono, 2026-10-30): o saldo tem de dizer, sem contar
+        # como gasto. A baixa da fatura: test_open_finance_rebuild.py.
         item_id, _p, made = connected(world)
         auto_on(world)
         world.fake.add_tx(made["bank"][0], bank_tx(-838.5, "2026-10-22", "PAGAMENTO FATURA", category_id="05100000"))
         world.sync(item_id)
-        assert world.transactions(made["bank"][2]) == []
+        [row] = world.transactions(made["bank"][2])
+        assert (row["source_type"], row["amount"], row["type"]) == ("CC_INVOICE_PAYMENT", 838.5, "EXPENSE")
         [account] = world.overview()["items"][0]["accounts"]
-        assert account["check"]["bank_only"][0]["reason"] == "invoice_payment_missing"
+        assert account["check"]["bank_only"] == []
 
     def test_a_typed_entry_is_linked_not_duplicated(self, world, user):
         item_id, _p, made = connected(world)
@@ -495,50 +497,6 @@ class TestMutationGuard:
 
 
 # ---------------------------------------------------------------------------
-# Avisos do celular
-# ---------------------------------------------------------------------------
-
-class TestNotifications:
-    def test_a_connected_banks_notification_is_ignored(self, world):
-        connected(world, connector_name="Itaú")
-        world.call("patch", SETTINGS, json={"ignore_notifications": True})
-        [result] = send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20), app=ITAU))
-        assert result["status"] == "ignored"
-        assert world.pending() == []
-
-    def test_flash_still_reaches_aprovar(self, world):
-        connected(world, connector_name="Itaú")
-        world.call("patch", SETTINGS, json={"ignore_notifications": True})
-        [result] = send(world.client, world.auth, detection("PURCHASE", 3200, at=ms(2026, 10, 20), app=FLASH))
-        assert result["status"] == "new"
-        assert len(world.pending()) == 1
-
-    def test_off_by_default(self, world):
-        connected(world, connector_name="Itaú")
-        [result] = send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20), app=ITAU))
-        assert result["status"] == "new"
-
-    def test_meupluggy_banks_are_known_by_account_name(self, world):
-        meupluggy(world)
-        world.call("patch", SETTINGS, json={"ignore_notifications": True})
-        results = send(
-            world.client, world.auth,
-            detection("CREDIT_PURCHASE", 1000, at=ms(2026, 10, 20, 10), app="com.btg.pactual.banking"),
-            detection("DEBIT_PURCHASE", 2000, at=ms(2026, 10, 20, 11), app="br.com.bb.android"),
-        )
-        assert [result["status"] for result in results] == ["ignored", "ignored"]
-
-    def test_another_users_connection_does_not_count(self, world, client, other_user, fake_pluggy):
-        connected(world, connector_name="Itaú")
-        world.call("patch", SETTINGS, json={"ignore_notifications": True})
-        other = World(client, other_user["headers"], fake_pluggy)
-        other.call("patch", SETTINGS, json={"ignore_notifications": True})
-        [result] = send(client, other_user["headers"], detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20),
-                                                                 app=ITAU))
-        assert result["status"] == "new"
-
-
-# ---------------------------------------------------------------------------
 # Historico
 # ---------------------------------------------------------------------------
 
@@ -584,8 +542,8 @@ class TestHistory:
         rows = {row["description"]: row for row in world.transactions(mine)}
         assert rows["aluguel"]["id"] == typed
         assert rows["so no app"]["id"] == only_app
-        assert {"CAFE", "SALARIO"} <= set(rows)
-        assert rows["SALARIO"]["category"] == "Receita"
+        assert {"Cafe", "Salario"} <= set(rows)
+        assert rows["Salario"]["category"] == "Receita"
         assert len(rows) == 4
         body = world.call("post", "/api/open-finance/history/preview", json={"days": 365})
         assert (body["accounts"][0]["linked"], body["accounts"][0]["to_record"]) == (3, 0)

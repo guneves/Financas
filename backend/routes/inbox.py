@@ -1,4 +1,5 @@
-"""Aprovar: o que o celular (notificacoes dos bancos) traz.
+"""Aprovar: o que o celular traz (so o Flash, dono 2026-10-30) e o que a Pluggy
+deixou esperando.
 
 As regras moram em services/inbox.py (guardar e juntar) e
 services/inbox_decisions.py (o que o dono decide). Tudo fica no servidor: o
@@ -73,7 +74,9 @@ def inbox_count(current_user_id):
 @token_required
 def post_detections(current_user_id):
     """As notificacoes que os parsers do celular leram: so os campos lidos,
-    nunca o texto. Reenviar a mesma chave nao duplica (status "known")."""
+    nunca o texto. Reenviar a mesma chave nao duplica (status "known"). Qualquer
+    coisa que nao seja gasto do Flash responde "ignored", mande o que mandar
+    um APK antigo: os bancos vem so pela Pluggy."""
     payload = parse_json_body()
     detections = payload.get("detections") if isinstance(payload, dict) else None
     with get_db() as conn:
@@ -83,6 +86,7 @@ def post_detections(current_user_id):
             return validation_error(str(exc))
         # Gravar sozinho (045): o que chegou vira lancamento agora, a revisar.
         recorded = auto_record.record_notifications(conn, current_user_id)
+        auto_record.undo_declined(conn, current_user_id, results)
     return jsonify({"results": results, "auto_recorded": recorded}), 200
 
 

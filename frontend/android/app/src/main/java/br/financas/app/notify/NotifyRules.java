@@ -29,9 +29,8 @@ import java.util.TreeMap;
  * - o texto que vale: o bigText quando veio (costuma trazer o nome inteiro do lugar), senao o text;
  * - a exportacao da captura, em JSON ou texto. E o unico caminho por onde um texto sai do aparelho.
  *
- * O Samsung Wallet voltou (dono, 2026-10-17): vale quando o banco nao notifica a compra no
- * cartao; quando os dois notificam, a do banco e a que fica (NotifyPairing). Itaú Cartões e
- * Ourocard seguem de fora: repetiriam as compras que o app do banco ja notifica.
+ * So o Flash (dono, 2026-10-30): o app do Flash e o Samsung Wallet do cartao do Flash. Bancos
+ * (Itaú, BB, BTG) vem pelo Open Finance e seus avisos sao descartados no aparelho.
  */
 public final class NotifyRules {
 
@@ -53,17 +52,35 @@ public final class NotifyRules {
         }
     }
 
-    /** Na ordem da tela. O BTG de investimentos entra para as operacoes da corretora (Fase 6). */
+    /**
+     * Dono, 2026-10-30: o celular so avisa do Flash. Ouve o Flash e o Samsung Wallet (que traz o
+     * cartao "Card used for Meal and Voucher" do Flash); os bancos vem pelo Open Finance.
+     */
     public static final List<App> APPS = Collections.unmodifiableList(Arrays.asList(
         new App("com.samsung.android.spay", "Samsung Wallet"),
-        new App("com.itau", "Itaú"),
-        new App("br.com.bb.android", "Banco do Brasil"),
-        new App("com.btg.pactual.banking", "BTG Pactual"),
-        new App("com.btg.pactual.digital.mobile", "BTG Investimentos"),
-        // Flash Beneficios (dono, 2026-10-22): o cartao de beneficios. Pacote das listagens do
-        // app; nenhuma notificacao dele capturada ainda, entao o parser e o geral.
         new App("br.com.flashapp", "Flash")
     ));
+
+    public static final String SAMSUNG_PACKAGE = "com.samsung.android.spay";
+
+    /** O cartao do Flash no Samsung Wallet: "Card used for Meal and Voucher" (ou o nome Flash). */
+    public static boolean isFlashCardName(String title) {
+        if (title == null) return false;
+        String plain = title.replace('\u00A0', ' ').toLowerCase(Locale.ROOT);
+        return plain.contains("meal and voucher") || plain.contains("flash");
+    }
+
+    /**
+     * Esta notificacao sai do aparelho? O pacote tem de ser ouvido e, no Samsung Wallet, o cartao
+     * tem de ser o do Flash: o de qualquer outro cartao e descartado antes de ler ou subir.
+     */
+    public static boolean accepts(Captured row, boolean acceptShell) {
+        if (row == null || !isAllowed(row.packageName, acceptShell)) return false;
+        if (SAMSUNG_PACKAGE.equals(row.packageName)) {
+            return isFlashCardName(row.title) || isFlashCardName(row.extras.get("android.title.big"));
+        }
+        return true;
+    }
 
     /** Os extras que o texto da exportacao ja mostra pelo nome (titulo, texto, texto longo). */
     static final List<String> SHOWN_EXTRAS = Collections.unmodifiableList(Arrays.asList(

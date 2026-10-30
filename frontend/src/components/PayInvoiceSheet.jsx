@@ -4,6 +4,7 @@ import { AlertMessage, Button, Field, Sheet } from './ui'
 import { formatCurrency } from '../lib/format'
 import { useValuesHidden } from '../lib/privacy'
 import { accountBalanceBrl, isPortfolioAccount } from '../lib/transactions'
+import { withoutGlobal } from '../lib/globalAccount'
 
 // Confirmacao do pagamento de fatura, com a conta de onde sai o dinheiro.
 //
@@ -26,7 +27,8 @@ export default function PayInvoiceSheet({
 }) {
   // Modo privado: a conta aparece sem o saldo.
   const hidden = useValuesHidden()
-  const activeAccounts = (accounts || []).filter((account) => !account.archived_at)
+  // Sem a Conta global: fatura nao sai de conta em dolar.
+  const activeAccounts = withoutGlobal(accounts).filter((account) => !account.archived_at)
   const [accountId, setAccountId] = useState(defaultAccountId)
 
   useEffect(() => {

@@ -37,9 +37,10 @@ PROVIDER = "pluggy"
 DEFAULT_BASE_URL = "https://api.pluggy.ai"
 # A chave vale 2 h; trocar 20 min antes nao deixa uma sync longa pegar uma vencida.
 API_KEY_REUSE_SECONDS = 100 * 60
-# Um pull nunca segue mais que isto de paginas (500 transacoes cada) nem um
-# cursor repetido: a defesa contra um `next` que nao anda.
-MAX_TRANSACTION_PAGES = 40
+# Um pull nunca segue mais que isto de paginas nem um cursor repetido: a defesa
+# contra um `next` que nao anda. Passar disto e erro, nunca um historico cortado
+# em silencio.
+MAX_TRANSACTION_PAGES = 400
 
 urlopen = urllib.request.urlopen
 
@@ -236,8 +237,7 @@ class PluggyClient:
                 return results
             seen.add(after)
             query = {"accountId": account_id, "dateFrom": date_from, "dateTo": date_to, "after": after}
-        logger.warning("pluggy: paginas demais", extra={"provider": PROVIDER, "pages": MAX_TRANSACTION_PAGES})
-        return results
+        raise PluggyError(f"A conta tem mais de {MAX_TRANSACTION_PAGES} paginas de transacoes.")
 
 
 def next_cursor(next_value):

@@ -369,8 +369,8 @@ private fun BalanceHero(view: HomeView, hidden: Boolean, onOpenWeb: (String) -> 
                     items(strip, key = { it.id }) { account -> AccountChip(account, hidden) }
                 }
             }
-            // A conta em dolar: aqui em reais, como as outras; o saldo em US$ so na tela dela.
-            if (strip.any { it.isGlobal && !it.archived }) {
+            // A conta em dolar fica fora do total e da faixa acima: so esta entrada e a tela dela.
+            if (HomeLogic.hasGlobalAccount(view.accounts)) {
                 val label = stringResource(R.string.home_global_account)
                 Surface(
                     onClick = { onOpenWeb("/inicio/conta-global") },

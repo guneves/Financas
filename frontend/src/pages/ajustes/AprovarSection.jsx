@@ -4,8 +4,9 @@ import { inboxApi } from '../../lib/dataApi'
 import { queryErrorMessage, useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
 
-// Avisos do celular: "Gravar sozinho" (045, ligado por padrão: o aviso vira
-// lançamento na hora e você só revisa no Extrato; desligado, espera em
+// Avisos do celular: só o Flash, que não tem Open Finance (dono, 2026-10-30; os
+// bancos vêm pela Pluggy). "Gravar sozinho" (045, ligado por padrão: a compra
+// vira lançamento na hora e você só revisa no Extrato; desligado, espera em
 // Aprovar) e "Sempre perguntar a conta/cartão" (só vale com ele desligado).
 // Vale em todo aparelho — fica no servidor.
 export default function AprovarSection() {
@@ -32,7 +33,7 @@ export default function AprovarSection() {
     <Panel id="aprovar" className="scroll-mt-20 lg:scroll-mt-8">
       <PanelHeader
         title="Avisos do celular"
-        description="Os avisos dos bancos e do Flash que o celular lê."
+        description="Só o Flash usa os avisos do celular: as compras viram lançamento sozinhas e a receita do benefício você digita. Os bancos vêm pelo Open Finance."
       />
       <div className="space-y-3 p-5">
         {settingsQuery.isError ? <AlertMessage message={queryErrorMessage(settingsQuery, 'Não foi possível ler os ajustes de Aprovar.')} /> : null}
@@ -44,14 +45,14 @@ export default function AprovarSection() {
             disabled={saving || settingsQuery.isLoading}
             onChange={(event) => save(
               { auto_record: event.target.checked },
-              event.target.checked ? 'Os avisos viram lançamento na hora; revise no Extrato.' : 'Os avisos voltam a esperar em Aprovar.',
+              event.target.checked ? 'As compras do Flash viram lançamento na hora; revise no Extrato.' : 'As compras do Flash voltam a esperar em Aprovar.',
             )}
             className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600"
           />
           <span className="min-w-0">
             <span className="block text-sm font-semibold text-zinc-900">Gravar sozinho</span>
             <span className="block text-sm text-zinc-600">
-              Cada aviso vira lançamento na hora, com a categoria sugerida; no Extrato você só confirma que é seu. O Open Finance confere depois e corrige data e conta do que você ainda não revisou.
+              Cada compra do Flash vira lançamento na hora, na conta do Flash, com a categoria sugerida; no Extrato você só confirma que é sua.
             </span>
           </span>
         </label>

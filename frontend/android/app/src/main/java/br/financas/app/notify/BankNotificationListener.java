@@ -69,6 +69,8 @@ public class BankNotificationListener extends NotificationListenerService {
             return;
         }
         NotifyRules.Captured row = read(sbn, via);
+        // Samsung Wallet de outro cartao que nao o do Flash: descartado sem guardar nem subir.
+        if (!NotifyRules.accepts(row, BuildConfig.DEBUG)) return;
         detect(row);
         if (!NotifySettings.isCaptureOn(this)) return;
         try {

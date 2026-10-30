@@ -76,10 +76,6 @@
          Notificações). A mesma lista de notify/NotifyRules.java. -->
     <queries>
         <package android:name="com.samsung.android.spay" />
-        <package android:name="com.itau" />
-        <package android:name="br.com.bb.android" />
-        <package android:name="com.btg.pactual.banking" />
-        <package android:name="com.btg.pactual.digital.mobile" />
         <package android:name="br.com.flashapp" />
     </queries>
 </manifest>

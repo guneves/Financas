@@ -199,7 +199,7 @@ class TestDebitPurchases:
         world.card("Nubank")
         assert world.invoices()["debit_cards"] == []
 
-    def test_an_approved_debit_notification_keeps_the_card(self, client, auth):
+    def test_an_approved_debit_notification_keeps_the_card(self, client, auth, any_bank_notifications):
         create = client.post("/api/accounts", json={"name": "Conta BTG", "type": "CHECKING"}, headers=auth)
         banking = create.get_json()["id"]
         card = client.post(

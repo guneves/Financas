@@ -207,9 +207,10 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `/inicio/conta-global`, opened from "Conta global" under the accounts on Início and from Ajustes ›
   Contas: balance and statement in US$ (`formatForeignCurrency()`), a "≈ R$ …" from today's PTAX
   (`balance_brl`) or "sem câmbio hoje". The only currency choice is the "Conta global (US$)" type
-  of Ajustes › Nova conta (CHECKING + `currency: USD`). Everywhere else it is in reais: Início's
-  tile shows it converted (`balance_brl`), but **it is never in "Saldo em contas"** (owner
-  2026-10-28: `consolidated_balance()` skips non-BRL accounts, so Extrato/Cartões projections too). A foreign
+  of Ajustes › Nova conta (CHECKING + `currency: USD`). **It is never in "Saldo em contas"** (owner
+  2026-10-28 and 2026-10-30, list and total: `consolidated_balance()` skips non-BRL accounts, so
+  Extrato/Cartões projections too): on Início it is only the "Conta global" entry, and it pays no
+  invoice. A `NET_WORTH` goal still counts it converted. A foreign
   account is never the default nor the Corretora. Its own despesas/receitas stay out of every reais
   total (Resumo do mês, plan, budget, the Extrato without `account_id`, the review queue/count):
   they are listed and reviewed on its screen. "+ Novo" doesn't offer it.
@@ -250,6 +251,26 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 - **Rules touch the past only on confirmation**: `/api/import-rules/apply/preview` never writes;
   `apply` rewrites only the sent ids, re-checking the rule. Transfers, investment cash, proventos
   and invoice payments are out of reach.
+
+### Open Finance is the only banking source (owner 2026-10-30)
+**Banks come only from Pluggy; notifications exist only for the Flash**, which Pluggy doesn't cover.
+- The phone listens to Samsung Wallet (only the "Card used for Meal and Voucher"/Flash card) and the
+  Flash app (`NotifyRules.APPS`); the server enforces it for old APKs (`notification_wanted()`: anything
+  else, and any Flash credit, answers `ignored`). A Samsung Flash purchase records at once; a later
+  decline removes the untouched row. Flash receitas are typed by the owner.
+- **Everything updates by itself**: one tick covers accounts, cards, Wise, BTG and the Conferência; a
+  failing item doesn't stop the others; first tick 60 s after boot. `sync_hours`: `off` = owner's choice,
+  a stored `0` means 6 h. GET only and the 6 h floor stay.
+- **A bank invoice payment is recorded from Pluggy** (`services/open_finance_invoices.py`): with no
+  app row it settles that invoice through the settlement path, idempotent by Pluggy id. Autopay and
+  recurrences never write on a Pluggy-mapped card or account.
+- **Categories**: owner's import rule → merchant table → CNAE → Pluggy's category → default
+  (`open_finance_categories.py`); merchant data from 050.
+- **Rebuild** (`scripts/rebuild_from_pluggy.py`, `services/open_finance_rebuild.py`): dry-run by
+  default; `--apply` needs the app stopped and runs in a one-off container (DEPLOY.md). Flash's rows
+  are never wiped; investments only as told.
+The sections below describe the engine; where they speak of bank notifications, that path is now
+Flash-only (`any_bank_notifications` is the test fixture that opens the gate).
 
 ### Auto-record → reconcile → review (045, owner 2026-10-27)
 The paradigm: **notifications record, Pluggy reconciles (and feeds Investimentos), the owner only
@@ -328,7 +349,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   PATCH. Pluggy refreshes banks itself (6–24 h); the app reads what it has. Settings live in
   `user_settings` (`GET/PATCH /api/open-finance/settings`): `sync_hours` per user (0 = button only,
   else **6–24**; the thread ticks every 15 min and pulls whoever is due), `include_pending`,
-  `first_sync_days`, `auto_record`, `ignore_notifications`.
+  `first_sync_days`, `auto_record`.
 - **Gravar sozinho** (044, owner's reversal of 2026-10-27: they checked the real data and trust it;
   `services/open_finance_auto.py`): with `auto_record` on, a Pluggy movement of a mapped account
   becomes a lançamento by itself — the same item, approved by `approve_item()` right after the pull
@@ -350,9 +371,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   it, the lançamento is corrected/deleted only while it equals the snapshot (no edit, receipt) and
   was created by that Pluggy row (`apply_change()` / `apply_vanish()`; never a transfer, never a
   paid installment, never on an empty pull); otherwise `conflict` and the Conferência lists it.
-  **Ignorar avisos dos bancos conectados** (`ignore_notifications`): `ingest_detection()` returns
-  `ignored` for a bank whose account is mapped (by account/target name, or a Samsung card that is
-  mapped); Flash is never connected, so it still reaches Aprovar.
+  Phone notices of banks are ignored (see above).
 - **BB Rende Fácil is never in the app** (046, owner 2026-10-27): the bank's automatic investment
   ("RENDE FACIL"/"REND.FACIL", `inbox.is_auto_invest()`) is `COVERED` in `place()` (no item, no
   lançamento, not in the Conferência) and its phone notice is `ignored`. So BB's app balance leaves
@@ -367,7 +386,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
 - **BTG Investimentos in Investimentos** (044, `services/open_finance_investments.py`): the same pull
   reads `/investments` and each position's transactions (GET). Equity BUY/SELL become movements on
   the trade date with cash through the Corretora (as typed ones), idempotent by
-  `open_finance_investment_operations.op_key`; a typed twin (same asset, signed quantity, ±2 days) is
+  `open_finance_investment_operations.op_key`; a typed twin (same asset and sign, ±2 days, one trade or several summing to it) is
   linked; an unknown ticker, a sale without position, a date before the latest corporate action,
   fixed income, TRANSFER and INTEREST are `HELD` for the owner. Deleting a recorded one is
   `DISMISSED` for good. Positions are never written into the portfolio: `portfolio_check()` compares

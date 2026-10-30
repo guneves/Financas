@@ -57,7 +57,7 @@ class TestSettingsApi:
         assert body == {"first_sync_days": 30, "sync_hours": 6, "min_sync_hours": 6, "include_pending": False,
                         "auto_sync_available": False, "auto_record": False,
                         "auto_record_blockers": ["Conecte um banco antes de gravar sozinho."],
-                        "ignore_notifications": False}
+                        "ignore_notifications": True}
 
     def test_a_partial_patch_keeps_the_rest(self, world):
         body = world.call("patch", SETTINGS, json={"sync_hours": 8})
@@ -73,6 +73,7 @@ class TestSettingsApi:
         {"first_sync_days": 0}, {"first_sync_days": 366}, {"first_sync_days": "x"}, {"first_sync_days": True},
         {"include_pending": "true"}, {"include_pending": 1}, {"include_pending": None},
         {"auto_approve": True}, {"auto_approve": False}, {"aprovar_sources": "open_finance_only"},
+        {"ignore_notifications": False}, {"ignore_notifications": True},
         {},
     ])
     def test_invalid_values_are_refused(self, world, payload):
@@ -84,6 +85,16 @@ class TestSettingsApi:
 
     def test_zero_turns_the_automatic_pull_off(self, world):
         assert world.call("patch", SETTINGS, json={"sync_hours": 0})["sync_hours"] == 0
+        assert world.call("get", SETTINGS)["sync_hours"] == 0
+
+    def test_a_zero_nobody_chose_is_automatic(self, world, user):
+        # Um "0" de antes de 2026-10-30 nao diz que o dono escolheu: toda conta
+        # mapeada atualiza sozinha. So "Desligada" em Ajustes grava a escolha.
+        inbox = importlib.import_module("services.inbox")
+        db = importlib.import_module("db")
+        with db.get_db() as conn:
+            inbox.save_setting(conn, user["id"], "open_finance_sync_hours", "0")
+        assert world.call("get", SETTINGS)["sync_hours"] == 6
 
     def test_the_message_says_why_below_one_hour(self, client, auth):
         response = client.patch(SETTINGS, json={"sync_hours": 30}, headers=auth)
@@ -118,6 +129,15 @@ class TestPerUserInterval:
         item_id, _p, _made = connected(world)
         set_last_sync(item_id, "2026-10-27T10:00:00Z")
         assert user["id"] not in refresh.due_user_ids(epoch("2026-10-27T15:59:00"))
+        assert user["id"] in refresh.due_user_ids(epoch("2026-10-27T16:00:00"))
+
+    def test_a_zero_nobody_chose_is_due(self, world, refresh, user):
+        item_id, _p, _made = connected(world)
+        inbox = importlib.import_module("services.inbox")
+        db = importlib.import_module("db")
+        with db.get_db() as conn:
+            inbox.save_setting(conn, user["id"], "open_finance_sync_hours", "0")
+        set_last_sync(item_id, "2026-10-27T10:00:00Z")
         assert user["id"] in refresh.due_user_ids(epoch("2026-10-27T16:00:00"))
 
     def test_a_never_pulled_item_is_due(self, world, refresh, user):

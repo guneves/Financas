@@ -403,7 +403,9 @@ def apply_due_autopay(conn, current_user_id, today=None):
     do vencimento, mesmo que o app so seja aberto dias depois. Idempotente
     pelo source_id deterministico '<cartao>:<AAAA-MM>': uma fatura reaberta a
     mao depois do debito nao e paga de novo, nem uma cujo pagamento foi
-    desfeito (cc_invoice_manual, 037).
+    desfeito (cc_invoice_manual, 037). Cartao conectado a Pluggy fica de fora: o
+    pagamento vem do banco (services/open_finance_invoices.py), e aqui seria um
+    lancamento que o banco nao mandou.
     """
     today = today or local_today()
     cards = conn.execute(
@@ -413,6 +415,11 @@ def apply_due_autopay(conn, current_user_id, today=None):
         JOIN accounts a ON a.id = cc.autopay_account_id AND a.user_id = cc.user_id
         WHERE cc.user_id = ? AND a.archived_at IS NULL
           AND cc.archived_at IS NULL AND cc.credit_enabled = 1
+          AND NOT EXISTS (
+              SELECT 1 FROM open_finance_accounts o
+              JOIN open_finance_items i ON i.id = o.of_item_id AND i.user_id = o.user_id
+              WHERE o.user_id = cc.user_id AND o.card_id = cc.id AND i.archived_at IS NULL
+          )
         """,
         (current_user_id,),
     ).fetchall()

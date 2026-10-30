@@ -87,8 +87,7 @@ data class OpenFinanceSettingsDto(
     /** "Gravar sozinho" (044) e por que ainda nao pode ligar. */
     @SerialName("auto_record") val autoRecord: Boolean = false,
     @SerialName("auto_record_blockers") val autoRecordBlockers: List<String> = emptyList(),
-    /** "Ignorar avisos dos bancos conectados" (044). */
-    @SerialName("ignore_notifications") val ignoreNotifications: Boolean = false,
+    // O servidor pode ainda mandar "ignore_notifications": o Json ignora o campo (dono, 2026-10-30).
 )
 
 @Serializable

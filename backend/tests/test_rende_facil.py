@@ -49,7 +49,7 @@ class TestPluggy:
         )
         world.sync(item_id)
 
-        assert [item["description"] for item in world.pending()] == ["PADARIA"]
+        assert [item["description"] for item in world.pending()] == ["Padaria"]
         check = bank_check(world)
         assert [entry["description"] for entry in check["awaiting"]] == ["PADARIA"]
         assert check["bank_only"] == []
@@ -65,7 +65,7 @@ class TestPluggy:
         world.sync(item_id)
 
         rows = world.transactions(made["bank"][2])
-        assert [row["description"] for row in rows] == ["PADARIA"]
+        assert [row["description"] for row in rows] == ["Padaria"]
         assert bank_check(world)["bank_only"] == []
 
 

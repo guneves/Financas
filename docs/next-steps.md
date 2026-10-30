@@ -9,6 +9,14 @@
 
 ## 1. Open work, in priority order
 
+### Open Finance only (2026-10-30) — what is left
+- [ ] Fixed income, Tesouro, funds and INTEREST stay HELD: Pluggy's operations lack indexer, title type,
+  redemption lot and coupon tax start. So later fixed-income buys, IR and fees are `COVERED`, and the
+  Corretora can drift from BTG's cash after a rebuild. `cash_check()` shows it.
+- [ ] Some test writes to `backend/finance.db` (the PC's dev copy): `user-…@example.com` rows since
+  2026-10-27 (453 users), against the rule that tests never touch it. Find it; the data is not real.
+- [ ] Tune the merchant table with `--report-categories` on real rows.
+
 ### Conta global (047, 2026-10-27) — what is left
 Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10-28 (see
 `done-tasks.md`). Prompt: `docs/prompts/global-account-usd.md`.
@@ -68,10 +76,6 @@ the Extrato's Revisar panel. Built on `main` for the server and the web; see `do
   otherwise); `inbox_hints` are no longer learned while auto-recording (`remember: False`).
 
 ### Open Finance as the only source for connected banks (044, 2026-10-27) — what is left
-- [ ] **Summed twins** (seen on real data, 2026-10-27): the BTG investment sync records one
-  operation per asset/day (AUPO11 −12) where the owner typed several (−3, −9); the typed-twin link
-  needs the same quantity, so it recorded a duplicate. Link an op to the typed trades of the same
-  asset, sign and day (±2) whose quantities sum to it. The 4 duplicates were deleted (DISMISSED).
 Built on `main` (see `done-tasks.md`, CLAUDE.md › "Gravar sozinho", DEPLOY.md › Open Finance). The
 owner's decisions: Pluggy (MeuPluggy, free plan) is the only source for Itaú, BTG and BB, recorded
 automatically; Aprovar stays for Flash and what only the owner decides; GET only, never more often

@@ -9,6 +9,7 @@ import {
   globalTotals,
   impliedRate,
   isGlobalAccount,
+  withoutGlobal,
 } from './globalAccount.js'
 import { formatForeignCurrency, formatSignedForeignCurrency } from './format.js'
 
@@ -70,6 +71,18 @@ test('formatador em dolar', () => {
   assert.equal(formatSignedForeignCurrency(9.99, -1), '−US$ 9,99')
   assert.equal(formatSignedForeignCurrency(46.1, 1), '+US$ 46,10')
   assert.equal(formatSignedForeignCurrency(0, 1), 'US$ 0,00')
+})
+
+test('o saldo em conta lista as contas sem a global (2026-10-30)', () => {
+  const accounts = [
+    { id: 'btg', currency: 'BRL', balance_brl: 100 },
+    { id: 'itau' },
+    { id: 'wise', currency: 'USD', balance: 10, balance_brl: 55 },
+  ]
+  assert.deepEqual(withoutGlobal(accounts).map((account) => account.id), ['btg', 'itau'])
+  // A global segue em globalAccounts(): a entrada "Conta global" depende dela.
+  assert.deepEqual(globalAccounts(accounts).map((account) => account.id), ['wise'])
+  assert.deepEqual(withoutGlobal(), [])
 })
 
 test('so uma transferencia entre moedas pede o valor no destino', () => {

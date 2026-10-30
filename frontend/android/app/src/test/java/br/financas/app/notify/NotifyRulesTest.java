@@ -40,19 +40,39 @@ public class NotifyRulesTest {
     @Test
     public void theOwnersAppsAreHeard() {
         for (String pkg : new String[] {
-            "com.samsung.android.spay",
-            "com.itau",
-            "br.com.bb.android",
-            "com.btg.pactual.banking", "com.btg.pactual.digital.mobile",
+            "com.samsung.android.spay", "br.com.flashapp",
         }) {
             assertTrue(pkg, NotifyRules.isAllowed(pkg, false));
         }
     }
 
     @Test
+    public void banksAreDroppedOnThePhone() {
+        for (String pkg : new String[] {
+            "com.itau", "br.com.bb.android",
+            "com.btg.pactual.banking", "com.btg.pactual.digital.mobile",
+        }) {
+            assertFalse(pkg, NotifyRules.isAllowed(pkg, false));
+            assertFalse(pkg, NotifyRules.accepts(row(pkg, "k", 1L), false));
+        }
+    }
+
+    @Test
+    public void samsungWalletOnlyForTheFlashCard() {
+        NotifyRules.Captured flash = row("com.samsung.android.spay", "k", 1L);
+        flash.title = "Card used for Meal and Voucher";
+        assertTrue(NotifyRules.accepts(flash, false));
+        NotifyRules.Captured btg = row("com.samsung.android.spay", "k", 1L);
+        btg.title = "BTG Pactual Banking";
+        assertFalse(NotifyRules.accepts(btg, false));
+        NotifyRules.Captured bare = row("com.samsung.android.spay", "k", 1L);
+        assertFalse(NotifyRules.accepts(bare, false));
+        assertTrue(NotifyRules.accepts(row("br.com.flashapp", "k", 1L), false));
+    }
+
+    @Test
     public void everythingElseIsIgnored() {
         assertFalse(NotifyRules.isAllowed("com.whatsapp", false));
-        // Repetiriam as compras que o app do banco ja notifica (dono, 2026-10-17).
         assertFalse(NotifyRules.isAllowed("com.itaucard.activity", false));
         assertFalse(NotifyRules.isAllowed("br.com.bb.oewallet", false));
         assertFalse(NotifyRules.isAllowed("br.financas.app", false));
@@ -78,7 +98,7 @@ public class NotifyRulesTest {
             assertTrue("duplicado: " + app.packageName, packages.add(app.packageName));
             assertFalse(app.label.isEmpty());
         }
-        assertEquals("Itaú", NotifyRules.labelFor("com.itau"));
+        assertEquals("Flash", NotifyRules.labelFor("br.com.flashapp"));
         assertEquals("Samsung Wallet", NotifyRules.labelFor("com.samsung.android.spay"));
         assertEquals(NotifyRules.SHELL_LABEL, NotifyRules.labelFor(NotifyRules.SHELL_PACKAGE));
         assertEquals("com.outro", NotifyRules.labelFor("com.outro"));
@@ -137,7 +157,7 @@ public class NotifyRulesTest {
 
     @Test
     public void theJsonExportKeepsEveryFieldWordForWord() throws Exception {
-        NotifyRules.Captured wallet = row("com.btg.pactual.banking", "w", 1792236000500L);
+        NotifyRules.Captured wallet = row("br.com.flashapp", "w", 1792236000500L);
         wallet.title = "BTG Pactual";
         wallet.text = "  R$ 12,34 \n";
         NotifyRules.Captured bank = row("com.itau", "i", 1792236000100L);
@@ -155,7 +175,7 @@ public class NotifyRulesTest {
         // Em ordem de postagem: o Itaú veio 400 ms antes do BTG.
         assertEquals("com.itau", list.getJSONObject(0).getString("package"));
         JSONObject first = list.getJSONObject(1);
-        assertEquals("BTG Pactual", first.getString("app"));
+        assertEquals("Flash", first.getString("app"));
         assertEquals("  R$ 12,34 \n", first.getString("text"));
         assertTrue(first.isNull("big_text"));
         assertEquals(1792236000500L, first.getLong("posted_at"));

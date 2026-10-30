@@ -108,8 +108,14 @@ object HomeLogic {
     /** A caixa de erro: o de uma acao vence o da leitura (e nenhuma releitura o apaga). */
     fun bannerDetail(actionError: String, loadError: String): String = actionError.ifEmpty { loadError }
 
-    /** As contas ativas (o activeAccounts() da web): as do sheet de pagamento. */
-    fun activeAccounts(accounts: List<HomeAccount>): List<HomeAccount> = accounts.filter { !it.archived }
+    /**
+     * As contas ativas do sheet de pagamento: sem a Conta global (dono, 2026-10-30), de onde
+     * fatura nenhuma sai.
+     */
+    fun activeAccounts(accounts: List<HomeAccount>): List<HomeAccount> = accounts.filter { !it.archived && !it.isGlobal }
+
+    /** Ha Conta global ativa? So a entrada "Conta global" a mostra no Inicio. */
+    fun hasGlobalAccount(accounts: List<HomeAccount>): Boolean = accounts.any { it.isGlobal && !it.archived }
 
     /** A faixa do hero: as contas ativas da area bancaria (a Corretora fica em Investimentos). */
     fun stripAccounts(accounts: List<HomeAccount>): List<HomeAccount> =

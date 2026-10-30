@@ -73,8 +73,11 @@ class HomeLogicTest {
     @Test
     fun theStripHasTheActiveBankingAccountsOnly() {
         val view = HomeLogic.view(home, emptyList())
-        assertEquals(listOf("main", "save", "usd"), HomeLogic.stripAccounts(view.accounts).map { it.id })
-        assertEquals(listOf("main", "save", "corr", "usd"), HomeLogic.activeAccounts(view.accounts).map { it.id })
+        // A Conta global fica fora do "Saldo em conta" e do sheet de pagamento (2026-10-30).
+        assertEquals(listOf("main", "save"), HomeLogic.stripAccounts(view.accounts).map { it.id })
+        assertEquals(listOf("main", "save", "corr"), HomeLogic.activeAccounts(view.accounts).map { it.id })
+        assertTrue(HomeLogic.hasGlobalAccount(view.accounts))
+        assertFalse(HomeLogic.hasGlobalAccount(view.accounts.filter { !it.isGlobal }))
         // Sem cambio hoje: null ("sem câmbio hoje").
         assertNull(view.accounts.first { it.id == "usd" }.balanceBrl)
     }

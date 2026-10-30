@@ -290,7 +290,7 @@ export default function ContasSection() {
               label="Tipo"
               hint={accountForm.type === PORTFOLIO_ACCOUNT_TYPE
                 ? 'Conta da carteira: as operações de investimento saem dela.'
-                : accountForm.type === GLOBAL_TYPE ? 'Em dólar: saldo e extrato em US$ na tela Conta global; no Início, convertida.' : undefined}
+                : accountForm.type === GLOBAL_TYPE ? 'Em dólar: saldo e extrato em US$ na tela Conta global; fica fora do Saldo em conta.' : undefined}
             >
               <select value={accountForm.type} onChange={(event) => setAccountForm({ ...accountForm, type: event.target.value })} className="app-select">
                 {Object.entries(NEW_ACCOUNT_TYPES).map(([value, label]) => (

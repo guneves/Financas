@@ -224,7 +224,7 @@ export function balanceExplanation(explanation, money = (value) => String(value)
 export function autoRecordHint(settings) {
   if (!settings) return ''
   if (settings.auto_record) {
-    return 'Os movimentos dos bancos conectados viram lançamentos sozinhos. O Aprovar fica para o Flash e para o que só você decide (uma transferência sem a outra ponta, um investimento).'
+    return 'Os movimentos dos bancos conectados viram lançamentos sozinhos, a revisar no Extrato. Só espera uma transferência sem a outra ponta.'
   }
   const blockers = settings.auto_record_blockers || []
   if (blockers.length) return blockers.join(' ')

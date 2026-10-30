@@ -218,11 +218,22 @@ until mapped).
 connection has a destination or "Não usar" and every connection was pulled in the last 48 h. On, a
 pulled movement becomes a lançamento without Aprovar (what already waited there from Pluggy is
 recorded at once); Aprovar keeps Flash and what only the owner decides (a transfer whose other side
-never came, an investment on a bank account). **Ignorar avisos dos bancos conectados** drops phone
-notifications of connected banks (Flash still goes to Aprovar). **Histórico**: "Ver prévia" counts,
+never came, an investment on a bank account). Phone notifications are only for the Flash (no Pluggy support); the server ignores every other one. **Histórico**: "Ver prévia" counts,
 per account, what the last N days would link/record and what is only in the app; "Trazer o
 histórico" applies it (needs Gravar sozinho). Nothing typed by the owner is deleted.
 The first real connection is the owner's check after the deploy — see `docs/handoff.md`.
+
+**Rebuild from Pluggy** (wipes lançamentos, keeps Flash; a verified backup comes first). Dry-run on the
+running container, then apply with the app stopped, so no tick or screen records mid-way:
+
+```bash
+cd /srv/apps/financas
+sudo docker compose exec -T -w /app/backend app python scripts/rebuild_from_pluggy.py --email <email>
+sudo docker compose stop app
+sudo docker compose run --rm --no-deps -T --entrypoint python -w /app/backend app \
+  scripts/rebuild_from_pluggy.py --email <email> --apply --app-stopped
+sudo docker compose up -d app
+```
 
 **Reconnect** (password changed, MFA): "⋯ › Reconectar" opens the widget on the same item.
 

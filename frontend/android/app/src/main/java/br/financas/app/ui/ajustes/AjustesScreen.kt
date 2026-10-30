@@ -662,18 +662,7 @@ private fun OpenFinanceSettingsBlock(settings: OpenFinanceSettingsDto, viewModel
                 Text(OpenFinanceRules.autoRecordHint(settings.autoRecord, settings.autoRecordBlockers), fontSize = 14.sp, color = palette["zinc-600"])
             }
         }
-        Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled) { viewModel.setOpenFinanceIgnoreNotifications(!settings.ignoreNotifications) }) {
-            Checkbox(
-                settings.ignoreNotifications,
-                { viewModel.setOpenFinanceIgnoreNotifications(it) },
-                enabled = enabled,
-                colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent),
-            )
-            Column(Modifier.padding(top = 12.dp)) {
-                Text(stringResource(R.string.ajustes_open_finance_ignore), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
-                Text(stringResource(R.string.ajustes_open_finance_ignore_hint), fontSize = 14.sp, color = palette["zinc-600"])
-            }
-        }
+        Text(stringResource(R.string.ajustes_open_finance_notices_line), fontSize = 14.sp, color = palette["zinc-600"])
         Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled) { viewModel.setOpenFinanceIncludePending(!settings.includePending) }) {
             Checkbox(
                 settings.includePending,

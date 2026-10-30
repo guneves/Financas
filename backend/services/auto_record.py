@@ -1,35 +1,34 @@
 """Gravar sozinho (045, dono 2026-10-27): a notificacao vira lancamento na hora.
 
-Toda notificacao lida pelo celular (Flash e todos os bancos) que vira um item
-(services/inbox.py: pareamento Samsung/banco, as duas pontas de uma
-transferencia, o Open Finance que ja trouxe o mesmo movimento) e gravada logo
-depois, pela mesma aprovacao da tela (`inbox_decisions.approve_item`, sem
+Dono, 2026-10-30: so o Flash ainda chega por notificacao (os bancos vem pela
+Pluggy; services/inbox.py responde `ignored` ao resto). O gasto que vira um item
+(pareamento do app do Flash com o Samsung Wallet) e gravado logo depois, pela
+mesma aprovacao da tela (`inbox_decisions.approve_item`, sem
 lembrar escolhas). O que o item nao sabe vira palpite
 (services/inbox_defaults.py) e o lancamento nasce a revisar
 (services/review.py): o dono so confirma que e dele e a categoria.
 
-Espera um pouco (e ninguem decide por ele), so:
-- a compra que so o Samsung Wallet avisou, ate NOTIFY_WINDOW_MS: o aviso do
-  banco (credito/debito, o cartao) costuma chegar logo depois e vira a fonte;
+A compra so do Samsung Wallet grava na hora: nenhum banco vai avisar dela. Se o
+app do Flash chegar depois com a mesma compra, junta (uma linha so); se chegar
+com a negativa, o lancamento intocado sai (`undo_declined()`).
+
+Espera, so:
 - a transferencia entre contas do dono com uma ponta so, ate a outra ponta
-  (notificacao ou Pluggy) chegar e fazer dela UMA transferencia (fica no
-  Aprovar, que o Extrato aponta: uma conta que nao notifica nem esta conectada
-  pede o dono);
+  chegar e fazer dela UMA transferencia (fica no Aprovar, que o Extrato aponta);
 - o valor em outra moeda: nunca grava (o valor em reais vem do banco).
 
 Um parecido que o dono digitou antes (`candidates`) e LIGADO, nunca duplicado.
-O item guarda como o lancamento nasceu (`recorded_snapshot`): quando a Pluggy
-trouxer o mesmo movimento com outra data ou outra conta/cartao,
+O item guarda como o lancamento nasceu (`recorded_snapshot`): o que uma
+notificacao de banco gravou antes de 2026-10-30 a Pluggy ainda confere, e
 open_finance_inbox refaz o intocado do jeito do banco.
 
 O interruptor e `auto_record_notifications` em user_settings (GET/PATCH
 /api/inbox/settings); sem escolha, vale AUTO_RECORD_DEFAULT (ligado). A
 passada roda depois de cada envio do celular e nas leituras do Extrato,
-Inicio e Revisar (o que esperava o prazo grava ai).
+Inicio e Revisar.
 """
 
 import json
-import time
 
 from config import AUTO_RECORD_DEFAULT
 from db import utc_timestamp
@@ -50,14 +49,10 @@ def _source_detections(conn, current_user_id, item_id):
     return [row for row in inbox.item_detections(conn, current_user_id, item_id) if row["role"] == inbox.SOURCE]
 
 
-def hold_reason(conn, current_user_id, item, detections, now_ms, today):
-    """Por que o item ainda espera (o par, o banco), ou None se grava ja."""
+def hold_reason(item):
+    """Por que o item ainda espera (o par, o valor em reais), ou None se grava ja."""
     if "amount" in (item.get("needs") or []):
         return "foreign_currency"
-    if all(row["app"] == inbox.SAMSUNG_WALLET for row in detections) and max(
-        int(row["posted_ms"]) for row in detections
-    ) > now_ms - inbox.NOTIFY_WINDOW_MS:
-        return "awaiting_bank"
     if item.get("entry_type") == "TRANSFER" and not (item.get("account_id") and item.get("transfer_account_id")):
         return "awaiting_transfer"
     return None
@@ -97,28 +92,25 @@ def approve_alone(conn, current_user_id, item):
     return "recorded"
 
 
-def record_item(conn, current_user_id, row, now_ms, today):
+def record_item(conn, current_user_id, row):
     """Um item pendente de notificacao: recorded, linked, held ou skipped (o
     que a Pluggy alimenta e de services/open_finance_auto.py)."""
     item = inbox.item_dict(row)
     if inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,)):
         return "skipped"
-    detections = _source_detections(conn, current_user_id, item["id"])
-    if not detections:
+    if not _source_detections(conn, current_user_id, item["id"]):
         return "skipped"
-    if hold_reason(conn, current_user_id, item, detections, now_ms, today):
+    if hold_reason(item):
         return "held"
     return approve_alone(conn, current_user_id, item)
 
 
-def record_notifications(conn, current_user_id, now_ms=None, today=None):
+def record_notifications(conn, current_user_id):
     """Todo item pendente que veio de notificacao, na ordem do tempo.
     Devolve {recorded, linked, held}."""
     counts = {"recorded": 0, "linked": 0, "held": 0}
     if not enabled(conn, current_user_id):
         return counts
-    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
-    today = today or invoices.local_today()
     rows = conn.execute(
         """
         SELECT DISTINCT i.id FROM inbox_items i
@@ -132,18 +124,41 @@ def record_notifications(conn, current_user_id, now_ms=None, today=None):
         fresh = inbox.fetch_item(conn, current_user_id, entry["id"])
         if not fresh or fresh["state"] != inbox.PENDING:
             continue
-        status = record_item(conn, current_user_id, fresh, now_ms, today)
+        status = record_item(conn, current_user_id, fresh)
         if status in counts:
             counts[status] += 1
     return counts
 
 
-def record_due(conn, current_user_id, now_ms=None, today=None):
-    """A passada das leituras: o que esperava o prazo (o Samsung sem o banco,
-    a transferencia sem par) grava quando o prazo passa. A Pluggy, se o
+def undo_declined(conn, current_user_id, results):
+    """O Flash negou a compra que o Samsung avisou e que ja virou lancamento: o
+    intocado sai. Revisado ou editado, fica (o dono ja disse que e dele). Devolve
+    quantos sairam."""
+    undone = 0
+    for result in results:
+        if result.get("status") != "declined" or not result.get("item_id"):
+            continue
+        row = inbox.fetch_item(conn, current_user_id, result["item_id"])
+        if not row or row["state"] != inbox.APPROVED:
+            continue
+        item = inbox.item_dict(row)
+        if not open_finance_inbox.notification_untouched(conn, current_user_id, item):
+            continue
+        open_finance_inbox._drop_target(conn, current_user_id, item)
+        inbox.save_item(
+            conn, current_user_id, item,
+            {"state": inbox.REMOVED, "reason": "declined", "target_table": None, "target_id": None,
+             "decided_at": utc_timestamp()},
+        )
+        undone += 1
+    return undone
+
+
+def record_due(conn, current_user_id, today=None):
+    """A passada das leituras: o que ficou pendente grava aqui. A Pluggy, se o
     interruptor dela esta ligado, tambem (o par de transferencia que venceu)."""
     today = today or invoices.local_today()
-    counts = record_notifications(conn, current_user_id, now_ms, today)
+    counts = record_notifications(conn, current_user_id)
     if open_finance_auto.enabled(conn, current_user_id):
         for key, value in open_finance_auto.record_pending(conn, current_user_id, today).items():
             counts[key] = counts.get(key, 0) + value

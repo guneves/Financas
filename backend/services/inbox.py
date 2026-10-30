@@ -1,8 +1,14 @@
 """Aprovar: o que o celular traz espera o dono aqui (028).
 
-O celular manda cada notificacao de banco que um parser leu
-(`ingest_detections`, POST /api/inbox/detections) — so os campos lidos (valor,
-hora, cartao, estabelecimento), nunca o texto. Nada grava sozinho.
+O celular manda cada notificacao que um parser leu (`ingest_detections`, POST
+/api/inbox/detections) — so os campos lidos (valor, hora, cartao,
+estabelecimento), nunca o texto. Nada grava sozinho aqui.
+
+Dono, 2026-10-30: a Pluggy e a unica fonte dos bancos. So o Flash, que nao tem
+Open Finance, passa daqui (`notification_wanted()`, seja o que for que um APK
+antigo mande); o resto responde `ignored` e nao deixa rastro. O pareamento
+abaixo continua para o Flash (app e Samsung Wallet) e para o que uma
+notificacao gravou antes disso e a Pluggy ainda vai conferir.
 
 Cada movimento do mundo real vira UM item (`inbox_items`), por mais fontes que
 o contem:
@@ -65,6 +71,7 @@ SAMSUNG_WALLET = "com.samsung.android.spay"
 # listagens do app (nenhuma notificacao dele capturada ainda); a compra com ele
 # no Samsung Wallet chega como "Card used for Meal and Voucher".
 FLASH_APP = "br.com.flashapp"
+FLASH_ISSUER = "flash"
 # Mesma janela de NotifyPairing.DEFAULT_WINDOW_MS (10 min, inclusiva), a ser
 # ajustada pelo atraso que a captura do dono mostrar.
 NOTIFY_WINDOW_MS = 10 * 60 * 1000
@@ -95,7 +102,7 @@ ISSUER_OF_APP = {
     "br.com.bb.android": "bb",
     "com.btg.pactual.banking": "btg",
     "com.btg.pactual.digital.mobile": "btg",
-    FLASH_APP: "flash",
+    FLASH_APP: FLASH_ISSUER,
 }
 # Como o emissor aparece no nome de uma conta ou cartao do dono.
 ISSUER_ALIASES = {
@@ -104,7 +111,7 @@ ISSUER_ALIASES = {
     "btg": ("btg",),
     # "Meal and Voucher" e como o Samsung Wallet chama o cartao de beneficios
     # (captura de 2026-10-21); o unico do dono e o Flash.
-    "flash": ("flash", "meal and voucher"),
+    FLASH_ISSUER: ("flash", "meal and voucher"),
 }
 
 # kind do parser -> (direcao, tipo de lancamento, metodo da chave lembrada).
@@ -282,6 +289,23 @@ def counterpart_text(value):
 
 def issuer_of(detection):
     return detection.get("issuer") or ISSUER_OF_APP.get(detection.get("app"))
+
+
+def is_flash_detection(detection):
+    """O app do Flash, ou o Samsung Wallet com o cartao dele ("Card used for
+    Meal and Voucher": o emissor sai do nome do cartao em parse_detection)."""
+    app = detection.get("app")
+    return app == FLASH_APP or (app == SAMSUNG_WALLET and issuer_of(detection) == FLASH_ISSUER)
+
+
+def notification_wanted(detection):
+    """O celular so fala do Flash, e so de gasto (dono, 2026-10-30). O beneficio
+    que cai e digitado pelo dono: entrada nao vira nada, e "credito" num cartao
+    so debito tambem nao (e o aviso do deposito, nunca uma compra na fatura)."""
+    if not is_flash_detection(detection):
+        return False
+    kind = detection["kind"]
+    return kind == "DECLINED" or (KIND_SHAPES[kind][0] == "OUT" and kind != "CREDIT_PURCHASE")
 
 
 def card_hint_part(detection):
@@ -1391,6 +1415,7 @@ def ingest_detections(conn, current_user_id, raw_detections):
     pendente: o par do Samsung, a outra ponta da transferencia),
     matched (era um lancamento que ja existe), denied (o par ja foi recusado),
     declined (compra negada), cancelled (Samsung de uma compra negada),
+    ignored (nao e gasto do Flash, ou a aplicacao automatica: nada guardado),
     invalid (nao serviu; o celular nao manda de novo).
     """
     if not isinstance(raw_detections, list) or not raw_detections:
@@ -1423,8 +1448,8 @@ def ingest_detection(conn, current_user_id, detection, rules=None):
     if is_auto_invest(detection.get("merchant")):
         return {"key": detection["key"], "status": "ignored", "item_id": None}
 
-    if ignore_connected_notifications(conn, current_user_id) and from_connected_bank(conn, current_user_id, detection):
-        # O Open Finance traz este movimento (044): o aviso nao vira nada.
+    if not notification_wanted(detection):
+        # Os bancos vem so pela Pluggy (dono, 2026-10-30).
         return {"key": detection["key"], "status": "ignored", "item_id": None}
 
     repeated = _repeated_posting(conn, current_user_id, detection)
@@ -1509,6 +1534,11 @@ def _ingest_declined(conn, current_user_id, detection, samsung):
     if not held or not held["item_id"]:
         return {"key": detection["key"], "status": "declined", "item_id": None}
     item_row = fetch_item(conn, current_user_id, held["item_id"])
+    if item_row and item_row["state"] == APPROVED and item_row["auto_recorded_at"]:
+        # O Samsung nao espera mais o aviso do Flash: a compra ja foi gravada, e
+        # a negativa a desfaz se ninguem mexeu (auto_record.undo_declined).
+        _update_detection(conn, current_user_id, held["id"], role=CANCELLED, paired_with=detection_id)
+        return {"key": detection["key"], "status": "declined", "item_id": item_row["id"]}
     if not item_row or item_row["state"] != PENDING:
         return {"key": detection["key"], "status": "declined", "item_id": None}
     _update_detection(conn, current_user_id, held["id"], role=CANCELLED, paired_with=detection_id)
@@ -2161,21 +2191,13 @@ def set_always_ask(conn, current_user_id, value):
 
 
 # ---------------------------------------------------------------------------
-# Notificacoes de bancos conectados pelo Open Finance (044)
+# O nome do banco de uma conta da Pluggy
 # ---------------------------------------------------------------------------
 
-# Ajustes › Open Finance, "Ignorar avisos dos bancos conectados": a Pluggy ja
-# traz esses movimentos, e a notificacao seria a mesma compra duas vezes. O
-# Flash (sem Open Finance) continua pelas notificacoes.
-IGNORE_CONNECTED_NOTIFICATIONS_SETTING = "open_finance_ignore_notifications"
-ISSUER_LABELS = {"itau": "Itaú", "bb": "Banco do Brasil", "btg": "BTG Pactual", "flash": "Flash"}
+ISSUER_LABELS = {"itau": "Itaú", "bb": "Banco do Brasil", "btg": "BTG Pactual", FLASH_ISSUER: "Flash"}
 # Conectores que juntam varios bancos (o plano gratis da Pluggy): o nome dele
 # nao diz o banco, o da conta diz.
 AGGREGATOR_CONNECTORS = {"meupluggy", "meu pluggy"}
-
-
-def ignore_connected_notifications(conn, current_user_id):
-    return setting_value(conn, current_user_id, IGNORE_CONNECTED_NOTIFICATIONS_SETTING) == "1"
 
 
 def open_finance_bank_name(account_name, connector_name):
@@ -2191,45 +2213,3 @@ def open_finance_bank_name(account_name, connector_name):
         return ISSUER_LABELS.get(issuer, connector) if issuer else connector
     return account_name or connector or None
 
-
-def connected_targets(conn, current_user_id):
-    """(emissores, cartoes, contas) com uma conta da Pluggy mapeada numa
-    conexao ativa. O emissor vem do nome da conta da Pluggy e do nome/banco do
-    destino no app."""
-    rows = conn.execute(
-        """
-        SELECT a.name AS pluggy_name, a.account_id, a.card_id, ac.name AS account_name, ac.institution,
-               c.name AS card_name
-        FROM open_finance_accounts a
-        JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
-        LEFT JOIN accounts ac ON ac.id = a.account_id AND ac.user_id = a.user_id
-        LEFT JOIN credit_cards c ON c.id = a.card_id AND c.user_id = a.user_id
-        WHERE a.user_id = ? AND i.archived_at IS NULL AND a.ignored_at IS NULL
-          AND (a.account_id IS NOT NULL OR a.card_id IS NOT NULL)
-        """,
-        (current_user_id,),
-    ).fetchall()
-    issuers, cards, accounts = set(), set(), set()
-    for row in rows:
-        for text in (row["pluggy_name"], row["account_name"], row["institution"], row["card_name"]):
-            issuer = issuer_of_institution(text)
-            if issuer:
-                issuers.add(issuer)
-        if row["card_id"]:
-            cards.add(row["card_id"])
-        if row["account_id"]:
-            accounts.add(row["account_id"])
-    return issuers, cards, accounts
-
-
-def from_connected_bank(conn, current_user_id, detection):
-    """A notificacao e de um banco que o Open Finance ja traz: o app do banco,
-    ou o Samsung Wallet com um cartao mapeado."""
-    issuers, cards, _accounts = connected_targets(conn, current_user_id)
-    issuer = issuer_of(detection)
-    if issuer and issuer in issuers:
-        return True
-    if detection.get("app") == SAMSUNG_WALLET:
-        card_id = pick_card(_cards(conn, current_user_id), detection, only_one_counts=False)
-        return bool(card_id) and card_id in cards
-    return False
