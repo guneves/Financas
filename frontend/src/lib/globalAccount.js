@@ -4,8 +4,8 @@
 // Conta global (dono, 2026-10-27): a conta em dolar (Wise) e a unica tela do app
 // fora de reais. Ela mostra o saldo e o extrato na moeda da conta e, embaixo, um
 // "≈ R$ …" pelo cambio de hoje (PTAX, services/fx.py) ou "sem câmbio hoje". Em
-// qualquer outro lugar a conta aparece em reais (accountBalanceBrl()) e o
-// Inicio soma ela convertida no saldo em contas.
+// qualquer outro lugar a conta aparece em reais (accountBalanceBrl()) em Ajustes;
+// o saldo em contas do Inicio NAO a soma (dono, 2026-10-30).
 //
 // O Pix de uma conta em reais para ela e UMA transferencia (047): `amount` e o
 // que saiu em reais, `transfer_amount` o que entrou em dolar. Sem
@@ -22,6 +22,12 @@ export const isGlobalAccount = (account) => Boolean(account) && accountCurrency(
 // As contas globais ativas, na ordem da lista de contas.
 export const globalAccounts = (accounts = []) =>
   accounts.filter((account) => isGlobalAccount(account) && !account.archived_at)
+
+// As contas do "Saldo em conta": sem a global (dono, 2026-10-30). O total do
+// servidor (`consolidated_balance`) tambem a deixa de fora, entao o total e a
+// soma das contas listadas. A global so aparece na entrada "Conta global", na
+// tela dela e em Ajustes > Contas.
+export const withoutGlobal = (accounts = []) => accounts.filter((account) => !isGlobalAccount(account))
 
 // A linha do extrato da conta global, vista dela: valor na moeda dela, com
 // sinal (+ entra, − sai), ou `pending` quando o dolar de uma transferencia de

@@ -135,15 +135,15 @@ public class NotifyParsersTest {
     /** O Samsung de 2026-10: titulo = cartao, texto = lugar + valor, U+00A0 depois do R$. */
     @Test
     public void samsungLineWithTheCardInTheTitle() throws Exception {
-        NotifyRules.Captured captured = row(SAMSUNG, "BTG Pactual Banking", "CANTINA DO VALE R$\u00A014,20");
-        captured.extras.put("android.title.big", "BTG Pactual Banking");
+        NotifyRules.Captured captured = row(SAMSUNG, "Card used for Meal and Voucher", "CANTINA DO VALE R$\u00A014,20");
+        captured.extras.put("android.title.big", "Card used for Meal and Voucher");
         NotifyParsers.Parsed parsed = NotifyParsers.parse(captured);
         assertEquals(NotifyParsers.PURCHASE, parsed.kind);
         assertEquals(1420, parsed.amountCents);
         assertEquals("CANTINA DO VALE", parsed.merchant);
-        assertEquals("BTG Pactual Banking", parsed.cardName);
+        assertEquals("Card used for Meal and Voucher", parsed.cardName);
         JSONObject body = NotifyParsers.toDetection(captured, parsed, TimeZone.getTimeZone("America/Bahia"));
-        assertEquals("BTG Pactual Banking", body.getString("card_name"));
+        assertEquals("Card used for Meal and Voucher", body.getString("card_name"));
     }
 
     /** A compra com o Flash pelo Samsung Wallet (2026-10-21, 20:28). */
@@ -159,9 +159,16 @@ public class NotifyParsersTest {
 
     @Test
     public void samsungKeepsTheStoreNumberOfTheMerchant() {
-        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(SAMSUNG, "BTG Pactual Banking", "DROGASIL 1439 R$\u00A017,11"));
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(SAMSUNG, "Card used for Meal and Voucher", "DROGASIL 1439 R$\u00A017,11"));
         assertEquals(1711, parsed.amountCents);
         assertEquals("DROGASIL 1439", parsed.merchant);
+    }
+
+    /** Dono, 2026-10-30: o Samsung Wallet de qualquer outro cartao e descartado. */
+    @Test
+    public void samsungOtherCardsAreDropped() {
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "BTG Pactual Banking", "CANTINA DO VALE R$\u00A014,20")));
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Itaú Visa", "DROGASIL 1439 R$\u00A017,11")));
     }
 
     @Test
@@ -312,12 +319,12 @@ public class NotifyParsersTest {
 
     @Test
     public void samsungIsCardOnly() {
-        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(SAMSUNG, "MERCADO BOM PRECO", "R$ 25,90 · Compra aprovada"));
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(SAMSUNG, "Card used for Meal and Voucher", "MERCADO BOM PRECO R$ 25,90"));
         assertEquals(NotifyParsers.PURCHASE, parsed.kind);
         assertEquals("MERCADO BOM PRECO", parsed.merchant);
         // Pix nao e com o Samsung Wallet, nem estorno.
-        assertNull(NotifyParsers.parse(row(SAMSUNG, "Pix", "Você enviou R$ 10,00 para FULANO.")));
-        assertNull(NotifyParsers.parse(row(SAMSUNG, "Estorno", "Estorno de R$ 10,00.")));
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Card used for Meal and Voucher", "Pix: Você enviou R$ 10,00 para FULANO.")));
+        assertNull(NotifyParsers.parse(row(SAMSUNG, "Card used for Meal and Voucher", "Estorno de R$ 10,00.")));
     }
 
     @Test

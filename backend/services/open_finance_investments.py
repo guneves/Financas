@@ -14,11 +14,20 @@ da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
 - **Idempotente** pela chave da operacao (`id` da Pluggy, ou investimento +
   pregao + tipo + quantidade + valor), unica por usuario.
 - **Nunca duplica o digitado**: a mesma operacao ja lancada (mesmo ativo,
-  mesma quantidade com sinal, pregao a ate LINK_DAYS dias) e LIGADA.
+  mesma quantidade com sinal, pregao a ate LINK_DAYS dias) e LIGADA. A corretora
+  soma as ordens do dia (AUPO11 -12) onde o dono digitou cada uma (-3 e -9): as
+  digitadas que somam a operacao tambem sao ligadas (`_summed_twins()`), a
+  primeira na linha da operacao e cada outra numa linha `<op_key>#part:<id>` de
+  quantidade 0, que so a tira de um proximo vinculo.
 - **Evento corporativo (017)**: uma operacao antes do ultimo evento do ativo
   nao entra (HELD `corporate_action`); nem uma venda maior que a posicao.
-- Renda fixa, Tesouro, TRANSFER (custodia) e INTEREST (cupom) esperam
-  (HELD `type`): aparecem na conferencia para o dono lancar. Os proventos de
+- Renda fixa, Tesouro, fundos, TRANSFER (custodia) e INTEREST (cupom) esperam
+  (HELD `type`): aparecem na conferencia para o dono lancar. Gravar um titulo
+  pede o que a operacao nao traz: indexador e taxa contratada
+  (`validate_fixed_income_metadata()`; um palpite errado marca a carteira errada
+  sem aviso), o tipo do titulo (define IR e categoria) e, no resgate, a compra
+  exata que ele baixa (`related_id`, o IR de cada lote). O cupom e um provento
+  tributado desde a primeira compra do titulo, que nao esta aqui. Os proventos de
   acoes/FIIs ja sao calculados (026); o dinheiro deles na conta da corretora e
   COVERED (services/open_finance_inbox.py), nunca um segundo provento.
 - **Desfazer**: apagar a operacao no Extrato. A linha daqui fica DISMISSED e
@@ -30,6 +39,7 @@ da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
 """
 
 from datetime import timedelta
+from itertools import combinations
 
 import market_catalog
 import pluggy_client
@@ -62,6 +72,9 @@ LINK_DAYS = 2
 RECORDED_TYPES = {"BUY", "SELL"}
 EQUITY_TYPES = {"EQUITY", "ETF"}
 QUANTITY_TOLERANCE = 0.000001
+# Ordens do mesmo ativo em LINK_DAYS dias que entram na busca por uma soma.
+MAX_SUMMED_ROWS = 14
+PART_KEY = "#part:"
 
 
 # ---------------------------------------------------------------------------
@@ -162,10 +175,10 @@ def equity_class(conn, current_user_id, ticker):
     return entry["asset_class"] if entry else None
 
 
-def _typed_twin(conn, current_user_id, asset_class, ticker, signed_quantity, trade_date):
-    """A mesma operacao ja lancada pelo dono (e nao ligada a outra da Pluggy)."""
+def _free_typed_rows(conn, current_user_id, asset_class, ticker, trade_date):
+    """As operacoes do ativo a ate LINK_DAYS dias, nao ligadas a outra da Pluggy."""
     day = parse_iso_date(trade_date).date()
-    rows = conn.execute(
+    return conn.execute(
         """
         SELECT it.id, it.transaction_date, it.quantity FROM investment_transactions it
         JOIN assets a ON a.id = it.asset_id AND a.user_id = it.user_id
@@ -181,9 +194,32 @@ def _typed_twin(conn, current_user_id, asset_class, ticker, signed_quantity, tra
             (day - timedelta(days=LINK_DAYS)).isoformat(), (day + timedelta(days=LINK_DAYS)).isoformat(),
         ),
     ).fetchall()
+
+
+def _typed_twin(conn, current_user_id, asset_class, ticker, signed_quantity, trade_date):
+    """A mesma operacao ja lancada pelo dono (e nao ligada a outra da Pluggy)."""
+    day = parse_iso_date(trade_date).date()
+    rows = _free_typed_rows(conn, current_user_id, asset_class, ticker, trade_date)
     found = [row for row in rows if abs(safe_float(row["quantity"]) - signed_quantity) < QUANTITY_TOLERANCE]
     found.sort(key=lambda row: abs((parse_iso_date(row["transaction_date"]).date() - day).days))
     return found[0]["id"] if found else None
+
+
+def _summed_twins(conn, current_user_id, asset_class, ticker, signed_quantity, trade_date):
+    """As digitadas de mesmo sinal cujas quantidades somam a operacao (a menor
+    combinacao, as de data mais perto primeiro), ou []."""
+    day = parse_iso_date(trade_date).date()
+    rows = [
+        row for row in _free_typed_rows(conn, current_user_id, asset_class, ticker, trade_date)
+        if (safe_float(row["quantity"]) > 0) == (signed_quantity > 0)
+    ]
+    rows.sort(key=lambda row: (abs((parse_iso_date(row["transaction_date"]).date() - day).days), row["id"]))
+    rows = rows[:MAX_SUMMED_ROWS]
+    for size in range(2, len(rows) + 1):
+        for group in combinations(rows, size):
+            if abs(sum(safe_float(row["quantity"]) for row in group) - signed_quantity) < QUANTITY_TOLERANCE:
+                return [row["id"] for row in group]
+    return []
 
 
 def _insert_movement(conn, current_user_id, asset_class, op):
@@ -228,7 +264,8 @@ def _insert_movement(conn, current_user_id, asset_class, op):
 
 
 def decide(conn, current_user_id, op):
-    """(state, held_reason, investment_id) de uma operacao nova (ou segurada)."""
+    """(state, held_reason, investment_id) de uma operacao nova (ou segurada).
+    Na soma de digitadas, as outras ficam em op["other_links"]."""
     if op["op_type"] not in RECORDED_TYPES or op["pluggy_type"] not in EQUITY_TYPES:
         return "HELD", "type", None
     if not op["code"] or not op["trade_date"] or op["quantity"] <= 0 or op["unit_price"] <= 0:
@@ -240,6 +277,10 @@ def decide(conn, current_user_id, op):
     twin = _typed_twin(conn, current_user_id, asset_class, op["code"], signed, op["trade_date"])
     if twin:
         return "LINKED", None, twin
+    summed = _summed_twins(conn, current_user_id, asset_class, op["code"], signed, op["trade_date"])
+    if summed:
+        op["other_links"] = summed[1:]
+        return "LINKED", None, summed[0]
     conn.execute("SAVEPOINT open_finance_operation")
     try:
         movement_id = _insert_movement(conn, current_user_id, asset_class, op)
@@ -331,7 +372,26 @@ def apply(conn, current_user_id, of_item_id, data, today):
                 f"INSERT INTO open_finance_investment_operations ({', '.join(values)}) VALUES ({', '.join('?' for _ in values)})",
                 tuple(values.values()),
             )
+        _link_parts(conn, current_user_id, of_item_id, op, today)
     return counts
+
+
+def _link_parts(conn, current_user_id, of_item_id, op, today):
+    """As outras digitadas de uma soma: linhas so para tira-las de outro vinculo."""
+    for investment_id in op.get("other_links") or []:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO open_finance_investment_operations
+            (id, user_id, of_item_id, op_key, pluggy_investment_id, code, name, pluggy_type, op_type, trade_date,
+             quantity, state, investment_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'LINKED', ?)
+            """,
+            (
+                new_id(), current_user_id, of_item_id, f"{op['op_key']}{PART_KEY}{investment_id}",
+                op["pluggy_investment_id"], op["code"], op["name"], op["pluggy_type"], op["op_type"],
+                op["trade_date"] or today.isoformat(), investment_id,
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +459,7 @@ def portfolio_check(conn, current_user_id, today=None):
             )
             app_quantity = _app_quantity(conn, current_user_id, row["code"])
             entry["app_quantity"] = app_quantity
+            entry["expected_quantity"] = expected
             entry["matches"] = abs(app_quantity - expected) < QUANTITY_TOLERANCE
         listed.append(entry)
     held = [

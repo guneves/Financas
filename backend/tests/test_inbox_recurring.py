@@ -19,6 +19,8 @@ import importlib
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("any_bank_notifications")
+
 from test_inbox import (
     approve,
     card_rows,

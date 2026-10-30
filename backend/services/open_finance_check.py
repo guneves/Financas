@@ -66,7 +66,7 @@ def _bank_rows(conn, current_user_id, of_account, card):
     rows = conn.execute(
         """
         SELECT id, date, direction, amount_cents, description, role, item_id, movement, total_installments,
-               target_id, conflict, conflict_amount_cents
+               installment_number, target_id, conflict, conflict_amount_cents
         FROM open_finance_transactions
         WHERE user_id = ? AND of_account_id = ? AND role NOT IN ('REMOVED', 'COVERED')
         ORDER BY date, id
@@ -82,6 +82,10 @@ def _bank_rows(conn, current_user_id, of_account, card):
         cents = row["conflict_amount_cents"] if row["conflict"] == "changed" and row["conflict_amount_cents"] else (
             row["amount_cents"]
         )
+        if card and row["role"] == "SOURCE" and (row["installment_number"] or 1) > 1 and row["total_installments"]:
+            # A compra anterior ao historico (adopt_orphan_installments): uma
+            # parcela responde pela compra inteira.
+            cents *= row["total_installments"]
         entry = {
             "id": row["id"],
             "date": row["date"],

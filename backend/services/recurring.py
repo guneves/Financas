@@ -287,6 +287,17 @@ def recurring_archived_account(conn, current_user_id, row):
     return account if account and account["archived_at"] else None
 
 
+def _pluggy_account(conn, current_user_id, account_id):
+    return conn.execute(
+        """
+        SELECT 1 FROM open_finance_accounts o
+        JOIN open_finance_items i ON i.id = o.of_item_id AND i.user_id = o.user_id
+        WHERE o.user_id = ? AND o.account_id = ? AND i.archived_at IS NULL
+        """,
+        (current_user_id, account_id),
+    ).fetchone() is not None
+
+
 def materialize_recurring(conn, current_user_id, row, through_date):
     """Gera em `transactions` tudo o que esta recorrencia deve ate `through_date`.
 
@@ -303,10 +314,13 @@ def materialize_recurring(conn, current_user_id, row, through_date):
     account_id = row["account_id"] or ensure_default_account(conn, current_user_id)
     amount = rounded_money(row["amount"])
     settled = settled_dates(conn, current_user_id, row["id"])
+    from_bank = _pluggy_account(conn, current_user_id, account_id)
     for occurrence in dates:
         date_text = occurrence.strftime("%Y-%m-%d")
-        if date_text in settled:
-            # Feita por um lancamento aprovado (034): o dinheiro ja esta nele.
+        if date_text in settled or from_bank:
+            # Feita por um lancamento aprovado (034): o dinheiro ja esta nele. A
+            # conta conectada a Pluggy so recebe o que o banco manda: a ocorrencia
+            # passa sem gravar (o movimento vem do pull).
             skipped += 1
             continue
         cursor = conn.execute(

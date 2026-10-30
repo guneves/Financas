@@ -22,6 +22,8 @@ import pytest
 from open_finance_world import World, bank_tx, card_tx, connected, fake_pluggy, open_finance_module  # noqa: F401
 from test_inbox import BRT, ITAU, detection, ms, send
 
+pytestmark = pytest.mark.usefixtures("any_bank_notifications")
+
 
 @pytest.fixture()
 def world(client, auth, fake_pluggy):

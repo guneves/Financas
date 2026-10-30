@@ -55,9 +55,9 @@ def open_finance_settings(current_user_id):
     """As preferencias do Open Finance, no servidor (o celular e o computador
     concordam): `first_sync_days` (1-365), `sync_hours` (0 ou 6-24),
     `include_pending`, `auto_record` (gravar sozinho; ligar e recusado com
-    conta sem destino ou conexao sem pull nas ultimas 48 h) e
-    `ignore_notifications`. PATCH parcial; `auto_sync_available` e
-    `auto_record_blockers` so se leem."""
+    conta sem destino ou conexao sem pull nas ultimas 48 h). PATCH parcial;
+    `auto_sync_available` e `auto_record_blockers` so se leem, e
+    `ignore_notifications` (sempre true) e so para um APK antigo."""
     if request.method == "GET":
         with get_db() as conn:
             return jsonify(open_finance.settings(conn, current_user_id)), 200

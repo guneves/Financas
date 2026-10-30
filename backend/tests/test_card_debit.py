@@ -9,11 +9,14 @@ O que estes testes protegem:
   so debito pede vencimento e fechamento;
 - no Aprovar, a compra num cartao so debito (o Flash, pelo app ou pelo Samsung
   Wallet "Card used for Meal and Voucher") vira despesa na conta dele, nunca
-  item de fatura, e nao pareia com a compra de outro banco de mesmo valor.
+  item de fatura, e nao pareia com a compra de outro banco de mesmo valor (os
+  testes de banco passam da porta do Flash, `any_bank_notifications`).
 """
 
 import uuid
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 BRT = timezone(timedelta(hours=-3))
 SAMSUNG = "com.samsung.android.spay"
@@ -172,6 +175,7 @@ class TestCardFunctions:
         patch_card(client, auth, card["id"], expected=404, credit_enabled=True, due_day=1, closing_day=1)
 
 
+@pytest.mark.usefixtures("any_bank_notifications")
 class TestAprovar:
     def test_samsung_meal_and_voucher_lands_in_the_flash_account(self, client, auth):
         flash_account = create_account(client, auth, "Flash")

@@ -186,7 +186,7 @@ class TestPurchaseIntoAPaidInvoice:
         [late] = purchase(client, auth, card, total=50, purchase_date="2026-03-06")
         assert invoice_of(late) == (2026, 4)
 
-    def test_a_purchase_approved_in_aprovar_skips_the_paid_invoice(self, client, auth, today):
+    def test_a_purchase_approved_in_aprovar_skips_the_paid_invoice(self, client, auth, today, any_bank_notifications):
         account = create_account(client, auth)
         card = create_card(client, auth, name="Itaú Visa")
         # 10/10 cai na 11/2026 (fecha 03/11); ela e paga antes da notificacao ser aprovada.
@@ -275,7 +275,7 @@ class TestDeletingACard:
         # O nome fica livre.
         create_card(client, auth)
 
-    def test_aprovar_does_not_offer_or_take_an_archived_card(self, client, auth, today, db_module):
+    def test_aprovar_does_not_offer_or_take_an_archived_card(self, client, auth, today, db_module, any_bank_notifications):
         account = create_account(client, auth)
         card = create_card(client, auth, name="Itaú Visa")
         purchase(client, auth, card, total=200)

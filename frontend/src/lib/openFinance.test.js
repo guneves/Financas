@@ -163,7 +163,7 @@ test('the balance difference is explained part by part', () => {
 
 test('auto record hint says why it cannot turn on', () => {
   assert.equal(autoRecordHint({ auto_record: false, auto_record_blockers: ['A.', 'B.'] }), 'A. B.')
-  assert.match(autoRecordHint({ auto_record: true }), /Flash/)
+  assert.match(autoRecordHint({ auto_record: true }), /Extrato/)
   assert.match(autoRecordHint({ auto_record: false, auto_record_blockers: [] }), /Aprovar/)
 })
 

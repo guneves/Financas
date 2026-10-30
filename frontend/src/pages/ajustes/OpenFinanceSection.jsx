@@ -483,25 +483,6 @@ export default function OpenFinanceSection() {
                 <span className="block text-sm text-zinc-600">{autoRecordHint(settings)}</span>
               </span>
             </label>
-            <label className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                checked={Boolean(settings.ignore_notifications)}
-                disabled={busy === 'notify'}
-                onChange={(event) => saveSettings(
-                  'notify',
-                  { ignore_notifications: event.target.checked },
-                  event.target.checked ? 'Avisos dos bancos conectados ignorados.' : 'Avisos dos bancos conectados voltam ao Aprovar.',
-                )}
-                className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-zinc-900">Ignorar avisos dos bancos conectados</span>
-                <span className="block text-sm text-zinc-600">
-                  Os avisos do celular dos bancos que chegam pela Pluggy não viram itens (seria a mesma compra duas vezes). Os do Flash continuam no Aprovar.
-                </span>
-              </span>
-            </label>
             <Field
               label="Busca automática"
               hint={settings.auto_sync_available

@@ -115,6 +115,15 @@ def db_module(app_module):
     return importlib.import_module("db")
 
 
+@pytest.fixture()
+def any_bank_notifications(app_module, monkeypatch):
+    """Desliga so a porta de services/inbox.py (`notification_wanted()`: o servidor
+    so aceita gasto do Flash, dono 2026-10-30) para exercitar o motor de baixo: o
+    pareamento, que o Flash ainda usa, e o que uma notificacao de banco ja gravou
+    e a Pluggy ainda confere. O que a porta faz esta em test_flash_only.py."""
+    monkeypatch.setattr(importlib.import_module("services.inbox"), "notification_wanted", lambda detection: True)
+
+
 @pytest.fixture(scope="session")
 def invoices_module(app_module):
     """`backend/services/invoices.py` — regras de fatura e o relogio `local_today`."""

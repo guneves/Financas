@@ -489,3 +489,41 @@ def test_user_isolation(client, world, other_user, clock):
     assert "Banco" not in balances(home)
     assert home["summary"]["expense"] == 0
     assert home["consolidated_balance"] == 0
+
+
+# --- Conta global fora do saldo em contas (dono, 2026-10-30) ------------------
+
+def test_global_account_is_not_in_saldo_em_conta(world, clock, monkeypatch):
+    fx = importlib.import_module("services.fx")
+    fx.reset_fetch_throttle()
+
+    def ptax(series, start, end):
+        rows, day = [], start.date()
+        while day <= end.date():
+            if day.weekday() < 5:
+                rows.append({"data": day.strftime("%d/%m/%Y"), "valor": "5.5000"})
+            day += timedelta(days=1)
+        return rows
+
+    monkeypatch.setattr(fx, "fetch_bcb_window", ptax)
+    banco = world.account("Banco", initial=800)
+    poupanca = world.account("Poupança", "SAVINGS", initial=200)
+    wise = world.account("Wise", initial=100, currency="USD")
+    world.tx("INCOME", 50, "2026-10-05", banco, "Receita")
+
+    home = world.home(months=2)
+    listed = {account["name"]: account for account in home["accounts"]}
+    # A Wise segue na lista (a tela dela e o "Conta global" precisam), com o "≈ R$".
+    assert listed["Wise"]["balance"] == 100
+    assert listed["Wise"]["balance_brl"] == pytest.approx(550)
+    # O total e a soma das contas em reais listadas: sem a Wise.
+    assert home["consolidated_balance"] == 1050
+    assert home["consolidated_balance"] == sum(
+        account["balance_brl"] for account in home["accounts"] if account["currency"] == "BRL"
+    )
+    # A curva termina no mesmo saldo do topo, sem o saldo inicial em US$.
+    assert month(home, "2026-10")["balance"] == home["consolidated_balance"]
+    assert month(home, "2026-09")["balance"] == 1000
+    # A projecao do Extrato parte do mesmo total.
+    assert home["projections"]["global"] == 1050
+    assert wise["id"] and poupanca["id"]

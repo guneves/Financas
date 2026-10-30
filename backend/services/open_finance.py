@@ -55,6 +55,7 @@ from services import (
     open_finance_check,
     open_finance_inbox,
     open_finance_investments,
+    open_finance_invoices,
     realized_results,
 )
 from services.accounts import account_balance_rows
@@ -72,18 +73,20 @@ FIRST_SYNC_SETTING = "open_finance_first_days"
 DEFAULT_FIRST_SYNC_DAYS = 30
 # A Pluggy guarda ate 12 meses de transacoes.
 MAX_FIRST_SYNC_DAYS = 365
-# Busca automatica por usuario (Ajustes): 0 = so o botao "Atualizar". Nunca
-# abaixo de 6 h (dono, 2026-10-27): a Pluggy so traz dado novo do banco de 6
-# em 6 a 24 h, ler mais vezes nao adianta.
+# Busca automatica por usuario (Ajustes). Toda conta mapeada atualiza sem o dono
+# (dono, 2026-10-30): sem escolha vale o padrao, e so "Desligada" escolhida em
+# Ajustes (gravada como SYNC_OFF) deixa so o botao "Atualizar"; um "0" gravado
+# antes disso nao diz que alguem escolheu e vale o padrao. Nunca abaixo de 6 h
+# (dono, 2026-10-27): a Pluggy so traz dado novo do banco de 6 em 6 a 24 h, ler
+# mais vezes nao adianta.
 SYNC_HOURS_SETTING = "open_finance_sync_hours"
+SYNC_OFF = "off"
 MIN_SYNC_HOURS = 6
 MAX_SYNC_HOURS = 24
 DEFAULT_SYNC_HOURS = 6
 INCLUDE_PENDING_SETTING = "open_finance_include_pending"
-# Gravar sozinho (044): services/open_finance_auto.py; "Ignorar avisos dos
-# bancos conectados": services/inbox.py.
+# Gravar sozinho (044): services/open_finance_auto.py.
 AUTO_RECORD_SETTING = open_finance_auto.AUTO_RECORD_SETTING
-IGNORE_NOTIFICATIONS_SETTING = inbox.IGNORE_CONNECTED_NOTIFICATIONS_SETTING
 # O historico (preview -> apply): ate onde a Pluggy guarda.
 DEFAULT_HISTORY_DAYS = 365
 # Status em que so o dono resolve (nova senha, um codigo, aceitar termos no
@@ -188,15 +191,15 @@ def default_sync_hours():
 
 
 def sync_hours(conn, current_user_id):
-    """0 (so o botao) ou MIN_SYNC_HOURS..MAX_SYNC_HOURS; um valor antigo abaixo
-    de 6 h (o limite era 1 h ate 044) sobe para 6."""
+    """0 (o dono escolheu so o botao) ou MIN_SYNC_HOURS..MAX_SYNC_HOURS; um valor
+    antigo abaixo de 6 h (o limite era 1 h ate 044) sobe para 6."""
     value = inbox.setting_value(conn, current_user_id, SYNC_HOURS_SETTING)
+    if value == SYNC_OFF:
+        return 0
     try:
         hours = int(value)
     except (TypeError, ValueError):
         return default_sync_hours()
-    if hours == 0:
-        return 0
     return max(hours, MIN_SYNC_HOURS) if 0 < hours <= MAX_SYNC_HOURS else default_sync_hours()
 
 
@@ -213,13 +216,13 @@ def settings(conn, current_user_id):
         "auto_sync_available": OPEN_FINANCE_SYNC_SECONDS > 0,
         "auto_record": open_finance_auto.enabled(conn, current_user_id),
         "auto_record_blockers": open_finance_auto.blockers(conn, current_user_id, time.time()),
-        "ignore_notifications": inbox.ignore_connected_notifications(conn, current_user_id),
+        # Sem efeito desde 2026-10-30 (o servidor ignora os avisos dos bancos
+        # sempre): so para um APK antigo que ainda le o campo.
+        "ignore_notifications": True,
     }
 
 
-SETTINGS_FIELDS = (
-    "first_sync_days", "sync_hours", "include_pending", "auto_record", "ignore_notifications",
-)
+SETTINGS_FIELDS = ("first_sync_days", "sync_hours", "include_pending", "auto_record")
 
 
 def _bool_field(payload, key):
@@ -252,11 +255,9 @@ def update_settings(conn, current_user_id, payload):
                 f"A busca automática vai de {MIN_SYNC_HOURS} a {MAX_SYNC_HOURS} horas, ou 0 para desligar: "
                 f"a Pluggy só traz dados novos do banco de {MIN_SYNC_HOURS} em {MIN_SYNC_HOURS} horas ou mais."
             )
-        writes.append((SYNC_HOURS_SETTING, str(hours)))
+        writes.append((SYNC_HOURS_SETTING, str(hours) if hours else SYNC_OFF))
     if "include_pending" in payload:
         writes.append((INCLUDE_PENDING_SETTING, "1" if _bool_field(payload, "include_pending") else "0"))
-    if "ignore_notifications" in payload:
-        writes.append((IGNORE_NOTIFICATIONS_SETTING, "1" if _bool_field(payload, "ignore_notifications") else "0"))
     turning_on = False
     if "auto_record" in payload:
         wanted = _bool_field(payload, "auto_record")
@@ -399,9 +400,10 @@ def _upsert_accounts(conn, current_user_id, of_item_id, accounts):
             )
 
 
-def register_item(current_user_id, pluggy_item_id):
+def register_item(current_user_id, pluggy_item_id, first_pull=True):
     """O widget conectou: guarda o item (ou reativa o que foi desconectado) e
-    as contas dele, e faz o primeiro pull. Devolve o id do nosso item."""
+    as contas dele, e faz o primeiro pull (`first_pull=False`: quem chama puxa).
+    Devolve o id do nosso item."""
     _require_configured()
     pluggy_item_id = _validate_pluggy_id(pluggy_item_id)
     pluggy_item = client().get_item(pluggy_item_id)
@@ -427,7 +429,7 @@ def register_item(current_user_id, pluggy_item_id):
             )
         _save_item_status(conn, current_user_id, of_item_id, pluggy_item)
         _upsert_accounts(conn, current_user_id, of_item_id, accounts)
-    if pluggy_item.get("status") == "UPDATED":
+    if first_pull and pluggy_item.get("status") == "UPDATED":
         try:
             sync_item(current_user_id, of_item_id)
         except PluggyError as exc:
@@ -677,17 +679,19 @@ def _seconds(stamp):
         return 0
 
 
-def sync_item(current_user_id, of_item_id, today=None, history_from=None):
+def sync_item(current_user_id, of_item_id, today=None, history_from=None, record=True):
     """Um pull completo de um item, so com GET: o item, as contas, as
     transacoes de cada conta e, na corretora, as posicoes e operacoes.
     `history_from` (AAAA-MM-DD) puxa dessa data em todas as contas (o historico).
+    `record=False`: nao grava os itens ainda (pull_history() grava depois de
+    puxar todas as conexoes).
     Devolve {status, counts: {new, merged, ...}, removed, auto_recorded?, investments?}."""
     _require_configured()
     lock = _sync_lock(current_user_id)
     if not lock.acquire(timeout=120):
         raise ValidationError("Outra atualizacao do Open Finance esta em andamento.")
     try:
-        return _sync_item_locked(current_user_id, of_item_id, today or _today(), history_from)
+        return _sync_item_locked(current_user_id, of_item_id, today or _today(), history_from, record)
     finally:
         lock.release()
 
@@ -707,7 +711,7 @@ def _record_refusal(current_user_id, of_item_id, exc):
         )
 
 
-def _sync_item_locked(current_user_id, of_item_id, today, history_from):
+def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=True):
     with get_db() as conn:
         row = fetch_item(conn, current_user_id, of_item_id)
         if not row:
@@ -784,8 +788,11 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from):
             counts[status] = counts.get(status, 0) + 1
         if investments is not None:
             investments = open_finance_investments.apply(conn, current_user_id, of_item_id, investments, today)
-        if open_finance_auto.enabled(conn, current_user_id):
+        if record and open_finance_auto.enabled(conn, current_user_id):
             auto = open_finance_auto.record_pending(conn, current_user_id, today)
+        if record and open_finance_auto.enabled(conn, current_user_id):
+            # Depois das compras: o pagamento do banco baixa a fatura delas.
+            open_finance_invoices.record_bank_payments(conn, current_user_id)
         conn.execute(
             "UPDATE open_finance_items SET last_sync_at = ?, last_sync_error = NULL, updated_at = ? WHERE id = ? AND user_id = ?",
             (stamp, stamp, of_item_id, current_user_id),
@@ -814,6 +821,14 @@ def sync_user(current_user_id):
         try:
             results[of_item_id] = sync_item(current_user_id, of_item_id)
         except (PluggyError, ValidationError, LookupError) as exc:
+            results[of_item_id] = {"error": str(exc)}
+        except Exception as exc:  # um dado inesperado de um banco nao para os outros
+            logger.exception("Open Finance: o pull falhou", extra={"user_id": current_user_id, "item": of_item_id})
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE open_finance_items SET last_sync_error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                    (f"Falha ao gravar o pull: {exc}"[:300], utc_timestamp(), of_item_id, current_user_id),
+                )
             results[of_item_id] = {"error": str(exc)}
     return results
 
@@ -970,19 +985,46 @@ def history_apply(current_user_id, days=None, confirm=False, today=None):
         if not open_finance_auto.enabled(conn, current_user_id):
             raise ValidationError("Ligue \"Gravar sozinho\" antes de trazer o histórico.")
     history_from = _day_text(today - timedelta(days=days))
+    return {"days": days, "from": history_from, **pull_history(current_user_id, history_from, today)}
+
+
+def pull_history(current_user_id, history_from, today, adopt_orphans=False, before_record=None, after_record=None,
+                 abort_on_failure=False):
+    """Puxa de `history_from` todas as conexoes e so depois grava: um Pix antigo
+    gravado no fim da primeira conexao viraria despesa antes de a outra ponta,
+    em outra conexao, chegar. `adopt_orphans`: as parcelas sem a parcela 1 viram a
+    compra (open_finance_inbox.adopt_orphan_installments). `before_record(conn)` e
+    `after_record(conn)` rodam na mesma transacao da gravacao (a reconstrucao).
+    `abort_on_failure`: uma conexao que falhou (ou sem os investimentos) nao grava
+    nada, de nenhuma: gravar sem a outra ponta faria despesa do que e transferencia."""
     results = {}
     with get_db() as conn:
         ids = [row["id"] for row in active_items(conn, current_user_id)]
     for of_item_id in ids:
         try:
-            results[of_item_id] = sync_item(current_user_id, of_item_id, today=today, history_from=history_from)
+            results[of_item_id] = sync_item(
+                current_user_id, of_item_id, today=today, history_from=history_from, record=False,
+            )
         except (PluggyError, ValidationError, LookupError) as exc:
             results[of_item_id] = {"error": str(exc)}
+    if abort_on_failure and any(body.get("error") or body.get("investments") is None for body in results.values()):
+        return {"items": results, "auto_recorded": None, "adopted_installments": 0, "invoice_payments": None,
+                "aborted": True}
+    adopted = 0
     with get_db() as conn:
-        # Uma transferencia segurada a espera da outra ponta, de dias atras, ja
-        # pode ser decidida depois de todas as conexoes puxadas.
+        if adopt_orphans:
+            rules = import_rules_for_matching(conn, current_user_id)
+            for of_item_id in ids:
+                for account in item_accounts(conn, current_user_id, of_item_id):
+                    if account["card_id"] and not account["ignored_at"]:
+                        adopted += open_finance_inbox.adopt_orphan_installments(conn, current_user_id, account, rules)
+        if before_record:
+            before_record(conn)
         auto = open_finance_auto.record_pending(conn, current_user_id, today)
-    return {"days": days, "from": history_from, "items": results, "auto_recorded": auto}
+        if after_record:
+            after_record(conn)
+        payments = open_finance_invoices.record_bank_payments(conn, current_user_id)
+    return {"items": results, "auto_recorded": auto, "adopted_installments": adopted, "invoice_payments": payments}
 
 
 # ---------------------------------------------------------------------------

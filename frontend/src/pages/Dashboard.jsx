@@ -73,7 +73,7 @@ import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString,
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
 import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, isCardRefund, isInvestmentOutflow, isInvoicePayment } from '../lib/transactions'
 import { toast } from '../lib/toast'
-import { GLOBAL_ACCOUNT_LABEL, globalAccounts } from '../lib/globalAccount'
+import { GLOBAL_ACCOUNT_LABEL, globalAccounts, withoutGlobal } from '../lib/globalAccount'
 import { ownAmount } from '../lib/sharing'
 import { flowPoint, flowSummary as flowSummaryOf, savingsRateText } from '../lib/homeFlow'
 
@@ -963,6 +963,8 @@ function BalanceHero({ total, accounts, monthName, className = '' }) {
   const hidden = useValuesHidden()
   const privateMoney = usePrivateFormatter(formatCurrency)
   const wide = useIsSm()
+  // A conta global nao e "Saldo em conta": so a entrada "Conta global" abaixo.
+  const listed = withoutGlobal(accounts)
 
   // No celular o bloco e a primeira coisa que se ve ao abrir o app: numero
   // menor e as contas numa faixa que rola de lado, para o resto de Inicio
@@ -991,12 +993,9 @@ function BalanceHero({ total, accounts, monthName, className = '' }) {
           scroll-px-4: o snap alinha cada conta a borda da area de snap, que
           ignora o padding; sem ele a primeira conta "encaixa" em 16 px e a
           faixa abre rolada, colada na borda do bloco. */}
-      {accounts.length > 0 ? (
+      {listed.length > 0 ? (
         <ul className="-mx-4 mt-auto flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] sm:overflow-visible sm:px-0">
-          {accounts.map((account) => {
-            // Tudo em reais: a conta em moeda estrangeira aparece pelo valor
-            // convertido, o mesmo que o total acima soma. Sem cambio hoje ela
-            // fica fora do total, e o cartao diz isso.
+          {listed.map((account) => {
             const balance = accountBalanceBrl(account)
             return (
               <li key={account.id} className="min-w-[8.5rem] max-w-[60%] shrink-0 snap-start rounded-2xl bg-white/[0.08] px-3 py-2 sm:min-w-0 sm:max-w-none sm:px-4 sm:py-3">
@@ -1013,8 +1012,8 @@ function BalanceHero({ total, accounts, monthName, className = '' }) {
           })}
         </ul>
       ) : null}
-      {/* A conta em dolar: aqui em reais, como as outras; o saldo em US$ so na
-          tela dela (lib/globalAccount.js). */}
+      {/* A conta em dolar nao entra no total nem na lista acima: so esta entrada
+          e a tela dela (lib/globalAccount.js). */}
       {globalAccounts(accounts).length > 0 ? (
         <Link
           to="/inicio/conta-global"

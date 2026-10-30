@@ -680,11 +680,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         app.getString(if (value) R.string.ajustes_open_finance_record_on else R.string.ajustes_open_finance_record_off),
     )
 
-    fun setOpenFinanceIgnoreNotifications(value: Boolean) = saveOpenFinanceSettings(
-        mapOf("ignore_notifications" to value),
-        app.getString(if (value) R.string.ajustes_open_finance_ignore_on else R.string.ajustes_open_finance_ignore_off),
-    )
-
     private fun saveOpenFinanceSettings(body: Map<String, Any?>, message: String) {
         write(R.string.ajustes_open_finance_settings_failed, { repo.updateOpenFinanceSettings(body) }) { saved ->
             openFinanceSettings.value = saved

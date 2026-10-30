@@ -130,7 +130,7 @@ export default function ContaGlobal() {
     <div className="space-y-6">
       <PageHeader
         title={GLOBAL_ACCOUNT_LABEL}
-        description={account ? `${account.name} · em ${currency}. Fora daqui o app é em reais: no Início ela entra convertida no saldo em contas.` : 'A conta em dólar.'}
+        description={account ? `${account.name} · em ${currency}. Ela fica fora do Saldo em conta do Início.` : 'A conta em dólar.'}
         actions={(
           <div className="flex flex-wrap items-center gap-2">
             {globals.length > 1 ? (

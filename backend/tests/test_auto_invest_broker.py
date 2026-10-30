@@ -71,7 +71,7 @@ class TestBankAccount:
         world.sync(item_id)
 
         rows = world.transactions(made["bank"][2])
-        assert [row["description"] for row in rows] == ["PADARIA"]
+        assert [row["description"] for row in rows] == ["Padaria"]
         assert {of_tx(user["id"], remunerada)["role"], of_tx(user["id"], reserva)["role"]} == {"COVERED"}
         [item] = world.overview()["items"]
         assert item["accounts"][0]["check"]["bank_only"] == []

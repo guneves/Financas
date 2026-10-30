@@ -151,7 +151,7 @@ class TestByIdNotByName:
         assert refund.get_json()["category_id"] == outros["lazer"]
         assert spent(client, auth, outros["lazer"]) == 60
 
-    def test_aprovar_keeps_the_subcategory_on_the_card_purchase(self, client, auth):
+    def test_aprovar_keeps_the_subcategory_on_the_card_purchase(self, client, auth, any_bank_notifications):
         outros = three_outros(client, auth)
         create_budget(client, auth, outros["lazer"])
         create_card(client, auth)
@@ -192,7 +192,7 @@ class TestRename:
         assert (row["category"], row["category_id"]) == ("Supermercado", mercado)
         assert client.get("/api/transactions", headers=auth).get_json()[0]["category"] == "Supermercado"
 
-    def test_recurrences_rules_and_aprovar_follow_the_rename(self, client, auth):
+    def test_recurrences_rules_and_aprovar_follow_the_rename(self, client, auth, any_bank_notifications):
         mercado = create_category(client, auth, "Mercado")["id"]
         recurrence = client.post("/api/recurring", headers=auth, json={
             "amount": 300, "type": "EXPENSE", "category_id": mercado, "description": "Feira do mes",
