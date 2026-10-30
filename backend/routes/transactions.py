@@ -159,6 +159,32 @@ def transaction_filter_clause(conn, current_user_id, args):
     return " AND ".join(clauses), params
 
 
+def debit_card_owns(conn, current_user_id, card_id, account_id):
+    """O cartao debita desta conta (041)?"""
+    return bool(conn.execute(
+        "SELECT 1 FROM credit_cards WHERE id = ? AND user_id = ? AND debit_account_id = ?",
+        (card_id, current_user_id, account_id),
+    ).fetchone())
+
+
+def debit_card_id(conn, current_user_id, payload, transaction_type, account_id):
+    """`card_id` de uma compra no debito (049): uma despesa na conta do cartao.
+    Ausente ou vazio, None."""
+    card_id = str(payload.get("card_id") or "").strip()
+    if not card_id:
+        return None
+    card = conn.execute(
+        "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?", (card_id, current_user_id),
+    ).fetchone()
+    if not card:
+        raise ValidationError("Cartao nao encontrado.")
+    if card["archived_at"]:
+        raise ValidationError(f"O cartao {card['name']} foi excluido; ele nao recebe lancamentos novos.")
+    if transaction_type != "EXPENSE" or not card["debit_account_id"] or card["debit_account_id"] != account_id:
+        raise ValidationError("A compra no debito e uma despesa na conta do cartao.")
+    return card_id
+
+
 @bp.route("/api/transactions", methods=["GET", "POST"])
 @token_required
 def transactions(current_user_id):
@@ -220,6 +246,7 @@ def transactions(current_user_id):
                 )
             category, category_id = resolve_category(conn, current_user_id, payload)
             account_id = resolve_account_id(conn, current_user_id, payload)
+            card_id = debit_card_id(conn, current_user_id, payload, transaction_type, account_id)
         except ValidationError as exc:
             return validation_error(str(exc))
 
@@ -228,8 +255,8 @@ def transactions(current_user_id):
                 """
                 INSERT INTO transactions
                 (id, user_id, account_id, amount, date, category, category_id, description, type,
-                 client_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 client_id, card_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -242,6 +269,7 @@ def transactions(current_user_id):
                     description,
                     transaction_type,
                     client_id,
+                    card_id,
                 ),
             )
         except sqlite3.IntegrityError:
@@ -407,6 +435,13 @@ def update_transaction(current_user_id, item_id):
 
         if not updates:
             return validation_error("Informe ao menos um campo para atualizar.")
+        # A compra no debito (049) que deixa de ser despesa da conta do cartao
+        # sai do cartao.
+        if item["card_id"] and (
+            updates.get("type", item["type"]) != "EXPENSE"
+            or not debit_card_owns(conn, current_user_id, item["card_id"], updates.get("account_id", item["account_id"]))
+        ):
+            updates["card_id"] = None
 
         assignments = ", ".join(f"{column} = ?" for column in updates)
         conn.execute(

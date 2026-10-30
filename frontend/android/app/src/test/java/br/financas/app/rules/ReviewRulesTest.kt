@@ -11,6 +11,7 @@ import br.financas.app.data.ReviewItemDto
 import br.financas.app.data.TransactionDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -244,6 +245,31 @@ class ReviewRulesTest {
             """{"version":4,"remember":false,"amount":123.45}""",
             JsonBody.encode(ReviewRules.waitingApproveBody(item, null, null, BigDecimal("123.45"))),
         )
+    }
+
+    @Test
+    fun aPixToTheGlobalAccountAsksWhatArrivedInDollars() {
+        // A ponta em reais de um Pix para a Wise (047): o servidor recusa sem o valor em dolar.
+        val accounts = listOf(
+            AccountDto(id = "btg", name = "BTG conta corrente"),
+            AccountDto(id = "wise", name = "Wise", currency = "USD"),
+            AccountDto(id = "itau", name = "Itaú"),
+        )
+        val pix = waiting(needs = emptyList(), accountId = "btg", transferAccountId = "wise")
+        assertEquals("USD", ReviewRules.waitingTransferCurrency(pix, accounts, null, null))
+        assertEquals("Informe quanto entrou em USD.", ReviewRules.waitingMissing(pix, null, null, null, "USD", null))
+        assertEquals("", ReviewRules.waitingMissing(pix, null, null, null, "USD", BigDecimal("46.10")))
+        assertEquals(
+            """{"version":4,"remember":false,"transfer_amount":46.10}""",
+            JsonBody.encode(ReviewRules.waitingApproveBody(pix, null, null, null, BigDecimal("46.10"))),
+        )
+        // A outra ponta escolhida no celular tambem conta; mesma moeda, ou o dolar ja trazido, nada.
+        val open = waiting(accountId = "btg")
+        assertEquals("USD", ReviewRules.waitingTransferCurrency(open, accounts, null, "wise"))
+        assertNull(ReviewRules.waitingTransferCurrency(open, accounts, null, "itau"))
+        assertNull(ReviewRules.waitingTransferCurrency(open, accounts, null, null))
+        assertNull(ReviewRules.waitingTransferCurrency(pix.copy(transferAmount = BigDecimal("46.10")), accounts, null, null))
+        assertNull(ReviewRules.waitingTransferCurrency(pix.copy(entryType = "EXPENSE"), accounts, null, null))
     }
 
     @Test

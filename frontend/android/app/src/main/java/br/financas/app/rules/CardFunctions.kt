@@ -163,6 +163,8 @@ object CardFunctions {
         "description" to purchase.description,
         "type" to "EXPENSE",
         "account_id" to card.debitAccountId,
+        // O cartao que fez a compra (049): a tela Cartoes a lista no debito dele.
+        "card_id" to card.id,
     )
 
     /** O dia do formulario: `Number(value)` do JS, inteiro de 1 a 31, senao null. */

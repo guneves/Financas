@@ -284,7 +284,7 @@ class TestCrossCurrencyTransfer:
         assert home["summary"]["expense"] == 0
         plan = world.call("get", "/api/monthly-plan?month=2026-10")
         assert plan.get("spent", 0) in (0, None) or plan["spent"] == 0
-        # Consolidado: so o BTG em reais; a Wise fica fora (dono, 2026-10-30).
+        # Saldo em contas: so o BTG em reais; a Wise nao entra (dono, 2026-10-28).
         assert home["consolidated_balance"] == pytest.approx(170.0)
 
     def test_wise_not_connected_keeps_the_pix_waiting(self, world):

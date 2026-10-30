@@ -118,8 +118,9 @@ def split_installments(total_amount, installments_count):
 def build_installment_rows(purchase, card, start=None):
     """Linhas de cc_expenses para uma compra parcelada, ja com a fatura de cada uma.
 
-    `start` e a fatura da primeira parcela; sem ele, a da data da compra. Quem
-    grava passa `purchase_invoice_start()`, que desvia de fatura ja paga.
+    `start` e a fatura da primeira parcela (as outras seguem mes a mes) ou a
+    lista com a fatura de cada parcela; sem ele, a da data da compra. Quem grava
+    passa `purchase_invoices()`, que desvia de fatura ja paga.
     """
     start = start or compute_invoice_start(
         purchase["purchase_date"],
@@ -130,10 +131,15 @@ def build_installment_rows(purchase, card, start=None):
     if not all(amounts):
         # R$ 0,02 em 3x deixava uma parcela de R$ 0,00 na fatura.
         raise ValidationError("Cada parcela precisa ser de pelo menos R$ 0,01: diminua o numero de parcelas.")
+    if isinstance(start, list) and len(start) != len(amounts):
+        raise ValueError("Uma fatura por parcela.")
 
     rows = []
     for index, amount in enumerate(amounts):
-        month, year = add_invoice_months(start["invoice_month"], start["invoice_year"], index)
+        if isinstance(start, list):
+            month, year = start[index]["invoice_month"], start[index]["invoice_year"]
+        else:
+            month, year = add_invoice_months(start["invoice_month"], start["invoice_year"], index)
         rows.append({
             "card_id": purchase["card_id"],
             "category": purchase["category"],
@@ -358,6 +364,24 @@ def purchase_invoice_start(conn, current_user_id, card, purchase_date):
     return first_unpaid_invoice(conn, current_user_id, card, start["invoice_month"], start["invoice_year"])
 
 
+def purchase_invoices(conn, current_user_id, card, purchase_date, installments):
+    """A fatura de cada parcela: a primeira nao paga a partir da data, e cada
+    seguinte na primeira nao paga depois da anterior.
+
+    Contar so a partir da primeira deixava uma parcela numa fatura ja paga
+    quando a compra e antiga (o historico da Pluggy, uma compra digitada com
+    data de meses atras): a de maio em 3x comecava numa fatura vazia de maio e
+    a terceira caia em julho, ja paga — em aberto para sempre.
+    """
+    invoices = []
+    current = purchase_invoice_start(conn, current_user_id, card, purchase_date)
+    for _ in range(int(installments)):
+        invoices.append(current)
+        month, year = add_invoice_months(current["invoice_month"], current["invoice_year"], 1)
+        current = first_unpaid_invoice(conn, current_user_id, card, month, year)
+    return invoices
+
+
 def refund_invoice(conn, current_user_id, card, refund_date):
     """Fatura em que um estorno cai: a da data, ou a primeira depois dela que
     ainda nao foi paga — um credito numa fatura ja quitada iria para o nada.
@@ -371,6 +395,8 @@ def autopay_source_id(card_id, invoice_month, invoice_year):
 
 def apply_due_autopay(conn, current_user_id, today=None):
     """Debito automatico: paga toda fatura vencida de cartao com conta de debito.
+
+    Um cartao arquivado (037) ou so debito (041) nunca debita sozinho.
 
     Roda no inicio das leituras que dependem dele (lancamentos, contas,
     cartoes, faturas) — o app e local e nao tem cron. O pagamento sai no dia
@@ -388,6 +414,7 @@ def apply_due_autopay(conn, current_user_id, today=None):
         FROM credit_cards cc
         JOIN accounts a ON a.id = cc.autopay_account_id AND a.user_id = cc.user_id
         WHERE cc.user_id = ? AND a.archived_at IS NULL
+          AND cc.archived_at IS NULL AND cc.credit_enabled = 1
           AND NOT EXISTS (
               SELECT 1 FROM open_finance_accounts o
               JOIN open_finance_items i ON i.id = o.of_item_id AND i.user_id = o.user_id

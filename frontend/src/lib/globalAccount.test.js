@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   brlHint,
+  crossCurrencyOf,
   globalAccounts,
   globalStatement,
   globalTotals,
@@ -82,4 +83,12 @@ test('o saldo em conta lista as contas sem a global (2026-10-30)', () => {
   // A global segue em globalAccounts(): a entrada "Conta global" depende dela.
   assert.deepEqual(globalAccounts(accounts).map((account) => account.id), ['wise'])
   assert.deepEqual(withoutGlobal(), [])
+})
+
+test('so uma transferencia entre moedas pede o valor no destino', () => {
+  assert.equal(crossCurrencyOf({ currency: 'BRL' }, { currency: 'USD' }), 'USD')
+  assert.equal(crossCurrencyOf({ currency: 'USD' }, { currency: 'BRL' }), 'BRL')
+  assert.equal(crossCurrencyOf({}, { currency: 'BRL' }), null)
+  assert.equal(crossCurrencyOf({ currency: 'USD' }, { currency: 'usd' }), null)
+  assert.equal(crossCurrencyOf(null, { currency: 'USD' }), null)
 })

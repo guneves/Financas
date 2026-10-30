@@ -18,7 +18,8 @@
 - [ ] Tune the merchant table with `--report-categories` on real rows.
 
 ### Conta global (047, 2026-10-27) — what is left
-Code on branch `claude/conta-global` (not merged, not deployed). Prompt: `docs/prompts/global-account-usd.md`.
+Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10-28 (see
+`done-tasks.md`). Prompt: `docs/prompts/global-account-usd.md`.
 - **Owner's data, after deploy** (through the API from the owner's Chrome tab, OK per batch):
   1. Read balances before (BTG conta corrente 170,00, Wise R$ 559,43, October Gastar 1.172,73).
   2. `PATCH /api/accounts/<Wise> {"currency": "USD"}` (allowed: it only received the three BTG Pix);
@@ -29,8 +30,13 @@ Code on branch `claude/conta-global` (not merged, not deployed). Prompt: `docs/p
      A transfer still without `transfer_amount` (no credit within ±1 day): set it by hand with
      `PATCH /api/transactions/<id> {"transfer_amount": …}` from the Wise statement.
 - Owner: walk `mobile-docs/native/screens/17-conta-global.md`'s Acceptance on the phone.
-- Not built: "Pix para cá" on the phone (web only); the phone's statement is the first page only;
-  the web Aprovar shows no field for `transfer_amount` (the API takes it on approve).
+- Owner, on the phone after the APK update: "Pix para cá" saves one transfer (R$ out, US$ in);
+  "Carregar mais" at the end of the statement; a waiting Pix to Wise asks "Quanto entrou (USD)".
+  (The APK changes of 2026-10-28 were not compiled here: no Android SDK in the cloud container;
+  the pure rules ran on a plain JVM. CI's apk job is the first full build.)
+- Not built: a waiting **dollar** credit (Wise side, no reais side) can't be paired by hand with a
+  reais account (the server refuses an origin in another currency than the item); it becomes a
+  US$ receita after the hold, and the reais Pix, when it arrives, turns it into the transfer.
 
 ### Auto-record → reconcile → review (045, 2026-10-27) — what is left
 The paradigm (CLAUDE.md › "Auto-record → reconcile → review"): every notification is recorded at
@@ -479,6 +485,14 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   phone must show "Nova versão disponível" and install it from the app, data kept. Each deploy now
   adds ~5 min of runner time and a new `financas-<code>.apk` (the last three stay on the server).
 
+### Card purchase edit and debit on Cartões (049, 2026-10-28) — what is left
+- **APK not compiled**: `PurchaseEdit.kt`, `CartoesScreen/ViewModel.kt`, `ExtratoScreen/ViewModel.kt`
+  were checked by reading; only `rules/`/`data/` ran (JVM). CI's apk job is the first real build.
+- Owner: walk Cartões on the phone — tap a purchase → category; Flash and the BTG debit list.
+- Old debit purchases of a card with **both** functions have no `card_id` (only new ones from
+  "+ Novo"/Aprovar); a debit-only card lists all expenses of its account. A Pluggy-recorded debit
+  purchase never gets `card_id` (Pluggy doesn't say the card).
+
 ### Card débito and hourly quotes (2026-10-22) — what is left
 - [ ] **Owner walk-through.** Ajustes › Cartões: create the Flash as "Débito" with a "Flash" account
   (any type but Corretora), give the BTG card "Os dois" with BTG Banking as the debit account. Then
@@ -793,8 +807,7 @@ Seen in Investidor10 PRO and not built; each needs the owner's call first.
 - Multi-currency: USD, EUR and GBP by BCB PTAX; the screens are reais-only except the Conta
   global (USD, 047); a transfer between currencies carries `transfer_amount`; fixed income and FII
   are BRL. The Conta global's own US$ despesas/receitas are outside every reais total (not
-  converted into the month); the phone has no "Pix para cá" (web only); its statement on the phone
-  is the first page only.
+  converted into the month); the phone's "Pix para cá" needs a connection (never queued).
 - Corporate actions: nothing can be entered before an asset's latest event — undo the event, enter
   the movement, register the event again.
 - Receipts: no server-side thumbnails (the browser scales the file); the backup mirror copies each

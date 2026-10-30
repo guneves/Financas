@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import br.financas.app.R
 import br.financas.app.core.MoneyInput
+import br.financas.app.core.formatCurrency
 import br.financas.app.core.getLocalDateString
 import br.financas.app.core.parseMoneyInput
 import br.financas.app.data.AccountDto
@@ -44,6 +45,8 @@ import br.financas.app.rules.TransactionEditForm
 import br.financas.app.ui.components.ConfirmRequest
 import br.financas.app.ui.home.HomeLogic
 import br.financas.app.ui.lancamentos.AttachmentsState
+import br.financas.app.ui.lancamentos.EditTarget
+import br.financas.app.ui.lancamentos.PurchaseEditState
 import br.financas.app.ui.lancamentos.NativeFiles
 import br.financas.app.ui.lancamentos.normalizedShare
 import br.financas.app.ui.lancamentos.writeErrorOf
@@ -86,8 +89,16 @@ object ExtratoMemory {
 /** O formato e as colunas da exportacao (o ExportSheet da web). */
 data class ExportChoice(val format: String = "xlsx", val columns: Set<String> = emptySet())
 
-/** O que o dono escolheu num movimento que nao gravou sozinho: a outra conta, o valor em reais. */
-data class WaitingChoice(val accountId: String = "", val transferAccountId: String = "", val amount: String = "")
+/**
+ * O que o dono escolheu num movimento que nao gravou sozinho: a outra conta, o valor em reais, e o
+ * que entrou na conta global (Pix de reais para ela, 047).
+ */
+data class WaitingChoice(
+    val accountId: String = "",
+    val transferAccountId: String = "",
+    val amount: String = "",
+    val transferAmount: String = "",
+)
 
 /**
  * O Extrato nativo (04-extrato.md), as duas vistas. Contas: GET /api/transactions em paginas de
@@ -195,6 +206,9 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         private set
 
     val attachments = AttachmentsState(app, repo, viewModelScope, confirm = { confirm = it }, onChanged = ::refreshAll)
+
+    /** Categoria e descricao de uma compra no cartao (a paga so aparece aqui, nao em Cartoes). */
+    val cardEdit = PurchaseEditState(app, repo, graph.appScope, isCleared = { cleared }, onSaved = { changed(it) })
 
     // ---- Exportar ----
 
@@ -647,16 +661,35 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     fun waitingAmount(item: InboxItemDto): BigDecimal? =
         (parseMoneyInput(waitingChoice(item).amount) as? MoneyInput.Amount)?.value
 
-    /** "Gravar": com a outra conta (ou o valor em reais) escolhida; nada lembrado. */
+    /** A moeda do destino quando o item e um Pix entre moedas sem o valor que entrou (047). */
+    fun waitingTransferCurrency(item: InboxItemDto): String? {
+        val choice = waitingChoice(item)
+        return ReviewRules.waitingTransferCurrency(item, activeAccounts, choice.accountId, choice.transferAccountId)
+    }
+
+    fun waitingTransferAmount(item: InboxItemDto): BigDecimal? =
+        (parseMoneyInput(waitingChoice(item).transferAmount) as? MoneyInput.Amount)?.value
+
+    /** O que ainda falta escolher no item (o botao Gravar fica apagado): "" quando esta tudo. */
+    fun waitingMissing(item: InboxItemDto): String {
+        val choice = waitingChoice(item)
+        return ReviewRules.waitingMissing(
+            item, choice.accountId, choice.transferAccountId, waitingAmount(item),
+            waitingTransferCurrency(item), waitingTransferAmount(item),
+        )
+    }
+
+    /** "Gravar": com a outra conta (ou o valor em reais, ou o que entrou em dolar) escolhida; nada lembrado. */
     fun recordWaiting(item: InboxItemDto) {
         val choice = waitingChoice(item)
         val amount = waitingAmount(item)
-        val missing = ReviewRules.waitingMissing(item, choice.accountId, choice.transferAccountId, amount)
+        val missing = waitingMissing(item)
         if (missing.isNotEmpty()) {
             reviewError = missing
             return
         }
-        val body = ReviewRules.waitingApproveBody(item, choice.accountId, choice.transferAccountId, amount)
+        val transferAmount = if (waitingTransferCurrency(item) != null) waitingTransferAmount(item) else null
+        val body = ReviewRules.waitingApproveBody(item, choice.accountId, choice.transferAccountId, amount, transferAmount)
         decideWaiting(item, app.getString(R.string.review_waiting_recorded)) { graph.inbox.approve(item.id, body) }
     }
 
@@ -698,6 +731,27 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // ---- Editar e excluir ----
+
+    /** A compra no cartao (045): uma linha com o total; a edicao vale para todas as parcelas. */
+    fun editCardPurchase(row: TransactionDto) {
+        val installments = row.installments ?: 1
+        val total = formatCurrency(row.amount)
+        val amount = if (installments > 1) "$total em $installments parcelas" else total
+        cardEdit.open(
+            EditTarget(
+                id = row.id,
+                debit = false,
+                refund = row.type == "REFUND",
+                subtitle = listOfNotNull(row.cardName?.takeIf { it.isNotEmpty() }, amount).joinToString(" · "),
+                currentDescription = row.description,
+                currentCategoryId = row.categoryId,
+                currentCategory = row.category,
+                installments = installments,
+                description = row.description.orEmpty(),
+                categoryId = row.categoryId.orEmpty(),
+            ),
+        )
+    }
 
     fun startEditing(row: TransactionDto) {
         editing = row

@@ -4,8 +4,8 @@
 // Conta global (dono, 2026-10-27): a conta em dolar (Wise) e a unica tela do app
 // fora de reais. Ela mostra o saldo e o extrato na moeda da conta e, embaixo, um
 // "≈ R$ …" pelo cambio de hoje (PTAX, services/fx.py) ou "sem câmbio hoje". Em
-// qualquer outro lugar a conta aparece em reais (accountBalanceBrl()) em Ajustes;
-// o saldo em contas do Inicio NAO a soma (dono, 2026-10-30).
+// qualquer outro lugar a conta aparece em reais (accountBalanceBrl()), mas fica
+// fora do saldo em contas do Inicio (dono, 2026-10-28).
 //
 // O Pix de uma conta em reais para ela e UMA transferencia (047): `amount` e o
 // que saiu em reais, `transfer_amount` o que entrou em dolar. Sem
@@ -95,4 +95,13 @@ export function brlHint(account) {
 export function impliedRate(row) {
   if (!row || row.pending || !row.native || !row.source_amount) return null
   return Math.round((row.source_amount / row.native) * 10000) / 10000
+}
+
+// Uma transferencia entre moedas (047) precisa do valor que entrou no destino
+// (`transfer_amount`): a moeda do destino quando ela difere da origem, senao
+// null (mesma moeda: um valor so). Sem uma das contas, null.
+export function crossCurrencyOf(origin, destination) {
+  if (!origin || !destination) return null
+  const to = accountCurrency(destination)
+  return accountCurrency(origin) === to ? null : to
 }

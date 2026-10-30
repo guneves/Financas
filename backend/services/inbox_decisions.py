@@ -27,7 +27,7 @@ from money import parse_money, rounded_money
 from services import inbox, open_finance_inbox, recurring
 from services.accounts import category_id_for_name, fetch_category, fetch_transaction_by_client_id
 from services.import_rules import DEFAULT_IMPORT_CATEGORIES
-from services.invoices import build_installment_rows, purchase_invoice_start, refund_invoice, require_active_card
+from services.invoices import build_installment_rows, purchase_invoices, refund_invoice, require_active_card
 from source_types import OPEN_FINANCE_SOURCE_TYPE
 from validators import ValidationError
 
@@ -280,6 +280,21 @@ def _existing_by_client_key(conn, current_user_id, item):
     return ("transactions", row["id"]) if row else None
 
 
+def _debit_card_id(conn, current_user_id, item):
+    """O cartao com debito (041) que a notificacao do item nomeia, se ele debita
+    da conta escolhida (049); senao None."""
+    if not item.get("id") or not item.get("account_id"):
+        return None
+    for detection in conn.execute(
+        "SELECT * FROM notify_detections WHERE user_id = ? AND item_id = ? ORDER BY posted_ms",
+        (current_user_id, item["id"]),
+    ).fetchall():
+        card = inbox.debit_card_for(conn, current_user_id, dict(detection))
+        if card and card["debit_account_id"] == item["account_id"]:
+            return card["id"]
+    return None
+
+
 def create_entry(conn, current_user_id, item):
     """O lancamento do rascunho, como se o dono o tivesse digitado."""
     existing = _existing_by_client_key(conn, current_user_id, item)
@@ -306,7 +321,7 @@ def create_entry(conn, current_user_id, item):
                 },
                 card,
                 # Fatura ja paga nao recebe a compra (ficaria aberta para sempre).
-                purchase_invoice_start(conn, current_user_id, card, date_text),
+                purchase_invoices(conn, current_user_id, card, date_text, int(item.get("installments") or 1)),
             )
             first = None
             # O client_id e a compra (035): sem o da notificacao, um novo.
@@ -347,17 +362,20 @@ def create_entry(conn, current_user_id, item):
                 ),
             )
         else:
+            # A compra no debito (049): o cartao que a notificacao nomeia, se
+            # ele debita da conta escolhida.
+            card_id = _debit_card_id(conn, current_user_id, item) if entry_type == "EXPENSE" else None
             conn.execute(
                 """
                 INSERT INTO transactions
                 (id, user_id, account_id, amount, date, category, category_id, description, type,
-                 client_id, occurred_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 client_id, occurred_at, card_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row_id, current_user_id, item["account_id"], amount, date_text, item["category"],
                     item.get("category_id"), item.get("description"), entry_type, client_id,
-                    item["occurred_at"],
+                    item["occurred_at"], card_id,
                 ),
             )
         _mark_open_finance_origin(conn, current_user_id, item, row_id)

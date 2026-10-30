@@ -106,7 +106,7 @@ class CardFunctionsTest {
             DebitPurchase(amount = BigDecimal("46.81"), date = LocalDate.parse("2026-10-21"), categoryId = "cat", category = "Alimentação", description = "Padaria"),
         )
         assertEquals(
-            mapOf("amount" to BigDecimal("46.81"), "date" to "2026-10-21", "category_id" to "cat", "category" to "Alimentação", "description" to "Padaria", "type" to "EXPENSE", "account_id" to "conta-flash"),
+            mapOf("amount" to BigDecimal("46.81"), "date" to "2026-10-21", "category_id" to "cat", "category" to "Alimentação", "description" to "Padaria", "type" to "EXPENSE", "account_id" to "conta-flash", "card_id" to flash.id),
             payload,
         )
     }

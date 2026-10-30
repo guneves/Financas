@@ -130,7 +130,7 @@ export default function ContaGlobal() {
     <div className="space-y-6">
       <PageHeader
         title={GLOBAL_ACCOUNT_LABEL}
-        description={account ? `${account.name} · em ${currency}. Ela fica fora do Saldo em conta do Início.` : 'A conta em dólar.'}
+        description={account ? `${account.name} · em ${currency}. Fora daqui o app é em reais; o saldo dela não entra no saldo em contas do Início.` : 'A conta em dólar.'}
         actions={(
           <div className="flex flex-wrap items-center gap-2">
             {globals.length > 1 ? (
@@ -164,7 +164,7 @@ export default function ContaGlobal() {
         <>
           <SummaryPanel
             lead={{
-              label: 'Saldo em conta',
+              label: 'Saldo em dólar',
               value: privateForeign(balance),
               tone: balance < 0 ? 'loss' : 'neutral',
               hint: hint === null ? 'sem câmbio hoje' : `≈ ${privateReais(hint)} pelo câmbio de hoje (PTAX)`,

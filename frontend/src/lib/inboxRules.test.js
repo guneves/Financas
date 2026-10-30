@@ -71,6 +71,35 @@ test('the edit sends only what changed, with the version', () => {
   assert.deepEqual(changesFromDraft(vague, draftFromItem(vague)), { version: 3 })
 })
 
+test('a Pix to the global account carries what arrived in its currency', () => {
+  // A ponta em reais de um Pix para a Wise (047): sem o valor em dolar o
+  // servidor recusa; o rascunho manda o que o dono digitou.
+  const pix = {
+    ...item, entry_type: 'TRANSFER', amount: 253.53, account_id: 'btg', transfer_account_id: 'wise',
+    card_id: null, transfer_amount: null,
+  }
+  const draft = draftFromItem(pix)
+  assert.equal(draft.transfer_amount, '')
+  assert.deepEqual(changesFromDraft(pix, { ...draft, transfer_amount: '46,10' }, 'USD'), { version: 3, transfer_amount: 46.1 })
+  assert.deepEqual(changesFromDraft(pix, draft, 'USD'), { version: 3 })
+  assert.deepEqual(changesFromDraft(pix, { ...draft, transfer_amount: 'abc' }, 'USD'), { version: 3 })
+  // Ja trazido pela Pluggy: igual, nada; trocado o destino por uma conta em
+  // reais, o valor sai; sem saber a moeda (conta fora da lista), fica.
+  const arrived = { ...pix, transfer_amount: 46.1 }
+  const ready = draftFromItem(arrived)
+  assert.deepEqual(changesFromDraft(arrived, { ...ready, transfer_amount: '46.10' }, 'USD'), { version: 3 })
+  assert.deepEqual(
+    changesFromDraft(arrived, { ...ready, transfer_account_id: 'itau' }, null),
+    { version: 3, transfer_account_id: 'itau', transfer_amount: null },
+  )
+  assert.deepEqual(changesFromDraft(arrived, ready, undefined), { version: 3 })
+  // Virou despesa: nao e mais transferencia, o valor no destino sai.
+  assert.deepEqual(
+    changesFromDraft(arrived, { ...ready, entry_type: 'EXPENSE' }, undefined),
+    { version: 3, entry_type: 'EXPENSE', transfer_amount: null },
+  )
+})
+
 test('a quick choice picks the type that goes with credit or debit', () => {
   assert.deepEqual(quickChoice(item, { method: 'CARD' }), { version: 3, entry_type: 'CARD' })
   assert.deepEqual(quickChoice(item, { method: 'DEBIT' }), { version: 3, entry_type: 'EXPENSE' })

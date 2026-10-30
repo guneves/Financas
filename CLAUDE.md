@@ -148,7 +148,7 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   in `/run`'s `blocked`.
 - **Signup is closed once a user exists** (`ALLOW_SIGNUP=1` opens it). A missing/example
   `JWT_SECRET` is replaced by a random one in `JWT_SECRET_FILE`.
-- **Consolidated balance = sum of the reais accounts' balances** (archived included, foreign ones out), from
+- **Consolidated balance = sum of reais account balances** (archived included, Corretora and Conta global out), from
   `consolidated_balance` of `GET /api/home`; never sum `transactions` (it drops `initial_balance`).
 
 ### Idempotency (materialized rows)
@@ -207,8 +207,10 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `/inicio/conta-global`, opened from "Conta global" under the accounts on Início and from Ajustes ›
   Contas: balance and statement in US$ (`formatForeignCurrency()`), a "≈ R$ …" from today's PTAX
   (`balance_brl`) or "sem câmbio hoje". The only currency choice is the "Conta global (US$)" type
-  of Ajustes › Nova conta (CHECKING + `currency: USD`). **Saldo em conta excludes it** (owner 2026-10-30, list and total): on Início it is only the "Conta global"
-  entry, and it pays no invoice. A `NET_WORTH` goal still counts it converted. A foreign
+  of Ajustes › Nova conta (CHECKING + `currency: USD`). **It is never in "Saldo em contas"** (owner
+  2026-10-28 and 2026-10-30, list and total: `consolidated_balance()` skips non-BRL accounts, so
+  Extrato/Cartões projections too): on Início it is only the "Conta global" entry, and it pays no
+  invoice. A `NET_WORTH` goal still counts it converted. A foreign
   account is never the default nor the Corretora. Its own despesas/receitas stay out of every reais
   total (Resumo do mês, plan, budget, the Extrato without `account_id`, the review queue/count):
   they are listed and reviewed on its screen. "+ Novo" doesn't offer it.

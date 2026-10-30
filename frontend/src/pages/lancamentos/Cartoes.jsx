@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle, ChevronDown, CreditCard, Paperclip, Plus, Trash2, Undo2, Users } from 'lucide-react'
+import { CheckCircle, ChevronDown, CreditCard, Paperclip, Pencil, Plus, Trash2, Undo2, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ccExpensesApi, ccInvoicesApi } from '../../lib/dataApi'
 import { useNewEntry } from '../../lib/newEntry'
@@ -22,7 +22,9 @@ import PayInvoiceSheet from '../../components/PayInvoiceSheet'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
 import CardShareSheet from './CardShareSheet'
 import CardRefundSheet from './CardRefundSheet'
+import CardPurchaseEditSheet from './CardPurchaseEditSheet'
 import { shareSummary } from '../../lib/sharing'
+import { mergeCardGroups } from '../../lib/cardGroups'
 import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
 import { useQuery } from '../../lib/queries'
@@ -39,6 +41,7 @@ function purchaseRow(purchase, cardId) {
     description: purchase.description,
     category: purchase.category || 'Outros',
     category_raw: purchase.category,
+    category_id: purchase.category_id || null,
     purchase_date: purchase.purchase_date,
     amount: purchase.amount,
     refund: purchase.kind === 'REFUND',
@@ -92,6 +95,7 @@ export default function Cartoes() {
     projectedBalanceGlobal,
     projectedBalanceNextMonth,
     accountName,
+    categoryOptionsFor,
   } = useLancamentos()
 
   const [saving, setSaving] = useState(false)
@@ -99,10 +103,16 @@ export default function Cartoes() {
   const [paying, setPaying] = useState(null)
   const [payError, setPayError] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState(null)
+  // Comprovantes de uma compra no debito (um lancamento da conta).
+  const [debitAttachmentsFor, setDebitAttachmentsFor] = useState(null)
   // Compra com o "De quem é?" aberto (CardShareSheet).
   const [shareFor, setShareFor] = useState(null)
   // Estorno sendo lancado (CardRefundSheet): { purchase } ou {} pelo topo.
   const [refundFor, setRefundFor] = useState(null)
+  // Compra com categoria/descricao em edicao (CardPurchaseEditSheet).
+  const [editFor, setEditFor] = useState(null)
+  // Cartoes com as compras no debito desdobradas, por card_id.
+  const [showDebit, setShowDebit] = useState({})
   // Sobrescritas do usuario; sem entrada, so a fatura mais proxima fica aberta.
   const [toggledInvoices, setToggledInvoices] = useState({})
   // Cartoes com as faturas futuras desdobradas, por card_id.
@@ -113,9 +123,13 @@ export default function Cartoes() {
   const invoicesQuery = useQuery({ queryKey: ['cartoes', 'faturas'], queryFn: () => ccInvoicesApi.list() })
   const invoiceData = invoicesQuery.data
   const openInvoicesByCard = useMemo(() => (invoiceData?.cards || NO_CARDS).map(cardGroupOf), [invoiceData])
+  const cardGroups = useMemo(
+    () => mergeCardGroups(openInvoicesByCard, invoiceData?.debit_cards),
+    [openInvoicesByCard, invoiceData],
+  )
 
   // A fatura em aberto com o vencimento mais proximo (atrasadas primeiro),
-  // marcada pelo servidor: a tela a abre e o "Pagar fatura" do topo a paga.
+  // marcada pelo servidor: o "Pagar fatura" do topo a paga.
   const nearestInvoice = useMemo(() => {
     for (const cardGroup of openInvoicesByCard) {
       const invoice = cardGroup.invoices.find((entry) => entry.nearest)
@@ -124,9 +138,8 @@ export default function Cartoes() {
     return null
   }, [openInvoicesByCard])
 
-  const isInvoiceExpanded = (key) => (
-    key in toggledInvoices ? toggledInvoices[key] : key === nearestInvoice?.key
-  )
+  // Tudo fechado ao abrir a tela (dono, 2026-10-28): so o toque abre.
+  const isInvoiceExpanded = (key) => Boolean(toggledInvoices[key])
 
   const toggleInvoice = (key) => {
     setToggledInvoices((prev) => ({ ...prev, [key]: !isInvoiceExpanded(key) }))
@@ -299,7 +312,12 @@ export default function Cartoes() {
           <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200/70">
             {invoice.purchases.map((purchase) => (
               <li key={purchase.purchaseKey} className="flex items-center gap-3 py-1.5 pl-4 pr-2">
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setEditFor({ ...purchase, kind: 'card', cardName: cardGroup.cardName })}
+                  aria-label={`Editar ${purchase.description}`}
+                  className="min-h-[44px] min-w-0 flex-1 text-left"
+                >
                   <p className="flex min-w-0 items-center gap-1.5 font-medium text-zinc-900" title={purchase.description}>
                     <span className="truncate">{purchase.description}</span>
                     {purchase.attachmentCount > 0 ? (
@@ -311,7 +329,7 @@ export default function Cartoes() {
                     {purchase.installmentTotal > 1 ? ` · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}` : ''}
                   </p>
                   {purchase.shareText ? <p className="truncate text-xs font-medium text-zinc-500">{purchase.shareText}</p> : null}
-                </div>
+                </button>
                 {purchase.refund ? (
                   <p className="num whitespace-nowrap font-semibold text-emerald-700">{formatSignedCurrency(purchase.amount)}</p>
                 ) : (
@@ -320,6 +338,11 @@ export default function Cartoes() {
                 <Menu
                   label={`Ações de ${purchase.description}`}
                   items={purchase.refund ? [
+                    {
+                      label: 'Editar categoria',
+                      icon: Pencil,
+                      onSelect: () => setEditFor({ ...purchase, kind: 'card', cardName: cardGroup.cardName }),
+                    },
                     {
                       label: purchase.attachmentCount > 0 ? `Comprovantes (${purchase.attachmentCount})` : 'Comprovantes',
                       icon: Paperclip,
@@ -332,6 +355,11 @@ export default function Cartoes() {
                       onSelect: () => handleDeleteRefund(purchase),
                     },
                   ] : [
+                    {
+                      label: 'Editar categoria',
+                      icon: Pencil,
+                      onSelect: () => setEditFor({ ...purchase, kind: 'card', cardName: cardGroup.cardName }),
+                    },
                     {
                       label: 'Registrar estorno',
                       icon: Undo2,
@@ -363,6 +391,74 @@ export default function Cartoes() {
     )
   }
 
+  // As compras no debito do cartao (049): despesas da conta dele, sem fatura,
+  // da mais nova para a mais antiga. Fechadas ao abrir a tela, como as faturas.
+  const renderDebit = (cardGroup) => {
+    const { debit } = cardGroup
+    const open = Boolean(showDebit[cardGroup.cardId])
+    const rows = debit.rows
+    return (
+      <div className="border-t border-zinc-100">
+        <button
+          type="button"
+          onClick={() => setShowDebit((prev) => ({ ...prev, [cardGroup.cardId]: !open }))}
+          aria-expanded={open}
+          className="flex min-h-[44px] w-full items-center gap-3 px-5 py-2 text-left text-sm font-semibold text-zinc-600 hover:text-zinc-950"
+        >
+          <ChevronDown className={cx('h-5 w-5 shrink-0 text-zinc-500 transition-transform', open && 'rotate-180')} />
+          <span className="min-w-0 flex-1">
+            No débito
+            <span className="font-normal text-zinc-500"> · sai de {debit.account_name} · {rows.length === 1 ? '1 compra' : `${rows.length} compras`}</span>
+          </span>
+          <span className="num whitespace-nowrap">{formatCurrency(debit.month_total)}</span>
+        </button>
+        <Expand open={open} innerClassName="px-3 pb-4 sm:px-5">
+          {rows.length === 0 ? (
+            <p className="px-2 py-3 text-sm text-zinc-500">Nenhuma compra no débito neste mês nem no anterior.</p>
+          ) : (
+            <ul className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200/70">
+              {rows.map((purchase) => (
+                <li key={purchase.purchaseKey} className="flex items-center gap-3 py-1.5 pl-4 pr-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditFor({ ...purchase, kind: 'debit', cardName: cardGroup.cardName })}
+                    aria-label={`Editar ${purchase.description}`}
+                    className="min-h-[44px] min-w-0 flex-1 text-left"
+                  >
+                    <p className="flex min-w-0 items-center gap-1.5 font-medium text-zinc-900" title={purchase.description}>
+                      <span className="truncate">{purchase.description}</span>
+                      {purchase.attachmentCount > 0 ? (
+                        <Paperclip className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-label={`${purchase.attachmentCount} comprovante(s)`} />
+                      ) : null}
+                    </p>
+                    <p className="truncate text-xs text-zinc-500">{purchase.category} · {formatDateBR(purchase.purchase_date)}</p>
+                    {purchase.shareText ? <p className="truncate text-xs font-medium text-zinc-500">{purchase.shareText}</p> : null}
+                  </button>
+                  <p className="num whitespace-nowrap font-semibold text-zinc-950">{formatCurrency(purchase.amount)}</p>
+                  <Menu
+                    label={`Ações de ${purchase.description}`}
+                    items={[
+                      {
+                        label: 'Editar categoria',
+                        icon: Pencil,
+                        onSelect: () => setEditFor({ ...purchase, kind: 'debit', cardName: cardGroup.cardName }),
+                      },
+                      {
+                        label: purchase.attachmentCount > 0 ? `Comprovantes (${purchase.attachmentCount})` : 'Comprovantes',
+                        icon: Paperclip,
+                        onSelect: () => setDebitAttachmentsFor(purchase),
+                      },
+                    ]}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Expand>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -381,6 +477,12 @@ export default function Cartoes() {
         onClose={() => setRefundFor(null)}
         onSaved={fetchData}
       />
+      <CardPurchaseEditSheet
+        target={editFor}
+        categoryOptions={categoryOptionsFor('EXPENSE')}
+        onClose={() => setEditFor(null)}
+        onSaved={fetchData}
+      />
       <CardShareSheet
         purchase={shareFor}
         onClose={() => setShareFor(null)}
@@ -389,6 +491,11 @@ export default function Cartoes() {
       <AttachmentsSheet
         purchase={attachmentsFor}
         onClose={() => setAttachmentsFor(null)}
+        onChanged={fetchData}
+      />
+      <AttachmentsSheet
+        transaction={debitAttachmentsFor}
+        onClose={() => setDebitAttachmentsFor(null)}
         onChanged={fetchData}
       />
       <PayInvoiceSheet
@@ -416,7 +523,7 @@ export default function Cartoes() {
         <Panel className="overflow-clip">
           <ListSkeleton rows={4} />
         </Panel>
-      ) : cards.length === 0 ? (
+      ) : cards.length === 0 && cardGroups.length === 0 ? (
         <Panel className="p-5">
           <EmptyState
             icon={CreditCard}
@@ -425,9 +532,9 @@ export default function Cartoes() {
             action={<Link to="/ajustes#cartoes" className="text-sm font-semibold text-emerald-700 underline-offset-2 hover:underline">Cadastrar cartão em Ajustes</Link>}
           />
         </Panel>
-      ) : openInvoicesByCard.length > 0 ? (
+      ) : cardGroups.length > 0 ? (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-2 xl:items-start">
-          {openInvoicesByCard.map((cardGroup) => {
+          {cardGroups.map((cardGroup) => {
             const cardTotal = cardGroup.total
             // A fatura e a unidade: ficam a mostra as que pedem algo (em atraso
             // ou fechadas) e a que esta correndo; as futuras (`future`, depois
@@ -445,14 +552,23 @@ export default function Cartoes() {
                   <div className="min-w-0">
                     <h3 className="truncate text-lg font-bold text-zinc-950">{cardGroup.cardName}</h3>
                     <p className="mt-0.5 text-sm text-zinc-500">
-                      Fecha dia {cardGroup.closingDay} · vence dia {cardGroup.dueDay}
-                      {cardGroup.autopayAccountId ? ` · débito automático em ${accountName(cardGroup.autopayAccountId)}` : ''}
+                      {cardGroup.withoutInvoices
+                        ? (cardGroup.debit.credit_enabled ? 'Nenhuma fatura em aberto' : `Débito · sai de ${cardGroup.debit.account_name}`)
+                        : `Fecha dia ${cardGroup.closingDay} · vence dia ${cardGroup.dueDay}`}
+                      {!cardGroup.withoutInvoices && cardGroup.autopayAccountId ? ` · débito automático em ${accountName(cardGroup.autopayAccountId)}` : ''}
                     </p>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-xs font-semibold text-zinc-500">Em aberto</p>
-                    <p className="num text-lg font-bold text-zinc-950">{formatCurrency(cardTotal)}</p>
-                  </div>
+                  {cardGroup.withoutInvoices ? (
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs font-semibold text-zinc-500">No débito este mês</p>
+                      <p className="num text-lg font-bold text-zinc-950">{formatCurrency(cardGroup.debit.month_total)}</p>
+                    </div>
+                  ) : (
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs font-semibold text-zinc-500">Em aberto</p>
+                      <p className="num text-lg font-bold text-zinc-950">{formatCurrency(cardTotal)}</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="divide-y divide-zinc-100 border-t border-zinc-100">
@@ -481,13 +597,15 @@ export default function Cartoes() {
                     </Expand>
                   </div>
                 ) : null}
+
+                {cardGroup.debit ? renderDebit(cardGroup) : null}
               </Panel>
             )
           })}
         </div>
       ) : (
         <Panel className="p-5">
-          <EmptyState icon={CreditCard} title="Nenhuma fatura aberta" message="As compras no crédito aparecerão agrupadas por cartão." />
+          <EmptyState icon={CreditCard} title="Nenhuma fatura aberta" message="As compras no crédito e no débito aparecerão agrupadas por cartão." />
         </Panel>
       )}
     </div>

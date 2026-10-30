@@ -231,9 +231,9 @@ def account_list(conn, current_user_id):
 
 
 def consolidated_balance(accounts):
-    """Saldo em contas: a soma do `balance` de toda conta em reais que nao e
-    Corretora, arquivadas inclusive. A Conta global (outra moeda) nao entra
-    (dono, 2026-10-30): o total e a soma das contas listadas."""
+    """Saldo em contas: a soma do saldo de toda conta em reais que nao e
+    Corretora, arquivadas inclusive. A Conta global (dono, 2026-10-28) fica de
+    fora: o saldo dela so aparece na tela dela, em dolar."""
     total = sum(
         (Decimal(str(account["balance_brl"])) for account in accounts
          if not is_portfolio(account) and not is_foreign(account)

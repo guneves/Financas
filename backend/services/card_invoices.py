@@ -16,7 +16,8 @@ os avisos de fatura (`/api/attention`). Todas leem `open_invoices()`, entao
 
 A ordem das listas segue a das linhas (fatura, depois criacao), como a do
 cliente que esta leitura substitui: dois vencimentos iguais ficam na ordem em
-que apareceram.
+que apareceram. As compras de cada fatura vao pela data da compra, a mais
+nova primeiro (`purchases_by_date()`), como no Extrato.
 
 `local_today()` e lido por nome aqui: os testes o congelam neste modulo.
 """
@@ -26,6 +27,7 @@ from decimal import Decimal
 
 from money import rounded_money
 from services.attachments import same_purchase_sql
+from services.debit_purchases import build_debit_purchases
 from services.invoices import invoice_closing_date, invoice_due_date, local_today, signed_amount
 
 
@@ -218,8 +220,20 @@ def invoice_summary(invoice):
     }
 
 
+def purchases_by_date(rows):
+    """As linhas de uma fatura da compra mais nova para a mais antiga, como o
+    Extrato; no mesmo dia, a gravada por ultimo primeiro."""
+    return sorted(
+        rows,
+        key=lambda row: (row["purchase_date"] or "", row["created_at"] or "", row["id"]),
+        reverse=True,
+    )
+
+
 def build_cc_invoices(conn, current_user_id, today=None):
-    """GET /api/cc-invoices."""
+    """GET /api/cc-invoices: as faturas em aberto por cartao e, em
+    `debit_cards`, as compras no debito de cada cartao (049)."""
+    today = today or local_today()
     data = open_invoices(conn, current_user_id, today)
     cards = sorted(data["cards"], key=lambda card: fold(card["card_name"]))
     nearest = next((item for item in data["invoices"] if item["nearest"]), None)
@@ -251,10 +265,7 @@ def build_cc_invoices(conn, current_user_id, today=None):
                     "future": item["future"],
                     "total": rounded_money(item["total"]),
                     "item_count": len(item["rows"]),
-                    "purchases": [
-                        serialize_purchase(row)
-                        for row in sorted(item["rows"], key=lambda row: fold(row["description"]))
-                    ],
+                    "purchases": [serialize_purchase(row) for row in purchases_by_date(item["rows"])],
                 }
                 for item in card["invoices"]
             ],
@@ -268,4 +279,5 @@ def build_cc_invoices(conn, current_user_id, today=None):
         } if nearest else None,
         "open_total": rounded_money(open_total),
         "cards": result_cards,
+        "debit_cards": build_debit_purchases(conn, current_user_id, today),
     }

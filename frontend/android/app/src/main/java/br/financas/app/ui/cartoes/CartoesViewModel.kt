@@ -19,8 +19,11 @@ import br.financas.app.data.ApiException
 import br.financas.app.data.AppGraph
 import br.financas.app.data.AttachmentOwner
 import br.financas.app.data.CardInvoiceDto
+import br.financas.app.data.CategoryDto
 import br.financas.app.data.CcInvoicesDto
 import br.financas.app.data.CreditCardDto
+import br.financas.app.data.DebitCardDto
+import br.financas.app.data.DebitPurchaseDto
 import br.financas.app.data.HomeDto
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.InvoiceCardDto
@@ -28,6 +31,8 @@ import br.financas.app.data.InvoicePurchaseDto
 import br.financas.app.data.Load
 import br.financas.app.data.storedTimeLabel
 import br.financas.app.rules.CardRules
+import br.financas.app.rules.CategoryOption
+import br.financas.app.rules.EntryOptions
 import br.financas.app.rules.ExtratoRules
 import br.financas.app.rules.OutboxItems
 import br.financas.app.rules.PendingItem
@@ -37,6 +42,8 @@ import br.financas.app.rules.Sharing
 import br.financas.app.ui.components.ConfirmRequest
 import br.financas.app.ui.home.HomeLogic
 import br.financas.app.ui.lancamentos.AttachmentsState
+import br.financas.app.ui.lancamentos.EditTarget
+import br.financas.app.ui.lancamentos.PurchaseEditState
 import br.financas.app.ui.lancamentos.normalizedShare
 import br.financas.app.ui.lancamentos.writeErrorOf
 import br.financas.app.ui.nav.ShellEvents
@@ -89,6 +96,8 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
         private set
     var cards by mutableStateOf<List<CreditCardDto>?>(null)
         private set
+    var categories by mutableStateOf<List<CategoryDto>>(emptyList())
+        private set
     var pending by mutableStateOf<List<PendingItem>>(emptyList())
         private set
     var hidden by mutableStateOf(ShellPrefs.valuesHidden(application) ?: false)
@@ -132,10 +141,15 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
     var shareError by mutableStateOf("")
         private set
 
+    /** O bloco "No débito" aberto/fechado por cartao; sem entrada, aberto so no cartao sem fatura. */
+    var debitToggled by mutableStateOf<Map<String, Boolean>>(emptyMap())
+        private set
+
     var confirm by mutableStateOf<ConfirmRequest?>(null)
         private set
 
     val attachments = AttachmentsState(app, repo, viewModelScope, confirm = { confirm = it }, onChanged = ::refreshAll)
+    val edit = PurchaseEditState(app, repo, graph.appScope, isCleared = { cleared }, onSaved = { changed(it) })
 
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
@@ -172,7 +186,7 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
 
     fun isExpanded(card: InvoiceCardDto, invoice: CardInvoiceDto): Boolean {
         val key = invoiceKey(card, invoice)
-        return toggled[key] ?: invoice.nearest
+        return toggled[key] ?: false // tudo fechado ao abrir a tela (dono, 2026-10-28)
     }
 
     fun toggle(card: InvoiceCardDto, invoice: CardInvoiceDto) {
@@ -186,6 +200,21 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
 
     fun accountName(id: String?): String? = accounts.firstOrNull { it.id == id }?.name
 
+    val debitCards: List<DebitCardDto> get() = data?.debitCards.orEmpty()
+
+    /** Os cartoes so com compras no debito (sem fatura em aberto): um painel cada. */
+    val debitOnlyCards: List<DebitCardDto> get() = CardRules.debitOnlyCards(invoiceCards, debitCards)
+
+    fun isDebitOpen(cardId: String, withoutInvoices: Boolean): Boolean = debitToggled[cardId] ?: false
+
+    fun toggleDebit(cardId: String, withoutInvoices: Boolean) {
+        debitToggled = debitToggled + (cardId to !isDebitOpen(cardId, withoutInvoices))
+    }
+
+    /** As categorias de despesa, para o sheet de edicao. */
+    val expenseCategoryOptions: List<CategoryOption>
+        get() = EntryOptions.filterCategoryOptions(EntryOptions.buildCategoryOptions(categories), "EXPENSE")
+
     /** As contas do sheet de pagamento, com os pendentes por cima (o HomeAccount do Inicio). */
     val payAccounts get() = home?.let { HomeLogic.activeAccounts(HomeLogic.view(it, pending).accounts) }.orEmpty()
 
@@ -197,7 +226,20 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
         readHome()
         readAccounts()
         readCards()
+        readCategories()
         readPending()
+    }
+
+    private fun readCategories() {
+        viewModelScope.launch {
+            graph.categories.categories().collect { load ->
+                when (load) {
+                    is Load.Cached -> if (categories.isEmpty()) categories = load.value
+                    is Load.Fresh -> categories = load.value
+                    is Load.Failed -> if (categories.isEmpty()) categories = load.cached?.value.orEmpty()
+                }
+            }
+        }
     }
 
     private fun readInvoices() {
@@ -460,6 +502,43 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
         return "${target.purchase.description.orEmpty()} · $amount"
     }
 
+    // ---- Editar categoria e descricao ----
+
+    fun openEdit(purchase: InvoicePurchaseDto, cardName: String) {
+        val installment = if (purchase.installmentTotal > 1) " · parcela ${purchase.installmentCurrent}/${purchase.installmentTotal}" else ""
+        edit.open(
+            EditTarget(
+                id = purchase.id,
+                debit = false,
+                refund = purchase.isRefund,
+                subtitle = "$cardName · ${formatCurrency(purchase.amount)}$installment",
+                currentDescription = purchase.description,
+                currentCategoryId = purchase.categoryId,
+                currentCategory = purchase.category,
+                installments = purchase.installmentTotal,
+                description = purchase.description.orEmpty(),
+                categoryId = purchase.categoryId.orEmpty(),
+            ),
+        )
+    }
+
+    fun openDebitEdit(purchase: DebitPurchaseDto, cardName: String) {
+        edit.open(
+            EditTarget(
+                id = purchase.id,
+                debit = true,
+                refund = false,
+                subtitle = "$cardName · ${formatCurrency(purchase.amount)} · ${formatDateBR(purchase.date)}",
+                currentDescription = purchase.description,
+                currentCategoryId = purchase.categoryId,
+                currentCategory = purchase.category,
+                installments = 1,
+                description = purchase.description.orEmpty(),
+                categoryId = purchase.categoryId.orEmpty(),
+            ),
+        )
+    }
+
     // ---- Excluir e comprovantes ----
 
     fun askDelete(purchase: InvoicePurchaseDto) {
@@ -498,6 +577,13 @@ class CartoesViewModel(application: Application) : AndroidViewModel(application)
         attachments.open(
             AttachmentOwner.purchase(purchase.id),
             listOf(purchase.description.orEmpty(), formatDateBR(purchase.purchaseDate), amount).joinToString(" · "),
+        )
+    }
+
+    fun openDebitAttachments(purchase: DebitPurchaseDto) {
+        attachments.open(
+            AttachmentOwner.transaction(purchase.id),
+            listOf(purchase.description.orEmpty(), formatDateBR(purchase.date), formatCurrency(purchase.amount)).joinToString(" · "),
         )
     }
 
