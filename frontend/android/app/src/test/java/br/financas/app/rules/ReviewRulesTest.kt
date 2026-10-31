@@ -228,6 +228,8 @@ class ReviewRulesTest {
         assertTrue(ReviewRules.waitingCanBeSingle(item))
         assertEquals("EXPENSE", ReviewRules.singleType(item))
         assertEquals("INCOME", ReviewRules.singleType(waiting(direction = "IN")))
+        // O salario por TED: transferencia guardada como saida, so o destino conhecido.
+        assertEquals("INCOME", ReviewRules.singleType(waiting(accountId = null, transferAccountId = "itau")))
         assertEquals("""{"version":4,"remember":false,"entry_type":"EXPENSE"}""", JsonBody.encode(ReviewRules.waitingSingleBody(item)))
         assertFalse(ReviewRules.waitingCanBeSingle(waiting(entryType = "EXPENSE", needs = emptyList())))
         // Sem nenhuma das pontas nao ha conta para gravar.

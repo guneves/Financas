@@ -51,6 +51,9 @@ def get_db():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    # Vale por conexao, nao fica no arquivo: sem isto cada gravacao espera um
+    # fsync (FULL). Em WAL, NORMAL nao corrompe o banco.
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 

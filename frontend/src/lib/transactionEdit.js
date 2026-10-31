@@ -15,13 +15,32 @@ export function transactionEditForm(transaction) {
   }
 }
 
+// A despesa ou a receita que o dono diz ser entre as contas dele: a linha fica
+// do lado que ela ja tem e `transfer_account_id` guarda a outra conta.
+export const becomesTransfer = (transaction, form) => form.type === 'TRANSFER' && transaction.type !== 'TRANSFER'
+
+export function transferEditError(transaction, form) {
+  if (!becomesTransfer(transaction, form)) return ''
+  if (!form.transfer_account_id) return 'Escolha a outra conta da transferência.'
+  return form.transfer_account_id === transaction.account_id ? 'Escolha uma conta diferente.' : ''
+}
+
 // O PATCH e parcial; transferencias so aceitam os campos que fazem sentido
-// para elas (o backend recusa converter um tipo no outro). `amount` ja vem lido.
+// para elas (o backend so recusa o caminho de volta). `amount` ja vem lido.
 export function transactionEditPayload(transaction, form, amount, { sharing = false } = {}) {
   const payload = {
     amount,
     date: form.date,
     description: form.description,
+  }
+  if (becomesTransfer(transaction, form)) {
+    const income = transaction.type === 'INCOME'
+    return {
+      ...payload,
+      type: 'TRANSFER',
+      account_id: income ? form.transfer_account_id : transaction.account_id,
+      transfer_account_id: income ? transaction.account_id : form.transfer_account_id,
+    }
   }
   // As contas so quando mudaram: a de um lancamento antigo pode estar
   // arquivada, e o servidor recusa escolher uma conta arquivada.

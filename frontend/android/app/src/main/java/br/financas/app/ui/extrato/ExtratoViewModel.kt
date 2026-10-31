@@ -489,9 +489,9 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             graph.inbox.list(InboxRepository.VIEW_PENDING).collect { load ->
                 when (load) {
-                    is Load.Cached -> if (waitingItems.isEmpty()) waitingItems = load.value.items
+                    is Load.Cached -> if (waitingItems.isEmpty()) waitingItems = load.value.items.filter { !it.awaitingBank }
                     is Load.Fresh -> {
-                        waitingItems = load.value.items
+                        waitingItems = load.value.items.filter { !it.awaitingBank }
                         val ids = waitingItems.map { it.id }.toSet()
                         waitingChoices = waitingChoices.filterKeys { it in ids }
                     }
@@ -779,9 +779,9 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
             editError = app.getString(R.string.extrato_edit_invalid)
             return
         }
-        val sharing = ExtratoRules.canShare(row)
+        val sharing = ExtratoRules.canShare(row) && !ExtratoRules.becomesTransfer(row, form)
         val share = normalizedShare(form.share)
-        val shareError = if (sharing) Sharing.shareFormError(share, amount) else ""
+        val shareError = ExtratoRules.transferEditError(row, form).ifEmpty { if (sharing) Sharing.shareFormError(share, amount) else "" }
         if (shareError.isNotEmpty()) {
             editError = shareError
             return
@@ -794,6 +794,8 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
             saving = false
             val error = writeErrorOf(app, result, R.string.extrato_edit_failed)
             if (error == null) {
+                // A linha muda na hora; a leitura nova confirma.
+                rows = rows?.map { if (it.id == row.id) ExtratoRules.editedRow(it, form, amount) else it }
                 editing = null
                 editForm = null
                 changed(null)
@@ -810,7 +812,16 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
             title = app.getString(R.string.extrato_delete_title),
             message = app.getString(R.string.extrato_delete_message),
             confirmLabel = app.getString(R.string.extrato_delete_confirm),
-        ) { write(R.string.extrato_delete_failed, null) { repo.deleteTransaction(row.id) } }
+        ) {
+            // A linha sai na hora; recusado, a leitura de novo a traz de volta.
+            rows = rows?.filter { it.id != row.id }
+            reviewItems = reviewItems.filter { it.id != row.id }
+            editing = null
+            editForm = null
+            write(R.string.extrato_delete_failed, null) {
+                repo.deleteTransaction(row.id).also { if (it !is InboxWrite.Done) refreshAll() }
+            }
+        }
     }
 
     fun askUndoPayment(row: TransactionDto) {

@@ -8,7 +8,10 @@ puxada (do primeiro movimento que a Pluggy trouxe ate `synced_until`):
 - `app_only`: lancamentos do app que o banco nao tem — digitado errado, em
   dobro, na conta errada;
 - `awaiting`: movimentos do banco que ainda esperam no Aprovar (nao sao
-  inconsistencia, so ainda nao decididos).
+  inconsistencia, so ainda nao decididos);
+- `awaiting_bank`: lancamentos do app que a Pluggy ainda nao teve como trazer
+  (feitos depois da ultima vez que ela falou com o banco, ou no dia dela). So
+  viram `app_only` quando uma atualizacao passar e nao os identificar.
 
 O saldo (Confere/Diferenca) continua em list_view. Pares: mesmo valor com
 sinal, ate MATCH_DAYS dias de distancia, o mais proximo primeiro, um para um.
@@ -153,7 +156,7 @@ def _conflicts(conn, current_user_id, of_account):
 def _account_rows(conn, current_user_id, account_id, date_from, date_to):
     rows = conn.execute(
         """
-        SELECT id, date, description,
+        SELECT id, date, description, created_at,
             CASE
                 WHEN type = 'INCOME' THEN amount
                 WHEN type = 'TRANSFER' AND transfer_account_id = ? AND account_id != ? THEN COALESCE(transfer_amount, amount)
@@ -167,7 +170,8 @@ def _account_rows(conn, current_user_id, account_id, date_from, date_to):
         (account_id, account_id, current_user_id, account_id, account_id, date_from, date_to),
     ).fetchall()
     return [
-        {"id": row["id"], "date": row["date"], "cents": _cents(row["signed"]), "description": row["description"]}
+        {"id": row["id"], "date": row["date"], "cents": _cents(row["signed"]), "description": row["description"],
+         "created_at": row["created_at"]}
         for row in rows
     ]
 
@@ -176,7 +180,7 @@ def _card_rows(conn, current_user_id, card_id, date_from, date_to):
     """Uma entrada por compra (todas as parcelas: o client_id), na data da compra."""
     rows = conn.execute(
         """
-        SELECT MIN(id) AS id, purchase_date AS date, MIN(description) AS description,
+        SELECT MIN(id) AS id, purchase_date AS date, MIN(description) AS description, MAX(created_at) AS created_at,
             SUM(CASE kind WHEN 'REFUND' THEN amount ELSE -amount END) AS signed
         FROM cc_expenses
         WHERE user_id = ? AND card_id = ? AND purchase_date BETWEEN ? AND ?
@@ -186,7 +190,8 @@ def _card_rows(conn, current_user_id, card_id, date_from, date_to):
         (current_user_id, card_id, date_from, date_to),
     ).fetchall()
     return [
-        {"id": row["id"], "date": row["date"], "cents": _cents(row["signed"]), "description": row["description"]}
+        {"id": row["id"], "date": row["date"], "cents": _cents(row["signed"]), "description": row["description"],
+         "created_at": row["created_at"]}
         for row in rows if row["signed"]
     ]
 
@@ -220,6 +225,23 @@ def balance_explanation(difference_cents, bank_only, app_only, awaiting):
     }
 
 
+def newer_than_bank(entry, bank_stamp):
+    """Puro. O lancamento do app veio depois do que a Pluggy sabe do banco. Sem a
+    hora da Pluggy, nada a concluir: espera."""
+    if not bank_stamp:
+        return True
+    stamp = str(bank_stamp)
+    return str(entry.get("created_at") or "") >= stamp or str(entry["date"]) >= stamp[:10]
+
+
+def _bank_stamp(conn, current_user_id, of_account):
+    row = conn.execute(
+        "SELECT pluggy_updated_at FROM open_finance_items WHERE id = ? AND user_id = ?",
+        (of_account["of_item_id"], current_user_id),
+    ).fetchone()
+    return row["pluggy_updated_at"] if row else None
+
+
 def account_check(conn, current_user_id, of_account, difference_cents=None):
     """A conferencia de uma conta da Pluggy mapeada, ou None (sem mapeamento
     ou nada puxado ainda). Com `difference_cents` (saldo do banco - do app, na
@@ -233,14 +255,18 @@ def account_check(conn, current_user_id, of_account, difference_cents=None):
     dates = [entry["date"] for entry in bank + awaiting]
     if not dates:
         return {"from": None, "to": of_account["synced_until"], "bank_only": [], "app_only": [], "awaiting": [],
-                "bank_only_count": 0, "app_only_count": 0, "awaiting_count": 0, "conflicts": conflicts,
+                "awaiting_bank": [], "bank_only_count": 0, "app_only_count": 0, "awaiting_count": 0,
+                "awaiting_bank_count": 0, "conflicts": conflicts,
                 "explanation": balance_explanation(difference_cents, [], [], [])}
     date_from, date_to = min(dates), max(max(dates), of_account["synced_until"])
     app = (_card_rows if card else _account_rows)(conn, current_user_id, target, date_from, date_to)
     # Os que esperam no Aprovar tambem tiram seu par do app: um lancamento
     # digitado a mao para eles ja existe.
     _waiting, app = match_movements(awaiting, app)
-    bank_only, app_only = match_movements(bank, app)
+    bank_only, unmatched = match_movements(bank, app)
+    stamp = _bank_stamp(conn, current_user_id, of_account)
+    awaiting_bank = [entry for entry in unmatched if newer_than_bank(entry, stamp)]
+    app_only = [entry for entry in unmatched if not newer_than_bank(entry, stamp)]
     for entry in app_only:
         entry["reason"] = "not_in_bank"
     return {
@@ -249,9 +275,11 @@ def account_check(conn, current_user_id, of_account, difference_cents=None):
         "bank_only": _listed(bank_only),
         "app_only": _listed(app_only),
         "awaiting": _listed(awaiting),
+        "awaiting_bank": _listed(awaiting_bank),
         "bank_only_count": len(bank_only),
         "app_only_count": len(app_only),
         "awaiting_count": len(awaiting),
+        "awaiting_bank_count": len(awaiting_bank),
         "conflicts": conflicts,
-        "explanation": balance_explanation(difference_cents, bank_only, app_only, _waiting),
+        "explanation": balance_explanation(difference_cents, bank_only, unmatched, _waiting),
     }

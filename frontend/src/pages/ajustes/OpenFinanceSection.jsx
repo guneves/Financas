@@ -92,14 +92,12 @@ function AccountCheck({ check, money }) {
       : ' · o banco não tem mais'}`,
   }))
   const hasRows = check.bank_only?.length || check.app_only?.length || check.awaiting?.length || conflicts.length
-    || explained.length
+    || check.awaiting_bank?.length || explained.length
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-        <Badge tone={summary.state === 'match' ? 'success' : 'warning'}>
-          {summary.state === 'match' ? 'Movimentos conferem' : 'Movimentos com diferença'}
-        </Badge>
-        {summary.state === 'drift' || check.awaiting_count ? <span>{summary.text}</span> : null}
+        {summary.state === 'match' ? <Badge tone="success">Movimentos conferem</Badge> : null}
+        {check.awaiting_count && summary.state === 'match' ? <span>{summary.text}</span> : null}
       </div>
       {hasRows ? (
         <Collapsible label="Ver a conferência" variant="secondary" size="sm">
@@ -107,6 +105,7 @@ function AccountCheck({ check, money }) {
             <CheckList title="Só no banco (recusado no Aprovar ou lançado com outro valor/data)" rows={check.bank_only} money={money} />
             <CheckList title="Só no app (o banco não tem)" rows={check.app_only} money={money} />
             <CheckList title="Esperando no Aprovar" rows={check.awaiting} money={money} />
+            <CheckList title="Esperando a Pluggy atualizar" rows={check.awaiting_bank} money={money} />
             <CheckList title="Você editou e o banco mudou depois (o app não mexeu)" rows={conflicts} money={money} />
             {explained.length ? (
               <div className="space-y-1">

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { transactionEditForm, transactionEditPayload } from './transactionEdit.js'
+import { transactionEditForm, transactionEditPayload, transferEditError } from './transactionEdit.js'
 
 const transfer = {
   id: 't', type: 'TRANSFER', amount: 500, date: '2026-10-10', description: 'Reserva',
@@ -50,4 +50,28 @@ test('the share goes only when it changed', () => {
   const payload = transactionEditPayload(expense, split, 100, { sharing: true })
   assert.equal(payload.share_mode, 'SPLIT')
   assert.equal('share_mode' in transactionEditPayload(expense, split, 100, { sharing: false }), false)
+})
+
+const form = (extra) => ({ amount: '10', date: '2026-10-01', description: 'x', category_id: '', share: {}, ...extra })
+
+test('an expense turned into a transfer leaves its own account', () => {
+  const row = { id: '1', type: 'EXPENSE', account_id: 'a' }
+  const payload = transactionEditPayload(row, form({ type: 'TRANSFER', account_id: 'a', transfer_account_id: 'b' }), 10)
+  assert.equal(payload.type, 'TRANSFER')
+  assert.deepEqual([payload.account_id, payload.transfer_account_id], ['a', 'b'])
+  assert.equal('category_id' in payload, false)
+})
+
+test('an income turned into a transfer enters its own account', () => {
+  const row = { id: '1', type: 'INCOME', account_id: 'a' }
+  const payload = transactionEditPayload(row, form({ type: 'TRANSFER', account_id: 'a', transfer_account_id: 'b' }), 10)
+  assert.deepEqual([payload.account_id, payload.transfer_account_id], ['b', 'a'])
+})
+
+test('a conversion needs another account', () => {
+  const row = { id: '1', type: 'EXPENSE', account_id: 'a' }
+  assert.match(transferEditError(row, form({ type: 'TRANSFER', transfer_account_id: '' })), /outra conta/)
+  assert.match(transferEditError(row, form({ type: 'TRANSFER', transfer_account_id: 'a' })), /diferente/)
+  assert.equal(transferEditError(row, form({ type: 'TRANSFER', transfer_account_id: 'b' })), '')
+  assert.equal(transferEditError(row, form({ type: 'EXPENSE', transfer_account_id: '' })), '')
 })

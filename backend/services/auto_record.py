@@ -32,8 +32,7 @@ import json
 
 from config import AUTO_RECORD_DEFAULT
 from db import utc_timestamp
-from services import inbox, inbox_decisions, open_finance_auto, open_finance_inbox, review
-import services.invoices as invoices
+from services import inbox, inbox_decisions, open_finance_inbox, review
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
@@ -155,11 +154,7 @@ def undo_declined(conn, current_user_id, results):
 
 
 def record_due(conn, current_user_id, today=None):
-    """A passada das leituras: o que ficou pendente grava aqui. A Pluggy, se o
-    interruptor dela esta ligado, tambem (o par de transferencia que venceu)."""
-    today = today or invoices.local_today()
-    counts = record_notifications(conn, current_user_id)
-    if open_finance_auto.enabled(conn, current_user_id):
-        for key, value in open_finance_auto.record_pending(conn, current_user_id, today).items():
-            counts[key] = counts.get(key, 0) + value
-    return counts
+    """A passada das leituras: so o que veio de notificacao (o Flash). O que a
+    Pluggy trouxe so anda no pull, de 6 em 6 h (dono, 2026-10-30): uma leitura
+    nunca grava movimento de banco."""
+    return record_notifications(conn, current_user_id)

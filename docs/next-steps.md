@@ -10,6 +10,15 @@
 ## 1. Open work, in priority order
 
 ### Open Finance only (2026-10-30) — what is left
+- [ ] **Owner's account against Pluggy was not checked** (2026-10-30 session): SSH to the server was refused and
+  the Chrome extension was not connected, so production was never read. After the deploy, Ajustes › Open
+  Finance reads each account; "Ver a conferência" lists what differs. With Chrome connected a session can read
+  `GET /api/open-finance` from the owner's tab.
+- [ ] Items already pending from before this deploy (a TED salary saved as a one-sided transfer) stay as they
+  are: tap "Não é entre minhas contas" once; new ones are income straight away. A salary with no salary text
+  and no Pluggy `01` category, marked same-person by Pluggy, still arrives as a one-sided transfer.
+- [ ] The APK does not list `awaiting_bank` rows of the Conferência (the web does).
+- [ ] A card purchase cannot become a transfer (it moves no account).
 - [ ] Fixed income, Tesouro, funds and INTEREST stay HELD: Pluggy's operations lack indexer, title type,
   redemption lot and coupon tax start. So later fixed-income buys, IR and fees are `COVERED`, and the
   Corretora can drift from BTG's cash after a rebuild. `cash_check()` shows it.

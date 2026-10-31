@@ -7,24 +7,33 @@
 
 ---
 
-## Session — 2026-10-28 · Conta global out of "Saldo em contas"; Cartões opens collapsed
+## Session — 2026-10-30 · The app waits for Pluggy; expense to transfer; instant saves
 
-Owner asked: the Conta global balance must not show as "saldo em conta"; every card on Cartões
-should appear closed when the screen opens.
+Owner asked: expenses wait until Pluggy refreshes and are flagged only if a run updated and still did not
+identify them; deletes and edits feel slow; an expense must be editable into a transfer; Pluggy does 99% of
+the work, notifications only for the Flash; a TED salary failed with "escolha a conta" on "não é entre minhas
+contas"; update only on the 6 h period; remove "Movimentos com diferença"; check the owner's account.
 
-Done:
-- `services/home.py` `consolidated_balance()` skips non-BRL accounts (`is_foreign_currency()`), so
-  Início's "Saldo em contas" and the Extrato/Cartões projections leave the Wise account out. The
-  tile under the accounts still shows it converted. `test_global_account.py` updated. Client
-  pending-overlay (`applyPendingToHome` / `OutboxPending.kt`) already skipped USD accounts.
-- Conta global screen (web + APK): headline label "Saldo em conta" → "Saldo em dólar"; the
-  description no longer says it enters the saldo em contas. CLAUDE.md rule rewritten.
-- Cartões (web `Cartoes.jsx`, APK `CartoesViewModel.kt`): no invoice (not even the nearest) and no
-  débito list starts expanded; only a tap opens. Doc `mobile-docs/native/screens/*cart*` updated.
-- Tests: backend full suite green; node 214/214.
+Done (rules in CLAUDE.md › "Open Finance is the only banking source"):
+- TED salary: a one-sided incoming transfer is stored OUT with no origin, so the button asked for an account and
+  would have sent a despesa. `settle_one_side()` fixes it on the server (works on the installed APK);
+  `ReviewRules.singleType` too. New salaries are income (`is_income_row()`).
+- Waiting: `awaiting_bank()` keeps a pending item out of `waiting` until every connection refreshed after it; the
+  Conferência's `awaiting_bank` does it for app rows. "Não gravou sozinho" reads what Pluggy did not identify.
+- 6 h: reads no longer run `record_pending()`; only the pull writes bank movements. The button still pulls.
+- Expense/income → transfer: PATCH, web and APK, absorbing the other side Pluggy already recorded.
+- Speed: PATCH and DELETE take ~15 ms on 3000 rows; the wait was the screens holding the row until every list
+  reloaded. The Extrato (web, APK) now changes the row at once. `PRAGMA synchronous = NORMAL` was set on
+  one connection only, so every other commit paid a full fsync; `get_db()` sets it.
+- "Movimentos com diferença" badge removed (web, APK); "Movimentos conferem" stays, details stay in "Ver a
+  conferência"; the balance "Diferença R$" stays.
+- Notifications: confirmed Flash-only on the server (`notification_wanted()`); no change.
 
-Not done: Kotlin unit tests not run here (no Android SDK in the container); the APK change is a
-two-line default swap, nothing tests it.
+**Not done:** the owner's account was **not** compared with Pluggy: SSH was refused and the Chrome extension
+was offline. Nothing in production was read or changed. See next-steps.
 
-Next: merge (deploys), install the APK, check Início's total and Cartões on the phone.
+Lessons: a `perf` run right after `import app` measures the Tesouro boot download thread (150 ms of TLS reads
+in the profile are not the request). `FakePluggy` connects with a first pull, so `synced_until` is today: rows
+older than 7 days never arrive in a test; and `pluggy_updated_at` in the future never counts as read.
 
+Next: merge (deploys), update the APK, walk the salary button, one expense → transfer, a delete.

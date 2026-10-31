@@ -32,6 +32,9 @@ O interruptor (`open_finance_auto_record`) sem escolha vale AUTO_RECORD_DEFAULT
 (ligado): mapear a conta ja e o consentimento. Desligado, a Pluggy so liga o
 que a notificacao ja gravou e o resto espera.
 
+O que ainda espera nao vai para a fila do dono ate a Pluggy atualizar sem
+identificar (`awaiting_bank()`), e so o pull grava: leitura nenhuma anda com isto.
+
 Um lancamento ja gravado pelo dono que e o mesmo movimento (os "parecidos" do
 item, mesmo valor e data proxima) e LIGADO, nunca duplicado nem apagado; um
 parecido que outra transacao da Pluggy ja explica nao conta. O que foi gravado
@@ -51,6 +54,8 @@ AUTO_RECORD_SETTING = "open_finance_auto_record"
 FRESH_PULL_HOURS = 48
 TRANSFER_HOLD_DAYS = 2
 TRANSFER_MOVEMENTS = ("TRANSFER", "SELF_TRANSFER")
+# Uma conexao parada (senha vencida) nao esconde um item para sempre.
+BANK_WAIT_MAX_DAYS = 3
 
 
 def enabled(conn, current_user_id):
@@ -95,6 +100,46 @@ def blockers(conn, current_user_id, now_seconds):
                 continue
             problems.append(f"Escolha o destino de {account_label(account)} (ou marque \"não usar\").")
     return problems
+
+
+# ---------------------------------------------------------------------------
+# Esperar o banco (dono, 2026-10-30)
+# ---------------------------------------------------------------------------
+
+def bank_refreshed_since(conn, current_user_id, stamp):
+    """Toda conexao ativa trouxe dado novo do banco depois de `stamp` e o app ja
+    leu: so entao "o banco nao tem" e uma conclusao. `pluggy_updated_at` e a hora
+    em que a Pluggy falou com o banco, nao a do nosso pull."""
+    since = _seconds(stamp)
+    items = conn.execute(
+        "SELECT pluggy_updated_at, last_sync_at FROM open_finance_items WHERE user_id = ? AND archived_at IS NULL",
+        (current_user_id,),
+    ).fetchall()
+    return bool(items) and all(
+        _seconds(item["pluggy_updated_at"]) > since and _seconds(item["last_sync_at"]) >= _seconds(item["pluggy_updated_at"])
+        for item in items
+    )
+
+
+def awaiting_bank(conn, current_user_id, row, now_seconds):
+    """O item pendente ainda espera a Pluggy atualizar: quieto, nao vai para a
+    fila do dono. So o que veio da Pluggy, e so com Gravar sozinho ligado."""
+    if not enabled(conn, current_user_id):
+        return False
+    if now_seconds - _seconds(row["created_at"]) > BANK_WAIT_MAX_DAYS * 86400:
+        return False
+    if not inbox.open_finance_sources(conn, current_user_id, row["id"], roles=(inbox.SOURCE,)):
+        return False
+    return not bank_refreshed_since(conn, current_user_id, row["created_at"])
+
+
+def flagged_count(conn, current_user_id, now_seconds):
+    """Os itens pendentes que o dono precisa resolver: a Pluggy ja atualizou e
+    nao identificou."""
+    rows = conn.execute(
+        "SELECT * FROM inbox_items WHERE user_id = ? AND state = 'PENDING'", (current_user_id,),
+    ).fetchall()
+    return sum(1 for row in rows if not awaiting_bank(conn, current_user_id, row, now_seconds))
 
 
 # ---------------------------------------------------------------------------

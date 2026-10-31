@@ -8,11 +8,13 @@ outro na proxima leitura. Cada mudanca leva a `version` do item; com a versao
 velha a resposta e 409, com o item como esta agora.
 """
 
+import time
+
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db
-from services import auto_record, inbox, inbox_decisions
+from services import auto_record, inbox, inbox_decisions, open_finance_auto
 from validators import ValidationError, parse_json_body, require_id_list, validation_error
 
 bp = Blueprint("inbox", __name__)
@@ -58,6 +60,12 @@ def list_inbox(current_user_id):
                 item["target"] = inbox_decisions.serialize_target(
                     conn, current_user_id, item.get("target_table"), item.get("target_id")
                 )
+        else:
+            # O celular so pergunta o que a Pluggy ja atualizou e nao identificou.
+            now = time.time()
+            for item in items:
+                row = inbox.fetch_item(conn, current_user_id, item["id"])
+                item["awaiting_bank"] = open_finance_auto.awaiting_bank(conn, current_user_id, row, now)
         body = {"items": items, "pending_count": inbox.pending_count(conn, current_user_id)}
     return jsonify(body), 200
 
