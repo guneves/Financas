@@ -21,7 +21,8 @@
 - [ ] eslint has no config file, so it cannot run in `frontend/`.
 - [ ] Screens not seen until the deploy: Conferência without Diferença, Ritmo, Evolução do saldo, the invoice dropdown
   (web at 390 px and APK), Revisar's "É repasse", "+ Novo" with the Flash only.
-- [ ] A salary reaching Itaú as PENDING (R$ 1.680, 2026-10-30) and BTG as "TedSalary" counts twice when it posts: pair them.
+- [ ] The Itaú salary is ported to BTG (owner, 2026-10-31): Itaú's `PENDING` row and BTG's "TedSalary" are one salary; Itaú posted
+  nothing in August or September. Only an Itaú salary that posts beside a TedSalary would be a double count.
 - [ ] The APK has no "Lançar" / "Aconteceu" in the Conferência (web only).
 - [ ] Items already pending from before this deploy (a TED salary saved as a one-sided transfer) stay as they
   are: tap "Não é entre minhas contas" once; new ones are income straight away. A salary with no salary text
