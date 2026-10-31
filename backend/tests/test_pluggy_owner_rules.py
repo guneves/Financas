@@ -192,6 +192,29 @@ class TestKeptPayment:
         assert len(self.payments(bank)) == 2
 
 
+class TestPaidBeforeClosing:
+    def scene(self, world, amount):
+        item_id, _p, made = connected(world, bank=True, card=True)
+        auto_on(world)
+        world.fake.add_tx(made["card"][0], billed(card_tx(1313.88, "2026-10-20", "Loja", docs_sign=True), "2026-11"))
+        world.sync(item_id)
+        world.fake.add_tx(made["bank"][0], bank_tx(-amount, "2026-10-21", "CardBankslip", category_id="05100000"))
+        world.sync(item_id)
+        return made
+
+    def test_the_exact_amount_pays_the_open_invoice(self, world):
+        made = self.scene(world, 1313.88)
+        [row] = world.card_rows(made["card"][2])
+        assert row["status"] == "PAID"
+        assert len(world.transactions(made["bank"][2])) == 1
+
+    def test_another_amount_leaves_it_open_and_the_money_still_leaves(self, world):
+        made = self.scene(world, 500)
+        [row] = world.card_rows(made["card"][2])
+        assert row["status"] == "OPEN"
+        assert [entry["amount"] for entry in world.transactions(made["bank"][2])] == [500.0]
+
+
 class TestBankInvestment:
     def test_it_is_neither_expense_nor_income_and_stays_in_the_balance(self, world, user):
         item_id, _p, made = connected(world)

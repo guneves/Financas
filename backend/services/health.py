@@ -122,7 +122,7 @@ CHECKS = {
     "brapi": ("brapi", "Cotações da B3 (primário quando há token)", check_brapi),
     "bcb": ("Banco Central (SGS)", "CDI e IPCA da renda fixa", check_bcb),
     "tesouro": ("Tesouro Transparente", "Preço de mercado do Tesouro Direto", check_tesouro),
-    "pluggy": ("Pluggy (Open Finance)", "Movimentos das contas e cartões para o Aprovar", check_pluggy),
+    "pluggy": ("Pluggy (Open Finance)", "Movimentos das contas e cartões", check_pluggy),
 }
 
 
