@@ -4,6 +4,7 @@ import {
   blockedRecurringMessage,
   bankingAccounts,
   bankingTransactions,
+  withoutForeignEntries,
   cardPurchaseKey,
   cardSignedAmount,
   isInvoicePayment,
@@ -123,4 +124,14 @@ test('an invoice payment is never an expense (by origin or by the typed category
   assert.ok(isInvoicePayment({ type: 'EXPENSE', category: 'Pagamento Fatura Nubank' }))
   assert.ok(!isInvoicePayment({ type: 'EXPENSE', category: 'pagamento fatura' }))
   assert.ok(!isInvoicePayment({ type: 'EXPENSE', category: 'Mercado' }))
+})
+
+test('a despesa da conta global fica fora dos totais em reais; a transferencia fica', () => {
+  const accounts = [{ id: 'bb' }, { id: 'wise', currency: 'USD' }]
+  const rows = [
+    { id: 'a', type: 'EXPENSE', account_id: 'bb' },
+    { id: 'b', type: 'EXPENSE', account_id: 'wise' },
+    { id: 'c', type: 'TRANSFER', account_id: 'bb', transfer_account_id: 'wise' },
+  ]
+  assert.deepEqual(withoutForeignEntries(rows, accounts).map((row) => row.id), ['a', 'c'])
 })

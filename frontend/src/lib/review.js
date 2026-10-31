@@ -77,9 +77,14 @@ export function reviewPayload(items, chosen = {}) {
     if (reviewHasCategory(item) && chosen[key] && chosen[key] !== (item.category_id || '')) {
       entry.category_id = chosen[key]
     }
+    if (item.repasse) entry.repasse = true
     return entry
   })
 }
+
+// Repasse (dono, 2026-10-31): a receita que e dinheiro de outra pessoa para pagar
+// algo dela. Fica no saldo, fora da renda.
+export const reviewCanBeRepasse = (item) => item.table === 'transactions' && item.type === 'INCOME'
 
 export const reviewKey = (item) => `${item.table}:${item.id}`
 

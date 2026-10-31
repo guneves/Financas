@@ -355,7 +355,7 @@ TAX_FII = "FII"
 # sem isencao) — acrescente o ticker.
 FIXED_INCOME_ETFS = frozenset({
     "IMAB11", "IB5M11", "B5P211", "IRFM11", "FIXA11", "DEBB11",
-    "LFTB11", "LFTS11", "B5MB11", "IMBB11",
+    "LFTB11", "LFTS11", "B5MB11", "IMBB11", "AUPO11",
 })
 
 # Final do ticker de BDR na B3 (32/33 niveis II e III, 34/35 nivel I, 39 BDR de ETF).

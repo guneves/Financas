@@ -1,12 +1,14 @@
 """Conferencia do Open Finance (Ajustes › Open Finance): o banco contra o app.
 
-So aponta, nunca grava nem ajusta. Para cada conta mapeada, na janela ja
-puxada (do primeiro movimento que a Pluggy trouxe ate `synced_until`):
+So aponta, nunca grava nem ajusta (os botoes de cada linha estao em
+services/open_finance_resolve.py). Para cada conta mapeada, na janela ja puxada
+(do primeiro movimento que a Pluggy trouxe ate `synced_until`):
 
 - `bank_only`: movimentos do banco sem lancamento no app — o dono recusou o
   item no Aprovar, ou o lancamento tem outro valor/data;
 - `app_only`: lancamentos do app que o banco nao tem — digitado errado, em
   dobro, na conta errada;
+- `confirmed`: lancamentos que o banco nao tem e o dono disse que aconteceram;
 - `awaiting`: movimentos do banco que ainda esperam no Aprovar (nao sao
   inconsistencia, so ainda nao decididos);
 - `awaiting_bank`: lancamentos do app que a Pluggy ainda nao teve como trazer
@@ -21,7 +23,8 @@ nao mandam o total), entao aceita ate n centavos de diferenca.
 
 from datetime import date as date_type
 
-from services import inbox
+from services import inbox, open_finance_invoices
+from source_types import INVESTMENT_CASH_SOURCE_TYPE
 
 MATCH_DAYS = 3
 MAX_LISTED = 50
@@ -65,7 +68,26 @@ def _cents(amount):
     return int(round(float(amount) * 100))
 
 
+def _bank_purchase_cents(conn, current_user_id, of_account):
+    """O que o banco lista de cada compra parcelada (a soma das parcelas dele)."""
+    totals = {}
+    for row in conn.execute(
+        """
+        SELECT date, description, total_installments, raw_amount_cents FROM open_finance_transactions
+        WHERE user_id = ? AND of_account_id = ? AND role <> 'REMOVED' AND total_installments > 1
+          AND bill_month IS NOT NULL
+        """,
+        (current_user_id, of_account["id"]),
+    ).fetchall():
+        key = (row["date"], row["description"], row["total_installments"])
+        totals[key] = totals.get(key, 0) + abs(int(row["raw_amount_cents"]))
+    for key, cents in open_finance_invoices.unlisted_anticipated_cents(conn, current_user_id, of_account["id"]).items():
+        totals[key] = totals.get(key, 0) + cents
+    return totals
+
+
 def _bank_rows(conn, current_user_id, of_account, card):
+    purchases = _bank_purchase_cents(conn, current_user_id, of_account) if card else {}
     rows = conn.execute(
         """
         SELECT id, date, direction, amount_cents, description, role, item_id, movement, total_installments,
@@ -85,10 +107,9 @@ def _bank_rows(conn, current_user_id, of_account, card):
         cents = row["conflict_amount_cents"] if row["conflict"] == "changed" and row["conflict_amount_cents"] else (
             row["amount_cents"]
         )
-        if card and row["role"] == "SOURCE" and (row["installment_number"] or 1) > 1 and row["total_installments"]:
-            # A compra anterior ao historico (adopt_orphan_installments): uma
-            # parcela responde pela compra inteira.
-            cents *= row["total_installments"]
+        if card and row["role"] == "SOURCE" and row["total_installments"] and row["total_installments"] > 1:
+            # A compra inteira, como o banco a lista (a parcela responde por ela).
+            cents = purchases.get((row["date"], row["description"], row["total_installments"]), cents)
         entry = {
             "id": row["id"],
             "date": row["date"],
@@ -154,6 +175,8 @@ def _conflicts(conn, current_user_id, of_account):
 
 
 def _account_rows(conn, current_user_id, account_id, date_from, date_to):
+    # O caixa de uma operacao corresponde ao bruto do pregao, que fica fora daqui. O
+    # deposito em dolar a Wise manda em outra gaveta (a "BRL", nao usada): tambem.
     rows = conn.execute(
         """
         SELECT id, date, description, created_at,
@@ -165,13 +188,20 @@ def _account_rows(conn, current_user_id, account_id, date_from, date_to):
         FROM transactions
         WHERE user_id = ? AND (account_id = ? OR (type = 'TRANSFER' AND transfer_account_id = ?))
           AND date BETWEEN ? AND ?
+          AND NOT (COALESCE(source_type, '') = ? AND account_id IN (
+              SELECT id FROM accounts WHERE user_id = ? AND type = 'BROKERAGE'
+          ))
+          AND NOT (type = 'TRANSFER' AND transfer_account_id = ? AND transfer_amount IS NOT NULL)
         ORDER BY date, id
         """,
-        (account_id, account_id, current_user_id, account_id, account_id, date_from, date_to),
+        (
+            account_id, account_id, current_user_id, account_id, account_id, date_from, date_to,
+            INVESTMENT_CASH_SOURCE_TYPE, current_user_id, account_id,
+        ),
     ).fetchall()
     return [
-        {"id": row["id"], "date": row["date"], "cents": _cents(row["signed"]), "description": row["description"],
-         "created_at": row["created_at"]}
+        {"id": row["id"], "table": "transactions", "date": row["date"], "cents": _cents(row["signed"]),
+         "description": row["description"], "created_at": row["created_at"]}
         for row in rows
     ]
 
@@ -190,8 +220,8 @@ def _card_rows(conn, current_user_id, card_id, date_from, date_to):
         (current_user_id, card_id, date_from, date_to),
     ).fetchall()
     return [
-        {"id": row["id"], "date": row["date"], "cents": _cents(row["signed"]), "description": row["description"],
-         "created_at": row["created_at"]}
+        {"id": row["id"], "table": "cc_expenses", "date": row["date"], "cents": _cents(row["signed"]),
+         "description": row["description"], "created_at": row["created_at"]}
         for row in rows if row["signed"]
     ]
 
@@ -199,7 +229,10 @@ def _card_rows(conn, current_user_id, card_id, date_from, date_to):
 def _listed(entries):
     listed = []
     for entry in entries[:MAX_LISTED]:
-        item = {"date": entry["date"], "amount": entry["cents"] / 100, "description": entry.get("description")}
+        item = {"id": entry.get("id"), "date": entry["date"], "amount": entry["cents"] / 100,
+                "description": entry.get("description")}
+        if entry.get("table"):
+            item["table"] = entry["table"]
         if entry.get("reason"):
             item["reason"] = entry["reason"]
         listed.append(item)
@@ -234,6 +267,14 @@ def newer_than_bank(entry, bank_stamp):
     return str(entry.get("created_at") or "") >= stamp or str(entry["date"]) >= stamp[:10]
 
 
+def _confirmed_keys(conn, current_user_id):
+    return {
+        (row["target_table"], row["target_id"]) for row in conn.execute(
+            "SELECT target_table, target_id FROM open_finance_confirmed WHERE user_id = ?", (current_user_id,),
+        ).fetchall()
+    }
+
+
 def _bank_stamp(conn, current_user_id, of_account):
     row = conn.execute(
         "SELECT pluggy_updated_at FROM open_finance_items WHERE id = ? AND user_id = ?",
@@ -255,7 +296,7 @@ def account_check(conn, current_user_id, of_account, difference_cents=None):
     dates = [entry["date"] for entry in bank + awaiting]
     if not dates:
         return {"from": None, "to": of_account["synced_until"], "bank_only": [], "app_only": [], "awaiting": [],
-                "awaiting_bank": [], "bank_only_count": 0, "app_only_count": 0, "awaiting_count": 0,
+                "awaiting_bank": [], "confirmed": [], "bank_only_count": 0, "app_only_count": 0, "awaiting_count": 0,
                 "awaiting_bank_count": 0, "conflicts": conflicts,
                 "explanation": balance_explanation(difference_cents, [], [], [])}
     date_from, date_to = min(dates), max(max(dates), of_account["synced_until"])
@@ -265,8 +306,11 @@ def account_check(conn, current_user_id, of_account, difference_cents=None):
     _waiting, app = match_movements(awaiting, app)
     bank_only, unmatched = match_movements(bank, app)
     stamp = _bank_stamp(conn, current_user_id, of_account)
-    awaiting_bank = [entry for entry in unmatched if newer_than_bank(entry, stamp)]
-    app_only = [entry for entry in unmatched if not newer_than_bank(entry, stamp)]
+    done = _confirmed_keys(conn, current_user_id)
+    confirmed = [entry for entry in unmatched if (entry["table"], entry["id"]) in done]
+    open_rows = [entry for entry in unmatched if (entry["table"], entry["id"]) not in done]
+    awaiting_bank = [entry for entry in open_rows if newer_than_bank(entry, stamp)]
+    app_only = [entry for entry in open_rows if not newer_than_bank(entry, stamp)]
     for entry in app_only:
         entry["reason"] = "not_in_bank"
     return {
@@ -276,6 +320,7 @@ def account_check(conn, current_user_id, of_account, difference_cents=None):
         "app_only": _listed(app_only),
         "awaiting": _listed(awaiting),
         "awaiting_bank": _listed(awaiting_bank),
+        "confirmed": _listed(confirmed),
         "bank_only_count": len(bank_only),
         "app_only_count": len(app_only),
         "awaiting_count": len(awaiting),

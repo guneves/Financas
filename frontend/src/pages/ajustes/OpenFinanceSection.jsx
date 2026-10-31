@@ -7,7 +7,6 @@ import { formatCurrency, formatDateBR, getLocalDateString } from '../../lib/form
 import {
   IGNORE_CHOICE,
   accountLabel,
-  autoRecordHint,
   balanceCheck,
   balanceExplanation,
   checkReasonLabel,
@@ -58,7 +57,8 @@ async function openPluggyConnect(connectToken, { onSuccess, onError, onClose }) 
   return widget
 }
 
-function CheckList({ title, rows, money }) {
+// Cada linha pode ter um botao: quem resolve a diferenca e o dono.
+function CheckList({ title, rows, money, action }) {
   if (!rows?.length) return null
   return (
     <div className="space-y-1">
@@ -70,7 +70,14 @@ function CheckList({ title, rows, money }) {
               {formatDateBR(row.date)} · {row.description || 'Sem descrição'}
               {checkReasonLabel(row.reason) ? <span className="text-zinc-500"> · {checkReasonLabel(row.reason)}</span> : null}
             </span>
-            <span className="num shrink-0">{money(row.amount)}</span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="num">{money(row.amount)}</span>
+              {action && row.id ? (
+                <Button size="sm" variant="secondary" loading={action.busy === `${action.key}:${row.id}`} disabled={Boolean(action.busy)} onClick={() => action.run(row)}>
+                  {action.label}
+                </Button>
+              ) : null}
+            </span>
           </li>
         ))}
       </ul>
@@ -81,7 +88,7 @@ function CheckList({ title, rows, money }) {
 // Conferência: o banco contra o app, so apontando (nada e ajustado). Com
 // diferenca de saldo, de onde ela vem; os gravados sozinhos que o banco mudou
 // depois que o dono editou ficam listados para ele decidir.
-function AccountCheck({ check, money }) {
+function AccountCheck({ check, money, busy, onRecord, onConfirm }) {
   const summary = checkSummary(check)
   if (summary.state === 'none') return null
   const explained = balanceExplanation(check.explanation, money)
@@ -92,7 +99,7 @@ function AccountCheck({ check, money }) {
       : ' · o banco não tem mais'}`,
   }))
   const hasRows = check.bank_only?.length || check.app_only?.length || check.awaiting?.length || conflicts.length
-    || check.awaiting_bank?.length || explained.length
+    || check.awaiting_bank?.length || check.confirmed?.length || explained.length
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
@@ -102,9 +109,25 @@ function AccountCheck({ check, money }) {
       {hasRows ? (
         <Collapsible label="Ver a conferência" variant="secondary" size="sm">
           <div className="space-y-3">
-            <CheckList title="Só no banco (recusado no Aprovar ou lançado com outro valor/data)" rows={check.bank_only} money={money} />
-            <CheckList title="Só no app (o banco não tem)" rows={check.app_only} money={money} />
-            <CheckList title="Esperando no Aprovar" rows={check.awaiting} money={money} />
+            <CheckList
+              title="Só no banco (recusado no Revisar ou lançado com outro valor/data)"
+              rows={check.bank_only}
+              money={money}
+              action={{ key: 'record', label: 'Lançar', busy, run: onRecord }}
+            />
+            <CheckList
+              title="Só no app (o banco não tem)"
+              rows={check.app_only}
+              money={money}
+              action={{ key: 'confirm', label: 'Aconteceu', busy, run: (row) => onConfirm(row, false) }}
+            />
+            <CheckList
+              title="Você disse que aconteceu"
+              rows={check.confirmed}
+              money={money}
+              action={{ key: 'confirm', label: 'Desfazer', busy, run: (row) => onConfirm(row, true) }}
+            />
+            <CheckList title="Esperando no Revisar" rows={check.awaiting} money={money} />
             <CheckList title="Esperando a Pluggy atualizar" rows={check.awaiting_bank} money={money} />
             <CheckList title="Você editou e o banco mudou depois (o app não mexeu)" rows={conflicts} money={money} />
             {explained.length ? (
@@ -125,7 +148,7 @@ function AccountCheck({ check, money }) {
   )
 }
 
-function AccountRow({ account, item, choices, money, busy, onMap }) {
+function AccountRow({ account, item, choices, money, busy, checkBusy, onMap, onRecord, onConfirm }) {
   const check = balanceCheck(account)
   const current = mappedId(account)
   const suggested = !current && account.suggested_id ? choices.find((choice) => choice.value === account.suggested_id) : null
@@ -164,7 +187,7 @@ function AccountRow({ account, item, choices, money, busy, onMap }) {
       ) : null}
       {!current && !account.ignored && account.unmapped_count ? (
         <p className="text-xs text-zinc-500">
-          {account.unmapped_count === 1 ? '1 movimento espera' : `${account.unmapped_count} movimentos esperam`} esta escolha para ir ao Aprovar.
+          {account.unmapped_count === 1 ? '1 movimento espera' : `${account.unmapped_count} movimentos esperam`} esta escolha.
         </p>
       ) : null}
       {check.state !== 'none' ? (
@@ -177,7 +200,7 @@ function AccountRow({ account, item, choices, money, busy, onMap }) {
       ) : account.type === 'CREDIT' && account.pluggy_balance != null ? (
         <p className="num text-xs text-zinc-500">Fatura no banco: {money(Math.abs(account.pluggy_balance))}</p>
       ) : null}
-      <AccountCheck check={account.check} money={money} />
+      <AccountCheck check={account.check} money={money} busy={checkBusy} onRecord={onRecord} onConfirm={onConfirm} />
     </li>
   )
 }
@@ -290,7 +313,7 @@ function HistoryPanel({ enabled, busy, run }) {
 // web), dizer para qual conta/cartao do app vai cada conta dele (ou "nao
 // usar"), ver o estado e o saldo do banco ao lado do do app. Com "Gravar
 // sozinho", o que chega vira lancamento; desligado, espera em Lancamentos ›
-// Aprovar.
+// Revisar.
 export default function OpenFinanceSection() {
   const overviewQuery = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => openFinanceApi.overview() })
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
@@ -354,7 +377,7 @@ export default function OpenFinanceSection() {
     const name = itemBankName(item)
     if (!(await confirmAction({
       title: `Desconectar ${name}?`,
-      message: 'A conexão é apagada na Pluggy e nada mais chega deste banco. Os lançamentos já aprovados e o que espera no Aprovar ficam.',
+      message: 'A conexão é apagada na Pluggy e nada mais chega deste banco. Os lançamentos já gravados e o que espera no Revisar ficam.',
       confirmLabel: 'Desconectar',
     }))) return
     await run(`off:${item.id}`, async () => {
@@ -369,7 +392,17 @@ export default function OpenFinanceSection() {
     if (!value) toast('Esta conta não traz mais nada.')
     else if (value === IGNORE_CHOICE) toast('Esta conta fica de fora.')
     else if (recorded) toast(`Destino salvo. ${recorded} lançamento(s) gravado(s).`)
-    else toast(body?.placed ? `Destino salvo. ${body.placed} movimento(s) foram para o Aprovar.` : 'Destino salvo.')
+    else toast(body?.placed ? `Destino salvo. ${body.placed} movimento(s) foram para o Revisar.` : 'Destino salvo.')
+  })
+
+  const recordBankRow = (row) => run(`record:${row.id}`, async () => {
+    keep(await openFinanceApi.recordBankRow(row.id))
+    toast('Lançado. Confira em Revisar.')
+  })
+
+  const confirmAppRow = (row, undo) => run(`confirm:${row.id}`, async () => {
+    keep(await openFinanceApi.confirmAppRow(row, undo))
+    toast(undo ? 'Voltou para a conferência.' : 'Certo: fica como feito.')
   })
 
   const saveSettings = (key, payload, message) => run(key, async () => {
@@ -390,8 +423,8 @@ export default function OpenFinanceSection() {
       <PanelHeader
         title="Open Finance"
         description={settings?.auto_record
-          ? 'Os movimentos das suas contas e cartões chegam pela Pluggy e viram lançamentos sozinhos. O Aprovar fica para o Flash e o que só você decide.'
-          : 'Os movimentos das suas contas e cartões chegam pela Pluggy e esperam em Lançamentos › Aprovar.'}
+          ? 'Os movimentos das suas contas e cartões chegam pela Pluggy e viram lançamentos sozinhos. O Revisar, no Extrato, fica para as categorias e o que só você decide.'
+          : 'Os movimentos das suas contas e cartões chegam pela Pluggy e esperam no Revisar, no Extrato.'}
         actions={data?.configured ? (
           <Button size="sm" icon={Plus} loading={busy === 'connect' || busy === 'register'} onClick={() => connect()}>
             Conectar banco
@@ -411,7 +444,7 @@ export default function OpenFinanceSection() {
           <EmptyState
             icon={Landmark}
             title="Nenhum banco conectado"
-            message="Conecte um banco seu (um CPF, o seu). Os movimentos dos últimos dias vêm para o Aprovar; depois o app busca sozinho de tempos em tempos."
+            message="Conecte um banco seu (um CPF, o seu). Os movimentos dos últimos dias viram lançamentos; depois o app busca sozinho de tempos em tempos."
           />
         ) : null}
         {items.map((item) => {
@@ -453,7 +486,10 @@ export default function OpenFinanceSection() {
                     choices={mappingChoices(account, { accounts, cards, items })}
                     money={money}
                     busy={busy === `map:${account.id}`}
+                    checkBusy={busy}
                     onMap={map}
+                    onRecord={recordBankRow}
+                    onConfirm={confirmAppRow}
                   />
                 ))}
               </ul>
@@ -463,25 +499,6 @@ export default function OpenFinanceSection() {
         <PortfolioCheck investments={data?.investments} money={money} />
         {data?.configured && settings ? (
           <div className="space-y-4 border-t border-zinc-100 pt-4">
-            <label className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                checked={Boolean(settings.auto_record)}
-                disabled={busy === 'auto' || (!settings.auto_record && (settings.auto_record_blockers || []).length > 0)}
-                onChange={async (event) => {
-                  const on = event.target.checked
-                  const body = await saveSettings('auto', { auto_record: on }, on ? 'Gravar sozinho ligado.' : 'Gravar sozinho desligado: tudo volta a esperar no Aprovar.')
-                  if (body?.auto_recorded?.recorded || body?.auto_recorded?.linked) {
-                    toast(`${body.auto_recorded.recorded} gravado(s) e ${body.auto_recorded.linked} ligado(s) do que esperava no Aprovar.`)
-                  }
-                }}
-                className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-zinc-900">Gravar sozinho</span>
-                <span className="block text-sm text-zinc-600">{autoRecordHint(settings)}</span>
-              </span>
-            </label>
             <Field
               label="Busca automática"
               hint={settings.auto_sync_available
@@ -510,14 +527,14 @@ export default function OpenFinanceSection() {
                 onChange={(event) => saveSettings(
                   'pending',
                   { include_pending: event.target.checked },
-                  event.target.checked ? 'Pendentes do banco vêm para o Aprovar.' : 'Pendentes do banco ficam de fora.',
+                  event.target.checked ? 'Pendentes do banco vêm para o Revisar.' : 'Pendentes do banco ficam de fora.',
                 )}
                 className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600"
               />
               <span className="min-w-0">
                 <span className="block text-sm font-semibold text-zinc-900">Trazer pendentes</span>
                 <span className="block text-sm text-zinc-600">
-                  Movimentos que o banco ainda não liquidou (compra na fatura aberta) também vão para o Aprovar. Se o banco trocar o movimento ao liquidar, o item pendente sai sozinho.
+                  Movimentos que o banco ainda não liquidou (compra na fatura aberta) também entram. Se o banco trocar o movimento ao liquidar, o item pendente sai sozinho.
                 </span>
               </span>
             </label>

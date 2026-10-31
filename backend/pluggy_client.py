@@ -197,6 +197,10 @@ class PluggyClient:
         """As operacoes de uma posicao (`GET /investments/{id}/transactions`)."""
         return self._pages(f"/investments/{_path_id(investment_id)}/transactions", {})
 
+    def list_bills(self, account_id):
+        """As faturas de um cartao (`GET /bills?accountId=`)."""
+        return self._pages("/bills", {"accountId": account_id})
+
     def _pages(self, path, query):
         """Uma listagem por pagina (`page`, `totalPages`), ate MAX_TRANSACTION_PAGES."""
         results = []

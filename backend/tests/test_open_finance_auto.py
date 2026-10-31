@@ -358,26 +358,25 @@ class TestTransfers:
         [row] = [row for row in world.transactions() if row["amount"] == 1000]
         assert (row["type"], row["account_id"], row["transfer_account_id"]) == ("TRANSFER", btg_id, corretora)
 
-    def test_broker_cash_movements_are_covered(self, world, user):
+    def test_the_trade_gross_is_covered_and_nothing_goes_to_the_owner(self, world, user):
         made = meupluggy(world)
         auto_on(world)
         broker, _of, corretora = made["btg:0002/2-2X"]
-        dividend = world.fake.add_tx(broker, bank_tx(12.5, "2026-10-20", "DIVIDENDOS PETR4", category_id="03060000"))
-        buy = world.fake.add_tx(broker, bank_tx(-300, "2026-10-21", "COMPRA ACOES", category_id="03040000"))
+        buy = world.fake.add_tx(broker, bank_tx(-300, "2026-10-21", "LIQ BOLSA - VISTA BRUTO", category_id="03040000"))
         world.sync(made["items"]["btg"])
         assert world.transactions(corretora) == []
         assert world.pending() == []
-        assert {of_tx(user["id"], dividend)["role"], of_tx(user["id"], buy)["role"]} == {"COVERED"}
+        assert of_tx(user["id"], buy)["role"] == "COVERED"
 
-    def test_an_investment_on_a_bank_account_is_recorded_for_review(self, world):
-        # 045: nada espera o dono; aporte ou despesa, ele decide na revisao.
+    def test_an_investment_on_a_bank_account_is_an_aporte(self, world):
+        # 2026-10-31: fundo do banco nao e despesa nem espera revisao.
         item_id, _p, made = connected(world)
         auto_on(world)
         world.fake.add_tx(made["bank"][0], bank_tx(-1000, "2026-10-20", "COMPRA TESOURO DIRETO",
                                                    category_id="03020000"))
         world.sync(item_id)
         [row] = world.transactions(made["bank"][2])
-        assert (row["type"], row["amount"], row["needs_review"]) == ("EXPENSE", 1000.0, 1)
+        assert (row["type"], row["amount"], row["source_type"], row["needs_review"]) == ("EXPENSE", 1000.0, "BANK_INVESTMENT", 0)
         assert world.pending() == []
 
 

@@ -376,6 +376,8 @@ export const openFinanceApi = {
   disconnect: (itemId, confirm) => apiFetch(`/api/open-finance/items/${itemId}`, { method: 'DELETE', body: JSON.stringify({ confirm }) }),
   map: (accountId, payload) => apiFetch(`/api/open-finance/accounts/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) }),
   updateSettings: (payload) => apiFetch('/api/open-finance/settings', { method: 'PATCH', body: JSON.stringify(payload) }),
+  recordBankRow: (rowId) => postJson('/api/open-finance/check/record', { row_id: rowId }),
+  confirmAppRow: (row, undo = false) => postJson('/api/open-finance/check/confirm', { table: row.table, id: row.id, undo }),
   historyPreview: (days) => postJson('/api/open-finance/history/preview', { days }),
   historyApply: (days) => postJson('/api/open-finance/history/apply', { days, confirm: true }),
 }

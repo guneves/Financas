@@ -63,7 +63,8 @@ built by the real migrations — **`backend/finance.db` is never touched.**
   `export_csv`, `market_catalog`, `irpf_text`) are fine at the top.
 - `conftest.py` blanks `BRAPI_TOKEN`, `PLUGGY_CLIENT_ID/SECRET`, `TESOURO_PRICES_URL/FILE`,
   `HISTORY_CACHE_FILE`, sets `QUOTE_AUTO_REFRESH_SECONDS=0`, `OPEN_FINANCE_SYNC_SECONDS=0`,
-  `AUTO_RECORD_DEFAULT=0` (Aprovar tests; `test_auto_record.py` turns it on per user) and
+  `AUTO_RECORD_DEFAULT=0` (Aprovar tests; `test_auto_record.py` turns it on per user),
+  `MANUAL_ONLY_OFF_PLUGGY=0` (tests type on mapped accounts; `test_pluggy_owner_rules.py` turns it on) and
   `ALLOW_SIGNUP=1`. Open Finance tests use `open_finance.set_client(FakePluggy())`
   (`tests/open_finance_world.py`); `pluggy_client` tests patch `pluggy_client.urlopen`. StatusInvest is patched in
   `test_proceeds_sync.py` (`statusinvest_client.get_proceed_events`, plus `clear_cache()`); Tesouro
@@ -236,6 +237,15 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   plano** (`plan_balance`) = Gastar R$ − spent; "Disponível por dia" = it ÷ days left, server-side,
   shown in Orçamento. Invested = `month_investment_flow()` (same rule as `investment_flow_sql()`).
   Old plans without income are `needs_income`.
+- **The Inter line** (`MONTH_SUMMARY`, owner 2026-10-31): the month's net moved into Inter (no Pluggy), one row, source
+  id `inter:<AAAA-MM>`. Not spending: it moves the balance and the Evolução, and stays out of Fluxo, Resumo, Orçamento,
+  plan, Ritmo and Extrato totals. A rebuild keeps it.
+- **A repasse** (owner 2026-10-31): money from someone else to pay something of theirs. Revisar's "É repasse"
+  (`POST /api/review` with `repasse: true`, `person`) makes an INCOME `share_mode = 'OTHERS'`, settled: in the balance,
+  out of income. Marking a share paid in A receber cuts that month's income, by the local day of the mark
+  (`apply_settled_others()`); a repasse already there covers it first, so nothing cuts twice, and `net` doesn't move.
+- **The invoice tile on Início** (2026-10-31): "Fatura de <mês>", a dropdown per invoice, closed by default, and
+  Pagar. No "Próximas faturas" panel, no open-items list. The Ritmo counts reais accounts only.
 - **A budget is a % of Gastar** (038, `services/budgets.py`): `planned_percent` only, categories
   sum ≤ 100% (400; an over-100 month may lower, not raise), "Sem categoria" is the rest. Categories
   come from the latest month ≤ it with a plan (`category_source_month()`); writes in an inherited
@@ -254,6 +264,14 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 
 ### Open Finance is the only banking source (owner 2026-10-30)
 **Banks come only from Pluggy; notifications exist only for the Flash**, which Pluggy doesn't cover.
+- **Only the Flash is typed** (owner 2026-10-31, `services/manual_entries.py`): a mapped account or card refuses a
+  typed row, purchase, refund and statement import (400); a transfer needs one side off Pluggy. `pluggy` on
+  `GET /api/accounts` and `/api/credit-cards` tells the screens; "+ Novo" offers only the rest. `MANUAL_ONLY_OFF_PLUGGY`
+  is the switch. Investment operations stay typed (bitcoin isn't on Pluggy).
+- **There is no Aprovar screen** (owner 2026-10-31): page and route are gone, `/aprovar` and `/lancamentos/aprovar`
+  redirect to the Extrato. Waiting items resolve there: `WaitingItems` (web), `ReviewSection` (APK), shown only
+  while one exists. Ajustes has no Aprovar section and no "Gravar sozinho" switch; the settings stay on the API
+  as the brake. The owner's only job: categories and doubts, in Revisar.
 - The phone listens to Samsung Wallet (only the "Card used for Meal and Voucher"/Flash card) and the
   Flash app (`NotifyRules.APPS`); the server enforces it for old APKs (`notification_wanted()`: anything
   else, and any Flash credit, answers `ignored`). A Samsung Flash purchase records at once; a later
@@ -281,6 +299,37 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `absorb_other_side()` drops the other side Pluggy recorded (OPEN_FINANCE, no receipt, no share, same cents,
   ±3 days) or closes its waiting item; a later row links through `recorded_transfer_for_row()`. Web and APK
   offer reais accounts only. The way back (transfer → despesa) is refused.
+- **The broker's balance is its statement** (owner 2026-10-30, `services/broker_statement.py`): Pluggy's
+  BTG Investimentos balance = every line from zero, minus `CONTA REMUNERADA` (proved to the cent). So a
+  line is a `sweep` (COVERED), the trade's `VISTA BRUTO` (COVERED: the operations' cash, at settlement) or
+  a `BROKER_STATEMENT` row (fee, IR, fixed income, cashback; in `INVESTMENT_SOURCE_TYPES`, never income or
+  expense). A proceed the app has takes the bank's value and day, `sync_locked`; a typed operation of the
+  same amount is linked. Fixed-income ETFs (`FIXED_INCOME_ETFS`, AUPO11 included) settle D+1. The
+  Conferência compares the Corretora on settled cash and skips trade cash (the bank side is COVERED).
+- **A card mirrors the bank** (owner 2026-10-30, `mirror_cards()`): the open invoice comes `PENDING` from
+  Pluggy, so a card always brings pending rows (a bank account only with `include_pending`; a pending salary
+  double counted). `bill_month` (`billForecastDate`, 051) decides the invoice, over `compute_invoice_start()`;
+  an open purchase has one app line per bank line: an installment the bank doesn't list leaves, a new one
+  enters. `closing_day` is the bank's (`GET /bills`). BB's balance rounds up (`rounded_up`).
+- **Anticipated installments** (owner 2026-10-31, `_anticipations()`): the bank discounts each one ("Desconto Na
+  Parcela 3 De 6 Rota Transportes") and charges it in the discount's invoice, but Pluggy leaves that charge off the
+  bill's lines and keeps later ones `PENDING` in future invoices. The credit decides: installment N goes to its
+  invoice with its status (a missing one is created), never back; the Conferência adds the unlisted ones. Proved on
+  BTG's October bill to the cent (lines + 0,32 carried + 237,16).
+- **A posted row's invoice is its `billId`** (`card_rows_with_bill()`, `GET /bills`), over `billForecastDate`.
+- **A payment the app has is linked, never doubled** (`_kept_payment()` in `record_bank_payments()`): no target,
+  same account, same day (any amount) or same cents within 5 days; it takes the bank's amount. Without it, 11
+  autopay rows with other amounts were recorded twice on 2026-10-31.
+- **A bank's own fund is an aporte/resgate** (`BANK_INVESTMENT`, in `INVESTMENT_SOURCE_TYPES`,
+  `mark_bank_investments()`): Pluggy `0302` on a bank account (RF High, RF LP Selic, Tesouro Reserva) stays in the
+  balance, never expense nor income, no review. It runs after each pull; Rende Fácil stays out (below).
+- **The Conferência's buttons** (`services/open_finance_resolve.py`, web): "Lançar" records a bank-only row
+  (a one-sided transfer takes the side the bank saw), "Aconteceu" keeps an app-only row
+  (`open_finance_confirmed`, 051; listed in `confirmed`, "Desfazer"). A difference that is only `awaiting`
+  reads "Confere". A category 0301 row with a sale text (`TES RESERV VEND`) is real money, a
+  `BROKER_STATEMENT` row. A deposit in US$ isn't listed: Wise reports it in the unused BRL pocket.
+- **A provisional buy** (`fill_position_gaps()`, rebuild only): a position ahead of the operations (today's
+  trade) gets `metadata.provisional`, the position's price, no cash; the real operation replaces it.
 - **Rebuild** (`scripts/rebuild_from_pluggy.py`, `services/open_finance_rebuild.py`): dry-run by
   default; `--apply` needs the app stopped and runs in a one-off container (DEPLOY.md). Flash's rows
   are never wiped; investments only as told.
@@ -301,13 +350,13 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
 - **Only these wait**: a Samsung-only purchase for `NOTIFY_WINDOW_MS` (the bank's notice becomes the
   source), an **own transfer with one side** until the other side arrives (recording a despesa then
   a receita would split one transfer; it stays an inbox item, counted as `waiting`), another
-  currency. **Aprovar is gone from web tabs and from the phone; waiting items resolve in Revisar**
+  currency. **There is no Aprovar screen; waiting items resolve in Revisar**
   (the APK's Extrato lists them under "Não gravou sozinho": the other account or the amount in reais
   → `POST /api/inbox/<id>/approve` with `remember: false`, "não é entre minhas contas" → despesa/
-  receita, or Descartar). The web's Aprovar page and the inbox API stay for those and for the brake.
+  receita, or Descartar). The inbox API stays for those and for the brake.
 - **The switches** default to `AUTO_RECORD_DEFAULT` (config, on): `auto_record` in
   `GET/PATCH /api/inbox/settings` (notifications) and in `/api/open-finance/settings` (Pluggy).
-  Off is the emergency brake: back to Aprovar. `conftest.py` sets `AUTO_RECORD_DEFAULT=0` so the
+  Off is the emergency brake, API only: items wait in the Extrato's list. `conftest.py` sets `AUTO_RECORD_DEFAULT=0` so the
   Aprovar tests see pending items; `test_auto_record.py` turns them on per user.
 - **Review** (`services/review.py`, `GET/POST /api/review`): an auto-recorded row has
   `needs_review = 1` (`transactions` and every installment of a card purchase, by `client_id`);
@@ -375,8 +424,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   off, and what an item lacks is guessed (`fill_defaults()`), recorded with `needs_review = 1`.
   **Only a transfer waits**: a Pix held `TRANSFER_HOLD_DAYS` = 2 so the other bank's pull can pair
   it (after that, without a pair, a Pix to someone else is a despesa/receita), an own transfer until
-  its other side arrives. An investment (Pluggy category 03, not provento) on a bank account is
-  recorded as despesa/receita for review (it used to wait).
+  its other side arrives. A bank's fund (Pluggy `0302`) is recorded
+  as `BANK_INVESTMENT`, an aporte/resgate; other category 03 rows on a bank account stay despesa/receita for review.
   A look-alike the owner typed is **linked** (first free candidate), never duplicated; manual rows
   are never deleted. On the Corretora account only bank ↔ Corretora transfers become rows
   (aporte/resgate, 039); the rest is `COVERED`. A bank invoice payment links to the app's

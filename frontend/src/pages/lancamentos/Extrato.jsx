@@ -36,8 +36,8 @@ import { dropStatementRow, keepPreviousData, queryErrorMessage, updateStatementR
 import { mergeTransactionPages, nextPageCursor, STATEMENT_PAGE_LIMIT } from '../../lib/transactionPages'
 import useDebouncedValue from '../../lib/useDebouncedValue'
 import ExtratoInvestimentos from './ExtratoInvestimentos'
-import { APROVAR_PATH } from '../../lib/navigation'
-import { cardAmountSign, isCardRow, mergeStatement, oldestDate, statementKey, waitingNoticeText } from '../../lib/review'
+import { cardAmountSign, isCardRow, mergeStatement, oldestDate, statementKey } from '../../lib/review'
+import WaitingItems from './WaitingItems'
 import { useReviewQueue } from '../../lib/reviewQueue'
 import ReviewPanel from './ReviewPanel'
 import CardPurchaseEditSheet from './CardPurchaseEditSheet'
@@ -285,7 +285,7 @@ function ExtratoContas({ viewSwitch }) {
   } = useLancamentos()
 
   // Gravar sozinho (045): o que espera o dono confirmar, e o que nao gravou
-  // sozinho (fica no Aprovar).
+  // sozinho (WaitingItems).
   const review = useReviewQueue()
 
   const [saving, setSaving] = useState(false)
@@ -387,7 +387,7 @@ function ExtratoContas({ viewSwitch }) {
       if (isInvestmentInflow(item)) acc.investment -= amount
       else if (item.type === 'INCOME') acc.income += amount
       else if (isInvestmentOutflow(item)) acc.investment += amount
-      else if (item.type === 'EXPENSE') acc.expense += amount
+      else if (item.type === 'EXPENSE' && item.source_type !== 'MONTH_SUMMARY') acc.expense += amount
       return acc
     }, { income: 0, expense: 0, investment: 0 })
   }, [filteredTotals, statementTransactions])
@@ -635,12 +635,7 @@ function ExtratoContas({ viewSwitch }) {
       {viewSwitch}
 
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
-      {review.waiting ? (
-        <AlertMessage tone="info">
-          {waitingNoticeText(review.waiting)}{' '}
-          <Link to={APROVAR_PATH} className="font-semibold underline">Ver</Link>
-        </AlertMessage>
-      ) : null}
+      {review.waiting ? <WaitingItems /> : null}
 
       <ReviewPanel items={review.items} categoryOptionsFor={categoryOptionsFor} onError={setDataError} />
 

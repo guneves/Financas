@@ -28,6 +28,10 @@ object ShellNav {
         else -> null
     }
 
+    /** O toque na aba da propria secao, numa pagina de dentro dela: volta a entrada da secao. */
+    fun reopensRoot(selected: Section, current: Section?, route: String?): Boolean =
+        selected == current && selected != Section.HOME && selected.root != route
+
     /** O "+" (o "+ Novo") aparece em toda pagina com barra, menos Ajustes. */
     fun showsNewEntry(route: String?): Boolean {
         val section = sectionOf(route)

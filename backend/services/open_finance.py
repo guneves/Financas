@@ -59,6 +59,7 @@ from services import (
     realized_results,
 )
 from services.accounts import account_balance_rows
+from services.broker_cash import settled_balance
 from services.import_rules import import_rules_for_matching
 from validators import ValidationError
 
@@ -663,6 +664,23 @@ def suggest_target(conn, current_user_id, account_row, connector_name):
 # Puxar
 # ---------------------------------------------------------------------------
 
+def card_rows_with_bill(api, raw_account, rows):
+    """A fatura de uma linha lancada e a do `billId` dela: o `billForecastDate` pode
+    dizer outra (BTG, 2026-10-31: R$ 7 e R$ 8 um mes fora). Sem /bills, vale a previsao."""
+    if _account_type(raw_account) != "CREDIT":
+        return rows
+    try:
+        due_months = {bill["id"]: str(bill.get("dueDate") or "")[:7] for bill in api.list_bills(raw_account["id"])}
+    except PluggyError:
+        return rows
+    for row in rows:
+        metadata = row.get("creditCardMetadata") or {}
+        month = due_months.get(metadata.get("billId"))
+        if month:
+            metadata["billForecastDate"] = month
+    return rows
+
+
 def _date_from(conn, current_user_id, account_row, today):
     synced = parse_iso_date(account_row["synced_until"]) if account_row["synced_until"] else None
     if synced:
@@ -732,7 +750,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
             if not _account_type(raw) or not raw.get("id"):
                 continue
             date_from = windows.get(raw["id"]) or history_from or _day_text(today - timedelta(days=first_days))
-            pulled[raw["id"]] = (date_from, api.list_transactions(raw["id"], date_from))
+            pulled[raw["id"]] = (date_from, card_rows_with_bill(api, raw, api.list_transactions(raw["id"], date_from)))
     except PluggyError as exc:
         _record_refusal(current_user_id, of_item_id, exc)
         raise
@@ -766,7 +784,8 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
             for raw in transactions:
                 try:
                     tx = open_finance_inbox.normalize_transaction(
-                        raw, account["type"], account["charge_sign"] or 1, include_pending=with_pending,
+                        raw, account["type"], account["charge_sign"] or 1,
+                        include_pending=with_pending or account["type"] == "CREDIT",
                         account_currency=account["currency"],
                     )
                 except open_finance_inbox.Skip as skip:
@@ -793,6 +812,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
         if record and open_finance_auto.enabled(conn, current_user_id):
             # Depois das compras: o pagamento do banco baixa a fatura delas.
             open_finance_invoices.record_bank_payments(conn, current_user_id)
+            open_finance_inbox.mark_bank_investments(conn, current_user_id)
         conn.execute(
             "UPDATE open_finance_items SET last_sync_at = ?, last_sync_error = NULL, updated_at = ? WHERE id = ? AND user_id = ?",
             (stamp, stamp, of_item_id, current_user_id),
@@ -888,7 +908,8 @@ def history_preview(current_user_id, days=None, today=None):
             for raw in pulled[pluggy_account_id]:
                 try:
                     tx = open_finance_inbox.normalize_transaction(
-                        raw, account["type"], account["charge_sign"] or 1, include_pending=with_pending,
+                        raw, account["type"], account["charge_sign"] or 1,
+                        include_pending=with_pending or account["type"] == "CREDIT",
                         account_currency=account["currency"],
                     )
                 except open_finance_inbox.Skip:
@@ -1024,6 +1045,7 @@ def pull_history(current_user_id, history_from, today, adopt_orphans=False, befo
         if after_record:
             after_record(conn)
         payments = open_finance_invoices.record_bank_payments(conn, current_user_id)
+        open_finance_inbox.mark_bank_investments(conn, current_user_id)
     return {"items": results, "auto_recorded": auto, "adopted_installments": adopted, "invoice_payments": payments}
 
 
@@ -1074,9 +1096,13 @@ def list_view(current_user_id):
                     entry["target_name"] = mine["name"]
                     # Conferir, nunca ajustar: o saldo da conta e o do app
                     # (inicial + lancamentos), o mesmo do consolidado.
-                    entry["app_balance"] = rounded_money(mine["balance"])
+                    app_balance = mine["balance"]
+                    if entry["brokerage"]:
+                        # O banco nao tem o que ainda vai liquidar: so o que chegou ate hoje.
+                        app_balance = settled_balance(conn, current_user_id, account["account_id"], _day_text(_today()))
+                    entry["app_balance"] = rounded_money(app_balance)
                     if account["balance"] is not None:
-                        entry["difference"] = rounded_money(account["balance"] - mine["balance"])
+                        entry["difference"] = rounded_money(account["balance"] - app_balance)
                         difference_cents = int(round(entry["difference"] * 100))
                 elif account["card_id"]:
                     entry["target_name"] = names.get(account["card_id"])

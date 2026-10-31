@@ -18,7 +18,7 @@ import re
 from decimal import Decimal
 
 from money import rounded_money
-from source_types import INVESTMENT_SOURCE_TYPES
+from source_types import INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import ValidationError
 
 MAX_PAGE_LIMIT = 500
@@ -77,6 +77,8 @@ def statement_totals(rows):
     """Os totais do extrato (o statementTotals do Extrato.jsx), em Decimal."""
     income = expense = investment = Decimal("0")
     for row in rows:
+        if row["source_type"] == MONTH_SUMMARY_SOURCE_TYPE:
+            continue
         amount = _amount(row)
         is_investment = row["source_type"] in INVESTMENT_SOURCE_TYPES
         if row["type"] == "INCOME":

@@ -8,6 +8,7 @@ import {
   reviewCategoryType,
   reviewHasCategory,
   reviewNoticeText,
+  reviewCanBeRepasse,
   reviewPayload,
   reviewPlace,
   reviewSign,
@@ -87,4 +88,12 @@ test('notices count in Portuguese and vanish at zero', () => {
   assert.match(reviewNoticeText(3), /^3 lançamentos gravados sozinhos esperam/)
   assert.equal(waitingNoticeText(0), '')
   assert.match(waitingNoticeText(2), /^2 movimentos/)
+})
+
+test('um repasse vai com a marca, e so uma receita pode ser', () => {
+  const income = { table: 'transactions', id: 'a', type: 'INCOME' }
+  assert.deepEqual(reviewPayload([{ ...income, repasse: true }]), [{ table: 'transactions', id: 'a', repasse: true }])
+  assert.equal(reviewCanBeRepasse(income), true)
+  assert.equal(reviewCanBeRepasse({ table: 'transactions', id: 'b', type: 'EXPENSE' }), false)
+  assert.equal(reviewCanBeRepasse({ table: 'cc_expenses', id: 'c', type: 'REFUND' }), false)
 })

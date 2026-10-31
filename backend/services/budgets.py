@@ -39,7 +39,7 @@ from money import percent_of, rounded_money
 from services.accounts import category_ids_by_name, fetch_category
 from services.invoices import signed_amount_sql
 from services.sharing import own_amount_sql
-from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import ValidationError, safe_float, shift_month, to_percent
 
 HUNDRED = Decimal(100)
@@ -296,7 +296,7 @@ def budget_month_lines(conn, current_user_id, month):
     """
     name_to_id = category_ids_by_name(conn, current_user_id)
 
-    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES)
+    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE)
     skipped_placeholders = ", ".join("?" for _ in skipped_types)
     rows = conn.execute(
         f"""

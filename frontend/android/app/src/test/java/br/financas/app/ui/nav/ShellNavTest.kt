@@ -42,4 +42,11 @@ class ShellNavTest {
         assertFalse(ShellNav.backGoesHome(NativeRoutes.LOGIN))
         assertTrue(ShellNav.backGoesHome(NativeRoutes.EXTRATO))
     }
+
+    @Test
+    fun `tocar a aba da propria secao numa pagina de dentro volta a entrada`() {
+        assertTrue(ShellNav.reopensRoot(ShellNav.Section.INVESTIR, ShellNav.Section.INVESTIR, NativeRoutes.PROVENTOS))
+        assertFalse(ShellNav.reopensRoot(ShellNav.Section.INVESTIR, ShellNav.Section.INVESTIR, NativeRoutes.POSICAO))
+        assertFalse(ShellNav.reopensRoot(ShellNav.Section.INVESTIR, ShellNav.Section.HOME, NativeRoutes.HOME))
+    }
 }

@@ -219,6 +219,7 @@ def investment_cash_date(investment):
         investment.get("asset_class"),
         investment.get("asset_currency") or BASE_CURRENCY,
         investment.get("metadata"),
+        ticker_key(investment.get("ticker_or_name")),
     )
 
 

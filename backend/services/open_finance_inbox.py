@@ -31,8 +31,9 @@ Duas metades:
    - A categoria: a regra de importacao do dono pela descricao; senao a da
      Pluggy traduzida (open_finance_categories.py); senao a padrao.
    - Na Corretora (a conta "BTG Investimentos"), so a transferencia com o
-     banco vira item (aporte/resgate, 039); o resto e COVERED: as operacoes
-     da carteira explicam aquele dinheiro.
+     banco vira item (aporte/resgate, 039); o resto e do caixa da carteira
+     (services/broker_statement.py): as operacoes explicam o bruto do pregao,
+     o resto vira linha, e o saldo da Corretora fica o do banco.
    - O pagamento de fatura na conta liga ao pagamento que o app ja tem
      (pay-invoice), nunca grava outro; sem ele, o pull o grava pela baixa da
      fatura (services/open_finance_invoices.py).
@@ -64,10 +65,10 @@ from open_finance_categories import (
     plain_text,
     pluggy_category_names,
 )
-from services import global_account, inbox, review
+from services import broker_statement, global_account, inbox, review
 from services.accounts import category_id_for_name, fetch_category
 from services.import_rules import import_rules_for_matching
-from source_types import INVOICE_PAYMENT_SOURCE_TYPES, OPEN_FINANCE_SOURCE_TYPE
+from source_types import BANK_INVESTMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES, OPEN_FINANCE_SOURCE_TYPE
 
 BRT = timezone(timedelta(hours=-3))
 DEDUP_PREFIX = "pluggy:"
@@ -287,7 +288,13 @@ def normalize_transaction(raw, account_type, charge_sign=1, include_pending=Fals
         "merchant_cnpj": _digits(merchant.get("cnpj"))[:14] or None,
         "merchant_cnae": _digits(merchant.get("cnae"))[:7] or None,
         "posted_on": local_moment(raw.get("date"))[0] if raw.get("date") else date_text,
+        "bill_month": _bill_month(metadata.get("billForecastDate")),
     }
+
+
+def _bill_month(value):
+    text = str(value or "")[:7]
+    return text if re.fullmatch(r"\d{4}-\d{2}", text) else None
 
 
 def _positive_int(value):
@@ -306,7 +313,7 @@ ROW_FIELDS = (
     "pluggy_transaction_id", "dedup_key", "direction", "amount_cents", "raw_amount_cents", "currency", "date",
     "occurred_at", "description", "pluggy_type", "pluggy_category", "pluggy_category_id", "movement",
     "installment_number", "total_installments", "counterparty", "counterparty_doc", "merchant_name",
-    "merchant_cnpj", "merchant_cnae", "posted_on",
+    "merchant_cnpj", "merchant_cnae", "posted_on", "bill_month",
 )
 
 
@@ -421,18 +428,27 @@ def place(conn, current_user_id, row, account, rules=None):
         account["type"] == "BANK" and not is_broker_transfer(row)
         and is_brokerage(conn, current_user_id, account["account_id"])
     ):
-        # O caixa da carteira: compra, venda, taxa, provento ja tem o caminho
-        # deles (as operacoes e os proventos gravam o lancamento na Corretora).
-        _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
-        return "covered"
+        # O caixa da carteira (services/broker_statement.py): compra, venda e
+        # provento ja tem o caminho deles; a taxa, o IR e a renda fixa viram linha.
+        role, entry = broker_statement.settle_line(conn, current_user_id, row, account["account_id"])
+        _update_row(
+            conn, current_user_id, row["id"], role=role, item_id=None,
+            target_table="transactions" if entry else None, target_id=entry,
+        )
+        return "matched" if entry else "covered"
     if account["type"] == "CREDIT" and row["direction"] == "OUT" and (row["installment_number"] or 1) > 1:
         _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
         return "covered"
     if account["type"] == "BANK" and is_auto_invest_row(row):
-        # A aplicacao automatica (Rende Facil, conta remunerada): nunca no app,
-        # nem na conferencia.
-        _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
-        return "covered"
+        if inbox.is_auto_invest(row["description"]) or not SOLD_INVESTMENT_TEXT.search(inbox.normalized(row["description"])):
+            # A aplicacao automatica (Rende Facil, conta remunerada): nunca no app,
+            # nem na conferencia.
+            _update_row(conn, current_user_id, row["id"], role="COVERED", item_id=None)
+            return "covered"
+        # O resgate de outra aplicacao (Tesouro Reserva) e dinheiro de verdade.
+        entry = broker_statement.write_line(conn, current_user_id, row, account["account_id"])
+        _update_row(conn, current_user_id, row["id"], role="MATCHED", item_id=None, target_table="transactions", target_id=entry)
+        return "matched"
 
     entry_type = _entry_type(account, row["direction"])
     _, account_id, card_id = target
@@ -959,11 +975,34 @@ def category_for_row(conn, current_user_id, row, entry_type, amount, account_id=
 # "Automatic investment" da Pluggy (03010000): a aplicacao automatica que o
 # banco faz sozinho, como o texto de inbox.is_auto_invest().
 AUTO_INVEST_CATEGORY_PREFIX = "0301"
+FIXED_INCOME_CATEGORY_PREFIX = "0302"
 
 # No caixa da corretora a Pluggy chama de "Same person transfer" tambem a
 # compra e a venda de renda fixa, o IR e o IOF (BTG, 2026-10-28): so a
 # transferencia de verdade e aporte/resgate; o resto e da carteira.
 BROKER_TRANSFER_TEXT = re.compile(r"\b(transferencia|pix|ted|doc|tef)\b")
+SOLD_INVESTMENT_TEXT = re.compile(r"\bvend")
+
+
+def mark_bank_investments(conn, current_user_id):
+    """Aplicacao e resgate num fundo do banco (Pluggy 03020000, RF High, Tesouro
+    Reserva): saiu ou voltou do saldo como aporte/resgate, nunca despesa ou receita.
+    Nao ha o que revisar. Idempotente: roda depois de gravar o pull."""
+    conn.execute(
+        f"""
+        UPDATE transactions SET source_type = ?, needs_review = 0
+        WHERE user_id = ? AND source_type = ? AND type IN ('EXPENSE', 'INCOME')
+          AND id IN (
+              SELECT o.target_id FROM open_finance_transactions o
+              WHERE o.user_id = ? AND o.target_table = 'transactions' AND o.role <> 'REMOVED'
+                AND o.pluggy_category_id LIKE '{FIXED_INCOME_CATEGORY_PREFIX}%'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM accounts a WHERE a.id = transactions.account_id AND a.type = 'BROKERAGE'
+          )
+        """,
+        (BANK_INVESTMENT_SOURCE_TYPE, current_user_id, OPEN_FINANCE_SOURCE_TYPE, current_user_id),
+    )
 
 
 def is_auto_invest_row(row):
@@ -1060,15 +1099,21 @@ def vanish_missing(conn, current_user_id, account, seen_ids, date_from, date_to)
         """
         SELECT * FROM open_finance_transactions
         WHERE user_id = ? AND of_account_id = ? AND date BETWEEN ? AND ?
-          AND role IN ('SOURCE', 'UNMAPPED')
+          AND (role IN ('SOURCE', 'UNMAPPED') OR (role = 'MATCHED' AND target_id LIKE ?))
         """,
-        (current_user_id, account["id"], date_from, date_to),
+        (current_user_id, account["id"], date_from, date_to, f"{broker_statement.ID_PREFIX}%"),
     ).fetchall()
     count = 0
     for row in rows:
         if row["pluggy_transaction_id"] in seen_ids:
             continue
         row = row_to_dict(row)
+        if row["role"] == "MATCHED":
+            if seen_ids:
+                broker_statement.remove_line(conn, current_user_id, row)
+                _update_row(conn, current_user_id, row["id"], role="REMOVED", target_table=None, target_id=None)
+                count += 1
+            continue
         if row["auto_recorded_at"] and not _item_pending(conn, current_user_id, row):
             if seen_ids and apply_vanish(conn, current_user_id, row) == "removed":
                 count += 1
@@ -1185,8 +1230,8 @@ def own_target(conn, current_user_id, row):
             "SELECT source_type, source_id FROM transactions WHERE id = ? AND user_id = ?",
             (row["target_id"], current_user_id),
         ).fetchone()
-        return bool(target) and (target["source_type"], target["source_id"]) == (
-            OPEN_FINANCE_SOURCE_TYPE, row["pluggy_transaction_id"],
+        return bool(target) and target["source_id"] == row["pluggy_transaction_id"] and target["source_type"] in (
+            OPEN_FINANCE_SOURCE_TYPE, BANK_INVESTMENT_SOURCE_TYPE,
         )
     if row.get("target_table") == "cc_expenses":
         target = conn.execute(

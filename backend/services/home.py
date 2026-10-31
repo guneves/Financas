@@ -21,6 +21,7 @@ Cada linha vira centavos como no cliente (`Math.round(x * 100)`): a soma e de
 inteiros, sem erro de ponto flutuante. `local_today()` e lido por nome aqui.
 """
 
+from datetime import datetime
 from decimal import Decimal
 
 from money import rounded_money
@@ -31,7 +32,7 @@ from services.fx import with_balance_in_brl
 from services.investments import PORTFOLIO_ACCOUNT_TYPE
 from services.invoices import apply_due_autopay, local_today
 from services.proceeds_cash import apply_paid_proceeds
-from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import ValidationError, shift_month
 
 MAX_MONTHS = 24
@@ -89,12 +90,22 @@ def banking_month_rows(conn, current_user_id):
         f" OR substr(COALESCE(t.category, ''), 1, {len(INVOICE_PAYMENT_CATEGORY_PREFIX)})"
         f" = '{INVOICE_PAYMENT_CATEGORY_PREFIX}')"
     )
-    plain = f"t.type != 'TRANSFER' AND {from_bank} AND NOT {cases['portfolio_cash']}"
+    plain = (
+        f"t.type != 'TRANSFER' AND {from_bank} AND NOT {cases['portfolio_cash']}"
+        f" AND COALESCE(t.source_type, '') <> '{MONTH_SUMMARY_SOURCE_TYPE}'"
+    )
+    # A transferencia com a conta global (outra moeda) muda o saldo em reais.
+    origin_reais = "COALESCE(origin.currency, 'BRL') = 'BRL'"
+    target_reais = "COALESCE(target.currency, 'BRL') = 'BRL'"
+    leaves_reais = f"(t.type = 'TRANSFER' AND {origin_reais} AND NOT {target_reais})"
+    enters_reais = f"(t.type = 'TRANSFER' AND NOT {origin_reais} AND {target_reais})"
     return conn.execute(
         f"""
         SELECT
           substr(t.date, 1, 7) AS month,
           SUM(CASE
+                WHEN {leaves_reais} THEN -{amount}
+                WHEN {enters_reais} THEN {_cents("COALESCE(t.transfer_amount, 0)")}
                 WHEN t.type = 'TRANSFER' AND {cases['aporte']} THEN -{amount}
                 WHEN t.type = 'TRANSFER' AND {cases['resgate']} THEN {amount}
                 WHEN t.type = 'TRANSFER' OR NOT {from_bank} THEN 0
@@ -140,6 +151,55 @@ def card_month_rows(conn, current_user_id, first_month, last_month):
     ).fetchall()
 
 
+def settled_others_by_month(conn, current_user_id):
+    """{mes: centavos} do que outras pessoas ja pagaram, pelo dia (local) em que
+    o dono marcou: a parte dos outros de despesas e compras no cartao."""
+    months = {}
+    queries = (
+        f"SELECT t.share_settled_at AS settled, {_others_cents('t.')} AS cents FROM transactions t"
+        " LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id"
+        " WHERE t.user_id = ? AND t.type = 'EXPENSE' AND t.share_mode IS NOT NULL"
+        " AND t.share_settled_at IS NOT NULL AND COALESCE(a.currency, 'BRL') = 'BRL'",
+        f"SELECT share_settled_at AS settled, {_others_cents()} AS cents FROM cc_expenses"
+        " WHERE user_id = ? AND share_mode IS NOT NULL AND share_settled_at IS NOT NULL",
+    )
+    for query in queries:
+        for row in conn.execute(query, (current_user_id,)).fetchall():
+            moment = datetime.fromisoformat(row["settled"].replace("Z", "+00:00")).astimezone()
+            key = moment.strftime("%Y-%m")
+            months[key] = months.get(key, 0) + int(row["cents"] or 0)
+    return months
+
+
+def apply_settled_others(by_month, settled, received):
+    """O dinheiro pago para os outros abate a receita ao ser marcado como pago: quem
+    pagou mandou o dinheiro, e o Pix dele entrou como receita. O repasse do mes (uma
+    receita de outra pessoa, `received`) e o que sobrou do mes anterior cobrem
+    primeiro: nada abate duas vezes. A diferenca passa de receita a repasse; o
+    resultado do mes nao muda."""
+    spare = 0
+    for key in sorted(set(settled) | set(received)):
+        available = received.get(key, 0) + spare
+        covered = min(available, settled.get(key, 0))
+        spare = min(available - covered, received.get(key, 0))
+        month = by_month.get(key)
+        if month is None:
+            continue
+        cut = min(settled.get(key, 0) - covered, month["income"])
+        month["income"] -= cut
+        month["others_received"] += cut
+
+
+def income_after_settled(conn, current_user_id, month, income):
+    """A receita do mes (reais) depois do que `apply_settled_others()` abate: o plano
+    e o Resumo dizem o mesmo numero."""
+    cents = int(Decimal(str(income or 0)).scaleb(2).to_integral_value())
+    by_month = {month: {"income": cents, "others_received": 0}}
+    received = {row["month"]: int(row["others_received"] or 0) for row in banking_month_rows(conn, current_user_id)}
+    apply_settled_others(by_month, settled_others_by_month(conn, current_user_id), received)
+    return _reais(by_month[month]["income"])
+
+
 def is_portfolio(account):
     return account.get("type") == PORTFOLIO_ACCOUNT_TYPE
 
@@ -165,8 +225,10 @@ def monthly_flow(conn, current_user_id, accounts, keys):
         for account in accounts
         if not is_portfolio(account) and not is_foreign(account)
     )
+    received = {}
     for row in banking_month_rows(conn, current_user_id):
         month = row["month"] or ""
+        received[month] = int(row["others_received"] or 0)
         if month < keys[0]:
             opening += int(row["cash"] or 0)
             continue
@@ -180,6 +242,7 @@ def monthly_flow(conn, current_user_id, accounts, keys):
         if target is not None:
             target["expense"] += int(row["expense"] or 0)
             target["others_paid"] += int(row["others_paid"] or 0)
+    apply_settled_others(by_month, settled_others_by_month(conn, current_user_id), received)
 
     flow = []
     running = opening

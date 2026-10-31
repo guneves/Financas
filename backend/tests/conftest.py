@@ -56,6 +56,7 @@ def app_module():
     # Gravar sozinho (045) desligado por padrao: os testes do Aprovar veem o
     # item esperando; os de test_auto_record.py ligam por usuario.
     os.environ["AUTO_RECORD_DEFAULT"] = "0"
+    os.environ["MANUAL_ONLY_OFF_PLUGGY"] = "0"
 
     # config.py le o ambiente no import, e os modulos do app (db, auth...) copiam
     # os valores dele. Por isso nenhum teste importa esses modulos no topo do

@@ -66,7 +66,7 @@ class TestBankAccount:
         remunerada = world.fake.add_tx(made["bank"][0], bank_tx(
             -100, "2026-10-20", "CONTA REMUNERADA - APLICAÇÃO AUTOMÁTICA", category_id="03000000"))
         reserva = world.fake.add_tx(made["bank"][0], bank_tx(
-            300, "2026-10-21", "TES RESERV VEND", category_id="03010000", category="Automatic investment"))
+            300, "2026-10-21", "TES RESERV COMP", category_id="03010000", category="Automatic investment"))
         world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-22", "PADARIA"))
         world.sync(item_id)
 
@@ -75,6 +75,15 @@ class TestBankAccount:
         assert {of_tx(user["id"], remunerada)["role"], of_tx(user["id"], reserva)["role"]} == {"COVERED"}
         [item] = world.overview()["items"]
         assert item["accounts"][0]["check"]["bank_only"] == []
+
+    def test_the_sale_of_another_investment_is_real_money(self, world):
+        item_id, _p, made = connected(world, connector_name="BTG Pactual")
+        auto_on(world)
+        world.fake.add_tx(made["bank"][0], bank_tx(
+            1114.17, "2026-10-21", "TES RESERV VEND", category_id="03010000", category="Automatic investment"))
+        world.sync(item_id)
+        [row] = world.transactions(made["bank"][2])
+        assert (row["type"], row["amount"], row["source_type"]) == ("INCOME", 1114.17, "BROKER_STATEMENT")
 
     def test_the_history_preview_counts_them_as_covered(self, world):
         item_id, _p, made = connected(world, connector_name="BTG Pactual")
@@ -87,7 +96,7 @@ class TestBankAccount:
 
 
 class TestCorretora:
-    def test_fixed_income_and_liq_bolsa_stay_with_the_portfolio(self, world, user):
+    def test_only_the_sweep_and_the_trade_gross_stay_out(self, world, user):
         made = meupluggy(world)
         auto_on(world)
         broker, _of, corretora = made["btg:0002/2-2X"]
@@ -101,9 +110,11 @@ class TestCorretora:
             -100, "2026-10-23", "CONTA REMUNERADA - APLICAÇÃO AUTOMÁTICA", category_id="03000000"))
         world.sync(made["items"]["btg"])
 
-        assert world.transactions(corretora) == []
+        rows = {(row["type"], row["amount"], row["source_type"]) for row in world.transactions(corretora)}
+        assert rows == {("INCOME", 2105.71, "BROKER_STATEMENT"), ("EXPENSE", 12.3, "BROKER_STATEMENT")}
         assert world.pending() == []
-        assert {of_tx(user["id"], tx)["role"] for tx in (cdb, irrf, liq, auto)} == {"COVERED"}
+        assert {of_tx(user["id"], tx)["role"] for tx in (liq, auto)} == {"COVERED"}
+        assert {of_tx(user["id"], tx)["role"] for tx in (cdb, irrf)} == {"MATCHED"}
 
     def test_a_transfer_from_the_bank_is_still_an_aporte(self, world):
         made = meupluggy(world)

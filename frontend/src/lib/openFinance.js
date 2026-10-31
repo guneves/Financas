@@ -106,7 +106,9 @@ export function balanceCheck(account) {
     return { state: 'none', difference: null }
   }
   const difference = Math.round((Number(account.pluggy_balance) - Number(account.app_balance)) * 100) / 100
-  return { state: difference === 0 ? 'match' : 'drift', difference }
+  // O que o banco ja moveu e ainda espera o par (um Pix no prazo) nao e diferenca.
+  const waiting = Number(account.check?.explanation?.awaiting || 0) / 100
+  return { state: Math.round((difference - waiting) * 100) === 0 ? 'match' : 'drift', difference }
 }
 
 // O itemId que o widget Pluggy Connect devolve no onSuccess.
@@ -115,7 +117,7 @@ export function connectedItemId(data) {
 }
 
 // O resumo de um "Atualizar" para o toast. Com "Gravar sozinho" (044), o que
-// foi gravado/ligado sai do "novo no Aprovar" (so fica o que espera o dono).
+// foi gravado/ligado sai do "novo no Revisar" (so fica o que espera o dono).
 export function syncSummary(result) {
   const counts = result?.counts || {}
   const auto = result?.auto_recorded || {}
@@ -127,7 +129,7 @@ export function syncSummary(result) {
   const parts = []
   if (recorded) parts.push(recorded === 1 ? '1 lançamento gravado' : `${recorded} lançamentos gravados`)
   if (linked) parts.push(linked === 1 ? '1 ligado ao que você lançou' : `${linked} ligados ao que você lançou`)
-  if (fresh) parts.push(fresh === 1 ? '1 movimento novo no Aprovar' : `${fresh} movimentos novos no Aprovar`)
+  if (fresh) parts.push(fresh === 1 ? '1 movimento novo no Revisar' : `${fresh} movimentos novos no Revisar`)
   if (joined) parts.push(joined === 1 ? '1 juntou-se a um aviso' : `${joined} juntaram-se a avisos`)
   if (operations) parts.push(operations === 1 ? '1 operação na carteira' : `${operations} operações na carteira`)
   if (result?.removed) parts.push(result.removed === 1 ? '1 saiu (o banco desfez)' : `${result.removed} saíram (o banco desfez)`)
@@ -178,7 +180,7 @@ export function checkSummary(check) {
   const parts = []
   if (bank) parts.push(bank === 1 ? '1 só no banco' : `${bank} só no banco`)
   if (app) parts.push(app === 1 ? '1 só no app' : `${app} só no app`)
-  if (awaiting) parts.push(awaiting === 1 ? '1 espera no Aprovar' : `${awaiting} esperam no Aprovar`)
+  if (awaiting) parts.push(awaiting === 1 ? '1 espera no Revisar' : `${awaiting} esperam no Revisar`)
   if (!bank && !app) {
     return { state: 'match', text: parts.length ? `Movimentos conferem · ${parts.join(' · ')}` : 'Movimentos conferem' }
   }
@@ -188,8 +190,8 @@ export function checkSummary(check) {
 // Por que um movimento esta so de um lado (o `reason` de cada linha da
 // conferencia), em portugues.
 const CHECK_REASONS = {
-  awaiting: 'espera no Aprovar',
-  denied: 'recusado no Aprovar',
+  awaiting: 'espera no Revisar',
+  denied: 'recusado no Revisar',
   unmapped: 'a conta ainda sem destino',
   changed_after_edit: 'o banco mudou o valor depois que você editou',
   invoice_payment_missing: 'pagamento de fatura sem o pagamento no app',
@@ -203,7 +205,7 @@ export function checkReasonLabel(reason) {
 }
 
 // De onde vem a diferenca de saldo (explanation do servidor, em centavos):
-// so no banco, esperando no Aprovar, so no app, e o que ja era diferente antes
+// so no banco, esperando no Revisar, so no app, e o que ja era diferente antes
 // da conferencia (o saldo inicial no app, um lancamento antigo). Linhas de
 // texto; [] sem diferenca.
 export function balanceExplanation(explanation, money = (value) => String(value)) {
@@ -213,7 +215,7 @@ export function balanceExplanation(explanation, money = (value) => String(value)
     if (cents) lines.push(`${money(cents / 100)} ${text}`)
   }
   part(explanation.bank_only, 'de movimentos só no banco')
-  part(explanation.awaiting, 'esperando no Aprovar')
+  part(explanation.awaiting, 'esperando no Revisar')
   part(explanation.app_only, 'de lançamentos só no app')
   part(explanation.before, 'de antes da conferência (confira o saldo inicial da conta)')
   return lines
@@ -241,7 +243,7 @@ export function historyLine(account) {
   add(account.to_record, '1 a gravar', '{n} a gravar')
   add(account.to_link, '1 a ligar ao que você lançou', '{n} a ligar ao que você lançou')
   add(account.linked, '1 já ligado', '{n} já ligados')
-  add(account.waiting, '1 fica no Aprovar', '{n} ficam no Aprovar')
+  add(account.waiting, '1 fica no Revisar', '{n} ficam no Revisar')
   add(account.app_only, '1 só no app (fica como está)', '{n} só no app (ficam como estão)')
   return parts.length ? parts.join(' · ') : 'Nada a fazer'
 }

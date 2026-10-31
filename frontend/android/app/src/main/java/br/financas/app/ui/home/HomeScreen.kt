@@ -42,7 +42,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,6 +66,8 @@ import br.financas.app.core.formatSignedCurrency
 import br.financas.app.core.monthKey
 import br.financas.app.core.monthLabel
 import br.financas.app.data.HomeDto
+import br.financas.app.data.NextInvoiceDto
+import br.financas.app.data.NextInvoiceItemDto
 import br.financas.app.data.storedTimeLabel
 import br.financas.app.rules.HomeRules
 import br.financas.app.rules.HomeSummary
@@ -162,7 +167,9 @@ fun HomeScreen(
                 } else {
                     item(key = "hero") { BalanceHero(view, hidden, onOpenWeb) }
                     item(key = "summary") { MonthSummary(view.summary, hidden, onOpenWeb) }
-                    item(key = "invoice") { NextInvoiceTile(home, onOpenWeb) }
+                    item(key = "invoice") {
+                        NextInvoiceTile(home, viewModel.panels?.nextInvoiceItems.orEmpty(), viewModel.paying, viewModel::openPayPayable, onOpenWeb)
+                    }
                     val shown = viewModel.shownAttention
                     if (shown.isNotEmpty()) {
                         item(key = "attention") { NeedsAttention(shown, viewModel, onOpenWeb) }
@@ -175,17 +182,6 @@ fun HomeScreen(
                         item(key = "budget") { BudgetStrip(budget, onOpenWeb) }
                     }
                     if (panels != null) {
-                        item(key = "invoices") {
-                            InvoicesPanel(
-                                panels = panels,
-                                nextInvoicesTotal = home.nextInvoicesTotal,
-                                payable = home.nextInvoices.any { it.payable },
-                                closingDate = home.nextClosingDate,
-                                paying = viewModel.paying,
-                                onPay = viewModel::openPayPayable,
-                                onOpenLink = onOpenWeb,
-                            )
-                        }
                         item(key = "installments") { InstallmentsPanel(panels, onOpenWeb) }
                         item(key = "pace") { PacePanel(panels) }
                     } else {
@@ -511,29 +507,104 @@ private fun MonthSummary(summary: HomeSummary, hidden: Boolean, onOpenWeb: (Stri
 // ---- Proxima fatura ----
 
 @Composable
-private fun NextInvoiceTile(home: HomeDto, onOpenWeb: (String) -> Unit) {
+private fun NextInvoiceTile(
+    home: HomeDto,
+    items: List<NextInvoiceItemDto>,
+    paying: Boolean,
+    onPay: () -> Unit,
+    onOpenWeb: (String) -> Unit,
+) {
     val palette = LocalPalette.current
     val months = HomeLogic.nextInvoiceMonths(home.nextInvoices)
     val payable = home.nextInvoices.any { it.payable }
-    Panel(onClick = { onOpenWeb("/lancamentos/cartoes") }) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(48.dp).background(palette["emerald-100"], RoundedCornerShape(16.dp)),
+    Panel {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { onOpenWeb("/lancamentos/cartoes") },
             ) {
-                Icon(AppIcons.CreditCard, contentDescription = null, tint = palette["emerald-800"], modifier = Modifier.size(20.dp))
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(48.dp).background(palette["emerald-100"], RoundedCornerShape(16.dp)),
+                ) {
+                    Icon(AppIcons.CreditCard, contentDescription = null, tint = palette["emerald-800"], modifier = Modifier.size(20.dp))
+                }
+                Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                    Text(HomeRules.nextInvoiceLabel(months), color = palette["zinc-600"], fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    FitText(text = formatCurrency(home.nextInvoicesTotal), maxSize = 24.sp, minSize = 16.sp, color = palette.text)
+                }
+                val closing = home.nextClosingDate
+                if (payable) {
+                    Badge(stringResource(R.string.home_invoice_closed), BadgeTone.WARNING)
+                } else if (closing != null) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(stringResource(R.string.home_invoice_closes), color = palette["zinc-600"], fontSize = 14.sp)
+                        Text(HomeRules.closingDayMonth(closing), color = palette.text, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
             }
-            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                Text(HomeRules.nextInvoiceLabel(months), color = palette["zinc-600"], fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                FitText(text = formatCurrency(home.nextInvoicesTotal), maxSize = 24.sp, minSize = 16.sp, color = palette.text)
+            home.nextInvoices.forEach { invoice ->
+                InvoiceDropdown(
+                    invoice,
+                    items.filter {
+                        it.cardId == invoice.cardId && it.invoiceMonth == invoice.invoiceMonth && it.invoiceYear == invoice.invoiceYear
+                    },
+                )
             }
-            val closing = home.nextClosingDate
             if (payable) {
-                Badge(stringResource(R.string.home_invoice_closed), BadgeTone.WARNING)
-            } else if (closing != null) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(stringResource(R.string.home_invoice_closes), color = palette["zinc-600"], fontSize = 14.sp)
-                    Text(HomeRules.closingDayMonth(closing), color = palette.text, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                AppButton(stringResource(R.string.home_invoices_pay), onPay, Modifier.fillMaxWidth(), loading = paying)
+            }
+        }
+    }
+}
+
+/** Uma fatura do cartao: fechada por padrao; aberta, as compras dela. */
+@Composable
+private fun InvoiceDropdown(invoice: NextInvoiceDto, items: List<NextInvoiceItemDto>) {
+    val palette = LocalPalette.current
+    var open by remember(invoice.cardId, invoice.invoiceMonth, invoice.invoiceYear) { mutableStateOf(false) }
+    Surface(shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, palette.border), color = palette.surface) {
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { open = !open }.heightIn(min = 44.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    invoice.cardName ?: stringResource(R.string.home_card_fallback),
+                    color = palette.text,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(formatCurrency(invoice.total), color = palette.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Icon(
+                    if (open) AppIcons.ChevronDown else AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = palette.muted,
+                    modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                )
+            }
+            if (open) {
+                items.forEach { item ->
+                    HorizontalDivider(color = palette["zinc-100"])
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Text(
+                            item.description.orEmpty(),
+                            color = palette.text,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            (if (item.kind == "REFUND") "− " else "") + formatCurrency(item.amount),
+                            color = palette.text,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
                 }
             }
         }

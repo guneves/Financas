@@ -119,7 +119,6 @@ fun AjustesScreen(
             AjustesSection.CONTAS -> contas(viewModel, onOpenLink)
             AjustesSection.CARTOES -> cartoes(viewModel, onOpenLink)
             AjustesSection.CATEGORIAS -> categorias(viewModel)
-            AjustesSection.APROVAR -> item(key = "aprovar") { AprovarSection(viewModel) }
             AjustesSection.OPEN_FINANCE -> item(key = "open-finance") { OpenFinanceSection(viewModel) }
             AjustesSection.APARENCIA -> item(key = "aparencia") { AparenciaSection(viewModel) }
             AjustesSection.PERFIL -> item(key = "perfil") { PerfilSection(viewModel, onSignedOut) }
@@ -136,7 +135,6 @@ private fun titleOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CONTAS -> R.string.ajustes_contas
     AjustesSection.CARTOES -> R.string.ajustes_cartoes
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias
-    AjustesSection.APROVAR -> R.string.ajustes_aprovar
     AjustesSection.OPEN_FINANCE -> R.string.ajustes_open_finance
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia
     AjustesSection.PERFIL -> R.string.ajustes_perfil
@@ -148,7 +146,6 @@ private fun hintOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CONTAS -> R.string.ajustes_contas_hint
     AjustesSection.CARTOES -> R.string.ajustes_cartoes_hint
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias_hint
-    AjustesSection.APROVAR -> R.string.ajustes_aprovar_hint
     AjustesSection.OPEN_FINANCE -> R.string.ajustes_open_finance_hint
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia_hint
     AjustesSection.PERFIL -> R.string.ajustes_perfil_hint
@@ -649,19 +646,6 @@ private fun OpenFinanceSettingsBlock(settings: OpenFinanceSettingsDto, viewModel
             fontSize = 13.sp,
             color = palette.muted,
         )
-        val canRecord = settings.autoRecord || settings.autoRecordBlockers.isEmpty()
-        Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled && canRecord) { viewModel.setOpenFinanceAutoRecord(!settings.autoRecord) }) {
-            Checkbox(
-                settings.autoRecord,
-                { viewModel.setOpenFinanceAutoRecord(it) },
-                enabled = enabled && canRecord,
-                colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent),
-            )
-            Column(Modifier.padding(top = 12.dp)) {
-                Text(stringResource(R.string.ajustes_open_finance_record), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
-                Text(OpenFinanceRules.autoRecordHint(settings.autoRecord, settings.autoRecordBlockers), fontSize = 14.sp, color = palette["zinc-600"])
-            }
-        }
         Text(stringResource(R.string.ajustes_open_finance_notices_line), fontSize = 14.sp, color = palette["zinc-600"])
         Row(verticalAlignment = Alignment.Top, modifier = Modifier.clickable(enabled = enabled) { viewModel.setOpenFinanceIncludePending(!settings.includePending) }) {
             Checkbox(
@@ -749,7 +733,7 @@ private fun OpenFinanceItemCard(item: OpenFinanceItemDto, viewModel: AjustesView
                         fontSize = 13.sp,
                         color = palette["zinc-600"],
                     )
-                    val check = OpenFinanceRules.balanceCheck(account.type, account.pluggyBalance, account.appBalance)
+                    val check = OpenFinanceRules.balanceCheck(account.type, account.pluggyBalance, account.appBalance, account.check?.explanation?.awaiting ?: 0)
                     if (check.state != "none") {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
@@ -793,38 +777,6 @@ private fun badgeTone(tone: String): BadgeTone = when (tone) {
     "warning" -> BadgeTone.WARNING
     "danger" -> BadgeTone.DANGER
     else -> BadgeTone.NEUTRAL
-}
-
-@Composable
-private fun AprovarSection(viewModel: AjustesViewModel) {
-    val palette = LocalPalette.current
-    Panel {
-        Column {
-            SectionHeader(stringResource(R.string.ajustes_aprovar), stringResource(R.string.ajustes_aprovar_description))
-            HorizontalDivider(color = palette["zinc-100"])
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AlertMessage(viewModel.alwaysAskError, AlertTone.DANGER, stringResource(R.string.lanc_dismiss))
-                val loaded = viewModel.alwaysAsk != null && !viewModel.busy
-                // Sem resposta ainda, vale o padrao do servidor: ligado.
-                val autoRecord = viewModel.autoRecord ?: true
-                SettingCheck(
-                    checked = autoRecord,
-                    enabled = loaded,
-                    title = stringResource(R.string.ajustes_auto_record),
-                    hint = stringResource(R.string.ajustes_auto_record_hint),
-                    onChange = viewModel::setAutoRecord,
-                )
-                // "Sempre perguntar" so vale com Gravar sozinho desligado.
-                SettingCheck(
-                    checked = viewModel.alwaysAsk ?: false,
-                    enabled = loaded && !autoRecord,
-                    title = stringResource(R.string.ajustes_always_ask),
-                    hint = stringResource(R.string.ajustes_always_ask_hint),
-                    onChange = viewModel::setAlwaysAsk,
-                )
-            }
-        }
-    }
 }
 
 /** Uma caixa de marcar com o titulo e a explicacao (o <label> com checkbox da web). */

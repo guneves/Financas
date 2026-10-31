@@ -7,8 +7,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -172,94 +176,6 @@ internal fun CategoriesPanel(panels: HomePanelsDto, onOpenLink: (String) -> Unit
     }
 }
 
-// ---- Proximas faturas ----
-
-@Composable
-internal fun InvoicesPanel(
-    panels: HomePanelsDto,
-    nextInvoicesTotal: BigDecimal,
-    payable: Boolean,
-    closingDate: String?,
-    paying: Boolean,
-    onPay: () -> Unit,
-    onOpenLink: (String) -> Unit,
-) {
-    val palette = LocalPalette.current
-    val projection = panels.invoiceProjection
-    Panel {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                PanelTitleLink(stringResource(R.string.home_invoices_title), Modifier.weight(1f)) { onOpenLink("/lancamentos/cartoes") }
-                Text(formatCurrency(nextInvoicesTotal), color = palette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            }
-            Text(stringResource(R.string.home_invoices_description), color = palette.muted, fontSize = 13.sp)
-            if (projection.any { it.value.signum() > 0 }) {
-                var selected by remember(projection) { mutableStateOf<Int?>(projection.indexOfFirst { it.next }.takeIf { it >= 0 }) }
-                val color = palette["series-1"]
-                SignedBarChart(
-                    labels = projection.map { shortMonthLabel(it.month) },
-                    series = listOf(BarSeries(projection.map { it.value.toDouble() }, color)),
-                    tickLabel = axisLabel,
-                    selected = selected,
-                    onSelect = { selected = it },
-                    maxBarWidth = 28.dp,
-                    barColor = { _, index -> if (projection[index].next) color else color.copy(alpha = 0.35f) },
-                )
-                selected?.let { projection.getOrNull(it) }?.let { month ->
-                    Row {
-                        Text(HomeRules.sentenceCase(monthLabel(month.month)), color = palette["zinc-600"], fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        Text(formatCurrency(month.value), color = palette.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            } else {
-                EmptyState(
-                    title = stringResource(R.string.home_invoices_empty_title),
-                    message = stringResource(R.string.home_invoices_empty_message),
-                )
-            }
-            val note = HomePanelsRules.projectionNote(panels.nextInvoiceMonths, ::monthLabel)
-            if (note.isNotEmpty()) Text(note, color = palette["zinc-600"], fontSize = 12.sp)
-            if (nextInvoicesTotal.signum() > 0) {
-                AlertMessage(
-                    message = stringResource(R.string.home_invoices_open_items, panels.nextInvoiceItems.size) + "\n" +
-                        stringResource(R.string.home_invoices_open_note),
-                    tone = AlertTone.INFO,
-                    dismissLabel = "",
-                )
-                Surface(shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, palette.border), color = palette.surface) {
-                    Column {
-                        panels.nextInvoiceItems.forEachIndexed { index, item ->
-                            if (index > 0) HorizontalDivider(color = palette["zinc-100"])
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(item.description.orEmpty(), color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(
-                                        (item.cardName ?: stringResource(R.string.home_card_fallback)) + HomePanelsRules.installmentSuffix(item.installmentInfo),
-                                        color = palette.muted,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                Text(formatCurrency(item.amount), color = palette.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
-                            }
-                        }
-                    }
-                }
-                if (!payable && closingDate != null) {
-                    Text(stringResource(R.string.home_invoices_closes_note, formatDateBR(closingDate)), color = palette["zinc-600"], fontSize = 12.sp)
-                }
-                AppButton(stringResource(R.string.home_invoices_pay), onPay, Modifier.fillMaxWidth(), loading = paying, enabled = payable)
-            } else {
-                EmptyState(
-                    title = stringResource(R.string.home_invoices_none_title),
-                    message = stringResource(R.string.home_invoices_none_message),
-                )
-            }
-        }
-    }
-}
-
 // ---- Parcelamentos abertos ----
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -367,11 +283,20 @@ internal fun PacePanel(panels: HomePanelsDto) {
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                 )
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InlineStat(stringResource(R.string.home_pace_average_until, averageLabel, pace.todayDay), formatCurrency(pace.averageToDate), Modifier.width(150.dp))
-                    if (pace.months.size > 1) {
-                        pace.months.forEach { month ->
-                            InlineStat(stringResource(R.string.home_pace_month_until, shortMonthLabel(month.month), pace.todayDay), formatCurrency(month.toDate), Modifier.width(150.dp))
+                val average = stringResource(R.string.home_pace_average_until, averageLabel, pace.todayDay) to formatCurrency(pace.averageToDate)
+                val perMonth = if (pace.months.size > 1) {
+                    pace.months.map { month ->
+                        stringResource(R.string.home_pace_month_until, shortMonthLabel(month.month), pace.todayDay) to formatCurrency(month.toDate)
+                    }
+                } else {
+                    emptyList()
+                }
+                // Duas por linha, todas do mesmo tamanho.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    (listOf(average) + perMonth).chunked(2).forEach { pair ->
+                        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { (label, value) -> InlineStat(label, value, Modifier.weight(1f).fillMaxHeight()) }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }

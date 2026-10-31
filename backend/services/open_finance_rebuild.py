@@ -29,6 +29,7 @@ Com `--apply`, nesta ordem (cada passo pode ser refeito: `--from-step`):
 """
 
 import json
+import math
 import os
 import shutil
 import sqlite3
@@ -50,6 +51,7 @@ from services import (
     open_finance_inbox,
     open_finance_investments,
     open_finance_invoices,
+    open_finance_resolve,
     proceeds_cash,
     proceeds_sync,
     realized_results,
@@ -60,7 +62,7 @@ from services.broker_cash import settled_balance
 from services.corporate_actions import is_bonus_movement, latest_action
 from services.import_rules import import_rules_for_matching
 from services.investments import resync_investment_cash_dates, validate_asset_transaction_backing
-from source_types import INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_PROCEED_SOURCE_TYPE
+from source_types import INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_PROCEED_SOURCE_TYPE, MONTH_SUMMARY_SOURCE_TYPE
 from validators import ValidationError, safe_float
 
 logger = get_logger(__name__)
@@ -99,6 +101,8 @@ class Options:
     accept_investment_gaps: bool = False
     allow_pending: bool = False
     accept_balance_shift: bool = False
+    fill_position_gaps: bool = False
+    record_held: bool = False
     reviewed_before: str = None
     from_step: str = STEPS[0]
     today: object = None
@@ -288,6 +292,8 @@ def build_plan(conn, user_id, options, extra_accounts=()):
             kept_investment.append(row)
         elif row["source_type"] == INVESTMENT_CASH_SOURCE_TYPE:
             doomed.append(row)
+        elif row["source_type"] == MONTH_SUMMARY_SOURCE_TYPE:
+            kept_flash.append(row)
         elif row["account_id"] in keep_ids or row["transfer_account_id"] in keep_ids:
             kept_flash.append(row)
         else:
@@ -309,7 +315,9 @@ def build_plan(conn, user_id, options, extra_accounts=()):
         (user_id,),
     ).fetchall():
         target_gone = row["target_id"] in doomed_ids or row["target_id"] in doomed_card_ids
-        waiting_on_bank = row["state"] == inbox.PENDING and (
+        # Decidido ou nao: um item velho (de notificacao) ainda aberto para o par
+        # faria a linha da Pluggy se ligar a um lancamento que nao existe mais.
+        waiting_on_bank = (
             row["account_id"] in mapped_accounts or row["transfer_account_id"] in mapped_accounts
             or row["card_id"] in mapped_cards
         )
@@ -955,12 +963,26 @@ def resolve_one_sided(conn, user_id, today):
     return resolved
 
 
+def record_held_rows(conn, user_id):
+    """O que ainda esperava o prazo do Pix vira lancamento agora."""
+    recorded = 0
+    for row in _pending_open_finance(conn, user_id):
+        for source in inbox.open_finance_sources(conn, user_id, row["id"], roles=(inbox.SOURCE,)):
+            open_finance_resolve.record_bank_row(conn, user_id, row_to_dict(source)["id"])
+            recorded += 1
+            break
+    return recorded
+
+
 def step_settle(user_id, options, out):
     today = _today(options)
     with get_db() as conn:
         resolved = resolve_one_sided(conn, user_id, today)
+        held = record_held_rows(conn, user_id) if options.record_held else 0
         closed = open_finance_invoices.close_past_invoices(conn, user_id, today)
     out(f"Transferencias de uma ponta so viradas despesa/receita: {resolved}.")
+    if held:
+        out(f"Movimentos ainda no prazo de espera, gravados agora: {held}.")
     out(f"Faturas vencidas sem pagamento na Pluggy, baixadas sem dinheiro: {len(closed)}.")
     for entry in closed:
         out(f"  {entry['card']} {entry['invoice']} (venceu {entry['due']}): {entry['amount']:.2f}")
@@ -1236,8 +1258,11 @@ def card_lines(conn, user_id, today):
         options_seen = {"fatura atual": amounts[0] if amounts else 0.0, "fatura atual e a proxima": sum(amounts[:2]),
                         "todo o aberto": total}
         explained = None
+        rounds_up = inbox.open_finance_rounds_up(conn, user_id, of_account["id"])
         if bank is not None:
-            explained = next((label for label, value in options_seen.items() if abs(bank - value) <= CARD_TOLERANCE), None)
+            explained = next((label for label, value in options_seen.items() if abs(bank - value) <= CARD_TOLERANCE or (
+                rounds_up and value > 0 and abs(bank - math.ceil(value)) < 0.005
+            )), None)
         lines.append({
             "name": card["name"], "bank": bank, "open_total": rounded_money(total),
             "current": rounded_money(options_seen["fatura atual"]), "future": rounded_money(total - options_seen["fatura atual"]),
@@ -1253,14 +1278,14 @@ def non_pluggy_rows(conn, user_id, keep_ids, kept_cards=()):
     count = conn.execute(
         f"""
         SELECT COUNT(*) FROM transactions t
-        WHERE t.user_id = ? AND COALESCE(t.source_type, '') NOT IN (?, ?)
+        WHERE t.user_id = ? AND COALESCE(t.source_type, '') NOT IN (?, ?, ?)
           AND COALESCE(t.account_id, '') NOT IN ({marks}) AND COALESCE(t.transfer_account_id, '') NOT IN ({marks})
           AND NOT EXISTS (
               SELECT 1 FROM open_finance_transactions o
               WHERE o.user_id = t.user_id AND o.target_table = 'transactions' AND o.target_id = t.id
           )
         """,
-        (user_id, INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_PROCEED_SOURCE_TYPE, *keep, *keep),
+        (user_id, INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_PROCEED_SOURCE_TYPE, MONTH_SUMMARY_SOURCE_TYPE, *keep, *keep),
     ).fetchone()[0]
     kept_cards = sorted(kept_cards or ())
     count += conn.execute(
@@ -1281,6 +1306,9 @@ def step_balances(user_id, options, out):
     with get_db() as conn:
         proceeds_cash.apply_paid_proceeds(conn, user_id)
         resync_investment_cash_dates(conn, user_id)
+        for entry in open_finance_investments.fill_position_gaps(conn, user_id, today) if options.fill_position_gaps else ():
+            out(f"Compra provisoria (a Pluggy ainda nao trouxe a operacao): {entry['ticker']} {entry['quantity']} "
+                f"a {entry['unit_price']}")
     realized_results.refresh_realized_results(user_id)
     failures = [] if result["status"] in ("ok", "skipped") else ["Os proventos nao foram recalculados: rode --from-step balances."]
     with get_db() as conn:

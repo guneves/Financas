@@ -32,6 +32,11 @@ da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
   COVERED (services/open_finance_inbox.py), nunca um segundo provento.
 - **Desfazer**: apagar a operacao no Extrato. A linha daqui fica DISMISSED e
   nunca volta.
+- **Posicao na frente das operacoes**: a compra de hoje aparece na posicao da
+  Pluggy antes de aparecer nas operacoes. `fill_position_gaps()` (so a
+  reconstrucao chama) grava a diferenca como compra provisoria, ao preco da
+  posicao e sem caixa; a operacao de verdade, quando vem, a substitui
+  (`_drop_provisional()`).
 - **Liquidacao** (049): o lancamento de cada operacao fica na data da
   liquidacao (`services/settlement.py`), com o valor liquidado da Pluggy
   (`netAmount`); o caixa se compara so com o que liquidou ate o dia do saldo
@@ -45,7 +50,7 @@ import market_catalog
 import pluggy_client
 from asset_classes import QUOTED_ASSET_CLASSES
 from dates import parse_iso_date
-from db import encode_metadata, new_id, utc_timestamp
+from db import encode_metadata, new_id, parse_metadata_value, utc_timestamp
 from money import rounded_money
 from services import invoices
 from services.broker_cash import broker_settlement
@@ -75,6 +80,7 @@ QUANTITY_TOLERANCE = 0.000001
 # Ordens do mesmo ativo em LINK_DAYS dias que entram na busca por uma soma.
 MAX_SUMMED_ROWS = 14
 PART_KEY = "#part:"
+PROVISIONAL_KEY = "provisional"
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +228,7 @@ def _summed_twins(conn, current_user_id, asset_class, ticker, signed_quantity, t
     return []
 
 
-def _insert_movement(conn, current_user_id, asset_class, op):
+def _insert_movement(conn, current_user_id, asset_class, op, provisional=False):
     """A operacao como POST /api/investments a gravaria (renda variavel, BRL)."""
     signed = op["quantity"] if op["op_type"] == "BUY" else -op["quantity"]
     validate_investment_movement(conn, current_user_id, asset_class, op["code"], signed)
@@ -239,7 +245,9 @@ def _insert_movement(conn, current_user_id, asset_class, op):
     if op.get("net_amount"):
         # O que a corretora liquidou de fato (com taxas): o caixa usa este (049).
         metadata[SETTLEMENT_AMOUNT_KEY] = op["net_amount"]
-    cash_account = portfolio_cash_account_id(conn, current_user_id)
+    if provisional:
+        metadata[PROVISIONAL_KEY] = True
+    cash_account = None if provisional else portfolio_cash_account_id(conn, current_user_id)
     if cash_account:
         metadata[CASH_ACCOUNT_KEY] = cash_account
     movement_id = new_id()
@@ -263,6 +271,20 @@ def _insert_movement(conn, current_user_id, asset_class, op):
     return movement_id
 
 
+def _drop_provisional(conn, current_user_id, ticker):
+    """A operacao de verdade chegou: as provisorias do ativo saem."""
+    for row in conn.execute(
+        """
+        SELECT it.id, it.metadata FROM investment_transactions it
+        JOIN assets a ON a.id = it.asset_id AND a.user_id = it.user_id
+        WHERE it.user_id = ? AND a.ticker = ?
+        """,
+        (current_user_id, ticker),
+    ).fetchall():
+        if (parse_metadata_value(row["metadata"]) or {}).get(PROVISIONAL_KEY):
+            conn.execute("DELETE FROM investment_transactions WHERE id = ? AND user_id = ?", (row["id"], current_user_id))
+
+
 def decide(conn, current_user_id, op):
     """(state, held_reason, investment_id) de uma operacao nova (ou segurada).
     Na soma de digitadas, as outras ficam em op["other_links"]."""
@@ -273,6 +295,7 @@ def decide(conn, current_user_id, op):
     asset_class = equity_class(conn, current_user_id, op["code"])
     if not asset_class:
         return "HELD", "unknown_asset", None
+    _drop_provisional(conn, current_user_id, op["code"])
     signed = op["quantity"] if op["op_type"] == "BUY" else -op["quantity"]
     twin = _typed_twin(conn, current_user_id, asset_class, op["code"], signed, op["trade_date"])
     if twin:
@@ -408,6 +431,31 @@ def _app_quantity(conn, current_user_id, ticker):
         (current_user_id, ticker, *sorted(QUOTED_ASSET_CLASSES)),
     ).fetchone()
     return safe_float(row["quantity"])
+
+
+def fill_position_gaps(conn, current_user_id, today):
+    """Cada ativo com mais na posicao da Pluggy do que as operacoes explicam ganha
+    uma compra provisoria da diferenca. Devolve [{ticker, quantity, unit_price}]."""
+    check = portfolio_check(conn, current_user_id, today)
+    prices = {
+        row["code"]: safe_float(row["unit_value"]) for row in conn.execute(
+            "SELECT code, unit_value FROM open_finance_positions WHERE user_id = ?", (current_user_id,),
+        ).fetchall()
+    }
+    filled = []
+    for entry in (check or {}).get("positions", []):
+        gap = safe_float(entry.get("expected_quantity")) - safe_float(entry.get("app_quantity"))
+        if entry.get("matches") is not False or gap <= 0 or prices.get(entry["code"], 0) <= 0:
+            continue
+        asset_class = equity_class(conn, current_user_id, entry["code"])
+        if not asset_class:
+            continue
+        _insert_movement(conn, current_user_id, asset_class, {
+            "op_key": f"{OP_KEY_PREFIX}provisional:{entry['code']}", "op_type": "BUY", "code": entry["code"],
+            "quantity": gap, "unit_price": prices[entry["code"]], "trade_date": today.isoformat(), "expenses": 0,
+        }, provisional=True)
+        filled.append({"ticker": entry["code"], "quantity": gap, "unit_price": prices[entry["code"]]})
+    return filled
 
 
 def _later_operations(conn, current_user_id, code, after_day):

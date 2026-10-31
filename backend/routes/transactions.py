@@ -24,7 +24,7 @@ from services.accounts import (
     resolve_category,
     transfer_amount_for,
 )
-from services import auto_record
+from services import auto_record, manual_entries
 from services.attachments import remove_attachment_files
 from services.inbox import TRANSFER_CATEGORY
 from services.inbox_decisions import absorb_created, absorb_other_side
@@ -247,6 +247,7 @@ def transactions(current_user_id):
                 )
             category, category_id = resolve_category(conn, current_user_id, payload)
             account_id = resolve_account_id(conn, current_user_id, payload)
+            manual_entries.require_manual_account(conn, current_user_id, account_id)
             card_id = debit_card_id(conn, current_user_id, payload, transaction_type, account_id)
         except ValidationError as exc:
             return validation_error(str(exc))

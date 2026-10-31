@@ -283,6 +283,18 @@ private fun NavHostController.openTab(route: String) {
  * A secao da barra de baixo: o Inicio fica embaixo de tudo, a secao entra por cima dele. Como nas
  * abas, a pagina que sai guarda o estado e a que volta o recupera.
  */
+/**
+ * A aba da secao em que o dono ja esta, numa pagina de dentro dela: volta a entrada da secao. O
+ * `restoreState` de [openSection] traria a mesma pagina de volta, e o toque parecia nao fazer nada.
+ */
+private fun NavHostController.reopenSection(section: ShellNav.Section) {
+    clearBackStack(section.root)
+    navigate(section.root) {
+        launchSingleTop = true
+        popUpTo(NativeRoutes.HOME) { saveState = false }
+    }
+}
+
 private fun NavHostController.openSection(section: ShellNav.Section) {
     if (section == ShellNav.Section.HOME) {
         // O Inicio que ja esta embaixo (sem refazer a pagina); sem ele na pilha, um novo.
@@ -575,7 +587,7 @@ private fun AppShell(
                 shell.apkPrompt?.let { prompt -> ApkBanner(prompt, shell.apkStatus, shell.apkBusy, shell::installApk) }
                 ShellBottomBar(section) { selected ->
                     if (selected == section && selected.root == route) return@ShellBottomBar
-                    nav.openSection(selected)
+                    if (ShellNav.reopensRoot(selected, section, route)) nav.reopenSection(selected) else nav.openSection(selected)
                 }
             }
         }
