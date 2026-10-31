@@ -28,6 +28,7 @@ from services.attachments import (
     remove_attachment_files,
     same_purchase_sql,
 )
+from services import manual_entries
 from services.card_statement import card_purchases
 from services.inbox_decisions import absorb_created
 from services.sharing import update_purchase_share
@@ -99,7 +100,8 @@ def credit_cards(current_user_id):
                 """,
                 (current_user_id,),
             ).fetchall()
-        return jsonify([row_to_dict(row) for row in rows]), 200
+            fed = manual_entries.bank_fed_card_ids(conn, current_user_id)
+        return jsonify([{**row_to_dict(row), "pluggy": row["id"] in fed} for row in rows]), 200
 
     payload = parse_json_body()
     try:
@@ -573,6 +575,7 @@ def create_cc_purchase(current_user_id):
             # "Outros" da raiz e contava no orcamento dele.
             purchase["category"], purchase["category_id"] = resolve_category(conn, current_user_id, payload)
             card = require_active_card(conn, current_user_id, card_id)
+            manual_entries.require_manual_card(conn, current_user_id, card_id)
 
             # O client_id e a compra (035): sem um do cliente, ela ganha o seu,
             # e duas compras iguais nunca viram uma.
@@ -747,6 +750,7 @@ def create_cc_refund(current_user_id):
 
         with get_db() as conn:
             card = require_active_card(conn, current_user_id, card_id)
+            manual_entries.require_manual_card(conn, current_user_id, card_id)
             original = None
             if refund_of:
                 original = conn.execute(

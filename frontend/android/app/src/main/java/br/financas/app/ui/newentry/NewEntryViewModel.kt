@@ -110,8 +110,9 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
         get() = EntryOptions.buildCategoryOptions(lists.categories ?: emptyList())
 
     // So contas em reais: a conta global (outra moeda) e a tela dela (ui/globalaccount/).
-    val accounts: List<AccountDto> get() = (lists.accounts ?: emptyList()).filter { !GlobalAccount.isGlobal(it) }
-    val cards: List<CreditCardDto> get() = lists.cards ?: emptyList()
+    // Conta e cartao da Pluggy nao se digitam (dono, 2026-10-31): sobra a Flash.
+    val accounts: List<AccountDto> get() = (lists.accounts ?: emptyList()).filter { !GlobalAccount.isGlobal(it) && !it.pluggy }
+    val cards: List<CreditCardDto> get() = (lists.cards ?: emptyList()).filter { !it.pluggy }
     val defaultAccountId: String get() = EntryOptions.pickDefaultAccountId(accounts)
 
     /** Uma vez por tela (girar o aparelho recria a Activity, nao o formulario). */

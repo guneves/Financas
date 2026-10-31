@@ -311,6 +311,8 @@
     <string name="review_entry">lançamento</string>
     <string name="review_transfer">Transferência</string>
     <string name="review_mine">É meu</string>
+    <string name="review_income">É receita</string>
+    <string name="review_repasse">É repasse</string>
     <string name="review_failed">Não foi possível confirmar.</string>
     <string name="review_waiting_title">Não gravou sozinho</string>
     <string name="review_waiting_pick">Escolha…</string>

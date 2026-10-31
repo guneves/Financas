@@ -53,7 +53,6 @@ enum class AjustesSection(val anchor: String) {
     CONTAS("contas"),
     CARTOES("cartoes"),
     CATEGORIAS("categorias"),
-    APROVAR("aprovar"),
     OPEN_FINANCE("open-finance"),
     APARENCIA("aparencia"),
     PERFIL("perfil"),
@@ -103,13 +102,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     val openFinanceSettings = ScreenLoad<OpenFinanceSettingsDto>()
     /** O item da Pluggy que esta em "Atualizar" (o botao dele gira). */
     var syncingItemId by mutableStateOf<String?>(null)
-        private set
-    /** "Gravar sozinho" (045): null antes da primeira leitura. */
-    var autoRecord by mutableStateOf<Boolean?>(null)
-        private set
-    var alwaysAsk by mutableStateOf<Boolean?>(null)
-        private set
-    var alwaysAskError by mutableStateOf("")
         private set
 
     var hidden by mutableStateOf(ShellPrefs.valuesHidden(application) ?: false)
@@ -239,7 +231,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
                 readAccounts()
             }
             AjustesSection.CATEGORIAS -> readCategories()
-            AjustesSection.APROVAR -> readInboxSettings()
             AjustesSection.OPEN_FINANCE -> readOpenFinance()
             AjustesSection.PERFIL -> readMe()
             AjustesSection.NOTIFICACOES -> readNotify()
@@ -271,25 +262,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             me.collect(app, repo.me(), R.string.ajustes_profile_failed)
             if (username == null) username = me.value?.user?.username.orEmpty()
-        }
-    }
-
-    private fun readInboxSettings() {
-        viewModelScope.launch {
-            graph.inbox.settings().collect { load ->
-                when (load) {
-                    is Load.Cached -> if (alwaysAsk == null) {
-                        alwaysAsk = load.value.alwaysAsk
-                        autoRecord = load.value.autoRecord
-                    }
-                    is Load.Fresh -> {
-                        alwaysAsk = load.value.alwaysAsk
-                        autoRecord = load.value.autoRecord
-                        alwaysAskError = ""
-                    }
-                    is Load.Failed -> if (load.cached == null) alwaysAskError = app.getString(R.string.ajustes_aprovar_failed)
-                }
-            }
         }
     }
 
@@ -628,24 +600,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     // ---- Avisos do celular ----
 
-    /** Ligado: cada aviso vira lancamento na hora (e o que esperava grava agora); desligado, espera. */
-    fun setAutoRecord(value: Boolean) {
-        val before = autoRecord
-        autoRecord = value
-        write(R.string.ajustes_aprovar_save_failed, { graph.inbox.setAutoRecord(value) }, onFail = { autoRecord = before }) { body ->
-            autoRecord = body.autoRecord
-            changed(app.getString(if (value) R.string.ajustes_auto_record_on else R.string.ajustes_auto_record_off))
-        }
-    }
-
-    fun setAlwaysAsk(value: Boolean) {
-        val before = alwaysAsk
-        alwaysAsk = value
-        write(R.string.ajustes_aprovar_save_failed, { graph.inbox.setAlwaysAsk(value) }, onFail = { alwaysAsk = before }) {
-            changed(app.getString(if (value) R.string.ajustes_aprovar_on else R.string.ajustes_aprovar_off))
-        }
-    }
-
     // ---- Open Finance (043): o estado e "Atualizar"; conectar e mapear ficam no computador ----
 
     fun syncOpenFinance(item: OpenFinanceItemDto) {
@@ -662,6 +616,13 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun saveOpenFinanceSettings(body: Map<String, Any?>, message: String) {
+        write(R.string.ajustes_open_finance_settings_failed, { repo.updateOpenFinanceSettings(body) }) { saved ->
+            openFinanceSettings.value = saved
+            notice(message)
+        }
+    }
+
     /** "Busca automatica" (0 desliga) e "Trazer pendentes": no servidor, como na web. */
     fun setOpenFinanceSyncHours(hours: Int) = saveOpenFinanceSettings(
         mapOf("sync_hours" to hours),
@@ -673,19 +634,6 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         mapOf("include_pending" to value),
         app.getString(if (value) R.string.ajustes_open_finance_pending_on else R.string.ajustes_open_finance_pending_off),
     )
-
-    /** "Gravar sozinho" (044): o servidor recusa ligar com conta sem destino ou sem busca recente. */
-    fun setOpenFinanceAutoRecord(value: Boolean) = saveOpenFinanceSettings(
-        mapOf("auto_record" to value),
-        app.getString(if (value) R.string.ajustes_open_finance_record_on else R.string.ajustes_open_finance_record_off),
-    )
-
-    private fun saveOpenFinanceSettings(body: Map<String, Any?>, message: String) {
-        write(R.string.ajustes_open_finance_settings_failed, { repo.updateOpenFinanceSettings(body) }) { saved ->
-            openFinanceSettings.value = saved
-            notice(message)
-        }
-    }
 
     // ---- Aparencia ----
 

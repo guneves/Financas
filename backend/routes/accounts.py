@@ -29,7 +29,7 @@ from services.accounts import (
     transfer_amount_for,
 )
 from services.fx import BASE_CURRENCY, SUPPORTED_CURRENCIES, normalize_currency, with_balance_in_brl
-from services import global_account
+from services import global_account, manual_entries
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.investments import PORTFOLIO_ACCOUNT_TYPE
@@ -65,6 +65,9 @@ def accounts(current_user_id):
             apply_paid_proceeds(conn, current_user_id)
             rows = account_balance_rows(conn, current_user_id)
             items = [with_balance_in_brl(conn, current_user_id, serialize_account(row)) for row in rows]
+            fed = manual_entries.bank_fed_account_ids(conn, current_user_id)
+        for item in items:
+            item["pluggy"] = item["id"] in fed
         if not include_archived:
             items = [item for item in items if not item.get("archived_at")]
         return jsonify(items), 200
@@ -279,6 +282,7 @@ def create_transfer(current_user_id):
             )
             if origin["id"] == destination["id"]:
                 raise ValidationError("Origem e destino devem ser contas diferentes.")
+            manual_entries.require_manual_transfer(conn, current_user_id, origin["id"], destination["id"])
             # Entre moedas (047): o que entrou no destino, na moeda dele.
             transfer_amount = transfer_amount_for(origin, destination, payload)
             category, category_id = resolve_category(conn, current_user_id, payload, required=False)

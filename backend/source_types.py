@@ -22,7 +22,23 @@ INVESTMENT_PROCEED_SOURCE_TYPE = "INVESTMENT_PROCEED"
 # Dinheiro da carteira (039): o que faz um lancamento ser aporte, resgate ou
 # provento e a origem dele, nunca uma categoria. O aporte digitado e uma
 # transferencia para a conta Corretora.
-INVESTMENT_SOURCE_TYPES = (INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_PROCEED_SOURCE_TYPE)
+# Linha do extrato da corretora que nao e operacao nem provento (taxa, IR, renda
+# fixa, services/broker_statement.py): source_id = o id da transacao na Pluggy.
+BROKER_STATEMENT_SOURCE_TYPE = "BROKER_STATEMENT"
+# Aplicacao ou resgate num fundo do proprio banco (RF High, Tesouro Reserva: Pluggy
+# "Fixed income" numa conta corrente, 2026-10-31): sai do saldo, nunca e despesa nem
+# receita. source_id = o id da transacao na Pluggy.
+BANK_INVESTMENT_SOURCE_TYPE = "BANK_INVESTMENT"
+INVESTMENT_SOURCE_TYPES = (
+    INVESTMENT_CASH_SOURCE_TYPE, INVESTMENT_PROCEED_SOURCE_TYPE, BROKER_STATEMENT_SOURCE_TYPE,
+    BANK_INVESTMENT_SOURCE_TYPE,
+)
+
+# O que saiu num mes de uma conta sem Pluggy (Inter), numa linha so: o liquido do
+# que entrou nela (dono, 2026-10-31: nao e gasto). Tira o dinheiro do saldo e fica
+# fora de todo total de despesa (Fluxo, Resumo, Orcamento, plano, Ritmo, Extrato).
+# source_id = '<conta>:<AAAA-MM>'.
+MONTH_SUMMARY_SOURCE_TYPE = "MONTH_SUMMARY"
 
 # Pagamento de fatura: manual (pay-invoice) ou debito automatico (011,
 # source_id = '<cartao>:<AAAA-MM>').

@@ -4,6 +4,7 @@ import { Badge, Button, Panel, PanelHeader, cx } from '../../components/ui'
 import { reviewApi } from '../../lib/dataApi'
 import { formatSignedCurrency } from '../../lib/format'
 import {
+  reviewCanBeRepasse,
   reviewCategoryType,
   reviewHasCategory,
   reviewKey,
@@ -19,7 +20,8 @@ import { formatDateBR } from './helpers'
 const FIRST = 5
 
 // Revisar (045): o que a notificacao e a Pluggy gravaram sozinhas. O trabalho
-// do dono e so este: a categoria (ja vem sugerida) e um toque em "É meu".
+// do dono e so este: a categoria (ja vem sugerida) e um toque em "É meu"; numa
+// receita, "É receita" ou "É repasse" (dinheiro de outra pessoa).
 // "Confirmar todos" leva as categorias como estao na tela.
 export default function ReviewPanel({ items, categoryOptionsFor, onError }) {
   const [chosen, setChosen] = useState({})
@@ -91,9 +93,16 @@ export default function ReviewPanel({ items, categoryOptionsFor, onError }) {
                 </p>
               </div>
               {reviewHasCategory(item) ? categorySelect(item) : <span className="text-sm text-zinc-500">Transferência</span>}
-              <Button type="button" icon={Check} disabled={Boolean(busy)} onClick={() => confirm([item], key)} className="w-full md:w-auto">
-                É meu
-              </Button>
+              <div className="flex gap-2">
+                <Button type="button" icon={Check} disabled={Boolean(busy)} onClick={() => confirm([item], key)} className="flex-1 md:flex-none">
+                  {reviewCanBeRepasse(item) ? 'É receita' : 'É meu'}
+                </Button>
+                {reviewCanBeRepasse(item) ? (
+                  <Button type="button" variant="secondary" disabled={Boolean(busy)} onClick={() => confirm([{ ...item, repasse: true }], key)} className="flex-1 md:flex-none">
+                    É repasse
+                  </Button>
+                ) : null}
+              </div>
             </li>
           )
         })}

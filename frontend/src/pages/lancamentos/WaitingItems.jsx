@@ -1,43 +1,35 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, BellRing, CheckCheck, Inbox, Landmark, Pencil, Repeat, RotateCcw, Smartphone, Undo2, X } from 'lucide-react'
+import { ArrowRight, Landmark, Pencil, Repeat, Smartphone, Undo2, X } from 'lucide-react'
 import { accountsApi, categoriesApi, creditCardsApi, inboxApi } from '../../lib/dataApi'
 import { creditCards } from '../../lib/cardFunctions'
 import {
   AlertMessage,
   Badge,
   Button,
-  Collapsible,
-  EmptyState,
   Field,
-  IconButton,
   ListSkeleton,
   Menu,
-  PageHeader,
   Panel,
   SegmentedControl,
   Sheet,
 } from '../../components/ui'
-import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString } from '../../lib/format'
+import { formatCurrency, formatDateBR, formatSignedCurrency } from '../../lib/format'
 import { invalidateServerData, queryClient, queryErrorMessage, useQuery } from '../../lib/queries'
 import { toast } from '../../lib/toast'
 import { confirmAction } from '../../lib/confirm'
 import {
   ambiguousText,
   amountSign,
-  approveReadySummary,
   candidateKindLabel,
   changesFromDraft,
   CONFIRM_TEXTS,
-  decisionText,
   draftFromItem,
   ENTRY_TYPE_LABELS,
   entryTypeLabel,
-  hintText,
   needText,
   offersRemember,
   onlySamsung,
   quickChoice,
-  readyIds,
   reasonText,
   recurringText,
   recurringToggle,
@@ -424,44 +416,20 @@ function EditSheet({ item, onClose, accounts, cards, categoryOptions, onSave, sa
   )
 }
 
-function DecidedRow({ item, onRestore, busy }) {
-  return (
-    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-zinc-900">{item.description || entryTypeLabel(item.entry_type)}</p>
-        <p className="text-xs text-zinc-500">
-          {decisionText(item)} · {whenText(item.occurred_at)} · {formatCurrency(item.amount)}
-          {item.target?.date && item.target.date !== item.occurred_at?.slice(0, 10) ? ` · lançado em ${formatDateBR(item.target.date)}` : ''}
-        </p>
-        {item.recurring ? <p className="text-xs text-zinc-500">{recurringText(item)}</p> : null}
-      </div>
-      {item.state === 'DENIED' ? (
-        <Button variant="secondary" size="sm" icon={RotateCcw} loading={busy} onClick={() => onRestore(item)}>
-          Voltar para aprovar
-        </Button>
-      ) : null}
-    </li>
-  )
-}
-
-// Lancamentos › Aprovar: o que o celular (notificacoes dos bancos) trouxe.
-// Nada entra no extrato antes de o dono aprovar; a mesma
-// compra contada por mais de uma fonte aparece uma vez so.
-export default function Aprovar() {
-  const [view, setView] = useState('pending')
+// O que nao gravou sozinho (a transferencia com uma ponta so, outra moeda): nao ha
+// tela Aprovar (dono, 2026-10-31), so esta lista no Extrato, enquanto houver item.
+export default function WaitingItems() {
   const [error, setError] = useState('')
   const [busyKey, setBusyKey] = useState('')
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState('')
 
-  const inboxQuery = useInbox(view)
-  const hintsQuery = useQuery({ queryKey: ['aprovar', 'lembradas'], queryFn: () => inboxApi.hints() })
+  const inboxQuery = useInbox('pending')
   const accountsQuery = useQuery({ queryKey: ['contas', 'ativas'], queryFn: () => accountsApi.list() })
   const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
   const categoriesQuery = useQuery({ queryKey: ['categorias', 'ativas'], queryFn: () => categoriesApi.list() })
 
   const items = inboxQuery.data?.items || NO_ITEMS
-  const pendingCount = inboxQuery.data?.pending_count ?? 0
   const accounts = useMemo(
     () => (accountsQuery.data || NO_ITEMS).filter((account) => !account.archived_at),
     [accountsQuery.data]
@@ -469,8 +437,6 @@ export default function Aprovar() {
   // So os de credito (041): a compra num cartao so debito vira despesa na conta dele.
   const cards = useMemo(() => creditCards(cardsQuery.data || NO_ITEMS), [cardsQuery.data])
   const categoryOptions = useMemo(() => buildCategoryOptions(categoriesQuery.data || NO_ITEMS), [categoriesQuery.data])
-  const hints = hintsQuery.data || NO_ITEMS
-  const ready = view === 'pending' ? readyIds(items) : NO_ITEMS
 
   const run = async (key, action, success) => {
     setBusyKey(key)
@@ -503,7 +469,6 @@ export default function Aprovar() {
     'Conferido: ficou um lançamento só.'
   )
   const deny = (item) => run(`${item.id}:deny`, () => inboxApi.deny(item.id, item.version), 'Recusado. Não entra no extrato.')
-  const restore = (item) => run(`${item.id}:restore`, () => inboxApi.restore(item.id, item.version), 'De volta para aprovar.')
   // Uma escolha no cartao do item ja troca o item na lista (com a versao nova):
   // "Aprovar" logo em seguida nao espera a releitura nem cai num 409.
   const quick = async (item, body) => {
@@ -526,20 +491,6 @@ export default function Aprovar() {
       'Separado em dois itens.'
     )
   }
-  const approveReady = () => run(
-    'ready',
-    () => inboxApi.approveReady(ready),
-    approveReadySummary
-  )
-  const forgetHint = async (hint) => {
-    if (!(await confirmAction({
-      title: 'Esquecer esta escolha?',
-      message: `${hintText(hint)}\nO próximo aviso assim volta a perguntar. Nenhum lançamento muda.`,
-      confirmLabel: 'Esquecer',
-    }))) return
-    await run(`hint:${hint.id}`, () => inboxApi.forgetHint(hint.id), 'Escolha esquecida.')
-  }
-
   const saveEdit = async (item, changes, andApprove) => {
     setSaving(andApprove ? 'approve' : 'save')
     const result = await run(
@@ -551,92 +502,34 @@ export default function Aprovar() {
     if (result) setEditing(null)
   }
 
+  if (!inboxQuery.isPending && !items.length && !error) return null
+
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
-      <PageHeader
-        title="Aprovar"
-        description="O que o celular e o Open Finance encontraram. Nada entra no extrato até você aprovar, e a mesma compra aparece uma vez só."
-        actions={(
-          <>
-            {ready.length ? (
-              <Button size="sm" icon={CheckCheck} loading={busyKey === 'ready'} onClick={approveReady}>
-                Aprovar prontos ({ready.length})
-              </Button>
-            ) : null}
-          </>
-        )}
-      />
-
-      <SegmentedControl
-        items={[
-          { value: 'pending', label: pendingCount ? `Pendentes (${pendingCount})` : 'Pendentes' },
-          { value: 'decided', label: 'Decididos' },
-        ]}
-        value={view}
-        onChange={setView}
-      />
-
-      <AlertMessage message={error || queryErrorMessage(inboxQuery, 'Não foi possível ler o que espera aprovação.')} onDismiss={error ? () => setError('') : undefined} />
+    <section className="space-y-3" aria-label="Não gravou sozinho">
+      <h2 className="text-sm font-semibold text-zinc-900">Não gravou sozinho</h2>
+      <AlertMessage message={error || queryErrorMessage(inboxQuery, 'Não foi possível ler o que espera você.')} onDismiss={error ? () => setError('') : undefined} />
 
       {inboxQuery.isPending ? (
         <ListSkeleton rows={3} />
-      ) : view === 'pending' ? (
-        items.length ? (
-          <ul className="space-y-3">
-            {items.map((item) => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                accounts={accounts}
-                cards={cards}
-                busyKey={busyKey}
-                onApprove={approve}
-                onDeny={deny}
-                onEdit={setEditing}
-                onQuick={quick}
-                onMatch={match}
-                onSplit={split}
-              />
-            ))}
-          </ul>
-        ) : (
-          <EmptyState
-            icon={Inbox}
-            title="Nada esperando"
-            message="Compras e Pix avisados pelo celular aparecem aqui para você aprovar."
-          />
-        )
-      ) : items.length ? (
-        <Panel className="overflow-clip">
-          <ul className="divide-y divide-zinc-100">
-            {items.map((item) => (
-              <DecidedRow key={item.id} item={item} onRestore={restore} busy={busyKey === `${item.id}:restore`} />
-            ))}
-          </ul>
-        </Panel>
       ) : (
-        <EmptyState icon={Inbox} title="Nada decidido ainda" />
+        <ul className="space-y-3">
+          {items.map((item) => (
+            <ItemCard
+              key={item.id}
+              item={item}
+              accounts={accounts}
+              cards={cards}
+              busyKey={busyKey}
+              onApprove={approve}
+              onDeny={deny}
+              onEdit={setEditing}
+              onQuick={quick}
+              onMatch={match}
+              onSplit={split}
+            />
+          ))}
+        </ul>
       )}
-
-      {hints.length ? (
-        <Collapsible label={`Escolhas lembradas (${hints.length})`} icon={BellRing} variant="secondary" size="sm">
-          <Panel className="overflow-clip">
-            <ul className="divide-y divide-zinc-100">
-              {hints.map((hint) => (
-                <li key={hint.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <div className="min-w-0">
-                    <p className="text-sm text-zinc-800">{hintText(hint)}</p>
-                    <p className="text-xs text-zinc-500">
-                      Usada {hint.uses} {hint.uses === 1 ? 'vez' : 'vezes'} · desde {formatDateBR(getLocalDateString(new Date(hint.created_at)))}
-                    </p>
-                  </div>
-                  <IconButton label="Esquecer" icon={X} size="sm" variant="subtle" onClick={() => forgetHint(hint)} />
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        </Collapsible>
-      ) : null}
 
       {editing ? (
         <EditSheet
@@ -650,6 +543,6 @@ export default function Aprovar() {
           saving={saving}
         />
       ) : null}
-    </div>
+    </section>
   )
 }

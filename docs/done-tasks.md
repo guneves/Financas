@@ -192,8 +192,18 @@
 | Cartões: edit category/description of a card purchase (all installments, paid too), purchases by date, debit purchases on the card (049), installment-in-paid-invoice and archived-card autopay fixes | 2026-10-28 |
 | Conta global out of "Saldo em contas"; Cartões opens all collapsed | 2026-10-28 |
 | The app waits for Pluggy: a pending item is flagged only after every connection refreshed without identifying it, app rows too in the Conferência; only the pull writes bank movements; a TED salary is income and "não é entre minhas contas" takes the side the bank saw; a despesa/receita can become a transfer (web, APK) absorbing the other side; Extrato rows change at once; `synchronous = NORMAL` on every connection; "Movimentos com diferença" removed (`test_pluggy_waits.py`, `transactionEdit.test.js`, `transactionPages.test.js`, `ExtratoRulesTest`, `ReviewRulesTest`) | 2026-10-30 |
+| Spending corrected: Inter line (`MONTH_SUMMARY`) and BB funds (`BANK_INVESTMENT`) out of every total, 2025 own Pix as transfers, Ritmo without foreign accounts | 2026-10-31 |
+| Anticipated installments follow the bank's discount credit; a row's invoice is its `billId` | 2026-10-31 |
+| Duplicate invoice payments root-caused: `record_bank_payments()` links the payment the app has | 2026-10-31 |
+| Repasse in Revisar; settled shares cut income | 2026-10-31 |
+| Only the Flash is typed (`manual_entries.py`); Aprovar screen and its Ajustes switches removed (web and APK) | 2026-10-31 |
+| Início: invoice tile with a dropdown per invoice, no open-items panel; equal Ritmo boxes; Evolução counts transfers to the global account | 2026-10-31 |
 
 ---
+
+- **2026-10-30/31 · The owner's account equals Pluggy**: broker statement as cash (`BROKER_STATEMENT`), card
+  invoices mirroring the bank (`bill_month`, pending rows), AUPO11 D+1, Conferência buttons (Lançar, Aconteceu),
+  provisional buys, rebuild applied on production and validated month by month. See `docs/handoff.md`.
 
 ## Notes on completed work
 

@@ -53,10 +53,10 @@ from services.budgets import (
     plan_figures,
 )
 from services.goals import list_goals
-from services.home import investment_flow_sql
+from services.home import income_after_settled, investment_flow_sql
 from services.invoices import local_today, signed_amount_sql
 from services.sharing import own_amount_sql
-from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import (
     ValidationError,
     normalize_month,
@@ -84,7 +84,7 @@ def month_banking_totals(conn, current_user_id, month):
     So a parte do dono (032): o que era de outra pessoa nao e gasto nem renda dele.
     """
     own = own_amount_sql()
-    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES)
+    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE)
     skipped_placeholders = ", ".join("?" for _ in skipped_types)
     row = conn.execute(
         f"""
@@ -316,6 +316,7 @@ def build_monthly_plan(current_user_id, month):
     with get_db() as conn:
         row = fetch_plan_for_month(conn, current_user_id, month)
         spent_accounts, spent_cards, income = month_banking_totals(conn, current_user_id, month)
+        income = income_after_settled(conn, current_user_id, month, income)
         categories = build_budget_month(conn, current_user_id, month)
         aportes, resgates = month_investment_flow(conn, current_user_id, month)
 

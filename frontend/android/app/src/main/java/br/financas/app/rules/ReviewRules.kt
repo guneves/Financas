@@ -128,13 +128,17 @@ object ReviewRules {
         item.description?.takeIf { it.isNotEmpty() } ?: item.category.orEmpty()
 
     /** Os itens de POST /api/review: category_id so quando o dono mudou (e nunca na transferencia). */
-    fun reviewPayload(items: List<ReviewItemDto>, chosen: Map<String, String> = emptyMap()): List<Map<String, Any?>> =
+    fun reviewPayload(items: List<ReviewItemDto>, chosen: Map<String, String> = emptyMap(), repasse: Boolean = false): List<Map<String, Any?>> =
         items.map { item ->
             val entry = linkedMapOf<String, Any?>("table" to item.table, "id" to item.id)
             val pick = chosen[reviewKey(item)]
             if (reviewHasCategory(item) && !pick.isNullOrEmpty() && pick != item.categoryId.orEmpty()) entry["category_id"] = pick
+            if (repasse) entry["repasse"] = true
             entry
         }
+
+    /** Repasse (dono, 2026-10-31): a receita que e dinheiro de outra pessoa. Fica no saldo, fora da renda. */
+    fun reviewCanBeRepasse(item: ReviewItemDto): Boolean = item.table != TABLE_CARD && item.type == "INCOME"
 
     /** O que a lista mostra: os primeiros [FIRST], ou todos. */
     fun visibleItems(items: List<ReviewItemDto>, showAll: Boolean): List<ReviewItemDto> =

@@ -35,7 +35,7 @@ from services.home import (
     prepare_reads,
 )
 from services.invoices import local_today
-from source_types import INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import MONTH_SUMMARY_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import shift_month
 
 INVOICE_MONTHS = 6
@@ -94,7 +94,9 @@ def monthly_spending(conn, current_user_id, keys):
         FROM transactions t
         LEFT JOIN accounts origin ON origin.id = t.account_id AND origin.user_id = t.user_id
         WHERE t.user_id = ? AND t.type = 'EXPENSE' AND {cases['from_bank']}
+          AND COALESCE(origin.currency, 'BRL') = 'BRL'
           AND NOT {cases['portfolio_cash']} AND NOT {invoice_payment}
+          AND COALESCE(t.source_type, '') <> '{MONTH_SUMMARY_SOURCE_TYPE}'
           AND substr(t.date, 1, 7) IN ({placeholders})
         ORDER BY t.date, t.id
         """,
@@ -218,7 +220,10 @@ def invoice_panels(conn, current_user_id, today, current_key):
             "id": row["id"],
             "kind": row["kind"] or "PURCHASE",
             "description": row["description"],
+            "card_id": invoice["card_id"],
             "card_name": invoice["card_name"],
+            "invoice_month": invoice["invoice_month"],
+            "invoice_year": invoice["invoice_year"],
             "installment_info": row["installment_info"],
             "amount": rounded_money(row["amount"]),
         }
@@ -237,7 +242,10 @@ def invoice_panels(conn, current_user_id, today, current_key):
             if group is None:
                 group = grouped[key] = {
                     "description": row["description"],
-                    "card_name": invoice["card_name"],
+                    "card_id": invoice["card_id"],
+            "card_name": invoice["card_name"],
+            "invoice_month": invoice["invoice_month"],
+            "invoice_year": invoice["invoice_year"],
                     "installment_amount": Decimal(str(row["amount"] or 0)),
                     "remaining": 0,
                     "total_installments": total,

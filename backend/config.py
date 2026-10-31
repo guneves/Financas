@@ -212,6 +212,8 @@ INBOX_MATCH_DAYS = read_int_env("INBOX_MATCH_DAYS", 3, minimum=0, maximum=10)
 # padrao de quem nunca mexeu no interruptor (Ajustes); os testes antigos do
 # Aprovar rodam com 0 (conftest.py) e os novos ligam por usuario.
 AUTO_RECORD_DEFAULT = str(os.getenv("AUTO_RECORD_DEFAULT", "1")).strip().lower() not in {"0", "false", "no"}
+# A conta e o cartao que a Pluggy alimenta nao recebem lancamento digitado (dono, 2026-10-31).
+MANUAL_ONLY_OFF_PLUGGY = str(os.getenv("MANUAL_ONLY_OFF_PLUGGY", "1")).strip().lower() not in {"0", "false", "no"}
 
 # Open Finance pela Pluggy (pluggy_client.py, services/open_finance.py). As
 # credenciais ficam so aqui, no ambiente: nunca no frontend, em log ou em

@@ -629,11 +629,11 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** "É meu" ([items] = o item) ou "Confirmar todos" (a fila, com as categorias da tela). */
-    fun confirmReview(items: List<ReviewItemDto>, busyKey: String) {
+    fun confirmReview(items: List<ReviewItemDto>, busyKey: String, repasse: Boolean = false) {
         if (reviewBusy.isNotEmpty() || items.isEmpty()) return
         reviewBusy = busyKey
         reviewError = ""
-        val payload = ReviewRules.reviewPayload(items, reviewChosen)
+        val payload = ReviewRules.reviewPayload(items, reviewChosen, repasse)
         graph.appScope.launch {
             val result = graph.review.confirm(payload)
             reviewBusy = ""

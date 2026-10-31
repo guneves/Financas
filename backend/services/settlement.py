@@ -8,12 +8,16 @@ com o valor liquidado de verdade quando o dono (ou a Pluggy) o informa
 (`settlement_amount`, com taxas e a LIQ BOLSA); `settlement_date` no metadata
 manda sobre a conta.
 
+Um ETF de renda fixa (`market_catalog.FIXED_INCOME_ETFS`) liquida em D+1: o extrato
+da BTG mostra AUPO11 vendido num dia e pago no seguinte.
+
 Modulo puro: so datas e numeros, sem banco.
 """
 
 from datetime import date, timedelta
 
 from dates import parse_iso_date
+from market_catalog import FIXED_INCOME_ETFS
 from money import rounded_money
 from validators import safe_float
 
@@ -21,6 +25,7 @@ SETTLEMENT_DATE_KEY = "settlement_date"
 SETTLEMENT_AMOUNT_KEY = "settlement_amount"
 B3_SETTLEMENT_DAYS = 2
 FOREIGN_SETTLEMENT_DAYS = 1
+FIXED_INCOME_ETF_SETTLEMENT_DAYS = 1
 B3_SETTLED_CLASSES = {"STOCKS", "REIT"}
 
 # Feriados nacionais fixos sem pregao nem liquidacao, mais 24 e 31/12 (a B3
@@ -68,15 +73,17 @@ def add_business_days(day, count):
     return current
 
 
-def settlement_days(asset_class, currency="BRL"):
+def settlement_days(asset_class, currency="BRL", ticker=None):
     if asset_class not in B3_SETTLED_CLASSES:
         return 0
     if (currency or "BRL").upper() != "BRL":
         return FOREIGN_SETTLEMENT_DAYS
+    if ticker in FIXED_INCOME_ETFS:
+        return FIXED_INCOME_ETF_SETTLEMENT_DAYS
     return B3_SETTLEMENT_DAYS
 
 
-def settlement_date(trade_date, asset_class, currency="BRL", metadata=None):
+def settlement_date(trade_date, asset_class, currency="BRL", metadata=None, ticker=None):
     """A data da liquidacao (AAAA-MM-DD): a do metadata, ou a conta pela classe."""
     explicit = parse_iso_date((metadata or {}).get(SETTLEMENT_DATE_KEY))
     if explicit:
@@ -84,7 +91,7 @@ def settlement_date(trade_date, asset_class, currency="BRL", metadata=None):
     parsed = parse_iso_date(trade_date)
     if not parsed:
         return trade_date
-    return add_business_days(parsed.date(), settlement_days(asset_class, currency)).isoformat()
+    return add_business_days(parsed.date(), settlement_days(asset_class, currency, ticker)).isoformat()
 
 
 def settlement_amount(metadata):

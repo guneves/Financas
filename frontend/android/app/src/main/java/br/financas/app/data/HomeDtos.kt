@@ -249,7 +249,10 @@ data class NextInvoiceItemDto(
     val id: String,
     val kind: String = "PURCHASE",
     val description: String? = null,
+    @SerialName("card_id") val cardId: String? = null,
     @SerialName("card_name") val cardName: String? = null,
+    @SerialName("invoice_month") val invoiceMonth: Int? = null,
+    @SerialName("invoice_year") val invoiceYear: Int? = null,
     @SerialName("installment_info") val installmentInfo: String? = null,
     val amount: Money = BigDecimal.ZERO,
 )

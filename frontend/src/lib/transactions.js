@@ -7,7 +7,7 @@
 // digitado a mao e essa transferencia. No banco o caixa e o provento sao
 // linhas EXPENSE / INCOME comuns (o saldo da conta precisa delas), entao a
 // distincao e feita na leitura.
-export const INVESTMENT_SOURCE_TYPES = ['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED']
+export const INVESTMENT_SOURCE_TYPES = ['INVESTMENT_TRANSACTION', 'INVESTMENT_PROCEED', 'BROKER_STATEMENT', 'BANK_INVESTMENT']
 
 // Estorno no cartao (033): uma linha da fatura com kind = 'REFUND' e valor
 // positivo, que abate a fatura em vez de somar. Toda soma de compras no
@@ -78,6 +78,15 @@ export const portfolioCashBalance = (accounts = []) =>
 // a corretora vira o que ela e para o banco — aporte (o dinheiro foi para a
 // carteira) ou resgate (voltou dela). Assim a curva de saldo do Inicio termina
 // no mesmo saldo do topo, que tambem nao conta a corretora.
+// A despesa e a receita da conta global (outra moeda) ficam fora de todo total em
+// reais (047), o Ritmo e as categorias do Inicio inclusive.
+export function withoutForeignEntries(transactions = [], accounts = []) {
+  const foreign = new Set(
+    accounts.filter((account) => String(account.currency || 'BRL').toUpperCase() !== 'BRL').map((account) => account.id)
+  )
+  return transactions.filter((transaction) => transaction.type === 'TRANSFER' || !foreign.has(transaction.account_id))
+}
+
 export function bankingTransactions(transactions = [], accounts = []) {
   const portfolioIds = new Set(accounts.filter(isPortfolioAccount).map((account) => account.id))
   if (!portfolioIds.size) return transactions

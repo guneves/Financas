@@ -25,6 +25,8 @@ data class AccountDto(
     @SerialName("balance_brl") val balanceBrl: Money? = null,
     @SerialName("fx_rate") val fxRate: Money? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    /** Alimentada pela Pluggy: nao se digita (dono, 2026-10-31). */
+    val pluggy: Boolean = false,
 ) {
     val isBrokerage: Boolean get() = type == TYPE_BROKERAGE
     val isArchived: Boolean get() = !archivedAt.isNullOrEmpty()
@@ -48,6 +50,7 @@ data class CategoryDto(
     val color: String? = null,
     val icon: String? = null,
     @SerialName("archived_at") val archivedAt: String? = null,
+    val pluggy: Boolean = false,
 ) {
     val isArchived: Boolean get() = !archivedAt.isNullOrEmpty()
 }
@@ -67,6 +70,7 @@ data class CreditCardDto(
     @SerialName("autopay_account_id") val autopayAccountId: String? = null,
     @SerialName("autopay_start_date") val autopayStartDate: String? = null,
     @SerialName("archived_at") val archivedAt: String? = null,
+    val pluggy: Boolean = false,
 ) {
     val isArchived: Boolean get() = !archivedAt.isNullOrEmpty()
 }

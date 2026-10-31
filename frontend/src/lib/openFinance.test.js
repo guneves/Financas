@@ -108,11 +108,11 @@ test('the widget item id', () => {
 })
 
 test('sync summary', () => {
-  assert.equal(syncSummary({ counts: { new: 2, merged: 1 }, removed: 1 }), '2 movimentos novos no Aprovar, 1 juntou-se a um aviso, 1 saiu (o banco desfez).')
+  assert.equal(syncSummary({ counts: { new: 2, merged: 1 }, removed: 1 }), '2 movimentos novos no Revisar, 1 juntou-se a um aviso, 1 saiu (o banco desfez).')
   assert.equal(syncSummary({ counts: { known: 4 } }), 'Nada novo.')
   assert.equal(
     syncSummary({ counts: { new: 5 }, auto_recorded: { recorded: 3, linked: 1, held: 1 }, investments: { recorded: 2 } }),
-    '3 lançamentos gravados, 1 ligado ao que você lançou, 1 movimento novo no Aprovar, 2 operações na carteira.',
+    '3 lançamentos gravados, 1 ligado ao que você lançou, 1 movimento novo no Revisar, 2 operações na carteira.',
   )
 })
 
@@ -136,14 +136,14 @@ test('sync hours labels and choices', () => {
 test('check summary', () => {
   assert.deepEqual(checkSummary(null), { state: 'none', text: '' })
   assert.deepEqual(checkSummary({ bank_only_count: 0, app_only_count: 0, awaiting_count: 0 }), { state: 'match', text: 'Movimentos conferem' })
-  assert.deepEqual(checkSummary({ bank_only_count: 0, app_only_count: 0, awaiting_count: 2 }), { state: 'match', text: 'Movimentos conferem · 2 esperam no Aprovar' })
-  assert.deepEqual(checkSummary({ bank_only_count: 1, app_only_count: 3, awaiting_count: 1 }), { state: 'drift', text: '1 só no banco · 3 só no app · 1 espera no Aprovar' })
+  assert.deepEqual(checkSummary({ bank_only_count: 0, app_only_count: 0, awaiting_count: 2 }), { state: 'match', text: 'Movimentos conferem · 2 esperam no Revisar' })
+  assert.deepEqual(checkSummary({ bank_only_count: 1, app_only_count: 3, awaiting_count: 1 }), { state: 'drift', text: '1 só no banco · 3 só no app · 1 espera no Revisar' })
   assert.deepEqual(checkSummary({ bank_only_count: 2, app_only_count: 0 }), { state: 'drift', text: '2 só no banco' })
 })
 
 test('check reasons in Portuguese', () => {
   assert.equal(checkReasonLabel('invoice_payment_missing'), 'pagamento de fatura sem o pagamento no app')
-  assert.equal(checkReasonLabel('denied'), 'recusado no Aprovar')
+  assert.equal(checkReasonLabel('denied'), 'recusado no Revisar')
   assert.equal(checkReasonLabel('xyz'), '')
 })
 
@@ -169,7 +169,7 @@ test('auto record hint says why it cannot turn on', () => {
 
 test('history line per account', () => {
   assert.equal(historyLine({ to_record: 12, to_link: 1, linked: 0, waiting: 2, app_only: 1 }),
-    '12 a gravar · 1 a ligar ao que você lançou · 2 ficam no Aprovar · 1 só no app (fica como está)')
+    '12 a gravar · 1 a ligar ao que você lançou · 2 ficam no Revisar · 1 só no app (fica como está)')
   assert.equal(historyLine({}), 'Nada a fazer')
 })
 

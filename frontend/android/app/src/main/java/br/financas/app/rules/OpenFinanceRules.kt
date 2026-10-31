@@ -9,7 +9,7 @@ import java.math.RoundingMode
  * balanceCheck, syncSummary, syncHoursLabel, syncHoursChoices, checkSummary, itemBankName,
  * checkReasonLabel, balanceExplanation, autoRecordHint): mudou um, muda o outro, com um teste de cada lado
  * (OpenFinanceRulesTest.kt copia os casos de openFinance.test.js). Uma diferenca de proposito: o
- * celular nao tem a tela Aprovar (045), entao onde a web diz "no Aprovar" aqui e "no Revisar" (o
+ * celular nao tem a tela Aprovar (045), entao onde a web diz "no Revisar" aqui e "no Revisar" (o
  * Extrato, onde o que espera se resolve no celular).
  */
 object OpenFinanceRules {
@@ -57,14 +57,16 @@ object OpenFinanceRules {
     data class BalanceCheck(val state: String, val difference: BigDecimal?)
 
     @JvmStatic
-    fun balanceCheck(type: String?, pluggyBalance: BigDecimal?, appBalance: BigDecimal?): BalanceCheck {
+    @JvmOverloads
+    fun balanceCheck(type: String?, pluggyBalance: BigDecimal?, appBalance: BigDecimal?, awaitingCents: Long = 0): BalanceCheck {
         if (type == "CREDIT" || pluggyBalance == null || appBalance == null) return BalanceCheck("none", null)
         val difference = pluggyBalance.subtract(appBalance).setScale(2, RoundingMode.HALF_UP)
-        return BalanceCheck(if (difference.signum() == 0) "match" else "drift", difference)
+        val waiting = BigDecimal.valueOf(awaitingCents, 2)
+        return BalanceCheck(if (difference.compareTo(waiting) == 0) "match" else "drift", difference)
     }
 
     /** O resumo de um "Atualizar" para o toast. Com "Gravar sozinho" (044), o gravado/ligado sai do
-     *  "novo no Aprovar" (so fica o que espera o dono). */
+     *  "novo no Revisar" (so fica o que espera o dono). */
     @JvmStatic
     @JvmOverloads
     fun syncSummary(

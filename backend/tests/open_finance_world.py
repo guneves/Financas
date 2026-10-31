@@ -78,6 +78,7 @@ class FakePluggy:
     configured = True
 
     def __init__(self):
+        self.bills = {}
         self.items = {}
         self.accounts = {}
         self.transactions = {}
@@ -171,6 +172,9 @@ class FakePluggy:
     def list_transactions(self, account_id, date_from, date_to=None):
         self.calls.append(("list_transactions", account_id, date_from))
         return [dict(tx) for tx in self.transactions.get(account_id, []) if tx["date"][:10] >= date_from]
+
+    def list_bills(self, account_id):
+        return list(self.bills.get(account_id, []))
 
     def list_investments(self, item_id):
         self.calls.append(("list_investments", item_id))

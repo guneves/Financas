@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import AparenciaSection from './ajustes/AparenciaSection'
-import AprovarSection from './ajustes/AprovarSection'
 import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
@@ -16,7 +15,6 @@ const SECTION_LINKS = [
   { id: 'cartoes', label: 'Cartões' },
   { id: 'categorias', label: 'Categorias' },
   { id: 'regras-de-importacao', label: 'Regras de importação' },
-  { id: 'aprovar', label: 'Aprovar' },
   { id: 'open-finance', label: 'Open Finance' },
   { id: 'integracoes', label: 'Integrações' },
   { id: 'aparencia', label: 'Aparência' },
@@ -44,7 +42,7 @@ function useHashScroll() {
   }, [hash])
 }
 
-// Configuracao feita uma vez: contas, cartoes, categorias, regras, Aprovar, Open Finance, integracoes,
+// Configuracao feita uma vez: contas, cartoes, categorias, regras, Open Finance, integracoes,
 // aparencia (tema), perfil
 // (e, no APK, as notificacoes dos bancos e a versao do app).
 export default function Ajustes() {
@@ -77,7 +75,6 @@ export default function Ajustes() {
       <CartoesSection />
       <CategoriasSection />
       <RegrasSection />
-      <AprovarSection />
       <OpenFinanceSection />
       <IntegracoesSection />
       <AparenciaSection />

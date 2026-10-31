@@ -6,11 +6,16 @@ A notificacao e a transacao da Pluggy viram lancamento sozinhas
 e a categoria e esta. Feito, o lancamento perde a marca. Nada mais muda: valor,
 conta e data se corrigem pela edicao de sempre.
 
+Uma receita pode ser **repasse** (dono, 2026-10-31): dinheiro de outra pessoa para
+pagar algo dela. Fica no saldo, fora da renda (`share_mode = 'OTHERS'`, ja acertado).
+
 Uma compra no cartao e o client_id (035): todas as parcelas sao revisadas e
 recategorizadas juntas. Uma transferencia nao tem categoria a escolher.
 """
 
+from db import utc_timestamp
 from services.accounts import resolve_category
+from services.sharing import PERSON_MAX_LENGTH
 from validators import ValidationError
 
 TABLES = ("transactions", "cc_expenses")
@@ -154,12 +159,26 @@ def _parse(raw):
     category_id = raw.get("category_id")
     if category_id is not None and not isinstance(category_id, str):
         raise ValidationError("Categoria invalida.")
+    if not isinstance(raw.get("repasse", False), bool):
+        raise ValidationError("Repasse invalido.")
     return table, target_id.strip(), (category_id or "").strip() or None
 
 
+def mark_repasse(conn, current_user_id, table, row, person):
+    if table != "transactions" or row["type"] != "INCOME":
+        raise ValidationError("So uma receita pode ser repasse.")
+    conn.execute(
+        """
+        UPDATE transactions SET share_mode = 'OTHERS', share_others_amount = NULL, share_person = ?, share_settled_at = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (str(person or "Outra pessoa").strip()[:PERSON_MAX_LENGTH], utc_timestamp(), row["id"], current_user_id),
+    )
+
+
 def review_items(conn, current_user_id, raw_items):
-    """Confirma cada {table, id, category_id?}: e do dono e, com category_id,
-    a categoria passa a ser essa. Tudo ou nada; devolve quantos."""
+    """Confirma cada {table, id, category_id?, repasse?, person?}: e do dono e, com
+    category_id, a categoria passa a ser essa. Tudo ou nada; devolve quantos."""
     if not isinstance(raw_items, list) or not raw_items:
         raise ValidationError("Envie a lista de lancamentos revisados.")
     if len(raw_items) > MAX_ITEMS:
@@ -172,6 +191,8 @@ def review_items(conn, current_user_id, raw_items):
         ).fetchone()
         if not row:
             raise LookupError("Lancamento nao encontrado.")
+        if raw.get("repasse"):
+            mark_repasse(conn, current_user_id, table, row, raw.get("person"))
         category = None
         if category_id and not (table == "transactions" and row["type"] == "TRANSFER"):
             category = resolve_category(conn, current_user_id, {"category_id": category_id})

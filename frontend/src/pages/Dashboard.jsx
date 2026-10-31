@@ -4,9 +4,7 @@ import {
   Area,
   AreaChart,
   Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
   ComposedChart,
   Line,
   LineChart,
@@ -18,6 +16,7 @@ import {
 } from 'recharts'
 import {
   BellRing,
+  ChevronDown,
   CheckCircle2,
   ChevronRight,
   Globe2,
@@ -31,7 +30,7 @@ import {
 } from 'lucide-react'
 import { ccExpensesApi, recurringApi } from '../lib/dataApi'
 import { dismissAttention, useAttentionItems, useDismissedAttention, useHome, useInicioBudget, useInicioMovements } from '../lib/attention'
-import { invoiceMonthKey, isPastDue, overdueDetail as overdueDetailOf, undismissedItems } from '../lib/attentionRules'
+import { invoiceMonthKey, overdueDetail as overdueDetailOf, undismissedItems } from '../lib/attentionRules'
 import { AttentionCards } from '../components/Attention'
 import { useOutbox } from '../lib/outbox'
 import { ACCOUNT_KINDS, PENDING, pendingAsTransactions } from '../lib/outboxRules'
@@ -71,7 +70,7 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, isCardRefund, isInvestmentOutflow, isInvoicePayment } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, isCardRefund, isInvestmentOutflow, isInvoicePayment, withoutForeignEntries } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { GLOBAL_ACCOUNT_LABEL, globalAccounts, withoutGlobal } from '../lib/globalAccount'
 import { ownAmount } from '../lib/sharing'
@@ -116,6 +115,8 @@ function buildSpending(transactions, ccExpenses, key) {
 
   transactions.forEach((transaction) => {
     if (transaction.type !== 'EXPENSE' || isInvoicePayment(transaction) || isInvestmentOutflow(transaction)) return
+    // O gasto de um mes numa linha so nao tem dia (Inter): fora do ritmo.
+    if (transaction.source_type === 'MONTH_SUMMARY') return
     if (String(transaction.date).slice(0, 7) !== key) return
     const own = ownAmount(transaction)
     if (own > 0) add(Number(transaction.date.slice(8, 10)), transaction.category, 'cash', own)
@@ -185,7 +186,7 @@ export default function Dashboard() {
     const waiting = pending.filter((item) => item.status === PENDING)
     const defaultAccountId = serverAccounts.find((account) => account.is_default)?.id || ''
     const all = waiting.length ? [...pendingAsTransactions(waiting, { defaultAccountId }), ...serverTransactions] : serverTransactions
-    return bankingTransactions(all, serverAccounts)
+    return withoutForeignEntries(bankingTransactions(all, serverAccounts), serverAccounts)
   }, [serverTransactions, serverAccounts, pending])
   const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
   const pendingInBalance = useMemo(
@@ -323,10 +324,6 @@ export default function Dashboard() {
   // fatura do mes que vem" deixava de fora quem fecha antes de vencer no mesmo
   // mes (fecha 3, vence 10): a de novembro, fechada, so aparecia vencida.
   const nextInvoices = home?.next_invoices || NO_ITEMS
-  // As compras delas, na ordem das faturas, para a lista do painel.
-  const nextInvoiceItems = useMemo(() => nextInvoices.flatMap((invoice) => openCcExpenses.filter((item) => (
-    item.card_id === invoice.card_id && item.invoice_month === invoice.invoice_month && item.invoice_year === invoice.invoice_year
-  ))), [nextInvoices, openCcExpenses])
   const nextInvoiceTotal = home?.next_invoices_total || 0
   // Os meses delas: com cartoes de ciclos diferentes, pode ser mais de um.
   const nextInvoiceMonths = useMemo(() => [...new Set(nextInvoices.map(invoiceMonthKey))].sort(), [nextInvoices])
@@ -349,25 +346,6 @@ export default function Dashboard() {
   const shownAttention = useMemo(() => undismissedItems(attention, dismissedAttention), [attention, dismissedAttention])
 
   const nextClosingDate = home?.next_closing_date || null
-
-  // Quanto ja esta comprometido nas proximas faturas, por mes de fatura, a
-  // partir do mes da primeira delas. A vencida fica fora: ela e o aviso de
-  // fatura vencida. Em destaque, os meses das proximas faturas.
-  const invoiceProjection = useMemo(() => {
-    const keys = Array.from({ length: INVOICE_MONTHS }, (_, index) => shiftMonth(nextInvoiceMonths[0] || currentKey, index))
-    const byKey = Object.fromEntries(keys.map((key) => [key, 0]))
-    openCcExpenses.forEach((expense) => {
-      if (isPastDue(expense.invoice_due_date, todayText)) return
-      const key = invoiceMonthKey(expense)
-      if (key in byKey) byKey[key] += cardSignedAmount(expense)
-    })
-    return keys.map((key) => ({
-      key,
-      label: shortMonth(key),
-      value: Number(byKey[key].toFixed(2)),
-      next: nextInvoiceMonths.includes(key),
-    }))
-  }, [openCcExpenses, nextInvoiceMonths, currentKey, todayText])
 
   const groupedInstallmentExpenses = useMemo(() => {
     const grouped = openCcExpenses.reduce((acc, expense) => {
@@ -531,6 +509,10 @@ export default function Dashboard() {
             total={nextInvoiceTotal}
             closingDate={nextClosingDate}
             payable={payableInvoices.length > 0}
+            invoices={nextInvoices}
+            expenses={openCcExpenses}
+            paying={isPayingCurrentInvoice}
+            onPay={handlePayCurrentMonthInvoice}
             label={nextInvoiceMonths.length === 1
               ? `Fatura de ${monthLabel(nextInvoiceMonths[0])}`
               : nextInvoiceMonths.length > 1 ? 'Próximas faturas' : 'Próxima fatura'}
@@ -652,109 +634,7 @@ export default function Dashboard() {
       <BudgetStrip budget={budget} />
 
       <div className="stagger grid grid-cols-1 gap-5 xl:grid-cols-5">
-        <Panel className="xl:col-span-3">
-          <PanelHeader
-            title={<PanelLink to="/lancamentos/cartoes">Próximas faturas</PanelLink>}
-            description="O que já está comprometido no cartão para os próximos meses, parcelas incluídas."
-            actions={(
-              <p className="text-xl font-bold tabular text-zinc-950">
-                {formatCurrency(nextInvoiceTotal)}
-              </p>
-            )}
-          />
-
-          <div className="grid grid-cols-1 gap-6 p-5 lg:grid-cols-2">
-            <div>
-              {invoiceProjection.some((item) => item.value > 0) ? (
-                <div className="h-60">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={invoiceProjection} margin={{ top: 20, right: 4, left: 0, bottom: 0 }}>
-                      <CartesianGrid vertical={false} stroke={CHART.grid} />
-                      <XAxis dataKey="label" {...axisProps} />
-                      <YAxis tickFormatter={compactAxis} {...axisProps} width={56} />
-                      <Tooltip
-                        cursor={{ fill: 'rgb(var(--zinc-950) / 0.05)' }}
-                        content={(
-                          <ChartTooltip
-                            names={{ value: 'Fatura' }}
-                            labelFormatter={(_, payload) => monthLabel(payload?.[0]?.payload?.key)}
-                          />
-                        )}
-                      />
-                      <Bar dataKey="value" maxBarSize={28} radius={[4, 4, 0, 0]} {...chartAnimation}>
-                        {invoiceProjection.map((item) => (
-                          <Cell key={item.key} fill={SERIES[1]} fillOpacity={item.next ? 1 : 0.35} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <EmptyState icon={CreditCard} title="Nada comprometido" message="Sem compras abertas nos próximos meses." className="h-60 min-h-0" />
-              )}
-              {nextInvoiceMonths.length ? (
-                <p className="mt-2 text-xs text-zinc-600">
-                  {nextInvoiceMonths.length === 1
-                    ? `Em destaque, a fatura de ${monthLabel(nextInvoiceMonths[0])}.`
-                    : 'Em destaque, a próxima fatura de cada cartão.'}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="flex flex-col">
-              {nextInvoiceTotal > 0 ? (
-                <div className="flex flex-1 flex-col gap-4">
-                  <AlertMessage tone="info">
-                    <p className="font-semibold">{nextInvoiceItems.length} lançamento(s) em aberto</p>
-                    <p className="mt-1 font-normal">O pagamento lança uma despesa na conta e baixa os itens da fatura.</p>
-                  </AlertMessage>
-
-                  <ul className="max-h-56 flex-1 divide-y divide-zinc-100 overflow-y-auto rounded-lg border border-zinc-200">
-                    {nextInvoiceItems.map((item) => (
-                      <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-zinc-900">{item.description}</p>
-                          <p className="truncate text-xs text-zinc-500">
-                            {item.card_name || item.credit_cards?.name || 'Cartão'}
-                            {item.installment_info && item.installment_info !== '1/1' ? ` · ${item.installment_info}` : ''}
-                          </p>
-                        </div>
-                        <span className="whitespace-nowrap text-sm font-semibold text-zinc-950">
-                          {formatCurrency(item.amount)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  {payableInvoices.length === 0 && nextClosingDate ? (
-                    <p className="text-xs text-zinc-600">
-                      A fatura fecha em {formatDateBR(nextClosingDate)}; o pagamento é liberado depois do fechamento.
-                    </p>
-                  ) : null}
-                  <Button
-                    type="button"
-                    onClick={handlePayCurrentMonthInvoice}
-                    loading={isPayingCurrentInvoice}
-                    disabled={payableInvoices.length === 0}
-                    icon={CheckCircle2}
-                    className="w-full"
-                  >
-                    Pagar fatura
-                  </Button>
-                </div>
-              ) : (
-                <EmptyState
-                  icon={CheckCircle2}
-                  title="Nenhuma fatura aberta"
-                  message="Não há lançamentos previstos para o próximo ciclo."
-                  className="h-full min-h-40"
-                />
-              )}
-            </div>
-          </div>
-        </Panel>
-
-        <Panel className="xl:col-span-2">
+        <Panel className="xl:col-span-5">
           <PanelHeader
             title={<PanelLink to="/lancamentos/cartoes">Parcelamentos abertos</PanelLink>}
             description="Compras agrupadas por cartão e compra original."
@@ -838,7 +718,7 @@ export default function Dashboard() {
                       {' '}do que você costuma gastar até o dia {spendingPace.todayDay}.
                       {' '}Um mês inteiro fecha, em média, em <span className="tabular">{formatCurrency(spendingPace.averageMonth)}</span>.
                     </p>
-                    <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="mb-4 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-4">
                       <InlineStat label={`${paceAverageLabel} até o dia ${spendingPace.todayDay}`} value={formatCurrency(spendingPace.averageToDate)} />
                       {paceMonths > 1 ? spendingPace.months.map((month) => (
                         <InlineStat key={month.key} label={`${shortMonth(month.key)} até o dia ${spendingPace.todayDay}`} value={formatCurrency(month.toDate)} />
@@ -1110,25 +990,83 @@ function MonthSummary({ income, expense, invested, redeemed, others }) {
   )
 }
 
-function NextInvoiceTile({ total, closingDate, payable, label }) {
+function NextInvoiceTile({ total, closingDate, payable, label, invoices, expenses, paying, onPay }) {
   return (
-    <Panel as={Link} to="/lancamentos/cartoes" interactive className="flex items-center gap-4 p-5 sm:p-6">
-      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
-        <CreditCard className="h-5 w-5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-zinc-600">{label}</p>
-        <p className="mt-0.5 whitespace-nowrap text-2xl font-extrabold tracking-tight tabular text-zinc-950">{formatCurrency(total)}</p>
-      </div>
-      <div className="shrink-0 text-right text-sm text-zinc-600">
-        {payable ? (
-          <Badge tone="warning">Fechada</Badge>
-        ) : closingDate ? (
-          <>fecha<br /><b className="text-zinc-950 tabular">{formatDateBR(closingDate).slice(0, 5)}</b></>
-        ) : null}
-      </div>
+    <Panel className="space-y-3 p-5 sm:p-6">
+      <Link to="/lancamentos/cartoes" className="flex items-center gap-4">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800">
+          <CreditCard className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-zinc-600">{label}</p>
+          <p className="mt-0.5 whitespace-nowrap text-2xl font-extrabold tracking-tight tabular text-zinc-950">{formatCurrency(total)}</p>
+        </div>
+        <div className="shrink-0 text-right text-sm text-zinc-600">
+          {payable ? (
+            <Badge tone="warning">Fechada</Badge>
+          ) : closingDate ? (
+            <>fecha<br /><b className="text-zinc-950 tabular">{formatDateBR(closingDate).slice(0, 5)}</b></>
+          ) : null}
+        </div>
+      </Link>
+      {invoices.length ? (
+        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+          {invoices.map((invoice) => (
+            <InvoiceDropdown key={`${invoice.card_id}-${invoice.invoice_year}-${invoice.invoice_month}`} invoice={invoice} expenses={expenses} />
+          ))}
+        </ul>
+      ) : null}
+      {payable ? (
+        <Button type="button" onClick={onPay} loading={paying} icon={CheckCircle2} className="w-full">
+          Pagar fatura
+        </Button>
+      ) : null}
     </Panel>
   )
+}
+
+// Uma fatura do cartao: fechada por padrao; aberta, as compras dela.
+function InvoiceDropdown({ invoice, expenses }) {
+  const [open, setOpen] = useState(false)
+  const items = expenses.filter((item) => (
+    item.card_id === invoice.card_id && item.invoice_month === invoice.invoice_month && item.invoice_year === invoice.invoice_year
+  ))
+  return (
+    <li>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-zinc-900">{invoice.card_name || 'Cartão'}</span>
+          <span className="block text-xs text-zinc-500">{monthLabel(invoiceMonthKey(invoice))}</span>
+        </span>
+        <span className="whitespace-nowrap text-sm font-semibold tabular text-zinc-950">{formatCurrency(invoice.total)}</span>
+        <ChevronDown className={cx('h-4 w-4 shrink-0 text-zinc-500 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open ? (
+        <ul className="max-h-56 divide-y divide-zinc-100 overflow-y-auto border-t border-zinc-100">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="min-w-0">
+                <span className="block truncate text-sm text-zinc-900">{item.description}</span>
+                {item.installment_info && item.installment_info !== '1/1' ? (
+                  <span className="block text-xs text-zinc-500">{item.installment_info}</span>
+                ) : null}
+              </span>
+              <span className="whitespace-nowrap text-sm font-medium tabular text-zinc-950">{formatSignedInvoiceItem(item)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  )
+}
+
+function formatSignedInvoiceItem(item) {
+  return isCardRefund(item) ? `− ${formatCurrency(item.amount)}` : formatCurrency(item.amount)
 }
 
 function CategoryList({ items }) {

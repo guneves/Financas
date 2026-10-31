@@ -12,7 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db
-from services import open_finance
+from services import open_finance, open_finance_resolve
 from validators import ValidationError, parse_json_body, validation_error
 
 bp = Blueprint("open_finance", __name__)
@@ -145,6 +145,43 @@ def open_finance_map(current_user_id, account_id):
         body = open_finance.list_view(current_user_id)
         body["placed"] = result["placed"]
         return jsonify(body), 200
+
+    return _run(action)
+
+
+@bp.route("/api/open-finance/check/record", methods=["POST"])
+@token_required
+def open_finance_check_record(current_user_id):
+    """Conferencia, "Lancar": `row_id` (um movimento so no banco) vira lancamento."""
+    payload = parse_json_body()
+    if not isinstance(payload, dict):
+        return validation_error("Envie um objeto JSON.")
+
+    def action():
+        with get_db() as conn:
+            result = open_finance_resolve.record_bank_row(conn, current_user_id, payload.get("row_id"))
+        body = open_finance.list_view(current_user_id)
+        body["recorded"] = result
+        return jsonify(body), 200
+
+    return _run(action)
+
+
+@bp.route("/api/open-finance/check/confirm", methods=["POST"])
+@token_required
+def open_finance_check_confirm(current_user_id):
+    """Conferencia, "Aconteceu": `table` e `id` de um lancamento so no app;
+    `undo: true` desfaz."""
+    payload = parse_json_body()
+    if not isinstance(payload, dict):
+        return validation_error("Envie um objeto JSON.")
+
+    def action():
+        with get_db() as conn:
+            open_finance_resolve.confirm_app_row(
+                conn, current_user_id, payload.get("table"), payload.get("id"), payload.get("undo") is True,
+            )
+        return jsonify(open_finance.list_view(current_user_id)), 200
 
     return _run(action)
 

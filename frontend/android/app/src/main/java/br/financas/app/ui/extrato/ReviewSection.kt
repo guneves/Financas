@@ -128,13 +128,25 @@ private fun ReviewItemRow(item: ReviewItemDto, viewModel: ExtratoViewModel) {
         } else {
             Text(stringResource(R.string.review_transfer), color = palette.muted, fontSize = 14.sp)
         }
-        AppButton(
-            text = stringResource(R.string.review_mine),
-            onClick = { viewModel.confirmReview(listOf(item), key) },
-            enabled = viewModel.reviewBusy.isEmpty(),
-            loading = viewModel.reviewBusy == key,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        val canBeRepasse = ReviewRules.reviewCanBeRepasse(item)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppButton(
+                text = stringResource(if (canBeRepasse) R.string.review_income else R.string.review_mine),
+                onClick = { viewModel.confirmReview(listOf(item), key) },
+                enabled = viewModel.reviewBusy.isEmpty(),
+                loading = viewModel.reviewBusy == key,
+                modifier = Modifier.weight(1f),
+            )
+            if (canBeRepasse) {
+                AppButton(
+                    text = stringResource(R.string.review_repasse),
+                    onClick = { viewModel.confirmReview(listOf(item), key, repasse = true) },
+                    variant = ButtonVariant.SECONDARY,
+                    enabled = viewModel.reviewBusy.isEmpty(),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 

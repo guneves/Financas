@@ -17,6 +17,7 @@ import statement_import
 from auth import token_required
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import parse_money, rounded_money
+from services import manual_entries
 from services.accounts import require_account, resolve_account_id, resolve_category
 from services.import_rules import (
     count_rule_hits,
@@ -24,8 +25,8 @@ from services.import_rules import (
     import_rules_for_matching,
 )
 from source_types import (
-    INVESTMENT_CASH_SOURCE_TYPE,
-    INVESTMENT_PROCEED_SOURCE_TYPE,
+    INVESTMENT_SOURCE_TYPES,
+    MONTH_SUMMARY_SOURCE_TYPE,
     INVOICE_PAYMENT_SOURCE_TYPES,
     STATEMENT_IMPORT_SOURCE_TYPE,
 )
@@ -241,8 +242,8 @@ def import_rule_detail(current_user_id, rule_id):
 # pelo sistema e levam um rotulo, nao uma categoria escolhida (039: "Aporte",
 # "Resgate", "Provento").
 RULE_APPLY_SKIPPED_SOURCE_TYPES = (
-    INVESTMENT_CASH_SOURCE_TYPE,
-    INVESTMENT_PROCEED_SOURCE_TYPE,
+    *INVESTMENT_SOURCE_TYPES,
+    MONTH_SUMMARY_SOURCE_TYPE,
     *sorted(INVOICE_PAYMENT_SOURCE_TYPES),
 )
 MAX_RULE_APPLY_ROWS = 2000
@@ -552,6 +553,7 @@ def import_commit(current_user_id):
                 category, category_id = resolve_category(conn, current_user_id, raw, allow_archived=True)
                 account_id = resolve_account_id(conn, current_user_id, raw) if raw.get("account_id") \
                     else resolve_account_id(conn, current_user_id, payload)
+                manual_entries.require_manual_account(conn, current_user_id, account_id)
                 # Normalmente o source_id vem da previa; sem ele, e recalculado
                 # aqui com a mesma regra, para o dedupe valer de qualquer jeito.
                 source_id = optional_string(raw, "source_id", max_length=255) or import_source_id(

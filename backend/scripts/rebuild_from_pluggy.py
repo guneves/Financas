@@ -42,6 +42,9 @@ def parse_args(argv=None):
     parser.add_argument("--ignore", action="append", default=[], metavar="CONTA",
                         help="Conta da conexao registrada que fica \"nao usar\".")
     parser.add_argument("--accept-investment-gaps", action="store_true", help="Segue com a trava da carteira aberta.")
+    parser.add_argument("--fill-position-gaps", action="store_true",
+                        help="Posicao da Pluggy na frente das operacoes: grava a diferenca como compra provisoria.")
+    parser.add_argument("--record-held", action="store_true", help="Grava agora o que ainda esperava o prazo do Pix.")
     parser.add_argument("--allow-pending", action="store_true", help="Aceita item pendente no fim.")
     parser.add_argument("--mark-reviewed-before", metavar="AAAA-MM-DD",
                         help=f"Mais antigo que isto nao vai para a revisao (padrao: {rebuild.DEFAULT_REVIEW_DAYS} dias).")
@@ -60,7 +63,8 @@ def options_from(args):
         month=args.month, keep_accounts=tuple(args.keep_accounts or rebuild.DEFAULT_KEEP_ACCOUNTS),
         register_item=args.register_item, maps=maps, ignores=tuple(args.ignore),
         accept_investment_gaps=args.accept_investment_gaps, allow_pending=args.allow_pending,
-        accept_balance_shift=args.accept_balance_shift,
+        accept_balance_shift=args.accept_balance_shift, fill_position_gaps=args.fill_position_gaps,
+        record_held=args.record_held,
         reviewed_before=args.mark_reviewed_before, from_step=args.from_step,
     )
 
