@@ -21,7 +21,7 @@ Cada linha vira centavos como no cliente (`Math.round(x * 100)`): a soma e de
 inteiros, sem erro de ponto flutuante. `local_today()` e lido por nome aqui.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from money import rounded_money
@@ -36,6 +36,7 @@ from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES, 
 from validators import ValidationError, shift_month
 
 MAX_MONTHS = 24
+BRT = timezone(timedelta(hours=-3))
 INVOICE_PAYMENT_CATEGORY_PREFIX = "Pagamento Fatura"
 
 
@@ -165,7 +166,7 @@ def settled_others_by_month(conn, current_user_id):
     )
     for query in queries:
         for row in conn.execute(query, (current_user_id,)).fetchall():
-            moment = datetime.fromisoformat(row["settled"].replace("Z", "+00:00")).astimezone()
+            moment = datetime.fromisoformat(row["settled"].replace("Z", "+00:00")).astimezone(BRT)
             key = moment.strftime("%Y-%m")
             months[key] = months.get(key, 0) + int(row["cents"] or 0)
     return months
