@@ -31,6 +31,9 @@ valor. Um pagamento do app ainda sem transacao, na mesma conta e no mesmo dia (o
 de mesmo valor, ate CARD_SIDE_DAYS), e este: fica com o valor do banco. Sem isso
 a saida virava uma segunda linha "solta" (2026-10-31: 11 pagamentos em dobro).
 
+**Fatura paga antes de fechar**: de um cartao certo e com o valor exato da fatura
+aberta, a baixa e a de sempre; o que entrar depois fica aberto, como no banco.
+
 **Qual cartao**: o credito de mesmo valor na conta do cartao, ate
 CARD_SIDE_DAYS dias; senao os cartoes conectados da mesma conexao, depois os do
 mesmo banco; o resto so entra com o valor exato de uma fatura.
@@ -152,6 +155,12 @@ def _pick_invoice(conn, current_user_id, row, account, known, cards):
         for invoice in usable[known[0]["id"]]:
             if invoice["cents"] > 0:
                 return known[0], invoice
+    # Pago antes de fechar (BTG, 31/07): so de um cartao certo, com o valor exato.
+    for card in known:
+        for invoice in open_invoices(conn, current_user_id, card):
+            ahead = invoice["closing"] > paid_on and abs((invoice["due"] - paid_on).days) <= DUE_WINDOW_DAYS
+            if ahead and lowest <= invoice["cents"] <= cents:
+                return card, invoice
     return None
 
 

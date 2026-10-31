@@ -10,6 +10,9 @@
 ## 1. Open work, in priority order
 
 ### Open Finance only (2026-10-30) — what is left
+- [ ] Início's "Despesas por categoria" sums R$ 1.397,14 in October against R$ 1.365,41 spent: a refund in category "Estorno"
+  (R$ 31,73, AliExpress) has a negative total and is dropped. Net it from the purchase's category.
+- [ ] Owner, on the phone: update to APK 10109+, then the dropdown under "Fatura de <mês>" and the Investir tab from a sub-tab.
 - [ ] **Provisional buys** (2026-10-31): 20 BBAS3, 23 ITSA4, 10 LEVE3 at the position's price, no cash. Pluggy's
   next operations replace them; check Operações has the real prices and cash after that pull (a linked one keeps
   the estimated price: fix it).
