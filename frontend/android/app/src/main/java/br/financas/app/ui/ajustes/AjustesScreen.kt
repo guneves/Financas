@@ -683,13 +683,12 @@ private fun OpenFinanceCheckBlock(check: OpenFinanceCheckDto?, hidden: Boolean) 
     val palette = LocalPalette.current
     val summary = OpenFinanceRules.checkSummary(check != null, check?.bankOnlyCount ?: 0, check?.appOnlyCount ?: 0, check?.awaitingCount ?: 0)
     if (summary.state == "none" || check == null) return
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Badge(
-            stringResource(if (summary.state == "match") R.string.ajustes_open_finance_check_match else R.string.ajustes_open_finance_check_drift),
-            if (summary.state == "match") BadgeTone.SUCCESS else BadgeTone.WARNING,
-        )
+    if (summary.state == "match") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Badge(stringResource(R.string.ajustes_open_finance_check_match), BadgeTone.SUCCESS)
+        }
+        if (check.awaitingCount > 0) Text(summary.text, fontSize = 13.sp, color = palette["zinc-600"])
     }
-    if (summary.state == "drift" || check.awaitingCount > 0) Text(summary.text, fontSize = 13.sp, color = palette["zinc-600"])
     listOf(
         R.string.ajustes_open_finance_check_bank to check.bankOnly,
         R.string.ajustes_open_finance_check_app to check.appOnly,

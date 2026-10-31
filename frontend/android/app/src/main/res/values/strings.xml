@@ -853,8 +853,10 @@
     <string name="ajustes_open_finance_match">Confere</string>
     <string name="ajustes_open_finance_drift">Diferença %1$s</string>
     <string name="ajustes_open_finance_card_balance">Fatura no banco: %1$s</string>
+    <string name="extrato_edit_type_transfer">Transferência</string>
+    <string name="extrato_edit_other_from">Veio de qual conta</string>
+    <string name="extrato_edit_other_to">Foi para qual conta</string>
     <string name="ajustes_open_finance_check_match">Movimentos conferem</string>
-    <string name="ajustes_open_finance_check_drift">Movimentos com diferença</string>
     <string name="ajustes_open_finance_check_bank">Só no banco</string>
     <string name="ajustes_open_finance_check_app">Só no app</string>
     <string name="ajustes_open_finance_auto">Busca automática</string>

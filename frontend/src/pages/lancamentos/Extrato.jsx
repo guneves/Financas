@@ -23,7 +23,7 @@ import { formatSignedCurrency } from '../../lib/format'
 import { parseMoneyInput } from '../../lib/monthlyPlan'
 import { INVESTMENT_SOURCE_TYPES, isInvestmentInflow, isInvestmentOutflow } from '../../lib/transactions'
 import { shareFormError, shareFormFrom, shareSummary } from '../../lib/sharing'
-import { transactionEditForm, transactionEditPayload } from '../../lib/transactionEdit'
+import { becomesTransfer, transactionEditForm, transactionEditPayload, transferEditError } from '../../lib/transactionEdit'
 import ShareFields from '../../components/ShareFields'
 import { categoryLabel, getNow } from './helpers'
 import AttachmentsSheet from '../../components/AttachmentsSheet'
@@ -32,7 +32,7 @@ import useLancamentos from './useLancamentos'
 import { confirmAction } from '../../lib/confirm'
 import { toast } from '../../lib/toast'
 import ExportSheet from '../../components/ExportSheet'
-import { keepPreviousData, queryErrorMessage, useInfiniteQuery, useQuery } from '../../lib/queries'
+import { dropStatementRow, keepPreviousData, queryErrorMessage, updateStatementRow, useInfiniteQuery, useQuery } from '../../lib/queries'
 import { mergeTransactionPages, nextPageCursor, STATEMENT_PAGE_LIMIT } from '../../lib/transactionPages'
 import useDebouncedValue from '../../lib/useDebouncedValue'
 import ExtratoInvestimentos from './ExtratoInvestimentos'
@@ -407,10 +407,10 @@ function ExtratoContas({ viewSwitch }) {
       setDataError('Informe um valor valido.')
       return
     }
-    const sharing = canShare(transaction)
-    const shareError = sharing ? shareFormError(editForm.share, amount) : ''
-    if (shareError) {
-      setDataError(shareError)
+    const sharing = canShare(transaction) && !becomesTransfer(transaction, editForm)
+    const editError = transferEditError(transaction, editForm) || (sharing ? shareFormError(editForm.share, amount) : '')
+    if (editError) {
+      setDataError(editError)
       return
     }
 
@@ -418,9 +418,9 @@ function ExtratoContas({ viewSwitch }) {
     setDataError('')
     try {
       const payload = transactionEditPayload(transaction, editForm, amount, { sharing })
-      await transactionsApi.update(transaction.id, payload)
+      const updated = await transactionsApi.update(transaction.id, payload)
+      updateStatementRow(updated)
       setEditingId('')
-      await fetchData()
     } catch (error) {
       setDataError(error.message || 'Não foi possível atualizar o lançamento.')
     } finally {
@@ -430,10 +430,13 @@ function ExtratoContas({ viewSwitch }) {
 
   const handleDeleteTransaction = async (id) => {
     if (!(await confirmAction({ title: 'Excluir este lançamento?', message: 'O saldo da conta é recalculado.', confirmLabel: 'Excluir' }))) return
+    // A linha sai na hora; recusado, a leitura de novo a traz de volta.
+    dropStatementRow(id)
+    setEditingId('')
     try {
       await transactionsApi.remove(id)
-      await fetchData()
     } catch (error) {
+      fetchData()
       setDataError(error.message || 'Não foi possível excluir a transação.')
     }
   }
@@ -514,15 +517,29 @@ function ExtratoContas({ viewSwitch }) {
     </select>
   )
 
+  // A outra conta de uma despesa/receita que vira transferencia: as de reais,
+  // menos a da propria linha (a conta global pede o valor em dolar, na tela dela).
+  const otherAccountSelect = (transaction) => (
+    <select value={editForm.transfer_account_id} onChange={setEditField('transfer_account_id')} aria-label={transaction.type === 'INCOME' ? 'Veio de qual conta' : 'Foi para qual conta'} className="app-select">
+      <option value="">{transaction.type === 'INCOME' ? 'Veio de qual conta?' : 'Foi para qual conta?'}</option>
+      {accounts.filter((account) => account.id !== transaction.account_id && (account.currency || 'BRL') === 'BRL').map((account) => (
+        <option key={account.id} value={account.id}>{account.name}</option>
+      ))}
+    </select>
+  )
+
   // Campos de edicao reaproveitados pela tabela (inline) e pela lista do celular (empilhados).
   const editControls = (transaction) => {
     const isTransfer = transaction.type === 'TRANSFER'
+    const converting = becomesTransfer(transaction, editForm)
     return {
       date: <input type="date" value={editForm.date} onChange={setEditField('date')} className="app-input" />,
       account: accountSelect('account_id', transaction.account_id, isTransfer ? 'Conta de origem' : 'Conta'),
       // Numa transferencia, o lugar da categoria e o da conta de destino.
       category: isTransfer ? (
         accountSelect('transfer_account_id', transaction.transfer_account_id, 'Conta de destino')
+      ) : converting ? (
+        otherAccountSelect(transaction)
       ) : (
         <select value={editForm.category_id} onChange={setEditField('category_id')} className="app-select">
           {/* A categoria que o lancamento ja tem, quando ela nao esta na lista
@@ -542,10 +559,11 @@ function ExtratoContas({ viewSwitch }) {
         <select value={editForm.type} onChange={setEditField('type')} className="app-select">
           <option value="EXPENSE">Despesa</option>
           <option value="INCOME">Receita</option>
+          <option value="TRANSFER">Transferência entre contas</option>
         </select>
       ),
       amount: <input type="text" inputMode="decimal" autoComplete="off" value={editForm.amount} onChange={setEditField('amount')} className="app-input" />,
-      share: canShare(transaction) ? (
+      share: canShare(transaction) && !converting ? (
         <ShareFields form={editForm.share} type={editForm.type} onChange={(share) => setEditForm({ ...editForm, share })} />
       ) : null,
       actions: (
@@ -851,7 +869,7 @@ function ExtratoContas({ viewSwitch }) {
                         <Field label="Valor">{controls.amount}</Field>
                       </div>
                       <Field label="Descrição">{controls.description}</Field>
-                      <Field label={transaction.type === 'TRANSFER' ? 'Para' : 'Categoria'}>{controls.category}</Field>
+                      <Field label={transaction.type === 'TRANSFER' ? 'Para' : becomesTransfer(transaction, editForm) ? 'Outra conta' : 'Categoria'}>{controls.category}</Field>
                       <div className="grid grid-cols-2 gap-3">
                         <Field label="Tipo">{controls.type}</Field>
                         <Field label={transaction.type === 'TRANSFER' ? 'De' : 'Conta'}>{controls.account}</Field>

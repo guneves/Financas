@@ -37,6 +37,9 @@ EDITABLE_FIELDS = (
 )
 NEED_OF_FIELD = {"card_id": "card", "account_id": "account", "transfer_account_id": "transfer_account"}
 DIRECTION_OF_TYPE = {"EXPENSE": "OUT", "CARD": "OUT", "TRANSFER": "OUT", "INCOME": "IN"}
+# A outra ponta de uma transferencia que o dono apontou no Extrato: a mesma folga
+# da Conferencia (open_finance_check.MATCH_DAYS).
+OTHER_SIDE_DAYS = 3
 
 
 class Conflict(Exception):
@@ -175,12 +178,46 @@ def parse_changes(conn, current_user_id, item, payload):
     return changes
 
 
+def settle_one_side(item, changes):
+    """A transferencia de uma ponta so que nao e entre as contas do dono: quem
+    decide e a ponta que o banco viu. O item guarda toda transferencia como
+    saida; a entrada sem origem (um salario por TED) esta so no destino, entao
+    vira receita nessa conta, seja qual for o tipo que a tela mandou."""
+    if item.get("entry_type") != "TRANSFER" or changes.get("entry_type") not in ("EXPENSE", "INCOME"):
+        return
+    if changes.get("account_id"):
+        return
+    origin, destination = item.get("account_id"), item.get("transfer_account_id")
+    if destination and not origin:
+        changes["entry_type"] = "INCOME"
+    elif origin and not destination:
+        changes["entry_type"] = "EXPENSE"
+    if changes["entry_type"] == "INCOME" and destination:
+        changes["account_id"] = destination
+
+
+def _category_of_single(conn, current_user_id, item, merged, changes):
+    """A categoria de quem deixou de ser transferencia: a da transacao da Pluggy
+    que trouxe o item (a regra do dono, o comerciante, a da Pluggy), senao a padrao."""
+    sources = inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,))
+    if sources:
+        return open_finance_inbox.category_for_row(
+            conn, current_user_id, row_to_dict(sources[0]), changes["entry_type"], merged["amount"],
+            merged.get("account_id"),
+        )
+    return inbox.suggest_category(
+        conn, current_user_id, merged.get("description"), changes["entry_type"], merged["amount"],
+        merged.get("account_id"),
+    )
+
+
 def _with_changes(conn, current_user_id, item, changes):
     """O item com as mudancas do dono, mais o que elas arrastam (direcao,
     categoria de transferencia, o que falta, o que deixou de ser palpite)."""
     touched = set(changes.pop("_touched", ())) | {field for field in changes if field in NEED_OF_FIELD}
     if not changes and not touched:
         return {}
+    settle_one_side(item, changes)
     full = dict(changes)
     merged = {**item, **changes}
     if "entry_type" in changes:
@@ -194,10 +231,7 @@ def _with_changes(conn, current_user_id, item, changes):
             if changes["entry_type"] == "TRANSFER":
                 full["category"], full["category_id"] = inbox.TRANSFER_CATEGORY, None
             elif item.get("entry_type") == "TRANSFER" or not item.get("category"):
-                full["category"], full["category_id"] = inbox.suggest_category(
-                    conn, current_user_id, merged.get("description"), changes["entry_type"], merged["amount"],
-                    merged.get("account_id"),
-                )
+                full["category"], full["category_id"] = _category_of_single(conn, current_user_id, item, merged, changes)
         merged.update(full)
     edited = list(item.get("edited") or [])
     for field in changes:
@@ -636,6 +670,66 @@ def _match_candidate(conn, current_user_id, item, before, candidate, remember, p
         remember_choice(conn, current_user_id, chosen, before)
     _close(conn, current_user_id, item, inbox.MATCHED, table, target_id, reason="owner_matched")
     return inbox.fetch_item(conn, current_user_id, item["id"])
+
+
+def absorb_other_side(conn, current_user_id, row, other_account_id, twin_type):
+    """O dono disse que `row` e uma transferencia: a outra ponta que a Pluggy ja
+    trouxe naquela conta e este mesmo dinheiro, nunca um segundo movimento.
+
+    A receita/despesa que a Pluggy gravou sai (com comprovante ou dividida, fica:
+    o dono mexeu nela) e o item que esperava fecha nesta transferencia. Devolve
+    quantos absorveu. O que chegar depois liga em
+    open_finance_inbox.recorded_transfer_for_row()."""
+    cents = inbox._cents(row["amount"])
+    first, last = inbox._shift(row["date"], -OTHER_SIDE_DAYS), inbox._shift(row["date"], OTHER_SIDE_DAYS)
+    rows = conn.execute(
+        """
+        SELECT t.* FROM transactions t
+        WHERE t.user_id = ? AND t.account_id = ? AND t.type = ? AND t.source_type = ?
+          AND CAST(ROUND(t.amount * 100) AS INTEGER) = ? AND t.date BETWEEN ? AND ?
+          AND t.share_mode IS NULL
+          AND NOT EXISTS (SELECT 1 FROM transaction_attachments a WHERE a.user_id = t.user_id AND a.transaction_id = t.id)
+        """,
+        (current_user_id, other_account_id, twin_type, OPEN_FINANCE_SOURCE_TYPE, cents, first, last),
+    ).fetchall()
+    rows = sorted(rows, key=lambda entry: (inbox._date_gap(entry["date"], row["date"]), entry["date"], entry["id"]))
+    if rows:
+        twin = rows[0]
+        conn.execute(
+            "DELETE FROM recurring_settlements WHERE user_id = ? AND target_table = 'transactions' AND target_id = ?",
+            (current_user_id, twin["id"]),
+        )
+        conn.execute("DELETE FROM transactions WHERE id = ? AND user_id = ?", (twin["id"], current_user_id))
+        conn.execute(
+            """
+            UPDATE open_finance_transactions SET target_id = ?, role = 'MATCHED', updated_at = ?
+            WHERE user_id = ? AND target_table = 'transactions' AND target_id = ?
+            """,
+            (row["id"], utc_timestamp(), current_user_id, twin["id"]),
+        )
+        conn.execute(
+            "UPDATE inbox_items SET target_id = ? WHERE user_id = ? AND target_table = 'transactions' AND target_id = ?",
+            (row["id"], current_user_id, twin["id"]),
+        )
+        return 1
+    for waiting in conn.execute(
+        """
+        SELECT * FROM inbox_items
+        WHERE user_id = ? AND state = 'PENDING' AND (account_id = ? OR transfer_account_id = ?)
+          AND substr(occurred_at, 1, 10) BETWEEN ? AND ?
+        ORDER BY occurred_at, id
+        """,
+        (current_user_id, other_account_id, other_account_id, first, last),
+    ).fetchall():
+        if inbox._cents(waiting["amount"]) != cents or not inbox.open_finance_sources(
+            conn, current_user_id, waiting["id"], roles=(inbox.SOURCE,),
+        ):
+            continue
+        item = inbox.item_dict(waiting)
+        _link_detections(conn, current_user_id, item["id"], "transactions", row["id"])
+        _close(conn, current_user_id, item, inbox.MATCHED, "transactions", row["id"], reason="owner_matched")
+        return 1
+    return 0
 
 
 def approve_ready(conn, current_user_id, item_ids):

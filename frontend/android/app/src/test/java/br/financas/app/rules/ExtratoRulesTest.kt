@@ -62,6 +62,27 @@ class ExtratoRulesTest {
         assertFalse(transactionEditPayload(expense, form.copy(transferAccountId = "x"), money("30")).containsKey("transfer_account_id"))
     }
 
+    // node: 'an expense turned into a transfer leaves its own account', 'an income ... enters its own
+    // account', 'a conversion needs another account'
+    @Test
+    fun aDespesaOrReceitaBecomesATransferFromItsOwnSide() {
+        val expense = TransactionDto(id = "e", type = "EXPENSE", amount = money("30"), date = "2026-10-11", accountId = "a", categoryId = "c")
+        val form = transactionEditForm(expense).copy(type = "TRANSFER", transferAccountId = "b")
+        val payload = transactionEditPayload(expense, form, money("30"))
+        assertEquals(listOf("TRANSFER", "a", "b"), listOf(payload["type"], payload["account_id"], payload["transfer_account_id"]))
+        assertFalse(payload.containsKey("category_id"))
+
+        val income = expense.copy(type = "INCOME")
+        val back = transactionEditPayload(income, form, money("30"))
+        assertEquals(listOf("b", "a"), listOf(back["account_id"], back["transfer_account_id"]))
+        assertEquals("TRANSFER", ExtratoRules.editedRow(income, form, money("30")).type)
+        assertEquals("a", ExtratoRules.editedRow(income, form, money("30")).transferAccountId)
+
+        assertEquals("", ExtratoRules.transferEditError(expense, form))
+        assertEquals("Escolha a outra conta da transferência.", ExtratoRules.transferEditError(expense, form.copy(transferAccountId = "")))
+        assertEquals("Escolha uma conta diferente.", ExtratoRules.transferEditError(expense, form.copy(transferAccountId = "a")))
+    }
+
     // node: 'the share goes only when it changed'
     @Test
     fun theShareGoesOnlyWhenItChanged() {

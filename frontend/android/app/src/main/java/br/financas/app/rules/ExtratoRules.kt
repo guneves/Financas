@@ -221,6 +221,13 @@ object ExtratoRules {
             "date" to form.date,
             "description" to form.description,
         )
+        if (becomesTransfer(row, form)) {
+            val income = row.type == INCOME
+            payload["type"] = TRANSFER
+            payload["account_id"] = if (income) form.transferAccountId else row.accountId
+            payload["transfer_account_id"] = if (income) row.accountId else form.transferAccountId
+            return payload
+        }
         if (form.accountId.isNotEmpty() && form.accountId != row.accountId.orEmpty()) payload["account_id"] = form.accountId
         if (row.type == TRANSFER) {
             if (form.transferAccountId.isNotEmpty() && form.transferAccountId != row.transferAccountId.orEmpty()) {
@@ -233,6 +240,28 @@ object ExtratoRules {
         val original = Sharing.shareFormFrom(ShareItem(row.shareMode, row.sharePerson, row.shareOthersAmount))
         if (sharing && form.share != original) payload.putAll(Sharing.sharePayload(form.share))
         return payload
+    }
+
+    /** A despesa ou receita que o dono diz ser entre as contas dele; `transferAccountId` e a outra conta. */
+    fun becomesTransfer(row: TransactionDto, form: TransactionEditForm): Boolean = form.type == TRANSFER && row.type != TRANSFER
+
+    fun transferEditError(row: TransactionDto, form: TransactionEditForm): String = when {
+        !becomesTransfer(row, form) -> ""
+        form.transferAccountId.isEmpty() -> "Escolha a outra conta da transferência."
+        form.transferAccountId == row.accountId -> "Escolha uma conta diferente."
+        else -> ""
+    }
+
+    /** A linha como o servidor vai devolver: a tela nao espera a leitura nova para mudar. */
+    fun editedRow(row: TransactionDto, form: TransactionEditForm, amount: BigDecimal): TransactionDto {
+        val base = row.copy(amount = amount, date = form.date, description = form.description)
+        if (!becomesTransfer(row, form)) return base
+        val income = row.type == INCOME
+        return base.copy(
+            type = TRANSFER,
+            accountId = if (income) form.transferAccountId else row.accountId,
+            transferAccountId = if (income) row.accountId else form.transferAccountId,
+        )
     }
 
     // ---- Comprovantes (components/AttachmentsSheet.jsx) ----

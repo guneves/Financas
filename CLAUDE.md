@@ -266,6 +266,21 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   recurrences never write on a Pluggy-mapped card or account.
 - **Categories**: owner's import rule → merchant table → CNAE → Pluggy's category → default
   (`open_finance_categories.py`); merchant data from 050.
+- **Only the pull writes bank movements** (owner 2026-10-30): every 6 h, or the "Atualizar" button. A read
+  (`record_due()`) records only notifications, the Flash; a Pix past its hold is recorded by the next pull.
+- **The app waits for the bank before flagging** (owner 2026-10-30, `awaiting_bank()` /
+  `bank_refreshed_since()` in `open_finance_auto.py`): a pending Pluggy item stays out of `waiting` (`GET
+  /api/review`) until every active connection has `pluggy_updated_at` after the item and the app read it;
+  `BANK_WAIT_MAX_DAYS` (3) stops a dead connection hiding it. `GET /api/inbox` marks `awaiting_bank`. The
+  Conferência does the same for app rows (`awaiting_bank` instead of `app_only`, `newer_than_bank()`).
+- **Income is never a transfer** (`is_income_row()`): an incoming row with Pluggy category `01...` or salary
+  text. A one-sided transfer "não é entre minhas contas" takes the side the bank saw
+  (`settle_one_side()`): only a destination is an INCOME there, whatever the screen sent.
+- **A despesa/receita can become a transfer** (`PATCH /api/transactions/<id>` with `type: TRANSFER`, `account_id`
+  and `transfer_account_id`, one of them the row's own): loses category and share, leaves review.
+  `absorb_other_side()` drops the other side Pluggy recorded (OPEN_FINANCE, no receipt, no share, same cents,
+  ±3 days) or closes its waiting item; a later row links through `recorded_transfer_for_row()`. Web and APK
+  offer reais accounts only. The way back (transfer → despesa) is refused.
 - **Rebuild** (`scripts/rebuild_from_pluggy.py`, `services/open_finance_rebuild.py`): dry-run by
   default; `--apply` needs the app stopped and runs in a one-off container (DEPLOY.md). Flash's rows
   are never wiped; investments only as told.
@@ -448,7 +463,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   and that thread wait `PRICE_REFRESH_TIMEOUT_SECONDS` (25 s; reads wait 6 s); a provider slower
   than that still records its quotes when they arrive (`on_late`, response `late: true`).
 - **A save waits only for its own request**: `apiFetch` already invalidates every query; awaiting
-  `invalidateServerData()` joins those refetches, never restarts them. The quote refresh after a
+  `invalidateServerData()` joins those refetches, never restarts them. The Extrato changes the row in the
+  cache at once (`dropStatementRow()`, `updateStatementRow()`; the APK in `rows`) and never awaits the reload. The quote refresh after a
   write runs after the sheet closes (`refreshQuotes()`). Writes don't rebuild
   `investment_positions`; `replace_realized_results()` writes only on change.
 - **Allocation targets and goals are plans** (020, 021): computed on read from

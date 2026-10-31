@@ -26,7 +26,8 @@ from services.accounts import (
 )
 from services import auto_record
 from services.attachments import remove_attachment_files
-from services.inbox_decisions import absorb_created
+from services.inbox import TRANSFER_CATEGORY
+from services.inbox_decisions import absorb_created, absorb_other_side
 from services.invoices import apply_due_autopay
 from services.proceeds_cash import apply_paid_proceeds
 from services.transaction_pages import fetch_page, parse_page_args
@@ -372,12 +373,25 @@ def update_transaction(current_user_id, item_id):
                 transaction_type = require_choice(
                     payload, "type", "Tipo", ALLOWED_TRANSACTION_TYPES
                 )
-                if (transaction_type == "TRANSFER") != (item["type"] == "TRANSFER"):
+                if item["type"] == "TRANSFER" and transaction_type != "TRANSFER":
                     raise ValidationError(
-                        "Nao e possivel converter um lancamento comum em transferencia."
+                        "Nao e possivel converter uma transferencia em lancamento comum."
                     )
                 updates["type"] = transaction_type
-            if "category" in payload or "category_id" in payload:
+            # A despesa ou receita que na verdade foi entre as contas do dono:
+            # sem categoria nem divisao, sai da revisao (o dono acabou de dizer
+            # o que ela e). O lado que ela ja tem fica como esta.
+            converting = updates.get("type") == "TRANSFER" and item["type"] != "TRANSFER"
+            final_type = updates.get("type", item["type"])
+            if converting:
+                if not payload.get("account_id") or not payload.get("transfer_account_id"):
+                    raise ValidationError("Escolha a outra conta da transferencia.")
+                updates.update({
+                    "category": TRANSFER_CATEGORY, "category_id": None, "share_mode": None,
+                    "share_person": None, "share_others_amount": None, "share_settled_at": None,
+                    "needs_review": 0,
+                })
+            if ("category" in payload or "category_id" in payload) and not converting:
                 category, category_id = resolve_category(conn, current_user_id, payload, current=item)
                 updates["category"] = category
                 updates["category_id"] = category_id
@@ -387,16 +401,16 @@ def update_transaction(current_user_id, item_id):
             if "account_id" in payload:
                 updates["account_id"] = keep_or_require_account(
                     conn, current_user_id, payload.get("account_id"), item["account_id"],
-                    "Conta de origem" if item["type"] == "TRANSFER" else "Conta",
+                    "Conta de origem" if final_type == "TRANSFER" else "Conta",
                 )
             if "transfer_account_id" in payload:
-                if item["type"] != "TRANSFER":
+                if final_type != "TRANSFER":
                     raise ValidationError(
                         "Conta de destino so se aplica a transferencias."
                     )
                 updates["transfer_account_id"] = keep_or_require_account(
                     conn, current_user_id, payload.get("transfer_account_id"),
-                    item["transfer_account_id"], "Conta de destino",
+                    item["account_id"] if converting else item["transfer_account_id"], "Conta de destino",
                 )
             # De quem e (032): so despesa e receita comuns. Aporte e resgate
             # nao chegam aqui (o caixa de uma operacao e travado acima; o
@@ -404,19 +418,21 @@ def update_transaction(current_user_id, item_id):
             # divisao nova quanto para a que ja estava gravada.
             final_amount = updates.get("amount", item["amount"])
             if has_share_fields(payload):
-                if item["type"] == "TRANSFER":
+                if final_type == "TRANSFER":
                     raise ValidationError("Transferencia entre contas nao se divide com outra pessoa.")
                 updates.update(parse_share(payload, final_amount))
-            else:
+            elif not converting:
                 check_split_fits(item["share_mode"], item["share_others_amount"], final_amount)
         except ValidationError as exc:
             return validation_error(str(exc))
 
         origin = updates.get("account_id", item["account_id"])
         destination = updates.get("transfer_account_id", item["transfer_account_id"])
-        if item["type"] == "TRANSFER" and origin == destination:
+        if final_type == "TRANSFER" and origin == destination:
             return validation_error("Origem e destino devem ser contas diferentes.")
-        if item["type"] == "TRANSFER" and (
+        if converting and item["account_id"] not in (origin, destination):
+            return validation_error("A transferencia sai ou entra na conta do lancamento.")
+        if final_type == "TRANSFER" and (
             "account_id" in updates or "transfer_account_id" in updates or "transfer_amount" in payload
         ):
             # A mesma regra da criacao (POST /api/transfers): entre moedas, o
@@ -452,7 +468,15 @@ def update_transaction(current_user_id, item_id):
             "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
             (item_id, current_user_id),
         ).fetchone()
-    return jsonify(serialize_transaction(updated)), 200
+        absorbed = 0
+        if converting:
+            other = destination if origin == item["account_id"] else origin
+            twin_type = "INCOME" if origin == item["account_id"] else "EXPENSE"
+            absorbed = absorb_other_side(conn, current_user_id, updated, other, twin_type)
+    body = serialize_transaction(updated)
+    if absorbed:
+        body["absorbed_other_side"] = True
+    return jsonify(body), 200
 
 
 @bp.route("/api/transactions/<item_id>", methods=["DELETE"])

@@ -52,14 +52,13 @@ def auto_on(world, expected=200):
 
 
 def pin_today(monkeypatch, invoices_module, day):
-    """O relogio onde ele e lido: a puxada (services.open_finance) e a leitura
-    do Extrato (services.auto_record.record_due). No CI as duas ja seguraram
+    """O relogio onde ele e lido: a puxada (services.open_finance) e os testes
+    (services.invoices). No CI os dois ja seguraram
     copias diferentes de services.invoices, e o Pix "de hoje" gravava pelo
     relogio de verdade (2026-10-28 em UTC)."""
     readers = (
         invoices_module,
         importlib.import_module("services.invoices"),
-        importlib.import_module("services.auto_record").invoices,
         importlib.import_module("services.open_finance").invoices,
     )
     for module in {id(reader): reader for reader in readers}.values():

@@ -97,6 +97,6 @@ export function reviewNoticeText(count) {
 export function waitingNoticeText(count) {
   if (!count) return ''
   return count === 1
-    ? '1 movimento não pôde ser gravado sozinho (uma transferência sem a outra ponta, outra moeda).'
-    : `${count} movimentos não puderam ser gravados sozinhos (transferências sem a outra ponta, outra moeda).`
+    ? '1 movimento a Pluggy atualizou e não identificou (uma transferência sem a outra ponta, outra moeda).'
+    : `${count} movimentos a Pluggy atualizou e não identificou (transferências sem a outra ponta, outra moeda).`
 }

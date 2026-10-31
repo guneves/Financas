@@ -13,6 +13,7 @@ import { useEffect } from 'react'
 import { keepPreviousData, QueryClient, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { setMutationListener } from './api'
 import { changesPositions, scheduleProceedsSync } from './proceedsSync'
+import { changeCachedRows, withoutRow, withRow } from './transactionPages'
 
 // O mesmo prazo de lib/queryPersist.js (que importa daqui): uma copia mais
 // velha que isto nao e mostrada.
@@ -51,6 +52,16 @@ setMutationListener((path) => {
   queryClient.invalidateQueries()
   if (changesPositions(path)) scheduleProceedsSync()
 })
+
+// A linha muda na tela na hora, sem esperar o extrato inteiro voltar do servidor
+// (a gravacao invalida tudo do mesmo jeito e a leitura nova confirma).
+const changeStatement = (change) => queryClient.setQueriesData(
+  { queryKey: ['lancamentos'] },
+  (data) => changeCachedRows(data, change),
+)
+
+export const dropStatementRow = (id) => changeStatement(withoutRow(id))
+export const updateStatementRow = (row) => changeStatement(withRow(row))
 
 export function clearServerData() {
   queryClient.clear()

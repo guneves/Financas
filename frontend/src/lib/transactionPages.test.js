@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mergeTransactionPages, nextPageCursor } from './transactionPages.js'
+import { mergeTransactionPages, nextPageCursor, changeCachedRows, withoutRow, withRow } from './transactionPages.js'
 
 const page = (ids, extra = {}) => ({
   items: ids.map((id) => ({ id })),
@@ -34,4 +34,13 @@ test('no pages is an empty statement', () => {
   assert.deepEqual(merged.items, [])
   assert.equal(merged.count, 0)
   assert.equal(merged.hasMore, false)
+})
+
+test('a row leaves or changes in both cached shapes at once', () => {
+  const rows = [{ id: 'a', amount: 1 }, { id: 'b', amount: 2 }]
+  assert.deepEqual(changeCachedRows({ transactions: rows, cards: [] }, withoutRow('a')), { transactions: [rows[1]], cards: [] })
+  const paged = { pages: [{ items: rows, count: 2 }], pageParams: [''] }
+  assert.deepEqual(changeCachedRows(paged, withRow({ id: 'b', amount: 9 })).pages[0].items[1], { id: 'b', amount: 9 })
+  assert.deepEqual(changeCachedRows([{ id: 'card' }], withoutRow('card')), [{ id: 'card' }])
+  assert.equal(changeCachedRows(undefined, withoutRow('a')), undefined)
 })

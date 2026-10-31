@@ -37,6 +37,12 @@ def account_of(world, kind="BANK"):
     return next(account for account in item["accounts"] if account["type"] == kind)
 
 
+def bank_moved_on(world, pluggy_item, item_id):
+    """A Pluggy falou com o banco depois do que esta no app: agora "o banco nao tem" e uma conclusao."""
+    world.fake.items[pluggy_item]["lastUpdatedAt"] = "2099-01-01T00:00:00.000Z"
+    world.sync(item_id)
+
+
 class TestMatcher:
     def test_same_amount_within_three_days(self, check):
         bank, app = check.match_movements([entry("b", "2026-10-10", -500)], [entry("a", "2026-10-13", -500)])
@@ -101,7 +107,7 @@ class TestBankAccount:
         assert check["bank_only"] == [{"date": "2026-10-20", "amount": -45.9, "description": "PADARIA", "reason": "denied"}]
 
     def test_an_extra_typed_entry_is_app_only(self, world):
-        item_id, _p, made = connected(world)
+        item_id, pluggy_item, made = connected(world)
         mine = made["bank"][2]
         world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20"))
         world.sync(item_id)
@@ -110,6 +116,7 @@ class TestBankAccount:
             "account_id": mine, "amount": 45.9, "date": "2026-10-21", "type": "EXPENSE", "category": "Outros",
             "description": "padaria de novo",
         })
+        bank_moved_on(world, pluggy_item, item_id)
         check = account_of(world)["check"]
         assert check["app_only"] == [{"date": "2026-10-21", "amount": -45.9, "description": "padaria de novo", "reason": "not_in_bank"}]
         assert check["bank_only_count"] == 0
@@ -137,7 +144,7 @@ class TestBankAccount:
         assert account_of(world)["check"]["app_only_count"] == 0
 
     def test_an_incoming_transfer_is_an_inflow(self, world):
-        item_id, _p, made = connected(world)
+        item_id, pluggy_item, made = connected(world)
         mine = made["bank"][2]
         other = world.account("Nubank")
         world.fake.add_tx(made["bank"][0], bank_tx(-12.5, "2026-10-21"))
@@ -146,6 +153,7 @@ class TestBankAccount:
         world.call("post", "/api/transfers", json={
             "account_id": other, "transfer_account_id": mine, "amount": 300, "date": "2026-10-22",
         })
+        bank_moved_on(world, pluggy_item, item_id)
         check = account_of(world)["check"]
         assert check["app_only"] == [{"date": "2026-10-22", "amount": 300.0, "description": check["app_only"][0]["description"], "reason": "not_in_bank"}]
 
@@ -186,7 +194,7 @@ class TestCard:
         assert (check["bank_only_count"], check["app_only_count"], check["awaiting_count"]) == (0, 0, 0)
 
     def test_a_typed_purchase_the_bank_lacks(self, world):
-        item_id, _p, made = connected(world, bank=False, card=True)
+        item_id, pluggy_item, made = connected(world, bank=False, card=True)
         world.fake.add_tx(made["card"][0], card_tx(120, "2026-10-21", "LOJA"))
         world.sync(item_id)
         world.approve(world.pending()[0])
@@ -194,6 +202,7 @@ class TestCard:
             "card_id": made["card"][2], "total_amount": 77, "purchase_date": "2026-10-22", "description": "SEM PAR",
             "installments": 1, "category": "Outros",
         })
+        bank_moved_on(world, pluggy_item, item_id)
         check = account_of(world, "CREDIT")["check"]
         assert check["app_only"] == [{"date": "2026-10-22", "amount": -77.0, "description": "SEM PAR", "reason": "not_in_bank"}]
 

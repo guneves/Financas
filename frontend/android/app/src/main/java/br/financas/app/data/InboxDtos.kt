@@ -117,6 +117,8 @@ data class InboxTargetDto(
 @Serializable
 data class InboxItemDto(
     val id: String,
+    /** Ainda espera a Pluggy atualizar: o dono nem ve (so depois, sem identificar). */
+    @SerialName("awaiting_bank") val awaitingBank: Boolean = false,
     val version: Int? = null,
     val state: String? = null,
     val reason: String? = null,

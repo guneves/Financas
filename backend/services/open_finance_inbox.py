@@ -86,6 +86,10 @@ INVOICE_PAYMENT_TEXT = re.compile(
     r"\b(PAGAMENTO (DE |DA )?FATURA|PAG(TO)? FATURA|PGTO FATURA|PAGAMENTO RECEBIDO|PAGAMENTO EFETUADO|"
     r"PAGTO CARTAO|PAGAMENTO CARTAO|PGTO CARTAO|CARDBANKSLIP|PGTO\s+DEBITO CONTA|PGTO\s+CASH)\b",
 )
+# Dinheiro que entra como renda (01 na arvore da Pluggy, ou o texto do banco):
+# um salario por TED nunca e transferencia entre contas do dono.
+INCOME_CATEGORY_PREFIX = "01"
+SALARY_TEXT = re.compile(r"SALARI|SALARY|\b(FOLHA|HOLERITE|VENCIMENTOS|PRO LABORE)\b")
 MIN_SIGN_SAMPLE = 3
 
 STATUS_SKIPPED_PENDING = "pending"
@@ -163,12 +167,20 @@ def is_invoice_payment(raw):
     return bool(INVOICE_PAYMENT_TEXT.search(description))
 
 
+def is_income_row(raw):
+    if str(raw.get("categoryId") or "").startswith(INCOME_CATEGORY_PREFIX):
+        return True
+    return bool(SALARY_TEXT.search(inbox.normalized(raw.get("description") or raw.get("descriptionRaw")).upper()))
+
+
 def movement_of(raw, account_type, direction):
     """TRANSFER, SELF_TRANSFER, INVOICE_PAYMENT ou None."""
     category_id = str(raw.get("categoryId") or "")
     if is_invoice_payment(raw) and (account_type == "BANK") == (direction == "OUT"):
         return "INVOICE_PAYMENT"
     if account_type != "BANK":
+        return None
+    if direction == "IN" and is_income_row(raw):
         return None
     if category_id.startswith(SELF_TRANSFER_PREFIX):
         return "SELF_TRANSFER"
@@ -483,8 +495,10 @@ def place(conn, current_user_id, row, account, rules=None):
 
 def recorded_transfer_for_row(conn, current_user_id, row, account_id, cents):
     """A transferencia ja gravada (esta conta deste lado, mesmo valor, ate
-    TRANSFER_MATCH_DAYS dias) cuja outra conta nao tem Pluggy, entao a outra ponta
-    nunca vem. Uma por transacao: a que nenhuma outra da Pluggy ja explica."""
+    TRANSFER_MATCH_DAYS dias) que so espera esta ponta: a outra conta nao tem
+    Pluggy, entao ela nunca vem, ou o dono apontou como transferencia uma linha
+    que a Pluggy trouxe da outra ponta. Uma por transacao: a que nenhuma outra
+    deste lado ja explica."""
     if row["direction"] == "OUT":
         side, other, value = "t.account_id", "t.transfer_account_id", "t.amount"
     else:
@@ -494,20 +508,27 @@ def recorded_transfer_for_row(conn, current_user_id, row, account_id, cents):
         SELECT t.id, t.date FROM transactions t
         WHERE t.user_id = ? AND t.type = 'TRANSFER' AND {side} = ? AND {other} IS NOT NULL
           AND CAST(ROUND({value} * 100) AS INTEGER) = ? AND t.date BETWEEN ? AND ?
-          AND NOT EXISTS (
-              SELECT 1 FROM open_finance_accounts a
-              JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
-              WHERE a.user_id = t.user_id AND a.account_id = {other} AND i.archived_at IS NULL
+          AND (
+              NOT EXISTS (
+                  SELECT 1 FROM open_finance_accounts a
+                  JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
+                  WHERE a.user_id = t.user_id AND a.account_id = {other} AND i.archived_at IS NULL
+              )
+              OR EXISTS (
+                  SELECT 1 FROM open_finance_transactions o
+                  WHERE o.user_id = t.user_id AND o.target_table = 'transactions' AND o.target_id = t.id
+                    AND o.direction <> ? AND o.role <> 'REMOVED'
+              )
           )
           AND NOT EXISTS (
               SELECT 1 FROM open_finance_transactions o
               WHERE o.user_id = t.user_id AND o.target_table = 'transactions' AND o.target_id = t.id
-                AND o.id <> ? AND o.role <> 'REMOVED'
+                AND o.id <> ? AND o.direction = ? AND o.role <> 'REMOVED'
           )
         """,
         (
             current_user_id, account_id, cents, inbox._shift(row["date"], -inbox.TRANSFER_MATCH_DAYS),
-            inbox._shift(row["date"], inbox.TRANSFER_MATCH_DAYS), row["id"],
+            inbox._shift(row["date"], inbox.TRANSFER_MATCH_DAYS), row["direction"], row["id"], row["direction"],
         ),
     ).fetchall()
     found = sorted(found, key=lambda entry: (inbox._date_gap(entry["date"], row["date"]), entry["date"], entry["id"]))

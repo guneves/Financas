@@ -154,8 +154,8 @@ object ReviewRules {
 
     fun waitingNoticeText(count: Int): String = when {
         count <= 0 -> ""
-        count == 1 -> "1 movimento não pôde ser gravado sozinho (uma transferência sem a outra ponta, outra moeda)."
-        else -> "$count movimentos não puderam ser gravados sozinhos (transferências sem a outra ponta, outra moeda)."
+        count == 1 -> "1 movimento a Pluggy atualizou e não identificou (uma transferência sem a outra ponta, outra moeda)."
+        else -> "$count movimentos a Pluggy atualizou e não identificou (transferências sem a outra ponta, outra moeda)."
     }
 
     /** O toast de "É meu" / "Confirmar todos". */
@@ -190,8 +190,12 @@ object ReviewRules {
     fun waitingCanBeSingle(item: InboxItemDto): Boolean =
         item.entryType == "TRANSFER" && (item.accountId != null || item.transferAccountId != null) && !waitingNeedsComputer(item)
 
-    /** O tipo que "Não é entre minhas contas" grava: a saida e despesa, a entrada e receita. */
-    fun singleType(item: InboxItemDto): String = if (item.direction == "IN") "INCOME" else "EXPENSE"
+    /**
+     * O tipo que "Não é entre minhas contas" grava: a ponta que o banco viu decide. Uma transferencia
+     * e guardada como saida (OUT) mesmo quando so o destino e conhecido: um salario por TED e receita.
+     */
+    fun singleType(item: InboxItemDto): String =
+        if (item.direction == "IN" || (item.entryType == "TRANSFER" && item.accountId == null && item.transferAccountId != null)) "INCOME" else "EXPENSE"
 
     fun waitingTitle(item: InboxItemDto): String =
         item.description?.takeIf { it.isNotEmpty() } ?: InboxRules.entryTypeLabel(item.entryType)

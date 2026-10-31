@@ -22,3 +22,17 @@ export function mergeTransactionPages(pages) {
 }
 
 export const nextPageCursor = (lastPage) => lastPage?.next_cursor || undefined
+
+// Muda as linhas de uma leitura guardada do extrato, nos dois formatos: a carga
+// inteira (`transactions`) e as paginas do filtrado (`pages[].items`). `change`
+// recebe a lista e devolve a nova. Outro formato passa como esta.
+export function changeCachedRows(data, change) {
+  if (Array.isArray(data?.transactions)) return { ...data, transactions: change(data.transactions) }
+  if (Array.isArray(data?.pages)) {
+    return { ...data, pages: data.pages.map((page) => (page?.items ? { ...page, items: change(page.items) } : page)) }
+  }
+  return data
+}
+
+export const withoutRow = (id) => (rows) => rows.filter((row) => row.id !== id)
+export const withRow = (updated) => (rows) => rows.map((row) => (row.id === updated.id ? { ...row, ...updated } : row))

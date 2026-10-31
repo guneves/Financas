@@ -4,11 +4,13 @@ As regras moram em services/review.py; o Extrato le a lista e confirma um a um
 (ou todos de uma vez, com as categorias que ja tem).
 """
 
+import time
+
 from flask import Blueprint, jsonify
 
 from auth import token_required
 from db import get_db
-from services import auto_record, inbox, review
+from services import auto_record, open_finance_auto, review
 from validators import ValidationError, parse_json_body, validation_error
 
 bp = Blueprint("review", __name__)
@@ -19,13 +21,13 @@ bp = Blueprint("review", __name__)
 def review_queue(current_user_id):
     """{items, count, waiting}: do mais novo para o mais antigo. Antes, o que
     esperava o prazo (o aviso do Samsung sem o do banco, o Pix sem par) grava.
-    `waiting`: o que nao grava sozinho e fica no Aprovar (a transferencia entre
-    contas do dono com uma ponta so, outra moeda; tudo, com o interruptor
-    desligado)."""
+    `waiting`: o que nao gravou sozinho e a Pluggy, ja atualizada, nao
+    identificou (a transferencia com uma ponta so, outra moeda; tudo, com o
+    interruptor desligado). O que ainda espera a Pluggy atualizar nao conta."""
     with get_db() as conn:
         auto_record.record_due(conn, current_user_id)
         items = review.queue(conn, current_user_id)
-        waiting = inbox.pending_count(conn, current_user_id)
+        waiting = open_finance_auto.flagged_count(conn, current_user_id, time.time())
     return jsonify({"items": items, "count": len(items), "waiting": waiting}), 200
 
 

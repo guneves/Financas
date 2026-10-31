@@ -103,12 +103,25 @@ internal fun EditTransactionSheet(row: TransactionDto, form: TransactionEditForm
                         items = listOf(
                             SelectOption(ExtratoRules.EXPENSE, stringResource(R.string.extrato_edit_type_expense)),
                             SelectOption(ExtratoRules.INCOME, stringResource(R.string.extrato_edit_type_income)),
+                            SelectOption(ExtratoRules.TRANSFER, stringResource(R.string.extrato_edit_type_transfer)),
                         ),
                         value = form.type,
                         onChange = { set(form.copy(type = it)) },
                     )
                 }
-                Field(stringResource(R.string.extrato_edit_category)) {
+                if (ExtratoRules.becomesTransfer(row, form)) {
+                    // A outra conta: as de reais, menos a da linha (a linha fica do lado que ja tem).
+                    Field(stringResource(if (row.type == ExtratoRules.INCOME) R.string.extrato_edit_other_from else R.string.extrato_edit_other_to)) {
+                        SelectField(
+                            value = form.transferAccountId,
+                            options = viewModel.activeAccounts
+                                .filter { it.id != row.accountId && it.currency == "BRL" }
+                                .map { SelectOption(it.id, it.name) },
+                            onSelect = { set(form.copy(transferAccountId = it)) },
+                            placeholder = stringResource(R.string.review_waiting_pick),
+                        )
+                    }
+                } else Field(stringResource(R.string.extrato_edit_category)) {
                     val options = EntryOptions.filterCategoryOptions(viewModel.categoryOptions, form.type)
                     // A categoria que a linha ja tem, quando nao esta na lista (arquivada, do outro
                     // tipo ou texto livre), fica como esta.
@@ -123,8 +136,10 @@ internal fun EditTransactionSheet(row: TransactionDto, form: TransactionEditForm
                         onSelect = { set(form.copy(categoryId = it)) },
                     )
                 }
-                Field(stringResource(R.string.extrato_edit_account)) { AccountSelect(form.accountId, row.accountId, viewModel) { set(form.copy(accountId = it)) } }
-                if (ExtratoRules.canShare(row)) {
+                if (!ExtratoRules.becomesTransfer(row, form)) {
+                    Field(stringResource(R.string.extrato_edit_account)) { AccountSelect(form.accountId, row.accountId, viewModel) { set(form.copy(accountId = it)) } }
+                }
+                if (ExtratoRules.canShare(row) && !ExtratoRules.becomesTransfer(row, form)) {
                     ShareFields(form.share, { set(form.copy(share = it)) }, income = form.type == ExtratoRules.INCOME, enabled = !viewModel.saving)
                 }
             }
