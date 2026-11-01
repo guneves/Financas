@@ -198,6 +198,7 @@
 | Repasse in Revisar; settled shares cut income | 2026-10-31 |
 | Only the Flash is typed (`manual_entries.py`); Aprovar screen and its Ajustes switches removed (web and APK) | 2026-10-31 |
 | Início: invoice tile with a dropdown per invoice, no open-items panel; equal Ritmo boxes; Evolução counts transfers to the global account | 2026-10-31 |
+| Pluggy movements recorded in the pull that brings them: no 2-day Pix hold, a one-sided own transfer is a despesa/receita until its other side turns it into the transfer | 2026-11-01 |
 
 ---
 

@@ -158,8 +158,8 @@ object ReviewRules {
 
     fun waitingNoticeText(count: Int): String = when {
         count <= 0 -> ""
-        count == 1 -> "1 movimento a Pluggy atualizou e não identificou (uma transferência sem a outra ponta, outra moeda)."
-        else -> "$count movimentos a Pluggy atualizou e não identificou (transferências sem a outra ponta, outra moeda)."
+        count == 1 -> "1 movimento a Pluggy atualizou e não identificou (o lado em dólar da Conta global, outra moeda)."
+        else -> "$count movimentos a Pluggy atualizou e não identificou (o lado em dólar da Conta global, outra moeda)."
     }
 
     /** O toast de "É meu" / "Confirmar todos". */

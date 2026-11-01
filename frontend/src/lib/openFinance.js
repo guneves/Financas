@@ -226,7 +226,7 @@ export function balanceExplanation(explanation, money = (value) => String(value)
 export function autoRecordHint(settings) {
   if (!settings) return ''
   if (settings.auto_record) {
-    return 'Os movimentos dos bancos conectados viram lançamentos sozinhos, a revisar no Extrato. Só espera uma transferência sem a outra ponta.'
+    return 'Os movimentos dos bancos conectados viram lançamentos sozinhos, a revisar no Extrato. Entram assim que a Pluggy os traz; só espera o Pix para a Conta global (o lado em dólar).'
   }
   const blockers = settings.auto_record_blockers || []
   if (blockers.length) return blockers.join(' ')

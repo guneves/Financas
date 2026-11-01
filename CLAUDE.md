@@ -228,8 +228,7 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   ("WISE BRASIL CORRETORA DE CAMBIO") is an own transfer that waits for the dollar side; the Wise
   credit pairs with it by day (±1) and counterparty, never by cents; two on one day go to the pair
   whose rate is closest to the PTAX (`place()` step 2, `_place_cross_currency()`). A Wise credit
-  waits `TRANSFER_HOLD_DAYS` like a Pix; recorded alone and untouched, the BRL side later turns it
-  into the transfer. A credit matching a transfer already in the app fills its `transfer_amount`.
+  is recorded at once (a US$ receita); untouched, the BRL side later turns it into the transfer. A credit matching a transfer already in the app fills its `transfer_amount`.
 - **The monthly plan starts from income** (025, 038, `services/monthly_plan.py`): `PUT
   /api/monthly-plan` writes `income_amount` (> 0) and `invest_percent`/`spend_percent` (sum ≤ 100).
   Every R$ is computed on read via `percent_of()`; percentages are TEXT read as `Decimal`, never
@@ -285,7 +284,7 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 - **Categories**: owner's import rule → merchant table → CNAE → Pluggy's category → default
   (`open_finance_categories.py`); merchant data from 050.
 - **Only the pull writes bank movements** (owner 2026-10-30): every 6 h, or the "Atualizar" button. A read
-  (`record_due()`) records only notifications, the Flash; a Pix past its hold is recorded by the next pull.
+  (`record_due()`) records only notifications, the Flash. What a pull brings is recorded in that pull.
 - **The app waits for the bank before flagging** (owner 2026-10-30, `awaiting_bank()` /
   `bank_refreshed_since()` in `open_finance_auto.py`): a pending Pluggy item stays out of `waiting` (`GET
   /api/review`) until every active connection has `pluggy_updated_at` after the item and the app read it;
@@ -422,9 +421,15 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   mapped or "não usar" and each connection was pulled OK in the last 48 h (`blockers()`); on, the
   Pluggy backlog in Aprovar is recorded in one pass. Since 045 it is on unless the owner turned it
   off, and what an item lacks is guessed (`fill_defaults()`), recorded with `needs_review = 1`.
-  **Only a transfer waits**: a Pix held `TRANSFER_HOLD_DAYS` = 2 so the other bank's pull can pair
-  it (after that, without a pair, a Pix to someone else is a despesa/receita), an own transfer until
-  its other side arrives. A bank's fund (Pluggy `0302`) is recorded
+  **Nothing waits but the Conta global's dollar side** (owner 2026-11-01: "every transaction updates
+  the moment it arrives"): a Pix to/from someone else is a despesa/receita in the pull that brings it,
+  and an own transfer with one side is recorded as the despesa/receita of the side the bank saw
+  (`one_side_now()`). When the other side arrives from another bank, the same row becomes the
+  transfer (`_absorb_recorded_pix()`: untouched, `needs_review = 1`, same cents, opposite direction,
+  another reais account, ±`TRANSFER_MATCH_DAYS`, counterparties that can be one person); a reviewed
+  or edited side stays and the other side is its own row. Both sides in one pull pair before
+  recording, as before. A Pix to the Conta global still waits for the dollar side.
+  `TRANSFER_HOLD_DAYS` is only the rebuild's. A bank's fund (Pluggy `0302`) is recorded
   as `BANK_INVESTMENT`, an aporte/resgate; other category 03 rows on a bank account stay despesa/receita for review.
   A look-alike the owner typed is **linked** (first free candidate), never duplicated; manual rows
   are never deleted. On the Corretora account only bank ↔ Corretora transfers become rows

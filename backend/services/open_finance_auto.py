@@ -187,13 +187,53 @@ def hold_reason(conn, current_user_id, item, sources, today):
         item["entry_type"] == "TRANSFER" and item.get("account_id") and item.get("transfer_account_id")
         and (item.get("transfer_amount") or not global_account.is_foreign(conn, current_user_id, item["transfer_account_id"]))
     )
-    if is_transfer and not complete_transfer:
-        newest = max(_days_since(source["date"], today) for source in sources)
-        if newest < TRANSFER_HOLD_DAYS or item["entry_type"] == "TRANSFER":
-            return "awaiting_transfer"
+    if is_transfer and not complete_transfer and item["entry_type"] == "TRANSFER":
+        # Sem a outra ponta: so a transferencia para/da conta global espera (o
+        # lado em dolar). O resto entra na hora (one_side_now()).
+        return "awaiting_transfer"
     if "amount" in (item.get("needs") or []):
         return "foreign_currency"
     return None
+
+
+def one_side_now(conn, current_user_id, item, sources):
+    """A transferencia entre contas do dono com uma ponta so vira, ja, a
+    despesa/receita da conta que o banco viu, a revisar (dono, 2026-11-01: "toda
+    transacao atualiza no momento em que chega"). Quando a outra ponta chegar de
+    outro banco, a mesma linha vira a transferencia
+    (open_finance_inbox._absorb_recorded_pix); um Pix de/para outra pessoa ja
+    nasce despesa/receita. A conta global segue esperando o lado em dolar.
+    Devolve o item mudado, ou None (fica como esta)."""
+    if item["entry_type"] != "TRANSFER" or len(sources) != 1:
+        return None
+    if item.get("account_id") and item.get("transfer_account_id"):
+        return None
+    source = dict(sources[0])
+    account = open_finance_inbox.fetch_account(conn, current_user_id, source["of_account_id"])
+    if not account or account["type"] != "BANK" or not account["account_id"]:
+        return None
+    other = item.get("transfer_account_id") if source["direction"] == "OUT" else item.get("account_id")
+    if other or global_account.destination_for_row(conn, current_user_id, source, account["account_id"]) is not None:
+        return None
+    if global_account.is_foreign(conn, current_user_id, account["account_id"]):
+        return None
+    entry_type = "EXPENSE" if source["direction"] == "OUT" else "INCOME"
+    name, category_id = open_finance_inbox.category_for_row(
+        conn, current_user_id, source, entry_type, item["amount"], account["account_id"],
+    )
+    changes = {
+        "entry_type": entry_type, "direction": source["direction"], "account_id": account["account_id"],
+        "transfer_account_id": None, "transfer_amount": None, "category": name, "category_id": category_id,
+        "reason": "external_transfer", "guessed": [],
+        "amount": inbox._reais(source["amount_cents"]),
+        "description": open_finance_inbox.display_name(
+            source["description"], source.get("merchant_name"), source.get("counterparty"), "TRANSFER",
+            source["direction"],
+        ),
+    }
+    changes["needs"] = inbox.recompute_needs({**item, **changes})
+    inbox.save_item(conn, current_user_id, item, changes)
+    return inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
 
 
 def record_item(conn, current_user_id, row, today):
@@ -201,6 +241,8 @@ def record_item(conn, current_user_id, row, today):
     held."""
     item = inbox.item_dict(row)
     sources = inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,))
+    if hold_reason(conn, current_user_id, item, sources, today) == "awaiting_transfer":
+        item = one_side_now(conn, current_user_id, item, sources) or item
     if hold_reason(conn, current_user_id, item, sources, today):
         return "held"
     changes = fill_defaults(conn, current_user_id, item)

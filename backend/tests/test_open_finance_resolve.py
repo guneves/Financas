@@ -10,7 +10,6 @@ O que estes testes protegem:
 import pytest
 
 from open_finance_world import World, bank_tx, connected, fake_pluggy, open_finance_module  # noqa: F401
-from test_open_finance_auto import auto_on
 from test_open_finance_check import account_of, bank_moved_on
 
 
@@ -45,8 +44,8 @@ class TestRecord:
         assert len(world.transactions(made["bank"][2])) == 1
 
     def test_a_one_sided_transfer_takes_the_side_the_bank_saw(self, world):
+        # Com o freio (Gravar sozinho desligado) ela espera; ligado, ja entrou (test_open_finance_auto).
         item_id, _pluggy, made = connected(world)
-        auto_on(world)
         world.fake.add_tx(made["bank"][0], bank_tx(800, "2026-10-29", "TED recebida", category_id="04000000"))
         world.sync(item_id)
         sources = world.call("get", "/api/open-finance")["items"][0]["accounts"][0]["check"]
