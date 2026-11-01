@@ -10,9 +10,9 @@
 ## 1. Open work, in priority order
 
 ### Open Finance only (2026-10-30) — what is left
-- [ ] After deploying the "enters at once" change (2026-11-01): pull and read BB's Conferência. If R$ 200 "de antes da
-  conferência" stays, it is probably a `PENDING` row; decide "Trazer pendentes" with the owner (Itaú's pending salary
-  would double count beside BTG's TedSalary).
+- [ ] After deploying "nothing waits" (2026-11-01): watch the 5-minute fresh pulls in the log; read BB's Conferência
+  (the owner's R$ 400 should be in); check Revisar for Itaú's pending salary beside BTG's TedSalary (now that pending
+  rows come in by default) and delete it if doubled.
 - [ ] Início's "Despesas por categoria" sums R$ 1.397,14 in October against R$ 1.365,41 spent: a refund in category "Estorno"
   (R$ 31,73, AliExpress) has a negative total and is dropped. Net it from the purchase's category.
 - [ ] Owner, on the phone: update to APK 10109+, then the dropdown under "Fatura de <mês>" and the Investir tab from a sub-tab.

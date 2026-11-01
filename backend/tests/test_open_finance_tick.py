@@ -204,6 +204,47 @@ class TestAfterBoot:
         assert user["id"] not in refresh.due_user_ids(NOW)
 
 
+class TestTheMomentPluggyHasIt:
+    """Dono, 2026-11-01: toda transacao entra no momento em que a Pluggy a tem.
+    O pull de 6 h segue; entre um e outro, cada passo le o item (GET) e puxa a
+    conexao que a Pluggy acabou de atualizar."""
+
+    def test_a_connection_pluggy_just_updated_is_pulled_at_once(self, world, refresh, user):
+        itau_item, made, _wise, (_bp, broker_item, _c) = everything(world)
+        refresh.refresh_all_users(NOW)
+        set_last_sync(RECENT)
+        assert user["id"] not in refresh.due_user_ids(NOW)
+        world.fake.add_tx(made["bank"][0], bank_tx(400.0, "2026-10-27", "PIX RECEBIDO FULANO", payment_method="PIX",
+                                                   counterparty="Fulano de Tal", doc="12345678901"))
+        world.fake.items[itau_item]["lastUpdatedAt"] = "2026-10-27T17:55:00.000Z"
+        world.fake.calls.clear()
+        results = refresh.refresh_all_users(NOW)
+        assert len(results[user["id"]]) == 1
+        assert {call[1] for call in world.fake.calls if call[0] == "list_accounts"} == {itau_item}
+        assert {call[0] for call in world.fake.calls} <= PLUGGY_READS
+        [row] = world.transactions(made["bank"][2])
+        assert (row["type"], row["amount"]) == ("INCOME", 400.0)
+        assert account_row(world, made["bank"][2])["balance"] == 400.0
+
+    def test_nothing_new_at_pluggy_reads_only_the_items(self, world, refresh, user):
+        everything(world)
+        refresh.refresh_all_users(NOW)
+        set_last_sync(RECENT)
+        world.fake.calls.clear()
+        assert user["id"] not in refresh.refresh_all_users(NOW)
+        assert {call[0] for call in world.fake.calls} == {"get_item"}
+
+    def test_off_reads_nothing(self, world, refresh):
+        everything(world)
+        refresh.refresh_all_users(NOW)
+        world.call("patch", SETTINGS, json={"sync_hours": 0})
+        world.fake.calls.clear()
+        refresh.refresh_all_users(NOW)
+        # (Usuarios de outros testes, no mesmo banco, ainda leem os seus.)
+        mine = set(world.fake.items)
+        assert [call for call in world.fake.calls if call[0] == "get_item" and call[1] in mine] == []
+
+
 def test_the_client_still_refuses_patch():
     client = pluggy_client.PluggyClient("id", "segredo", "https://exemplo.invalid", 1)
     with pytest.raises(pluggy_client.PluggyError):

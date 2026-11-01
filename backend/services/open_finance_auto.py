@@ -43,10 +43,12 @@ mudar o valor ou a transacao sumir, so o intocado e corrigido ou apagado.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from config import AUTO_RECORD_DEFAULT
 from dates import parse_iso_date
-from services import global_account, inbox, inbox_decisions, open_finance_inbox, review
+from money import rounded_money
+from services import fx, global_account, inbox, inbox_decisions, open_finance_inbox, review
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
@@ -152,7 +154,9 @@ def _days_since(date_text, today):
 
 
 def _linked_elsewhere(conn, current_user_id, candidate, item_id):
-    """O parecido ja e o lancamento de outra transacao da Pluggy (ou nem existe)."""
+    """O parecido ja e o lancamento de outra transacao da Pluggy (ou nem existe).
+    A que sumiu do banco (`vanished`: a pendente que voltou com outra id) nao
+    conta: a liquidada liga no mesmo lancamento, nunca grava um segundo."""
     table, target_id = candidate.get("table"), candidate.get("id")
     if table not in ("transactions", "cc_expenses") or not target_id:
         return True
@@ -165,6 +169,7 @@ def _linked_elsewhere(conn, current_user_id, candidate, item_id):
         """
         SELECT 1 FROM open_finance_transactions
         WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
+          AND COALESCE(conflict, '') <> 'vanished'
           AND COALESCE(item_id, '') <> ?
         """,
         (current_user_id, table, target_id, item_id),
@@ -202,20 +207,21 @@ def one_side_now(conn, current_user_id, item, sources):
     transacao atualiza no momento em que chega"). Quando a outra ponta chegar de
     outro banco, a mesma linha vira a transferencia
     (open_finance_inbox._absorb_recorded_pix); um Pix de/para outra pessoa ja
-    nasce despesa/receita. A conta global segue esperando o lado em dolar.
+    nasce despesa/receita. O Pix para a conta global tambem: a despesa em reais,
+    e o credito em dolar, quando chegar, a faz transferencia
+    (open_finance_inbox._absorb_recorded_real_side).
     Devolve o item mudado, ou None (fica como esta)."""
     if item["entry_type"] != "TRANSFER" or len(sources) != 1:
-        return None
-    if item.get("account_id") and item.get("transfer_account_id"):
         return None
     source = dict(sources[0])
     account = open_finance_inbox.fetch_account(conn, current_user_id, source["of_account_id"])
     if not account or account["type"] != "BANK" or not account["account_id"]:
         return None
-    other = item.get("transfer_account_id") if source["direction"] == "OUT" else item.get("account_id")
-    if other or global_account.destination_for_row(conn, current_user_id, source, account["account_id"]) is not None:
-        return None
     if global_account.is_foreign(conn, current_user_id, account["account_id"]):
+        return None
+    other = item.get("transfer_account_id") if source["direction"] == "OUT" else item.get("account_id")
+    if other and not global_account.is_foreign(conn, current_user_id, other):
+        # Completa: grava como transferencia mesmo.
         return None
     entry_type = "EXPENSE" if source["direction"] == "OUT" else "INCOME"
     name, category_id = open_finance_inbox.category_for_row(
@@ -236,6 +242,32 @@ def one_side_now(conn, current_user_id, item, sources):
     return inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
 
 
+def in_reais_now(conn, current_user_id, item):
+    """Um movimento em outra moeda numa conta em reais (a Pluggy nao mandou o
+    valor na moeda da conta): o valor em reais pela PTAX do dia, a revisar
+    (dono, 2026-11-01: nada espera). Sem cotacao ainda, fica para o proximo pull.
+    Devolve o item mudado, ou None."""
+    currency = str(item.get("currency") or "BRL").upper()
+    if currency == "BRL" or "amount" not in (item.get("needs") or []):
+        return None
+    if item.get("account_id") and global_account.is_foreign(conn, current_user_id, item["account_id"]):
+        return None
+    try:
+        rate = fx.rate_on(conn, current_user_id, currency, str(item.get("occurred_at") or "")[:10] or None)
+    except Exception:  # sem PTAX (BCB fora, moeda sem serie): espera
+        return None
+    if not rate:
+        return None
+    edited = [field for field in item.get("edited") or [] if field != "amount"] + ["amount"]
+    changes = {
+        "amount": float(rounded_money(Decimal(str(item["amount"])) * Decimal(str(rate)))),
+        "currency": "BRL", "edited": edited,
+    }
+    changes["needs"] = inbox.recompute_needs({**item, **changes})
+    inbox.save_item(conn, current_user_id, item, changes)
+    return inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
+
+
 def record_item(conn, current_user_id, row, today):
     """Grava (ou liga) um item pendente sozinho. Devolve recorded, linked ou
     held."""
@@ -243,6 +275,8 @@ def record_item(conn, current_user_id, row, today):
     sources = inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,))
     if hold_reason(conn, current_user_id, item, sources, today) == "awaiting_transfer":
         item = one_side_now(conn, current_user_id, item, sources) or item
+    if hold_reason(conn, current_user_id, item, sources, today) == "foreign_currency":
+        item = in_reais_now(conn, current_user_id, item) or item
     if hold_reason(conn, current_user_id, item, sources, today):
         return "held"
     changes = fill_defaults(conn, current_user_id, item)

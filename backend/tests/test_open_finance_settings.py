@@ -54,16 +54,16 @@ def epoch(text):
 class TestSettingsApi:
     def test_defaults(self, world):
         body = world.call("get", SETTINGS)
-        assert body == {"first_sync_days": 30, "sync_hours": 6, "min_sync_hours": 6, "include_pending": False,
+        assert body == {"first_sync_days": 30, "sync_hours": 6, "min_sync_hours": 6, "include_pending": True,
                         "auto_sync_available": False, "auto_record": False,
                         "auto_record_blockers": ["Conecte um banco antes de gravar sozinho."],
                         "ignore_notifications": True}
 
     def test_a_partial_patch_keeps_the_rest(self, world):
         body = world.call("patch", SETTINGS, json={"sync_hours": 8})
-        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (8, 30, False)
-        body = world.call("patch", SETTINGS, json={"include_pending": True, "first_sync_days": 90})
-        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (8, 90, True)
+        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (8, 30, True)
+        body = world.call("patch", SETTINGS, json={"include_pending": False, "first_sync_days": 90})
+        assert (body["sync_hours"], body["first_sync_days"], body["include_pending"]) == (8, 90, False)
         assert world.call("get", SETTINGS)["sync_hours"] == 8
         assert world.overview()["first_sync_days"] == 90
 
@@ -101,9 +101,9 @@ class TestSettingsApi:
         assert "hora" in response.get_json()["error"]
 
     def test_settings_are_per_user(self, world, client, other_user):
-        world.call("patch", SETTINGS, json={"sync_hours": 12, "include_pending": True})
+        world.call("patch", SETTINGS, json={"sync_hours": 12, "include_pending": False})
         other = client.get(SETTINGS, headers=other_user["headers"]).get_json()
-        assert (other["sync_hours"], other["include_pending"]) == (6, False)
+        assert (other["sync_hours"], other["include_pending"]) == (6, True)
 
     def test_stored_in_user_settings(self, world, user):
         world.call("patch", SETTINGS, json={"sync_hours": 12})
@@ -183,7 +183,9 @@ class TestPerUserInterval:
 
 class TestIncludePending:
     def test_off_skips_pending(self, world):
+        # Ligado sem escolha (dono, 2026-11-01); so o "desligado" de Ajustes pula.
         item_id, _p, made = connected(world)
+        world.call("patch", SETTINGS, json={"include_pending": False})
         world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-26", status="PENDING"))
         assert world.sync(item_id)["result"]["counts"] == {"skipped_pending": 1}
         assert world.pending() == []
@@ -243,6 +245,7 @@ class TestIncludePending:
 
     def test_only_this_users_setting_counts(self, world, client, other_user, fake_pluggy):
         world.call("patch", SETTINGS, json={"include_pending": True})
+        client.patch(SETTINGS, json={"include_pending": False}, headers=other_user["headers"])
         other_world = World(client, other_user["headers"], fake_pluggy)
         other_item, _p, made = connected(other_world)
         other_world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-26", status="PENDING"))

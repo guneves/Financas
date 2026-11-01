@@ -585,6 +585,21 @@ class TestRecurrence:
         assert row["next_run_date"] > "2026-10-27"
 
 
+def usd_row(amount, day):
+    tx = bank_tx(amount, day, "COMPRA EXTERIOR")
+    tx["currencyCode"] = "USD"
+    return tx
+
+
+def no_ptax(monkeypatch):
+    fx = importlib.import_module("services.fx")
+
+    def unavailable(*_args, **_kwargs):
+        raise fx.FxUnavailable("sem PTAX")
+
+    monkeypatch.setattr(importlib.import_module("services.open_finance_auto").fx, "rate_on", unavailable)
+
+
 class TestOneSided:
     def test_the_transfer_to_wise_keeps_its_dollars(self, world, rebuild, user):
         item, btg_pluggy, btg = connect(world, "BTG Banking", balance=1880.0)
@@ -623,11 +638,10 @@ class TestOneSided:
         assert (row["type"], row["amount"]) == ("EXPENSE", 90.0)
         assert balance_of(world, bank.bb) == 1000.0
 
-    def test_a_recent_one_sided_transfer_fails_unless_allowed(self, world, bank, rebuild, user):
-        # So o Pix para a Conta global ainda espera a outra ponta (dono, 2026-11-01).
-        world.account("Wise", currency="USD")
-        world.fake.add_tx(bank.pluggy, bank_tx(-90.0, "2026-10-27", "PIX ENVIADO", payment_method="PIX",
-                                               counterparty="WISE BRASIL CORRETORA DE CAMBIO"))
+    def test_a_recent_one_sided_transfer_fails_unless_allowed(self, world, bank, rebuild, user, monkeypatch):
+        # Nada espera desde 2026-11-01, salvo outra moeda sem a PTAX do dia.
+        no_ptax(monkeypatch)
+        world.fake.add_tx(bank.pluggy, usd_row(-90.0, "2026-10-27"))
         code, text = run(rebuild, user["id"])
         assert code == rebuild.EXIT_FAILED and "pendente" in text
         code, text = run(rebuild, user["id"], allow_pending=True)
@@ -726,10 +740,9 @@ class TestReview2:
         [row] = world.transactions(first_account)
         assert row["type"] == "TRANSFER"
 
-    def test_pull_is_refused_after_recording_and_wipe_clears_it(self, world, bank, rebuild, user):
-        world.account("Wise", currency="USD")
-        world.fake.add_tx(bank.pluggy, bank_tx(-90.0, "2026-10-27", "PIX ENVIADO", payment_method="PIX",
-                                               counterparty="WISE BRASIL CORRETORA DE CAMBIO"))
+    def test_pull_is_refused_after_recording_and_wipe_clears_it(self, world, bank, rebuild, user, monkeypatch):
+        no_ptax(monkeypatch)
+        world.fake.add_tx(bank.pluggy, usd_row(-90.0, "2026-10-27"))
         assert run(rebuild, user["id"])[0] == rebuild.EXIT_FAILED
         code, text = run(rebuild, user["id"], from_step="pull")
         assert code == rebuild.EXIT_REFUSED and "duplicaria" in text

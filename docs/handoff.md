@@ -7,40 +7,46 @@
 
 ---
 
-## Session — 2026-11-01 · Every Pluggy movement enters the moment it arrives
+## Session — 2026-11-01 · Every Pluggy movement enters the moment Pluggy has it, whatever it is
 
 Owner reported (phone screenshot, BB, 31/10 22:20): "received R$ 400, Open Finance recognized it, the app did not".
-The Conferência read: no banco R$ 225,00 · no app −R$ 175,00 · Diferença R$ 400,00 = R$ 200,00 "esperando no Revisar"
-+ R$ 200,00 "de antes da conferência". Owner: the money came from other people; "Pluggy should update it the moment it
-got the information… every transaction".
+Conferência: no banco R$ 225,00 · no app −R$ 175,00 · Diferença R$ 400,00 = R$ 200,00 "esperando no Revisar" +
+R$ 200,00 "de antes da conferência". The money came from other people. Owner: "Pluggy should update it the moment it
+got the information… every transaction… no matter what the transaction is".
 
-Why it didn't move: an incoming Pix was held `TRANSFER_HOLD_DAYS` = 2 (in case another bank's pull brought its other
-side), and an own transfer with one side waited until the other side came, forever if it never did. Meanwhile
-`awaiting_bank()` kept the item out of Revisar, so the screen said "espera no Revisar" and Revisar showed nothing.
-
-Done (code and tests; **not deployed, not seen on production**):
-- `open_finance_auto.hold_reason()`: only a one-sided transfer to/from the Conta global still waits (the dollar side).
-  A Pix to/from someone else is recorded in the pull that brings it.
-- `one_side_now()`: a one-sided own transfer becomes the despesa/receita of the side the bank saw, `needs_review = 1`.
-- `open_finance_inbox._absorb_recorded_pix()` (step 3 of `place()`): when the other side arrives from another bank,
-  the recorded, untouched row (still `needs_review = 1`, same cents, opposite direction, another reais account,
-  ±1 day, counterparties that can be one person) becomes the transfer; the new row joins its item. Reviewed or edited
-  rows are left alone. Both sides in one pull still pair before recording.
-- Items already waiting on production are recorded by the first pull after the deploy (`record_pending()` runs over
-  every pending Pluggy item), so the owner's R$ 200 should land then.
-- Texts: "Gravar sozinho" hint and the Revisar waiting notice (web and APK) no longer mention one-sided transfers.
-- Tests: `test_open_finance_auto.py` (new: recorded now, other side converts, two different people never pair,
-  reviewed side kept), `test_pluggy_waits.py`, `test_open_finance_resolve.py`, `test_open_finance_rebuild.py` rewritten
-  where they relied on the hold (the waiting case is now a Pix to the Conta global, or the brake).
+What kept money out of the balance, and what changed (code and tests; **not deployed, not seen on production**):
+- **The 2-day Pix hold** (`TRANSFER_HOLD_DAYS`): gone from the pull. A Pix to/from someone else is recorded in the
+  pull that brings it.
+- **One-sided own transfers waited forever**: now `one_side_now()` records the side the bank saw as a despesa/receita
+  (`needs_review = 1`). When the other side arrives from another bank, `_absorb_recorded_pix()` turns that same row
+  into the transfer (untouched, still to review, same cents, opposite direction, another reais account, ±1 day,
+  counterparties that can be one person). Both sides in one pull still pair before recording.
+- **Pix to the Conta global** waited for the dollar side: now a despesa in reais at once; the Wise credit turns it
+  into the transfer with its dollars (`_absorb_recorded_real_side()`, mirror of `_absorb_recorded_dollar_income()`).
+- **Another currency on a reais account** waited for the owner: `in_reais_now()` uses the day's PTAX; only without
+  a PTAX yet does it wait for the next pull.
+- **Pending bank rows were skipped**: migration 052 and `include_pending()` make "Trazer pendentes" on by default
+  (and on for whoever had it off). A pending row that posts under a new id is `vanished`; the posted row now links to
+  the same lançamento even if the owner edited it (`free_candidates()`, `_linked_elsewhere()`,
+  `_explained_by_notification()` ignore vanished sources). Before this, an edited pending row + its posted version
+  were two rows (test proves it).
+- **The app read Pluggy only every 6 h**: `open_finance_refresh` ticks every 5 min; besides the due pull,
+  `sync_fresh_items()` does one `GET /items/{id}` per connection and pulls at once a connection whose `lastUpdatedAt`
+  moved. GET only (no PATCH, no CPF quota).
+- Items already waiting on production are recorded by the first pull after the deploy (`record_pending()`).
+- Texts (web and APK): the "Gravar sozinho" hint and the Revisar waiting notice.
 
 **Not done and why:**
-- The other R$ 200 ("de antes da conferência") is not explained from here: no production access. Most likely a
-  Pluggy `PENDING` row (31/10 was a Saturday): bank accounts skip pending rows unless Ajustes › Open Finance ›
-  "Trazer pendentes" is on. Not flipped by default because Itaú keeps the ported salary `PENDING` beside BTG's
-  TedSalary (a double income). Check after the deploy: if the difference stays at R$ 200, read the BB rows.
+- No production access: I could not see the real rows behind the owner's R$ 200 + R$ 200. Pending rows and the
+  removed hold should cover both; confirm on the BB Conferência after the deploy.
+- **Itaú's ported salary is listed `PENDING`** beside BTG's TedSalary (next-steps). With pending on it may be recorded
+  as a second income: check Revisar after the first pull and delete/mark it, or turn "Trazer pendentes" off.
+- The Flash notification path (`auto_record.py`) still holds a one-sided transfer / another currency: Flash only,
+  never those, so untouched.
 - The APK was not built here (only Kotlin strings changed).
 
-Lessons: a hold that hides an item from both the balance and Revisar reads as "the app ignored my money"; the
-Conferência's `awaiting` count must agree with what Revisar shows.
+Lessons: a hold that hides an item from both the balance and Revisar reads as "the app ignored my money". Test dates
+for vanish must sit inside the fake world's window (today 2026-10-27), or the pending row is never seen as gone and
+the test passes for the wrong reason.
 
-Next: deploy, pull, read the BB Conferência; decide "Trazer pendentes" with the owner.
+Next: deploy, watch the 5-minute fresh pulls in the log, read BB's Conferência and Revisar (Itaú salary).

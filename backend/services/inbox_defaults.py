@@ -103,7 +103,10 @@ def fill_defaults(conn, current_user_id, item):
 
 def free_candidates(conn, current_user_id, item):
     """Os parecidos do item que ainda sao so dele: existem e nenhuma outra
-    fonte (notificacao, transacao da Pluggy, outro item) ja os explica."""
+    fonte (notificacao, transacao da Pluggy, outro item) ja os explica. A
+    transacao que sumiu do banco (`vanished`: a pendente que voltou liquidada
+    com outra id, dono 2026-11-01) nao explica mais nada: a nova liga no mesmo
+    lancamento."""
     free = []
     for candidate in item.get("candidates") or []:
         table, target_id = candidate.get("table"), candidate.get("id")
@@ -118,14 +121,30 @@ def free_candidates(conn, current_user_id, item):
             """
             SELECT 1 FROM open_finance_transactions
             WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
+              AND COALESCE(conflict, '') <> 'vanished'
               AND COALESCE(item_id, '') <> ?
             """,
             params,
         ).fetchone() or conn.execute(
             """
-            SELECT 1 FROM inbox_items
-            WHERE user_id = ? AND target_table = ? AND target_id = ? AND id <> ?
-              AND state IN ('APPROVED', 'MATCHED')
+            SELECT 1 FROM inbox_items i
+            WHERE i.user_id = ? AND i.target_table = ? AND i.target_id = ? AND i.id <> ?
+              AND i.state IN ('APPROVED', 'MATCHED')
+              AND NOT (
+                  EXISTS (
+                      SELECT 1 FROM open_finance_transactions o
+                      WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role = 'SOURCE'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM open_finance_transactions o
+                      WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role = 'SOURCE'
+                        AND COALESCE(o.conflict, '') <> 'vanished'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM notify_detections d
+                      WHERE d.user_id = i.user_id AND d.item_id = i.id
+                  )
+              )
             """,
             params,
         ).fetchone()

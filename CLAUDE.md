@@ -277,7 +277,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   decline removes the untouched row. Flash receitas are typed by the owner.
 - **Everything updates by itself**: one tick covers accounts, cards, Wise, BTG and the Conferência; a
   failing item doesn't stop the others; first tick 60 s after boot. `sync_hours`: `off` = owner's choice,
-  a stored `0` means 6 h. GET only and the 6 h floor stay.
+  a stored `0` means 6 h. GET only and the 6 h floor stay. **Between pulls, every 5 min** (owner 2026-11-01,
+  `sync_fresh_items()`): one `GET /items/{id}` per connection, and a connection whose `lastUpdatedAt` moved past
+  our `pluggy_updated_at` is pulled at once, so a movement enters the moment Pluggy has it.
 - **A bank invoice payment is recorded from Pluggy** (`services/open_finance_invoices.py`): with no
   app row it settles that invoice through the settlement path, idempotent by Pluggy id. Autopay and
   recurrences never write on a Pluggy-mapped card or account.
@@ -306,8 +308,8 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   same amount is linked. Fixed-income ETFs (`FIXED_INCOME_ETFS`, AUPO11 included) settle D+1. The
   Conferência compares the Corretora on settled cash and skips trade cash (the bank side is COVERED).
 - **A card mirrors the bank** (owner 2026-10-30, `mirror_cards()`): the open invoice comes `PENDING` from
-  Pluggy, so a card always brings pending rows (a bank account only with `include_pending`; a pending salary
-  double counted). `bill_month` (`billForecastDate`, 051) decides the invoice, over `compute_invoice_start()`;
+  Pluggy, so a card always brings pending rows (a bank account too since 2026-11-01, `include_pending` on by
+  default; watch a pending salary beside the posted one, the Itaú/BTG portability). `bill_month` (`billForecastDate`, 051) decides the invoice, over `compute_invoice_start()`;
   an open purchase has one app line per bank line: an installment the bank doesn't list leaves, a new one
   enters. `closing_day` is the bank's (`GET /bills`). BB's balance rounds up (`rounded_up`).
 - **Anticipated installments** (owner 2026-10-31, `_anticipations()`): the bank discounts each one ("Desconto Na
@@ -421,15 +423,19 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   mapped or "não usar" and each connection was pulled OK in the last 48 h (`blockers()`); on, the
   Pluggy backlog in Aprovar is recorded in one pass. Since 045 it is on unless the owner turned it
   off, and what an item lacks is guessed (`fill_defaults()`), recorded with `needs_review = 1`.
-  **Nothing waits but the Conta global's dollar side** (owner 2026-11-01: "every transaction updates
-  the moment it arrives"): a Pix to/from someone else is a despesa/receita in the pull that brings it,
+  **Nothing waits** (owner 2026-11-01: "every transaction updates the moment it arrives, no matter what
+  it is"): a Pix to/from someone else is a despesa/receita in the pull that brings it,
   and an own transfer with one side is recorded as the despesa/receita of the side the bank saw
   (`one_side_now()`). When the other side arrives from another bank, the same row becomes the
   transfer (`_absorb_recorded_pix()`: untouched, `needs_review = 1`, same cents, opposite direction,
   another reais account, ±`TRANSFER_MATCH_DAYS`, counterparties that can be one person); a reviewed
   or edited side stays and the other side is its own row. Both sides in one pull pair before
-  recording, as before. A Pix to the Conta global still waits for the dollar side.
-  `TRANSFER_HOLD_DAYS` is only the rebuild's. A bank's fund (Pluggy `0302`) is recorded
+  recording, as before. A Pix to the Conta global is a despesa in reais until the dollar credit turns it
+  into the transfer (`_absorb_recorded_real_side()`). A row in another currency on a reais account takes
+  the day's PTAX (`in_reais_now()`); only without a PTAX yet does it wait for the next pull. **Pending bank
+  rows come in by default** (052, `include_pending` unless "0"); one that posts under a new id leaves
+  `vanished` and the posted row links to the same lançamento (`free_candidates()`, `_linked_elsewhere()`,
+  `_explained_by_notification()` ignore vanished sources). `TRANSFER_HOLD_DAYS` is only the rebuild's. A bank's fund (Pluggy `0302`) is recorded
   as `BANK_INVESTMENT`, an aporte/resgate; other category 03 rows on a bank account stay despesa/receita for review.
   A look-alike the owner typed is **linked** (first free candidate), never duplicated; manual rows
   are never deleted. On the Corretora account only bank ↔ Corretora transfers become rows

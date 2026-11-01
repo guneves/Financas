@@ -28,12 +28,22 @@ def own_transfer(amount=500.0, description="PIX RECEBIDO", day=NOW):
     return bank_tx(amount, day, description=description, category_id="04000000", payment_method="PIX")
 
 
-def to_global(world, amount=-500.0):
-    """Um Pix para a Conta global: o unico movimento que ainda espera a outra
-    ponta (o lado em dolar). Todo o resto entra na hora (dono, 2026-11-01)."""
-    world.account("Wise", currency="USD")
-    return bank_tx(amount, NOW, description="PIX ENVIADO", payment_method="PIX",
-                   counterparty="WISE BRASIL CORRETORA DE CAMBIO")
+def no_rate_yet(world, amount=-500.0):
+    """O que ainda espera desde 2026-11-01 (dono: nada espera): um movimento em
+    outra moeda numa conta em reais antes de sair a PTAX do dia."""
+    tx = bank_tx(amount, NOW, description="COMPRA EXTERIOR")
+    tx["currencyCode"] = "USD"
+    return tx
+
+
+@pytest.fixture()
+def no_ptax(monkeypatch, app_module):
+    fx = importlib.import_module("services.fx")
+
+    def unavailable(*_args, **_kwargs):
+        raise fx.FxUnavailable("sem PTAX")
+
+    monkeypatch.setattr(importlib.import_module("services.open_finance_auto").fx, "rate_on", unavailable)
 
 
 def auto_off(db_module, user):
@@ -104,10 +114,11 @@ class TestNotBetweenMyAccounts:
         assert [(row["type"], row["amount"]) for row in rows] == [("INCOME", 5000.0)]
 
 
+@pytest.mark.usefixtures("no_ptax")
 class TestWaitsForTheBank:
     def test_quiet_until_a_refresh_passes_without_the_other_side(self, world):
         item_id, pluggy_item, made = connected(world)
-        world.fake.add_tx(made["bank"][0], to_global(world))
+        world.fake.add_tx(made["bank"][0], no_rate_yet(world))
         world.sync(item_id)
         assert world.call("get", "/api/review")["waiting"] == 0
         assert world.pending()[0]["awaiting_bank"] is True
@@ -119,7 +130,7 @@ class TestWaitsForTheBank:
     def test_every_connection_must_refresh(self, world):
         first, pluggy_first, made = connected(world)
         second, pluggy_second, _ = connected(world, connector_name="BTG")
-        world.fake.add_tx(made["bank"][0], to_global(world))
+        world.fake.add_tx(made["bank"][0], no_rate_yet(world))
         world.sync(first)
         bank_updates(world.fake, pluggy_first)
         world.sync(first)
@@ -130,7 +141,7 @@ class TestWaitsForTheBank:
 
     def test_a_dead_connection_does_not_hide_it_forever(self, world, db_module):
         item_id, _pluggy, made = connected(world)
-        world.fake.add_tx(made["bank"][0], to_global(world))
+        world.fake.add_tx(made["bank"][0], no_rate_yet(world))
         world.sync(item_id)
         with db_module.get_db() as conn:
             conn.execute("UPDATE inbox_items SET created_at = '2020-01-01T00:00:00.000Z'")

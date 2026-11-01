@@ -1293,7 +1293,8 @@ def _explained_by_notification(conn, current_user_id, entry):
     ).fetchone() is not None or conn.execute(
         """
         SELECT 1 FROM open_finance_transactions
-        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED' LIMIT 1
+        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
+          AND COALESCE(conflict, '') <> 'vanished' LIMIT 1
         """,
         params,
     ).fetchone() is not None

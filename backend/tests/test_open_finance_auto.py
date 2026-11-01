@@ -398,6 +398,43 @@ class TestTransfers:
         [row] = world.transactions(mine)
         assert (row["type"], row["amount"]) == ("EXPENSE", 80.0)
 
+    def test_a_pending_bank_row_is_recorded_at_once(self, world):
+        item_id, _p, made = connected(world)
+        pluggy_account, _of, mine = made["bank"]
+        auto_on(world)
+        world.fake.add_tx(pluggy_account, bank_tx(200, "2026-10-26", "PIX RECEBIDO", category_id="05070000",
+                                                  counterparty="Fulano de Tal", doc="12345678901", status="PENDING"))
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        assert (row["type"], row["amount"]) == ("INCOME", 200.0)
+
+    def test_a_reviewed_pending_row_that_posts_with_a_new_id_is_never_doubled(self, world, user):
+        item_id, _p, made = connected(world)
+        pluggy_account, _of, mine = made["bank"]
+        auto_on(world)
+        pending = world.fake.add_tx(pluggy_account, bank_tx(-35, "2026-10-25", "PADARIA", status="PENDING"))
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        world.call("patch", f"/api/transactions/{row['id']}", json={"description": "Padaria do bairro"})
+        world.fake.drop_tx(pluggy_account, pending)
+        world.fake.add_tx(pluggy_account, bank_tx(-35, "2026-10-26", "PADARIA"))
+        world.sync(item_id)
+        rows = world.transactions(mine)
+        assert [(entry["id"], entry["amount"]) for entry in rows] == [(row["id"], 35.0)]
+
+    def test_another_currency_on_a_reais_account_enters_at_the_ptax(self, world, monkeypatch):
+        item_id, _p, made = connected(world)
+        pluggy_account, _of, mine = made["bank"]
+        auto_on(world)
+        monkeypatch.setattr(importlib.import_module("services.open_finance_auto").fx, "rate_on", lambda *a, **k: 5.4321)
+        tx = bank_tx(-10.0, "2026-10-26", "COMPRA EXTERIOR")
+        tx["currencyCode"] = "USD"
+        world.fake.add_tx(pluggy_account, tx)
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        assert (row["type"], row["amount"]) == ("EXPENSE", 54.32)
+        assert world.pending() == []
+
     def test_bank_to_corretora_is_an_aporte(self, world):
         made = meupluggy(world)
         auto_on(world)
