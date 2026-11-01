@@ -102,6 +102,6 @@ export function reviewNoticeText(count) {
 export function waitingNoticeText(count) {
   if (!count) return ''
   return count === 1
-    ? '1 movimento a Pluggy atualizou e não identificou (uma transferência sem a outra ponta, outra moeda).'
-    : `${count} movimentos a Pluggy atualizou e não identificou (transferências sem a outra ponta, outra moeda).`
+    ? '1 movimento a Pluggy atualizou e não identificou (outra moeda ainda sem a cotação do dia).'
+    : `${count} movimentos a Pluggy atualizou e não identificou (outra moeda ainda sem a cotação do dia).`
 }

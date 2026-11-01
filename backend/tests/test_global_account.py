@@ -239,12 +239,15 @@ class TestCrossCurrencyTransfer:
         ids = global_world(world)
         add_pix(world, ids, dollar=False)
         pull(world, ids["item"])
-        # A ponta em reais espera a outra: nunca despesa.
-        assert transfers(world) == []
-        assert world.call("get", "/api/transactions") == []
+        # Nada espera (dono, 2026-11-01): a ponta em reais entra ja, despesa a revisar...
+        assert sorted(row["type"] for row in world.call("get", "/api/transactions")) == ["EXPENSE"] * 3
+        assert not world.pending()
+        # ... e o credito em dolar faz de cada uma a transferencia (a mesma linha).
+        before = {row["id"] for row in world.call("get", "/api/transactions")}
         add_pix(world, ids, real=False)
         pull(world, ids["item"])
         self.assert_three_transfers(world, ids)
+        assert {row["id"] for row in world.call("get", "/api/transactions")} == before
 
     def test_dollars_first_then_reais(self, world):
         ids = global_world(world)
@@ -271,9 +274,9 @@ class TestCrossCurrencyTransfer:
             world.call("patch", f"/api/transactions/{row['id']}", json={"description": "Dolar"})
         add_pix(world, ids, dollar=False)
         pull(world, ids["item"])
-        # Editada pelo dono: nao e refeita; o Pix espera (nunca despesa).
+        # Editada pelo dono: nao e refeita; o Pix entra como despesa a revisar.
         assert transfers(world) == []
-        assert world.call("get", "/api/transactions") == []
+        assert sorted(row["type"] for row in world.call("get", "/api/transactions")) == ["EXPENSE"] * 3
 
     def test_never_spent_nor_income(self, world):
         ids = global_world(world)
@@ -287,8 +290,16 @@ class TestCrossCurrencyTransfer:
         # Saldo em contas: so o BTG em reais; a Wise nao entra (dono, 2026-10-28).
         assert home["consolidated_balance"] == pytest.approx(170.0)
 
-    def test_wise_not_connected_keeps_the_pix_waiting(self, world):
+    def test_wise_not_connected_the_pix_is_a_despesa_at_once(self, world):
         ids = global_world(world, map_wise=False)
+        add_pix(world, ids, dollar=False)
+        pull(world, ids["item"])
+        assert sorted(row["type"] for row in world.call("get", "/api/transactions")) == ["EXPENSE"] * 3
+        assert not world.pending()
+
+    def test_with_the_brake_the_pix_waits_for_the_owner(self, world):
+        ids = global_world(world, map_wise=False)
+        world.call("patch", SETTINGS, json={"auto_record": False})
         add_pix(world, ids, dollar=False)
         pull(world, ids["item"])
         assert world.call("get", "/api/transactions") == []

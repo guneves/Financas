@@ -205,7 +205,9 @@ def sync_hours(conn, current_user_id):
 
 
 def include_pending(conn, current_user_id):
-    return inbox.setting_value(conn, current_user_id, INCLUDE_PENDING_SETTING) == "1"
+    """Ligado sem escolha (dono, 2026-11-01: toda transacao, no momento em que
+    chega; migracao 052): so "0" gravado em Ajustes desliga."""
+    return inbox.setting_value(conn, current_user_id, INCLUDE_PENDING_SETTING) != "0"
 
 
 def settings(conn, current_user_id):
@@ -850,6 +852,39 @@ def sync_user(current_user_id):
                     (f"Falha ao gravar o pull: {exc}"[:300], utc_timestamp(), of_item_id, current_user_id),
                 )
             results[of_item_id] = {"error": str(exc)}
+    return results
+
+
+def sync_fresh_items(current_user_id):
+    """O que a Pluggy acabou de trazer do banco entra ja (dono, 2026-11-01:
+    "toda transacao, no momento em que chega"): um GET /items/{id} por conexao
+    (so leitura, nao gasta o limite do CPF como o PATCH) e, se `lastUpdatedAt`
+    andou desde o nosso ultimo pull, o pull dessa conexao. Devolve
+    {of_item_id: resultado} so das puxadas."""
+    if not is_configured():
+        return {}
+    with get_db() as conn:
+        items = [row_to_dict(row) for row in active_items(conn, current_user_id)]
+    api = client()
+    results = {}
+    for item in items:
+        try:
+            pluggy_item = api.get_item(item["pluggy_item_id"]) or {}
+        except PluggyError as exc:
+            logger.warning(f"Open Finance: a Pluggy nao respondeu o item {item['id']}: {exc}")
+            continue
+        stamp = pluggy_item.get("lastUpdatedAt")
+        if not stamp or not item["last_sync_at"]:
+            continue
+        if _seconds(stamp) <= _seconds(item["pluggy_updated_at"]):
+            continue
+        try:
+            results[item["id"]] = sync_item(current_user_id, item["id"])
+        except (PluggyError, ValidationError, LookupError) as exc:
+            results[item["id"]] = {"error": str(exc)}
+        except Exception as exc:  # um banco nao para os outros
+            logger.exception("Open Finance: o pull falhou", extra={"user_id": current_user_id, "item": item["id"]})
+            results[item["id"]] = {"error": str(exc)}
     return results
 
 

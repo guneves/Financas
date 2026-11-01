@@ -28,6 +28,32 @@ def own_transfer(amount=500.0, description="PIX RECEBIDO", day=NOW):
     return bank_tx(amount, day, description=description, category_id="04000000", payment_method="PIX")
 
 
+def no_rate_yet(world, amount=-500.0):
+    """O que ainda espera desde 2026-11-01 (dono: nada espera): um movimento em
+    outra moeda numa conta em reais antes de sair a PTAX do dia."""
+    tx = bank_tx(amount, NOW, description="COMPRA EXTERIOR")
+    tx["currencyCode"] = "USD"
+    return tx
+
+
+@pytest.fixture()
+def no_ptax(monkeypatch, app_module):
+    fx = importlib.import_module("services.fx")
+
+    def unavailable(*_args, **_kwargs):
+        raise fx.FxUnavailable("sem PTAX")
+
+    monkeypatch.setattr(importlib.import_module("services.open_finance_auto").fx, "rate_on", unavailable)
+
+
+def auto_off(db_module, user):
+    with db_module.get_db() as conn:
+        conn.execute(
+            "UPDATE user_settings SET value = '0' WHERE user_id = ? AND setting_key = 'open_finance_auto_record'",
+            (user["id"],),
+        )
+
+
 def bank_updates(fake, pluggy_item, stamp=None):
     """A Pluggy falou com o banco: agora (o item, nestes testes, ja nasceu antes)."""
     fake.items[pluggy_item]["lastUpdatedAt"] = stamp or datetime.now(timezone.utc).isoformat()
@@ -58,7 +84,24 @@ class TestSalaryIsIncome:
 
 
 class TestNotBetweenMyAccounts:
-    def test_an_incoming_one_sided_transfer_becomes_income_in_its_account(self, world):
+    def test_a_one_sided_transfer_is_recorded_at_once_on_the_side_the_bank_saw(self, world, db_module, user):
+        # Dono, 2026-11-01: toda transacao entra no momento em que a Pluggy a traz.
+        item_id, _pluggy, made = connected(world)
+        pluggy_id, _of, account_id = made["bank"]
+        world.fake.add_tx(pluggy_id, own_transfer(5000.0, "TED RECEBIDO ACME"))
+        world.fake.add_tx(pluggy_id, own_transfer(-80.0, "PIX ENVIADO"))
+        world.sync(item_id)
+        assert world.pending() == []
+        rows = world.transactions(account_id)
+        assert sorted((row["type"], row["amount"]) for row in rows) == [("EXPENSE", 80.0), ("INCOME", 5000.0)]
+        with db_module.get_db() as conn:
+            flags = {row["needs_review"] for row in conn.execute(
+                "SELECT needs_review FROM transactions WHERE user_id = ?", (user["id"],),
+            ).fetchall()}
+        assert flags == {1}
+
+    def test_with_the_brake_on_an_incoming_one_takes_its_account(self, world, db_module, user):
+        auto_off(db_module, user)
         item_id, _pluggy, made = connected(world)
         pluggy_id, _of, account_id = made["bank"]
         world.fake.add_tx(pluggy_id, own_transfer(5000.0, "TED RECEBIDO ACME"))
@@ -70,19 +113,12 @@ class TestNotBetweenMyAccounts:
         rows = world.transactions(account_id)
         assert [(row["type"], row["amount"]) for row in rows] == [("INCOME", 5000.0)]
 
-    def test_an_outgoing_one_sided_transfer_becomes_expense(self, world):
-        item_id, _pluggy, made = connected(world)
-        pluggy_id, _of, account_id = made["bank"]
-        world.fake.add_tx(pluggy_id, own_transfer(-80.0, "PIX ENVIADO"))
-        world.sync(item_id)
-        world.approve(world.pending()[0], entry_type="EXPENSE", remember=False)
-        assert [row["type"] for row in world.transactions(account_id)] == ["EXPENSE"]
 
-
+@pytest.mark.usefixtures("no_ptax")
 class TestWaitsForTheBank:
     def test_quiet_until_a_refresh_passes_without_the_other_side(self, world):
         item_id, pluggy_item, made = connected(world)
-        world.fake.add_tx(made["bank"][0], own_transfer())
+        world.fake.add_tx(made["bank"][0], no_rate_yet(world))
         world.sync(item_id)
         assert world.call("get", "/api/review")["waiting"] == 0
         assert world.pending()[0]["awaiting_bank"] is True
@@ -94,7 +130,7 @@ class TestWaitsForTheBank:
     def test_every_connection_must_refresh(self, world):
         first, pluggy_first, made = connected(world)
         second, pluggy_second, _ = connected(world, connector_name="BTG")
-        world.fake.add_tx(made["bank"][0], own_transfer())
+        world.fake.add_tx(made["bank"][0], no_rate_yet(world))
         world.sync(first)
         bank_updates(world.fake, pluggy_first)
         world.sync(first)
@@ -105,7 +141,7 @@ class TestWaitsForTheBank:
 
     def test_a_dead_connection_does_not_hide_it_forever(self, world, db_module):
         item_id, _pluggy, made = connected(world)
-        world.fake.add_tx(made["bank"][0], own_transfer())
+        world.fake.add_tx(made["bank"][0], no_rate_yet(world))
         world.sync(item_id)
         with db_module.get_db() as conn:
             conn.execute("UPDATE inbox_items SET created_at = '2020-01-01T00:00:00.000Z'")
@@ -144,13 +180,11 @@ class TestOnlyThePullRecords:
         item_id, _pluggy, made = connected(world)
         pluggy_id, _of, account_id = made["bank"]
         world.fake.add_tx(pluggy_id, bank_tx(-80.0, NOW, description="PIX JOAO", payment_method="PIX"))
-        world.sync(item_id)
-        assert world.transactions(account_id) == []
-        monkeypatch.setattr(invoices_module, "local_today", lambda: date(2026, 11, 5))
-        assert world.transactions(account_id) == []
         world.call("get", "/api/home")
+        world.call("get", "/api/review")
         assert world.transactions(account_id) == []
         world.sync(item_id)
+        # Entra no pull em que chega, sem prazo de espera (dono, 2026-11-01).
         assert [row["type"] for row in world.transactions(account_id)] == ["EXPENSE"]
 
 
