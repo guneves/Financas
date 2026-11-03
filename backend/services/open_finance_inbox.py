@@ -503,6 +503,9 @@ def place(conn, current_user_id, row, account, rules=None):
                 conn, current_user_id, inbox.item_dict(other), account_id=account_id, direction=row["direction"],
             )
             return "merged"
+        absorbed = _absorb_recorded_pix(conn, current_user_id, row, account_id, cents)
+        if absorbed:
+            return absorbed
 
     # 4. Um item novo.
     new_item_for_row(conn, current_user_id, row, account, rules)
@@ -574,7 +577,7 @@ def _place_cross_currency(conn, current_user_id, row, account_id, cents):
             return "matched"
         waiting = global_account.awaiting_real_side(conn, current_user_id, target, cents, row["date"])
         if not waiting:
-            return None
+            return _absorb_recorded_real_side(conn, current_user_id, row, target, cents)
         item = inbox.item_dict(waiting)
         _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
         changes = {
@@ -671,6 +674,135 @@ def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, desti
         "category": inbox.TRANSFER_CATEGORY, "category_id": None, "description": description,
     })
     mark_auto_recorded(conn, current_user_id, item["id"], "transactions", target_id)
+    return "merged"
+
+
+def _absorb_recorded_pix(conn, current_user_id, row, account_id, cents):
+    """A outra ponta de um Pix que ja virou despesa/receita sozinho (o dono,
+    2026-11-01: o que a Pluggy traz entra na hora, sem esperar a outra ponta) e
+    que ainda esta como nasceu: a mesma linha vira a transferencia, nunca uma
+    despesa numa conta e uma receita na outra. Mesmo valor, sentido oposto,
+    outra conta em reais, ate TRANSFER_MATCH_DAYS dias, contrapartes que podem
+    ser a mesma pessoa (o dono)."""
+    if not inbox._brl_active_account(conn, current_user_id, account_id):
+        return None
+    twin_type = "EXPENSE" if row["direction"] == "IN" else "INCOME"
+    candidates = []
+    for entry in conn.execute(
+        """
+        SELECT o.*, i.id AS the_item, i.target_id AS the_target, t.account_id AS twin_account, t.date AS twin_date
+        FROM open_finance_transactions o
+        JOIN inbox_items i ON i.id = o.item_id AND i.user_id = o.user_id
+        JOIN transactions t ON t.id = i.target_id AND t.user_id = i.user_id
+        WHERE o.user_id = ? AND o.role = 'SOURCE' AND o.direction <> ? AND o.auto_recorded_at IS NOT NULL
+          AND o.movement IN ('TRANSFER', 'SELF_TRANSFER') AND o.amount_cents = ?
+          AND i.state = 'APPROVED' AND i.target_table = 'transactions'
+          AND t.type = ? AND t.account_id <> ? AND t.share_mode IS NULL AND t.needs_review = 1
+          AND t.date BETWEEN ? AND ?
+        """,
+        (current_user_id, row["direction"], cents, twin_type, account_id,
+         inbox._shift(row["date"], -inbox.TRANSFER_MATCH_DAYS), inbox._shift(row["date"], inbox.TRANSFER_MATCH_DAYS)),
+    ).fetchall():
+        source = row_to_dict(entry)
+        if not inbox._brl_active_account(conn, current_user_id, source["twin_account"]):
+            continue
+        if inbox.counterparties_conflict(
+            {"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]}, source,
+        ):
+            continue
+        if len(inbox.open_finance_sources(conn, current_user_id, source["the_item"], roles=(inbox.SOURCE,))) != 1:
+            continue
+        source.update(target_table="transactions", target_id=source["the_target"])
+        if untouched(conn, current_user_id, source):
+            candidates.append(source)
+    if not candidates:
+        return None
+    best = sorted(
+        candidates, key=lambda entry: (inbox._date_gap(entry["twin_date"], row["date"]), entry["twin_date"], entry["id"]),
+    )[0]
+    if row["direction"] == "OUT":
+        origin, destination, day, occurred = account_id, best["twin_account"], row["date"], row["occurred_at"]
+    else:
+        origin, destination, day, occurred = best["twin_account"], account_id, best["date"], best["occurred_at"]
+    occurred = occurred or day
+    description = inbox._transfer_description(conn, current_user_id, origin, destination, row["description"])
+    conn.execute(
+        "DELETE FROM recurring_settlements WHERE user_id = ? AND target_table = 'transactions' AND target_id = ?",
+        (current_user_id, best["the_target"]),
+    )
+    conn.execute(
+        """
+        UPDATE transactions SET type = 'TRANSFER', account_id = ?, transfer_account_id = ?, date = ?, occurred_at = ?,
+            category = ?, category_id = NULL, description = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (origin, destination, day, occurred, inbox.TRANSFER_CATEGORY, description, best["the_target"], current_user_id),
+    )
+    item = inbox.item_dict(inbox.fetch_item(conn, current_user_id, best["the_item"]))
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
+    inbox.save_item(conn, current_user_id, item, {
+        "entry_type": "TRANSFER", "direction": "OUT", "account_id": origin, "transfer_account_id": destination,
+        "occurred_at": occurred, "category": inbox.TRANSFER_CATEGORY, "category_id": None,
+        "description": description, "reason": "own_transfer",
+    })
+    mark_auto_recorded(conn, current_user_id, item["id"], "transactions", best["the_target"])
+    return "merged"
+
+
+def _absorb_recorded_real_side(conn, current_user_id, row, target, dollar_cents):
+    """O credito em dolar acha o Pix em reais que ja virou despesa sozinho (dono,
+    2026-11-01: nada espera) e ainda esta como nasceu, nomeando a conta global:
+    a mesma linha vira a transferencia, com o valor em dolar do banco — nunca
+    despesa em reais mais receita em dolar."""
+    candidates = []
+    for entry in conn.execute(
+        """
+        SELECT o.*, i.id AS the_item, i.target_id AS the_target, t.account_id AS real_account, t.amount AS reais,
+               t.date AS item_date
+        FROM open_finance_transactions o
+        JOIN inbox_items i ON i.id = o.item_id AND i.user_id = o.user_id
+        JOIN transactions t ON t.id = i.target_id AND t.user_id = i.user_id
+        WHERE o.user_id = ? AND o.role = 'SOURCE' AND o.direction = 'OUT' AND o.auto_recorded_at IS NOT NULL
+          AND i.state = 'APPROVED' AND i.target_table = 'transactions'
+          AND t.type = 'EXPENSE' AND t.needs_review = 1 AND t.share_mode IS NULL
+        """,
+        (current_user_id,),
+    ).fetchall():
+        source = row_to_dict(entry)
+        if global_account.is_foreign(conn, current_user_id, source["real_account"]):
+            continue
+        named = global_account.destination_for_row(conn, current_user_id, source, source["real_account"])
+        if not named or named["id"] != target["id"]:
+            continue
+        source.update(target_table="transactions", target_id=source["the_target"])
+        if untouched(conn, current_user_id, source):
+            candidates.append({**source, "id": source["the_item"], "date": source["item_date"]})
+    best = global_account._best(
+        conn, current_user_id, normalize_currency_of(target), row["date"], candidates,
+        brl_of=lambda candidate: inbox._cents(candidate["reais"]), foreign_of=lambda candidate: dollar_cents,
+    )
+    if not best:
+        return None
+    item = inbox.item_dict(inbox.fetch_item(conn, current_user_id, best["the_item"]))
+    description = global_account.transfer_description(
+        global_account.account_name(conn, current_user_id, best["real_account"]), target["name"],
+    )
+    conn.execute(
+        """
+        UPDATE transactions SET type = 'TRANSFER', transfer_account_id = ?, transfer_amount = ?, category = ?,
+            category_id = NULL, description = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (target["id"], inbox._reais(dollar_cents), inbox.TRANSFER_CATEGORY, description, best["the_target"],
+         current_user_id),
+    )
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
+    inbox.save_item(conn, current_user_id, item, {
+        "entry_type": "TRANSFER", "direction": "OUT", "transfer_account_id": target["id"],
+        "transfer_amount": inbox._reais(dollar_cents), "category": inbox.TRANSFER_CATEGORY, "category_id": None,
+        "description": description, "reason": "own_transfer",
+    })
+    mark_auto_recorded(conn, current_user_id, item["id"], "transactions", best["the_target"])
     return "merged"
 
 

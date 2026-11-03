@@ -5,7 +5,8 @@ webhook. Uma thread acorda a cada TICK_SECONDS e chama `open_finance.sync_user()
 para cada usuario cuja "Busca automatica" (Ajustes, `sync_hours`; quem nunca
 escolheu fica com OPEN_FINANCE_SYNC_SECONDS, 6 h: toda conta mapeada atualiza
 sem o dono) venceu desde o ultimo pull
-ou a ultima tentativa. O pull e passivo (dono, 2026-10-27): so GET do que a
+ou a ultima tentativa, e quem a Pluggy acabou de atualizar (`lastUpdatedAt` do
+item andou: `open_finance.sync_fresh_items()`, dono 2026-11-01). O pull e passivo (dono, 2026-10-27): so GET do que a
 Pluggy ja trouxe do banco — ela atualiza o banco sozinha, de 6 a 24 h. O app
 nunca pede dados novos (`PATCH /items`): no plano gratis do MeuPluggy isso
 gasta o limite mensal do CPF e, esgotado, bloqueia ate o mes seguinte. Por
@@ -31,7 +32,9 @@ from services import open_finance
 logger = get_logger(__name__)
 
 FIRST_DELAY_SECONDS = 60
-TICK_SECONDS = 15 * 60
+# A cada passo, alem do pull vencido, quem a Pluggy acabou de atualizar puxa ja
+# (open_finance.sync_fresh_items(): um GET do item, nada que gaste o limite).
+TICK_SECONDS = 5 * 60
 
 _lock = threading.Lock()
 _started = False
@@ -78,13 +81,31 @@ def refresh_all_users(now_seconds=None):
     """Uma rodada; um usuario (ou item) que falha nao impede os outros."""
     now_seconds = time.time() if now_seconds is None else now_seconds
     results = {}
-    for current_user_id in due_user_ids(now_seconds):
+    due = due_user_ids(now_seconds)
+    for current_user_id in due:
         _attempts[current_user_id] = now_seconds
         try:
             results[current_user_id] = open_finance.sync_user(current_user_id)
         except Exception as exc:  # a rodada nao para por um usuario
             logger.warning(f"Open Finance automatico falhou para {current_user_id}: {exc}")
+    for current_user_id in watched_user_ids():
+        if current_user_id in due:
+            continue
+        try:
+            fresh = open_finance.sync_fresh_items(current_user_id)
+        except Exception as exc:  # a rodada nao para por um usuario
+            logger.warning(f"Open Finance automatico falhou para {current_user_id}: {exc}")
+            continue
+        if fresh:
+            results[current_user_id] = fresh
     return results
+
+
+def watched_user_ids():
+    """Quem tem a busca automatica ligada (nao "Desligada")."""
+    ids = user_ids_with_items()
+    with get_db() as conn:
+        return [current_user_id for current_user_id in ids if open_finance.sync_hours(conn, current_user_id) > 0]
 
 
 def reset_attempts():

@@ -70,8 +70,9 @@ class TestPullIntoAprovar:
         assert stored["client_id"] == f"pluggy:{tx_id}"
         assert (row["type"], row["amount"], row["date"]) == ("EXPENSE", 45.9, "2026-10-20")
 
-    def test_pending_status_is_skipped(self, world):
+    def test_pending_status_is_skipped_when_the_owner_turned_it_off(self, world):
         item_id, _p, made = connected(world)
+        world.call("patch", "/api/open-finance/settings", json={"include_pending": False})
         world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-26", status="PENDING"))
         body = world.sync(item_id)
         assert body["result"]["counts"] == {"skipped_pending": 1}

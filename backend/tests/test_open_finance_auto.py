@@ -324,16 +324,70 @@ class TestTransfers:
         ]
         assert world.pending() == []
 
-    def test_one_side_waits_for_the_other(self, world):
+    def test_one_side_is_recorded_now_and_the_other_side_makes_it_a_transfer(self, world, user):
+        # Dono, 2026-11-01: toda transacao entra no momento em que a Pluggy a traz.
         made = meupluggy(world)
         auto_on(world)
-        itau, _of, _itau_id = made["itau:0001/1-1"]
+        itau, _of, itau_id = made["itau:0001/1-1"]
+        btg, _of2, btg_id = made["btg:0002/2-2"]
         world.fake.add_tx(itau, bank_tx(-500, "2026-10-26", "PIX ENVIADO", category_id="04000000"))
-        sync_all(world, made)
-        assert [row for row in world.transactions() if row["amount"] == 500] == []
-        assert len(world.pending()) == 1
+        world.sync(made["items"]["itau"])
+        [row] = [row for row in world.transactions() if row["amount"] == 500]
+        assert (row["type"], row["account_id"]) == ("EXPENSE", itau_id)
+        assert world.pending() == []
+        world.fake.add_tx(btg, bank_tx(500, "2026-10-27", "PIX RECEBIDO", category_id="04000000"))
+        world.sync(made["items"]["btg"])
+        rows = [row for row in world.transactions() if row["amount"] == 500]
+        assert [(row["type"], row["account_id"], row["transfer_account_id"], row["date"], row["category_id"])
+                for row in rows] == [("TRANSFER", itau_id, btg_id, "2026-10-26", None)]
+        assert world.pending() == []
+        assert rows_of("transactions", "user_id = ? AND id = ?", (user["id"], rows[0]["id"]))[0]["needs_review"] == 1
 
-    def test_a_pix_to_someone_else_is_held_two_days_then_recorded(self, world, invoices_module, monkeypatch):
+    def test_a_pix_in_is_recorded_now_and_the_out_side_later_makes_it_a_transfer(self, world):
+        made = meupluggy(world)
+        auto_on(world)
+        bb, _of, bb_id = made["bb:0003/3-3"]
+        itau, _of2, itau_id = made["itau:0001/1-1"]
+        world.fake.add_tx(bb, bank_tx(400, "2026-10-31", "PIX RECEBIDO", category_id="05070000",
+                                      counterparty="Dono Da Silva", doc="11122233344"))
+        world.sync(made["items"]["bb"])
+        [row] = [row for row in world.transactions() if row["amount"] == 400]
+        assert (row["type"], row["account_id"]) == ("INCOME", bb_id)
+        world.fake.add_tx(itau, bank_tx(-400, "2026-10-31", "PIX ENVIADO", category_id="05070000",
+                                        counterparty="Dono Da Silva", doc="11122233344"))
+        world.sync(made["items"]["itau"])
+        rows = [row for row in world.transactions() if row["amount"] == 400]
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            ("TRANSFER", itau_id, bb_id),
+        ]
+
+    def test_pix_of_two_different_people_never_become_a_transfer(self, world):
+        made = meupluggy(world)
+        auto_on(world)
+        bb, _of, bb_id = made["bb:0003/3-3"]
+        itau, _of2, itau_id = made["itau:0001/1-1"]
+        world.fake.add_tx(bb, bank_tx(50, "2026-10-31", "PIX RECEBIDO", category_id="05070000",
+                                      counterparty="Fulano de Tal", doc="12345678901"))
+        world.sync(made["items"]["bb"])
+        world.fake.add_tx(itau, bank_tx(-50, "2026-10-31", "PIX ENVIADO", category_id="05070000",
+                                        counterparty="Beltrano Souza", doc="98765432100"))
+        world.sync(made["items"]["itau"])
+        rows = sorted((row["type"], row["account_id"]) for row in world.transactions() if row["amount"] == 50)
+        assert rows == sorted([("INCOME", bb_id), ("EXPENSE", itau_id)])
+
+    def test_a_reviewed_side_is_not_rewritten(self, world, user):
+        made = meupluggy(world)
+        auto_on(world)
+        itau, _of, itau_id = made["itau:0001/1-1"]
+        btg, _of2, btg_id = made["btg:0002/2-2"]
+        world.fake.add_tx(itau, bank_tx(-500, "2026-10-26", "PIX ENVIADO", category_id="04000000"))
+        world.sync(made["items"]["itau"])
+        run_sql("UPDATE transactions SET needs_review = 0 WHERE user_id = ? AND amount = 500", (user["id"],))
+        world.fake.add_tx(btg, bank_tx(500, "2026-10-26", "PIX RECEBIDO", category_id="04000000"))
+        world.sync(made["items"]["btg"])
+        assert all(row["type"] != "TRANSFER" for row in world.transactions() if row["amount"] == 500)
+
+    def test_a_pix_to_someone_else_is_recorded_at_once(self, world, invoices_module, monkeypatch):
         item_id, _p, made = connected(world)
         pluggy_account, _of, mine = made["bank"]
         auto_on(world)
@@ -341,11 +395,45 @@ class TestTransfers:
                                                   counterparty="Fulano de Tal", doc="12345678901"))
         pin_today(monkeypatch, invoices_module, datetime(2026, 10, 26).date())
         world.sync(item_id)
-        assert world.transactions(mine) == []
-        pin_today(monkeypatch, invoices_module, datetime(2026, 10, 29).date())
-        world.sync(item_id)
         [row] = world.transactions(mine)
         assert (row["type"], row["amount"]) == ("EXPENSE", 80.0)
+
+    def test_a_pending_bank_row_is_recorded_at_once(self, world):
+        item_id, _p, made = connected(world)
+        pluggy_account, _of, mine = made["bank"]
+        auto_on(world)
+        world.fake.add_tx(pluggy_account, bank_tx(200, "2026-10-26", "PIX RECEBIDO", category_id="05070000",
+                                                  counterparty="Fulano de Tal", doc="12345678901", status="PENDING"))
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        assert (row["type"], row["amount"]) == ("INCOME", 200.0)
+
+    def test_a_reviewed_pending_row_that_posts_with_a_new_id_is_never_doubled(self, world, user):
+        item_id, _p, made = connected(world)
+        pluggy_account, _of, mine = made["bank"]
+        auto_on(world)
+        pending = world.fake.add_tx(pluggy_account, bank_tx(-35, "2026-10-25", "PADARIA", status="PENDING"))
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        world.call("patch", f"/api/transactions/{row['id']}", json={"description": "Padaria do bairro"})
+        world.fake.drop_tx(pluggy_account, pending)
+        world.fake.add_tx(pluggy_account, bank_tx(-35, "2026-10-26", "PADARIA"))
+        world.sync(item_id)
+        rows = world.transactions(mine)
+        assert [(entry["id"], entry["amount"]) for entry in rows] == [(row["id"], 35.0)]
+
+    def test_another_currency_on_a_reais_account_enters_at_the_ptax(self, world, monkeypatch):
+        item_id, _p, made = connected(world)
+        pluggy_account, _of, mine = made["bank"]
+        auto_on(world)
+        monkeypatch.setattr(importlib.import_module("services.open_finance_auto").fx, "rate_on", lambda *a, **k: 5.4321)
+        tx = bank_tx(-10.0, "2026-10-26", "COMPRA EXTERIOR")
+        tx["currencyCode"] = "USD"
+        world.fake.add_tx(pluggy_account, tx)
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        assert (row["type"], row["amount"]) == ("EXPENSE", 54.32)
+        assert world.pending() == []
 
     def test_bank_to_corretora_is_an_aporte(self, world):
         made = meupluggy(world)

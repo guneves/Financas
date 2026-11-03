@@ -178,7 +178,7 @@ object OpenFinanceRules {
     @JvmStatic
     fun autoRecordHint(autoRecord: Boolean, blockers: List<String>): String = when {
         autoRecord -> "Os movimentos dos bancos conectados viram lançamentos sozinhos. O Revisar, no Extrato, fica " +
-            "para o que só você decide (uma transferência sem a outra ponta, outra moeda)."
+            "para o que só você decide (outra moeda ainda sem a cotação do dia)."
         blockers.isNotEmpty() -> blockers.joinToString(" ")
         else -> "Ligado, o que a Pluggy traz é lançado sozinho, para você só revisar; o que já espera vindo dela é " +
             "lançado na hora."
