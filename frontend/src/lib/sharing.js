@@ -90,7 +90,7 @@ export function groupReceivables(items = []) {
 }
 
 // Os ids que POST /api/receivables/settle espera, de uma lista de itens.
-// `incomeId`: a receita que pagou (052); a parte dos outros sai dela.
+// `incomeId`: a receita que pagou (053); a parte dos outros sai dela.
 export function settlePayload(items = [], settled = true, incomeId = null) {
   const payload = {
     transaction_ids: items.filter((item) => item.kind === 'TRANSACTION').map((item) => item.id),

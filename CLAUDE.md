@@ -241,7 +241,7 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   plan, Ritmo and Extrato totals. A rebuild keeps it.
 - **A repasse** (owner 2026-10-31): money from someone else to pay something of theirs. Revisar's "É repasse"
   (`POST /api/review` with `repasse: true`, `person`) makes an INCOME `share_mode = 'OTHERS'`, settled: in the balance,
-  out of income. Marking a share paid in A receber asks which income paid it (052, owner 2026-11-02, `share_paid_by`,
+  out of income. Marking a share paid in A receber asks which income paid it (053, owner 2026-11-02, `share_paid_by`,
   `link_income()`): that income carries the share as the others' (`SPLIT`/`OTHERS`), in its own month. Without one, it cuts
   the income of the month of the mark (`apply_settled_others()`); a repasse **of the same person** (or unnamed) covers it
   first, so nothing cuts twice, and `net` doesn't move. Web `PaidBySheet`, APK `PaidBySheet`; a paid item can change income.

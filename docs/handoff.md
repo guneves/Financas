@@ -16,12 +16,19 @@ R$ 69,72 is income), editable afterwards, in the web and the APK.
 carried over as "spare" and covered the uncle's November item, so November income stayed R$ 300 with nothing cut.
 
 Done (tests: `test_receivable_income.py`, `sharing.test.js`, `ReceivablesTest.kt`; full backend suite green):
-- Migration 052 `share_paid_by` on `transactions`/`cc_expenses`. `POST /api/receivables/settle` takes `income_id`;
+- Migration 053 `share_paid_by` on `transactions`/`cc_expenses`. `POST /api/receivables/settle` takes `income_id`;
   `link_income()` makes that income `SPLIT`/`OTHERS` with the linked share, in the Pix's month; undo or change gives it back.
   `GET /api/receivables/incomes?since=` lists candidates (reais incomes from 7 days before, with `room`).
 - Fallback (no income chosen, old APKs): the mark-day cut, now covered only by a repasse of the **same person** (or unnamed).
 - Web `PaidBySheet.jsx`: "Pago"/"Tudo pago" open it, suggestion preselected; a paid item's menu "Trocar a entrada".
 - APK: same sheet in `AReceberScreen.kt`; tapping a paid item changes the income. Compiled + JVM tests, not run on a device.
+
+**Fix after merge (2026-11-03, PR 61 follow-up):** the migration was first numbered 052, the same number as
+`052_open_finance_pending_on.sql` merged just before. `init_db()` keys migrations by number, so it skipped the second one
+silently and the deploy of PR 61 failed on main (150 tests: `no such column: share_paid_by`); PR 61's own CI was green
+because its branch didn't have the other 052 yet. Renamed to `053_share_paid_by.sql` (production never applied it) and
+added `test_migration_numbers.py` (no repeated number; every file on disk is in `schema_migrations`).
+**Lesson:** pick the migration number after merging main, and rerun the suite on the merged tree.
 
 **Not done:** before the deploy it was checked on a local scratch app only; production check after merge. The uncle's item is
 already marked (mark-day fallback): after deploy November income should read R$ 69,72; choosing the Pix moves it there

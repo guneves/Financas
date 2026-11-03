@@ -1,4 +1,4 @@
-"""A receber pago por uma receita (052, services/sharing.py `link_income()`).
+"""A receber pago por uma receita (053, services/sharing.py `link_income()`).
 
 Dono, 2026-11-02: o tio pagou R$ 300 por um fone de R$ 230,28 comprado no
 cartao para ele. Marcar o item como pago abate da receita: so R$ 69,72 e do

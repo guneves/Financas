@@ -244,7 +244,7 @@ data class ReceivableDto(
     val person: String? = null,
     @SerialName("settled_at") val settledAt: String? = null,
     @SerialName("card_name") val cardName: String? = null,
-    /** A receita que pagou (052): a parte dos outros saiu dela. */
+    /** A receita que pagou (053): a parte dos outros saiu dela. */
     @SerialName("paid_by") val paidBy: IncomeChoiceDto? = null,
 )
 
