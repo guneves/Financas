@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 /**
  * A receber nativo (06-a-receber.md): GET /api/receivables (pendentes) ou ?include_settled=1
  * (todos), por pessoa. "Pago" so marca share_settled_at: nenhum saldo muda, e nada vai para a fila.
- * "Pago" pergunta com que entrada (052, o PaidBySheet da web): a parte dos outros deixa de ser
+ * "Pago" pergunta com que entrada (053, o PaidBySheet da web): a parte dos outros deixa de ser
  * receita nela. Num item pago, tocar troca a entrada; o desfazer volta para pendente.
  */
 class AReceberViewModel(application: Application) : AndroidViewModel(application) {

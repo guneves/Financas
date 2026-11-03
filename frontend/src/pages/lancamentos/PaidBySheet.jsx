@@ -5,7 +5,7 @@ import { paymentChoices, settlePayload, suggestedPayment } from '../../lib/shari
 import { toast } from '../../lib/toast'
 import { AlertMessage, Button, ListSkeleton, Sheet, cx } from '../../components/ui'
 
-// "Com que entrada pagou?" (052): ao marcar como pago, ou ao trocar depois, o dono
+// "Com que entrada pagou?" (053): ao marcar como pago, ou ao trocar depois, o dono
 // diz qual receita pagou estes itens. A parte dos outros sai dessa receita, no mes
 // dela; "Nenhuma" abate a receita do mes em que marcou.
 export default function PaidBySheet({ items, onClose }) {

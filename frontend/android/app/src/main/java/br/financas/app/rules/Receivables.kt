@@ -43,7 +43,7 @@ object Receivables {
         return View(summary, groups)
     }
 
-    /** O que POST /api/receivables/settle leva para estes itens; [incomeId] = a receita que pagou (052). */
+    /** O que POST /api/receivables/settle leva para estes itens; [incomeId] = a receita que pagou (053). */
     fun settleBody(items: List<ReceivableDto>, settled: Boolean, incomeId: String? = null): Map<String, Any?> {
         val body = Sharing.settlePayload(items.map { Sharing.ReceivableRef(it.kind, it.id) }, settled).toMutableMap()
         if (settled && !incomeId.isNullOrEmpty()) body["income_id"] = incomeId

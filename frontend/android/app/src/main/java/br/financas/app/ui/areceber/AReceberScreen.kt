@@ -122,7 +122,7 @@ fun AReceberScreen(
     viewModel.paying?.let { PaidBySheet(it, viewModel) }
 }
 
-/** "Com que entrada pagou?" (052): a receita escolhida deixa de contar nesse valor; nenhuma = abate no mes marcado. */
+/** "Com que entrada pagou?" (053): a receita escolhida deixa de contar nesse valor; nenhuma = abate no mes marcado. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PaidBySheet(items: List<ReceivableDto>, viewModel: AReceberViewModel) {

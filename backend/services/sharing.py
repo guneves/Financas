@@ -10,7 +10,7 @@ e o plano do mes contam so a parte do dono (`own_amount_sql()`).
 A parte dos outros de uma despesa fica em "A receber" ate o dono marcar que a
 pessoa pagou (`share_settled_at`). Marcar nao grava dinheiro nenhum: o Pix que
 a pessoa manda e um lancamento proprio. Ao marcar, o dono pode dizer qual receita
-pagou (`share_paid_by`, 052, dono 2026-11-02): a parte dos outros sai dessa receita
+pagou (`share_paid_by`, 053, dono 2026-11-02): a parte dos outros sai dessa receita
 (`link_income()`), no mes dela. O tio paga R$ 300 por um fone de R$ 230,28: so
 R$ 69,72 e receita. Sem receita, o pago abate a do mes em que foi marcado
 (`services.home.apply_settled_others()`).
