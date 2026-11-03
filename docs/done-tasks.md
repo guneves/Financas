@@ -198,8 +198,7 @@
 | Repasse in Revisar; settled shares cut income | 2026-10-31 |
 | Only the Flash is typed (`manual_entries.py`); Aprovar screen and its Ajustes switches removed (web and APK) | 2026-10-31 |
 | Início: invoice tile with a dropdown per invoice, no open-items panel; equal Ritmo boxes; Evolução counts transfers to the global account | 2026-10-31 |
-| Pluggy movements recorded in the pull that brings them: no 2-day Pix hold, a one-sided own transfer is a despesa/receita until its other side turns it into the transfer | 2026-11-01 |
-| Nothing waits: Pix to the Conta global, other currency at PTAX, pending bank rows by default (052), a pull 5 min after Pluggy updates a connection | 2026-11-01 |
+| A receber: "Pago" asks which income paid it (052 `share_paid_by`, `link_income()`), editable after (web + APK); a repasse covers only the same person | 2026-11-02 |
 
 ---
 

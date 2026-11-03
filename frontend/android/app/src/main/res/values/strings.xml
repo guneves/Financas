@@ -705,6 +705,18 @@
     <string name="areceber_settled">Marcado como pago.</string>
     <string name="areceber_reopened">Voltou para pendente.</string>
     <string name="areceber_failed">Não foi possível atualizar.</string>
+    <string name="areceber_paid_with">" com %1$s (%2$s)"</string>
+    <string name="areceber_pay_title">Com que entrada pagou?</string>
+    <string name="areceber_change_title">Trocar a entrada</string>
+    <string name="areceber_pay_description">%1$s · %2$s. A entrada escolhida deixa de contar como receita nesse valor.</string>
+    <string name="areceber_pay_none">Nenhuma entrada</string>
+    <string name="areceber_pay_none_detail">Abate da receita do mês em que você marcar</string>
+    <string name="areceber_pay_free">" · livre %1$s"</string>
+    <string name="areceber_pay_confirm">Marcar como pago</string>
+    <string name="areceber_pay_save">Salvar</string>
+    <string name="areceber_pay_load_failed">Não foi possível carregar as entradas.</string>
+    <string name="areceber_settled_income">Pago. A entrada deixou de contar como receita nesse valor.</string>
+    <string name="areceber_change">Trocar a entrada</string>
     <!-- Ajustes: 11 -->
     <string name="ajustes_title">Ajustes</string>
     <string name="ajustes_description">Contas, cartões e categorias — o que se configura uma vez e raramente muda.</string>

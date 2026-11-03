@@ -90,10 +90,44 @@ export function groupReceivables(items = []) {
 }
 
 // Os ids que POST /api/receivables/settle espera, de uma lista de itens.
-export function settlePayload(items = [], settled = true) {
-  return {
+// `incomeId`: a receita que pagou (052); a parte dos outros sai dela.
+export function settlePayload(items = [], settled = true, incomeId = null) {
+  const payload = {
     transaction_ids: items.filter((item) => item.kind === 'TRANSACTION').map((item) => item.id),
     cc_expense_ids: items.filter((item) => item.kind === 'CARD_PURCHASE').map((item) => item.id),
     settled,
   }
+  if (settled && incomeId) payload.income_id = incomeId
+  return payload
+}
+
+// As receitas que podem ter pago estes itens (GET /api/receivables/incomes), com
+// a que ja paga algum deles no topo e a sobra (`room`) contando a parte deles: ao
+// trocar, o que eles usam volta a estar livre.
+export function paymentChoices(candidates = [], items = []) {
+  const freed = new Map()
+  items.forEach((item) => {
+    if (!item.paid_by) return
+    const id = item.paid_by.id
+    if (!freed.has(id)) freed.set(id, { income: item.paid_by, cents: 0 })
+    freed.get(id).cents += toCents(item.others_amount)
+  })
+  const choices = candidates.map((income) => ({ ...income, room: (toCents(income.room) + (freed.get(income.id)?.cents || 0)) / 100 }))
+  freed.forEach(({ income, cents }, id) => {
+    if (!choices.some((choice) => choice.id === id)) choices.unshift({ ...income, room: cents / 100 })
+  })
+  return choices
+}
+
+// A receita ja escolhida (a que paga todos estes itens) ou, sem ela, a primeira
+// no dia do item ou depois que cabe o total; senao nenhuma (abate no mes marcado).
+export function suggestedPayment(choices = [], items = []) {
+  const current = items.map((item) => item.paid_by?.id || '')
+  if (current.length && current[0] && current.every((id) => id === current[0])) return current[0]
+  const totalCents = items.reduce((acc, item) => acc + toCents(item.others_amount), 0)
+  const first = items.map((item) => item.date || '').sort()[0] || ''
+  const fits = choices
+    .filter((choice) => (choice.date || '') >= first && toCents(choice.room) >= totalCents)
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+  return fits[0]?.id || ''
 }

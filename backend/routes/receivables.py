@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db
-from services.sharing import list_receivables, settle_receivables
+from services.sharing import income_candidates, list_receivables, settle_receivables
 from validators import ValidationError, parse_json_body, validation_error
 
 bp = Blueprint("receivables", __name__)
@@ -46,8 +46,26 @@ def settle(current_user_id):
         settled = payload.get("settled", True)
         if not isinstance(settled, bool):
             raise ValidationError("settled deve ser verdadeiro ou falso.")
+        income_id = payload.get("income_id")
+        if income_id is not None and (not isinstance(income_id, str) or not income_id.strip()):
+            raise ValidationError("Receita invalida.")
+        with get_db() as conn:
+            changed = settle_receivables(
+                conn, current_user_id, transaction_ids, cc_expense_ids, settled,
+                income_id=income_id.strip() if income_id else None,
+            )
     except ValidationError as exc:
         return validation_error(str(exc))
-    with get_db() as conn:
-        changed = settle_receivables(conn, current_user_id, transaction_ids, cc_expense_ids, settled)
     return jsonify({"updated": changed}), 200
+
+
+@bp.route("/api/receivables/incomes", methods=["GET"])
+@token_required
+def incomes(current_user_id):
+    """As receitas que podem ter pago um item feito em `since` (AAAA-MM-DD)."""
+    try:
+        with get_db() as conn:
+            items = income_candidates(conn, current_user_id, request.args.get("since"))
+    except ValidationError as exc:
+        return validation_error(str(exc))
+    return jsonify(items), 200

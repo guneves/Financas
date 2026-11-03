@@ -1,6 +1,7 @@
 // O que AReceber.jsx faz inline (sem par no node): ver Receivables.kt.
 package br.financas.app.rules
 
+import br.financas.app.data.IncomeChoiceDto
 import br.financas.app.data.ReceivableDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -63,5 +64,40 @@ class ReceivablesTest {
         assertEquals(listOf("t1"), body["transaction_ids"])
         assertEquals(listOf("c1"), body["cc_expense_ids"])
         assertEquals(true, body["settled"])
+    }
+
+    private val pix = IncomeChoiceDto(id = "pix", date = "2026-11-01", description = "Pix", amount = BigDecimal("300"), room = BigDecimal("300"))
+    private val headset = ReceivableDto(kind = "CARD_PURCHASE", id = "c1", date = "2026-11-01", person = "Tio", othersAmount = BigDecimal("230.28"))
+
+    @Test
+    fun settleBodyLevaAReceita() {
+        assertEquals("pix", Receivables.settleBody(listOf(headset), true, "pix")["income_id"])
+        assertNull(Receivables.settleBody(listOf(headset), false, "pix")["income_id"])
+    }
+
+    @Test
+    fun oPixDoTioESugerido() {
+        val choices = Receivables.paymentChoices(
+            listOf(
+                IncomeChoiceDto(id = "old", date = "2026-10-30", amount = BigDecimal("900"), room = BigDecimal("900")),
+                IncomeChoiceDto(id = "small", date = "2026-11-01", amount = BigDecimal("100"), room = BigDecimal("100")),
+                pix,
+                IncomeChoiceDto(id = "later", date = "2026-11-05", amount = BigDecimal("500"), room = BigDecimal("500")),
+            ),
+            listOf(headset),
+        )
+        assertEquals("pix", Receivables.suggestedPayment(choices, listOf(headset)))
+        assertEquals("", Receivables.suggestedPayment(emptyList(), listOf(headset)))
+    }
+
+    @Test
+    fun trocarAEntradaDevolveAParteDele() {
+        val paid = headset.copy(settledAt = "2026-11-02T21:00:00Z", paidBy = pix.copy(room = null))
+        val alone = Receivables.paymentChoices(emptyList(), listOf(paid))
+        assertEquals(listOf("pix"), alone.map { it.id })
+        assertEquals(0, BigDecimal("230.28").compareTo(alone[0].room))
+        val listed = Receivables.paymentChoices(listOf(pix.copy(room = BigDecimal("69.72"))), listOf(paid))
+        assertEquals(0, BigDecimal("300").compareTo(listed[0].room))
+        assertEquals("pix", Receivables.suggestedPayment(listed, listOf(paid)))
     }
 }

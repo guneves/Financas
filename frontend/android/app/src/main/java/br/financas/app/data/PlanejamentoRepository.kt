@@ -74,6 +74,9 @@ class PlanejamentoRepository(
 
     suspend fun settle(body: Map<String, Any?>): InboxWrite<Unit> = unit(send("POST", "/api/receivables/settle", body))
 
+    fun receivableIncomes(since: String): Flow<Load<List<IncomeChoiceDto>>> =
+        reader.read("/api/receivables/incomes?since=${enc(since)}", ListSerializer(IncomeChoiceDto.serializer()))
+
     // ---- Comum ----
 
     private suspend fun send(method: String, path: String, body: Map<String, Any?>?): InboxWrite<String> =
