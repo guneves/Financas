@@ -1,5 +1,7 @@
 package br.financas.app.ui.areceber
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +11,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -29,11 +35,13 @@ import br.financas.app.R
 import br.financas.app.core.formatCurrency
 import br.financas.app.core.formatDateBR
 import br.financas.app.core.localDateOfTimestamp
+import br.financas.app.data.IncomeChoiceDto
 import br.financas.app.data.ReceivableDto
 import br.financas.app.rules.Receivables
 import br.financas.app.ui.components.AlertMessage
 import br.financas.app.ui.components.AlertTone
 import br.financas.app.ui.components.AppButton
+import br.financas.app.ui.components.AppSheet
 import br.financas.app.ui.components.AppIcons
 import br.financas.app.ui.components.ButtonVariant
 import br.financas.app.ui.components.EmptyState
@@ -111,6 +119,89 @@ fun AReceberScreen(
             view.groups.forEach { group -> item(key = "person:${group.person.lowercase()}") { PersonPanel(group, viewModel) } }
         }
     }
+    viewModel.paying?.let { PaidBySheet(it, viewModel) }
+}
+
+/** "Com que entrada pagou?" (052): a receita escolhida deixa de contar nesse valor; nenhuma = abate no mes marcado. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PaidBySheet(items: List<ReceivableDto>, viewModel: AReceberViewModel) {
+    val palette = LocalPalette.current
+    val busy = viewModel.savingKey.isNotEmpty()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { it != SheetValue.Hidden || !busy })
+    val editing = items.any { !it.settledAt.isNullOrEmpty() }
+    AppSheet(
+        title = stringResource(if (editing) R.string.areceber_change_title else R.string.areceber_pay_title),
+        sheetState = sheetState,
+        onDismiss = viewModel::closePay,
+        footer = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppButton(stringResource(R.string.lanc_cancel), viewModel::closePay, Modifier.weight(1f), ButtonVariant.SECONDARY, enabled = !busy)
+                AppButton(
+                    stringResource(if (editing) R.string.areceber_pay_save else R.string.areceber_pay_confirm),
+                    viewModel::confirmPay,
+                    Modifier.weight(1f),
+                    loading = busy,
+                    enabled = viewModel.choices != null,
+                )
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.areceber_pay_description, items.first().person.orEmpty(), formatCurrency(Receivables.payingTotal(items))),
+                fontSize = 14.sp,
+                color = palette["zinc-600"],
+            )
+            AlertMessage(viewModel.payError, AlertTone.DANGER, stringResource(R.string.lanc_dismiss))
+            val choices = viewModel.choices
+            if (choices == null) {
+                ListSkeleton(rows = 3)
+            } else {
+                choices.forEach { income -> IncomeOption(income, viewModel.choice == income.id) { viewModel.choose(income.id) } }
+                ChoiceRow(
+                    title = stringResource(R.string.areceber_pay_none),
+                    detail = stringResource(R.string.areceber_pay_none_detail),
+                    amount = null,
+                    selected = viewModel.choice.isEmpty(),
+                ) { viewModel.choose("") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IncomeOption(income: IncomeChoiceDto, selected: Boolean, onClick: () -> Unit) {
+    val amount = income.amount
+    val room = income.room
+    val detail = buildString {
+        append(formatDateBR(income.date))
+        if (amount != null && room != null && room < amount) append(stringResource(R.string.areceber_pay_free, formatCurrency(room)))
+    }
+    ChoiceRow(income.description.orEmpty(), detail, formatCurrency(amount), selected, onClick)
+}
+
+@Composable
+private fun ChoiceRow(title: String, detail: String, amount: String?, selected: Boolean, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) palette["emerald-50"] else palette.surface,
+        border = BorderStroke(1.dp, if (selected) palette["emerald-500"] else palette["zinc-200"]),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Medium, color = palette.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, fontSize = 12.sp, color = palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (amount != null) Text(amount, fontWeight = FontWeight.SemiBold, color = palette.text)
+        }
+    }
 }
 
 @Composable
@@ -137,7 +228,7 @@ private fun PersonPanel(group: Receivables.PersonGroup, viewModel: AReceberViewM
                     val key = "person:${group.person}"
                     AppButton(
                         stringResource(R.string.areceber_all_paid),
-                        { viewModel.settle(key, group.open, true) },
+                        { viewModel.openPay(group.open) },
                         variant = ButtonVariant.SECONDARY,
                         loading = viewModel.savingKey == key,
                     )
@@ -159,7 +250,11 @@ private fun ItemRow(item: ReceivableDto, viewModel: AReceberViewModel) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.heightIn(min = 56.dp).padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        // Um item pago abre o sheet para trocar a entrada.
+        modifier = Modifier
+            .let { if (settled) it.clickable(enabled = viewModel.savingKey.isEmpty()) { viewModel.openPay(listOf(item)) } else it }
+            .heightIn(min = 56.dp)
+            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
     ) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -175,8 +270,10 @@ private fun ItemRow(item: ReceivableDto, viewModel: AReceberViewModel) {
                 if (!item.cardName.isNullOrEmpty()) append(" · ${item.cardName}")
                 if (item.shareMode == "SPLIT") append(stringResource(R.string.areceber_split_total, formatCurrency(item.amount)))
                 if (settled) append(stringResource(R.string.areceber_paid_on, formatDateBR(localDateOfTimestamp(item.settledAt))))
+                item.paidBy?.let { append(stringResource(R.string.areceber_paid_with, it.description.orEmpty(), formatCurrency(it.amount))) }
             }
-            Text(detail, fontSize = 12.sp, color = palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, fontSize = 12.sp, color = palette.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (settled) Text(stringResource(R.string.areceber_change), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = palette["emerald-700"])
         }
         Text(
             formatCurrency(item.othersAmount),
@@ -199,7 +296,7 @@ private fun ItemRow(item: ReceivableDto, viewModel: AReceberViewModel) {
                 }
             }
         } else {
-            AppButton(stringResource(R.string.areceber_paid), { viewModel.settle(key, listOf(item), true) }, loading = viewModel.savingKey == key)
+            AppButton(stringResource(R.string.areceber_paid), { viewModel.openPay(listOf(item)) }, enabled = viewModel.savingKey.isEmpty())
         }
     }
 }

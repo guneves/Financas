@@ -42,6 +42,7 @@ EXPECTED_ROUTES = {
     # A receber (routes/receivables.py, 032).
     ("/api/receivables", "GET"),
     ("/api/receivables/settle", "POST"),
+    ("/api/receivables/incomes", "GET"),
     ("/api/credit-cards", "GET,POST"),
     ("/api/credit-cards/<card_id>", "PATCH"),
     ("/api/credit-cards/<card_id>", "DELETE"),

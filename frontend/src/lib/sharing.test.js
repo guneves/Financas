@@ -2,6 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   groupReceivables,
+  paymentChoices,
+  suggestedPayment,
   othersAmount,
   ownAmount,
   settlePayload,
@@ -60,3 +62,29 @@ test('receivables group by person, case and spaces aside, biggest first', () => 
 // O fluxo do mes (o cartao no mes da compra, o pagamento da fatura fora, outras
 // pessoas a parte) e do servidor: estes dois casos, com as mesmas entradas,
 // estao em backend/tests/test_home.py (test_from_sharing_*).
+
+test('settling with the income that paid it', () => {
+  const item = { kind: 'CARD_PURCHASE', id: 'c1' }
+  assert.deepEqual(settlePayload([item], true, 'pix'), { transaction_ids: [], cc_expense_ids: ['c1'], settled: true, income_id: 'pix' })
+  assert.equal(settlePayload([item], false, 'pix').income_id, undefined)
+})
+
+test('the uncle pays R$ 300 for a R$ 230,28 headset: that Pix is suggested', () => {
+  const headset = { kind: 'CARD_PURCHASE', id: 'c1', date: '2026-11-01', others_amount: 230.28 }
+  const choices = paymentChoices([
+    { id: 'old', date: '2026-10-30', amount: 900, room: 900 },
+    { id: 'small', date: '2026-11-01', amount: 100, room: 100 },
+    { id: 'pix', date: '2026-11-01', amount: 300, room: 300 },
+    { id: 'later', date: '2026-11-05', amount: 500, room: 500 },
+  ], [headset])
+  assert.equal(suggestedPayment(choices, [headset]), 'pix')
+  assert.equal(suggestedPayment([], [headset]), '')
+})
+
+test('changing the income: the current one comes first with its part free again', () => {
+  const paid = { id: 'pix', date: '2026-11-01', description: 'Pix', amount: 300 }
+  const headset = { kind: 'CARD_PURCHASE', id: 'c1', date: '2026-11-01', others_amount: 230.28, paid_by: paid }
+  assert.deepEqual(paymentChoices([], [headset]), [{ ...paid, room: 230.28 }])
+  assert.deepEqual(paymentChoices([{ ...paid, room: 69.72 }], [headset]), [{ ...paid, room: 300 }])
+  assert.equal(suggestedPayment(paymentChoices([], [headset]), [headset]), 'pix')
+})

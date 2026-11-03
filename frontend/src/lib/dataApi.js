@@ -385,7 +385,8 @@ export const openFinanceApi = {
 // A receber (032): a parte dos outros nas despesas, ate o dono marcar que pagaram.
 export const receivablesApi = {
   list: (includeSettled = false) => apiFetch(`/api/receivables${queryString(includeSettled ? { include_settled: 1 } : {})}`),
-  settle: (payload) => postJson('/api/receivables/settle', payload)
+  settle: (payload) => postJson('/api/receivables/settle', payload),
+  incomes: (since) => apiFetch(`/api/receivables/incomes${queryString({ since })}`)
 }
 
 // Desdobramento, grupamento e bonificacao (017).

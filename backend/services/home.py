@@ -21,6 +21,7 @@ Cada linha vira centavos como no cliente (`Math.round(x * 100)`): a soma e de
 inteiros, sem erro de ponto flutuante. `local_today()` e lido por nome aqui.
 """
 
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -152,41 +153,96 @@ def card_month_rows(conn, current_user_id, first_month, last_month):
     ).fetchall()
 
 
+def person_key(name):
+    """O nome de quem pagou, para comparar: sem acento, caixa ou espaco a mais.
+    O repasse sem nome ("Outra pessoa") e de qualquer um (`ANYONE`)."""
+    text = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()
+    key = " ".join(text.lower().split())
+    return ANYONE if key in ("", "outra pessoa") else key
+
+
+ANYONE = ""
+
+
+def _add(months, moment_key, person, cents):
+    people = months.setdefault(moment_key, {})
+    key = person_key(person)
+    people[key] = people.get(key, 0) + int(cents or 0)
+
+
 def settled_others_by_month(conn, current_user_id):
-    """{mes: centavos} do que outras pessoas ja pagaram, pelo dia (local) em que
-    o dono marcou: a parte dos outros de despesas e compras no cartao."""
+    """{mes: {pessoa: centavos}} do que outras pessoas ja pagaram sem dizer com que
+    receita, pelo dia (local) em que o dono marcou: a parte dos outros de despesas
+    e compras no cartao. A que tem `share_paid_by` (a receita existe) ja sai dessa
+    receita (`services.sharing.link_income()`) e fica de fora."""
     months = {}
+    linked = (
+        " AND NOT EXISTS (SELECT 1 FROM transactions paid WHERE paid.id = {row}share_paid_by"
+        " AND paid.user_id = {row}user_id AND paid.type = 'INCOME')"
+    )
     queries = (
-        f"SELECT t.share_settled_at AS settled, {_others_cents('t.')} AS cents FROM transactions t"
+        f"SELECT t.share_settled_at AS settled, t.share_person AS person, {_others_cents('t.')} AS cents"
+        " FROM transactions t"
         " LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id"
         " WHERE t.user_id = ? AND t.type = 'EXPENSE' AND t.share_mode IS NOT NULL"
-        " AND t.share_settled_at IS NOT NULL AND COALESCE(a.currency, 'BRL') = 'BRL'",
-        f"SELECT share_settled_at AS settled, {_others_cents()} AS cents FROM cc_expenses"
-        " WHERE user_id = ? AND share_mode IS NOT NULL AND share_settled_at IS NOT NULL",
+        " AND t.share_settled_at IS NOT NULL AND COALESCE(a.currency, 'BRL') = 'BRL'"
+        + linked.format(row="t."),
+        f"SELECT c.share_settled_at AS settled, c.share_person AS person, {_others_cents('c.')} AS cents"
+        " FROM cc_expenses c"
+        " WHERE c.user_id = ? AND c.share_mode IS NOT NULL AND c.share_settled_at IS NOT NULL"
+        + linked.format(row="c."),
     )
     for query in queries:
         for row in conn.execute(query, (current_user_id,)).fetchall():
             moment = datetime.fromisoformat(row["settled"].replace("Z", "+00:00")).astimezone(BRT)
-            key = moment.strftime("%Y-%m")
-            months[key] = months.get(key, 0) + int(row["cents"] or 0)
+            _add(months, moment.strftime("%Y-%m"), row["person"], row["cents"])
+    return months
+
+
+def received_others_by_month(conn, current_user_id):
+    """{mes: {pessoa: centavos}} dos repasses: a parte dos outros das receitas em
+    reais que nao pagou um item de A receber com nome (essas ja se acertaram)."""
+    months = {}
+    rows = conn.execute(
+        f"""
+        SELECT substr(t.date, 1, 7) AS month, t.share_person AS person, {_others_cents('t.')} AS cents
+        FROM transactions t
+        LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+        WHERE t.user_id = ? AND t.type = 'INCOME' AND t.share_mode IS NOT NULL
+          AND COALESCE(a.currency, 'BRL') = 'BRL'
+          AND COALESCE(a.type, '') != '{PORTFOLIO_ACCOUNT_TYPE}'
+          AND NOT EXISTS (SELECT 1 FROM transactions x WHERE x.user_id = t.user_id AND x.share_paid_by = t.id)
+          AND NOT EXISTS (SELECT 1 FROM cc_expenses x WHERE x.user_id = t.user_id AND x.share_paid_by = t.id)
+        """,
+        (current_user_id,),
+    ).fetchall()
+    for row in rows:
+        _add(months, row["month"], row["person"], row["cents"])
     return months
 
 
 def apply_settled_others(by_month, settled, received):
     """O dinheiro pago para os outros abate a receita ao ser marcado como pago: quem
-    pagou mandou o dinheiro, e o Pix dele entrou como receita. O repasse do mes (uma
-    receita de outra pessoa, `received`) e o que sobrou do mes anterior cobrem
-    primeiro: nada abate duas vezes. A diferenca passa de receita a repasse; o
-    resultado do mes nao muda."""
-    spare = 0
+    pagou mandou o dinheiro, e o Pix dele entrou como receita. O repasse do mes da
+    **mesma pessoa** (ou um sem nome) e o que dele sobrou do mes anterior cobrem
+    primeiro: nada abate duas vezes, e o repasse do pai nunca cobre o que o tio
+    pagou. A diferenca passa de receita a repasse; o resultado do mes nao muda."""
+    spare = {}
     for key in sorted(set(settled) | set(received)):
-        available = received.get(key, 0) + spare
-        covered = min(available, settled.get(key, 0))
-        spare = min(available - covered, received.get(key, 0))
+        got = received.get(key, {})
+        available = {person: got.get(person, 0) + spare.get(person, 0) for person in set(got) | set(spare)}
+        uncovered = 0
+        for person, cents in sorted(settled.get(key, {}).items(), key=lambda item: item[0] == ANYONE):
+            for source in (person, ANYONE):
+                take = min(available.get(source, 0), cents)
+                available[source] = available.get(source, 0) - take
+                cents -= take
+            uncovered += cents
+        spare = {person: min(value, got.get(person, 0)) for person, value in available.items()}
         month = by_month.get(key)
         if month is None:
             continue
-        cut = min(settled.get(key, 0) - covered, month["income"])
+        cut = min(uncovered, month["income"])
         month["income"] -= cut
         month["others_received"] += cut
 
@@ -196,8 +252,9 @@ def income_after_settled(conn, current_user_id, month, income):
     e o Resumo dizem o mesmo numero."""
     cents = int(Decimal(str(income or 0)).scaleb(2).to_integral_value())
     by_month = {month: {"income": cents, "others_received": 0}}
-    received = {row["month"]: int(row["others_received"] or 0) for row in banking_month_rows(conn, current_user_id)}
-    apply_settled_others(by_month, settled_others_by_month(conn, current_user_id), received)
+    apply_settled_others(
+        by_month, settled_others_by_month(conn, current_user_id), received_others_by_month(conn, current_user_id)
+    )
     return _reais(by_month[month]["income"])
 
 
@@ -226,10 +283,8 @@ def monthly_flow(conn, current_user_id, accounts, keys):
         for account in accounts
         if not is_portfolio(account) and not is_foreign(account)
     )
-    received = {}
     for row in banking_month_rows(conn, current_user_id):
         month = row["month"] or ""
-        received[month] = int(row["others_received"] or 0)
         if month < keys[0]:
             opening += int(row["cash"] or 0)
             continue
@@ -243,7 +298,9 @@ def monthly_flow(conn, current_user_id, accounts, keys):
         if target is not None:
             target["expense"] += int(row["expense"] or 0)
             target["others_paid"] += int(row["others_paid"] or 0)
-    apply_settled_others(by_month, settled_others_by_month(conn, current_user_id), received)
+    apply_settled_others(
+        by_month, settled_others_by_month(conn, current_user_id), received_others_by_month(conn, current_user_id)
+    )
 
     flow = []
     running = opening

@@ -244,6 +244,19 @@ data class ReceivableDto(
     val person: String? = null,
     @SerialName("settled_at") val settledAt: String? = null,
     @SerialName("card_name") val cardName: String? = null,
+    /** A receita que pagou (052): a parte dos outros saiu dela. */
+    @SerialName("paid_by") val paidBy: IncomeChoiceDto? = null,
+)
+
+/** Uma receita que pode ter pago itens de A receber (GET /api/receivables/incomes). */
+@Serializable
+data class IncomeChoiceDto(
+    val id: String,
+    val date: String? = null,
+    val description: String? = null,
+    val amount: Money? = null,
+    /** O que ainda pode ser dos outros nela; no paid_by nao vem. */
+    val room: Money? = null,
 )
 
 // ---- Ajustes ----

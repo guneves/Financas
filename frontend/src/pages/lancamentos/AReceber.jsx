@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react'
-import { CheckCheck, Coins, CreditCard, Undo2 } from 'lucide-react'
+import { CheckCheck, Coins, CreditCard } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { receivablesApi } from '../../lib/dataApi'
 import { formatCurrency, formatDateBR, localDateOfTimestamp } from '../../lib/format'
 import { queryErrorMessage, useQuery } from '../../lib/queries'
 import { groupReceivables, settlePayload } from '../../lib/sharing'
 import { toast } from '../../lib/toast'
+import PaidBySheet from './PaidBySheet'
 import {
   AlertMessage,
   Button,
   EmptyState,
-  IconButton,
+  Menu,
   ListSkeleton,
   PageHeader,
   Panel,
@@ -26,12 +27,15 @@ const VIEWS = [
 
 // A receber (032, lib/sharing.js): a parte dos outros nas despesas e compras
 // no cartao marcadas como "De outra pessoa" ou "Dividida", por pessoa. Fica
-// pendente ate o dono marcar que a pessoa pagou; marcar nao grava dinheiro
-// (o Pix que chega e um lancamento proprio).
+// pendente ate o dono marcar que a pessoa pagou; marcar nao grava dinheiro (o Pix
+// que chega e um lancamento proprio): "Pago" pergunta com que entrada
+// (PaidBySheet), e a parte dos outros deixa de ser receita. Depois de pago, o
+// menu troca a entrada ou volta para pendente.
 export default function AReceber() {
   const [view, setView] = useState('pending')
   const [savingKey, setSavingKey] = useState('')
   const [error, setError] = useState('')
+  const [paying, setPaying] = useState(null)
   const query = useQuery({
     queryKey: ['lancamentos', 'a-receber', view],
     queryFn: () => receivablesApi.list(view === 'all'),
@@ -104,7 +108,7 @@ export default function AReceber() {
                         variant="secondary"
                         icon={CheckCheck}
                         loading={savingKey === `person:${group.person}`}
-                        onClick={() => settle(`person:${group.person}`, open, true)}
+                        onClick={() => setPaying(open)}
                       >
                         Tudo pago
                       </Button>
@@ -123,18 +127,19 @@ export default function AReceber() {
                             {item.card_name ? ` · ${item.card_name}` : ''}
                             {item.share_mode === 'SPLIT' ? ` · dividida, total ${formatCurrency(item.amount)}` : ''}
                             {item.settled_at ? ` · pago em ${formatDateBR(localDateOfTimestamp(item.settled_at))}` : ''}
+                            {item.paid_by ? ` com ${item.paid_by.description} (${formatCurrency(item.paid_by.amount)})` : ''}
                           </p>
                         </div>
                         <p className={item.settled_at ? 'num whitespace-nowrap font-semibold text-zinc-400 line-through' : 'num whitespace-nowrap font-semibold text-zinc-950'}>
                           {formatCurrency(item.others_amount)}
                         </p>
                         {item.settled_at ? (
-                          <IconButton
-                            size="sm"
-                            icon={Undo2}
-                            label="Voltar para pendente"
-                            disabled={savingKey === `item:${item.id}`}
-                            onClick={() => settle(`item:${item.id}`, [item], false)}
+                          <Menu
+                            label="Ações do item pago"
+                            items={[
+                              { label: item.paid_by ? 'Trocar a entrada' : 'Escolher a entrada', onSelect: () => setPaying([item]) },
+                              { label: 'Voltar para pendente', onSelect: () => settle(`item:${item.id}`, [item], false) },
+                            ]}
                           />
                         ) : (
                           <Button
@@ -142,7 +147,7 @@ export default function AReceber() {
                             size="sm"
                             icon={CheckCheck}
                             loading={savingKey === `item:${item.id}`}
-                            onClick={() => settle(`item:${item.id}`, [item], true)}
+                            onClick={() => setPaying([item])}
                           >
                             Pago
                           </Button>
@@ -156,6 +161,7 @@ export default function AReceber() {
           )}
         </>
       )}
+      <PaidBySheet items={paying} onClose={() => setPaying(null)} />
     </div>
   )
 }
