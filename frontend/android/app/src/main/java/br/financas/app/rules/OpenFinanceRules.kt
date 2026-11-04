@@ -170,7 +170,7 @@ object OpenFinanceRules {
         part(bankOnly, "de movimentos só no banco")
         part(awaiting, "esperando no Revisar")
         part(appOnly, "de lançamentos só no app")
-        part(before, "de antes da conferência (confira o saldo inicial da conta)")
+        part(before, "no saldo do banco sem movimento listado: em processamento no banco (entra quando ele lançar) ou de antes da conferência (confira o saldo inicial)")
         return lines
     }
 

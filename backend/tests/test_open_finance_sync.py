@@ -3,7 +3,8 @@
 O que estes testes protegem:
 - nada vira lancamento sem aprovar; aprovar grava com a origem OPEN_FINANCE
   (source_id = id da Pluggy) ou, no cartao, o client_id da compra (035);
-- puxar de novo, a folga de 7 dias e reconectar nao duplicam nada;
+- puxar de novo, a folga (LATE_POSTING_DAYS) e reconectar nao duplicam nada;
+- um lancamento que o banco lista dias depois, com a data de antes, ainda entra;
 - a notificacao e a transacao da Pluggy da mesma compra sao UM item, chegue
   quem chegar primeiro, e a compra ja aprovada nao volta;
 - parcela 2..n nunca vira item; a parcela 1 traz a compra inteira;
@@ -119,6 +120,34 @@ class TestIdempotency:
         monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 3).date())
         world.sync(item_id)
         assert world.fake.windows(pluggy_account)[-1] == "2026-10-20"
+
+    def test_a_late_posting_older_than_a_week_is_still_pulled(self, world, invoices_module, monkeypatch):
+        # 2026-11-04: uma compra internacional (CLAUDE.AI, R$ 110) fica "em
+        # processamento" e o banco a lista dias depois com a data da compra. Com a
+        # folga de 7 dias, o pull de hoje comecava depois dela e ela nunca entrava.
+        item_id, _p, made = connected(world)
+        pluggy_account = made["bank"][0]
+        world.fake.add_tx(pluggy_account, bank_tx(-45.9, "2026-10-20"))
+        world.sync(item_id)
+        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 3).date())
+        world.sync(item_id)
+        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 4).date())
+        late = world.fake.add_tx(pluggy_account, bank_tx(-110.0, "2026-10-25", description="CLAUDE.AI SUBSCRIPTION"))
+        world.sync(item_id)
+        assert world.fake.windows(pluggy_account)[-1] == "2026-10-20"
+        assert any(item["client_key"] == f"pluggy:{late}" and item["amount"] == 110.0 for item in world.pending())
+
+    def test_the_late_window_never_reaches_before_the_first_pull(self, world, invoices_module, monkeypatch):
+        # O dono trouxe so a partir de 26/10: o que e mais antigo nao entra depois.
+        world.call("patch", "/api/open-finance/settings", json={"first_sync_days": 1})
+        item_id, _p, made = connected(world)
+        pluggy_account = made["bank"][0]
+        world.fake.add_tx(pluggy_account, bank_tx(-45.9, "2026-10-26"), bank_tx(-12.0, "2026-10-10"))
+        world.sync(item_id)
+        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 20).date())
+        world.sync(item_id)
+        assert world.fake.windows(pluggy_account) == ["2026-10-26", "2026-10-20", "2026-10-20"]
+        assert [item["amount"] for item in world.pending()] == [45.9]
 
     def test_the_first_window_follows_the_setting(self, world):
         world.call("patch", "/api/open-finance/settings", json={"first_sync_days": 90})
@@ -422,8 +451,9 @@ class TestVanished:
         item_id, _p, made = connected(world)
         tx_id = world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-21"))
         world.sync(item_id)
-        # Um pull em 20/11 olha de 13/11 em diante: o de 21/10 ja nao esta na janela.
-        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 20).date())
+        # Um pull em 10/12 olha de 05/11 em diante (LATE_POSTING_DAYS): o de 21/10
+        # ja nao esta na janela.
+        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 12, 10).date())
         world.sync(item_id)
         world.fake.drop_tx(made["bank"][0], tx_id)
         world.sync(item_id)

@@ -13,8 +13,8 @@
   so LEEM (GET) o que a Pluggy ja trouxe do banco — ela atualiza sozinha, de 6
   em 6 a 24 h; pedir dados novos (`PATCH /items`) gastaria o limite mensal do
   CPF e o app nunca pede. As transacoes vem desde o ultimo pull menos
-  OVERLAP_DAYS (o primeiro: a janela que o dono escolheu, 30 dias por padrao)
-  e vao para o Aprovar (services/open_finance_inbox.py); com "Gravar sozinho"
+  LATE_POSTING_DAYS (o primeiro: a janela que o dono escolheu, 30 dias por
+  padrao; `_date_from()`) e vao para o Aprovar (services/open_finance_inbox.py); com "Gravar sozinho"
   ligado, o item pronto e aprovado na hora (services/open_finance_auto.py).
   As posicoes e operacoes da corretora vem no mesmo pull
   (services/open_finance_investments.py).
@@ -68,7 +68,13 @@ logger = get_logger(__name__)
 PluggyError = pluggy_client.PluggyError
 
 # Folga do pull: o banco lanca com data de dias antes (o D+1 do cartao, a
-# compensacao); a chave pluggy:<id> faz a repeticao nao custar nada.
+# compensacao, a compra internacional que fica "em processamento" dias e entra
+# com a data da compra); a chave pluggy:<id> faz a repeticao nao custar nada.
+# Com 7 dias, um lancamento que a Pluggy listou com data de 8+ dias atras nunca
+# era puxado (2026-11-04). 35 cobre o prazo de liquidacao das bandeiras (30 dias).
+LATE_POSTING_DAYS = 35
+# Sem nenhuma linha da conta ainda, a folga antiga: nao traz o que o dono deixou
+# fora da primeira busca.
 OVERLAP_DAYS = 7
 FIRST_SYNC_SETTING = "open_finance_first_days"
 DEFAULT_FIRST_SYNC_DAYS = 30
@@ -684,12 +690,28 @@ def card_rows_with_bill(api, raw_account, rows):
 
 
 def _date_from(conn, current_user_id, account_row, today):
+    """De que dia o pull pede as transacoes da conta. A primeira vez, a janela
+    que o dono escolheu; depois, LATE_POSTING_DAYS antes do ultimo pull, porque
+    o banco pode listar hoje um lancamento de dias atras. Nunca antes do dia mais
+    antigo que a Pluggy ja deu desta conta (a primeira busca do dono), salvo os
+    OVERLAP_DAYS de sempre."""
     synced = parse_iso_date(account_row["synced_until"]) if account_row["synced_until"] else None
-    if synced:
-        start = synced - timedelta(days=OVERLAP_DAYS)
-    else:
-        start = today - timedelta(days=first_sync_days(conn, current_user_id))
-    return _day_text(start)
+    if not synced:
+        return _day_text(today - timedelta(days=first_sync_days(conn, current_user_id)))
+    floor = synced - timedelta(days=OVERLAP_DAYS)
+    # O dia da Pluggy (posted_on), que e o que o filtro dela olha; a parcela
+    # 2..n (COVERED) tem a data da compra, que pode ser de meses antes.
+    first = conn.execute(
+        """
+        SELECT MIN(COALESCE(posted_on, date)) AS first FROM open_finance_transactions
+        WHERE user_id = ? AND of_account_id = ? AND role <> 'COVERED'
+        """,
+        (current_user_id, account_row["id"]),
+    ).fetchone()["first"]
+    first_day = parse_iso_date(first)
+    if first_day:
+        floor = min(floor, first_day)
+    return _day_text(max(synced - timedelta(days=LATE_POSTING_DAYS), floor))
 
 
 def _seconds(stamp):

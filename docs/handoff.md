@@ -7,32 +7,40 @@
 
 ---
 
-## Session — 2026-11-02 · A receber deducts from income
+## Session — 2026-11-04 · A R$ 110 Claude charge missing, Conferência said "Movimentos conferem"
 
-Owner asked: money received for an A receber item must leave income (uncle paid R$ 300 for a R$ 230,28 headset; only
-R$ 69,72 is income), editable afterwards, in the web and the APK.
+Owner reported: paid Claude (R$ 110 from a bank account, 2026-11-02), it never reached the app; Ajustes › Open Finance showed
+"Movimentos conferem" beside a balance difference of R$ 110 (R$ 1.847,75 vs R$ 1.737,75). Other movements of 11-03
+had already come in.
 
-**Why it didn't work in production:** the mark-day cut (`apply_settled_others()`) existed, but Pai's October repasses
-carried over as "spare" and covered the uncle's November item, so November income stayed R$ 300 with nothing cut.
+**Finding:** not an ingestion bug. The owner confirmed Pluggy does not list the purchase yet: the bank already took it
+from the balance (an international purchase "em processamento"), but Open Finance only lists what the bank posted. The
+Conferência compares only listed movements, so they match, and the R$ 110 fell into `explanation.before`, which the
+screens labelled "de antes da conferência (confira o saldo inicial da conta)" — misleading.
 
-Done (tests: `test_receivable_income.py`, `sharing.test.js`, `ReceivablesTest.kt`; full backend suite green):
-- Migration 053 `share_paid_by` on `transactions`/`cc_expenses`. `POST /api/receivables/settle` takes `income_id`;
-  `link_income()` makes that income `SPLIT`/`OTHERS` with the linked share, in the Pix's month; undo or change gives it back.
-  `GET /api/receivables/incomes?since=` lists candidates (reais incomes from 7 days before, with `room`).
-- Fallback (no income chosen, old APKs): the mark-day cut, now covered only by a repasse of the **same person** (or unnamed).
-- Web `PaidBySheet.jsx`: "Pago"/"Tudo pago" open it, suggestion preselected; a paid item's menu "Trocar a entrada".
-- APK: same sheet in `AReceberScreen.kt`; tapping a paid item changes the income. Compiled + JVM tests, not run on a device.
+Done (tests: `test_open_finance_sync.py` 2 new + 1 adjusted, `openFinance.test.js`, `OpenFinanceRulesTest.kt` string):
+- **Pull window** (`_date_from()`, the open item carried from 043): `LATE_POSTING_DAYS = 35` back from the last pull
+  instead of 7. This very purchase would have been lost had the bank posted it dated 11-02 after ~11-09 (the window
+  started 7 days before the last pull, and pulls run every 5 min/6 h). Floor: never before the account's first pulled
+  Pluggy day (`MIN(COALESCE(posted_on, date))`, COVERED excluded), so a short "primeira busca" stays respected; an
+  account with no rows keeps the old 7 days. `test_a_late_posting_older_than_a_week_is_still_pulled` fails on the old
+  code.
+- **Conferência text** (web `balanceExplanation()`, APK `OpenFinanceRules.balanceExplanation()`): the unexplained part
+  now reads "no saldo do banco sem movimento listado: em processamento no banco (entra quando ele lançar) ou de antes
+  da conferência (confira o saldo inicial)".
 
-**Fix after merge (2026-11-03, PR 61 follow-up):** the migration was first numbered 052, the same number as
-`052_open_finance_pending_on.sql` merged just before. `init_db()` keys migrations by number, so it skipped the second one
-silently and the deploy of PR 61 failed on main (150 tests: `no such column: share_paid_by`); PR 61's own CI was green
-because its branch didn't have the other 052 yet. Renamed to `053_share_paid_by.sql` (production never applied it) and
-added `test_migration_numbers.py` (no repeated number; every file on disk is in `schema_migrations`).
-**Lesson:** pick the migration number after merging main, and rerun the suite on the merged tree.
+**Not done and why:**
+- The APK change is a string literal and its JVM test; not compiled here (no Android SDK in the container). It ships with
+  the next APK build.
+- The green "Movimentos conferem" badge still shows beside "Diferença" (the badge is about listed movements). Changing it
+  means a new summary state on web and APK (`checkSummary()` signature in Kotlin); left in `next-steps.md`.
+- `synced_until` still advances while Pluggy's `lastUpdatedAt` is stale (an outage > 35 days loses rows). Not anchored:
+  the fake's `lastUpdatedAt` is 2026-01-01 and many window tests would move; in `next-steps.md`.
+- Not deployed or checked in production. After deploy, the first pulls read 35 days per account (one or two pages; GET
+  only, no quota).
 
-**Not done:** before the deploy it was checked on a local scratch app only; production check after merge. The uncle's item is
-already marked (mark-day fallback): after deploy November income should read R$ 69,72; choosing the Pix moves it there
-explicitly.
+**Next:** watch the Claude charge post; then the Conferência for that account should read "Confere".
 
-Lessons: the person on a receivable ("Venda Tio Toninho") rarely matches the Pix text ("A. F. R. Corretora de Seguros"),
-so auto-linking by name is unreliable; the owner picks, the app suggests by date and amount.
+Lessons: when the Conferência says "Movimentos conferem" and the balance differs, the difference is something Pluggy
+does not list (the bank's processing hold, or the initial balance) — the Histórico preview tells whether Pluggy has a
+row the incremental pull skipped.
