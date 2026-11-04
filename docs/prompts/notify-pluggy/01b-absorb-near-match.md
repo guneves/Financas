@@ -3,7 +3,7 @@
 Read `00-common.md` first. Design: §1 (defect I), §3.2 steps 4, 5b and 7, §3.3 step 3b, §3.7,
 §6 Phase 1. Server only; invisible while the gate is closed.
 
-**Prerequisites** (stop if any is missing; Phase 1a must be merged, or the owner names its branch):
+**Prerequisites** (stop if any is missing; Phase 1a is built earlier in this same session):
 
 ```bash
 grep -n "def pluggy_claimed\|def notification_claimed" backend/services/inbox.py
@@ -208,4 +208,4 @@ the band edges exactly on 10% and 30%.
 
 All of the above green, the full suite green on a tree merged with `origin/main`, and CLAUDE.md
 updated: auto-record (nothing waits), own transfers, the near match. Finish as in `00-common.md`.
-Then run `06-verify-and-fix.md` for Phase 1 (1a + 1b) before opening the gate.
+The final session (`06-verify-and-fix.md`) verifies it.

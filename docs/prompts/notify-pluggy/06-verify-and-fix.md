@@ -1,18 +1,21 @@
-# Verify and fix: run after each phase, and once at the end
+# Final verification and fixes: all phases (session 5)
 
-Read `00-common.md` first. The owner tells you which phase to verify (1, 2, 3, 4, 5, or "final")
-and where it is: `main`, or a session branch not yet merged. Your job is to **find bugs the phase
-session missed, prove each with a failing test, fix it, and report**. You do not add features, and
+Read `00-common.md` first. Sessions 1–4 built Phases 1–5 in a chain of branches; nothing is merged
+into `main` yet. You verify **all of it**. The owner gives you session 4's branch, which contains
+the whole chain. Your job is to **find the bugs the build sessions missed, prove each with a
+failing test, fix it, and report**. You do not add features, and
 you do not change a decision of design §7. If a fix needs a design change, stop and describe it to
 the owner instead.
 
 ## 1. Set up the exact tree
 
-- The phase's work is on its session branch, with an open PR to `main`; the owner gives you the
-  branch name or PR number. Fetch that branch and merge it into your own session branch, so your
-  fixes sit on top of it. Then merge `origin/main` and run the full suite. A phase that is green alone but red merged is the first bug
-  to report: the 052/053 migration clash happened exactly like that.
-- Read the design (§1–§7), the phase's prompt, its handoff entry and `git log -p` of its commits.
+- Fetch session 4's branch and merge it into your session branch, so your fixes sit on top of it.
+  Then merge `origin/main` and run the full suite. A chain that is green alone but red merged is the
+  first bug to report: the 052/053 migration clash happened exactly like that.
+- Read the design (§1–§7), every phase prompt (`01a` to `05`) and `git log -p` of the chain's
+  commits (`git log origin/main..HEAD`). Read each session's "For the final verification" section
+  in the handoff history (`git log -p -- docs/handoff.md`). Start with the parts the build sessions
+  called risky.
 
 ## 2. Run everything, record the baseline
 
@@ -25,8 +28,8 @@ the owner instead.
 
 ## 3. Review the diff against the known traps
 
-Go through the list for the phase. For each item, either point at the line that handles it or write
-the test that shows it is missing.
+Go through **every** phase's list below. For each item, either point at the line that handles it
+or write the test that shows it is missing.
 
 **Phase 1a: claims and succession**
 - [ ] Every query deciding "claimed/live" filters `role <> 'REMOVED'` **and** vanished. Grep every
@@ -159,11 +162,20 @@ the test (one bug per commit, the message names the test). Don't refactor beyond
 
   For each, the exact command or tap sequence the owner should run.
 - Update `docs/handoff.md` and `docs/next-steps.md` as the session process asks.
-- Push your branch and open a pull request to `main` titled "Notifications + Pluggy — verify
-  <phase>". It contains the phase's commits plus your fixes, so the owner merges **this** PR and
-  closes the phase's PR. Say so in the PR body and in your message. Don't merge.
+- Push your branch and open **the single pull request** of the chain to `main`, titled
+  "Notifications + Pluggy — Phases 1–5 (verified)". The body:
+  - what each phase does;
+  - every bug you fixed;
+  - the owner's checks after the merge, in order:
+    1. install the new APK;
+    2. an Itaú purchase shows up in seconds and is still one row after the next pull;
+    3. a Pix to BTG Investimentos gives one transfer;
+    4. run `scripts/position_fields.py`;
+    5. run `scripts/check_identity.py` weekly.
 
-## Final pass (after Phase 5)
+  **Don't merge it.**
+
+## Final pass
 
 Do all of the above over the whole series, plus:
 - one end-to-end test that runs cases A–R and J–Q in one user's world, then `assert_identity()`;

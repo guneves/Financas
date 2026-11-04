@@ -25,9 +25,11 @@ CLAUDE.md changes with each phase. A third defect, **R**, was found while writin
 transfer whose origin was guessed keeps the wrong origin after Pluggy shows another account. It is
 in Phase 1a.
 
-**Session prompts**: `docs/prompts/notify-pluggy/` (README with the order: 1a, 1b, verify, 2,
-verify, 3, 4, 5, final verify). Phase 1 is split into 1a and 1b, and `06-verify-and-fix.md` is the
-bug-hunt session after each phase.
+**Session prompts**: `docs/prompts/notify-pluggy/`; `README.md` has the order and the exact message
+for each session. There are **five sessions**: 1 engine (1a + 1b), 2 gate, 3 investments, 4 review,
+twins and orphans, 5 the final verification of everything. Each builds on the previous session's
+branch, and only session 5 opens a PR. The owner merges that one PR, so nothing reaches the server
+unverified.
 - [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed):
   - Pluggy id succession in the pull: missing → ingest with hand-over → vanish the rest,
     `MATCHED`/`PAIRED` included.

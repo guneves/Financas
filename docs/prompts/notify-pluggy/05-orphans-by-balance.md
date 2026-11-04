@@ -3,7 +3,8 @@
 Read `00-common.md` first. Design: §3.4 and §7 decision 1. Server, plus a label on the web and APK
 Conferência.
 
-**Prerequisites:** Phases 1, 2 and 4 merged. Phase 4's snapshot-based "untouched" is needed.
+**Prerequisites:** Phases 1–3 on your branch and Phase 4 built earlier in this same session.
+Phase 4's snapshot-based "untouched" is needed.
 
 ```bash
 grep -n "def pluggy_claimed" backend/services/inbox.py
@@ -99,4 +100,4 @@ D come from the same function the Conferência uses.
 ## Done when
 
 All green on a tree merged with `origin/main`; CLAUDE.md describes the orphan rule (bank accounts
-only, cards list-only). Then run `06-verify-and-fix.md` for Phase 5, and the final full pass.
+only, cards list-only). The final session (`06-verify-and-fix.md`) verifies it.

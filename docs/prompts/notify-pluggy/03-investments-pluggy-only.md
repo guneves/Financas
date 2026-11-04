@@ -1,8 +1,8 @@
 # Phase 3: investments come only from Pluggy
 
 Read `00-common.md` first. Design: §5 and §7 decision 3. Independent of Phases 1–2 in code, but it
-adds migrations. Run it **after** Phase 2 is merged. If the owner runs it in parallel, renumber
-your migration after merging `origin/main` and rerun the full suite: two migrations with one number
+adds migrations. It runs after Phase 2, on top of session 2's branch. Number your migrations after
+merging that branch and `origin/main`, then rerun the full suite: two migrations with one number
 break production silently.
 
 **Prerequisites:**
@@ -106,6 +106,5 @@ Extend `FakePluggy.add_position()` to accept the extra fields (`rate`, `rateType
 
 All green on a tree merged with `origin/main`; CLAUDE.md's Investments section says typing is
 refused on the fed Corretora and how HELD lines are recorded. In your final message, tell the owner
-to run `position_fields.py` after the deploy and paste the output into the next session. Until
-then, whether held lines fill themselves on real data is unknown. Then run `06-verify-and-fix.md`
-for Phase 3.
+to run `position_fields.py` after the final PR is deployed. Until then, whether held lines fill
+themselves on real data is unknown. The final session (`06-verify-and-fix.md`) verifies it.
