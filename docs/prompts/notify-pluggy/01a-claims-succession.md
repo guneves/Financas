@@ -201,4 +201,4 @@ Each case asserts the rows **and** `assert_identity()`:
 
 The new test file is green with `assert_identity()` everywhere, the full suite is green on a tree
 merged with `origin/main`, and CLAUDE.md's Open Finance bullets say how succession and per-channel
-claims work. Finish as in `00-common.md`; the next prompt is `01b-absorb-near-match.md`.
+claims work. Commit, then continue with `01b-absorb-near-match.md` in this same session.

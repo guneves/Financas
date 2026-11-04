@@ -71,8 +71,17 @@ The prompts were adjusted to it:
   So the near match reaches `LATE_POSTING_DAYS` after the notification for international purchases
   (test S in 1b), and the orphan rule keeps it ("confirmado pelo saldo").
 
-The flow is now 12 sessions: each phase opens a PR, a verify session builds on it and opens the PR
-the owner merges. The exact message for each session is in `docs/prompts/notify-pluggy/README.md`.
+**Then fewer sessions** (owner: 12 is too much; the verification is one final session for
+everything). There are five sessions:
+- 1 builds the engine (1a + 1b);
+- 2 opens the gate;
+- 3 does investments;
+- 4 does review, twins and orphans;
+- 5 verifies all of it and opens the **only** PR.
+
+Sessions 2–5 start from the previous session's branch (`00-common.md` › "The chain"). Each build
+session leaves a "For the final verification" section in its handoff. The messages are in
+`docs/prompts/notify-pluggy/README.md`.
 
 **How it was grounded:** scratch probes against the real engine, not committed (the gate opened with
 `any_bank_notifications`, `FakePluggy`, pending rows on). Two defects:

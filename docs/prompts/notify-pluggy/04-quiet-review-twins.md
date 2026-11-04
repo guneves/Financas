@@ -2,7 +2,8 @@
 
 Read `00-common.md` first. Design: §3.5, §3.6 and §7 decisions 4 and 6. Server, web and APK.
 
-**Prerequisites:** Phase 1 merged (Phase 2 recommended).
+**Prerequisites:** Phases 1–3 on your branch (merged in from session 3's branch). Phase 5
+(`05-orphans-by-balance.md`) follows in this same session.
 
 ```bash
 grep -n "def pluggy_claimed" backend/services/inbox.py
@@ -86,5 +87,5 @@ Add node and JVM tests only for client rules you add (rendering a server flag ne
 ## Done when
 
 All green on a tree merged with `origin/main`; android-check green. CLAUDE.md's Review section says
-what clears review by itself and the new definition of "untouched". Then run
-`06-verify-and-fix.md` for Phase 4.
+what clears review by itself and the new definition of "untouched". Commit, then continue with
+`05-orphans-by-balance.md` in this same session.

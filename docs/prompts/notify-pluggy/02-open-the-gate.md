@@ -2,8 +2,8 @@
 
 Read `00-common.md` first. Design: §4 (channel policy), §5 (the brokerage app delivers transfers
 only), §7 decisions 2 and 5. After this phase, the owner's phone sends Itaú, BB, BTG Banking and BTG
-Investimentos notices, and they are recorded at once. **Phase 1 (1a + 1b) must be merged first**:
-without it, defects A, I and R hit real data.
+Investimentos notices, and they are recorded at once. **Phase 1 (1a + 1b) must be on your branch**
+(merged in from session 1's branch): without it, defects A, I and R would hit real data.
 
 **Prerequisites** (stop if any fails):
 
@@ -125,10 +125,11 @@ Add the policy table in short form.
 The server suite is green on a tree merged with `origin/main`, android-check is green on your
 branch, and CLAUDE.md is updated.
 
-**Owner, after merge and APK update**, in this order, in Portuguese in your final message:
+**Owner, after the final PR is merged and the APK is updated**, in this order, in Portuguese in your
+final message:
 1. an Itaú card purchase shows up in seconds;
 2. after the next pull it is still one row;
 3. a Pix to BTG Investimentos gives one transfer;
 4. a week later, run `scripts/check_identity.py`; it must print nothing.
 
-Then run `06-verify-and-fix.md` for Phase 2.
+The final session (`06-verify-and-fix.md`) verifies it.

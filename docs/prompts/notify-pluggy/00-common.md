@@ -13,6 +13,40 @@ The design and these prompts are on `main` (merged 2026-11-04). If your checkout
 **Line numbers** in the prompts are as of 2026-11-04. Earlier phases move them, so always find code
 by the function name (`grep -n "def <name>"`).
 
+## The chain: five sessions, one merge
+
+Nothing is merged into `main` until the final verification. A merge deploys, and every phase must
+be verified before it reaches the owner's server.
+
+| Session | Builds | Starts from |
+|---------|--------|-------------|
+| 1 | Phase 1: `01a` then `01b` (engine) | `main` |
+| 2 | Phase 2: `02` (gate) | session 1's branch |
+| 3 | Phase 3: `03` (investments) | session 2's branch |
+| 4 | Phases 4 and 5: `04` then `05` (review, twins, orphans) | session 3's branch |
+| 5 | Final verification of everything: `06` | session 4's branch; opens the only PR |
+
+Unless you are session 1, the owner gives you the previous session's branch name. First:
+
+```bash
+git fetch origin <previous branch>
+```
+
+```bash
+git merge --no-edit origin/<previous branch>
+```
+
+```bash
+git fetch origin main
+```
+
+```bash
+git merge origin/main
+```
+
+Then run the full suite **before** changing anything. If it is red, the previous session left it
+broken: say so first and fix it with its own commit.
+
 ## Before you start
 
 1. Read `CLAUDE.md`, the whole design, `docs/handoff.md` and your phase prompt.
@@ -39,9 +73,10 @@ by the function name (`grep -n "def <name>"`).
 
 ## Hard rules (each one has broken this project before)
 
-- **Never push to `main` and never merge.** A push to `main` deploys to the owner's server
-  (`deploy.yml`). Work on your session branch and push there. At the end, open a pull request to
-  `main` (the owner asks for it in every session prompt), and leave the merge to the owner.
+- **Never push to `main`, never merge into it, and don't open a pull request** (except session 5).
+  A push to `main` deploys to the owner's server (`deploy.yml`). Work on your session branch and
+  push there. Only the final verification session opens a PR, a single one for the whole chain, and
+  the owner merges it.
 - **Never read or write production data.** Not over SSH, not through the API. Phase 3's real-data
   check is a command the owner runs (see that prompt).
 - **Migrations**: append-only, a new numbered file. Pick the number **after**
@@ -96,15 +131,11 @@ by the function name (`grep -n "def <name>"`).
      open and is rewritten;
    - replace `docs/handoff.md`: what you did, what you didn't do and why, what comes next, and the
      non-obvious lessons.
-4. Commit with a clear message and push your session branch. Open a pull request to `main` titled
-   "Notifications + Pluggy — <phase>". Use the repository's PR template if there is one; the body
-   lists the changes, the tests and what the owner must check. **Don't merge it.**
-5. Tell the owner, in Portuguese:
-   - the PR link;
-   - what changed for them;
+4. Commit with a clear message and push your session branch. **No PR** (sessions 1–4).
+5. In the handoff, write a section **"For the final verification"**: the parts you consider
+   riskiest, any test you changed and why, and anything you could not test.
+6. Tell the owner, in Portuguese:
+   - **your branch name** (the next session starts from it);
+   - what changed;
    - the tests added, by name;
-   - what they must check after merging;
    - which session comes next.
-
-   The verification session (`06-verify-and-fix.md`) runs on your branch **before** anything is
-   merged.
