@@ -35,7 +35,8 @@ Once one phase is merged into `main`, the design comes with it and this step fin
 1. Read `CLAUDE.md`, the whole design, `docs/handoff.md` and your phase prompt.
 2. **Check your phase's prerequisites** (each prompt lists greps). If one fails, stop and tell the
    owner which phase must be merged first. Don't build on a missing phase.
-3. Set up the backend tests. The container has no `.venv`; use your scratchpad:
+3. Set up the backend tests. The container has no `.venv`. First set `SCRATCH` to your session's
+   scratchpad directory (the system prompt names it), then:
    ```bash
    python3 -m venv "$SCRATCH/venv"
    ```
