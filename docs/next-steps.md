@@ -70,6 +70,11 @@ bug-hunt session after each phase.
   rows come in by default) and delete it if doubled.
 - [ ] Início's "Despesas por categoria" sums R$ 1.397,14 in October against R$ 1.365,41 spent: a refund in category "Estorno"
   (R$ 31,73, AliExpress) has a negative total and is dropped. Net it from the purchase's category.
+- [ ] The R$ 110 CLAUDE.AI charge of 2026-11-02 (owner, 2026-11-04): the bank took it from the balance but Pluggy
+  does not list it yet (international purchase in processing). Once the bank posts it, check it was recorded and the
+  Conferência's balance reads "Confere"; if it never appears after ~10 days, run Histórico's preview for 30 days.
+- [ ] The Conferência still shows the green "Movimentos conferem" beside a balance "Diferença" when the difference is
+  only the unexplained part (`before`): only the explanation line says why. A badge for it needs the APK too.
 - [ ] Owner, on the phone: update to APK 10109+, then the dropdown under "Fatura de <mês>" and the Investir tab from a sub-tab.
 - [ ] **Provisional buys** (2026-10-31): 20 BBAS3, 23 ITSA4, 10 LEVE3 at the position's price, no cash. Pluggy's
   next operations replace them; check Operações has the real prices and cash after that pull (a linked one keeps
@@ -206,8 +211,9 @@ Pluggy switch is on by default and Aprovar is out of the tabs — read the 045 s
 - [ ] The APK shows the switches, reasons and the balance explanation, but not the history preview,
   the portfolio check or "Não usar" (web only, like mapping).
 - [ ] The web screen was not opened in a browser this session (vite build and node tests only).
-- [ ] Carried over from 043: a posting dated older than the 7-day overlap is never pulled (widen
-  `OVERLAP_DAYS` or use the history); a mapping change does not move items already pending;
+- [ ] Carried over from 043: a posting dated more than `LATE_POSTING_DAYS` (35) before the last pull is
+  still never pulled (use the history); `synced_until` advances even while Pluggy's `lastUpdatedAt` is stale,
+  so an outage longer than that loses rows (anchor it to Pluggy's date); a mapping change does not move items already pending;
   connectors send no `totalAmount` (R$ 100 in 3× arrives as R$ 99,99); learning "it's me" (031)
   from a Pluggy counterparty; Conferência matching limits (same signed cents ≤ 3 days, n-cents
   tolerance on installments; it starts at the first row Pluggy brought).

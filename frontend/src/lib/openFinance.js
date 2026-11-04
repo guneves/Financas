@@ -205,9 +205,11 @@ export function checkReasonLabel(reason) {
 }
 
 // De onde vem a diferenca de saldo (explanation do servidor, em centavos):
-// so no banco, esperando no Revisar, so no app, e o que ja era diferente antes
-// da conferencia (o saldo inicial no app, um lancamento antigo). Linhas de
-// texto; [] sem diferenca.
+// so no banco, esperando no Revisar, so no app, e o que nenhum movimento
+// listado explica: o banco ja mexeu no saldo e ainda nao lancou (a compra
+// internacional em processamento, 2026-11-04: R$ 110 fora do extrato e dentro
+// do saldo) ou ja era diferente antes da conferencia (o saldo inicial no app).
+// Linhas de texto; [] sem diferenca.
 export function balanceExplanation(explanation, money = (value) => String(value)) {
   if (!explanation || !explanation.difference) return []
   const lines = []
@@ -217,7 +219,7 @@ export function balanceExplanation(explanation, money = (value) => String(value)
   part(explanation.bank_only, 'de movimentos só no banco')
   part(explanation.awaiting, 'esperando no Revisar')
   part(explanation.app_only, 'de lançamentos só no app')
-  part(explanation.before, 'de antes da conferência (confira o saldo inicial da conta)')
+  part(explanation.before, 'no saldo do banco sem movimento listado: em processamento no banco (entra quando ele lançar) ou de antes da conferência (confira o saldo inicial)')
   return lines
 }
 

@@ -59,6 +59,21 @@ guesses "BTG conta corrente" as the origin, and Pluggy shows it came from Itaú.
 the origin stays wrong, so Itaú and BTG conta corrente are each off by R$ 500. `reconcile_recorded()`
 only links any `TRANSFER`.
 
+**Then merged into `main`** (owner asked: create the PR and merge it; the session prompts in English). Before
+merging, `origin/main` brought PR 64, the same day's session on the owner's R$ 110 CLAUDE.AI charge:
+- `LATE_POSTING_DAYS` = 35 in `_date_from()`;
+- the Conferência's "em processamento" text.
+
+The prompts were adjusted to it:
+- the 35-day pull window enlarges succession's *missing* set;
+- the Conferência's difference is **bank − app**, which Phase 5 needs right;
+- an international purchase "em processamento" is in the bank's balance before Pluggy lists it.
+  So the near match reaches `LATE_POSTING_DAYS` after the notification for international purchases
+  (test S in 1b), and the orphan rule keeps it ("confirmado pelo saldo").
+
+The flow is now 12 sessions: each phase opens a PR, a verify session builds on it and opens the PR
+the owner merges. The exact message for each session is in `docs/prompts/notify-pluggy/README.md`.
+
 **How it was grounded:** scratch probes against the real engine, not committed (the gate opened with
 `any_bank_notifications`, `FakePluggy`, pending rows on). Two defects:
 - **A:** a reviewed notification row, then Pluggy's `PENDING` id, then `POSTED` under a new id gives
