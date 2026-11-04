@@ -156,7 +156,7 @@ test('the balance difference is explained part by part', () => {
     [
       '-45.90 de movimentos só no banco',
       '-10.00 de lançamentos só no app',
-      '5.90 de antes da conferência (confira o saldo inicial da conta)',
+      '5.90 no saldo do banco sem movimento listado: em processamento no banco (entra quando ele lançar) ou de antes da conferência (confira o saldo inicial)',
     ],
   )
 })

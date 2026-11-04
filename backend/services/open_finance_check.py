@@ -241,9 +241,11 @@ def _listed(entries):
 
 def balance_explanation(difference_cents, bank_only, app_only, awaiting):
     """Puro. Saldo do banco - saldo do app = o que so o banco tem (inclusive o
-    que espera no Aprovar) - o que so o app tem + o que ja era diferente antes
-    da janela conferida (o saldo inicial da conta no app, um lancamento antigo).
-    Devolve as quatro partes em centavos, ou None sem a diferenca."""
+    que espera no Aprovar) - o que so o app tem + `before`: o que nenhum movimento
+    listado explica — o banco ja mexeu no saldo e ainda nao lancou (compra em
+    processamento: a Pluggy so lista o lancado, 2026-11-04) ou ja era diferente
+    antes da janela conferida (o saldo inicial da conta no app, um lancamento
+    antigo). Devolve as quatro partes em centavos, ou None sem a diferenca."""
     if difference_cents is None:
         return None
     bank_cents = sum(entry["cents"] for entry in bank_only)
