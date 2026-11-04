@@ -22,8 +22,10 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 
-@pytest.fixture(scope="session")
-def app_module():
+def _test_environment():
+    """O ambiente dos testes, posto no import deste arquivo: um teste puro que
+    importa `services.*` antes de `app_module` (o `db` copia DATABASE_PATH de
+    config no import) nunca aponta para o backend/finance.db de verdade."""
     tmp_dir = tempfile.mkdtemp(prefix="financas-tests-")
     os.environ["DATABASE_PATH"] = os.path.join(tmp_dir, "test.db")
     os.environ["DATABASE_MIGRATIONS_DIR"] = os.path.join(PROJECT_DIR, "database", "migrations")
@@ -58,6 +60,12 @@ def app_module():
     os.environ["AUTO_RECORD_DEFAULT"] = "0"
     os.environ["MANUAL_ONLY_OFF_PLUGGY"] = "0"
 
+
+_test_environment()
+
+
+@pytest.fixture(scope="session")
+def app_module():
     # config.py le o ambiente no import, e os modulos do app (db, auth...) copiam
     # os valores dele. Por isso nenhum teste importa esses modulos no topo do
     # arquivo: pegue-os por fixture (app_module, db_module), depois daqui.
