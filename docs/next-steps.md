@@ -21,7 +21,13 @@ before the gate opens:
 - **I**: an own Pix whose two notifications reach the server in separate uploads becomes an income
   plus an expense.
 
-CLAUDE.md changes with each phase.
+CLAUDE.md changes with each phase. A third defect, **R**, was found while writing the prompts: a
+transfer whose origin was guessed keeps the wrong origin after Pluggy shows another account. It is
+in Phase 1a.
+
+**Session prompts**: `docs/prompts/notify-pluggy/` (README with the order: 1a, 1b, verify, 2,
+verify, 3, 4, 5, final verify). Phase 1 is split into 1a and 1b, and `06-verify-and-fix.md` is the
+bug-hunt session after each phase.
 - [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed):
   - Pluggy id succession in the pull: missing → ingest with hand-over → vanish the rest,
     `MATCHED`/`PAIRED` included.

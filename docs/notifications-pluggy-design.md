@@ -29,10 +29,16 @@ in `FakePluggy`, `include_pending` on) gave:
 | G | Two coffees from Pluggy first, then two notifications | 2 rows: correct |
 | H | Pix Itaú → BTG Investimentos, both apps notify, then both Pluggy sides | 1 transfer: correct |
 | I | Own Pix Itaú → BB, each bank's notification in a **separate upload** (the normal case: the phone sends as they arrive) | **INCOME + EXPENSE**: both totals inflated. In one upload: 1 transfer |
+| R | Only the BTG Investimentos app notifies R$ 500 in; the app guesses the origin "BTG conta corrente"; Pluggy then shows it left **Itaú** | 1 row, but **the origin stays BTG conta corrente**: Itaú +500 and BTG conta corrente −500 wrong |
 
 So the engine already keeps twins apart and pairs across sources in either order. **A** is the only
 duplicate, and the default settings make it likely: pending rows have come in by default since 052,
 cards always bring them, and a reviewed row is the normal state after a day of use.
+
+**R** happens because `open_finance_fits_item()` accepts the Itaú row for the transfer: its origin
+was only a guess. Then `reconcile_recorded()` only *links* any `TRANSFER`, so the guessed side is
+never corrected. The fix: on an untouched recorded transfer whose side was guessed (`guessed`, not
+`edited`), the bank's account replaces the guessed one on that side.
 
 **I** happens because the first side is recorded the moment it arrives, as a despesa. The second
 side's notification only looks for *pending* items (`transfer_partner()`) or recorded *transfers*
@@ -351,7 +357,9 @@ cards would only add pairs to get wrong, and the bank app already notifies.
 
 ## 6. Changes, by phase
 
-**Phase 1: engine invariants (server only; no visible change while the gate is closed).**
+**Phase 1: engine invariants (server only; no visible change while the gate is closed).** Run as
+two sessions: 1a (claims, succession, R) and 1b (absorb, nothing waits, near match). The prompts
+are in `docs/prompts/notify-pluggy/`.
 - `services/open_finance.py` (pull): compute *missing* (every live role, `MATCHED` and `PAIRED`
   included) → ingest with succession → vanish what is left.
 - `services/open_finance_inbox.py`: `successor_for()` and `hand_over()`; step 0 in `place()`;
@@ -365,6 +373,8 @@ cards would only add pairs to get wrong, and the bank app already notifies.
   (§3.2 steps 4 and 7): `_absorb_recorded_pix()` becomes a helper in `services/inbox.py` that
   `_ingest_alone()` and `place()` both call; `auto_record.hold_reason()` no longer holds
   `awaiting_transfer`, except for the Conta global.
+- A guessed side of an untouched recorded transfer is replaced by the account Pluggy shows (fixes
+  R): in `reconcile_recorded()`, before the "a transfer only links" rule.
 - Near match (§3.7): a second pass at the end of each pull, after the exact pairing and before
   `record_pending()`, plus step 5b for a late notification. Helpers `merchant_agrees()` and
   `near_amount()` live in `services/inbox.py`. A migration adds `original_currency` to
@@ -382,7 +392,9 @@ cards would only add pairs to get wrong, and the bank app already notifies.
   - **N**, Pix: a Pix of R$ 100 and a bank Pix of R$ 105 never near-match;
   - **O**, the owner typed the amount: the row keeps it, and the Conferência shows the difference;
   - **P**, pending → posted: pending R$ 100 → posted R$ 112 under a new id → same row, R$ 112;
-  - **Q**, USD notification: recorded at PTAX at once; Pluggy's posting replaces the estimate.
+  - **Q**, USD notification: recorded at PTAX at once; Pluggy's posting replaces the estimate;
+  - **R**, guessed origin: only BTG Investimentos notifies R$ 500 in, then Pluggy shows Itaú →
+    Corretora → one transfer **Itaú → Corretora**.
 
   Plus:
   - succession on a card purchase;

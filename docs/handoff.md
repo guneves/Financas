@@ -42,6 +42,23 @@ leftover *purchase* pairs with the leftover on the other side when:
 The bank's amount wins unless the owner typed the amount. A foreign-currency notice is recorded at
 PTAX at once. Twins and Pix never near-match. Tests J–Q are listed for Phase 1.
 
+**Then the session prompts** (owner: "give me the prompts to run this in other sessions, with
+details to avoid bugs"): `docs/prompts/notify-pluggy/`. The prompts:
+- `00-common` (setup and hard rules);
+- `01a` claims, succession and R;
+- `01b` absorb, nothing waits and the near match;
+- `02` the gate;
+- `03` investments;
+- `04` quiet review and twins;
+- `05` orphans by balance;
+- `06` verify-and-fix, after each phase: diff checklist, a seeded scenario generator over balances
+  and invariants, interleaving and EXPLAIN checks.
+
+A third probe found **R**. Only the BTG Investimentos app notifies an incoming R$ 500, the app
+guesses "BTG conta corrente" as the origin, and Pluggy shows it came from Itaú. Result: one row, but
+the origin stays wrong, so Itaú and BTG conta corrente are each off by R$ 500. `reconcile_recorded()`
+only links any `TRANSFER`.
+
 **How it was grounded:** scratch probes against the real engine, not committed (the gate opened with
 `any_bank_notifications`, `FakePluggy`, pending rows on). Two defects:
 - **A:** a reviewed notification row, then Pluggy's `PENDING` id, then `POSTED` under a new id gives
@@ -58,7 +75,7 @@ and a Pix to BTG Investimentos on both sides. Untouched case B keeps one row but
 **Not done, and why:** no code. The request was design and decisions. Phase 1 is next and must land
 before the gate opens, or A and I happen on real data.
 
-**Next:** Phase 1 (succession, channel-scoped claims, the shared absorb helper, the near match, tests A–Q,
+**Next:** follow `docs/prompts/notify-pluggy/README.md`, starting with 01a. Phase 1 (succession, channel-scoped claims, the shared absorb helper, the near match, tests A–Q,
 `scripts/check_identity.py`). Phase 3 starts with one real GET of BTG `/investments`. Whether
 MeuPluggy fills `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/`issuer` is unknown;
 `_save_positions()` keeps none of them today.
