@@ -6,29 +6,12 @@ decisions, and they are not open for discussion.
 
 ## Getting the design into your checkout
 
-The design and these prompts were written on branch `claude/zealous-edison-2ca8jd`, which was not
-merged into `main` (owner's choice: no PR for the design). Check first:
+The design and these prompts are on `main` (merged 2026-11-04). If your checkout lacks
+`docs/notifications-pluggy-design.md`, run `git fetch origin main` and then
+`git merge origin/main`.
 
-```bash
-test -f docs/notifications-pluggy-design.md && echo present || echo missing
-```
-
-If it is missing:
-
-```bash
-git fetch origin claude/zealous-edison-2ca8jd
-```
-
-```bash
-git merge --no-edit origin/claude/zealous-edison-2ca8jd
-```
-
-That branch only changes `docs/`, so a conflict can only be in docs:
-- `docs/handoff.md`: keep your branch's version (`git checkout --ours docs/handoff.md`). You
-  rewrite it at the end anyway.
-- `docs/next-steps.md` and `docs/done-tasks.md`: keep both sides' lines.
-
-Once one phase is merged into `main`, the design comes with it and this step finds it present.
+**Line numbers** in the prompts are as of 2026-11-04. Earlier phases move them, so always find code
+by the function name (`grep -n "def <name>"`).
 
 ## Before you start
 
@@ -56,9 +39,9 @@ Once one phase is merged into `main`, the design comes with it and this step fin
 
 ## Hard rules (each one has broken this project before)
 
-- **Never push to `main`.** A push to `main` deploys to the owner's server (`deploy.yml`). Work on
-  your session branch, push there, and leave the merge to the owner. Open a PR only if the owner
-  asks.
+- **Never push to `main` and never merge.** A push to `main` deploys to the owner's server
+  (`deploy.yml`). Work on your session branch and push there. At the end, open a pull request to
+  `main` (the owner asks for it in every session prompt), and leave the merge to the owner.
 - **Never read or write production data.** Not over SSH, not through the API. Phase 3's real-data
   check is a command the owner runs (see that prompt).
 - **Migrations**: append-only, a new numbered file. Pick the number **after**
@@ -82,7 +65,11 @@ Once one phase is merged into `main`, the design comes with it and this step fin
   - `bank_tx(..., status="PENDING")` makes a pending row;
   - `pluggy_updated_at` in the future never counts as read;
   - copy the date patterns of `test_auto_record.py` (2026-10-xx works there).
-- **Pull order** (`services/open_finance.py`, `_sync_item_locked()` around line 734–815):
+- **Pull window**: since 2026-11-04 each pull reads `LATE_POSTING_DAYS` (35) days back from the
+  last pull (`_date_from()` in `services/open_finance.py`), because an international purchase
+  "em processamento" posts days later with its purchase date. Anything that scans "rows of this
+  pull's window" (`vanish_missing()`, the succession's *missing* set) covers those 35 days.
+- **Pull order** (`services/open_finance.py`, `_sync_item_locked()`):
   1. per account: normalize, then `vanish_missing()`;
   2. `ingest()` of the whole batch, sorted by (date, outgoing first);
   3. investments;
@@ -109,6 +96,15 @@ Once one phase is merged into `main`, the design comes with it and this step fin
      open and is rewritten;
    - replace `docs/handoff.md`: what you did, what you didn't do and why, what comes next, and the
      non-obvious lessons.
-4. Commit with a clear message and push your session branch. Don't merge.
-5. Tell the owner, in Portuguese: what changed for them; which tests were added (by name); what
-   they must check after merging; and that the next phase needs this one merged first.
+4. Commit with a clear message and push your session branch. Open a pull request to `main` titled
+   "Notifications + Pluggy — <phase>". Use the repository's PR template if there is one; the body
+   lists the changes, the tests and what the owner must check. **Don't merge it.**
+5. Tell the owner, in Portuguese:
+   - the PR link;
+   - what changed for them;
+   - the tests added, by name;
+   - what they must check after merging;
+   - which session comes next.
+
+   The verification session (`06-verify-and-fix.md`) runs on your branch **before** anything is
+   merged.

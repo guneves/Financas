@@ -94,6 +94,13 @@ both paths call:
 - **What it looks at**: Pluggy items created in this pull that are still `PENDING` with no exact
   partner. Their candidates are notification movements with a free `PLUGGY` slot, on a target
   that fits (`open_finance_fits_item()`), in the date window of `notification_item_for_open_finance()`.
+- **International window**: when either side is international, the window reaches
+  `LATE_POSTING_DAYS` (35, `services/open_finance.py`) days **after** the notification. An
+  international purchase stays "em processamento": the bank takes it from the balance at once, and
+  Pluggy lists it only when the bank posts it, sometimes weeks later and with either the purchase
+  date or the posting date. This was the owner's Claude charge of 2026-11-04 (R$ 110, see that
+  day's handoff in git history). Read `LATE_POSTING_DAYS` from where it is defined; don't copy the
+  number.
 - **Conditions**: merchant agrees, amount within the band, and exactly one candidate **each way**.
   Each way means: this Pluggy row has one notification candidate, and that notification has no
   other leftover Pluggy candidate in the pull.
@@ -178,6 +185,9 @@ international.
 | owner only reviewed and re-categorised, bank R$ 112 | amount becomes R$ 112, category kept |
 | P: pending R$ 100 → posted R$ 112 under a new id, same merchant | same row, R$ 112 |
 | Q: `currency: "USD"` notification on a reais card | recorded at once at PTAX; the bank's line replaces the amount |
+| S, the Claude case: bank notification "R$ 110,00 CLAUDE.AI" `international: true` on day 0; Pluggy lists nothing for 9 days; then the bank posts R$ 112,40 "CLAUDE.AI SUBSCRIPTION" dated day 9 | 1 row the whole time; R$ 112,40 at the end, same id |
+| S2: same, but posted with the purchase date (day 0) and exactly R$ 110,00 | 1 row (exact pair) |
+| S3: same as S but domestic (no international flag) and posted on day 9 | 2 rows (domestic window not widened); the orphan rule decides later |
 | twins C–H and A, B, R from 1a | still green |
 
 Plus pure tests for `merchant_agrees()` and `near_amount()`, including "SMART FIT"/"SMARTFIT",

@@ -8,8 +8,9 @@ the owner instead.
 
 ## 1. Set up the exact tree
 
-- If the phase is on a branch, `git fetch` it and work on a new branch made from it. Then merge
-  `origin/main` and run the full suite. A phase that is green alone but red merged is the first bug
+- The phase's work is on its session branch, with an open PR to `main`; the owner gives you the
+  branch name or PR number. Fetch that branch and merge it into your own session branch, so your
+  fixes sit on top of it. Then merge `origin/main` and run the full suite. A phase that is green alone but red merged is the first bug
   to report: the 052/053 migration clash happened exactly like that.
 - Read the design (§1–§7), the phase's prompt, its handoff entry and `git log -p` of its commits.
 
@@ -85,7 +86,11 @@ the test that shows it is missing.
 - [ ] The twin query has `user_id` and a bounded date range; the badge is neutral.
 
 **Phase 5: orphans**
-- [ ] One balance formula: the Conferência's. No tolerance, no subset search.
+- [ ] One balance formula: the Conferência's (bank − app), extracted to a helper, not copied. An
+  EXPENSE orphan fixes +X and an INCOME orphan −X: check the sign with a test. No tolerance, no
+  subset search.
+- [ ] An international purchase "em processamento" (already in the bank's balance) is never
+  removed.
 - [ ] Protected rows are never removed; a stale connection removes nothing; cards are list-only.
 
 ## 4. Hunt beyond the list: a seeded scenario generator
@@ -106,6 +111,9 @@ suite allows.
    - each own transfer is notified on 0, 1 or 2 sides, in one upload or separate ones;
    - Pluggy shows each movement as posted, or pending then posted under the same or a new id,
      across 1–3 pulls, in random order relative to the notifications;
+   - an **international purchase "em processamento"** (the owner's Claude case, 2026-11-04): it is
+     in the bank's balance from day 0, while Pluggy lists it only 5–30 days later, with the purchase
+     date or the posting date, and the same or a slightly different amount;
    - sometimes the owner reviews or re-categorises a row between steps.
 3. **After the last pull, assert:**
    - `assert_identity()` holds;
@@ -150,8 +158,10 @@ the test (one bug per commit, the message names the test). Don't refactor beyond
   - the APK on a device.
 
   For each, the exact command or tap sequence the owner should run.
-- Update `docs/handoff.md` and `docs/next-steps.md` as the session process asks. Push your branch;
-  don't merge.
+- Update `docs/handoff.md` and `docs/next-steps.md` as the session process asks.
+- Push your branch and open a pull request to `main` titled "Notifications + Pluggy — verify
+  <phase>". It contains the phase's commits plus your fixes, so the owner merges **this** PR and
+  closes the phase's PR. Say so in the PR body and in your message. Don't merge.
 
 ## Final pass (after Phase 5)
 

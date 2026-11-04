@@ -39,16 +39,24 @@ the pull is already placed. It runs for each mapped BANK account of that connect
    - `share_mode` set (A receber);
    - a row in `open_finance_confirmed` ("Aconteceu");
    - an amount the owner typed (snapshot amount ≠ current).
-3. **The balance decides.** Take the difference D = app − bank, in cents, from the Conferência's
-   own computation (`open_finance_check.account_check()`, which gives `difference_cents` and
-   `balance_explanation()`). **Don't write a second balance formula.** Each orphan's effect is −amount
-   for EXPENSE and +amount for INCOME.
-   - **Remove** when D equals the effect of one orphan (the oldest such), or of all orphans
-     together. Nothing else: no subset search, no tolerance. When in doubt, keep.
-   - **Kept with D = 0** (the bank's balance counts it; Pluggy left the line out): mark it so the
-     Conferência shows "confirmado pelo saldo". Use a flag on the item or a computed status; it is
-     not a new list in Revisar.
-   - **Kept with D anything else**: unchanged, listed `app_only` as today.
+3. **The balance decides.** Use the Conferência's own difference, **bank − app** in cents.
+   - **Where it is computed**: today in the Open Finance overview of `services/open_finance.py`:
+     `entry["difference"] = account["balance"] - app_balance`, where the app balance is the account's
+     balance as on Início. `balance_explanation()` in `open_finance_check.py` documents it as
+     "saldo do banco − saldo do app".
+   - **Don't write a second formula.** Extract that computation into a helper that both the
+     overview and the sweep call.
+   - **What removing an orphan does**: removing an EXPENSE orphan of X raises the app balance by X,
+     so it fixes a difference of **+X**. Removing an INCOME orphan of X fixes a difference of
+     **−X**.
+   - **Remove** when the difference equals the fix of one orphan (the oldest such), or of all
+     orphans together. Nothing else: no subset search, no tolerance. When in doubt, keep.
+   - **Kept with difference 0**: the bank's balance counts it and Pluggy left the line out. This is
+     also the international purchase "em processamento" (handoff of 2026-11-04): the bank already
+     took it from the balance but Pluggy lists it only when posted, up to ~30 days later. Mark it so
+     the Conferência shows "confirmado pelo saldo", with a flag on the item or a computed status. It
+     is not a new list in Revisar.
+   - **Kept with any other difference**: unchanged, listed `app_only` as today.
 4. **Removal** works like `auto_record.undo_declined()` (`auto_record.py:132`):
    - `_drop_target()`;
    - the item becomes `REMOVED` with reason `orphan`;
@@ -66,22 +74,24 @@ D come from the same function the Conferência uses.
 
 | Case | Expected |
 |------|----------|
-| notified R$ 50 expense, Pluggy never lists it, bank balance excludes it (D = −50), refreshed past +5 d | removed; pull log counts 1 |
-| same, but the bank balance already counts it (D = 0) | kept, "confirmado pelo saldo" |
-| same, D = −80 (something else differs too) | kept |
-| two orphans R$ 20 + R$ 30, D = −50 | both removed |
-| two orphans R$ 20 + R$ 30, D = −20 | the R$ 20 removed only if it is the oldest matching; the R$ 30 kept |
+| notified R$ 50 expense, Pluggy never lists it, bank balance excludes it (difference bank − app = +50), refreshed past +5 d | removed; pull log counts 1 |
+| same, but the bank balance already counts it (difference 0): Pluggy missed the line, or an international purchase still "em processamento" | kept, "confirmado pelo saldo" |
+| same, difference +80 (something else differs too) | kept |
+| two orphans R$ 20 + R$ 30, difference +50 | both removed |
+| two orphans R$ 20 + R$ 30, difference +20 | the R$ 20 removed only if it is the oldest matching; the R$ 30 kept |
+| the international purchase posts on day +25 with its purchase date | joins the notified row (exact or near match); still one row |
+| **the Claude case**: notified R$ 110 international on day 0, the bank's balance already −110, Pluggy lists nothing for 20 days | kept every sweep, "confirmado pelo saldo"; nothing removed |
 | orphan with a receipt / a share / "Aconteceu" / owner-typed amount | kept |
 | connection not refreshed past +5 d (stale `pluggy_updated_at`) | kept |
 | a converted own transfer | kept |
 | a card purchase orphan | kept (list-only) |
 | Pluggy lists it late (day +4), before the sweep | not an orphan; one row |
-| income orphan (a notified Pix in that never posted), D = +X | removed |
+| income orphan (a notified Pix in that never posted), difference −X | removed |
 
 ## Pitfalls
 
 - Pending rows: with `include_pending` on, the app counts pending Pluggy rows. If the bank's balance
-  doesn't, D never equals a single orphan and nothing is removed. That is the safe side; don't
+  doesn't, the difference never equals a single orphan and nothing is removed. That is the safe side; don't
   "fix" it with a tolerance.
 - Never delete a row the sweep cannot explain. A false keep costs the owner a look at the
   Conferência; a false removal makes the balance wrong and loses money tracking.

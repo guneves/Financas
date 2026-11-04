@@ -27,15 +27,15 @@ Then switch every caller:
 |-------|-------|-------|
 | `existing_rows()` (`inbox.py:1224`) | `for_notification=True` drops what `_explained_by_notification()` (`:1283`) says, for any source | `claimed_by="notify"` or `"pluggy"`: drops only rows claimed by **that** channel. Callers: `inbox.py:1657` (notification → `"notify"`), `open_finance_inbox.py:989` (Pluggy → `"pluggy"`) |
 | `free_candidates()` (`inbox_defaults.py:104`) | blocks a candidate targeted by another item unless that item's only sources are vanished Pluggy rows **and it has no detections**, so a notification item always blocks | the item's channel: Pluggy if it has a Pluggy `SOURCE`, else notify. A candidate is blocked only by a claim of the **same** channel from another item |
-| `_linked_elsewhere()` (`open_finance_auto.py:156`; also the history preview, `open_finance.py:998`) | Pluggy claims, ignoring vanished | `pluggy_claimed()` |
+| `_linked_elsewhere()` (`open_finance_auto.py:156`; also the history preview, `_preview_status()` in `open_finance.py`) | Pluggy claims, ignoring vanished | `pluggy_claimed()` |
 | `notification_item_for_open_finance()` (`inbox.py:1822`) | `NOT EXISTS` any Pluggy row with `role <> 'REMOVED'` | also ignore `conflict = 'vanished'`. A free `PLUGGY` slot is what counts |
 
 Delete `_explained_by_notification()` once nothing calls it.
 
 ### 2. Pluggy succession: pending → posted under a new id (defects A and B)
 
-Pull order today (`_sync_item_locked()`, `open_finance.py` around 760–815): for each account,
-normalize, then `vanish_missing()` **before** the batch `ingest()`. Change it to:
+Pull order today (`_sync_item_locked()` in `open_finance.py`): for each account, normalize, then
+`vanish_missing()` **before** the batch `ingest()`. Change it to:
 
 1. Per account, compute *missing* without writing anything. New function `missing_rows(...)`, the
    same selection as `vanish_missing()` (`open_finance_inbox.py:1225`) plus `MATCHED` and `PAIRED`
@@ -51,6 +51,9 @@ normalize, then `vanish_missing()` **before** the batch `ingest()`. Change it to
      a silent live claim);
    - **keep the empty-pull guard**: when Pluggy returned no ids for that account (`seen` empty),
      nothing recorded is vanished, as today.
+   - The window is the pull's `date_from`…today: 35 days since `LATE_POSTING_DAYS`, so the
+     *missing* set is bigger than it used to be. One-to-one matching and the ±3-day rule keep that
+     safe; test it with a row 20 days old.
 
 **`successor_for()`**: one-to-one; once a missing row is taken, remove it from the set. All of:
 - same `of_account_id` and `direction`;

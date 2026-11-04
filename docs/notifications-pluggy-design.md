@@ -137,7 +137,7 @@ duplicates and is the weak point of naïve dedup.
 |------|--------------------|
 | bank app ↔ Samsung Wallet | same cents, compatible card, ≤ `NOTIFY_WINDOW_MS` (10 min), one to one, bank wins |
 | notification ↔ Pluggy | same cents, or `rounded_up()` on BB; installment ↔ total on cards; same target per mapping; Pluggy date within notification date −1…+1 (`OPEN_FINANCE_PAIR_DAYS`) for any state, and +2…+5 (`OPEN_FINANCE_LATE_POST_DAYS`) for an already recorded one |
-| notification ↔ Pluggy, **near amount** (**new**, §3.7) | only after the exact pass, only purchases, same target, same merchant, the **only** leftover on each side; amount within ±10% (international) or ±30% (domestic); same date window as above |
+| notification ↔ Pluggy, **near amount** (**new**, §3.7) | only after the exact pass, only purchases, same target, same merchant, the **only** leftover on each side; amount within ±10% (international) or ±30% (domestic); same date window as above, except international: up to `LATE_POSTING_DAYS` (35) after the notification |
 | Pluggy ↔ Pluggy (succession, **new**) | same Pluggy account and direction; same cents (or rounded up), or a near amount with the same merchant when it is the only candidate (a tip, a pre-authorisation that settles); predecessor missing from this pull, date ±3 days |
 | own transfer sides | same cents, ±`TRANSFER_MATCH_DAYS` (1), counterparties not in conflict |
 | typed look-alike | same cents, ±`INBOX_MATCH_DAYS` (3) |
@@ -219,7 +219,11 @@ e.g. R$ 41,89 of BTG's August bill. So the **bank's balance** is the arbiter:
   by the near match (§3.7), unless it was ambiguous. Several orphans are tried oldest first, each only while it brings the
   difference to zero exactly. Removal is done like `undo_declined()` and counted in the pull log.
 - **Keep it silently** when the balances already agree, or when they can't decide (no balance, or
-  other differences), because the bank's balance counts it. The Conferência lists it as
+  other differences), because the bank's balance counts it. This includes an international
+  purchase still "em processamento", which the bank has already taken from the balance (the
+  Claude case, §3.7). The Conferência's difference is **bank − app**
+  (`account["balance"] - app_balance`), so removing an expense orphan of X fixes a difference of
+  +X. The Conferência lists it as
   "confirmado pelo saldo"; nothing goes to Revisar.
 
 Reviewing or categorising a row does not protect it: the category of money that never moved is
@@ -270,7 +274,12 @@ generalises it, with stricter conditions because the difference can be larger.
 2. **Purchases only.** Card credit or debit purchases (`CREDIT_PURCHASE`, `DEBIT_PURCHASE`,
    `PURCHASE`). A Pix, a transfer, a refund or an invoice payment has an exact amount by nature, so
    it never near-matches.
-3. **Same target and direction**, as the mapping says; same date window as the exact rule.
+3. **Same target and direction**, as the mapping says; same date window as the exact rule, except
+   for international purchases: up to `LATE_POSTING_DAYS` (35) days after the notification. An
+   international purchase stays "em processamento" at the bank, already taken from the balance,
+   and Pluggy lists it only when the bank posts it, sometimes weeks later. That was the owner's
+   Claude charge on 2026-11-04: R$ 110 gone from the balance, no line in Pluggy, and the Conferência
+   said "Movimentos conferem" beside a R$ 110 difference.
 4. **Same merchant.** The notification's merchant and Pluggy's `merchant_name` or description agree:
    a shared normalised word of 4+ letters, or the same CNPJ-based name (050). A notification
    without a merchant never near-matches.
@@ -298,6 +307,16 @@ generalises it, with stricter conditions because the difference can be larger.
   ledger ends equal to the bank's lines, so only a description could be on the wrong row.
 - **Reverse order** (Pluggy first, notification later): §3.2 step 5b, the same conditions. The
   notification joins and adds nothing.
+
+**The Claude case, end to end, once the phases are built:**
+1. The bank app notifies "Compra internacional … R$ 110,00 CLAUDE.AI". The row is recorded at once,
+   so the app balance equals the bank's, which already took it.
+2. While Pluggy lists nothing, the orphan rule keeps the row, because the balance counts it, and
+   the Conferência shows it as "confirmado pelo saldo".
+3. When the bank posts it (days later, R$ 110 or another amount), the exact or near match makes it
+   the same row, and the bank's amount wins.
+4. Without a notification (phone off), only the balance difference shows it. The text "em
+   processamento no banco" (main, 2026-11-04) is the right answer there.
 
 **A foreign-currency notification** on a reais account or card is recorded at once in reais at the
 day's PTAX, marked as an estimate, instead of waiting in "Não gravou sozinho" (`hold_reason()`
