@@ -790,6 +790,10 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
         rules = import_rules_for_matching(conn, current_user_id)
         stamp = utc_timestamp()
         batch = []
+        # Sucessao (design §3.3 passo 0): o que sumiu de cada conta e calculado
+        # antes, sem gravar; a id nova que continua uma sumida a sucede no
+        # ingest(); so o que ninguem sucedeu some depois.
+        missing = {}
         for pluggy_account_id, (date_from, transactions) in pulled.items():
             account = row_to_dict(conn.execute(
                 "SELECT * FROM open_finance_accounts WHERE user_id = ? AND pluggy_account_id = ?",
@@ -818,7 +822,9 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
                     continue
                 batch.append((tx["date"], tx["direction"] != "OUT", account, tx))
             seen = {str(raw.get("id")) for raw in transactions if isinstance(raw, dict)}
-            removed += open_finance_inbox.vanish_missing(conn, current_user_id, account, seen, date_from, today_text)
+            missing[account["id"]] = (
+                seen, open_finance_inbox.missing_rows(conn, current_user_id, account, seen, date_from, today_text),
+            )
             if not account["synced_until"] or account["synced_until"] < today_text:
                 conn.execute(
                     "UPDATE open_finance_accounts SET synced_until = ? WHERE id = ? AND user_id = ?",
@@ -827,8 +833,12 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
         # Na ordem do tempo, todas as contas juntas: a saida de uma conta e a
         # entrada na outra se encontram no mesmo pull.
         for _date, _incoming, account, tx in sorted(batch, key=lambda entry: (entry[0], entry[1])):
-            status = open_finance_inbox.ingest(conn, current_user_id, account, tx, rules, stamp)
+            status = open_finance_inbox.ingest(
+                conn, current_user_id, account, tx, rules, stamp, missing=missing[account["id"]][1],
+            )
             counts[status] = counts.get(status, 0) + 1
+        for seen, left in missing.values():
+            removed += open_finance_inbox.vanish_rows(conn, current_user_id, left, seen)
         if investments is not None:
             investments = open_finance_investments.apply(conn, current_user_id, of_item_id, investments, today)
         if record and open_finance_auto.enabled(conn, current_user_id):

@@ -207,6 +207,11 @@ LOG_TO_FILE = str(os.getenv("LOG_TO_FILE", "1")).strip().lower() not in {"0", "f
 # Aprovar (services/inbox.py): folga de datas ao procurar o lancamento que ja
 # existe para um movimento que o celular notificou.
 INBOX_MATCH_DAYS = read_int_env("INBOX_MATCH_DAYS", 3, minimum=0, maximum=10)
+# A mesma compra com outro valor (docs/notifications-pluggy-design.md §3.7): a
+# faixa, em %, do valor notificado ao que o banco lancou. Internacional (a
+# estimativa em reais, o IOF) e domestica (a gorjeta, a pre-autorizacao).
+NEAR_MATCH_FOREIGN_PERCENT = read_int_env("NEAR_MATCH_FOREIGN_PERCENT", 10, minimum=0, maximum=100)
+NEAR_MATCH_DOMESTIC_PERCENT = read_int_env("NEAR_MATCH_DOMESTIC_PERCENT", 30, minimum=0, maximum=100)
 # Gravar sozinho (045, dono 2026-10-27): a notificacao e a transacao da Pluggy
 # viram lancamento na hora, e o dono so revisa (confirma e categoriza). E o
 # padrao de quem nunca mexeu no interruptor (Ajustes); os testes antigos do

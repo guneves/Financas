@@ -1221,13 +1221,53 @@ def candidate_kind(row):
     return OUT_OF_REACH_SOURCES.get(row["source_type"], "entry")
 
 
+CLAIM_NOTIFY = "notify"
+CLAIM_PLUGGY = "pluggy"
+
+
+def pluggy_claimed(conn, current_user_id, table, target_id, exclude_item_id=None):
+    """Uma transacao viva da Pluggy aponta para este lancamento (a que sumiu do
+    banco, `vanished`, e a REMOVED nao contam). Um digitado pelo dono nao tem
+    dono: e livre para os dois canais."""
+    sql = """
+        SELECT 1 FROM open_finance_transactions
+        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
+          AND COALESCE(conflict, '') <> 'vanished'
+    """
+    params = [current_user_id, table, target_id]
+    if exclude_item_id:
+        sql += " AND COALESCE(item_id, '') <> ?"
+        params.append(exclude_item_id)
+    return conn.execute(sql + " LIMIT 1", params).fetchone() is not None
+
+
+def notification_claimed(conn, current_user_id, table, target_id, exclude_item_id=None):
+    """Uma notificacao viva (fonte, par ou ligada) aponta para este lancamento."""
+    sql = """
+        SELECT 1 FROM notify_detections
+        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role IN ('SOURCE', 'PAIRED', 'MATCHED')
+    """
+    params = [current_user_id, table, target_id]
+    if exclude_item_id:
+        sql += " AND COALESCE(item_id, '') <> ?"
+        params.append(exclude_item_id)
+    return conn.execute(sql + " LIMIT 1", params).fetchone() is not None
+
+
+def claimed(conn, current_user_id, channel, table, target_id, exclude_item_id=None):
+    """O lancamento ja e de outra observacao deste canal (I2: uma por canal)."""
+    check = pluggy_claimed if channel == CLAIM_PLUGGY else notification_claimed
+    return check(conn, current_user_id, table, target_id, exclude_item_id)
+
+
 def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_text,
-                  account_id=None, card_id=None, days=None, for_notification=False):
+                  account_id=None, card_id=None, days=None, claimed_by=None):
     """Lancamentos ja gravados que podem ser este movimento.
 
-    Mesmo valor e data a `days` dias; na conta/cartao, quando se sabe. Para uma
-    notificacao, fica de fora o que outra notificacao ja explica (duas compras
-    de mesmo valor no mesmo dia continuam duas).
+    Mesmo valor e data a `days` dias; na conta/cartao, quando se sabe.
+    `claimed_by` ("notify" ou "pluggy"): fica de fora o que outra observacao do
+    MESMO canal ja explica (duas compras de mesmo valor no mesmo dia continuam
+    duas); a de outro canal nao esconde nada (a notificacao nunca segura a Pluggy).
     """
     days = INBOX_MATCH_DAYS if days is None else days
     start, end = _shift(date_text, -days), _shift(date_text, days)
@@ -1267,8 +1307,10 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
                 if account_id and row["account_id"] != account_id:
                     continue
             found.append({"table": "transactions", "id": row["id"], "kind": candidate_kind(row), "date": row["date"]})
-    if for_notification:
-        found = [entry for entry in found if not _explained_by_notification(conn, current_user_id, entry)]
+    if claimed_by:
+        found = [
+            entry for entry in found if not claimed(conn, current_user_id, claimed_by, entry["table"], entry["id"])
+        ]
     found.sort(key=lambda entry: (_date_gap(entry["date"], date_text), entry["date"]))
     return [{key: entry[key] for key in ("table", "id", "kind")} for entry in found]
 
@@ -1278,26 +1320,6 @@ def _installment_count(info):
         return max(1, int(str(info).split("/", 1)[1]))
     except (IndexError, ValueError):
         return 1
-
-
-def _explained_by_notification(conn, current_user_id, entry):
-    """Outra fonte (notificacao ou transacao do Open Finance) ja explica este
-    lancamento: duas compras de mesmo valor no mesmo dia continuam duas."""
-    params = (current_user_id, entry["table"], entry["id"])
-    return conn.execute(
-        """
-        SELECT 1 FROM notify_detections
-        WHERE user_id = ? AND target_table = ? AND target_id = ? LIMIT 1
-        """,
-        params,
-    ).fetchone() is not None or conn.execute(
-        """
-        SELECT 1 FROM open_finance_transactions
-        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
-          AND COALESCE(conflict, '') <> 'vanished' LIMIT 1
-        """,
-        params,
-    ).fetchone() is not None
 
 
 def candidate_details(conn, current_user_id, candidates):
@@ -1654,7 +1676,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
         date_text=date_of(when),
         account_id=known_account,
         card_id=target["card_id"] if target["remembered"] else None,
-        for_notification=True,
+        claimed_by=CLAIM_NOTIFY,
     )
     item_id = new_item_for_detection(conn, current_user_id, detection, target, candidates, rules)
     _insert_detection(conn, current_user_id, detection, SOURCE, item_id=item_id)
@@ -1822,7 +1844,8 @@ def open_finance_fits_item(item, *, entry_type, direction, account_id=None, card
 def notification_item_for_open_finance(conn, current_user_id, *, entry_type, direction, cents, date_text,
                                        account_id=None, card_id=None, rounds_up=False):
     """O item que uma notificacao ja abriu para este movimento (pendente ou ja
-    decidido), sem transacao do Open Finance ainda: a mesma compra, o mesmo item.
+    decidido) com a vaga da Pluggy DESTE lado livre (I2: numa transferencia, uma
+    por ponta; a sumida e a REMOVED nao ocupam): a mesma compra, o mesmo item.
     Sem par no dia (+-1), o que ja virou lancamento ate OPEN_FINANCE_LATE_POST_DAYS
     antes (o banco lancou depois). `rounds_up`: o banco arredondou o valor."""
     def look(states, date_from, date_to):
@@ -1834,9 +1857,10 @@ def notification_item_for_open_finance(conn, current_user_id, *, entry_type, dir
               AND EXISTS (SELECT 1 FROM notify_detections d
                           WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
               AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
-                              WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED')
+                              WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED'
+                                AND COALESCE(o.conflict, '') <> 'vanished' AND o.direction = ?)
             """,
-            (current_user_id, *states, date_from, date_to),
+            (current_user_id, *states, date_from, date_to, direction),
         ).fetchall()
         found = [
             row for row in rows
