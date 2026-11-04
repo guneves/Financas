@@ -9,6 +9,61 @@
 
 ## 1. Open work, in priority order
 
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — designed, decided, not built
+Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
+back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
+and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
+Investimentos transfers. The owner chose "the best scenario for each, no friction": the design's
+§7 table. A probe of today's engine with the gate opened found two defects, which Phase 1 must fix
+before the gate opens:
+- **A**: a reviewed notification row, then Pluggy's `PENDING` id posting under a new id, gives two
+  rows.
+- **I**: an own Pix whose two notifications reach the server in separate uploads becomes an income
+  plus an expense.
+
+CLAUDE.md changes with each phase. A third defect, **R**, was found while writing the prompts: a
+transfer whose origin was guessed keeps the wrong origin after Pluggy shows another account. It is
+in Phase 1a.
+
+**Session prompts**: `docs/prompts/notify-pluggy/` (README with the order: 1a, 1b, verify, 2,
+verify, 3, 4, 5, final verify). Phase 1 is split into 1a and 1b, and `06-verify-and-fix.md` is the
+bug-hunt session after each phase.
+- [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed):
+  - Pluggy id succession in the pull: missing → ingest with hand-over → vanish the rest,
+    `MATCHED`/`PAIRED` included.
+  - Claims scoped per channel (`existing_rows(claimed_by=…)`), with one claim helper shared by
+    `free_candidates()` and `_linked_elsewhere()`.
+  - One shared absorb helper, so the other side of an own transfer converts a recorded
+    despesa/receita from either channel; one-sided own transfers no longer wait.
+  - **Near match** (design §3.7, owner 2026-11-04 "add the fix"): a second pass after the exact
+    pairing, for purchases only, same merchant, unique on both sides, ±10% international / ±30%
+    domestic; the bank's amount wins unless the owner typed the amount. Also step 5b for a late
+    notification, near-amount succession, and a foreign-currency notification recorded at PTAX.
+  - Migrations `superseded_by` and `original_currency`, numbered after merging main.
+  - `test_notify_pluggy_identity.py` with matrix A–Q and an I1/I2 invariant helper.
+  - `scripts/check_identity.py`.
+- [ ] **Phase 2 — open the gate**:
+  - `NOTIFICATION_POLICY` (BTG Investimentos: transfers only; investment words and invoice payments
+    ignored; Samsung Wallet Flash only).
+  - `bank_notifications` brake in `/api/inbox/settings`, **on by default**.
+  - APK `NotifyRules.APPS`, parser filters and the `international` flag, with JVM tests.
+  - Ajustes text.
+  - CLAUDE.md rewrite of "Open Finance is the only banking source".
+- [ ] **Phase 3 — investments Pluggy-only**:
+  - One real GET of BTG `/investments` (which of `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/
+    `issuer` MeuPluggy fills).
+  - Save them; record fixed income, Tesouro and INTEREST when complete.
+  - Refuse typed operations and proventos on the Pluggy-fed Corretora.
+  - An incomplete `HELD` line opens pre-filled.
+- [ ] **Phase 4 — quiet review**:
+  - Pluggy-confirmed rows with a confident category (rule/merchant/CNAE), and two-sided transfers,
+    leave Revisar by themselves.
+  - Quiet "2× igual" badge on twins (web + APK), no attention card.
+- [ ] **Phase 5 — orphans by balance**: a notification row Pluggy never lists is removed only when
+  the balance difference equals it; otherwise it is kept as "confirmado pelo saldo"; no prompt.
+- [ ] After a week with the gate open: run `scripts/check_identity.py` on the server; it must print
+  nothing.
+
 ### Open Finance only (2026-10-30) — what is left
 - [ ] After deploying "nothing waits" (2026-11-01): watch the 5-minute fresh pulls in the log; read BB's Conferência
   (the owner's R$ 400 should be in); check Revisar for Itaú's pending salary beside BTG's TedSalary (now that pending
@@ -502,11 +557,9 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   leave the phone. Only the capture export shows what the parsers missed.
 - [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
   `.debug` package; left alone because another session owns that file.
-- [ ] Brokerage operations from notifications (owner, 2026-10-17; plan in
-  `mobile-docs/steps-to-production.md`, "Brokerage notifications" and Phase 7 step 7): a BTG
-  Investimentos detection becomes a "Registrar operação" suggestion cash linked to the brokerage
-  account; `POST /api/investments` needs a `client_id` first. The owner needs a BRL account for
-  the brokerage in Ajustes › Contas.
+- Brokerage operations from notifications (owner, 2026-10-17) are **withdrawn** by the owner's
+  rule of 2026-11-04: investments come only from Pluggy, and the BTG Investimentos app delivers only
+  transfers (`docs/notifications-pluggy-design.md` §5).
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
 - [ ] **APK on every deploy — phone check** (2026-10-22): after the next push to `main`, the
   `apk` job must run even with no change under `frontend/android/` (Actions › deploy), and the
