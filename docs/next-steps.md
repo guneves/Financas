@@ -29,14 +29,18 @@ CLAUDE.md changes with each phase.
     `free_candidates()` and `_linked_elsewhere()`.
   - One shared absorb helper, so the other side of an own transfer converts a recorded
     despesa/receita from either channel; one-sided own transfers no longer wait.
-  - Migration `superseded_by`, numbered after merging main.
-  - `test_notify_pluggy_identity.py` with matrix A–I and an I1/I2 invariant helper.
+  - **Near match** (design §3.7, owner 2026-11-04 "add the fix"): a second pass after the exact
+    pairing, for purchases only, same merchant, unique on both sides, ±10% international / ±30%
+    domestic; the bank's amount wins unless the owner typed the amount. Also step 5b for a late
+    notification, near-amount succession, and a foreign-currency notification recorded at PTAX.
+  - Migrations `superseded_by` and `original_currency`, numbered after merging main.
+  - `test_notify_pluggy_identity.py` with matrix A–Q and an I1/I2 invariant helper.
   - `scripts/check_identity.py`.
 - [ ] **Phase 2 — open the gate**:
   - `NOTIFICATION_POLICY` (BTG Investimentos: transfers only; investment words and invoice payments
     ignored; Samsung Wallet Flash only).
   - `bank_notifications` brake in `/api/inbox/settings`, **on by default**.
-  - APK `NotifyRules.APPS` and parser filters, with JVM tests.
+  - APK `NotifyRules.APPS`, parser filters and the `international` flag, with JVM tests.
   - Ajustes text.
   - CLAUDE.md rewrite of "Open Finance is the only banking source".
 - [ ] **Phase 3 — investments Pluggy-only**:

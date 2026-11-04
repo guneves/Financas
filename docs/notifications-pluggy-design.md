@@ -109,6 +109,9 @@ of notification observations and *n_P* the number of Pluggy observations.
 - Hence **#rows = max(*n_N*, *n_P*)**. Two real coffees stay two (D, E, G). One coffee notified once
   and posted once stays one (F).
 
+The near match (§3.7) only pairs leftovers, and only when the pair is unique, so it never changes
+these counts.
+
 If *n_N* > *n_P* after the bank has refreshed past the late-post window, the extra row is an
 **orphan**: authorised but never posted, such as a released pre-authorisation (§3.4).
 
@@ -122,13 +125,14 @@ duplicates and is the weak point of naïve dedup.
 
 ## 3. Rules
 
-### 3.1 Windows (existing constants, plus one new rule: succession)
+### 3.1 Windows (existing constants, plus two new rules: succession and near amount)
 
 | Pair | Same movement when |
 |------|--------------------|
 | bank app ↔ Samsung Wallet | same cents, compatible card, ≤ `NOTIFY_WINDOW_MS` (10 min), one to one, bank wins |
 | notification ↔ Pluggy | same cents, or `rounded_up()` on BB; installment ↔ total on cards; same target per mapping; Pluggy date within notification date −1…+1 (`OPEN_FINANCE_PAIR_DAYS`) for any state, and +2…+5 (`OPEN_FINANCE_LATE_POST_DAYS`) for an already recorded one |
-| Pluggy ↔ Pluggy (succession, **new**) | same Pluggy account, direction and cents (or rounded up), predecessor missing from this pull, date ±3 days |
+| notification ↔ Pluggy, **near amount** (**new**, §3.7) | only after the exact pass, only purchases, same target, same merchant, the **only** leftover on each side; amount within ±10% (international) or ±30% (domestic); same date window as above |
+| Pluggy ↔ Pluggy (succession, **new**) | same Pluggy account and direction; same cents (or rounded up), or a near amount with the same merchant when it is the only candidate (a tip, a pre-authorisation that settles); predecessor missing from this pull, date ±3 days |
 | own transfer sides | same cents, ±`TRANSFER_MATCH_DAYS` (1), counterparties not in conflict |
 | typed look-alike | same cents, ±`INBOX_MATCH_DAYS` (3) |
 
@@ -149,6 +153,9 @@ duplicates and is the weak point of naïve dedup.
 5. **Pluggy already has it** (`open_finance_item_for_detection()`). Join that movement if its
    `NOTIFY_BANK` slot is free; the notification's cleaner merchant name replaces the description if
    untouched.
+5b. **Pluggy has it with another amount (new, §3.7).** A purchase with no exact partner tries the
+   near-amount rule against Pluggy-recorded rows with a free `NOTIFY_BANK` slot. If it fits, it
+   joins that row (no new row; the merchant name may improve the description).
 6. **New movement.** Its candidates come from `existing_rows(claimed_by=NOTIFY)`: rows with no live
    notification claim. A typed look-alike is linked, never duplicated.
 7. **Record at once** (`auto_record.record_notifications()`), with a snapshot. **Nothing waits**: a
@@ -179,6 +186,11 @@ duplicates and is the weak point of naïve dedup.
    runs as today (untouched: Pluggy becomes the source; bank disagrees: re-record its way; touched:
    link only).
 3. **Recorded transfer, Conta global, own-transfer pairing**: unchanged.
+3b. **Near-amount pass (new, §3.7).** Steps 1–3 run for every row of the pull first, so all exact
+   pairs are settled. Only then do the purchases still without a partner try the near-amount rule
+   against notification rows with a free `PLUGGY` slot. A row that fits joins that movement, and
+   Pluggy's amount wins. Only what is left after this pass goes to step 4, so a near pair is never
+   recorded twice, not even for a moment.
 4. **New movement.** Its candidates come from `existing_rows(claimed_by=PLUGGY)`: rows without a
    **live Pluggy** claim. A notification claim no longer hides a row from Pluggy, which is the
    second half of the fix for A.
@@ -197,8 +209,8 @@ missing Pluggy line does not mean the money did not move: Pluggy has left real l
 e.g. R$ 41,89 of BTG's August bill. So the **bank's balance** is the arbiter:
 - **Remove** the orphan when the account's (or card's) balance difference app − bank equals exactly
   the orphan's effect, so removing it makes the app match the bank. That is the released
-  pre-authorisation, or the estimate of a foreign purchase that Pluggy posted with IOF as a
-  different amount. Several orphans are tried oldest first, each only while it brings the
+  pre-authorisation that never posted. A purchase that posted with another amount is caught earlier,
+  by the near match (§3.7), unless it was ambiguous. Several orphans are tried oldest first, each only while it brings the
   difference to zero exactly. Removal is done like `undo_declined()` and counted in the pull log.
 - **Keep it silently** when the balances already agree, or when they can't decide (no balance, or
   other differences), because the bank's balance counts it. The Conferência lists it as
@@ -233,6 +245,58 @@ Revisar keeps only rows whose category is a broad guess (Pluggy's tree or the de
 an account without Pluggy (the Flash), because there no second source confirms them. A
 notification-only row stays out of Revisar while it is `awaiting_bank`, so it costs no tap before
 Pluggy confirms it.
+
+### 3.7 Same purchase, different amount (decided, near match)
+
+The exact rule misses a purchase whose notified amount differs from the one the bank posts:
+- an international purchase, where the bank notifies an estimate in reais and posts the converted
+  amount, often with IOF;
+- a tip or a pre-authorisation that settles for another value (hotel, car rental, some restaurants);
+- a foreign-currency notification on a reais card.
+
+Without a fix, both rows live until the orphan rule (§3.4) removes the notified one, up to 5 days
+after the bank refreshes. BB's rounding (`rounded_up()`) is the one near amount already handled; this
+generalises it, with stricter conditions because the difference can be larger.
+
+**When a notification and a Pluggy row are the same purchase despite the amount.** All must hold:
+1. **Leftovers only.** The exact pass found no partner for either one, over the whole pull and over
+   every pending notification. So two identical purchases, which pair exactly, never reach this rule.
+2. **Purchases only.** Card credit or debit purchases (`CREDIT_PURCHASE`, `DEBIT_PURCHASE`,
+   `PURCHASE`). A Pix, a transfer, a refund or an invoice payment has an exact amount by nature, so
+   it never near-matches.
+3. **Same target and direction**, as the mapping says; same date window as the exact rule.
+4. **Same merchant.** The notification's merchant and Pluggy's `merchant_name` or description agree:
+   a shared normalised word of 4+ letters, or the same CNPJ-based name (050). A notification
+   without a merchant never near-matches.
+5. **Amount band.** ±10% when either side is international: the notification text says
+   "internacional"/"exterior"/a foreign symbol (new `international` flag from the parser), or
+   Pluggy converted it (`amountInAccountCurrency`; the original currency is stored, new column).
+   ±30% otherwise (tips). Both are config values, to tune on real rows.
+6. **Unique on both sides.** Exactly one candidate each way on that target in the window. With
+   two notifications or two bank lines that could fit, no near pair is made; the normal path and
+   the orphan rule decide. This is what keeps twins and different purchases at the same merchant
+   apart.
+
+**What happens then.**
+- The two are one movement, and **the bank's amount wins**. The row keeps its id, so a receipt,
+  share or review stays attached. Date and target follow `reconcile_recorded()` as for an exact
+  pair.
+- The bank's amount wins even when the owner reviewed or re-categorised the row: "É meu" and a
+  category say nothing about the amount.
+- Only an **amount the owner typed** stands. Then Pluggy only links, and the Conferência shows the
+  difference. This needs a per-field check on the snapshot ("amount changed by the owner") instead
+  of today's all-or-nothing `notification_untouched()`.
+- **Why a wrong near pair is harmless.** Say a notified R$ 30 at a supermarket meets a bank line of
+  R$ 34 from another purchase at the same place, while the real R$ 30 has not posted yet. The row
+  becomes R$ 34; when the R$ 30 posts, it finds no free notification and becomes its own row. The
+  ledger ends equal to the bank's lines, so only a description could be on the wrong row.
+- **Reverse order** (Pluggy first, notification later): §3.2 step 5b, the same conditions. The
+  notification joins and adds nothing.
+
+**A foreign-currency notification** on a reais account or card is recorded at once in reais at the
+day's PTAX, marked as an estimate, instead of waiting in "Não gravou sozinho" (`hold_reason()`
+returns `foreign_currency` today). It is international by definition, so Pluggy's posting replaces
+the estimate through this rule. The Conta global (USD) keeps its own rules.
 
 ## 4. Channel policy (server `notification_wanted()` and APK `NotifyRules`)
 
@@ -301,8 +365,26 @@ cards would only add pairs to get wrong, and the bank app already notifies.
   (§3.2 steps 4 and 7): `_absorb_recorded_pix()` becomes a helper in `services/inbox.py` that
   `_ingest_alone()` and `place()` both call; `auto_record.hold_reason()` no longer holds
   `awaiting_transfer`, except for the Conta global.
+- Near match (§3.7): a second pass at the end of each pull, after the exact pairing and before
+  `record_pending()`, plus step 5b for a late notification. Helpers `merchant_agrees()` and
+  `near_amount()` live in `services/inbox.py`. A migration adds `original_currency` to
+  `open_finance_transactions`. A per-field snapshot check ("amount typed by the owner") is added.
+  `auto_record.hold_reason()` records a foreign-currency notification at PTAX instead of holding
+  it. Succession accepts a near amount under the same conditions.
+- APK parser (ships with Phase 2): an `international` flag from the notification text.
 - Tests `test_notify_pluggy_identity.py`: matrix A–I as written in §1 (A and B must give one row
-  with the **same id**; I must give one transfer in separate uploads), plus:
+  with the **same id**; I must give one transfer in separate uploads), then the near-match cases:
+  - **J**, international: notified R$ 52,30 "internacional" → bank R$ 55,10 → one row of R$ 55,10;
+  - **K**, tip: notified R$ 100 → bank R$ 112 → one row, R$ 112;
+  - **L**, Pluggy first: bank R$ 55,10, then the notification of R$ 52,30 → still one row;
+  - **M**, ambiguous: two notifications at one merchant (R$ 30 and R$ 40) and one bank line of
+    R$ 34 → no near pair;
+  - **N**, Pix: a Pix of R$ 100 and a bank Pix of R$ 105 never near-match;
+  - **O**, the owner typed the amount: the row keeps it, and the Conferência shows the difference;
+  - **P**, pending → posted: pending R$ 100 → posted R$ 112 under a new id → same row, R$ 112;
+  - **Q**, USD notification: recorded at PTAX at once; Pluggy's posting replaces the estimate.
+
+  Plus:
   - succession on a card purchase;
   - succession with BB rounding;
   - two pending rows → two posted rows (twins through succession);
@@ -359,6 +441,7 @@ balances stay right.
 | 5 | `bank_notifications` default | **On**, shipped after Phase 1 | Works without a setting |
 | 6 | Review (found while deciding) | **Only guesses are reviewed** (§3.6) | The Revisar queue shrinks to rows whose category is a broad guess |
 | 7 | One-sided own transfer (found while deciding, defect I) | **Never waits**; recorded as the side seen, turned into the transfer by the other side | Nothing in "Não gravou sozinho"; no income/expense split |
+| 8 | Same purchase, different amount (owner, 2026-11-04: "add the fix") | **Near match** (§3.7): exact pass first; then purchases only, same merchant, unique on both sides, ±10% international / ±30% domestic; the bank's amount wins; a foreign-currency notice is recorded at PTAX | No double row for days; nothing to delete; an amount the owner typed is never overwritten |
 
 ## References
 

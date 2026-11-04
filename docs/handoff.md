@@ -31,6 +31,16 @@ The decisions:
 5. **Bank notifications:** on by default, after Phase 1.
 6. **Review:** only category guesses are reviewed.
 7. **One-sided own transfers:** never wait.
+8. **Same purchase, different amount:** the near match (§3.7).
+
+**Then, "add the fix"** (owner asked what happens when a notification and Pluggy disagree on the
+amount): design §3.7 and decision 8, the **near match**. Exact pairs are settled first. Then a
+leftover *purchase* pairs with the leftover on the other side when:
+- the merchant is the same and the pair is unique on both sides;
+- the amount is within ±10% for an international purchase, or ±30% domestic (tips).
+
+The bank's amount wins unless the owner typed the amount. A foreign-currency notice is recorded at
+PTAX at once. Twins and Pix never near-match. Tests J–Q are listed for Phase 1.
 
 **How it was grounded:** scratch probes against the real engine, not committed (the gate opened with
 `any_bank_notifications`, `FakePluggy`, pending rows on). Two defects:
@@ -48,7 +58,7 @@ and a Pix to BTG Investimentos on both sides. Untouched case B keeps one row but
 **Not done, and why:** no code. The request was design and decisions. Phase 1 is next and must land
 before the gate opens, or A and I happen on real data.
 
-**Next:** Phase 1 (succession, channel-scoped claims, the shared absorb helper, tests A–I,
+**Next:** Phase 1 (succession, channel-scoped claims, the shared absorb helper, the near match, tests A–Q,
 `scripts/check_identity.py`). Phase 3 starts with one real GET of BTG `/investments`. Whether
 MeuPluggy fills `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/`issuer` is unknown;
 `_save_positions()` keeps none of them today.
