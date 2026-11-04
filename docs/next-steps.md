@@ -9,33 +9,48 @@
 
 ## 1. Open work, in priority order
 
-### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — design only
-Design: `docs/notifications-pluggy-design.md`. The owner wants bank notifications back, integrated
-with Pluggy: no overlap, no duplicates; two real identical purchases are two rows and the app
-points them out; investments are Pluggy-only, and notifications bring only bank ↔ BTG Investimentos
-transfers. A probe of today's engine with the gate opened found one duplicate path. A reviewed
-notification row, then Pluggy's `PENDING` id posting under a new id, gives two rows, because the
-old id stays a live `MATCHED` claim and a notification claim hides the row from Pluggy. Every other
-scenario (twins, either order, Pix to the Corretora) gave the right count. Nothing is built yet;
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — designed, decided, not built
+Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
+back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
+and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
+Investimentos transfers. The owner chose "the best scenario for each, no friction": the design's
+§7 table. A probe of today's engine with the gate opened found two defects, which Phase 1 must fix
+before the gate opens:
+- **A**: a reviewed notification row, then Pluggy's `PENDING` id posting under a new id, gives two
+  rows.
+- **I**: an own Pix whose two notifications reach the server in separate uploads becomes an income
+  plus an expense.
+
 CLAUDE.md changes with each phase.
-- [ ] **Owner decisions** (design §7): orphan rows auto-removed or only listed; Samsung Wallet
-  Flash-only; typed investments refused on the Corretora except completing a `HELD` line; twin card
-  on; default of `bank_notifications`.
-- [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed): Pluggy id
-  succession in the pull (missing → ingest with hand-over → vanish the rest, `MATCHED`/`PAIRED`
-  included), claims scoped per channel (`existing_rows(claimed_by=…)`, one claim helper shared by
-  `free_candidates()` and `_linked_elsewhere()`), migration `superseded_by` (number picked after
-  merging main), `test_notify_pluggy_identity.py` with matrix A–H and an I1/I2 invariant helper,
-  `scripts/check_identity.py`.
-- [ ] **Phase 2 — open the gate**: `NOTIFICATION_POLICY` (BTG Investimentos: transfers only;
-  investment words and invoice payments ignored), `bank_notifications` brake in
-  `/api/inbox/settings`, APK `NotifyRules.APPS` + parser filters with JVM tests, Ajustes text,
-  CLAUDE.md rewrite of "Open Finance is the only banking source".
-- [ ] **Phase 3 — investments Pluggy-only**: refuse typed operations/proventos on the Pluggy-fed
-  Corretora except completing a `HELD` Pluggy operation (pre-filled, carries `op_key`).
-- [ ] **Phase 4 — twins recognised**: `twin:` attention card (web + APK).
-- [ ] **Phase 5 — orphans**: after the bank refreshed past +5 days, an untouched notification-only
-  row leaves (if the owner agrees), counted in the pull log.
+- [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed):
+  - Pluggy id succession in the pull: missing → ingest with hand-over → vanish the rest,
+    `MATCHED`/`PAIRED` included.
+  - Claims scoped per channel (`existing_rows(claimed_by=…)`), with one claim helper shared by
+    `free_candidates()` and `_linked_elsewhere()`.
+  - One shared absorb helper, so the other side of an own transfer converts a recorded
+    despesa/receita from either channel; one-sided own transfers no longer wait.
+  - Migration `superseded_by`, numbered after merging main.
+  - `test_notify_pluggy_identity.py` with matrix A–I and an I1/I2 invariant helper.
+  - `scripts/check_identity.py`.
+- [ ] **Phase 2 — open the gate**:
+  - `NOTIFICATION_POLICY` (BTG Investimentos: transfers only; investment words and invoice payments
+    ignored; Samsung Wallet Flash only).
+  - `bank_notifications` brake in `/api/inbox/settings`, **on by default**.
+  - APK `NotifyRules.APPS` and parser filters, with JVM tests.
+  - Ajustes text.
+  - CLAUDE.md rewrite of "Open Finance is the only banking source".
+- [ ] **Phase 3 — investments Pluggy-only**:
+  - One real GET of BTG `/investments` (which of `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/
+    `issuer` MeuPluggy fills).
+  - Save them; record fixed income, Tesouro and INTEREST when complete.
+  - Refuse typed operations and proventos on the Pluggy-fed Corretora.
+  - An incomplete `HELD` line opens pre-filled.
+- [ ] **Phase 4 — quiet review**:
+  - Pluggy-confirmed rows with a confident category (rule/merchant/CNAE), and two-sided transfers,
+    leave Revisar by themselves.
+  - Quiet "2× igual" badge on twins (web + APK), no attention card.
+- [ ] **Phase 5 — orphans by balance**: a notification row Pluggy never lists is removed only when
+  the balance difference equals it; otherwise it is kept as "confirmado pelo saldo"; no prompt.
 - [ ] After a week with the gate open: run `scripts/check_identity.py` on the server; it must print
   nothing.
 
