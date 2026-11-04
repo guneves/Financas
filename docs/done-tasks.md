@@ -199,6 +199,7 @@
 | Only the Flash is typed (`manual_entries.py`); Aprovar screen and its Ajustes switches removed (web and APK) | 2026-10-31 |
 | Início: invoice tile with a dropdown per invoice, no open-items panel; equal Ritmo boxes; Evolução counts transfers to the global account | 2026-10-31 |
 | A receber: "Pago" asks which income paid it (053 `share_paid_by`, `link_income()`), editable after (web + APK); a repasse covers only the same person | 2026-11-02 |
+| Design: notifications + Pluggy, one movement one row (`docs/notifications-pluggy-design.md`): channel model and invariants, probe of today's engine (one duplicate path found: a reviewed notification row + Pluggy's pending id posting under a new id), channel policy (BTG Investimentos: transfers only), investments Pluggy-only, twins kept and pointed out, five phases. Nothing built | 2026-11-04 |
 
 ---
 

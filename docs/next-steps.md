@@ -9,6 +9,36 @@
 
 ## 1. Open work, in priority order
 
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — design only
+Design: `docs/notifications-pluggy-design.md`. The owner wants bank notifications back, integrated
+with Pluggy: no overlap, no duplicates; two real identical purchases are two rows and the app
+points them out; investments are Pluggy-only, and notifications bring only bank ↔ BTG Investimentos
+transfers. A probe of today's engine with the gate opened found one duplicate path. A reviewed
+notification row, then Pluggy's `PENDING` id posting under a new id, gives two rows, because the
+old id stays a live `MATCHED` claim and a notification claim hides the row from Pluggy. Every other
+scenario (twins, either order, Pix to the Corretora) gave the right count. Nothing is built yet;
+CLAUDE.md changes with each phase.
+- [ ] **Owner decisions** (design §7): orphan rows auto-removed or only listed; Samsung Wallet
+  Flash-only; typed investments refused on the Corretora except completing a `HELD` line; twin card
+  on; default of `bank_notifications`.
+- [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed): Pluggy id
+  succession in the pull (missing → ingest with hand-over → vanish the rest, `MATCHED`/`PAIRED`
+  included), claims scoped per channel (`existing_rows(claimed_by=…)`, one claim helper shared by
+  `free_candidates()` and `_linked_elsewhere()`), migration `superseded_by` (number picked after
+  merging main), `test_notify_pluggy_identity.py` with matrix A–H and an I1/I2 invariant helper,
+  `scripts/check_identity.py`.
+- [ ] **Phase 2 — open the gate**: `NOTIFICATION_POLICY` (BTG Investimentos: transfers only;
+  investment words and invoice payments ignored), `bank_notifications` brake in
+  `/api/inbox/settings`, APK `NotifyRules.APPS` + parser filters with JVM tests, Ajustes text,
+  CLAUDE.md rewrite of "Open Finance is the only banking source".
+- [ ] **Phase 3 — investments Pluggy-only**: refuse typed operations/proventos on the Pluggy-fed
+  Corretora except completing a `HELD` Pluggy operation (pre-filled, carries `op_key`).
+- [ ] **Phase 4 — twins recognised**: `twin:` attention card (web + APK).
+- [ ] **Phase 5 — orphans**: after the bank refreshed past +5 days, an untouched notification-only
+  row leaves (if the owner agrees), counted in the pull log.
+- [ ] After a week with the gate open: run `scripts/check_identity.py` on the server; it must print
+  nothing.
+
 ### Open Finance only (2026-10-30) — what is left
 - [ ] After deploying "nothing waits" (2026-11-01): watch the 5-minute fresh pulls in the log; read BB's Conferência
   (the owner's R$ 400 should be in); check Revisar for Itaú's pending salary beside BTG's TedSalary (now that pending
@@ -496,11 +526,9 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   leave the phone. Only the capture export shows what the parsers missed.
 - [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
   `.debug` package; left alone because another session owns that file.
-- [ ] Brokerage operations from notifications (owner, 2026-10-17; plan in
-  `mobile-docs/steps-to-production.md`, "Brokerage notifications" and Phase 7 step 7): a BTG
-  Investimentos detection becomes a "Registrar operação" suggestion cash linked to the brokerage
-  account; `POST /api/investments` needs a `client_id` first. The owner needs a BRL account for
-  the brokerage in Ajustes › Contas.
+- Brokerage operations from notifications (owner, 2026-10-17) are **withdrawn** by the owner's
+  rule of 2026-11-04: investments come only from Pluggy, and the BTG Investimentos app delivers only
+  transfers (`docs/notifications-pluggy-design.md` §5).
 - [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
 - [ ] **APK on every deploy — phone check** (2026-10-22): after the next push to `main`, the
   `apk` job must run even with no change under `frontend/android/` (Actions › deploy), and the
