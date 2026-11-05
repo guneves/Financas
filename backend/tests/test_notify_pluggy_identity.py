@@ -937,3 +937,77 @@ class TestFuzzRegressions:
         assert {of_row(user["id"], in_id)["target_id"], of_row(user["id"], out_id)["target_id"]} == {first["id"]}
         assert world.pending() == []
         assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# Intercalacao (06-verify-and-fix.md §5): o pull de 5 min e o POST de avisos
+# ---------------------------------------------------------------------------
+
+class TestInterleaving:
+    """O pull faz ler-decidir-gravar numa transacao so (`_sync_item_locked()`:
+    o primeiro comando e um UPDATE, entao a trava de escrita vem antes de
+    qualquer leitura); o POST de avisos tambem (`post_detections()`: ingest,
+    gravar e desfazer na mesma `get_db()`). Aqui o aviso entra no meio do pull,
+    entre o ingest do lote e o `record_pending()`, nas funcoes de servico."""
+
+    def _notice_inside_the_pull(self, world, monkeypatch, user, notice):
+        open_finance_inbox = importlib.import_module("services.open_finance_inbox")
+        inbox = importlib.import_module("services.inbox")
+        auto_record = importlib.import_module("services.auto_record")
+        real = open_finance_inbox.near_match_pass
+
+        def notice_then_near(conn, current_user_id, before):
+            inbox.ingest_detections(conn, current_user_id, [notice])
+            auto_record.record_notifications(conn, current_user_id)
+            return real(conn, current_user_id, before)
+
+        monkeypatch.setattr(open_finance_inbox, "near_match_pass", notice_then_near)
+
+    @pytest.mark.parametrize("status", ["POSTED", "PENDING"])
+    def test_a_purchase_notified_between_ingest_and_record_is_one_row(self, world, user, monkeypatch, status):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "COMPRA CARTAO DEB PADARIA", status=status))
+        self._notice_inside_the_pull(world, monkeypatch, user, detection(
+            "DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 32), app=ITAU, merchant="PADARIA BOM PAO"))
+        world.sync(item_id)
+        assert len(world.transactions(mine)) == 1
+        world.sync(item_id)
+        assert len(world.transactions(mine)) == 1
+        assert world.pending() == []
+        assert_identity(user["id"])
+
+    def test_a_near_purchase_notified_between_ingest_and_record_is_one_row(self, world, user, monkeypatch):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        world.fake.add_tx(account, bank_tx(-112.0, "2026-10-20", "COMPRA CARTAO DEB RESTAURANTE SABOR"))
+        self._notice_inside_the_pull(world, monkeypatch, user, detection(
+            "DEBIT_PURCHASE", 10000, at=ms(2026, 10, 20, 20, 0), app=ITAU, merchant="RESTAURANTE SABOR"))
+        world.sync(item_id)
+        assert [row["amount"] for row in world.transactions(mine)] == [112.0]
+        assert_identity(user["id"])
+
+    def test_the_other_side_of_an_own_pix_notified_inside_the_pull_is_one_transfer(self, world, user, monkeypatch):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        world.fake.add_tx(made["itau:0001/1-1"][0], bank_tx(-700, "2026-10-22", "PIX ENVIADO", category_id=PIX,
+                                                           counterparty="Fulano Dono"))
+        self._notice_inside_the_pull(world, monkeypatch, user, detection(
+            "PIX_IN", 70000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None, counterparty="Fulano Dono"))
+        world.sync(made["items"]["itau"])
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert_identity(user["id"])
+
+    def test_the_unique_indexes_refuse_a_double_insert(self, world, user):
+        db = importlib.import_module("db")
+        with db.get_db() as conn:
+            def unique(table):
+                return {
+                    tuple(column["name"] for column in conn.execute(f"PRAGMA index_info('{index['name']}')"))
+                    for index in conn.execute(f"PRAGMA index_list('{table}')") if index["unique"]
+                }
+            assert ("user_id", "source_type", "source_id") in unique("transactions")
+            assert ("user_id", "dedup_key") in unique("notify_detections")
+            assert ("user_id", "dedup_key") in unique("open_finance_transactions")
