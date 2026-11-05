@@ -7,92 +7,59 @@
 
 ---
 
-## Session — 2026-11-05 · Notifications + Pluggy, session 4 of 5: Phases 4 and 5
+## Session — 2026-11-05 · Notifications + Pluggy, session 5 of 5: final verification
 
-Branch: **`claude/friendly-pasteur-w9cbwq`**, from `main` at `b4679fc` (Phases 1–3 already merged; session 3's
-branch `claude/notify-pluggy-phase3` is an ancestor of `main`, so nothing else to merge). No migration.
-**The owner asked mid-session to open a PR and merge when done** (as in session 3), so Phases 4–5 go to
-`main` through a PR; session 5 (final verification) starts from `main`.
+Branch: **`claude/notifications-pluggy-verify-9tss34`**, from `main` at `da59556`. Phases 1–5 were already on
+`main` (PRs #67 and #68, merged at the owner's request in sessions 3 and 4), so the "chain" to verify was
+`main` itself; session 4's branch `claude/friendly-pasteur-w9cbwq` is an ancestor of `main`. The owner asked
+mid-session to open the PR and merge it when done. No migration.
 
-**Done — Phase 4** (commit "Phase 4: review only what is a guess…")
-- **The trap first**: `notification_untouched()` is snapshot equality only (no more `review.awaiting()`);
-  `_absorb_recorded_real_side()` lost its `needs_review = 1` filter; `apply_change()` now also refreshes the
-  item's snapshot (`refresh_snapshots()`), so a second bank change still applies to a notification row.
-- `open_finance_inbox.settle_review()`: after Pluggy confirms (`reconcile_recorded()` untouched path, which
-  the near match goes through; `open_finance_auto.record_item()` right after recording), a row whose
-  `category_decision()` is rule/merchant/CNAE gets that category (while untouched), `needs_review = 0`, and
-  the snapshots are refreshed in the same transaction (`review.clear()`).
-- `inbox.settle_transfer_review()` / `transfer_confirmed()`: a recorded transfer with an OUT and an IN
-  observation, at least one from Pluggy, leaves review (from `finish_absorb()`, `place()` step 3,
-  `ingest_detection()` step 1, `reconcile_recorded()` for transfers).
-- **Found and fixed**: `absorb_recorded_side()` required exactly one observation, so a despesa notified
-  *and* confirmed by Pluggy (two observations, one side) never became the transfer when the other bank's
-  side arrived. Now: at most one observation per channel, all movements, same direction.
-- `services/twins.py`: `twin` on `GET /api/transactions` (both paths), `GET /api/review`,
-  `GET /api/cc-expenses/statement`. Web: neutral `Badge` "2× igual" in the Extrato rows and `ReviewPanel`.
-  APK: `twin` on `TransactionDto`/`ReviewItemDto`/`CardStatementDto`, badge in the Extrato row and
-  `ReviewSection` (`twin_badge`).
+**Baseline**: full backend suite green on `main` before any change (5.5 min); `npm test` 236 green.
 
-**Done — Phase 5**
-- `services/open_finance_orphans.py` (`sweep`, `choose`, `protected`, `ripe`, `balance_confirmed`), called
-  in `_sync_item_locked()` **after** the `last_sync_at` stamp (so `bank_refreshed_since()` sees this pull as
-  read), inside the same transaction, only when auto-record is on.
-- `open_finance_check.balance_difference()` is the one formula; `list_view()` now calls it.
-- `account_check(..., balance_confirmed=)` moves those rows out of `app_only`/`awaiting_bank` into
-  `balance_confirmed` (+ count); their dates widen the window when Pluggy listed nothing.
-- Web (Ajustes › Open Finance) and APK (`OpenFinanceCheckDto.balanceConfirmed`, Ajustes) list
-  "Confirmado pelo saldo".
+**Bugs found and fixed** (one commit each, failing test first)
+1. *Duplicate (balance)*: a late notice of a transfer side Pluggy already completed opened a **second
+   transfer** (Itaú notified the Pix to the Corretora, Pluggy brought both sides, the BTG Investimentos notice
+   came later and guessed "BTG conta corrente → Corretora"). `approved_transfer_awaiting()` treated a side as
+   taken by any channel; now the notification path asks only its own (I2). Test:
+   `TestFuzzRegressions::test_a_late_brokerage_notice_joins_the_transfer_pluggy_completed`.
+2. *Performance*: `near_notification_items()` scanned every inbox item of the 36-day window once per new
+   Pluggy row (`substr(occurred_at)` defeats the index): a first pull of 3000 rows 5.1 s before Phase 1 →
+   12.6 s → **6.0 s** now (driven by the window's notifications). Test:
+   `test_notify_pluggy_plans.py::test_the_near_pass_costs_the_notifications_not_the_pluggy_items` (SQLite VM steps).
+3. *Wrong totals*: an own transfer split into **despesa + receita** when Pluggy recorded the first side and its
+   notice joined that item (the item has no snapshot of its own, so the notice said "touched" and blocked the
+   absorb). ~25 of 200 generated worlds. Test:
+   `TestFuzzRegressions::test_a_pluggy_side_confirmed_by_its_notice_still_becomes_the_transfer`.
 
-**Tests**
-- New `test_quiet_review.py` (23): merchant category clears; the bank's merchant replaces the guess;
-  Pluggy-tree and default stay; Pluggy-only padaria; owner's rule; card purchase clears, refund stays;
-  Flash stays; two-sided transfer (notice + Pluggy) clears, two notices without Pluggy stay; Conta global
-  stays; **after auto-clear**: amount change (twice, notification row) and Pluggy-only, vanish, the other side
-  by Pluggy and by notification, pending → posted with another amount, near-amount notification after;
-  "É meu" → date follows; changed category → date stays and only linked, category never overwritten;
-  `notification_untouched()` direct.
-- New `test_twins.py` (20): 4 min / 2 h / other merchant / other cents / other account / typed same day /
-  income never / next page / another user; card twins, other description, other card, card twins in review;
-  pure `close_in_time` / `twin_keys`.
-- New `test_open_finance_orphans.py` (24): every row of the prompt's table, plus no subset, no tolerance,
-  income with the wrong sign, connection never read, review doesn't protect, pure `choose` and
-  `balance_difference`.
-- JVM: `ReviewRulesTest.aCardTwinKeepsItsFlagInTheStatement`. Node: no new rule (rendering a flag).
-- Results: backend full suite 2647 passed; `npm test` 236; `vite build` ok; android-check green.
+**Added**: `test_notify_pluggy_fuzz.py` (200 seeds, the real gate, ~2.6 min), `test_notify_pluggy_plans.py`
+(EXPLAIN QUERY PLAN of every statement of a generated world: no SCAN of a hot table), `TestInterleaving` (a
+notice between `ingest()` and `record_pending()`; unique indexes), `TestEndToEnd` (A–S in one world). CLAUDE.md
+and two docstrings fixed where they contradicted the code; design §8 records what was built and every
+deviation.
 
-**Tests changed (rule changed, design §3.4/§3.6)**
-- `test_auto_record.py`: `needs_review` now 0 where the merchant is known (padaria, Smart Fit);
-  `test_a_reviewed_row_is_never_redone` → `test_a_reviewed_row_follows_the_bank_date` +
-  `test_a_recategorised_row_is_never_redone`; `test_a_reviewed_row_posted_days_later_is_only_linked` →
-  `…recategorised…`; `test_pluggy_alone_is_recorded_for_review` uses "LOJA 123".
-- `test_notify_pluggy_identity.py`: a reviewed-only row is now `SOURCE` (untouched); the "matched without
-  successor" case recategorises to stay touched; B's `needs_review` 0.
-- `test_notification_policy.py`: `test_a_row_the_owner_reviewed_stays` → reviewed-only is undone by a Flash
-  decline, recategorised stays.
-- `test_open_finance_auto.py` (two-sided transfer → 0), `test_open_finance_tick.py` (padaria → 0).
+**Checked and fine** (06 §3, line by line): live/claimed queries; `_explained_by_notification` gone; one claim
+helper; succession one-to-one, same installment, no broker/COVERED/INVOICE_PAYMENT, empty-pull guard;
+`hand_over()` updates `source_id` only where it was the old id, all installments' `client_id`, `client_key`;
+guessed side never to the same/foreign/archived account; no import cycle; absorb by snapshot; near-match
+eligibility; integer band edges; typed amount kept; PTAX via `rounded_money()` and waits without a rate; old APK
+without `international`; gate signature, no trace when off, FUNDO DE QUINTAL, invoice text before `kindOf()`,
+Samsung with a bank card ignored (fuzz); no guessed rate; guard on routes only; `op_key` of this user and HELD
+(replay 400); both scripts `mode=ro`, no `app`; review clears in the same pass, `review_count` = Revisar
+(fuzz); twin query with `user_id` and a date range, neutral badge; one balance formula, sign, international
+kept, protected rows, stale connection, cards list-only. A two-connection race (pull committing between the
+notice's read and its write) also gave one row.
 
 **Not done, and why**
-- Cards: no removal by balance (prompt: list-only).
-- No real data: production is off-limits.
+- Nothing on a phone, on real Pluggy data or on a device: production is off-limits, no Android SDK here.
+  android-check: this branch doesn't touch `frontend/android/` (last run green on `main`).
 
-**Next**: session 5, final verification (`06-verify-and-fix.md`) from `main`.
-
-### For the final verification
-- **Riskiest**: (1) "untouched" by snapshot means a row the owner only reviewed is now redone by the bank
-  (date/card) and removed by a Flash decline or a vanish — intended (§3.4), but a behaviour change on
-  production rows reviewed before this deploy. (2) The orphan sweep deletes rows: check `choose()` and
-  `protected()`; it runs only after `bank_refreshed_since(date + 5 d)` of **every** active connection.
-  (3) `absorb_recorded_side()` widened (one side, ≤ 1 observation per channel).
-- Pull order is now: … `record_pending()` → `record_bank_payments()` → `mark_bank_investments()` →
-  `last_sync_at` → `open_finance_orphans.sweep()`.
-- **Not tested**: badges and the Conferência list were not clicked in a browser or on a device; the
-  confirmed-by-balance list with pending Pluggy rows counted by the app (the difference never matches, so
-  nothing is removed — the safe side).
+**Next**: the owner's checks in `next-steps.md` (APK, Itaú purchase, Pix to BTG, `position_fields.py`, weekly
+`check_identity.py`).
 
 Lessons:
-- `connected()` pulls once on connect; a later pull of an account with no Pluggy row yet only looks back
-  `OVERLAP_DAYS`. Tests that add older bank lines after connecting reset `synced_until` (as
-  `test_global_account.pull()`).
-- `bank_tx()`'s default description "COMPRA PADARIA" is in the merchant table: since Phase 4 it leaves
-  review by itself. Use "LOJA 123" when a test needs a guessed category.
-- `services/review.py` is imported by `inbox`; `services/twins.py` must not import `inbox` (cycle).
+- A generated world must live **before the real clock**: `last_sync_at` is real time, and the app only "read"
+  the bank once `last_sync_at ≥ pluggy_updated_at`; a world in the future never lets an orphan go.
+- Give every account one old Pluggy line: a just-connected account with no rows looks back only
+  `OVERLAP_DAYS`, and a single sandbox-sign card purchase is learned as a refund.
+- `set_progress_handler` counts SQLite VM steps: a deterministic performance test, no stopwatch.
+- `pkill -f pytest` also kills the shell running it; target the PID.
