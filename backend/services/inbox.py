@@ -1039,6 +1039,11 @@ def _shift(date_text, days):
     return (parse_iso_date(date_text) + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
+def _day_ms(date_text):
+    """A meia-noite UTC do dia, em ms (para comparar com posted_ms)."""
+    return int(datetime.combine(parse_iso_date(date_text), datetime.min.time(), timezone.utc).timestamp() * 1000)
+
+
 def _has_detection_source(conn, current_user_id, item_id):
     """O item ainda tem uma fonte viva: uma notificacao ou uma transacao do
     Open Finance (043) que o alimenta."""
@@ -2343,17 +2348,24 @@ def near_notification_items(conn, current_user_id, row, exclude_item_id=None):
     if not near_row_ok(conn, current_user_id, row):
         return []
     entry_type, account_id, card_id = row_target(conn, current_user_id, row)
+    first, last = _shift(row["date"], -late_posting_days()), _shift(row["date"], OPEN_FINANCE_PAIR_DAYS)
+    # Pelas notificacoes da janela (indice user_id, posted_ms; a hora do item
+    # fica a ate 24 h do aviso), nunca por todos os itens: roda uma vez por
+    # linha nova do pull, e os itens da Pluggy sao a maioria (sessao 5).
     rows = conn.execute(
         f"""
-        SELECT i.* FROM inbox_items i
+        SELECT i.* FROM (
+            SELECT DISTINCT d.item_id FROM notify_detections d
+            WHERE d.user_id = ? AND d.role = 'SOURCE' AND d.posted_ms BETWEEN ? AND ? AND d.item_id IS NOT NULL
+        ) n CROSS JOIN inbox_items i ON i.id = n.item_id
         WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
-          AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
+          AND i.occurred_at >= ? AND i.occurred_at < ?
           AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
                           WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED'
                             AND COALESCE(o.conflict, '') <> 'vanished' AND o.direction = 'OUT')
         """,
-        (current_user_id, *PAIRABLE_STATES, _shift(row["date"], -late_posting_days()),
-         _shift(row["date"], OPEN_FINANCE_PAIR_DAYS)),
+        (current_user_id, _day_ms(_shift(first, -2)), _day_ms(_shift(last, 3)),
+         current_user_id, *PAIRABLE_STATES, first, _shift(last, 1)),
     ).fetchall()
     found = []
     for item_row in rows:
