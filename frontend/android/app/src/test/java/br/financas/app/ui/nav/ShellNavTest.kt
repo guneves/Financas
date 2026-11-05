@@ -38,10 +38,26 @@ class ShellNavTest {
         assertTrue(ShellNav.showsNewEntry(NativeRoutes.PROVENTOS))
         assertTrue(ShellNav.showsNewEntry(NativeRoutes.AJUSTES))
         assertEquals(ShellNav.Section.LANCAMENTOS, ShellNav.NEW_ENTRY_AFTER)
+        // O "+" no centro: tantas abas antes dele quanto depois.
+        val before = ShellNav.BAR.indexOf(ShellNav.NEW_ENTRY_AFTER) + 1
+        assertEquals(before, ShellNav.BAR.size - before)
         assertFalse(ShellNav.showsNewEntry(NativeRoutes.LOGIN))
         assertFalse(ShellNav.backGoesHome(NativeRoutes.HOME))
         assertFalse(ShellNav.backGoesHome(NativeRoutes.LOGIN))
         assertTrue(ShellNav.backGoesHome(NativeRoutes.EXTRATO))
+    }
+
+    @Test
+    fun ajustesLeavesTheBottomBarForTheGearAtTheTop() {
+        assertFalse(ShellNav.Section.AJUSTES in ShellNav.BAR)
+        assertEquals(
+            listOf(ShellNav.Section.HOME, ShellNav.Section.LANCAMENTOS, ShellNav.Section.PLANEJAR, ShellNav.Section.INVESTIR),
+            ShellNav.BAR,
+        )
+        assertTrue(ShellNav.showsSettings(NativeRoutes.HOME))
+        assertTrue(ShellNav.showsSettings(NativeRoutes.EXTRATO))
+        assertFalse(ShellNav.showsSettings(NativeRoutes.AJUSTES))
+        assertFalse(ShellNav.showsSettings(NativeRoutes.LOGIN))
     }
 
     @Test

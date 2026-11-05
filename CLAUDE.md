@@ -187,7 +187,15 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   account; `credit_enabled = 0` is debit-only (refused on credit paths, no autopay). The debit
   account is never a Corretora.
 - **Débito automático** (`autopay_account_id`) is materialized on read by `apply_due_autopay()` on
-  the due day, only for invoices due on/after `autopay_start_date`.
+  the due day, only for invoices due on/after `autopay_start_date`, and **only when the account's
+  balance at the end of the due day** (`account_balance_until()`, rows dated ≤ it, earlier debits of
+  the same pass included) covers the invoice (owner 2026-11-05); without it the invoice stays open
+  for Pagar. **A Pluggy-mapped card is debited too** (owner 2026-11-05, reversing 2026-10-30), only up
+  to `AUTOPAY_CONNECTED_DAYS` (5) after the due day and never with a loose bank invoice payment
+  (`pluggy:` source id) on that account within ±5 days; the bank's payment later links to the
+  autopay row (`invoice_payment_link()` same cents, `_kept_payment()` same day, same cents ≤ 5 days,
+  or an autopay row ≤ 5 days within `AUTOPAY_NEAR_PERCENT`, 5%) and takes the bank's amount; farther amounts on
+  another day stay two payments.
 - **A refund is a credit row** (033, `kind = 'REFUND'`, stored positive, 1/1, never shared); sum card
   rows through `signed_amount()` / `signed_amount_sql()` / `cardSignedAmount()`. An invoice in
   credit is refused (409) and rides along with the next payment.
@@ -306,8 +314,8 @@ doesn't cover, comes only from notices (and typing).
   `sync_fresh_items()`): one `GET /items/{id}` per connection, and a connection whose `lastUpdatedAt` moved past
   our `pluggy_updated_at` is pulled at once, so a movement enters the moment Pluggy has it.
 - **A bank invoice payment is recorded from Pluggy** (`services/open_finance_invoices.py`): with no
-  app row it settles that invoice through the settlement path, idempotent by Pluggy id. Autopay and
-  recurrences never write on a Pluggy-mapped card or account.
+  app row it settles that invoice through the settlement path, idempotent by Pluggy id. Recurrences
+  never write on a Pluggy-mapped card or account; autopay does (Cards above), and the bank's payment joins it.
 - **Categories**: owner's import rule → merchant table → CNAE → Pluggy's category → default
   (`open_finance_categories.py`); merchant data from 050.
 - **The pull writes what Pluggy brings** (owner 2026-10-30): every 6 h, the 5-minute freshness check, or the
@@ -357,7 +365,8 @@ doesn't cover, comes only from notices (and typing).
   mixes the used limit, pending holds and BB's rounding). An orphan: EXPENSE/INCOME recorded by a notification
   item, no live Pluggy claim, date ≤ today − `OPEN_FINANCE_LATE_POST_DAYS`, and `bank_refreshed_since(date + 5
   days)`. The difference is the Conferência's own (`open_finance_check.balance_difference()`, bank − app in
-  cents, the one formula the overview uses): removing an expense of X fixes +X, an income −X; the oldest orphan
+  cents, the one formula the overview uses; the app side is the balance **up to today**,
+  `account_balance_until()`, so a future-dated typed row is no difference): removing an expense of X fixes +X, an income −X; the oldest orphan
   whose fix equals it leaves, or all when their sum does; no subset search, no tolerance. Removal is like
   `undo_declined()` (item `REMOVED`, reason `orphan`), counted as `removed_orphans` in the pull result and log.
   Never removed: a receipt, a share, "Aconteceu", an amount the owner typed (≠ the snapshot's), a transfer;
@@ -682,9 +691,11 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   `test_route_map.py` fails.
 - `formatCurrency` and the date helpers live in `lib/format.js`; `pages/lancamentos/helpers.js`
   keeps a local `getLocalDateString`/`formatDateBR` on purpose (clock hook, `''` vs `'-'`).
-- **The "+" lives in the bottom bar** (owner 2026-11-05): web `Layout.jsx` (middle of the bar; desktop: the
-  header) and APK `ShellBottomBar` (after Lançamentos, `ShellNav.NEW_ENTRY_AFTER`, on every page with the bar).
-  Never a floating button over the page: it covered the end of the lists.
+- **The "+" lives in the bottom bar, at its center** (owner 2026-11-05): web `Layout.jsx` (middle of the bar;
+  desktop: the header) and APK `ShellBottomBar` (after Lançamentos, `ShellNav.NEW_ENTRY_AFTER`, on every page with
+  the bar). Never a floating button over the page: it covered the end of the lists. **Ajustes is not a bottom tab**
+  (owner 2026-11-05): the bar is `ShellNav.BAR` (Início, Lançamentos, "+", Planejar, Investir); Ajustes opens from
+  the gear at the top (`SettingsButton` in `NativeTopBar` and Início's header; web: the header's gear).
 - **Frontend**: pages use only `ui.jsx` pieces; emerald is the only accent; tabs come from the URL;
   data via `useQuery`; `apiFetch` invalidates after every write (no manual refetch). Loading lists
   show `ListSkeleton`. Headline numbers in one `SummaryPanel`; two+ row actions behind a `Menu`;

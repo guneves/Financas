@@ -42,8 +42,8 @@ from datetime import timedelta
 
 from dates import parse_iso_date
 from db import utc_timestamp
-from services import global_account, inbox, open_finance_auto, open_finance_check, open_finance_inbox
-from services.accounts import account_balance_rows
+from services import global_account, inbox, invoices, open_finance_auto, open_finance_check, open_finance_inbox
+from services.accounts import account_balance_rows, account_balance_until
 from services.recorded_snapshot import _snapshot_cents, snapshot_amount_cents
 
 # O banco precisa ter atualizado depois de data + REFRESH_AFTER_DAYS.
@@ -131,12 +131,16 @@ def ripe(conn, current_user_id, row, today_text):
     return bool(after) and open_finance_auto.bank_refreshed_since(conn, current_user_id, f"{after}T23:59:59Z")
 
 
-def account_difference(conn, current_user_id, of_account):
-    """A diferenca banco - app da Conferencia, em centavos (ou None)."""
+def account_difference(conn, current_user_id, of_account, today_text=None):
+    """A diferenca banco - app da Conferencia, em centavos (ou None): o app ate
+    hoje, como na tela. Com o saldo inteiro, um lancamento futuro digitado (um
+    boleto agendado de X) virava uma diferenca de +X, e a orfa de X, real, saia."""
+    today_text = today_text or invoices.local_today().strftime("%Y-%m-%d")
     balance_row = next(
         (row for row in account_balance_rows(conn, current_user_id) if row["id"] == of_account["account_id"]), None,
     )
-    return open_finance_check.balance_difference(of_account, balance_row)[1]
+    settled = account_balance_until(conn, current_user_id, of_account["account_id"], today_text) if balance_row else None
+    return open_finance_check.balance_difference(of_account, balance_row, settled)[1]
 
 
 def choose(orphans, difference_cents):
@@ -180,7 +184,7 @@ def sweep(conn, current_user_id, of_item_id, today):
         ]
         if not orphans:
             continue
-        for row in choose(orphans, account_difference(conn, current_user_id, of_account)):
+        for row in choose(orphans, account_difference(conn, current_user_id, of_account, today_text)):
             removed += 1 if _remove(conn, current_user_id, row) else 0
     return removed
 

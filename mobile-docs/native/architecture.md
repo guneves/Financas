@@ -18,8 +18,8 @@ endpoints the React app (now browser only) calls.
 
 ## The shell
 - `NativeActivity` starts on `login` without a `Session`, else on `home`. Around every page: the
-  bottom bar (Início, Lançamentos, Planejar, Investir, Ajustes; `ShellNav`), the "+" (the native
-  "+ Novo", `NewEntryActivity`, Cartão inside Cartões), the APK banner and the Pendentes sheet.
+  bottom bar (Início, Lançamentos, "+", Planejar, Investir; `ShellNav.BAR`, the "+" at the center: the native
+  "+ Novo", `NewEntryActivity`, Cartão inside Cartões), the gear to Ajustes at the top (`SettingsButton`), the APK banner and the Pendentes sheet.
   Back with nothing below goes to Início; on Início it moves the task to the back. There is no
   Aprovar page (045): the review pill (`ReviewPill`, count from `GET /api/review`, re-read every
   minute while resumed) opens the Extrato in review mode.

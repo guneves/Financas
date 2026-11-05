@@ -461,6 +461,11 @@ private fun AppShell(
         onOpenPending = shell::openPending,
         reviewCount = shell.reviewCount,
         onOpenReview = { openLink(ReviewRules.REVIEW_PATH) },
+        onOpenSettings = if (ShellNav.showsSettings(route)) {
+            { nav.openSection(ShellNav.Section.AJUSTES) }
+        } else {
+            null
+        },
     )
     val section = ShellNav.sectionOf(route)
     val palette = LocalPalette.current

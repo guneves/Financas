@@ -123,6 +123,23 @@ class TestTheBalanceDecides:
         assert account["check"]["balance_confirmed_count"] == 1
         assert row["id"] not in {entry["id"] for entry in account["check"]["app_only"]}
 
+    def test_a_future_typed_row_is_not_a_difference(self, world, user):
+        """O banco nao tem o boleto agendado: a diferenca e a de hoje, e a orfa
+        real de mesmo valor fica (antes saia: +50 do futuro = o conserto dela)."""
+        bank = Bank(world)
+        bank.notify("DEBIT_PURCHASE", 5000, 10)
+        [row] = bank.rows()
+        world.call("post", "/api/transactions", json={
+            "account_id": bank.account, "amount": 50.0, "date": "2026-11-05", "type": "EXPENSE",
+            "category": "Outros", "description": "Boleto agendado",
+        })
+        bank.balance(-50.0)  # o banco ja tirou a compra, e nao o boleto
+        body = bank.sync()
+        assert body["removed_orphans"] == 0
+        assert row["id"] in {entry["id"] for entry in bank.rows()}
+        assert stored_difference(user["id"], bank) == 0
+        assert bank.overview()["difference"] == 0
+
     def test_another_difference_keeps_it(self, world, user):
         bank = Bank(world)
         bank.notify("DEBIT_PURCHASE", 5000, 10)
