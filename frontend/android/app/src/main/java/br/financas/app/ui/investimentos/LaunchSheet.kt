@@ -130,6 +130,23 @@ class LaunchSheetState(
         refreshExemption()
     }
 
+    /** O "Lançar" de uma operacao da corretora que espera (Ajustes › Open Finance): ja preenchida. */
+    fun openPrefilled(prefilled: Operations.LaunchForm) {
+        val sale = if (prefilled.mode == "SELL") {
+            saleAssets.firstOrNull { Operations.normalizeAssetName(it.ticker ?: it.name) == Operations.normalizeAssetName(prefilled.tickerOrName) }
+        } else {
+            null
+        }
+        form = if (sale != null) {
+            prefilled.copy(assetId = sale.id, assetType = Operations.assetTypeOf(sale.assetClass, sale.marketKind, sale.category))
+        } else {
+            prefilled
+        }
+        salePickerOpen = prefilled.mode == "SELL" && sale == null
+        start()
+        if (form.mode == "SELL") refreshExemption()
+    }
+
     private fun start() {
         error = ""
         tickerOptions = emptyList()

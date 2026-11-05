@@ -6,7 +6,8 @@ O que estes testes protegem:
 - a operacao que o dono ja digitou e ligada, nunca duplicada;
 - antes do ultimo evento corporativo, ou uma venda sem posicao, a operacao
   espera (HELD) e nada e gravado;
-- renda fixa, TRANSFER e INTEREST esperam o dono;
+- TRANSFER e INTEREST de renda variavel esperam o dono; a renda fixa sem dados
+  exatos espera com o campo que falta (test_open_finance_fixed_income.py);
 - desfazer (apagar a operacao) e para sempre;
 - a conferencia: quantidade da Pluggy (D-1) mais as operacoes depois dela, e o
   caixa a liquidar (D+2);
@@ -153,14 +154,19 @@ class TestOperations:
         assert len(movements(world)) == 1
         assert operations(user["id"])[0]["held_reason"].startswith("corporate_action")
 
-    @pytest.mark.parametrize("kind, op", [("FIXED_INCOME", "BUY"), ("EQUITY", "TRANSFER"), ("EQUITY", "INTEREST")])
-    def test_other_types_wait_for_the_owner(self, world, user, kind, op):
+    @pytest.mark.parametrize("kind, op, reason", [
+        # Fase 3: renda fixa espera so pelo que falta (aqui o subtipo nao e um titulo).
+        ("FIXED_INCOME", "BUY", "unmapped:subtype"),
+        ("EQUITY", "TRANSFER", "type"),
+        ("EQUITY", "INTEREST", "type"),
+    ])
+    def test_other_types_wait_for_the_owner(self, world, user, kind, op, reason):
         item_id, pluggy_item, _corretora = broker(world)
         position = world.fake.add_position(pluggy_item, "PETR4", 10, kind=kind)
         world.fake.add_operation(position, op, 10, 30, "2026-10-20")
         world.sync(item_id)
         assert movements(world) == []
-        assert operations(user["id"])[0]["held_reason"] == "type"
+        assert operations(user["id"])[0]["held_reason"] == reason
 
     def test_undo_is_for_good(self, world, user):
         item_id, pluggy_item, corretora = broker(world)
@@ -229,7 +235,8 @@ class TestPortfolioCheck:
         world.fake.add_operation(position, "BUY", 1, 1000, "2026-10-20")
         world.sync(item_id)
         [held] = world.overview()["investments"]["held"]
-        assert (held["type"], held["reason"]) == ("BUY", "type")
+        # Fase 3: sem rateType na posicao, o CDB espera por ele.
+        assert (held["type"], held["reason"]) == ("BUY", "missing:rateType")
 
     def test_no_positions_no_check(self, world):
         broker(world)

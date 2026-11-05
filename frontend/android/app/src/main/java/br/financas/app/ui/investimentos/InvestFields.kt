@@ -33,20 +33,16 @@ import br.financas.app.ui.theme.LocalPalette
 
 /** As contas de GET /api/accounts como as regras da carteira as leem. */
 fun portfolioAccountsOf(accounts: List<AccountDto>): List<PortfolioAccount.Account> =
-    accounts.map { PortfolioAccount.Account(it.id, it.type, it.currency, it.archivedAt) }
+    accounts.map { PortfolioAccount.Account(it.id, it.type, it.currency, it.archivedAt, pluggy = it.pluggy) }
 
 /**
  * O campo da conta (o useEffect de CashLinkField): com a lista de contas chegada, marca a falta de
- * conta da carteira e, ligado sem conta, poe a primeira. Devolve o mesmo valor quando nada muda.
+ * conta da carteira, decide o padrao de uma operacao nova (desligado na Corretora da Pluggy) e,
+ * ligado sem conta, poe a primeira (PortfolioAccount.cashLinkWithAccounts).
  */
 fun settleCashLink(value: PortfolioAccount.CashLink, accounts: List<AccountDto>?): PortfolioAccount.CashLink {
     if (accounts == null) return value
-    val all = portfolioAccountsOf(accounts)
-    val missing = PortfolioAccount.portfolioAccounts(all).isEmpty()
-    val defaultId = PortfolioAccount.pickPortfolioAccountId(all)
-    var next = value.copy(missing = missing)
-    if (next.enabled && next.accountId.isEmpty() && defaultId.isNotEmpty()) next = next.copy(accountId = defaultId)
-    return next
+    return PortfolioAccount.cashLinkWithAccounts(value, portfolioAccountsOf(accounts))
 }
 
 /**
@@ -98,6 +94,9 @@ fun CashLinkField(
         }
         if (missing) {
             Text(stringResource(R.string.inv_cash_missing), color = palette.warning, fontSize = 13.sp)
+        }
+        if (accounts != null && PortfolioAccount.pluggyFedPortfolio(portfolioAccountsOf(list))) {
+            Text(PortfolioAccount.PLUGGY_FED_NOTE, color = palette.muted, fontSize = 12.sp)
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,

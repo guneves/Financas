@@ -18,10 +18,11 @@ from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_
 from export_csv import ColumnError
 from money import rounded_money
 from responses import export_response, read_export_options
-from services.fixed_income import fixed_income_is_tax_free
 from services.investments import ensure_asset_owner, investment_metadata_dict
+from services.manual_entries import require_manual_investment_cash
+from services.open_finance_investments import OP_KEY_METADATA, UNKNOWN_HELD_MESSAGE, complete_held, held_operation
+from services.proceeds_cash import proceed_cash_account_id
 from services.proceeds_sync import sync_proceeds
-from services.realized_results import days_between_dates, fixed_income_tax_rate_for_days
 from services.proceeds import (
     ALLOWED_PROCEEDS_TYPES,
     FIXED_INCOME_EVENT_TYPES,
@@ -31,6 +32,7 @@ from services.proceeds import (
     default_tax_for_proceed,
     fetch_investment_proceed_by_id,
     fetch_investment_proceeds,
+    interest_tax_rate,
     investment_position_at_date,
     serialize_investment_proceed,
     serialized_proceeds,
@@ -58,32 +60,6 @@ bp = Blueprint("proceeds", __name__)
 # (o primeiro incluido) — os cupons de um titulo ate o vencimento.
 REPEAT_EVERY_MONTHS = {1, 2, 3, 6, 12}
 REPEAT_MAX_COUNT = 120
-
-
-def interest_tax_rate(conn, current_user_id, asset_id, payment_date):
-    """Aliquota do IR retido no cupom de juros de renda fixa.
-
-    Tabela regressiva pelos dias entre a aplicacao e o pagamento (Lei
-    11.033/2004, art. 1o), a mesma do resgate; zero no titulo isento (LCI, LCA,
-    CRI, CRA, debenture incentivada). A aplicacao e a primeira compra do ativo
-    ate o pagamento. Ativo que nao e renda fixa, ou sem compra, nao presume
-    imposto: o dono informa.
-    """
-    asset = conn.execute(
-        "SELECT asset_class FROM assets WHERE id = ? AND user_id = ?",
-        (asset_id, current_user_id),
-    ).fetchone()
-    if not asset or asset["asset_class"] != "FIXED_INCOME":
-        return 0.0
-    for row in asset_movement_rows(conn, current_user_id, asset_id, payment_date):
-        movement = serialize_metadata_row(row)
-        if movement.get("movement_type") != "BUY" or safe_float(movement.get("quantity")) <= 0:
-            continue
-        if fixed_income_is_tax_free(movement.get("metadata")):
-            return 0.0
-        days = days_between_dates(movement.get("transaction_date"), payment_date)
-        return fixed_income_tax_rate_for_days(days)
-    return 0.0
 
 
 # Que tipo de provento cada classe recebe. Cupom de juros e so de renda fixa
@@ -411,9 +387,22 @@ def investment_proceeds(current_user_id):
         repeat = parse_repeat(payload)
         with get_db() as conn:
             items = []
+            op_key = None
             for part, item_payload in enumerate(repeated_payloads(payload, repeat)):
                 proceed = normalize_proceed_payload(conn, current_user_id, item_payload)
+                # O "Lancar" de um cupom que espera (Fase 3): passa pela Corretora da Pluggy.
+                if OP_KEY_METADATA in proceed["metadata"]:
+                    op_key = proceed["metadata"].pop(OP_KEY_METADATA)
+                    if not held_operation(conn, current_user_id, op_key):
+                        raise ValidationError(UNKNOWN_HELD_MESSAGE)
+                    proceed["metadata"]["open_finance_operation"] = op_key
+                require_manual_investment_cash(
+                    conn, current_user_id, proceed_cash_account_id(conn, current_user_id, proceed["payment_date"]),
+                    completes_held=bool(op_key),
+                )
                 proceed_id = insert_proceed(conn, current_user_id, proceed, client_id, part)
+                if op_key and part == 0:
+                    complete_held(conn, current_user_id, op_key, proceed_id=proceed_id)
                 row = fetch_investment_proceed_by_id(conn, current_user_id, proceed_id)
                 items.append(serialize_investment_proceed(row, conn, current_user_id))
     except ValidationError as exc:

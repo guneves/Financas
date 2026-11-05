@@ -47,6 +47,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import br.financas.app.core.getLocalDateString
+import br.financas.app.data.OpenFinanceHeldDto
+import br.financas.app.data.PortfolioDto
+import br.financas.app.rules.InvestmentPrefill
+import br.financas.app.ui.investimentos.LaunchSheetState
 import org.json.JSONObject
 
 /** As secoes de Ajustes do celular, na ordem da web (Regras e Integrações ficam no computador). */
@@ -101,6 +106,14 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     val me = ScreenLoad<MeDto>()
     val openFinance = ScreenLoad<OpenFinanceDto>()
     val openFinanceSettings = ScreenLoad<OpenFinanceSettingsDto>()
+    /** O "Lançar" de uma operacao da corretora que espera (Fase 3): o formulario de operacao. */
+    val launchSheet = LaunchSheetState(application, viewModelScope) { message ->
+        notice(message)
+        readOpenFinance()
+    }
+    private val launchPortfolio = ScreenLoad<PortfolioDto>()
+    private val launchAccounts = ScreenLoad<List<AccountDto>>()
+
     /** O item da Pluggy que esta em "Atualizar" (o botao dele gira). */
     var syncingItemId by mutableStateOf<String?>(null)
         private set
@@ -849,6 +862,25 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     private fun failed(message: String) {
         if (cleared) Toast.makeText(app, message, Toast.LENGTH_LONG).show() else error = message
+    }
+
+    /** Abre "Registrar operação" preenchido com a operacao da corretora que espera (e o op_key). */
+    fun launchHeld(row: OpenFinanceHeldDto) {
+        val prefill = row.prefill ?: return
+        val form = InvestmentPrefill.launchForm(
+            InvestmentPrefill.Prefill(
+                prefill.kind, prefill.assetClass, prefill.treasury, prefill.tickerOrName, prefill.quantity,
+                prefill.averagePrice, prefill.cashAccountId, prefill.metadata,
+            ),
+            getLocalDateString(),
+        ) ?: return
+        viewModelScope.launch {
+            launchPortfolio.collect(app, graph.investimentos.portfolio(), R.string.inv_load_failed)
+            launchAccounts.collect(app, graph.accounts.accounts(), R.string.inv_load_failed)
+            launchSheet.assets = launchPortfolio.value?.assets.orEmpty()
+            launchSheet.accountsChanged(launchAccounts.value)
+            launchSheet.openPrefilled(form)
+        }
     }
 
     private fun notice(message: String) {

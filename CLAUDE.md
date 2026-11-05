@@ -529,10 +529,39 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   the trade date with cash through the Corretora (as typed ones), idempotent by
   `open_finance_investment_operations.op_key`; a typed twin (same asset and sign, ±2 days, one trade or several summing to it) is
   linked; an unknown ticker, a sale without position, a date before the latest corporate action,
-  fixed income, TRANSFER and INTEREST are `HELD` for the owner. Deleting a recorded one is
-  `DISMISSED` for good. Positions are never written into the portfolio: `portfolio_check()` compares
-  quantities (D-1 position + later operations) and the broker cash, where trades of the last 2
-  business days are "a liquidar" (D+2 settlement).
+  TRANSFER and equity INTEREST are `HELD` for the owner. Deleting a recorded one is
+  `DISMISSED` for good (a recorded coupon: deleting its provento, `proceed_id`, 056). Positions are never
+  written into the portfolio: `portfolio_check()` compares quantities (D-1 position + later operations)
+  and the broker cash, where trades of the last 2 business days are "a liquidar" (D+2 settlement).
+- **Fixed income from Pluggy only with exact data** (Phase 3, `services/open_finance_fixed_income.py`):
+  each pull stores the whole position (`open_finance_positions.raw`, 056, minus `transactions`); a
+  FIXED_INCOME BUY/SELL/INTEREST is recorded only when `title_terms()` maps the position exactly: CDI +
+  `rate` = % do CDI, IPCA + `fixedAnnualRate` = IPCA+, PRE + `fixedAnnualRate` = pré (Pluggy's unit is
+  percent; outside `CDI_PERCENT_RANGE`/`ANNUAL_PERCENT_RANGE` even the unit would be a guess), `subtype`
+  → `TITLE_TYPES` (decides IR and category); Tesouro needs the title in the Tesouro price file, the same
+  indexer and the `dueDate`. Anything else waits `HELD missing:<field>` / `unmapped:<field>` — **never
+  guess a rate** (SELIC waits). A held line is re-decided every pull, so it fills itself when the
+  position completes. No cash link: the money is already a `BROKER_STATEMENT` line. A redemption takes
+  the buys of the same Pluggy investment, oldest first (PEPS), by Pluggy units (`open_finance_units`);
+  a coupon is an INTEREST provento on that title's asset, taxed from the first buy, and the statement
+  line that paid it becomes its row (`broker_statement.adopt_proceed_line()`). Typed twins (same cents,
+  ±2 days) are linked. `scripts/position_fields.py --email X` (read-only) lists which keys MeuPluggy
+  fills, never values.
+- **Typing is refused on the Pluggy-fed Corretora** (Phase 3, `manual_entries.require_manual_investment_cash()`,
+  only while `MANUAL_ONLY_OFF_PLUGGY`): `POST /api/investments`, `/api/investments/redemptions` and
+  `/api/investment-proceeds` answer 400 "A Pluggy traz as operações da corretora." when the cash account
+  (a provento: the portfolio account from `portfolio_since`, `proceed_cash_account_id()`) is in
+  `bank_fed_account_ids()`; a PATCH moving an operation onto it too. `cash_account_id: null` or another
+  account passes (crypto stays typed). **The exception**: `metadata.open_finance_op_key` naming a `HELD`
+  line of this user (`held_operation()`); it passes and `complete_held()` makes the line `RECORDED` with
+  the new id in the same transaction (another user's, unknown or not-held key: 400). Only the routes are
+  guarded: `proceeds_sync`, `apply_paid_proceeds()` and `open_finance_investments` never.
+  `portfolio_check()`'s `held` carries `op_key` and a `prefill` (`held_prefill()`: kind `operation`,
+  `redemption` or `proceed`; equity cash = the Corretora, fixed income none). Web: "Lançar" in Ajustes ›
+  Open Finance (operation → `InvestmentLaunchModal prefill`, coupon/redemption one tap,
+  `lib/openFinance.js` `heldLaunch()`); APK: "Lançar" opens `LaunchSheet` (operations only,
+  `rules/InvestmentPrefill.kt`). On a fed Corretora the cash field defaults to "Não descontar" with a note
+  (`cashLinkWithAccounts()` in `lib/portfolioAccount.js` / `PortfolioAccount.kt`).
 
 ### Receipts
 - **A receipt is a file on disk referenced by a row** (014; card purchases 016): bytes in
@@ -558,6 +587,9 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   uses the Corretora (`portfolio_cash_account_id()`); `null` = "Não descontar". Paid proventos land
   in it (`apply_paid_proceeds()`, `INVESTMENT_PROCEED`) from `metadata.portfolio_since` on. Its
   balance shows only in Investimentos.
+  When the Corretora is Pluggy-fed, typing an operation, redemption or provento into it is refused
+  (except a `HELD` line's "Lançar"), and HELD lines are recorded as in "Fixed income from Pluggy only
+  with exact data" above.
 - **Trade cash moves on the liquidation date** (owner 2026-10-28, no migration; `services/settlement.py`):
   the linked lançamento is dated D+2 business days for STOCKS/REIT (B3 calendar: weekends, national
   holidays, Carnival/Good Friday/Corpus Christi, 24 and 31/12), D+1 abroad, same day otherwise;

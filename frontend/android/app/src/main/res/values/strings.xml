@@ -1446,4 +1446,6 @@
     <string name="login_offline">Sem conexão com o servidor. Esta ação só funciona conectado.</string>
     <string name="login_failed">Não foi possível entrar.</string>
     <string name="login_session_expired">Sua sessão expirou. Entre de novo; os lançamentos guardados neste aparelho continuam aqui.</string>
+    <string name="ajustes_open_finance_held">Operações da corretora para você lançar</string>
+    <string name="ajustes_open_finance_launch">Lançar</string>
 </resources>

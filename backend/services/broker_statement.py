@@ -179,6 +179,63 @@ def settle_line(conn, current_user_id, row, account_id):
     )
 
 
+def adopt_proceed_line(conn, current_user_id, proceed_id):
+    """Um provento que chegou depois da linha do extrato que o pagou (o cupom
+    da renda fixa gravado pela Pluggy, ou lancado de uma linha que esperava): a
+    linha deixa de ser BROKER_STATEMENT e passa a ser o lancamento do provento,
+    com o valor e o dia do banco (`_settle_proceed()`). Sem linha, nada muda.
+    Devolve True quando adotou."""
+    proceed = conn.execute(
+        """
+        SELECT p.id, p.gross_amount, p.tax_amount, p.net_amount, p.payment_date, a.ticker
+        FROM investment_proceeds p JOIN assets a ON a.id = p.asset_id AND a.user_id = p.user_id
+        WHERE p.id = ? AND p.user_id = ?
+        """,
+        (proceed_id, current_user_id),
+    ).fetchone()
+    if not proceed:
+        return False
+    day = str(proceed["payment_date"])[:10]
+    best = None
+    for row in conn.execute(
+        """
+        SELECT o.* FROM open_finance_transactions o
+        JOIN transactions t ON t.id = o.target_id AND t.user_id = o.user_id
+        WHERE o.user_id = ? AND o.role = 'MATCHED' AND o.target_table = 'transactions' AND o.direction = 'IN'
+          AND t.source_type = ? AND o.date BETWEEN ? AND ?
+        ORDER BY o.date, o.id
+        """,
+        (
+            current_user_id, BROKER_STATEMENT_SOURCE_TYPE,
+            _shifted(day, -PROCEED_DAYS), _shifted(day, PROCEED_DAYS),
+        ),
+    ).fetchall():
+        text = plain_text(row["description"])
+        if not PROCEED_TEXT.search(text):
+            continue
+        found = TICKER_TEXT.search(text)
+        gap = abs(_cents(proceed["net_amount"]) - int(row["amount_cents"]))
+        if (found and found.group(0).upper() != proceed["ticker"]) or (not found and gap > PROCEED_TOLERANCE_CENTS):
+            continue
+        if best is None or gap < best[0]:
+            best = (gap, row)
+    if best is None:
+        return False
+    row = best[1]
+    entry = _settle_proceed(conn, current_user_id, row, proceed)
+    if not entry:
+        return False
+    conn.execute(
+        "DELETE FROM transactions WHERE id = ? AND user_id = ? AND source_type = ?",
+        (row["target_id"], current_user_id, BROKER_STATEMENT_SOURCE_TYPE),
+    )
+    conn.execute(
+        "UPDATE open_finance_transactions SET target_id = ? WHERE id = ? AND user_id = ?",
+        (entry, row["id"], current_user_id),
+    )
+    return True
+
+
 def remove_line(conn, current_user_id, row):
     """A Pluggy nao tem mais a linha: sai o lancamento dela."""
     conn.execute(

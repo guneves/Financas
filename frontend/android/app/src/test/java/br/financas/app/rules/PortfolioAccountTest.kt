@@ -76,4 +76,26 @@ class PortfolioAccountTest {
         assertEquals(CashLink(true, "btg", false), cashLinkFromMetadata(mapOf("cash_account_id" to " btg ")))
         assertEquals(false, cashLinkFromMetadata(emptyMap()).enabled)
     }
+
+    // node: 'on a Pluggy-fed Corretora a new operation defaults to not discounting'
+    @Test
+    fun onAPluggyFedCorretoraANewOperationDefaultsToNotDiscounting() {
+        val fed = listOf(Account("btg", "BROKERAGE", "BRL", pluggy = true), Account("flash", "CHECKING"))
+        assertEquals(true, PortfolioAccount.pluggyFedPortfolio(fed))
+        assertEquals(false, PortfolioAccount.pluggyFedPortfolio(accounts))
+        assertEquals(CashLink(false, "", false, fresh = false), PortfolioAccount.cashLinkWithAccounts(emptyCashLink(), fed))
+        assertEquals(true, PortfolioAccount.isPluggyFedAccount(fed, "btg"))
+        assertEquals(false, PortfolioAccount.isPluggyFedAccount(fed, "flash"))
+        assertEquals(false, PortfolioAccount.isPluggyFedAccount(fed, ""))
+    }
+
+    // node: 'without Pluggy the Corretora stays the default, and a choice is kept'
+    @Test
+    fun withoutPluggyTheCorretoraStaysTheDefaultAndAChoiceIsKept() {
+        assertEquals(CashLink(true, "btg", false), PortfolioAccount.cashLinkWithAccounts(emptyCashLink(), accounts))
+        val fed = listOf(Account("btg", "BROKERAGE", "BRL", pluggy = true))
+        assertEquals(CashLink(true, "btg", false), PortfolioAccount.cashLinkWithAccounts(CashLink(true, "", false), fed))
+        assertEquals(true, PortfolioAccount.cashLinkWithAccounts(cashLinkFromMetadata(mapOf("cash_account_id" to "btg")), fed).enabled)
+        assertEquals(true, PortfolioAccount.cashLinkWithAccounts(emptyCashLink(), emptyList()).missing)
+    }
 }

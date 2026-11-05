@@ -11,6 +11,38 @@ data class OpenFinanceDto(
     val items: List<OpenFinanceItemDto> = emptyList(),
     /** So na resposta do "Atualizar" (POST .../sync). */
     val result: OpenFinanceSyncResultDto? = null,
+    /** A carteira da corretora (044): aqui so as operacoes que esperam o dono (Fase 3). */
+    val investments: OpenFinancePortfolioDto? = null,
+)
+
+@Serializable
+data class OpenFinancePortfolioDto(
+    val held: List<OpenFinanceHeldDto> = emptyList(),
+)
+
+/** Uma operacao da corretora que espera, com o que o "Lançar" abre preenchido. */
+@Serializable
+data class OpenFinanceHeldDto(
+    @SerialName("op_key") val opKey: String? = null,
+    val code: String? = null,
+    val name: String? = null,
+    val type: String? = null,
+    @SerialName("trade_date") val tradeDate: String? = null,
+    val amount: Money? = null,
+    val reason: String? = null,
+    val prefill: OpenFinancePrefillDto? = null,
+)
+
+@Serializable
+data class OpenFinancePrefillDto(
+    val kind: String? = null,
+    @SerialName("asset_class") val assetClass: String? = null,
+    val treasury: Boolean = false,
+    @SerialName("ticker_or_name") val tickerOrName: String? = null,
+    val quantity: Money? = null,
+    @SerialName("average_price") val averagePrice: Money? = null,
+    @SerialName("cash_account_id") val cashAccountId: String? = null,
+    val metadata: kotlinx.serialization.json.JsonObject? = null,
 )
 
 @Serializable

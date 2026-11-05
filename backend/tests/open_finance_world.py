@@ -119,20 +119,24 @@ class FakePluggy:
         return txs[0]["id"] if len(txs) == 1 else [tx["id"] for tx in txs]
 
     def add_position(self, item_id, code, quantity, kind="EQUITY", subtype="STOCK", value=10.0, day="2026-10-26",
-                     name=None):
+                     name=None, **extra):
         """Uma posicao da corretora (`GET /investments`), como o MeuPluggy manda
-        a do BTG (2026-10-27): renda variavel e EQUITY/STOCK, a data e D-1."""
+        a do BTG (2026-10-27): renda variavel e EQUITY/STOCK, a data e D-1.
+
+        `extra`: os campos da doc que o MeuPluggy pode ou nao preencher (`rate`,
+        `rateType`, `fixedAnnualRate`, `dueDate`, `issuer`, `isin`...): ausentes
+        por padrao, como se supoe do BTG ate o owner rodar position_fields.py."""
         investment_id = pluggy_id()
         self.investments.setdefault(item_id, []).append({
             "id": investment_id, "code": code, "name": name or code, "type": kind, "subtype": subtype,
             "quantity": quantity, "value": value, "balance": round(quantity * value, 2), "status": "ACTIVE",
-            "date": day_iso(day), "currencyCode": "BRL",
+            "date": day_iso(day), "currencyCode": "BRL", **extra,
         })
         self.investment_transactions[investment_id] = []
         return investment_id
 
-    def add_operation(self, investment_id, kind, quantity, price, trade_day, op_id=None, expenses=None):
-        amount = round(quantity * price, 2)
+    def add_operation(self, investment_id, kind, quantity, price, trade_day, op_id=None, expenses=None, amount=None):
+        amount = round(quantity * price, 2) if amount is None else amount
         fee = sum(expenses.values()) if isinstance(expenses, dict) else (expenses or 0)
         row = {
             "type": kind, "quantity": quantity, "value": price, "amount": amount,

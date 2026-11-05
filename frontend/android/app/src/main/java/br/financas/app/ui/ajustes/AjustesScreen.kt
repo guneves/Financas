@@ -21,6 +21,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
@@ -129,6 +130,11 @@ fun AjustesScreen(
     viewModel.editingAccount?.let { EditAccountSheet(it, viewModel) }
     viewModel.editingCard?.let { EditCardSheet(it, viewModel) }
     ConfirmDialog(viewModel.confirm, stringResource(R.string.lanc_cancel), viewModel::dismissConfirm)
+    br.financas.app.ui.investimentos.LaunchSheetView(
+        viewModel.launchSheet,
+        viewModel.hidden,
+        LocalContext.current.applicationContext as android.app.Application,
+    )
 }
 
 private fun titleOf(section: AjustesSection): Int = when (section) {
@@ -620,9 +626,42 @@ private fun OpenFinanceSection(viewModel: AjustesViewModel) {
                     data != null && data.items.isEmpty() -> EmptyState(stringResource(R.string.ajustes_open_finance_empty))
                 }
                 data?.items.orEmpty().forEach { item -> OpenFinanceItemCard(item, viewModel) }
+                HeldOperationsBlock(data?.investments?.held.orEmpty(), viewModel)
                 val settings = viewModel.openFinanceSettings.value
                 if (data?.configured == true && settings != null) OpenFinanceSettingsBlock(settings, viewModel)
                 Text(stringResource(R.string.ajustes_open_finance_desktop), fontSize = 13.sp, color = palette.muted)
+            }
+        }
+    }
+}
+
+/** As operacoes da corretora que esperam o dono (Fase 3): o motivo e "Lançar" (o formulario
+ *  preenchido, com o op_key). O cupom e o resgate se lancam na web. */
+@Composable
+private fun HeldOperationsBlock(rows: List<br.financas.app.data.OpenFinanceHeldDto>, viewModel: AjustesViewModel) {
+    if (rows.isEmpty()) return
+    val palette = LocalPalette.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.ajustes_open_finance_held), fontWeight = FontWeight.SemiBold, color = palette.text)
+        rows.forEach { row ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "${br.financas.app.core.formatDateBR(row.tradeDate.orEmpty())} · ${row.type.orEmpty()} ${row.code ?: row.name.orEmpty()} · " +
+                        br.financas.app.rules.InvestmentPrefill.heldReasonLabel(row.reason),
+                    fontSize = 13.sp,
+                    color = palette["zinc-600"],
+                    modifier = Modifier.weight(1f),
+                )
+                val prefill = row.prefill
+                val launchable = br.financas.app.rules.InvestmentPrefill.launchable(
+                    row.opKey,
+                    prefill?.let { br.financas.app.rules.InvestmentPrefill.Prefill(it.kind) },
+                )
+                if (launchable) {
+                    TextButton(onClick = { viewModel.launchHeld(row) }) {
+                        Text(stringResource(R.string.ajustes_open_finance_launch), color = palette.accent)
+                    }
+                }
             }
         }
     }

@@ -90,6 +90,36 @@ def asset_movement_rows(conn, current_user_id, asset_id, until_date=None):
     return conn.execute(sql, params).fetchall()
 
 
+def interest_tax_rate(conn, current_user_id, asset_id, payment_date):
+    """Aliquota do IR retido no cupom de juros de renda fixa.
+
+    Tabela regressiva pelos dias entre a aplicacao e o pagamento (Lei
+    11.033/2004, art. 1o), a mesma do resgate; zero no titulo isento (LCI, LCA,
+    CRI, CRA, debenture incentivada). A aplicacao e a primeira compra do ativo
+    ate o pagamento. Ativo que nao e renda fixa, ou sem compra, nao presume
+    imposto: o dono informa.
+    """
+    # Aqui dentro: realized_results importa services.investments (sem ciclo no import).
+    from services.fixed_income import fixed_income_is_tax_free
+    from services.realized_results import days_between_dates, fixed_income_tax_rate_for_days
+
+    asset = conn.execute(
+        "SELECT asset_class FROM assets WHERE id = ? AND user_id = ?",
+        (asset_id, current_user_id),
+    ).fetchone()
+    if not asset or asset["asset_class"] != "FIXED_INCOME":
+        return 0.0
+    for row in asset_movement_rows(conn, current_user_id, asset_id, payment_date):
+        movement = serialize_metadata_row(row)
+        if movement.get("movement_type") != "BUY" or safe_float(movement.get("quantity")) <= 0:
+            continue
+        if fixed_income_is_tax_free(movement.get("metadata")):
+            return 0.0
+        days = days_between_dates(movement.get("transaction_date"), payment_date)
+        return fixed_income_tax_rate_for_days(days)
+    return 0.0
+
+
 def accumulate_position(rows):
     """Quantidade e custo depois de `rows` (ja em ordem), pelo custo medio."""
     quantity = 0.0

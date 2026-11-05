@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Landmark, Plus, RefreshCw } from 'lucide-react'
-import { accountsApi, creditCardsApi, openFinanceApi } from '../../lib/dataApi'
+import { accountsApi, creditCardsApi, investmentProceedsApi, investmentsApi, openFinanceApi } from '../../lib/dataApi'
+import { apiFetch } from '../../lib/api'
+import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import { AlertMessage, Badge, Button, Collapsible, EmptyState, Field, ListSkeleton, Menu, Panel, PanelHeader } from '../../components/ui'
 import { confirmAction } from '../../lib/confirm'
 import { formatCurrency, formatDateBR, getLocalDateString } from '../../lib/format'
@@ -13,7 +15,10 @@ import {
   checkSummary,
   connectedItemId,
   firstSyncDaysError,
+  heldLaunch,
+  heldProceedPayload,
   heldReasonLabel,
+  heldRedemptionPayload,
   historyLine,
   itemBankName,
   itemProblem,
@@ -22,6 +27,7 @@ import {
   mappingChoices,
   mappingPayload,
   portfolioSummary,
+  redemptionPosition,
   syncHoursChoices,
   syncSummary,
 } from '../../lib/openFinance'
@@ -205,11 +211,60 @@ function AccountRow({ account, item, choices, money, busy, checkBusy, onMap, onR
   )
 }
 
+const loadPortfolioAssets = () => apiFetch('/api/investments/portfolio?refresh_prices=false')
+  .then((data) => data?.assets || NO_ITEMS)
+
 // A carteira da corretora contra a do app (044): quantidade por ativo, o
-// caixa (com o que esta a liquidar) e as operacoes que esperam o dono.
+// caixa (com o que esta a liquidar) e as operacoes que esperam o dono. Cada uma
+// tem "Lançar" (Fase 3): a operacao abre o formulario preenchido; o cupom e o
+// resgate gravam com um toque. O `op_key` vai junto e marca a linha gravada.
 function PortfolioCheck({ investments, money }) {
+  const [launch, setLaunch] = useState(null)
+  const [assets, setAssets] = useState(NO_ITEMS)
+  const [busyKey, setBusyKey] = useState('')
+  const [launchError, setLaunchError] = useState('')
   const summary = portfolioSummary(investments)
   if (summary.state === 'none') return null
+
+  const onLaunch = async (row) => {
+    const action = heldLaunch(row)
+    if (!action) return
+    setLaunchError('')
+    setBusyKey(row.op_key)
+    try {
+      if (action.kind === 'operation') {
+        setAssets(await loadPortfolioAssets())
+        setLaunch(action.prefill)
+      } else if (action.kind === 'proceed') {
+        const confirmed = await confirmAction({
+          title: 'Lançar o cupom?',
+          message: `${row.name || row.code}: ${money(action.prefill.gross_amount)} em ${formatDateBR(action.prefill.payment_date)}. O IR é o da tabela regressiva desde a primeira compra.`,
+          confirmLabel: 'Lançar',
+        })
+        if (confirmed) {
+          await investmentProceedsApi.create(heldProceedPayload(action.prefill))
+          toast('Cupom lançado.')
+        }
+      } else {
+        const position = redemptionPosition(await loadPortfolioAssets(), action.prefill)
+        if (!position) {
+          setLaunchError('Não achei um título só com esse nome na carteira. Resgate em Investimentos › Posição.')
+        } else if (await confirmAction({
+          title: 'Lançar o resgate?',
+          message: `${position.ticker || position.name}: ${money(action.prefill.amount)} em ${formatDateBR(action.prefill.date)}, das compras mais antigas primeiro.`,
+          confirmLabel: 'Lançar',
+        })) {
+          await investmentsApi.redeem(heldRedemptionPayload(action.prefill, position))
+          toast('Resgate lançado.')
+        }
+      }
+    } catch (error) {
+      setLaunchError(error.message || 'Não foi possível lançar.')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
   const cash = investments.cash
   const mismatched = (investments.positions || []).filter((row) => row.matches === false)
   return (
@@ -240,15 +295,30 @@ function PortfolioCheck({ investments, money }) {
             {investments.held?.length ? (
               <ul className="space-y-1">
                 {investments.held.map((row, index) => (
-                  <li key={`${row.code}-${row.trade_date}-${index}`}>
-                    {formatDateBR(row.trade_date)} · {row.type} {row.code || row.name} · {heldReasonLabel(row.reason)}
+                  <li key={row.op_key || `${row.code}-${row.trade_date}-${index}`} className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      {formatDateBR(row.trade_date)} · {row.type} {row.code || row.name} · {heldReasonLabel(row.reason)}
+                    </span>
+                    {heldLaunch(row) ? (
+                      <Button size="sm" variant="secondary" loading={busyKey === row.op_key} disabled={Boolean(busyKey)} onClick={() => onLaunch(row)}>
+                        Lançar
+                      </Button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             ) : null}
+            <AlertMessage tone="danger" message={launchError} />
           </div>
         </Collapsible>
       ) : null}
+      <InvestmentLaunchModal
+        open={Boolean(launch)}
+        onClose={() => setLaunch(null)}
+        assets={assets}
+        prefill={launch}
+        onSaved={() => setLaunch(null)}
+      />
     </section>
   )
 }

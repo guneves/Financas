@@ -9,7 +9,7 @@
 
 ## 1. Open work, in priority order
 
-### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phases 1 and 2 built on branches
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phases 1–3 merged, 4–5 open
 Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
 back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
 and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
@@ -26,13 +26,11 @@ transfer whose origin was guessed keeps the wrong origin after Pluggy shows anot
 in Phase 1a.
 
 **Session prompts**: `docs/prompts/notify-pluggy/`; `README.md` has the order and the exact message
-for each session. There are **five sessions**: 1 engine (1a + 1b), 2 gate, 3 investments, 4 review,
-twins and orphans, 5 the final verification of everything. Each builds on the previous session's
-branch, and only session 5 opens a PR. The owner merges that one PR, so nothing reaches the server
-unverified.
-- Phase 1 (engine) is built on branch `claude/notify-pluggy-phase1` (not merged: the final
-  verification merges the chain). See `docs/handoff.md` › "For the final verification".
-- Phase 2 (gate) is built on branch `claude/notify-pluggy-phase2`, on top of Phase 1 (not merged).
+for each session. **The chain changed on 2026-11-04**: the owner asked session 3 to open a PR and merge
+Phases 1–3 into `main` (they continue in cloud sessions). Sessions 4 (Phases 4 + 5) and 5 (final
+verification, `06-verify-and-fix.md`) now start from `main`, not from a session branch; the final
+verification still checks everything, including what was merged. See `docs/handoff.md` › "For the
+final verification".
 - [ ] **Owner, after the final PR is merged and the APK is updated** (Phase 2's checks, in order):
   1. an Itaú card purchase shows up in seconds;
   2. after the next pull it is still one row;
@@ -41,12 +39,14 @@ unverified.
   The real notice texts of the four bank apps are not captured yet for the brokerage app and for an
   invoice payment: if one of them reaches the Extrato, export it from Ajustes › Notificações do
   celular (modo captura) and adjust `NotifyParsers`.
-- [ ] **Phase 3 — investments Pluggy-only**:
-  - One real GET of BTG `/investments` (which of `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/
-    `issuer` MeuPluggy fills).
-  - Save them; record fixed income, Tesouro and INTEREST when complete.
-  - Refuse typed operations and proventos on the Pluggy-fed Corretora.
-  - An incomplete `HELD` line opens pre-filled.
+- [ ] **Owner, after the deploy and the next pull (Phase 3)**: run
+  `sudo docker compose exec -T -w /app/backend app python scripts/position_fields.py --email <email>`.
+  Until then nobody knows whether MeuPluggy fills `rateType`/`rate`/`fixedAnnualRate`/`dueDate` for BTG,
+  so whether held fixed-income lines fill themselves on real data is unknown. If the keys are missing,
+  the lines stay `HELD missing:<field>` with "Lançar". If the unit of `rate` is not percent, widen nothing:
+  fix `title_terms()` with the real shape and a test.
+- [ ] **Phase 3 leftovers**: the APK's "Lançar" opens only operations (coupon and redemption: web).
+  The web's one-tap redemption needs exactly one fixed-income position with the same name.
 - [ ] **Phase 4 — quiet review**:
   - Pluggy-confirmed rows with a confident category (rule/merchant/CNAE), and two-sided transfers,
     leave Revisar by themselves.

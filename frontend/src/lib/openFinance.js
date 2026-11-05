@@ -262,14 +262,85 @@ export function portfolioSummary(investments) {
 }
 
 const HELD_REASONS = {
-  type: 'renda fixa, Tesouro, custódia ou cupom: lance você',
+  type: 'fundo, custódia ou outro tipo: lance você',
   unknown_asset: 'ativo fora da lista da B3',
   incomplete: 'a corretora mandou sem quantidade ou preço',
+}
+
+// Fase 3: a renda fixa espera so pelo campo que a Pluggy nao deu exato
+// (services/open_finance_fixed_income.py): `missing:<campo>` ou `unmapped:<campo>`.
+const HELD_FIELDS = {
+  position: 'a posição do título',
+  type: 'o tipo do investimento',
+  subtype: 'o tipo do título',
+  name: 'o nome do título',
+  rateType: 'o indexador',
+  rate: 'a taxa (% do CDI)',
+  fixedAnnualRate: 'a taxa ao ano',
+  dueDate: 'o vencimento',
+  tesouro_prices: 'os preços do Tesouro',
+  buy: 'a compra do título no app',
+  quantity: 'a quantidade de cotas',
+  lot: 'as cotas da compra',
+  amount: 'o valor',
+  tradeDate: 'a data',
 }
 
 export function heldReasonLabel(reason) {
   const text = String(reason || '')
   if (text.startsWith('corporate_action')) return 'antes de um evento corporativo do ativo'
   if (text.startsWith('refused')) return text.split(': ').slice(1).join(': ') || 'recusada'
+  const [kind, field] = text.split(':')
+  if ((kind === 'missing' || kind === 'unmapped') && field) {
+    const label = HELD_FIELDS[field] || field
+    return kind === 'missing' ? `falta ${label}` : `${label} sem um significado só`
+  }
   return HELD_REASONS[text] || text
+}
+
+const normalizedName = (value) => String(value || '').trim().toUpperCase().replace(/\s+/g, ' ')
+
+// O "Lançar" de uma linha que espera (o `prefill` do servidor): `operation` abre o
+// formulario de operacao; `proceed` e `redemption` gravam com um toque. Sem o que
+// gravar (um cupom sem o ativo no app), nao ha botao.
+export function heldLaunch(row) {
+  const prefill = row?.prefill
+  if (!prefill || !row.op_key) return null
+  if (prefill.kind === 'operation') return { kind: 'operation', prefill }
+  if (prefill.kind === 'proceed') return prefill.asset_id ? { kind: 'proceed', prefill } : null
+  if (prefill.kind === 'redemption') return { kind: 'redemption', prefill }
+  return null
+}
+
+// A posicao de renda fixa que o resgate da corretora baixa: a unica com o mesmo
+// nome na carteira, ou null (nenhuma ou mais de uma: o dono resgata em Posição).
+export function redemptionPosition(assets, prefill) {
+  const name = normalizedName(prefill?.ticker_or_name)
+  if (!name) return null
+  const found = (assets || []).filter((asset) => asset.class === 'FIXED_INCOME'
+    && [asset.ticker, asset.name].some((value) => normalizedName(value) === name))
+  return found.length === 1 ? found[0] : null
+}
+
+// POST /api/investment-proceeds do cupom que espera.
+export function heldProceedPayload(prefill) {
+  return {
+    asset_id: prefill.asset_id,
+    proceeds_type: prefill.proceeds_type || 'INTEREST',
+    payment_date: prefill.payment_date,
+    gross_amount: prefill.gross_amount,
+    metadata: { ...(prefill.metadata || {}) },
+  }
+}
+
+// POST /api/investments/redemptions do resgate que espera (sem caixa: o
+// dinheiro ja e uma linha do extrato da corretora).
+export function heldRedemptionPayload(prefill, position) {
+  return {
+    position_id: position.id,
+    amount: prefill.amount,
+    date: prefill.date,
+    cash_account_id: null,
+    metadata: { ...(prefill.metadata || {}) },
+  }
 }
