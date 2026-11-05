@@ -326,11 +326,23 @@ class TestDeclined:
         send(client, auth, samsung_flash(at=now), self.declined(now + 5000))
         assert rows(client, auth) == []
 
-    def test_a_row_the_owner_reviewed_stays(self, client, auth, flash):
+    def test_a_row_the_owner_only_reviewed_is_undone(self, client, auth, flash):
+        # Fase 4: "intocado" e o snapshot; o "e meu" nao protege uma compra negada.
         now = int(time.time() * 1000)
         send(client, auth, samsung_flash(at=now))
         [row] = rows(client, auth)
         client.post("/api/review", json={"items": [{"table": "transactions", "id": row["id"]}]}, headers=auth)
+        send(client, auth, self.declined(now + 5000))
+        assert rows(client, auth) == []
+
+    def test_a_row_the_owner_recategorised_stays(self, client, auth, flash):
+        now = int(time.time() * 1000)
+        send(client, auth, samsung_flash(at=now))
+        [row] = rows(client, auth)
+        categories = {entry["name"]: entry["id"] for entry in client.get("/api/categories", headers=auth).get_json()
+                      if not entry.get("parent_id")}
+        client.post("/api/review", json={"items": [{"table": "transactions", "id": row["id"],
+                                                    "category_id": categories["Lazer"]}]}, headers=auth)
         send(client, auth, self.declined(now + 5000))
         assert len(rows(client, auth)) == 1
 

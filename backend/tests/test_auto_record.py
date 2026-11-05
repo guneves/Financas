@@ -238,7 +238,9 @@ class TestPluggyReconciles:
         world.sync(item_id)
         [after] = world.transactions(mine)
         assert after["id"] == before["id"]
-        assert (after["source_type"], after["source_id"], after["needs_review"]) == ("OPEN_FINANCE", pluggy_id, 1)
+        # Padaria e da tabela de comerciantes: a Pluggy confirmou e a categoria e
+        # certa, sai da revisao sozinha (Fase 4, design §3.6).
+        assert (after["source_type"], after["source_id"], after["needs_review"]) == ("OPEN_FINANCE", pluggy_id, 0)
         [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], pluggy_id))
         assert (of_row["role"], of_row["target_id"]) == ("SOURCE", before["id"])
         assert world.pending() == []
@@ -251,7 +253,7 @@ class TestPluggyReconciles:
         world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-21", "COMPRA CARTAO DEB PADARIA"))
         world.sync(item_id)
         [row] = world.transactions(mine)
-        assert (row["date"], row["source_type"], row["needs_review"]) == ("2026-10-21", "OPEN_FINANCE", 1)
+        assert (row["date"], row["source_type"], row["needs_review"]) == ("2026-10-21", "OPEN_FINANCE", 0)
 
     def test_another_card_moves_the_purchase(self, world):
         item_id, _p, made = connected(world, connector_name="Itaú", bank=False, card=True)
@@ -265,15 +267,28 @@ class TestPluggyReconciles:
         world.fake.add_tx(made["card"][0], card_tx(89.9, "2026-10-22", "SMART FIT", docs_sign=True))
         world.sync(item_id)
         [row] = world.call("get", "/api/cc-expenses")
-        assert (row["card_id"], row["amount"], row["needs_review"]) == (mapped, 89.9, 1)
+        assert (row["card_id"], row["amount"], row["needs_review"]) == (mapped, 89.9, 0)
 
-    def test_a_reviewed_row_is_never_redone(self, world):
+    def test_a_reviewed_row_follows_the_bank_date(self, world):
+        # Fase 4: "e meu" sem mudar nada nao e toque (o snapshot decide).
         item_id, _p, made = connected(world, connector_name="Itaú")
         world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
         mine = made["bank"][2]
         send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 23, 50), app=ITAU))
         [row] = world.transactions(mine)
         confirm(world.client, world.auth, {"table": "transactions", "id": row["id"]})
+        world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-21"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["date"], after["source_type"]) == ("2026-10-21", "OPEN_FINANCE")
+
+    def test_a_recategorised_row_is_never_redone(self, world):
+        item_id, _p, made = connected(world, connector_name="Itaú")
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        mine = made["bank"][2]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 23, 50), app=ITAU))
+        [row] = world.transactions(mine)
+        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"], "category_id": world.category_id("Lazer")})
         world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-21"))
         world.sync(item_id)
         [after] = world.transactions(mine)
@@ -288,16 +303,16 @@ class TestPluggyReconciles:
         world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20", "COMPRA CARTAO DEB PADARIA"))
         world.sync(item_id)
         [row] = world.transactions(mine)
-        assert (row["date"], row["source_type"], row["needs_review"]) == ("2026-10-20", "OPEN_FINANCE", 1)
+        assert (row["date"], row["source_type"], row["needs_review"]) == ("2026-10-20", "OPEN_FINANCE", 0)
         assert world.pending() == []
 
-    def test_a_reviewed_row_posted_days_later_is_only_linked(self, world, user):
+    def test_a_recategorised_row_posted_days_later_is_only_linked(self, world, user):
         item_id, _p, made = connected(world, connector_name="Itaú")
         world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
         mine = made["bank"][2]
         send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 17, 14, 0), app=ITAU))
         [row] = world.transactions(mine)
-        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"]})
+        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"], "category_id": world.category_id("Lazer")})
         pluggy_id = world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-20"))
         world.sync(item_id)
         [after] = world.transactions(mine)
@@ -330,7 +345,8 @@ class TestPluggyReconciles:
     def test_pluggy_alone_is_recorded_for_review(self, world):
         item_id, _p, made = connected(world)
         world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
-        world.fake.add_tx(made["bank"][0], bank_tx(-12, "2026-10-25", "PADARIA"))
+        # Sem comerciante conhecido: a categoria e palpite, fica a revisar.
+        world.fake.add_tx(made["bank"][0], bank_tx(-12, "2026-10-25", "LOJA 123"))
         world.sync(item_id)
         [row] = world.transactions(made["bank"][2])
         assert row["needs_review"] == 1

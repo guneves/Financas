@@ -31,6 +31,7 @@ from services.inbox_decisions import absorb_created, absorb_other_side
 from services.invoices import apply_due_autopay
 from services.proceeds_cash import apply_paid_proceeds
 from services.transaction_pages import fetch_page, parse_page_args
+from services.twins import transaction_twin_ids
 from services.sharing import (
     check_split_fits,
     has_share_fields,
@@ -186,6 +187,17 @@ def debit_card_id(conn, current_user_id, payload, transaction_type, account_id):
     return card_id
 
 
+def with_twins(conn, current_user_id, rows):
+    """As linhas serializadas, com `twin` (services/twins.py: "2x igual")."""
+    twins = transaction_twin_ids(conn, current_user_id, rows)
+    items = []
+    for row in rows:
+        item = serialize_transaction(row)
+        item["twin"] = row["id"] in twins
+        items.append(item)
+    return items
+
+
 @bp.route("/api/transactions", methods=["GET", "POST"])
 @token_required
 def transactions(current_user_id):
@@ -213,7 +225,7 @@ def transactions(current_user_id):
                 limit, cursor = page_args
                 page = fetch_page(conn, where, params, limit, cursor, select_sql)
                 return jsonify({
-                    "items": [serialize_transaction(row) for row in page["rows"]],
+                    "items": with_twins(conn, current_user_id, page["rows"]),
                     "next_cursor": page["next_cursor"],
                     "count": page["count"],
                     "totals": page["totals"],
@@ -223,7 +235,8 @@ def transactions(current_user_id):
                 f"{select_sql} WHERE {where} ORDER BY date DESC, created_at DESC",
                 params,
             ).fetchall()
-        return jsonify([serialize_transaction(row) for row in rows]), 200
+            items = with_twins(conn, current_user_id, rows)
+        return jsonify(items), 200
 
     payload = parse_json_body()
     item_id = new_id()

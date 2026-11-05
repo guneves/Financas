@@ -85,7 +85,8 @@ class TestSuccession:
         assert body["counts"].get("succeeded") == 1
         old, new = of_row(user["id"], pending_id), of_row(user["id"], posted_id)
         assert (old["role"], old["superseded_by"], old["target_id"]) == ("REMOVED", new["id"], None)
-        assert (new["role"], new["target_id"], new["conflict"]) == ("MATCHED", row["id"], None)
+        # "E meu" sem mudar nada nao e toque (Fase 4): a Pluggy e a fonte.
+        assert (new["role"], new["target_id"], new["conflict"]) == ("SOURCE", row["id"], None)
         assert world.pending() == []
         assert_identity(user["id"])
 
@@ -102,7 +103,7 @@ class TestSuccession:
         world.sync(item_id)
         [after] = world.transactions(mine)
         assert (after["id"], after["source_type"], after["source_id"]) == (row["id"], "OPEN_FINANCE", posted_id)
-        assert after["needs_review"] == 1
+        assert after["needs_review"] == 0  # padaria: comerciante conhecido (Fase 4)
         new = of_row(user["id"], posted_id)
         assert (new["role"], new["target_id"]) == ("SOURCE", row["id"])
         assert_identity(user["id"])
@@ -245,7 +246,8 @@ class TestSuccession:
         account, _of, mine = made["bank"]
         send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 32), app=ITAU))
         [row] = world.transactions(mine)
-        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"]})
+        # Tocado pelo dono (outra categoria): a Pluggy so liga.
+        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"], "category_id": world.category_id("Lazer")})
         pending_id = world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "PADARIA", status="PENDING"))
         world.sync(item_id)
         assert of_row(user["id"], pending_id)["role"] == "MATCHED"

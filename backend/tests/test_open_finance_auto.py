@@ -341,7 +341,8 @@ class TestTransfers:
         assert [(row["type"], row["account_id"], row["transfer_account_id"], row["date"], row["category_id"])
                 for row in rows] == [("TRANSFER", itau_id, btg_id, "2026-10-26", None)]
         assert world.pending() == []
-        assert rows_of("transactions", "user_id = ? AND id = ?", (user["id"], rows[0]["id"]))[0]["needs_review"] == 1
+        # As duas pontas no app, pela Pluggy: nada a revisar (Fase 4).
+        assert rows_of("transactions", "user_id = ? AND id = ?", (user["id"], rows[0]["id"]))[0]["needs_review"] == 0
 
     def test_a_pix_in_is_recorded_now_and_the_out_side_later_makes_it_a_transfer(self, world):
         made = meupluggy(world)

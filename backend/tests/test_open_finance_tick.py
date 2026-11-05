@@ -114,7 +114,8 @@ class TestOneTick:
         # So leitura.
         assert {call[0] for call in fake.calls} <= PLUGGY_READS
         # A conta: o lancamento e o saldo, pela linha.
-        assert [(row["amount"], row["needs_review"]) for row in world.transactions(mine)] == [(45.9, 1)]
+        # Padaria: comerciante conhecido, sai da revisao sozinha (Fase 4).
+        assert [(row["amount"], row["needs_review"]) for row in world.transactions(mine)] == [(45.9, 0)]
         assert account_row(world, mine)["balance"] == -45.9
         # O cartao.
         assert [(row["amount"], row["description"]) for row in world.card_rows(card)] == [(89.9, "Smart Fit")]

@@ -26,6 +26,14 @@ class ReviewRulesTest {
 
     private fun keys(rows: List<TransactionDto>) = rows.map(ReviewRules::statementKey)
 
+    // Fase 4: o "2× igual" do servidor chega na linha da compra no Extrato.
+    @Test
+    fun aCardTwinKeepsItsFlagInTheStatement() {
+        val twin = ReviewRules.cardStatementRow(card("p", "2026-10-10").copy(twin = true))
+        assertTrue(twin.twin)
+        assertFalse(ReviewRules.cardStatementRow(card("q", "2026-10-10")).twin)
+    }
+
     // node: 'card purchases are interleaved by date, newest first'
     @Test
     fun cardPurchasesAreInterleavedByDateNewestFirst() {

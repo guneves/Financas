@@ -174,7 +174,8 @@ def record_notifications(conn, current_user_id):
 
 def undo_declined(conn, current_user_id, results):
     """O Flash negou a compra que o Samsung avisou e que ja virou lancamento: o
-    intocado sai. Revisado ou editado, fica (o dono ja disse que e dele). Devolve
+    intocado (pelo snapshot: o "e meu" nao protege, a compra nao existiu) sai;
+    editado pelo dono, fica. Devolve
     quantos sairam."""
     undone = 0
     for result in results:
@@ -184,7 +185,7 @@ def undo_declined(conn, current_user_id, results):
         if not row or row["state"] != inbox.APPROVED:
             continue
         item = inbox.item_dict(row)
-        if not open_finance_inbox.notification_untouched(conn, current_user_id, item):
+        if not open_finance_inbox.notification_untouched(conn, current_user_id, item):  # o snapshot (Fase 4)
             continue
         open_finance_inbox._drop_target(conn, current_user_id, item)
         inbox.save_item(

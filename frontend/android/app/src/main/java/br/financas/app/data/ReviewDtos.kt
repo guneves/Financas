@@ -24,6 +24,8 @@ data class ReviewItemDto(
     @SerialName("card_name") val cardName: String? = null,
     val installments: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    /** Outra despesa igual (services/twins.py): o selo neutro "2× igual". */
+    val twin: Boolean = false,
 )
 
 /** GET /api/review: a fila, quantos e quantos movimentos nao gravaram sozinhos (`waiting`). */
@@ -58,4 +60,5 @@ data class CardStatementDto(
     val description: String? = null,
     @SerialName("needs_review") val needsReview: Flag = false,
     @SerialName("created_at") val createdAt: String? = null,
+    val twin: Boolean = false,
 )

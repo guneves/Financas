@@ -155,6 +155,13 @@ function ReviewMark({ transaction }) {
   return <Badge tone="warning">A revisar</Badge>
 }
 
+// Duas despesas iguais de verdade (design §3.5): so um selo neutro, sem acao.
+// Nem ganho, nem perda, nem aviso: nunca verde, vermelho, ambar ou azul.
+function TwinMark({ transaction }) {
+  if (!transaction.twin) return null
+  return <Badge>2× igual</Badge>
+}
+
 // Lancamentos criados por outra tela (carteira, fatura) so se editam la.
 // Um pendente (lib/outbox.js) ainda nao existe no servidor: corrige-se ou
 // descarta-se em "Pendentes", nao aqui.
@@ -829,6 +836,7 @@ function ExtratoContas({ viewSwitch }) {
                               <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
                               <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
                               <span className="shrink-0"><ReviewMark transaction={transaction} /></span>
+                              <span className="shrink-0"><TwinMark transaction={transaction} /></span>
                               <AttachmentMark transaction={transaction} />
                             </div>
                             <ShareMark transaction={transaction} />
@@ -894,6 +902,7 @@ function ExtratoContas({ viewSwitch }) {
                           {editable ? '' : ` · ${originLabel(transaction)}`}
                         </span>
                         <ReviewMark transaction={transaction} />
+                        <TwinMark transaction={transaction} />
                         <AttachmentMark transaction={transaction} />
                       </p>
                       {transaction.share_mode ? <p className="flex min-w-0"><ShareMark transaction={transaction} /></p> : null}

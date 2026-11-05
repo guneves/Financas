@@ -85,6 +85,7 @@ export default function ReviewPanel({ items, categoryOptionsFor, onError }) {
                     {item.table === 'cc_expenses' ? (
                       <Badge><CreditCard className="mr-1 h-3 w-3" aria-hidden="true" />Cartão</Badge>
                     ) : null}
+                    {item.twin ? <Badge>2× igual</Badge> : null}
                   </p>
                   <p className="truncate text-xs text-zinc-500">{formatDateBR(item.date)} · {reviewPlace(item)}</p>
                 </div>

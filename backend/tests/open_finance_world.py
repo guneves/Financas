@@ -219,6 +219,10 @@ class World:
         assert response.status_code in codes, (response.status_code, response.get_data(as_text=True))
         return response.get_json()
 
+    def category_id(self, name):
+        """A categoria raiz com esse nome."""
+        return {row["name"]: row["id"] for row in self.call("get", "/api/categories") if not row.get("parent_id")}[name]
+
     def account(self, name="Itaú", type_="CHECKING", institution=None, **extra):
         body = {"name": name, "type": type_, **extra}
         if institution:
