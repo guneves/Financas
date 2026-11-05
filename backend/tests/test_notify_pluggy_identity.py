@@ -1011,3 +1011,139 @@ class TestInterleaving:
             assert ("user_id", "source_type", "source_id") in unique("transactions")
             assert ("user_id", "dedup_key") in unique("notify_detections")
             assert ("user_id", "dedup_key") in unique("open_finance_transactions")
+
+
+# ---------------------------------------------------------------------------
+# Ponta a ponta: A-S num mundo so (06-verify-and-fix.md, "Final pass")
+# ---------------------------------------------------------------------------
+
+BTG_BANK = "com.btg.pactual.banking"
+
+
+class TestEndToEnd:
+    """Os casos A-S do desenho (§1 e §6) no mesmo usuario, ao mesmo tempo: as
+    tres conexoes do MeuPluggy, cada caso com seu valor e sua loja, na ordem que
+    o caso pede (aviso antes, Pluggy antes, pendente que posta com outra id).
+    No fim, o livro inteiro e o da verdade e assert_identity()."""
+
+    def test_cases_a_to_s_in_one_world(self, world, user, monkeypatch):
+        monkeypatch.setattr(importlib.import_module("services.fx"), "rate_on", lambda *args, **kwargs: 5.0)
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True, "include_pending": True})
+        itau_p, _o, itau = made["itau:0001/1-1"]
+        bb_p, _o, bb = made["bb:0003/3-3"]
+        card_p, _o, card = made["btg:4321"]
+        broker_p, _o, corretora = made["btg:0002/2-2X"]
+        btg_cc = _account_id(world, "BTG conta corrente")
+
+        def notify(kind, cents, day, merchant=None, app=ITAU, hour=12, minute=0, **extra):
+            return send(world.client, world.auth, detection(kind, cents, at=ms(2026, 10, day, hour, minute), app=app,
+                                                            merchant=merchant, **extra))
+
+        def own(amount, day, text):
+            return bank_tx(amount, f"2026-10-{day}", text, category_id=SELF_TRANSFER, counterparty="Fulano Dono")
+
+        def pull():
+            for bank in ("itau", "btg", "bb"):
+                world.sync(made["items"][bank])
+
+        # -- 1. os avisos que chegam antes da Pluggy ---------------------------
+        notify("DEBIT_PURCHASE", 4590, 20, "PADARIA BOM PAO")                          # A
+        notify("DEBIT_PURCHASE", 4671, 20, "FARMACIA SAO JOAO", hour=13)                # B
+        for minute in (0, 10):                                                          # C
+            notify("CREDIT_PURCHASE", 30000, 21, "LOJA TRES VEZES", app=BTG_BANK, minute=minute, installments=3)
+        for minute in (0, 20):                                                          # D
+            notify("DEBIT_PURCHASE", 800, 21, "PADOCA LUA", hour=8, minute=minute)
+        notify("DEBIT_PURCHASE", 900, 21, "BOTECO SOL", hour=9)                         # E (um so)
+        notify("PIX_OUT", 50000, 22, None, hour=9, counterparty="Fulano Dono")          # H
+        notify("TRANSFER_IN", 50000, 22, None, app=BROKERAGE, hour=9, minute=1)
+        notify("PIX_OUT", 70000, 22, None, hour=10, counterparty="Fulano Dono")         # I, dois envios
+        notify("PIX_IN", 70000, 22, None, app=BB, hour=10, minute=1, counterparty="Fulano Dono")
+        notify("TRANSFER_IN", 60000, 23, None, app=BROKERAGE, hour=9)                   # R
+        notify("DEBIT_PURCHASE", 5230, 22, "AMAZON PRIME", hour=14, international=True)  # J
+        notify("DEBIT_PURCHASE", 10000, 22, "RESTAURANTE SABOR", hour=20)               # K
+        notify("DEBIT_PURCHASE", 3000, 22, "SUPERMERCADO BOM", hour=10)                 # M
+        notify("DEBIT_PURCHASE", 4000, 22, "SUPERMERCADO BOM", hour=11)
+        notify("PIX_OUT", 12000, 22, None, hour=15, counterparty="Maria Silva")         # N
+        notify("DEBIT_PURCHASE", 15000, 23, "LOJA OTICA", hour=16)                      # O
+        notify("CREDIT_PURCHASE", 2000, 22, "OPENAI", app=BTG_BANK, hour=17, currency="USD")  # Q
+        notify("DEBIT_PURCHASE", 11000, 17, "CLAUDE.AI", hour=18, international=True)   # S
+
+        a_row = next(row for row in world.transactions(itau) if row["amount"] == 45.9)
+        confirm(world.client, world.auth, {"table": "transactions", "id": a_row["id"]})          # A: revisada
+        b_row = next(row for row in world.transactions(itau) if row["amount"] == 46.71)
+        o_row = next(row for row in world.transactions(itau) if row["amount"] == 150.0)
+        world.call("patch", f"/api/transactions/{o_row['id']}", json={"amount": 155})             # O: digitado
+        s_row = next(row for row in world.transactions(itau) if row["amount"] == 110.0)
+        [q_row] = [row for row in world.card_rows(card) if row["description"].upper().startswith("OPENAI")]
+        assert q_row["amount"] == 100.0                                                  # Q: US$ 20 a PTAX 5
+
+        # -- 2. a Pluggy traz o primeiro lote ----------------------------------
+        a_pending = world.fake.add_tx(itau_p, bank_tx(-45.9, "2026-10-20", "PADARIA", status="PENDING"))
+        b_pending = world.fake.add_tx(itau_p, bank_tx(-46.71, "2026-10-20", "FARMACIA", status="PENDING"))
+        for _ in range(2):
+            world.fake.add_tx(card_p, card_tx(100, "2026-10-21", "LOJA TRES VEZES", installment=1, total_installments=3,
+                                              total_amount=300, purchase_date="2026-10-21", docs_sign=True))
+        world.fake.add_tx(itau_p, *(bank_tx(-8, "2026-10-21", "PADOCA LUA") for _ in range(2)))          # D
+        world.fake.add_tx(itau_p, *(bank_tx(-9, "2026-10-21", "BOTECO SOL") for _ in range(2)))          # E
+        world.fake.add_tx(itau_p, bank_tx(-33.33, "2026-10-21", "QUIOSQUE MAR"))                         # F
+        world.fake.add_tx(itau_p, *(bank_tx(-7, "2026-10-21", "PASTELARIA LUZ") for _ in range(2)))      # G
+        world.fake.add_tx(itau_p, own(-500, 22, "PIX ENVIADO"))                                          # H
+        world.fake.add_tx(broker_p, own(500, 22, "RECEBIMENTO TRANSFERÊNCIA"))
+        world.fake.add_tx(itau_p, own(-700, 22, "PIX ENVIADO"))                                          # I
+        world.fake.add_tx(bb_p, own(700, 22, "PIX RECEBIDO"))
+        world.fake.add_tx(itau_p, own(-600, 23, "PIX ENVIADO"))                                          # R
+        world.fake.add_tx(broker_p, own(600, 23, "RECEBIMENTO TRANSFERÊNCIA"))
+        world.fake.add_tx(itau_p, bank_tx(-55.10, "2026-10-22", "AMAZON PRIME BR"))                      # J
+        world.fake.add_tx(itau_p, bank_tx(-112, "2026-10-22", "RESTAURANTE SABOR LTDA"))                 # K
+        world.fake.add_tx(itau_p, bank_tx(-61.10, "2026-10-22", "NETFLIX.COM"))                          # L
+        world.fake.add_tx(itau_p, bank_tx(-34, "2026-10-22", "SUPERMERCADO BOM"))                        # M
+        world.fake.add_tx(itau_p, bank_tx(-125, "2026-10-22", "PIX ENVIADO MARIA SILVA", category_id=PIX,
+                                          counterparty="Maria Silva"))                                   # N
+        world.fake.add_tx(itau_p, bank_tx(-165, "2026-10-23", "LOJA OTICA"))                             # O
+        p_pending = world.fake.add_tx(itau_p, bank_tx(-200, "2026-10-23", "RESTAURANTE PRAIA", status="PENDING"))
+        q_raw = card_tx(104.5, "2026-10-22", "OPENAI *CHATGPT", docs_sign=True)                          # Q
+        q_raw.update({"currencyCode": "USD", "amount": 20.0, "amountInAccountCurrency": 104.5})
+        world.fake.add_tx(card_p, q_raw)
+        pull()
+        p_row = next(row for row in world.transactions(itau) if row["amount"] == 200.0)
+
+        # -- 3. os avisos que chegam depois da Pluggy --------------------------
+        notify("DEBIT_PURCHASE", 3333, 21, "QUIOSQUE MAR", hour=15)                     # F
+        for minute in (0, 30):                                                          # G
+            notify("DEBIT_PURCHASE", 700, 21, "PASTELARIA LUZ", hour=16, minute=minute)
+        notify("DEBIT_PURCHASE", 5830, 22, "NETFLIX.COM", hour=19, international=True)  # L
+
+        # -- 4. as pendentes postam com outra id; o Claude posta 9 dias depois --
+        posted_after_pending(world, itau_p, a_pending, bank_tx(-45.9, "2026-10-20", "COMPRA CARTAO DEB PADARIA"))
+        posted_after_pending(world, itau_p, b_pending, bank_tx(-46.71, "2026-10-20", "COMPRA FARMACIA SAO JOAO"))
+        posted_after_pending(world, itau_p, p_pending, bank_tx(-224, "2026-10-23", "RESTAURANTE PRAIA"))
+        world.fake.add_tx(itau_p, bank_tx(-112.40, "2026-10-26", "CLAUDE.AI SUBSCRIPTION"))              # S
+        pull()
+        pull()
+
+        # -- o livro ------------------------------------------------------------
+        names = {itau: "itau", bb: "bb", corretora: "corretora", btg_cc: "btg_cc"}
+        ledger = sorted(
+            (row["type"], names.get(row["account_id"]), names.get(row.get("transfer_account_id")), row["amount"])
+            for row in world.transactions()
+        )
+        expense = [45.9, 46.71, 8.0, 8.0, 9.0, 9.0, 33.33, 7.0, 7.0, 55.1, 112.0, 61.1, 30.0, 40.0, 34.0,
+                   120.0, 125.0, 155.0, 224.0, 112.4]
+        assert ledger == sorted(
+            [("EXPENSE", "itau", None, amount) for amount in expense]
+            + [("TRANSFER", "itau", "corretora", 500.0), ("TRANSFER", "itau", "bb", 700.0),
+               ("TRANSFER", "itau", "corretora", 600.0)]
+        )
+        card_rows = sorted(row["amount"] for row in world.card_rows(card))
+        assert card_rows == sorted([100.0] * 6 + [104.5])                                # C (6 parcelas) e Q
+        by_id = {row["id"]: row for row in world.transactions()}
+        assert by_id[a_row["id"]]["amount"] == 45.9                                       # A: mesma id
+        assert by_id[b_row["id"]]["amount"] == 46.71                                      # B: mesma id
+        assert by_id[o_row["id"]]["amount"] == 155.0                                      # O: o digitado fica
+        assert by_id[p_row["id"]]["amount"] == 224.0                                      # P: mesma id, valor do banco
+        assert (by_id[s_row["id"]]["amount"], by_id[s_row["id"]]["date"]) == (112.4, "2026-10-26")  # S
+        assert next(row for row in world.card_rows(card) if row["id"] == q_row["id"])["amount"] == 104.5  # Q
+        assert _balance(world, btg_cc) == 0                                                # R: o palpite saiu
+        assert world.pending() == []
+        assert_identity(user["id"])
