@@ -6,7 +6,8 @@ O que estes testes protegem:
   ela nao sabe vira palpite (o cartao do emissor, a conta padrao), nunca uma
   espera (so o Flash chega aqui desde 2026-10-30, test_flash_only.py; estes
   testes passam da porta para cobrir o motor e o que ja foi gravado);
-- so espera a transferencia entre contas do dono com uma ponta so; o
+- nada espera: a transferencia entre contas do dono de uma ponta so vira a
+  despesa/receita do lado visto, e a outra ponta faz dela a transferencia; o
   interruptor desligado volta ao Aprovar;
 - o que o dono ja digitou e ligado, nunca duplicado, e nao pede revisao;
 - a Pluggy confere o que a notificacao gravou: mesmo movimento, a transacao
@@ -182,15 +183,21 @@ class TestWhatWaits:
         send(client, auth, detection("PURCHASE", 4590, at=ms(2026, 10, 10, 14, 1), app=SAMSUNG))
         assert len(card_rows(client, auth)) == 1
 
-    def test_an_own_transfer_waits_for_the_other_side_then_is_one_transfer(self, client, auth, auto):
+    def test_an_own_transfer_in_separate_uploads_is_one_transfer(self, client, auth, auto):
+        # Nada espera (design §3.2, dono 2026-11-04): a saida vira despesa na
+        # hora; a entrada, que chega noutro envio, faz da mesma linha a
+        # transferencia (inbox.absorb_recorded_side). No mesmo envio, tambem uma.
         itau = create_account(client, auth, "Itaú")
         bb = create_account(client, auth, "Banco do Brasil")
         send(client, auth, detection("PIX_OUT", 50000, at=ms(2026, 10, 10, 9, 0), counterparty="Fulano Dono"))
-        # Saida sem a entrada ainda: um Pix comum (pode ser de outra pessoa).
         [first] = transactions(client, auth)
         assert first["type"] == "EXPENSE"
-        client.delete(f"/api/transactions/{first['id']}", headers=auth)
-        # As duas pontas no mesmo envio: uma transferencia.
+        send(client, auth, detection("PIX_IN", 50000, at=ms(2026, 10, 10, 9, 1), app="br.com.bb.android",
+                                     counterparty="Fulano Dono"))
+        rows = [row for row in transactions(client, auth) if row["amount"] == 500.0]
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (first["id"], "TRANSFER", itau, bb)
+        ]
         send(
             client, auth,
             detection("PIX_OUT", 70000, at=ms(2026, 10, 11, 9, 0), counterparty="Fulano Dono"),
@@ -198,6 +205,7 @@ class TestWhatWaits:
         )
         rows = [row for row in transactions(client, auth) if row["amount"] == 700.0]
         assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert pending(client, auth) == []
 
 
 # ---------------------------------------------------------------------------

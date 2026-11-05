@@ -824,21 +824,33 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
             seen = {str(raw.get("id")) for raw in transactions if isinstance(raw, dict)}
             missing[account["id"]] = (
                 seen, open_finance_inbox.missing_rows(conn, current_user_id, account, seen, date_from, today_text),
+                [],
             )
             if not account["synced_until"] or account["synced_until"] < today_text:
                 conn.execute(
                     "UPDATE open_finance_accounts SET synced_until = ? WHERE id = ? AND user_id = ?",
                     (today_text, account["id"], current_user_id),
                 )
+        # As novas de cada conta (o "um de cada lado" da sucessao com outro valor).
+        for _date, _incoming, account, tx in batch:
+            if open_finance_inbox.fetch_row(conn, current_user_id, tx["dedup_key"]) is None:
+                missing[account["id"]][2].append(tx)
+        pending_before = open_finance_inbox.pending_pluggy_items(conn, current_user_id)
         # Na ordem do tempo, todas as contas juntas: a saida de uma conta e a
         # entrada na outra se encontram no mesmo pull.
         for _date, _incoming, account, tx in sorted(batch, key=lambda entry: (entry[0], entry[1])):
+            _seen, left, pulled_new = missing[account["id"]]
             status = open_finance_inbox.ingest(
-                conn, current_user_id, account, tx, rules, stamp, missing=missing[account["id"]][1],
+                conn, current_user_id, account, tx, rules, stamp, missing=left, pulled=pulled_new,
             )
             counts[status] = counts.get(status, 0) + 1
-        for seen, left in missing.values():
+        for seen, left, _pulled in missing.values():
             removed += open_finance_inbox.vanish_rows(conn, current_user_id, left, seen)
+        # O par aproximado (design §3.3 passo 3b): depois de todos os pares
+        # exatos do pull e antes de gravar, para nunca gravar duas vezes.
+        near = open_finance_inbox.near_match_pass(conn, current_user_id, pending_before)
+        if near:
+            counts["near_match"] = near
         if investments is not None:
             investments = open_finance_investments.apply(conn, current_user_id, of_item_id, investments, today)
         if record and open_finance_auto.enabled(conn, current_user_id):

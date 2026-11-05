@@ -55,7 +55,8 @@ Test files are named for what they cover (`test_invoice_month.py`, `test_average
 `test_route_map.py` for every route and its `@token_required`, …). They run on a throwaway SQLite
 built by the real migrations — **`backend/finance.db` is never touched.**
 
-- `conftest.py` sets `DATABASE_PATH` and friends in `os.environ` *before* importing `app` (it drops
+- `conftest.py` sets `DATABASE_PATH` and friends in `os.environ` when it is imported, *before* any
+  test imports `db` or `app` (the `app_module` fixture then drops
   `app` and `config` from `sys.modules`), because `config.py` reads the environment once and
   `app.py` runs `init_db()` at import. Different config goes there, not in a test.
 - A test never imports `db`, `routes.*` or `services.*` at the top; use a fixture or
@@ -350,10 +351,15 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   issuer's first card else the first credit card; no account → the issuer's account else the
   default one, never the Corretora) and nothing is remembered (`remember: False`). A look-alike the
   owner typed is linked (`free_candidates()`), never duplicated, and needs no review.
-- **Only these wait**: a Samsung-only purchase for `NOTIFY_WINDOW_MS` (the bank's notice becomes the
-  source), an **own transfer with one side** until the other side arrives (recording a despesa then
-  a receita would split one transfer; it stays an inbox item, counted as `waiting`), another
-  currency. **There is no Aprovar screen; waiting items resolve in Revisar**
+- **Nothing waits** (design §3.2 step 7, owner 2026-11-04): an **own transfer with one side** is
+  recorded as the despesa/receita of the side the notification saw (`auto_record.one_side_now()`),
+  and the other side, from either channel, turns that same row into the transfer
+  (`inbox.absorb_recorded_side()`). Only a one-sided transfer touching **the Corretora** (an
+  income/expense there would distort Investimentos) or the Conta global still waits. A notice **in
+  another currency** on a reais card/account is recorded at the day's PTAX
+  (`open_finance_auto.in_reais_now()`; the detection keeps its currency, so the near match treats it
+  as international); without a PTAX yet it waits. A Samsung-only purchase still waits
+  `NOTIFY_WINDOW_MS` for the bank's notice. **There is no Aprovar screen; waiting items resolve in Revisar**
   (the APK's Extrato lists them under "Não gravou sozinho": the other account or the amount in reais
   → `POST /api/inbox/<id>/approve` with `remember: false`, "não é entre minhas contas" → despesa/
   receita, or Descartar). The inbox API stays for those and for the brake.
@@ -402,7 +408,41 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   Corretora takes only the broker's investments account, `is_investment_account()`), or is
   "não usar" (`ignored_at`). A notification and a Pluggy row of one movement are **one item in either order**
   (same cents, ≤ 1 day, the mapped target; `notification_item_for_open_finance()` /
-  `open_finance_item_for_detection()`). With no pair on the day, a bank row also pairs with a
+  `open_finance_item_for_detection()`), through the item's free **Pluggy slot of that side** (a
+  transfer has one per side; a `REMOVED` or `vanished` row occupies none).
+  **Claims are per channel** (I2, `inbox.pluggy_claimed()` / `notification_claimed()`):
+  `existing_rows(claimed_by="notify"|"pluggy")`, `free_candidates()` (the item's channel:
+  Pluggy if it has a Pluggy `SOURCE`) and `_linked_elsewhere()` hide a lançamento only when another
+  observation of the **same** channel claims it; a typed row is free for both. Two identical real
+  purchases stay two (rows = max(notified, posted)). `identity_invariants.violations()` checks it;
+  every test of `test_notify_pluggy_identity.py` ends with `assert_identity()`, and the owner runs
+  `scripts/check_identity.py --email X` (read-only) on the server.
+  **Succession** (design §3.3 step 0): the pull computes `missing_rows()` (the account's live rows in
+  the window Pluggy didn't return, `MATCHED`/`PAIRED` included) before `ingest()`; a new id that
+  continues one (`successor_for()`: same account and direction, same cents or BB rounding, same
+  installment, ≤ 3 days; one to one; a near amount only for a single-installment purchase, same
+  merchant, unique each way) takes its place with `hand_over()`: role, item, target, snapshot,
+  `source_id`, the card purchase's `client_id`, the item's `client_key`; the old row is `REMOVED`
+  with `superseded_by` (054) and never comes back. Only what nobody took over goes through
+  `vanish_rows()`; a `MATCHED`/`PAIRED` row without successor gets `conflict = 'vanished'` (the
+  Conferência lists it); an empty pull vanishes nothing recorded. So pending → posted under a new
+  id keeps the same lançamento, reviewed or not.
+  **The guessed side of a recorded transfer follows the bank** (`follow_bank_side()` in
+  `reconcile_recorded()`): untouched by the item's snapshot, the side in `guessed` and not `edited`
+  takes the account Pluggy shows (never both sides on one account, never the Conta global).
+  **Near match** (design §3.7): the same purchase posted with another amount. A pass after the
+  pull's exact pairing and before `record_pending()` (`near_match_pass()`), and step 2b for a late
+  notification (`near_item_for_detection()`): purchases only (a notification of `PURCHASE_KINDS`
+  with a merchant, a Pluggy row without movement, out, 1 installment; never Pix, refund, invoice
+  payment, installments, the Corretora or the Conta global), same target, `merchant_agrees()`,
+  `near_amount()` within `NEAR_MATCH_FOREIGN_PERCENT` (10, international: the detection's
+  `international` flag or currency, or Pluggy's `original_currency`, 055) or
+  `NEAR_MATCH_DOMESTIC_PERCENT` (30), the exact date window, except international up to
+  `LATE_POSTING_DAYS` after the notice (the Claude R$ 110 "em processamento"), and **unique each
+  way**. The Pluggy item is `REMOVED` (`near_match`) and the row joins the notification's;
+  **the bank's amount wins** (`follow_bank_amount()`), reviewed or recategorised too, unless the
+  owner typed the amount (current ≠ the snapshot's): then only `MATCHED` + `conflict = 'changed'`.
+  An untouched row keeps its id and takes the bank's date. With no pair on the day, a bank row also pairs with a
   notification that already became a lançamento up to `OPEN_FINANCE_LATE_POST_DAYS` (5) before it
   (the bank posts late), never a second row. **Banco do Brasil rounds up** (owner, 2026-10-27:
   18,19 reaches Pluggy as 19,00): for a `ROUNDS_UP_ISSUERS` connection a whole-reais amount pairs
@@ -428,16 +468,18 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   **Nothing waits** (owner 2026-11-01: "every transaction updates the moment it arrives, no matter what
   it is"): a Pix to/from someone else is a despesa/receita in the pull that brings it,
   and an own transfer with one side is recorded as the despesa/receita of the side the bank saw
-  (`one_side_now()`). When the other side arrives from another bank, the same row becomes the
-  transfer (`_absorb_recorded_pix()`: untouched, `needs_review = 1`, same cents, opposite direction,
-  another reais account, ±`TRANSFER_MATCH_DAYS`, counterparties that can be one person); a reviewed
-  or edited side stays and the other side is its own row. Both sides in one pull pair before
+  (`one_side_now()`). When the other side arrives (another bank's pull or a notification), the same
+  row becomes the transfer (`inbox.absorb_recorded_side()`, shared by `place()` and
+  `_ingest_alone()`: untouched **by the snapshot**, never by `needs_review`; same cents, opposite
+  direction, another reais account, ±`TRANSFER_MATCH_DAYS`, no share, its item with one movement
+  source, counterparties that can be one person); an edited side stays and the other side is its own
+  row. The snapshot helpers live in `services/recorded_snapshot.py` (re-exported by
+  `open_finance_inbox`). Both sides in one pull pair before
   recording, as before. A Pix to the Conta global is a despesa in reais until the dollar credit turns it
   into the transfer (`_absorb_recorded_real_side()`). A row in another currency on a reais account takes
   the day's PTAX (`in_reais_now()`); only without a PTAX yet does it wait for the next pull. **Pending bank
-  rows come in by default** (052, `include_pending` unless "0"); one that posts under a new id leaves
-  `vanished` and the posted row links to the same lançamento (`free_candidates()`, `_linked_elsewhere()`,
-  `_explained_by_notification()` ignore vanished sources). `TRANSFER_HOLD_DAYS` is only the rebuild's. A bank's fund (Pluggy `0302`) is recorded
+  rows come in by default** (052, `include_pending` unless "0"); one that posts under a new id is
+  succeeded (above). `TRANSFER_HOLD_DAYS` is only the rebuild's. A bank's fund (Pluggy `0302`) is recorded
   as `BANK_INVESTMENT`, an aporte/resgate; other category 03 rows on a bank account stay despesa/receita for review.
   A look-alike the owner typed is **linked** (first free candidate), never duplicated; manual rows
   are never deleted. On the Corretora account only bank ↔ Corretora transfers become rows

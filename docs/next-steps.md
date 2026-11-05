@@ -9,7 +9,7 @@
 
 ## 1. Open work, in priority order
 
-### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — designed, decided, not built
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phase 1 built on a branch
 Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
 back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
 and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
@@ -30,20 +30,8 @@ for each session. There are **five sessions**: 1 engine (1a + 1b), 2 gate, 3 inv
 twins and orphans, 5 the final verification of everything. Each builds on the previous session's
 branch, and only session 5 opens a PR. The owner merges that one PR, so nothing reaches the server
 unverified.
-- [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed):
-  - Pluggy id succession in the pull: missing → ingest with hand-over → vanish the rest,
-    `MATCHED`/`PAIRED` included.
-  - Claims scoped per channel (`existing_rows(claimed_by=…)`), with one claim helper shared by
-    `free_candidates()` and `_linked_elsewhere()`.
-  - One shared absorb helper, so the other side of an own transfer converts a recorded
-    despesa/receita from either channel; one-sided own transfers no longer wait.
-  - **Near match** (design §3.7, owner 2026-11-04 "add the fix"): a second pass after the exact
-    pairing, for purchases only, same merchant, unique on both sides, ±10% international / ±30%
-    domestic; the bank's amount wins unless the owner typed the amount. Also step 5b for a late
-    notification, near-amount succession, and a foreign-currency notification recorded at PTAX.
-  - Migrations `superseded_by` and `original_currency`, numbered after merging main.
-  - `test_notify_pluggy_identity.py` with matrix A–Q and an I1/I2 invariant helper.
-  - `scripts/check_identity.py`.
+- Phase 1 (engine) is built on branch `claude/notify-pluggy-phase1` (not merged: the final
+  verification merges the chain). See `docs/handoff.md` › "For the final verification".
 - [ ] **Phase 2 — open the gate**:
   - `NOTIFICATION_POLICY` (BTG Investimentos: transfers only; investment words and invoice payments
     ignored; Samsung Wallet Flash only).

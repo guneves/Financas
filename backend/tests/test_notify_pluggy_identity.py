@@ -506,3 +506,370 @@ def test_the_identity_script_reads_without_migrating(tmp_path, user, client, aut
         cwd=backend, capture_output=True, text=True, check=False,
     )
     assert missing.returncode == 2
+
+
+# ===========================================================================
+# Fase 1b
+# ===========================================================================
+
+PIX = "05000000"
+
+
+def _amount_rows(world, amount, account_id=None):
+    return [row for row in world.transactions(account_id) if row["amount"] == amount]
+
+
+def _learn_self(user, name="Fulano Dono"):
+    inbox = importlib.import_module("services.inbox")
+    db = importlib.import_module("db")
+    with db.get_db() as conn:
+        inbox.learn_self(conn, user["id"], [{"kind": "PIX_OUT", "counterparty": name}])
+
+
+# ---------------------------------------------------------------------------
+# I: as duas pontas de um Pix entre contas do dono, cada uma no seu envio
+# ---------------------------------------------------------------------------
+
+class TestOwnTransferAbsorbs:
+    def test_i_sides_in_separate_uploads_are_one_transfer(self, world, user):
+        made = meupluggy(world)
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        [first] = _amount_rows(world, 700.0)
+        assert first["type"] == "EXPENSE"
+        send(world.client, world.auth, detection("PIX_IN", 70000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        rows = _amount_rows(world, 700.0)
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (first["id"], "TRANSFER", itau, bb)
+        ]
+        assert world.pending() == []
+        assert_identity(user["id"])
+
+    def test_i_then_both_pluggy_sides_stay_one_transfer(self, world, user):
+        made = meupluggy(world)
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        send(world.client, world.auth, detection("PIX_IN", 70000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        out_id = world.fake.add_tx(made["itau:0001/1-1"][0], bank_tx(-700, "2026-10-22", "PIX ENVIADO", category_id=PIX,
+                                                                    counterparty="Fulano Dono"))
+        in_id = world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(700, "2026-10-22", "PIX RECEBIDO", category_id=PIX,
+                                                                 counterparty="Fulano Dono"))
+        for item in made["items"].values():
+            world.sync(item)
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert {of_row(user["id"], out_id)["target_id"], of_row(user["id"], in_id)["target_id"]} == {rows[0]["id"]}
+        assert_identity(user["id"])
+
+    def test_one_side_notified_pluggy_brings_the_other(self, world, user):
+        made = meupluggy(world)
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        [first] = _amount_rows(world, 700.0)
+        in_id = world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(700, "2026-10-22", "PIX RECEBIDO", category_id=PIX,
+                                                                 counterparty="Fulano Dono"))
+        world.sync(made["items"]["bb"])
+        rows = _amount_rows(world, 700.0)
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (first["id"], "TRANSFER", itau, bb)
+        ]
+        assert of_row(user["id"], in_id)["target_id"] == first["id"]
+        # A ponta do Itau, depois, so liga.
+        world.fake.add_tx(made["itau:0001/1-1"][0], bank_tx(-700, "2026-10-22", "PIX ENVIADO", category_id=PIX,
+                                                           counterparty="Fulano Dono"))
+        world.sync(made["items"]["itau"])
+        assert len(_amount_rows(world, 700.0)) == 1
+        assert_identity(user["id"])
+
+    def test_a_third_party_on_the_other_side_stays_despesa(self, world, user):
+        made = meupluggy(world)
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Silva"))
+        send(world.client, world.auth, detection("PIX_IN", 70000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        assert sorted(row["type"] for row in _amount_rows(world, 700.0)) == ["EXPENSE", "INCOME"]
+        assert made  # o mundo tem as duas contas
+        assert_identity(user["id"])
+
+
+class TestNothingWaits:
+    def test_an_own_transfer_with_one_side_is_recorded_at_once(self, world, user):
+        made = meupluggy(world)
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        _learn_self(user)
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        [row] = _amount_rows(world, 700.0)
+        assert (row["type"], row["account_id"], row["needs_review"]) == ("EXPENSE", itau, 1)
+        assert world.pending() == []
+        # A outra ponta chega e a mesma linha vira a transferencia.
+        send(world.client, world.auth, detection("PIX_IN", 70000, at=ms(2026, 10, 22, 9, 2), app=BB, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        [after] = _amount_rows(world, 700.0)
+        assert (after["id"], after["type"], after["account_id"], after["transfer_account_id"]) == (
+            row["id"], "TRANSFER", itau, bb,
+        )
+        assert_identity(user["id"])
+
+    def test_a_one_sided_transfer_into_the_brokerage_waits(self, world, user):
+        world.account("Itaú")
+        world.account("Corretora", type_="BROKERAGE")
+        send(world.client, world.auth, detection("TRANSFER_IN", 50000, at=ms(2026, 10, 22, 9, 0), app=BROKERAGE,
+                                                 merchant=None))
+        assert world.transactions() == []
+        [item] = world.pending()
+        assert item["entry_type"] == "TRANSFER"
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# A mesma compra com outro valor (J-S, design §3.7)
+# ---------------------------------------------------------------------------
+
+def _notify(world, amount_cents, day, merchant, kind="DEBIT_PURCHASE", hour=12, **extra):
+    send(world.client, world.auth, detection(kind, amount_cents, at=ms(2026, 10, day, hour, 0), app=ITAU,
+                                             merchant=merchant, **extra))
+
+
+class TestNearMatch:
+    def test_j_international_estimate_takes_the_banks_amount(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 5230, 22, "AMAZON PRIME", international=True)
+        [row] = world.transactions(mine)
+        world.fake.add_tx(account, bank_tx(-55.10, "2026-10-22", "AMAZON PRIME BR"))
+        body = world.sync(item_id)["result"]
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"]) == (row["id"], 55.1)
+        assert body["counts"].get("near_match") == 1
+        assert world.pending() == []
+        assert_identity(user["id"])
+
+    def test_k_a_tip_takes_the_banks_amount(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 10000, 22, "RESTAURANTE SABOR")
+        [row] = world.transactions(mine)
+        world.fake.add_tx(account, bank_tx(-112, "2026-10-22", "RESTAURANTE SABOR LTDA"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"]) == (row["id"], 112.0)
+        assert_identity(user["id"])
+
+    def test_l_the_bank_first_then_the_notification(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        world.fake.add_tx(account, bank_tx(-55.10, "2026-10-22", "AMAZON PRIME BR"))
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        _notify(world, 5230, 22, "AMAZON PRIME", international=True)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"]) == (row["id"], 55.1)
+        assert_identity(user["id"])
+
+    def test_m_two_notifications_one_bank_line_is_ambiguous(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 3000, 22, "SUPERMERCADO BOM", hour=10)
+        _notify(world, 4000, 22, "SUPERMERCADO BOM", hour=11)
+        world.fake.add_tx(account, bank_tx(-34, "2026-10-22", "SUPERMERCADO BOM"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(mine)) == [30.0, 34.0, 40.0]
+        assert_identity(user["id"])
+
+    def test_n_a_pix_never_near_matches(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        send(world.client, world.auth, detection("PIX_OUT", 10000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Silva"))
+        world.fake.add_tx(account, bank_tx(-105, "2026-10-22", "PIX ENVIADO MARIA SILVA", category_id=PIX,
+                                           counterparty="Maria Silva"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(mine)) == [100.0, 105.0]
+        assert_identity(user["id"])
+
+    def test_another_merchant_never_near_matches(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 10000, 22, "RESTAURANTE SABOR")
+        world.fake.add_tx(account, bank_tx(-112, "2026-10-22", "POSTO SHELL"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(mine)) == [100.0, 112.0]
+        assert_identity(user["id"])
+
+    def test_outside_the_band_is_another_purchase(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 10000, 22, "RESTAURANTE SABOR")
+        world.fake.add_tx(account, bank_tx(-140, "2026-10-22", "RESTAURANTE SABOR"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(mine)) == [100.0, 140.0]
+        assert_identity(user["id"])
+
+    def test_installments_never_near_match(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        account, _of, card = made["card"]
+        _notify(world, 30000, 22, "LOJA X", kind="CREDIT_PURCHASE", installments=3)
+        world.fake.add_tx(account, card_tx(110, "2026-10-22", "LOJA X", installment=1, total_installments=3,
+                                           total_amount=330, purchase_date="2026-10-22", docs_sign=True))
+        world.sync(item_id)
+        stored = rows_of("cc_expenses", "user_id = ? AND card_id = ?", (user["id"], card))
+        assert len({row["client_id"] for row in stored}) == 2
+        assert_identity(user["id"])
+
+    def test_o_an_amount_the_owner_typed_stays(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 10000, 22, "RESTAURANTE SABOR")
+        [row] = world.transactions(mine)
+        world.call("patch", f"/api/transactions/{row['id']}", json={"amount": 105})
+        bank_id = world.fake.add_tx(account, bank_tx(-112, "2026-10-22", "RESTAURANTE SABOR"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"]) == (row["id"], 105.0)
+        linked = of_row(user["id"], bank_id)
+        assert (linked["role"], linked["target_id"], linked["conflict"], linked["conflict_amount_cents"]) == (
+            "MATCHED", row["id"], "changed", 11200,
+        )
+        assert_identity(user["id"])
+
+    def test_a_reviewed_and_recategorised_row_takes_the_banks_amount(self, world, user, client, auth):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 10000, 22, "RESTAURANTE SABOR")
+        [row] = world.transactions(mine)
+        category = next(entry["id"] for entry in world.call("get", "/api/categories") if entry["name"] == "Lazer"
+                        ) if any(entry["name"] == "Lazer" for entry in world.call("get", "/api/categories")) else None
+        if category is None:
+            category = world.call("post", "/api/categories", json={"name": "Lazer", "kind": "EXPENSE"})["id"]
+        confirm(client, auth, {"table": "transactions", "id": row["id"], "category_id": category})
+        world.fake.add_tx(account, bank_tx(-112, "2026-10-22", "RESTAURANTE SABOR"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"], after["category_id"], after["needs_review"]) == (
+            row["id"], 112.0, category, 0,
+        )
+        assert_identity(user["id"])
+
+    def test_p_pending_then_posted_with_another_amount_under_a_new_id(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        pending_id = world.fake.add_tx(account, bank_tx(-100, "2026-10-22", "RESTAURANTE SABOR", status="PENDING"))
+        world.sync(item_id)
+        [row] = world.transactions(mine)
+        posted_after_pending(world, account, pending_id, bank_tx(-112, "2026-10-22", "RESTAURANTE SABOR"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"]) == (row["id"], 112.0)
+        assert_identity(user["id"])
+
+    def test_q_a_dollar_notification_is_recorded_at_ptax(self, world, user, monkeypatch):
+        monkeypatch.setattr(importlib.import_module("services.fx"), "rate_on", lambda *args, **kwargs: 5.0)
+        item_id, made = _setup(world, bank=False, card=True)
+        account, _of, card = made["card"]
+        _notify(world, 2000, 22, "OPENAI", kind="CREDIT_PURCHASE", currency="USD")
+        [row] = world.card_rows(card)
+        assert row["amount"] == 100.0
+        assert world.pending() == []
+        raw = card_tx(104.5, "2026-10-22", "OPENAI *CHATGPT", docs_sign=True)
+        raw.update({"currencyCode": "USD", "amount": 20.0, "amountInAccountCurrency": 104.5})
+        bank_id = world.fake.add_tx(account, raw)
+        world.sync(item_id)
+        [after] = world.card_rows(card)
+        assert (after["id"], after["amount"]) == (row["id"], 104.5)
+        assert of_row(user["id"], bank_id)["original_currency"] == "USD"
+        assert_identity(user["id"])
+
+    def test_q_without_ptax_it_waits(self, world, user, monkeypatch):
+        fx = importlib.import_module("services.fx")
+
+        def no_rate(*args, **kwargs):
+            raise fx.FxUnavailable("sem PTAX")
+
+        monkeypatch.setattr(fx, "rate_on", no_rate)
+        _setup(world, bank=False, card=True)
+        _notify(world, 2000, 22, "OPENAI", kind="CREDIT_PURCHASE", currency="USD")
+        assert world.call("get", "/api/cc-expenses") == []
+        assert len(world.pending()) == 1
+        assert_identity(user["id"])
+
+    def _claude(self, world, international=True):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        extra = {"international": True} if international else {}
+        _notify(world, 11000, 17, "CLAUDE.AI", **extra)
+        [row] = world.transactions(mine)
+        world.sync(item_id)  # a Pluggy ainda nao lista
+        assert [entry["id"] for entry in world.transactions(mine)] == [row["id"]]
+        return item_id, account, mine, row
+
+    def test_s_the_claude_charge_posted_nine_days_later(self, world, user):
+        item_id, account, mine, row = self._claude(world)
+        world.fake.add_tx(account, bank_tx(-112.40, "2026-10-26", "CLAUDE.AI SUBSCRIPTION"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"], after["date"]) == (row["id"], 112.4, "2026-10-26")
+        assert world.pending() == []
+        assert_identity(user["id"])
+
+    def test_s2_posted_with_the_purchase_date_and_the_same_amount(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        _notify(world, 11000, 21, "CLAUDE.AI", international=True)
+        [row] = world.transactions(mine)
+        world.fake.add_tx(account, bank_tx(-110, "2026-10-21", "CLAUDE.AI SUBSCRIPTION"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["amount"]) == (row["id"], 110.0)
+        assert_identity(user["id"])
+
+    def test_s3_domestic_nine_days_later_is_two_rows(self, world, user):
+        item_id, account, mine, _row = self._claude(world, international=False)
+        world.fake.add_tx(account, bank_tx(-112.40, "2026-10-26", "CLAUDE.AI SUBSCRIPTION"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(mine)) == [110.0, 112.4]
+        assert_identity(user["id"])
+
+
+class TestNearRules:
+    @pytest.mark.parametrize("merchant, other, expected", [
+        ("SMART FIT", "SMARTFIT", True),
+        ("PADARIA BOM PAO", "COMPRA CARTAO DEB PADARIA", True),
+        ("CLAUDE.AI", "CLAUDE.AI SUBSCRIPTION", True),
+        ("COMPRA", "COMPRA CARTAO DEBITO", False),
+        ("LOJA ONLINE", "LOJA ONLINE", False),
+        ("RESTAURANTE SABOR", "POSTO SHELL", False),
+        (None, "PADARIA", False),
+    ])
+    def test_merchant_agrees(self, merchant, other, expected):
+        assert importlib.import_module("services.inbox").merchant_agrees(merchant, None, other) is expected
+
+    @pytest.mark.parametrize("notified, bank, international, expected", [
+        (10000, 11000, True, True),
+        (10000, 11001, True, False),
+        (10000, 9000, True, True),
+        (10000, 8999, True, False),
+        (10000, 13000, False, True),
+        (10000, 13001, False, False),
+        (10000, 7000, False, True),
+        (0, 100, False, False),
+    ])
+    def test_near_amount_band_edges(self, notified, bank, international, expected):
+        assert importlib.import_module("services.inbox").near_amount(notified, bank, international) is expected
+
+    def test_the_international_flag_must_be_a_boolean(self, world):
+        [result] = send(world.client, world.auth, detection(international="sim"))
+        assert result["status"] == "invalid"
+
+    def test_the_flag_and_the_currency_are_stored(self, world, user):
+        _setup(world)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1000, app=ITAU, international=True))
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1000, at=ms(2026, 10, 11), app=ITAU, currency="EUR"))
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1000, at=ms(2026, 10, 12), app=ITAU))
+        stored = rows_of("notify_detections", "user_id = ? ORDER BY posted_ms", (user["id"],))
+        assert [row["international"] for row in stored] == [1, 1, 0]
