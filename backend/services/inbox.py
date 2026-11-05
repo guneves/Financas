@@ -4,11 +4,12 @@ O celular manda cada notificacao que um parser leu (`ingest_detections`, POST
 /api/inbox/detections) — so os campos lidos (valor, hora, cartao,
 estabelecimento), nunca o texto. Nada grava sozinho aqui.
 
-Dono, 2026-10-30: a Pluggy e a unica fonte dos bancos. So o Flash, que nao tem
-Open Finance, passa daqui (`notification_wanted()`, seja o que for que um APK
-antigo mande); o resto responde `ignored` e nao deixa rastro. O pareamento
-abaixo continua para o Flash (app e Samsung Wallet) e para o que uma
-notificacao gravou antes disso e a Pluggy ainda vai conferir.
+Dono, 2026-11-04 (docs/notifications-pluggy-design.md §4): a notificacao grava
+na hora, a Pluggy confere depois e e o registro. Passam o Flash (app e Samsung
+Wallet com o cartao dele), Itau, BB e BTG Banking, e do BTG Investimentos so o
+Pix/TED (`NOTIFICATION_POLICY`, `notification_wanted()`, seja o que for que um
+APK antigo mande; o freio e `bank_notifications`). O resto responde `ignored` e
+nao deixa rastro.
 
 Cada movimento do mundo real vira UM item (`inbox_items`), por mais fontes que
 o contem:
@@ -1695,7 +1696,8 @@ def ingest_detections(conn, current_user_id, raw_detections):
     pendente: o par do Samsung, a outra ponta da transferencia),
     matched (era um lancamento que ja existe), denied (o par ja foi recusado),
     declined (compra negada), cancelled (Samsung de uma compra negada),
-    ignored (nao e gasto do Flash, ou a aplicacao automatica: nada guardado),
+    ignored (fora da politica de quem fala, o freio desligado, ou a aplicacao
+    automatica: nada guardado),
     invalid (nao serviu; o celular nao manda de novo).
     """
     if not isinstance(raw_detections, list) or not raw_detections:

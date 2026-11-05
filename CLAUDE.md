@@ -47,7 +47,7 @@ volume. `DEPLOY.md` has setup, manual deploy, import and rollback.
 ## Tests
 
 ```powershell
-cd backend; ..\.venv\Scripts\python.exe -m pytest     # ~1600 tests in backend/tests/
+cd backend; ..\.venv\Scripts\python.exe -m pytest     # ~2700 tests in backend/tests/
 cd frontend; npm test                                 # node --test over src/**/*.test.js
 ```
 
@@ -436,7 +436,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   the source (transaction `source_type = 'OPEN_FINANCE'`, card `client_id = 'pluggy:<id>'`, OF
   snapshot), so later bank changes apply as for a Pluggy-recorded row; another date or account/card
   → the row is deleted and the item re-recorded the bank's way right after the pull; edited (snapshot
-  differs) or a transfer → only `MATCHED`.
+  differs) or a transfer → only `MATCHED` (a transfer's guessed side still follows the bank,
+  `follow_bank_side()`, below).
 - **Card purchases are in the Extrato** (`GET /api/cc-expenses/statement`,
   `services/card_statement.py`): one row per purchase (total, installments, `needs_review`), the
   Extrato's filters (type EXPENSE = purchases, INCOME = refunds, TRANSFER or an account → none),
@@ -470,7 +471,9 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   **Claims are per channel** (I2, `inbox.pluggy_claimed()` / `notification_claimed()`):
   `existing_rows(claimed_by="notify"|"pluggy")`, `free_candidates()` (the item's channel:
   Pluggy if it has a Pluggy `SOURCE`) and `_linked_elsewhere()` hide a lançamento only when another
-  observation of the **same** channel claims it; a typed row is free for both. Two identical real
+  observation of the **same** channel claims it; a typed row is free for both. A transfer's side is
+  a slot per channel too: a late notice of a side Pluggy already brought joins that transfer
+  (`approved_transfer_awaiting(channel=)`). Two identical real
   purchases stay two (rows = max(notified, posted)). `identity_invariants.violations()` checks it;
   every test of `test_notify_pluggy_identity.py` ends with `assert_identity()`, and the owner runs
   `scripts/check_identity.py --email X` (read-only) on the server.
@@ -528,9 +531,10 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   (`one_side_now()`). When the other side arrives (another bank's pull or a notification), the same
   row becomes the transfer (`inbox.absorb_recorded_side()`, shared by `place()` and
   `_ingest_alone()`: untouched **by the snapshot**, never by `needs_review`; same cents, opposite
-  direction, another reais account, ±`TRANSFER_MATCH_DAYS`, no share, its item with one movement
-  source, counterparties that can be one person); an edited side stays and the other side is its own
-  row. The snapshot helpers live in `services/recorded_snapshot.py` (re-exported by
+  direction, another reais account, ±`TRANSFER_MATCH_DAYS`, no share, its side observed at most once
+  per channel (a notice and the Pluggy row that confirmed it), all movements, counterparties that can
+  be one person; a notice that joined an item Pluggy recorded has no snapshot of its own and doesn't
+  decide, the Pluggy row's does); an edited side stays and the other side is its own row. The snapshot helpers live in `services/recorded_snapshot.py` (re-exported by
   `open_finance_inbox`). Both sides in one pull pair before
   recording, as before. A Pix to the Conta global is a despesa in reais until the dollar credit turns it
   into the transfer (`_absorb_recorded_real_side()`). A row in another currency on a reais account takes
