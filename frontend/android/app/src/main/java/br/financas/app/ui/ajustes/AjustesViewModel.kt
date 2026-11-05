@@ -15,6 +15,7 @@ import br.financas.app.data.AccountDto
 import br.financas.app.data.AppGraph
 import br.financas.app.data.CategoryDto
 import br.financas.app.data.CreditCardDto
+import br.financas.app.data.InboxSettingsDto
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.Load
 import br.financas.app.data.MeDto
@@ -161,6 +162,8 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         private set
     var notifyBusy by mutableStateOf("")
         private set
+    /** "Avisos dos bancos" (bank_notifications de GET /api/inbox/settings). */
+    val inboxSettings = ScreenLoad<InboxSettingsDto>()
 
     // Versao
     var apk by mutableStateOf<ApkUpdateTexts.ApkState?>(null)
@@ -233,7 +236,10 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             AjustesSection.CATEGORIAS -> readCategories()
             AjustesSection.OPEN_FINANCE -> readOpenFinance()
             AjustesSection.PERFIL -> readMe()
-            AjustesSection.NOTIFICACOES -> readNotify()
+            AjustesSection.NOTIFICACOES -> {
+                readNotify()
+                readInboxSettings()
+            }
             AjustesSection.VERSAO -> {
                 if (apk == null && apkBusy.isEmpty()) checkApk()
                 // Voltou da tela "Instalar apps desconhecidos": baixa sozinho, como a web.
@@ -687,6 +693,21 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         onDone()
     }
     // ---- Notificacoes dos bancos ----
+
+    private fun readInboxSettings() {
+        viewModelScope.launch {
+            inboxSettings.collect(app, graph.inbox.settings(), R.string.ajustes_bank_notifications_failed)
+        }
+    }
+
+    /** "Avisos dos bancos": desligado, o servidor so aceita o Flash (o banco nao deixa rastro). */
+    fun setBankNotifications(value: Boolean) {
+        if (inboxSettings.value?.bankNotifications == value) return
+        write(R.string.ajustes_bank_notifications_failed, { graph.inbox.setBankNotifications(value) }) { saved ->
+            inboxSettings.value = saved
+            notice(app.getString(if (saved.bankNotifications) R.string.ajustes_bank_notifications_on else R.string.ajustes_bank_notifications_off))
+        }
+    }
 
     private fun readNotify() {
         viewModelScope.launch {

@@ -37,7 +37,12 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import statement_import
-from config import INBOX_MATCH_DAYS, NEAR_MATCH_DOMESTIC_PERCENT, NEAR_MATCH_FOREIGN_PERCENT
+from config import (
+    BANK_NOTIFICATIONS_DEFAULT,
+    INBOX_MATCH_DAYS,
+    NEAR_MATCH_DOMESTIC_PERCENT,
+    NEAR_MATCH_FOREIGN_PERCENT,
+)
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
@@ -298,14 +303,45 @@ def is_flash_detection(detection):
     return app == FLASH_APP or (app == SAMSUNG_WALLET and issuer_of(detection) == FLASH_ISSUER)
 
 
+# Quem fala e do que (docs/notifications-pluggy-design.md §4, dono 2026-11-04):
+# os tres bancos mandam tudo o que o parser reconhece; o app da corretora so a
+# transferencia de ou para um banco (ordem, provento, aplicacao e taxa vem pela
+# Pluggy); o Samsung Wallet so o cartao do Flash (is_flash_detection()). O resto
+# nao fala. A notificacao grava na hora; a Pluggy confere depois.
+BANK_APPS = ("com.itau", "br.com.bb.android", "com.btg.pactual.banking")
+NOTIFICATION_POLICY = {
+    **{app: frozenset(DETECTION_KINDS) for app in BANK_APPS},
+    BROKERAGE_APP: frozenset(MOVEMENT_KINDS),
+}
+# Palavras de investimento: a aplicacao, o resgate, a ordem na corretora e o
+# provento nunca sao Pix nem compra. Valem no Pix/TED (outro lado e
+# estabelecimento) e em tudo do app da corretora; nunca no estabelecimento de
+# uma compra no cartao ("FUNDO DE QUINTAL BAR" e um bar).
+INVESTMENT_TEXT = re.compile(
+    r"\b(?:aplicac(?:ao|oes)|resgates?|cdbs?|lcis?|lcas?|tesouro\s+direto|fundos?\s+de\s+investimento"
+    r"|ordem\s+de\s+compra|ordem\s+de\s+venda|proventos?|dividendos?|jcp)\b"
+)
+
+
+def is_investment_text(*values):
+    return any(INVESTMENT_TEXT.search(normalized(value)) for value in values if value)
+
+
 def notification_wanted(detection):
-    """O celular so fala do Flash, e so de gasto (dono, 2026-10-30). O beneficio
-    que cai e digitado pelo dono: entrada nao vira nada, e "credito" num cartao
-    so debito tambem nao (e o aviso do deposito, nunca uma compra na fatura)."""
-    if not is_flash_detection(detection):
-        return False
+    """A porta do servidor, pura (so olha a deteccao): um APK velho que mande
+    qualquer coisa passa por ela. O Flash, como sempre: so gasto (o beneficio
+    que cai e digitado pelo dono; "credito" num cartao so debito e o aviso do
+    deposito). Os bancos: a tabela NOTIFICATION_POLICY, menos o texto de
+    investimento. O interruptor bank_notifications e lido em ingest_detection()."""
     kind = detection["kind"]
-    return kind == "DECLINED" or (KIND_SHAPES[kind][0] == "OUT" and kind != "CREDIT_PURCHASE")
+    if is_flash_detection(detection):
+        return kind == "DECLINED" or (KIND_SHAPES[kind][0] == "OUT" and kind != "CREDIT_PURCHASE")
+    app = detection.get("app")
+    if kind not in NOTIFICATION_POLICY.get(app, ()):
+        return False
+    if app == BROKERAGE_APP or kind in MOVEMENT_KINDS:
+        return not is_investment_text(detection.get("merchant"), detection.get("counterparty"))
+    return True
 
 
 def card_hint_part(detection):
@@ -1598,7 +1634,10 @@ def ingest_detection(conn, current_user_id, detection, rules=None):
         return {"key": detection["key"], "status": "ignored", "item_id": None}
 
     if not notification_wanted(detection):
-        # Os bancos vem so pela Pluggy (dono, 2026-10-30).
+        return {"key": detection["key"], "status": "ignored", "item_id": None}
+    if not is_flash_detection(detection) and not bank_notifications(conn, current_user_id):
+        # O freio (Ajustes > Avisos dos bancos): desligado, o banco nao deixa
+        # rastro, para que ligar de novo nao grave avisos velhos de uma vez.
         return {"key": detection["key"], "status": "ignored", "item_id": None}
 
     repeated = _repeated_posting(conn, current_user_id, detection)
@@ -2527,6 +2566,9 @@ def list_items(conn, current_user_id, view="pending", limit=200):
 # ---------------------------------------------------------------------------
 
 ALWAYS_ASK_SETTING = "inbox_always_ask"
+# Avisos dos bancos (Fase 2): Itau, BB e BTG gravam na hora pelo aviso do
+# celular. Sem escolha, vale BANK_NOTIFICATIONS_DEFAULT (ligado).
+BANK_NOTIFICATIONS_SETTING = "bank_notifications"
 
 
 def setting_value(conn, current_user_id, key):
@@ -2546,6 +2588,15 @@ def save_setting(conn, current_user_id, key, value):
         """,
         (current_user_id, key, value, utc_timestamp()),
     )
+
+
+def bank_notifications(conn, current_user_id):
+    value = setting_value(conn, current_user_id, BANK_NOTIFICATIONS_SETTING)
+    return BANK_NOTIFICATIONS_DEFAULT if value is None else value == "1"
+
+
+def set_bank_notifications(conn, current_user_id, value):
+    save_setting(conn, current_user_id, BANK_NOTIFICATIONS_SETTING, "1" if value else "0")
 
 
 def always_ask(conn, current_user_id):

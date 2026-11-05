@@ -217,6 +217,10 @@ NEAR_MATCH_DOMESTIC_PERCENT = read_int_env("NEAR_MATCH_DOMESTIC_PERCENT", 30, mi
 # padrao de quem nunca mexeu no interruptor (Ajustes); os testes antigos do
 # Aprovar rodam com 0 (conftest.py) e os novos ligam por usuario.
 AUTO_RECORD_DEFAULT = str(os.getenv("AUTO_RECORD_DEFAULT", "1")).strip().lower() not in {"0", "false", "no"}
+# Avisos dos bancos (Fase 2, dono 2026-11-04): o aviso do Itau, BB e BTG no
+# celular grava na hora, e a Pluggy confere depois. O padrao de quem nunca mexeu
+# no interruptor (Ajustes); desligado, so o Flash fala.
+BANK_NOTIFICATIONS_DEFAULT = str(os.getenv("BANK_NOTIFICATIONS_DEFAULT", "1")).strip().lower() not in {"0", "false", "no"}
 # A conta e o cartao que a Pluggy alimenta nao recebem lancamento digitado (dono, 2026-10-31).
 MANUAL_ONLY_OFF_PLUGGY = str(os.getenv("MANUAL_ONLY_OFF_PLUGGY", "1")).strip().lower() not in {"0", "false", "no"}
 

@@ -251,10 +251,12 @@ data class InboxHintDto(
 
 /**
  * GET/PATCH /api/inbox/settings: "Gravar sozinho" (045, ligado sem escolha; um servidor antigo nao
- * manda e vale ligado, como na web) e "Sempre perguntar a conta/cartão".
+ * manda e vale ligado, como na web), "Sempre perguntar a conta/cartão" e "Avisos dos bancos"
+ * (Fase 2, ligado sem escolha).
  */
 @Serializable
 data class InboxSettingsDto(
     @SerialName("always_ask") val alwaysAsk: Flag = false,
     @SerialName("auto_record") val autoRecord: Flag = true,
+    @SerialName("bank_notifications") val bankNotifications: Flag = true,
 )

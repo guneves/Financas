@@ -264,8 +264,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `apply` rewrites only the sent ids, re-checking the rule. Transfers, investment cash, proventos
   and invoice payments are out of reach.
 
-### Open Finance is the only banking source (owner 2026-10-30)
-**Banks come only from Pluggy; notifications exist only for the Flash**, which Pluggy doesn't cover.
+### Notifications are fast, Pluggy is the record (owner 2026-11-04, design §4)
+**A phone notice records at once; Pluggy confirms it later and is the record.** The Flash, which Pluggy
+doesn't cover, comes only from notices (and typing).
 - **Only the Flash is typed** (owner 2026-10-31, `services/manual_entries.py`): a mapped account or card refuses a
   typed row, purchase, refund and statement import (400); a transfer needs one side off Pluggy. `pluggy` on
   `GET /api/accounts` and `/api/credit-cards` tells the screens; "+ Novo" offers only the rest. `MANUAL_ONLY_OFF_PLUGGY`
@@ -274,10 +275,29 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   redirect to the Extrato. Waiting items resolve there: `WaitingItems` (web), `ReviewSection` (APK), shown only
   while one exists. Ajustes has no Aprovar section and no "Gravar sozinho" switch; the settings stay on the API
   as the brake. The owner's only job: categories and doubts, in Revisar.
-- The phone listens to Samsung Wallet (only the "Card used for Meal and Voucher"/Flash card) and the
-  Flash app (`NotifyRules.APPS`); the server enforces it for old APKs (`notification_wanted()`: anything
-  else, and any Flash credit, answers `ignored`). A Samsung Flash purchase records at once; a later
-  decline removes the untouched row. Flash receitas are typed by the owner.
+- **Who speaks** (`NOTIFICATION_POLICY` + `notification_wanted(detection)` in `services/inbox.py`, pure; the
+  APK's `NotifyRules.APPS`, manifest `<queries>` and `NotifyParsers.parse()` repeat it, but an old APK is safe
+  because the server decides):
+
+  | App | Accepted |
+  |-----|----------|
+  | Flash app; Samsung Wallet with the Flash card (`is_flash_detection()`) | outgoing only, no `CREDIT_PURCHASE`; `DECLINED` |
+  | `com.itau`, `br.com.bb.android`, `com.btg.pactual.banking` | every kind of `KIND_SHAPES`, plus `DECLINED` |
+  | `com.btg.pactual.digital.mobile` (BTG Investimentos) | only `MOVEMENT_KINDS` (Pix/TED in and out) |
+  | Samsung Wallet with any other card; any other app | nothing |
+
+  Investment words (`INVESTMENT_TEXT`: aplicação, resgate, CDB, LCI, LCA, tesouro direto, fundo de
+  investimento, ordem de compra/venda, provento, dividendo, JCP; word boundaries over `normalized()`) block a
+  Pix/TED (merchant and counterparty) and everything from the brokerage app, **never** a card purchase's
+  merchant ("FUNDO DE QUINTAL BAR" is a bar). The APK also drops an invoice payment ("fatura" + pago/paga/
+  pagamento/quitada, before `kindOf()`) and sends `international: true` for internacional/exterior/US$/USD/
+  EUR/€/£. Anything else answers `ignored` and leaves no `notify_detections` row.
+- **The brake: "Avisos dos bancos"** (`bank_notifications` in `user_settings`, `GET/PATCH /api/inbox/settings`,
+  booleans only; default `BANK_NOTIFICATIONS_DEFAULT`, env, on). Off, only the Flash passes, and a bank notice
+  is `ignored` with no trace, so switching it back on records nothing old. Web: Ajustes › Avisos do celular;
+  APK: Ajustes › Notificações do celular.
+- A Samsung Flash purchase records at once; a later decline removes the untouched row. Flash receitas are typed
+  by the owner.
 - **Everything updates by itself**: one tick covers accounts, cards, Wise, BTG and the Conferência; a
   failing item doesn't stop the others; first tick 60 s after boot. `sync_hours`: `off` = owner's choice,
   a stored `0` means 6 h. GET only and the 6 h floor stay. **Between pulls, every 5 min** (owner 2026-11-01,
@@ -288,8 +308,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   recurrences never write on a Pluggy-mapped card or account.
 - **Categories**: owner's import rule → merchant table → CNAE → Pluggy's category → default
   (`open_finance_categories.py`); merchant data from 050.
-- **Only the pull writes bank movements** (owner 2026-10-30): every 6 h, or the "Atualizar" button. A read
-  (`record_due()`) records only notifications, the Flash. What a pull brings is recorded in that pull.
+- **The pull writes what Pluggy brings** (owner 2026-10-30): every 6 h, the 5-minute freshness check, or the
+  "Atualizar" button; what a pull brings is recorded in that pull. A read (`record_due()`) records only
+  notifications.
 - **The app waits for the bank before flagging** (owner 2026-10-30, `awaiting_bank()` /
   `bank_refreshed_since()` in `open_finance_auto.py`): a pending Pluggy item stays out of `waiting` (`GET
   /api/review`) until every active connection has `pluggy_updated_at` after the item and the app read it;
@@ -337,8 +358,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 - **Rebuild** (`scripts/rebuild_from_pluggy.py`, `services/open_finance_rebuild.py`): dry-run by
   default; `--apply` needs the app stopped and runs in a one-off container (DEPLOY.md). Flash's rows
   are never wiped; investments only as told.
-The sections below describe the engine; where they speak of bank notifications, that path is now
-Flash-only (`any_bank_notifications` is the test fixture that opens the gate).
+The sections below describe the engine. Tests of the engine open the gate with the fixture
+`any_bank_notifications` (`notification_wanted` → `lambda detection: True`); the gate itself is tested in
+`test_notification_policy.py`, which never uses it.
 
 ### Auto-record → reconcile → review (045, owner 2026-10-27)
 The paradigm: **notifications record, Pluggy reconciles (and feeds Investimentos), the owner only
@@ -490,7 +512,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   it, the lançamento is corrected/deleted only while it equals the snapshot (no edit, receipt) and
   was created by that Pluggy row (`apply_change()` / `apply_vanish()`; never a transfer, never a
   paid installment, never on an empty pull); otherwise `conflict` and the Conferência lists it.
-  Phone notices of banks are ignored (see above).
+  Which phone notices reach this engine: the policy above.
 - **BB Rende Fácil is never in the app** (046, owner 2026-10-27): the bank's automatic investment
   ("RENDE FACIL"/"REND.FACIL", `inbox.is_auto_invest()`) is `COVERED` in `place()` (no item, no
   lançamento, not in the Conferência) and its phone notice is `ignored`. So BB's app balance leaves

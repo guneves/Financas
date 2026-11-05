@@ -111,6 +111,10 @@ class InboxRepository(
     suspend fun setAlwaysAsk(value: Boolean): InboxWrite<InboxSettingsDto> =
         write("PATCH", SETTINGS_PATH, mapOf("always_ask" to value), InboxSettingsDto.serializer())
 
+    /** "Avisos dos bancos" (Fase 2): desligado, o servidor so aceita o aviso do Flash. */
+    suspend fun setBankNotifications(value: Boolean): InboxWrite<InboxSettingsDto> =
+        write("PATCH", SETTINGS_PATH, mapOf("bank_notifications" to value), InboxSettingsDto.serializer())
+
     /** "Gravar sozinho" (045): ligado, o servidor grava na hora o que esperava. */
     suspend fun setAutoRecord(value: Boolean): InboxWrite<InboxSettingsDto> =
         write("PATCH", SETTINGS_PATH, mapOf("auto_record" to value), InboxSettingsDto.serializer())

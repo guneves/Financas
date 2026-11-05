@@ -29,8 +29,9 @@ import java.util.TreeMap;
  * - o texto que vale: o bigText quando veio (costuma trazer o nome inteiro do lugar), senao o text;
  * - a exportacao da captura, em JSON ou texto. E o unico caminho por onde um texto sai do aparelho.
  *
- * So o Flash (dono, 2026-10-30): o app do Flash e o Samsung Wallet do cartao do Flash. Bancos
- * (Itaú, BB, BTG) vem pelo Open Finance e seus avisos sao descartados no aparelho.
+ * Quem fala (docs/notifications-pluggy-design.md §4, dono 2026-11-04): o Flash (o app e o Samsung
+ * Wallet com o cartao do Flash), o Itaú, o BB, o BTG Banking e o app da BTG Investimentos (so a
+ * transferencia: NotifyParsers descarta o resto). O aviso grava na hora; a Pluggy confere depois.
  */
 public final class NotifyRules {
 
@@ -53,15 +54,21 @@ public final class NotifyRules {
     }
 
     /**
-     * Dono, 2026-10-30: o celular so avisa do Flash. Ouve o Flash e o Samsung Wallet (que traz o
-     * cartao "Card used for Meal and Voucher" do Flash); os bancos vem pelo Open Finance.
+     * Os apps ouvidos. O Samsung Wallet so pelo cartao do Flash ("Card used for Meal and Voucher",
+     * accepts()); os nomes sao os do servidor (APP_LABELS em backend/services/inbox.py).
      */
     public static final List<App> APPS = Collections.unmodifiableList(Arrays.asList(
         new App("com.samsung.android.spay", "Samsung Wallet"),
-        new App("br.com.flashapp", "Flash")
+        new App("br.com.flashapp", "Flash"),
+        new App("com.itau", "Itaú"),
+        new App("br.com.bb.android", "Banco do Brasil"),
+        new App("com.btg.pactual.banking", "BTG Pactual"),
+        new App("com.btg.pactual.digital.mobile", "BTG Investimentos")
     ));
 
     public static final String SAMSUNG_PACKAGE = "com.samsung.android.spay";
+    /** O app da corretora: dele so sai o Pix/TED de ou para um banco (NotifyParsers). */
+    public static final String BROKERAGE_PACKAGE = "com.btg.pactual.digital.mobile";
 
     /** O cartao do Flash no Samsung Wallet: "Card used for Meal and Voucher" (ou o nome Flash). */
     public static boolean isFlashCardName(String title) {

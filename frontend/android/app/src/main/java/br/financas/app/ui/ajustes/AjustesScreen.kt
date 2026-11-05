@@ -862,6 +862,30 @@ private fun NotificacoesSection(viewModel: AjustesViewModel) {
     }
 }
 
+/** "Avisos dos bancos" (bank_notifications, no servidor): o mesmo interruptor da web. */
+@Composable
+private fun BankNotificationsBlock(viewModel: AjustesViewModel) {
+    val palette = LocalPalette.current
+    val settings = viewModel.inboxSettings.value
+    val on = settings?.bankNotifications ?: true
+    val enabled = settings != null && !viewModel.busy
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp).clickable(enabled = enabled) { viewModel.setBankNotifications(!on) },
+    ) {
+        Checkbox(
+            on,
+            { viewModel.setBankNotifications(it) },
+            enabled = enabled,
+            colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent),
+        )
+        Column(Modifier.padding(top = 12.dp, end = 12.dp)) {
+            Text(stringResource(R.string.ajustes_bank_notifications), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
+            Text(stringResource(R.string.ajustes_bank_notifications_hint), fontSize = 14.sp, color = palette["zinc-600"])
+        }
+    }
+}
+
 @Composable
 private fun NotifyBody(status: NotifyTexts.NotifyStatus, viewModel: AjustesViewModel) {
     val palette = LocalPalette.current
@@ -890,6 +914,8 @@ private fun NotifyBody(status: NotifyTexts.NotifyStatus, viewModel: AjustesViewM
                     }
                 }
             }
+            HorizontalDivider(color = palette["zinc-100"])
+            BankNotificationsBlock(viewModel)
             HorizontalDivider(color = palette["zinc-100"])
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.ajustes_capture_mode), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)

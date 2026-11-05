@@ -9,7 +9,7 @@
 
 ## 1. Open work, in priority order
 
-### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phase 1 built on a branch
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phases 1 and 2 built on branches
 Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
 back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
 and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
@@ -32,13 +32,15 @@ branch, and only session 5 opens a PR. The owner merges that one PR, so nothing 
 unverified.
 - Phase 1 (engine) is built on branch `claude/notify-pluggy-phase1` (not merged: the final
   verification merges the chain). See `docs/handoff.md` › "For the final verification".
-- [ ] **Phase 2 — open the gate**:
-  - `NOTIFICATION_POLICY` (BTG Investimentos: transfers only; investment words and invoice payments
-    ignored; Samsung Wallet Flash only).
-  - `bank_notifications` brake in `/api/inbox/settings`, **on by default**.
-  - APK `NotifyRules.APPS`, parser filters and the `international` flag, with JVM tests.
-  - Ajustes text.
-  - CLAUDE.md rewrite of "Open Finance is the only banking source".
+- Phase 2 (gate) is built on branch `claude/notify-pluggy-phase2`, on top of Phase 1 (not merged).
+- [ ] **Owner, after the final PR is merged and the APK is updated** (Phase 2's checks, in order):
+  1. an Itaú card purchase shows up in seconds;
+  2. after the next pull it is still one row;
+  3. a Pix to BTG Investimentos gives one transfer;
+  4. a week later, `scripts/check_identity.py` prints nothing.
+  The real notice texts of the four bank apps are not captured yet for the brokerage app and for an
+  invoice payment: if one of them reaches the Extrato, export it from Ajustes › Notificações do
+  celular (modo captura) and adjust `NotifyParsers`.
 - [ ] **Phase 3 — investments Pluggy-only**:
   - One real GET of BTG `/investments` (which of `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/
     `issuer` MeuPluggy fills).
