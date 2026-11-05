@@ -875,3 +875,38 @@ class TestNearRules:
         send(world.client, world.auth, detection("DEBIT_PURCHASE", 1000, at=ms(2026, 10, 12), app=ITAU))
         stored = rows_of("notify_detections", "user_id = ? ORDER BY posted_ms", (user["id"],))
         assert [row["international"] for row in stored] == [1, 1, 0]
+
+
+# ---------------------------------------------------------------------------
+# Regressoes do gerador de cenarios (test_notify_pluggy_fuzz.py, sessao 5)
+# ---------------------------------------------------------------------------
+
+class TestFuzzRegressions:
+    @pytest.mark.parametrize("order", [("itau", "btg"), ("btg", "itau")])
+    def test_a_late_brokerage_notice_joins_the_transfer_pluggy_completed(self, world, user, order):
+        """Semente 0: o Itau avisa o Pix para a Corretora, a Pluggy traz as duas
+        pontas (uma TRANSFER), e so depois chega o aviso do BTG Investimentos
+        (celular sem rede). A vaga da notificacao na ponta de entrada esta
+        livre (a Pluggy ocupa a dela, I2): o aviso entra na mesma
+        transferencia, nunca abre uma segunda."""
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, corretora = made["itau:0001/1-1"][2], made["corretora"]
+        send(world.client, world.auth, detection("PIX_OUT", 10838, at=ms(2026, 10, 21, 12, 4), app=ITAU, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        world.fake.add_tx(made["itau:0001/1-1"][0], bank_tx(-108.38, "2026-10-21", "PIX ENVIADO",
+                                                           category_id=SELF_TRANSFER, counterparty="Fulano Dono"))
+        world.fake.add_tx(made["btg:0002/2-2X"][0], bank_tx(108.38, "2026-10-21", "RECEBIMENTO TRANSFERÊNCIA",
+                                                           category_id=SELF_TRANSFER))
+        for bank in order:
+            world.sync(made["items"][bank])
+        [recorded] = _amount_rows(world, 108.38)
+        [result] = send(world.client, world.auth, detection("TRANSFER_IN", 10838, at=ms(2026, 10, 21, 12, 5),
+                                                            app=BROKERAGE, merchant=None))
+        assert result["status"] == "matched"
+        rows = _amount_rows(world, 108.38)
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (recorded["id"], "TRANSFER", itau, corretora)
+        ]
+        assert world.pending() == []
+        assert_identity(user["id"])

@@ -1065,14 +1065,20 @@ def open_finance_sources(conn, current_user_id, item_id, roles=None):
     return conn.execute(sql + " ORDER BY date, created_at, id", params).fetchall()
 
 
-def _source_directions(conn, current_user_id, item_id):
+def _source_directions(conn, current_user_id, item_id, channel=None):
+    """Os lados que as fontes do item ja observaram; `channel` (CLAIM_NOTIFY ou
+    CLAIM_PLUGGY) olha so as daquele canal: a vaga e por canal e lado (I2)."""
     directions = set()
+    if channel == CLAIM_PLUGGY:
+        return {row["direction"] for row in open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,))}
     for row in conn.execute(
         "SELECT kind FROM notify_detections WHERE user_id = ? AND item_id = ? AND role = 'SOURCE'",
         (current_user_id, item_id),
     ).fetchall():
         if row["kind"] in KIND_SHAPES:
             directions.add(KIND_SHAPES[row["kind"]][0])
+    if channel == CLAIM_NOTIFY:
+        return directions
     for row in open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,)):
         directions.add(row["direction"])
     return directions
@@ -1240,7 +1246,7 @@ def remembered_transfer(conn, current_user_id, *, account_id, direction, descrip
     return hint
 
 
-def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, cents, date_text):
+def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, cents, date_text, channel=None):
     """Uma transferencia que o dono ja decidiu aqui (aprovou, ou disse "e esta")
     com uma ponta so, e este movimento e a outra (a outra conta notificou
     depois): confirma a transferencia, nao e um movimento
@@ -1264,7 +1270,7 @@ def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, 
         side_account = row["destination"] if direction == "IN" else row["origin"]
         if side_account != account_id:
             continue
-        if direction in _source_directions(conn, current_user_id, row["id"]):
+        if direction in _source_directions(conn, current_user_id, row["id"], channel):
             continue
         found.append(row)
     return _pick_closest(found, date_text)
@@ -1877,7 +1883,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
     if detection["kind"] in MOVEMENT_KINDS and target["account_id"] and "account" not in target["needs"]:
         approved = approved_transfer_awaiting(
             conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,
-            date_text=date_of(when),
+            date_text=date_of(when), channel=CLAIM_NOTIFY,
         )
         if approved:
             _insert_detection(
