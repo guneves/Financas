@@ -271,7 +271,9 @@ class TestSameMovementAsANotification:
     def test_a_different_day_or_amount_is_not_the_same(self, world):
         item_id, _p, made = connected(world)
         send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 23, 9, 0), app=ITAU))
-        world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-26"), bank_tx(-45.91, "2026-10-23"))
+        # Outra loja: com a mesma loja, 45,91 seria o par aproximado (design §3.7,
+        # test_notify_pluggy_identity.py::TestNearMatch).
+        world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-26"), bank_tx(-45.91, "2026-10-23", "POSTO SHELL"))
         world.sync(item_id)
         assert len(world.pending()) == 3
 

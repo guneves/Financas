@@ -21,6 +21,7 @@ public class NotifyParsersTest {
     private static final String ITAU = "com.itau";
     private static final String BTG = "com.btg.pactual.banking";
     private static final String SAMSUNG = "com.samsung.android.spay";
+    private static final String BROKERAGE = "com.btg.pactual.digital.mobile";
 
     private static NotifyRules.Captured row(String pkg, String title, String text) {
         NotifyRules.Captured row = new NotifyRules.Captured();
@@ -361,5 +362,103 @@ public class NotifyParsersTest {
         // O texto nunca vai.
         assertFalse(body.toString().contains("enviou"));
         assertNotNull(body.optString("counterparty", null));
+    }
+
+    // --- Fase 2: o portao dos bancos ---------------------------------------------------------
+
+    @Test
+    public void aBrokerageOrderIsNotAMovement() {
+        assertNull(NotifyParsers.parse(row(BROKERAGE, "Ordem executada",
+            "Sua ordem de compra de PETR4 foi executada. Valor R$ 1.234,00")));
+        assertNull(NotifyParsers.parse(row(BROKERAGE, "Ordem executada",
+            "Sua ordem de venda de ITSA4 foi executada. Valor R$ 980,00")));
+    }
+
+    @Test
+    public void aBrokerageTransferIsAMovement() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(BROKERAGE, "Transferência recebida",
+            "Recebemos sua transferência no valor de R$ 5,08"));
+        assertNotNull(parsed);
+        assertEquals(NotifyParsers.TRANSFER_IN, parsed.kind);
+        assertEquals(508, parsed.amountCents);
+    }
+
+    @Test
+    public void theBrokerageNeverSendsInvestmentWords() {
+        assertNull(NotifyParsers.parse(row(BROKERAGE, "Proventos",
+            "Você recebeu dividendos de R$ 12,30 de PETR4")));
+        assertNull(NotifyParsers.parse(row(BROKERAGE, "Resgate",
+            "Recebemos o resgate do CDB no valor de R$ 1.000,00")));
+        assertNull(NotifyParsers.parse(row(BROKERAGE, "Aplicação",
+            "Sua aplicação em Tesouro Direto de R$ 500,00 foi realizada")));
+    }
+
+    @Test
+    public void anInvoicePaymentIsNeverAMovement() {
+        for (String pkg : new String[] { ITAU, BB, BTG, BROKERAGE }) {
+            assertNull(pkg, NotifyParsers.parse(row(pkg, "Fatura", "Pagamento da fatura aprovado R$ 1.234,56")));
+            assertNull(pkg, NotifyParsers.parse(row(pkg, "Fatura paga", "Sua fatura de R$ 300,00 foi paga.")));
+            assertNull(pkg, NotifyParsers.parse(row(pkg, "Fatura", "Fatura quitada: R$ 300,00")));
+        }
+        assertNull(NotifyParsers.parse(btg("Fatura", "Pagamento da fatura aprovado R$ 1.234,56")));
+    }
+
+    @Test
+    public void anInternationalPurchaseIsFlagged() throws Exception {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra internacional aprovada R$ 52,30 AMAZON"));
+        assertNotNull(parsed);
+        assertEquals(NotifyParsers.PURCHASE, parsed.kind);
+        assertEquals(5230, parsed.amountCents);
+        assertEquals(true, parsed.international);
+        JSONObject detection = NotifyParsers.toDetection(row(ITAU, "Compra aprovada", "x"), parsed,
+            TimeZone.getTimeZone("America/Sao_Paulo"));
+        assertEquals(true, detection.getBoolean("international"));
+    }
+
+    @Test
+    public void foreignCurrencyIsInternational() {
+        for (String text : new String[] {
+            "Compra aprovada R$ 52,30 no exterior em STEAM",
+            "Compra aprovada de US$ 10,00 (R$ 55,10) em OPENAI",
+            "Compra aprovada R$ 60,00 EUR 10,00 em BOOKING",
+            "Compra aprovada R$ 60,00 (€ 10,00) em BOOKING",
+            "Compra aprovada R$ 70,00 (£ 10,00) em TFL",
+        }) {
+            NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra", text));
+            assertNotNull(text, parsed);
+            assertEquals(text, true, parsed.international);
+        }
+    }
+
+    @Test
+    public void aDomesticPurchaseSendsNoInternationalFlag() throws Exception {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(ITAU, "Compra aprovada",
+            "Compra aprovada de R$ 89,00 em FUNDO DE QUINTAL BAR"));
+        assertNotNull(parsed);
+        assertEquals(NotifyParsers.PURCHASE, parsed.kind);
+        assertEquals(8900, parsed.amountCents);
+        assertEquals("FUNDO DE QUINTAL BAR", parsed.merchant);
+        assertFalse(parsed.international);
+        JSONObject detection = NotifyParsers.toDetection(row(ITAU, "Compra aprovada", "x"), parsed,
+            TimeZone.getTimeZone("America/Sao_Paulo"));
+        assertFalse(detection.has("international"));
+    }
+
+    @Test
+    public void aBankPurchaseAtFundoDeQuintalIsParsed() {
+        NotifyParsers.Parsed parsed = NotifyParsers.parse(row(BB, "Compra aprovada",
+            "Compra no débito de R$ 45,00 em FUNDO DE QUINTAL foi aprovada."));
+        assertNotNull(parsed);
+        assertEquals(NotifyParsers.DEBIT_PURCHASE, parsed.kind);
+        assertEquals(4500, parsed.amountCents);
+    }
+
+    @Test
+    public void samsungWithABtgCardIsStillRejected() {
+        NotifyRules.Captured samsung = row(SAMSUNG, "BTG Pactual Banking", "PADARIA BOM PAO R$ 14,20");
+        assertNull(NotifyParsers.parse(samsung));
+        NotifyRules.Captured flash = row(SAMSUNG, "Card used for Meal and Voucher", "PADARIA BOM PAO R$ 14,20");
+        assertNotNull(NotifyParsers.parse(flash));
     }
 }

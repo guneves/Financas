@@ -368,6 +368,8 @@ object Operations {
         val treasuryUnits: String = "",
         val fixedIncome: FixedIncome.Form = FixedIncome.emptyFixedIncomeForm(),
         val cashLink: PortfolioAccount.CashLink = PortfolioAccount.emptyCashLink(),
+        /** O "Lançar" de uma operacao da corretora que espera (InvestmentPrefill). */
+        val opKey: String = "",
     ) {
         val isFixedIncome: Boolean get() = movementAssetClass(assetType) == "FIXED_INCOME"
         val usesCatalog: Boolean get() = mode == "BUY" && assetType in CATALOG_ASSET_TYPES
@@ -472,6 +474,7 @@ object Operations {
             }
         }
         metadata.putAll(PortfolioAccount.cashLinkMetadata(form.cashLink))
+        metadata.putAll(InvestmentPrefill.opKeyMetadata(form.opKey))
         return linkedMapOf(
             "asset_class" to movementAssetClass(form.assetType),
             "ticker_or_name" to ticker,
@@ -496,6 +499,7 @@ object Operations {
             "other_costs" to parseAmount(form.otherCosts),
         )
         metadata.putAll(PortfolioAccount.cashLinkMetadata(form.cashLink))
+        metadata.putAll(InvestmentPrefill.opKeyMetadata(form.opKey))
         return linkedMapOf(
             "asset_class" to asset.assetClass,
             "ticker_or_name" to asset.ticker,

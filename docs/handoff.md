@@ -7,106 +7,86 @@
 
 ---
 
-## Session — 2026-11-04 · Design: notifications + Pluggy, one movement one row (decided)
+## Session — 2026-11-04 · Notifications + Pluggy, session 3 of 5: Phase 3 (investments Pluggy-only)
 
-Owner asked for the best way to integrate notifications with Pluggy. There should be no overlap and
-no duplicates, a real purchase made twice must be recognised as two, investments are Pluggy-only,
-and notifications deliver only transfers to and from BTG Investimentos. Then the owner asked for
-"the best scenario for each, no friction".
+Branch: **`claude/notify-pluggy-phase3`**, from `claude/notify-pluggy-phase2` at `a5ff075` (Phases 1 + 2),
+merged with `origin/main` (already up to date). Migration **056**. **The chain changed**: mid-session the
+owner asked to open a PR and merge when done ("i'll continue the development through cloud sessions"),
+so this branch went to `main` through a PR with Phases 1–3. Sessions 4 and 5 start from `main`.
 
-**Done:** `docs/notifications-pluggy-design.md`. It covers:
-- the channel model and invariants I1–I5, with the twin-count argument;
-- the matching windows, and the step-by-step for a notification and for a Pluggy row;
-- the channel policy and investments Pluggy-only;
-- five phases;
-- §7, the decisions table. The rule: the owner types, answers and cleans nothing, and balances stay
-  right.
+**Done**
+- **Raw position** (056 `open_finance_positions.raw`): `_save_positions()` stores the whole Pluggy object
+  minus `transactions`, every pull. `backend/scripts/position_fields.py --email X`: read-only (`mode=ro`,
+  imports `config`, never `app`), prints type / subtype and the keys that are filled, never values.
+- **Fixed income from exact data** (`services/open_finance_fixed_income.py`, called from `decide()` for
+  `pluggy_type == FIXED_INCOME`): `title_terms()` maps CDI+rate, IPCA+fixedAnnualRate, PRE+fixedAnnualRate
+  and `subtype` (CDB, LCI, LCA, LC, CRI, CRA, DEBENTURE(S), TREASURY); Tesouro must be found in the price
+  file with the same indexer and maturity. Everything else is `HELD missing:<field>` / `unmapped:<field>`.
+  BUY: quantity 1, price = amount + expenses, `open_finance_units`, `treasury_units` on Tesouro, **no cash
+  link**. SELL: PEPS over the buys of the same Pluggy investment id by units (`redemption_plan()`, pure).
+  INTEREST: provento on the first buy's asset, `interest_tax_rate()` (moved from `routes/proceeds.py` to
+  `services/proceeds.py`), then `broker_statement.adopt_proceed_line()` turns the statement line that
+  already paid it into the proceed's row. Typed twins (same cents ±2 days) are linked. 056 also adds
+  `open_finance_investment_operations.proceed_id` (deleting the proceed → DISMISSED).
+- **The guard** (`manual_entries.require_manual_investment_cash()`, routes only): `POST /api/investments`
+  and redemptions (both via `create_movements()`), `POST /api/investment-proceeds`
+  (`proceeds_cash.proceed_cash_account_id()`), PATCH moving onto the fed Corretora. Exception by
+  `metadata.open_finance_op_key` → `open_finance_investments.held_operation()` / `complete_held()`.
+- **Held list**: `portfolio_check()['held']` now has `op_key`, `pluggy_type`, `prefill` (`held_prefill()`).
+- **Web**: Ajustes › Open Finance › Carteira da corretora: "Lançar" per held line (operation →
+  `InvestmentLaunchModal prefill=`; coupon and redemption: one confirm, then POST). `CashLinkField` uses
+  `cashLinkWithAccounts()`: on a fed Corretora a new operation defaults to "Não descontar", with
+  `PLUGGY_FED_NOTE`. New `lib/investmentPrefill.js`; reasons in `heldReasonLabel()`.
+- **APK**: `rules/InvestmentPrefill.kt` (prefill → `LaunchForm`, `heldReasonLabel`), `LaunchForm.opKey`
+  sent by `buyPayload`/`sellPayload`, `PortfolioAccount.cashLinkWithAccounts()` + `pluggy` on `Account`,
+  the note in `CashLinkField`, `OpenFinanceDto.investments.held`, and "Operações da corretora para você
+  lançar" with "Lançar" in Ajustes › Open Finance (opens `LaunchSheet` via `openPrefilled()`).
 
-The decisions:
-1. **Orphans:** the bank's balance decides; no prompt.
-2. **Samsung Wallet:** Flash card only.
-3. **Investments:** typing refused on the Corretora; `HELD` lines fill themselves from Pluggy's
-   position data where present.
-4. **Twins:** both kept, with a quiet "2× igual" badge and no card.
-5. **Bank notifications:** on by default, after Phase 1.
-6. **Review:** only category guesses are reviewed.
-7. **One-sided own transfers:** never wait.
-8. **Same purchase, different amount:** the near match (§3.7).
+**Tests**
+- New `test_open_finance_fixed_income.py` (60): raw kept/updated; `title_terms` mapping and every hold
+  reason (incl. SELIC, CDI+fixed, unit ambiguity); Tesouro (in file, wrong year, wrong indexer, wrong
+  maturity, no file); BUY recorded without cash, missing rateType, SELIC, fills itself later, repeat
+  no-op, typed twin linked, undo for good, LCI tax-free, Tesouro category; redemption PEPS (oldest lot,
+  across lots, continues, no buy, too many units, pure plan); INTEREST (20% from the first buy, no buy,
+  undo, statement line adopted with `apply_paid_proceeds()` run after: one row); `position_fields.py` on
+  a temp DB (keys, no values, file untouched, exit 2).
+- New `test_pluggy_investments_only.py` (25): every row of the prompt's table plus naming the Corretora,
+  another account, switch off, a Corretora without Pluggy, PATCH onto / keeping, unknown/not-held keys,
+  redemption refused / null / completed by key, proventos refused / before `portfolio_since` / switch off
+  / coupon completed by key / another user's key, `proceeds_sync` + `apply_paid_proceeds()` still write,
+  Pluggy operations still record on the Corretora.
+- Node: `investmentPrefill.test.js` (5), 2 cases in `portfolioAccount.test.js`, 2 in `openFinance.test.js`.
+- JVM: `InvestmentPrefillTest` (6), 2 cases in `PortfolioAccountTest`.
+- Results: backend full suite green in 4 chunks; `npm test` 236 green; `vite build` ok;
+  `gradlew --offline testDebugUnitTest assembleDebug` green (569 JVM tests).
 
-**Then, "add the fix"** (owner asked what happens when a notification and Pluggy disagree on the
-amount): design §3.7 and decision 8, the **near match**. Exact pairs are settled first. Then a
-leftover *purchase* pairs with the leftover on the other side when:
-- the merchant is the same and the pair is unique on both sides;
-- the amount is within ±10% for an international purchase, or ±30% domestic (tips).
+**Not done, and why**
+- No real GET of BTG `/investments`: production data is off-limits. The owner runs `position_fields.py`.
+- APK "Lançar" opens operations only; coupon and redemption are web (the APK has no proceeds/redemption
+  form wired to a prefill yet).
+- The web's one-tap redemption needs exactly one fixed-income position with the title's name; otherwise
+  it says to redeem in Posição (that redemption carries no `op_key`, so the HELD line stays).
 
-The bank's amount wins unless the owner typed the amount. A foreign-currency notice is recorded at
-PTAX at once. Twins and Pix never near-match. Tests J–Q are listed for Phase 1.
+**Next**: session 4 (Phases 4 + 5, `04-…` then `05-…`) **from `main`**, then session 5's final verification.
 
-**Then the session prompts** (owner: "give me the prompts to run this in other sessions, with
-details to avoid bugs"): `docs/prompts/notify-pluggy/`. The prompts:
-- `00-common` (setup and hard rules);
-- `01a` claims, succession and R;
-- `01b` absorb, nothing waits and the near match;
-- `02` the gate;
-- `03` investments;
-- `04` quiet review and twins;
-- `05` orphans by balance;
-- `06` verify-and-fix, after each phase: diff checklist, a seeded scenario generator over balances
-  and invariants, interleaving and EXPLAIN checks.
-
-A third probe found **R**. Only the BTG Investimentos app notifies an incoming R$ 500, the app
-guesses "BTG conta corrente" as the origin, and Pluggy shows it came from Itaú. Result: one row, but
-the origin stays wrong, so Itaú and BTG conta corrente are each off by R$ 500. `reconcile_recorded()`
-only links any `TRANSFER`.
-
-**Then merged into `main`** (owner asked: create the PR and merge it; the session prompts in English). Before
-merging, `origin/main` brought PR 64, the same day's session on the owner's R$ 110 CLAUDE.AI charge:
-- `LATE_POSTING_DAYS` = 35 in `_date_from()`;
-- the Conferência's "em processamento" text.
-
-The prompts were adjusted to it:
-- the 35-day pull window enlarges succession's *missing* set;
-- the Conferência's difference is **bank − app**, which Phase 5 needs right;
-- an international purchase "em processamento" is in the bank's balance before Pluggy lists it.
-  So the near match reaches `LATE_POSTING_DAYS` after the notification for international purchases
-  (test S in 1b), and the orphan rule keeps it ("confirmado pelo saldo").
-
-**Then fewer sessions** (owner: 12 is too much; the verification is one final session for
-everything). There are five sessions:
-- 1 builds the engine (1a + 1b);
-- 2 opens the gate;
-- 3 does investments;
-- 4 does review, twins and orphans;
-- 5 verifies all of it and opens the **only** PR.
-
-Sessions 2–5 start from the previous session's branch (`00-common.md` › "The chain"). Each build
-session leaves a "For the final verification" section in its handoff. The messages are in
-`docs/prompts/notify-pluggy/README.md`.
-
-**How it was grounded:** scratch probes against the real engine, not committed (the gate opened with
-`any_bank_notifications`, `FakePluggy`, pending rows on). Two defects:
-- **A:** a reviewed notification row, then Pluggy's `PENDING` id, then `POSTED` under a new id gives
-  two rows. The old id stays a live `MATCHED` claim, because `vanish_missing()` skips `MATCHED` rows
-  outside the broker. And `_explained_by_notification()` hides the row from the new id.
-- **I:** an own Pix Itaú → BB whose two notifications reach the server in **separate uploads** gives
-  INCOME + EXPENSE. In one upload it gives one transfer. The second side only looks for pending items
-  or recorded transfers. Pluggy would then pair each side with its own row, so the split stays (by
-  reading the code, not probed).
-
-Correct: twins in every order, Pluggy first then the notification, two identical 3× card purchases,
-and a Pix to BTG Investimentos on both sides. Untouched case B keeps one row but re-creates it.
-
-**Not done, and why:** no code. The request was design and decisions. Phase 1 is next and must land
-before the gate opens, or A and I happen on real data.
-
-**Next:** follow `docs/prompts/notify-pluggy/README.md`, starting with 01a. Phase 1 (succession, channel-scoped claims, the shared absorb helper, the near match, tests A–Q,
-`scripts/check_identity.py`). Phase 3 starts with one real GET of BTG `/investments`. Whether
-MeuPluggy fills `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/`issuer` is unknown;
-`_save_positions()` keeps none of them today.
+### For the final verification
+- **Riskiest**: (1) the meaning of Pluggy's `rate`/`fixedAnnualRate` units is assumed percent per the docs;
+  `position_fields.py` shows only key presence, so the first real recorded CDB must be checked by eye
+  (`cdi_percentage` 1.10 for 110%). (2) `adopt_proceed_line()` deletes a `BROKER_STATEMENT` row and points
+  the Pluggy row at the proceed's entry — only when that entry exists (payment on/after `portfolio_since`).
+  (3) The guard turns on in production (`MANUAL_ONLY_OFF_PLUGGY` is on there): typing on the BTG Corretora
+  stops; the cash default in the forms is now "Não descontar".
+- **Tests changed**: `test_open_finance_investments.py` — `test_other_types_wait_for_the_owner`
+  (FIXED_INCOME now `unmapped:subtype`, equity TRANSFER/INTEREST still `type`) and
+  `test_held_operations_are_listed` (`missing:rateType`): the rule changed (design §5, decision 3).
+  `openFinance.test.js`: the `type` label is now "fundo, custódia ou outro tipo" (fixed income no longer
+  says "type").
+- **Not tested**: the web "Lançar" was built, not clicked in a browser; the APK screen compiled, not run on
+  a device; real Pluggy data.
 
 Lessons:
-- Probing beat reading twice. The old Pluggy id stays `MATCHED`, not `vanished`. And the own-transfer
-  split only shows when the two sides are sent in separate requests; the existing test sends them
-  together, which is why it passes.
-- A card-mirror probe also left a dropped `PENDING` installment of a single purchase in place. It may
-  be the fake's window, and it is not about duplicates; not investigated.
+- `pytest.ini` already has `-q`; adding `-q` again hides the summary line, so a red run looks like dots.
+- A module created in the session is untracked: `git checkout` does not restore it after a mutation test;
+  copy it aside first.
+- Fixed-income cash must not be linked: the statement line (step 2 of the pull) is already the money, and
+  the investment step runs after it.

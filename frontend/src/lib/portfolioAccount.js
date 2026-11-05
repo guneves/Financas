@@ -30,11 +30,42 @@ export function pickPortfolioAccountId(accounts) {
 // O valor do campo e { enabled, accountId, missing }: `enabled` falso e a marca
 // "não descontar de nenhuma conta"; `missing` diz que o dono ainda nao tem conta
 // da carteira (a tela preenche quando a lista de contas chega).
-export const emptyCashLink = () => ({ enabled: true, accountId: '', missing: false })
+// `fresh`: ainda nao passou pela lista de contas (cashLinkWithAccounts decide o padrao).
+export const emptyCashLink = () => ({ enabled: true, accountId: '', missing: false, fresh: true })
+
+// Investimentos so pela Pluggy (Fase 3): a Corretora alimentada pela Pluggy
+// (`pluggy: true` em GET /api/accounts) recebe sozinha o que a corretora faz, e o
+// servidor recusa uma operacao digitada com o caixa nela. Por isso o padrao, ali,
+// e "Não descontar de nenhuma conta" (ou outra conta), nunca a Corretora.
+export const PLUGGY_FED_NOTE = 'A Corretora é atualizada pela Pluggy: o que a corretora faz entra sozinho. '
+  + 'Aqui só o que ela não vê (cripto, outra instituição), sem descontar da Corretora.'
+
+export function pluggyFedPortfolio(accounts) {
+  return Boolean(portfolioAccounts(accounts)[0]?.pluggy)
+}
+
+// O valor do campo quando a lista de contas chega: a falta de conta da
+// carteira, o padrao de uma operacao nova (desligado na Corretora da Pluggy) e a
+// conta da carteira quando ligado. Puro, o mesmo do CashLinkField.
+export function cashLinkWithAccounts(value, accounts) {
+  const portfolio = portfolioAccounts(accounts)
+  const next = { ...value, missing: portfolio.length === 0 }
+  if (next.fresh) {
+    next.fresh = false
+    if (portfolio[0]?.pluggy) next.enabled = false
+  }
+  if (next.enabled && !next.accountId && portfolio[0]) next.accountId = portfolio[0].id
+  return next
+}
 
 export function cashLinkFromMetadata(metadata) {
   const accountId = typeof metadata?.cash_account_id === 'string' ? metadata.cash_account_id.trim() : ''
   return { enabled: Boolean(accountId), accountId, missing: false }
+}
+
+// A escolhida (a operacao gravada, ou o que o "Lançar" da Pluggy pede) e a Corretora da Pluggy?
+export function isPluggyFedAccount(accounts, accountId) {
+  return Boolean(accountId) && Boolean((accounts || []).find((account) => account.id === accountId)?.pluggy)
 }
 
 // O pedaco do metadata, sempre explicito: a conta, ou `null` para nao descontar

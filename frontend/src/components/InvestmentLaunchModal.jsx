@@ -10,6 +10,7 @@ import TickerAutocomplete from './TickerAutocomplete'
 import AssetPicker from './AssetPicker'
 import FixedIncomeFields from './FixedIncomeFields'
 import { parseTreasuryUnits } from '../lib/treasury'
+import { launchFormFromPrefill, opKeyMetadata } from '../lib/investmentPrefill'
 import CashLinkField, { cashLinkMetadata, emptyCashLink } from './CashLinkField'
 import { SaleExemptionNotice } from './ExemptionMeter'
 import {
@@ -98,6 +99,8 @@ const initialForm = () => ({
   fixed_income: emptyFixedIncomeForm(),
   // Sai da conta da carteira, a nao ser que o dono marque a caixa (CashLinkField).
   cash_link: emptyCashLink(),
+  // O "Lançar" de uma operacao da corretora que espera (lib/investmentPrefill.js).
+  op_key: '',
 })
 
 // Preco sugerido na venda: a cotacao da carteira. O app e so em reais.
@@ -126,6 +129,8 @@ export default function InvestmentLaunchModal({
   onSaved,
   initialMode = 'BUY',
   initialAssetId = '',
+  // `prefill` de uma linha que espera em Ajustes › Open Finance (kind `operation`).
+  prefill = null,
 }) {
   // Venda: o valor de cada posicao some no modo privado.
   const privateMoney = usePrivateFormatter(formatCurrency)
@@ -135,7 +140,29 @@ export default function InvestmentLaunchModal({
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (open) {
+    const launch = open ? launchFormFromPrefill(prefill) : null
+    if (launch) {
+      const saleAsset = launch.mode === 'SELL'
+        ? assets.find((asset) => normalizeAssetName(asset.ticker || asset.name) === normalizeAssetName(launch.ticker))
+        : null
+      setMode(launch.mode)
+      setForm({
+        ...initialForm(),
+        asset_class: saleAsset ? assetTypeOf(saleAsset) : launch.assetType,
+        asset_id: saleAsset ? String(saleAsset.id) : '',
+        ticker_or_name: launch.ticker,
+        ticker_confirmed: false,
+        transaction_date: launch.date || getLocalDateString(),
+        quantity: launch.quantity || '1',
+        price: launch.price,
+        other_costs: launch.otherCosts,
+        treasury_units: launch.treasuryUnits,
+        fixed_income: launch.fixedIncome || fixedIncomeFormFor(launch.assetType),
+        cash_link: launch.cash,
+        op_key: launch.opKey,
+      })
+      setError('')
+    } else if (open) {
       const nextMode = initialMode === 'SELL' ? 'SELL' : 'BUY'
       const selectedAsset = assets.find((asset) => String(asset.id) === String(initialAssetId))
       setMode(nextMode)
@@ -148,7 +175,7 @@ export default function InvestmentLaunchModal({
       })
       setError('')
     }
-  }, [open, initialMode, initialAssetId, assets])
+  }, [open, initialMode, initialAssetId, assets, prefill])
 
   const saleAssets = useMemo(() => {
     return assets
@@ -335,7 +362,7 @@ export default function InvestmentLaunchModal({
           purchase_date: form.transaction_date,
           other_costs: otherCosts,
         }
-    const metadata = { ...baseMetadata, ...cashLinkMetadata(form.cash_link) }
+    const metadata = { ...baseMetadata, ...cashLinkMetadata(form.cash_link), ...opKeyMetadata(form.op_key) }
 
     const insertedData = await investmentsApi.create([
       {
@@ -371,6 +398,7 @@ export default function InvestmentLaunchModal({
           sale_price: unitPrice,
           other_costs: otherCosts,
           ...cashLinkMetadata(form.cash_link),
+          ...opKeyMetadata(form.op_key),
         },
       },
     ])

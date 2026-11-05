@@ -375,7 +375,9 @@ class TestTransfers:
         rows = sorted((row["type"], row["account_id"]) for row in world.transactions() if row["amount"] == 50)
         assert rows == sorted([("INCOME", bb_id), ("EXPENSE", itau_id)])
 
-    def test_a_reviewed_side_is_not_rewritten(self, world, user):
+    def test_a_reviewed_side_still_becomes_the_transfer(self, world, user):
+        # "Intocado" e o snapshot, nunca needs_review (design 1b): revisar nao
+        # muda conta, valor nem data, e a Fase 4 tira da revisao sozinha.
         made = meupluggy(world)
         auto_on(world)
         itau, _of, itau_id = made["itau:0001/1-1"]
@@ -383,6 +385,21 @@ class TestTransfers:
         world.fake.add_tx(itau, bank_tx(-500, "2026-10-26", "PIX ENVIADO", category_id="04000000"))
         world.sync(made["items"]["itau"])
         run_sql("UPDATE transactions SET needs_review = 0 WHERE user_id = ? AND amount = 500", (user["id"],))
+        world.fake.add_tx(btg, bank_tx(500, "2026-10-26", "PIX RECEBIDO", category_id="04000000"))
+        world.sync(made["items"]["btg"])
+        rows = [row for row in world.transactions() if row["amount"] == 500]
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            ("TRANSFER", itau_id, btg_id)
+        ]
+
+    def test_an_edited_side_is_not_rewritten(self, world, user):
+        made = meupluggy(world)
+        auto_on(world)
+        itau, _of, itau_id = made["itau:0001/1-1"]
+        btg, _of2, btg_id = made["btg:0002/2-2"]
+        world.fake.add_tx(itau, bank_tx(-500, "2026-10-26", "PIX ENVIADO", category_id="04000000"))
+        world.sync(made["items"]["itau"])
+        run_sql("UPDATE transactions SET description = 'Aluguel' WHERE user_id = ? AND amount = 500", (user["id"],))
         world.fake.add_tx(btg, bank_tx(500, "2026-10-26", "PIX RECEBIDO", category_id="04000000"))
         world.sync(made["items"]["btg"])
         assert all(row["type"] != "TRANSFER" for row in world.transactions() if row["amount"] == 500)

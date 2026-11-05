@@ -735,8 +735,8 @@
     <string name="ajustes_aparencia_hint">Sistema, claro ou escuro</string>
     <string name="ajustes_perfil">Perfil</string>
     <string name="ajustes_perfil_hint">Nome de usuário e sair</string>
-    <string name="ajustes_notificacoes">Notificações do Flash</string>
-    <string name="ajustes_notificacoes_hint">O acesso do Android e o modo captura</string>
+    <string name="ajustes_notificacoes">Notificações do celular</string>
+    <string name="ajustes_notificacoes_hint">Avisos dos bancos, o acesso do Android e o modo captura</string>
     <string name="ajustes_versao">Versão do app</string>
     <string name="ajustes_versao_hint">O APK instalado e o mais novo publicado</string>
     <string name="ajustes_failed">Não foi possível concluir.</string>
@@ -851,7 +851,7 @@
     <string name="ajustes_category_reactivate_failed">Não foi possível reativar a categoria.</string>
 
     <string name="ajustes_aprovar_description">Os avisos do Flash que o celular lê.</string>
-    <string name="ajustes_open_finance_notices_line">Os dados dos bancos vêm do Open Finance. As notificações do celular valem só para o Flash.</string>
+    <string name="ajustes_open_finance_notices_line">Os avisos do celular gravam na hora; o Open Finance confere depois e é o registro.</string>
     <string name="ajustes_open_finance_description">Os movimentos das suas contas e cartões chegam pela Pluggy. Com \"Gravar sozinho\", viram lançamentos; sem ele, esperam em Extrato › Revisar.</string>
     <string name="ajustes_open_finance_desktop">Conectar um banco, reconectar e dizer para onde vai cada conta ficam no computador (Ajustes › Open Finance).</string>
     <string name="ajustes_open_finance_off">Desligado: o servidor não tem as credenciais da Pluggy.</string>
@@ -914,7 +914,12 @@
     <string name="ajustes_email">E-mail de acesso</string>
     <string name="ajustes_sign_out">Sair</string>
 
-    <string name="ajustes_notificacoes_description">O app ouve só o Flash: o app do Flash e o Samsung Wallet com o cartão do Flash. Os bancos vêm pelo Open Finance e os avisos deles são descartados no celular. Cada notificação do Flash com valor vira um lançamento na hora, para você revisar no Extrato: só os campos lidos (valor, loja, cartão) vão ao servidor, nunca o texto. O modo de captura guarda os textos no celular, para exportar.</string>
+    <string name="ajustes_notificacoes_description">O app ouve o Flash (o app e o Samsung Wallet com o cartão do Flash), o Itaú, o BB, o BTG e, da BTG Investimentos, só as transferências. Cada notificação com valor vira um lançamento na hora, para você revisar no Extrato; o Open Finance confere depois. Pagamento de fatura e ordens da corretora não viram lançamento. Só os campos lidos (valor, loja, cartão) vão ao servidor, nunca o texto. O modo de captura guarda os textos no celular, para exportar.</string>
+    <string name="ajustes_bank_notifications">Avisos dos bancos</string>
+    <string name="ajustes_bank_notifications_hint">Itaú, BB e BTG gravam na hora pelo aviso do celular; a Pluggy confere depois.</string>
+    <string name="ajustes_bank_notifications_on">Os avisos dos bancos gravam na hora.</string>
+    <string name="ajustes_bank_notifications_off">Só o Flash grava pelo aviso; os bancos vêm pela Pluggy.</string>
+    <string name="ajustes_bank_notifications_failed">Não foi possível salvar os avisos dos bancos.</string>
     <string name="ajustes_open_access">Abrir acesso às notificações</string>
     <string name="ajustes_restricted_title">O Android diz “Configuração restrita”?</string>
     <string name="ajustes_restricted_intro">A partir do Android 13, um app instalado por um arquivo APK aberto no celular não recebe o acesso às notificações até você liberar. Para liberar:</string>
@@ -1441,4 +1446,6 @@
     <string name="login_offline">Sem conexão com o servidor. Esta ação só funciona conectado.</string>
     <string name="login_failed">Não foi possível entrar.</string>
     <string name="login_session_expired">Sua sessão expirou. Entre de novo; os lançamentos guardados neste aparelho continuam aqui.</string>
+    <string name="ajustes_open_finance_held">Operações da corretora para você lançar</string>
+    <string name="ajustes_open_finance_launch">Lançar</string>
 </resources>

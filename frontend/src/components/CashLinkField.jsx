@@ -2,7 +2,13 @@ import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { accountsApi } from '../lib/dataApi'
 import { useQuery } from '../lib/queries'
-import { pickPortfolioAccountId, portfolioAccounts } from '../lib/portfolioAccount'
+import {
+  PLUGGY_FED_NOTE,
+  cashLinkWithAccounts,
+  pickPortfolioAccountId,
+  pluggyFedPortfolio,
+  portfolioAccounts,
+} from '../lib/portfolioAccount'
 import { Field, cx } from './ui'
 
 // A regra mora em lib/portfolioAccount.js: toda operacao sai da conta da
@@ -38,6 +44,8 @@ export default function CashLinkField({
   const portfolio = useMemo(() => portfolioAccounts(accounts), [accounts])
   const defaultAccountId = useMemo(() => pickPortfolioAccountId(accounts), [accounts])
   const missing = accountsQuery.isSuccess && portfolio.length === 0
+  // A Corretora da Pluggy (Fase 3): o padrao e nao descontar, e uma nota diz por que.
+  const pluggyFed = accountsQuery.isSuccess && pluggyFedPortfolio(accounts)
 
   // A conta gravada numa operacao antiga pode nao ser da carteira (outra conta,
   // ou arquivada depois): continua escolhida, senao salvar a edicao trocaria a
@@ -57,14 +65,14 @@ export default function CashLinkField({
     return [...portfolio, { id: savedAccountId, name }]
   }, [portfolio, savedIsMissing, savedAccountId, allAccountsQuery.data])
 
-  // A conta da carteira assim que a lista chega (ou ja estava no cache), e a
-  // falta dela, que a operacao nova recusa (cashLinkMetadata).
+  // A conta da carteira assim que a lista chega (ou ja estava no cache), a
+  // falta dela, que a operacao nova recusa (cashLinkMetadata), e o padrao de uma
+  // operacao nova (cashLinkWithAccounts: desligado na Corretora da Pluggy).
   useEffect(() => {
     if (!accountsQuery.isSuccess) return
-    const next = { ...value, missing }
-    if (next.enabled && !next.accountId && defaultAccountId) next.accountId = defaultAccountId
-    if (next.missing !== value.missing || next.accountId !== value.accountId) onChange(next)
-  }, [value, missing, defaultAccountId, accountsQuery.isSuccess, onChange])
+    const next = cashLinkWithAccounts(value, accounts)
+    if (['missing', 'accountId', 'enabled', 'fresh'].some((key) => next[key] !== value[key])) onChange(next)
+  }, [value, accounts, accountsQuery.isSuccess, onChange])
 
   const canLink = options.length > 0
   const hint = HINTS[movementType] || HINTS.BUY
@@ -116,6 +124,8 @@ export default function CashLinkField({
           </span>
         </span>
       </label>
+
+      {pluggyFed ? <p className="text-zinc-600">{PLUGGY_FED_NOTE}</p> : null}
 
       {accountsQuery.error ? <p className="text-zinc-600">Não foi possível carregar as contas.</p> : null}
     </div>

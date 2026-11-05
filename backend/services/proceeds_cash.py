@@ -64,6 +64,15 @@ def portfolio_account_row(conn, current_user_id):
     ).fetchone()
 
 
+def proceed_cash_account_id(conn, current_user_id, payment_date):
+    """A conta em que um provento pago nesta data cai (`apply_paid_proceeds()`):
+    a da carteira desde `portfolio_since`, ou None."""
+    account = portfolio_account_row(conn, current_user_id)
+    if not account or str(payment_date or "")[:10] < portfolio_since(account):
+        return None
+    return account["id"]
+
+
 def proceed_description(row):
     label = PROCEED_LABELS.get(row["proceeds_type"], "Provento")
     return f"{label}: {row['ticker'] or 'ativo'}"

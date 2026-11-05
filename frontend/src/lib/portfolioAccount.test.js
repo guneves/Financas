@@ -51,3 +51,26 @@ test('reading the saved link back', () => {
   assert.deepEqual(cashLinkFromMetadata({ cash_account_id: ' btg ' }), { enabled: true, accountId: 'btg', missing: false })
   assert.equal(cashLinkFromMetadata({}).enabled, false)
 })
+
+test('on a Pluggy-fed Corretora a new operation defaults to not discounting', async () => {
+  const { cashLinkWithAccounts, pluggyFedPortfolio, isPluggyFedAccount } = await import('./portfolioAccount.js')
+  const fed = [{ id: 'btg', type: 'BROKERAGE', currency: 'BRL', pluggy: true }, { id: 'flash', type: 'CHECKING' }]
+  assert.equal(pluggyFedPortfolio(fed), true)
+  assert.equal(pluggyFedPortfolio(accounts), false)
+  assert.deepEqual(cashLinkWithAccounts(emptyCashLink(), fed), { enabled: false, accountId: '', missing: false, fresh: false })
+  assert.equal(isPluggyFedAccount(fed, 'btg'), true)
+  assert.equal(isPluggyFedAccount(fed, 'flash'), false)
+  assert.equal(isPluggyFedAccount(fed, ''), false)
+})
+
+test('without Pluggy the Corretora stays the default, and a choice is kept', async () => {
+  const { cashLinkWithAccounts } = await import('./portfolioAccount.js')
+  assert.deepEqual(cashLinkWithAccounts(emptyCashLink(), accounts), { enabled: true, accountId: 'btg', missing: false, fresh: false })
+  // O dono religou depois do padrao: fica ligado, na Corretora.
+  const fed = [{ id: 'btg', type: 'BROKERAGE', currency: 'BRL', pluggy: true }]
+  const chosen = cashLinkWithAccounts({ enabled: true, accountId: '', missing: false, fresh: false }, fed)
+  assert.deepEqual(chosen, { enabled: true, accountId: 'btg', missing: false, fresh: false })
+  // Uma edicao (cashLinkFromMetadata, sem `fresh`) nunca muda de padrao.
+  assert.equal(cashLinkWithAccounts(cashLinkFromMetadata({ cash_account_id: 'btg' }), fed).enabled, true)
+  assert.equal(cashLinkWithAccounts(emptyCashLink(), []).missing, true)
+})

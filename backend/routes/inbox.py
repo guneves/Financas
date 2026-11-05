@@ -120,16 +120,22 @@ def inbox_settings(current_user_id):
     (ligado por padrao, AUTO_RECORD_DEFAULT); desligado, espera no Aprovar.
     `always_ask`: "Sempre perguntar a conta/cartao" (desligado por padrao).
     Ligado, todo item pede confirmar a conta/cartao, inclusive o lembrado, e
-    "Aprovar todos" nao leva nenhum."""
+    "Aprovar todos" nao leva nenhum.
+    `bank_notifications` (Fase 2): os avisos do Itau, BB e BTG gravam na hora
+    (ligado por padrao, BANK_NOTIFICATIONS_DEFAULT); desligado, so o Flash."""
+    keys = ("always_ask", "auto_record", "bank_notifications")
     if request.method == "PATCH":
         payload = parse_json_body()
-        if not isinstance(payload, dict) or not any(key in payload for key in ("always_ask", "auto_record")):
-            return validation_error("Envie always_ask ou auto_record como true ou false.")
-        if any(key in payload and not isinstance(payload[key], bool) for key in ("always_ask", "auto_record")):
-            return validation_error("Envie always_ask ou auto_record como true ou false.")
+        message = "Envie always_ask, auto_record ou bank_notifications como true ou false."
+        if not isinstance(payload, dict) or not any(key in payload for key in keys):
+            return validation_error(message)
+        if any(key in payload and not isinstance(payload[key], bool) for key in keys):
+            return validation_error(message)
         with get_db() as conn:
             if "always_ask" in payload:
                 inbox.set_always_ask(conn, current_user_id, payload["always_ask"])
+            if "bank_notifications" in payload:
+                inbox.set_bank_notifications(conn, current_user_id, payload["bank_notifications"])
             if "auto_record" in payload:
                 inbox.save_setting(conn, current_user_id, auto_record.SETTING, "1" if payload["auto_record"] else "0")
                 if payload["auto_record"]:
@@ -138,6 +144,7 @@ def inbox_settings(current_user_id):
         body = {
             "always_ask": inbox.always_ask(conn, current_user_id),
             "auto_record": auto_record.enabled(conn, current_user_id),
+            "bank_notifications": inbox.bank_notifications(conn, current_user_id),
         }
     return jsonify(body), 200
 

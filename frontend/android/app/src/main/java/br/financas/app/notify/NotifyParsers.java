@@ -66,6 +66,8 @@ public final class NotifyParsers {
         public String counterpartyBank;
         /** O nome do cartao que a notificacao mostra (o titulo do Samsung Wallet). */
         public String cardName;
+        /** Compra no exterior ou em outra moeda: o R$ e a estimativa do banco (design §3.7). */
+        public boolean international;
     }
 
     private static final Pattern AMOUNT = Pattern.compile("R\\$\\s*(\\d{1,3}(?:\\.\\d{3})*|\\d+),(\\d{2})");
@@ -92,7 +94,35 @@ public final class NotifyParsers {
     // ... e as que dizem que nao e (saldo, limite).
     private static final Pattern BALANCE_WORDS = Pattern.compile("(saldo|limite|disponivel|fatura atual)[^.]{0,25}$");
 
+    /** "Pagamento da fatura aprovado": a Pluggy traz o pagamento da fatura, nunca o aviso. */
+    private static final Pattern INVOICE = Pattern.compile("\\bfatura\\b");
+    private static final Pattern PAID = Pattern.compile("\\b(pagamento|pago|paga|quitada)\\b");
+    /** A ordem, o provento, a aplicacao: o que a corretora avisa e nao e Pix/TED. */
+    private static final Pattern INVESTMENT_WORDS = Pattern.compile(
+        "\\b(aplicac(ao|oes)|resgates?|cdbs?|lcis?|lcas?|tesouro\\s+direto|fundos?\\s+de\\s+investimento"
+            + "|ordem\\s+de\\s+(compra|venda)|proventos?|dividendos?|jcp)\\b");
+    private static final Pattern FOREIGN_WORDS = Pattern.compile("\\b(internacional|exterior|usd|eur)\\b");
+
     private NotifyParsers() {}
+
+    /** Pagamento de fatura (qualquer app): nao e movimento, nem compra. */
+    static boolean isInvoicePayment(String folded) {
+        return INVOICE.matcher(folded).find() && PAID.matcher(folded).find();
+    }
+
+    static boolean hasInvestmentWords(String folded) {
+        return INVESTMENT_WORDS.matcher(folded).find();
+    }
+
+    /** "Compra internacional", "no exterior", US$, USD, EUR, € ou £ no texto. */
+    static boolean isInternational(String text, String folded) {
+        return FOREIGN_WORDS.matcher(folded).find() || folded.contains("us$") || text.contains("€")
+            || text.contains("£");
+    }
+
+    private static boolean isTransferKind(String kind) {
+        return PIX_OUT.equals(kind) || PIX_IN.equals(kind) || TRANSFER_OUT.equals(kind) || TRANSFER_IN.equals(kind);
+    }
 
     /** A notificacao como deteccao, ou null quando ela nao fala de um movimento de dinheiro. */
     public static Parsed parse(NotifyRules.Captured row) {
@@ -104,12 +134,17 @@ public final class NotifyParsers {
         boolean samsung = NotifyPairing.SAMSUNG_WALLET.equals(row.packageName);
         // So o cartao do Flash no Samsung Wallet (dono, 2026-10-30).
         if (samsung && !NotifyRules.accepts(row, false)) return null;
+        // Antes de kindOf(): "Pagamento da fatura aprovado" casaria com "aprovad" e viraria compra.
+        if (isInvoicePayment(folded)) return null;
         String kind = kindOf(folded);
         // O Samsung de 2026-10 nao diz "compra": o texto e so lugar e valor.
         String samsungLine = samsung ? samsungLineMerchant(row) : null;
         if (kind == null && samsungLine != null) kind = PURCHASE;
         if (kind == null) return null;
         if (samsung && !isCardKind(kind)) return null;
+        // A corretora so fala da transferencia de ou para um banco; a ordem e o provento vem da Pluggy.
+        if (NotifyRules.BROKERAGE_PACKAGE.equals(row.packageName)
+            && (!isTransferKind(kind) || hasInvestmentWords(folded))) return null;
 
         // "Compra em 3x de R$ 50,00": o R$ e o da parcela. Sem outro valor no texto, a compra e
         // parcelas x parcela; com outro (o total), vale ele. Antes a compra ficava em R$ 50
@@ -137,6 +172,7 @@ public final class NotifyParsers {
         parsed.kind = kind;
         parsed.amountCents = cents;
         parsed.cardLast4 = group(CARD_LAST4, folded, 1);
+        parsed.international = isInternational(text, folded);
         if (isCardKind(kind) || REFUND.equals(kind)) {
             if (samsungLine != null) {
                 parsed.merchant = samsungLine;
@@ -182,6 +218,7 @@ public final class NotifyParsers {
             putIf(out, "counterparty", parsed.counterparty);
             putIf(out, "counterparty_doc", parsed.counterpartyDoc);
             putIf(out, "counterparty_bank", parsed.counterpartyBank);
+            if (parsed.international) out.put("international", true);
             return out;
         } catch (JSONException error) {
             throw new IllegalStateException("Deteccao invalida", error);

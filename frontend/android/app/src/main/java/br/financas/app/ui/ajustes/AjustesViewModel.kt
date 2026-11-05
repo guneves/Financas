@@ -15,6 +15,7 @@ import br.financas.app.data.AccountDto
 import br.financas.app.data.AppGraph
 import br.financas.app.data.CategoryDto
 import br.financas.app.data.CreditCardDto
+import br.financas.app.data.InboxSettingsDto
 import br.financas.app.data.InboxWrite
 import br.financas.app.data.Load
 import br.financas.app.data.MeDto
@@ -46,6 +47,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import br.financas.app.core.getLocalDateString
+import br.financas.app.data.OpenFinanceHeldDto
+import br.financas.app.data.PortfolioDto
+import br.financas.app.rules.InvestmentPrefill
+import br.financas.app.ui.investimentos.LaunchSheetState
 import org.json.JSONObject
 
 /** As secoes de Ajustes do celular, na ordem da web (Regras e Integrações ficam no computador). */
@@ -100,6 +106,14 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     val me = ScreenLoad<MeDto>()
     val openFinance = ScreenLoad<OpenFinanceDto>()
     val openFinanceSettings = ScreenLoad<OpenFinanceSettingsDto>()
+    /** O "Lançar" de uma operacao da corretora que espera (Fase 3): o formulario de operacao. */
+    val launchSheet = LaunchSheetState(application, viewModelScope) { message ->
+        notice(message)
+        readOpenFinance()
+    }
+    private val launchPortfolio = ScreenLoad<PortfolioDto>()
+    private val launchAccounts = ScreenLoad<List<AccountDto>>()
+
     /** O item da Pluggy que esta em "Atualizar" (o botao dele gira). */
     var syncingItemId by mutableStateOf<String?>(null)
         private set
@@ -161,6 +175,8 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         private set
     var notifyBusy by mutableStateOf("")
         private set
+    /** "Avisos dos bancos" (bank_notifications de GET /api/inbox/settings). */
+    val inboxSettings = ScreenLoad<InboxSettingsDto>()
 
     // Versao
     var apk by mutableStateOf<ApkUpdateTexts.ApkState?>(null)
@@ -233,7 +249,10 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             AjustesSection.CATEGORIAS -> readCategories()
             AjustesSection.OPEN_FINANCE -> readOpenFinance()
             AjustesSection.PERFIL -> readMe()
-            AjustesSection.NOTIFICACOES -> readNotify()
+            AjustesSection.NOTIFICACOES -> {
+                readNotify()
+                readInboxSettings()
+            }
             AjustesSection.VERSAO -> {
                 if (apk == null && apkBusy.isEmpty()) checkApk()
                 // Voltou da tela "Instalar apps desconhecidos": baixa sozinho, como a web.
@@ -688,6 +707,21 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     }
     // ---- Notificacoes dos bancos ----
 
+    private fun readInboxSettings() {
+        viewModelScope.launch {
+            inboxSettings.collect(app, graph.inbox.settings(), R.string.ajustes_bank_notifications_failed)
+        }
+    }
+
+    /** "Avisos dos bancos": desligado, o servidor so aceita o Flash (o banco nao deixa rastro). */
+    fun setBankNotifications(value: Boolean) {
+        if (inboxSettings.value?.bankNotifications == value) return
+        write(R.string.ajustes_bank_notifications_failed, { graph.inbox.setBankNotifications(value) }) { saved ->
+            inboxSettings.value = saved
+            notice(app.getString(if (saved.bankNotifications) R.string.ajustes_bank_notifications_on else R.string.ajustes_bank_notifications_off))
+        }
+    }
+
     private fun readNotify() {
         viewModelScope.launch {
             val (status, rows) = withContext(Dispatchers.IO) {
@@ -828,6 +862,25 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     private fun failed(message: String) {
         if (cleared) Toast.makeText(app, message, Toast.LENGTH_LONG).show() else error = message
+    }
+
+    /** Abre "Registrar operação" preenchido com a operacao da corretora que espera (e o op_key). */
+    fun launchHeld(row: OpenFinanceHeldDto) {
+        val prefill = row.prefill ?: return
+        val form = InvestmentPrefill.launchForm(
+            InvestmentPrefill.Prefill(
+                prefill.kind, prefill.assetClass, prefill.treasury, prefill.tickerOrName, prefill.quantity,
+                prefill.averagePrice, prefill.cashAccountId, prefill.metadata,
+            ),
+            getLocalDateString(),
+        ) ?: return
+        viewModelScope.launch {
+            launchPortfolio.collect(app, graph.investimentos.portfolio(), R.string.inv_load_failed)
+            launchAccounts.collect(app, graph.accounts.accounts(), R.string.inv_load_failed)
+            launchSheet.assets = launchPortfolio.value?.assets.orEmpty()
+            launchSheet.accountsChanged(launchAccounts.value)
+            launchSheet.openPrefilled(form)
+        }
     }
 
     private fun notice(message: String) {

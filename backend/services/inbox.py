@@ -37,11 +37,16 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import statement_import
-from config import INBOX_MATCH_DAYS
+from config import (
+    BANK_NOTIFICATIONS_DEFAULT,
+    INBOX_MATCH_DAYS,
+    NEAR_MATCH_DOMESTIC_PERCENT,
+    NEAR_MATCH_FOREIGN_PERCENT,
+)
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services import recurring
+from services import recorded_snapshot, recurring
 from services.import_rules import (
     DEFAULT_IMPORT_CATEGORIES,
     import_default_category,
@@ -298,14 +303,45 @@ def is_flash_detection(detection):
     return app == FLASH_APP or (app == SAMSUNG_WALLET and issuer_of(detection) == FLASH_ISSUER)
 
 
+# Quem fala e do que (docs/notifications-pluggy-design.md §4, dono 2026-11-04):
+# os tres bancos mandam tudo o que o parser reconhece; o app da corretora so a
+# transferencia de ou para um banco (ordem, provento, aplicacao e taxa vem pela
+# Pluggy); o Samsung Wallet so o cartao do Flash (is_flash_detection()). O resto
+# nao fala. A notificacao grava na hora; a Pluggy confere depois.
+BANK_APPS = ("com.itau", "br.com.bb.android", "com.btg.pactual.banking")
+NOTIFICATION_POLICY = {
+    **{app: frozenset(DETECTION_KINDS) for app in BANK_APPS},
+    BROKERAGE_APP: frozenset(MOVEMENT_KINDS),
+}
+# Palavras de investimento: a aplicacao, o resgate, a ordem na corretora e o
+# provento nunca sao Pix nem compra. Valem no Pix/TED (outro lado e
+# estabelecimento) e em tudo do app da corretora; nunca no estabelecimento de
+# uma compra no cartao ("FUNDO DE QUINTAL BAR" e um bar).
+INVESTMENT_TEXT = re.compile(
+    r"\b(?:aplicac(?:ao|oes)|resgates?|cdbs?|lcis?|lcas?|tesouro\s+direto|fundos?\s+de\s+investimento"
+    r"|ordem\s+de\s+compra|ordem\s+de\s+venda|proventos?|dividendos?|jcp)\b"
+)
+
+
+def is_investment_text(*values):
+    return any(INVESTMENT_TEXT.search(normalized(value)) for value in values if value)
+
+
 def notification_wanted(detection):
-    """O celular so fala do Flash, e so de gasto (dono, 2026-10-30). O beneficio
-    que cai e digitado pelo dono: entrada nao vira nada, e "credito" num cartao
-    so debito tambem nao (e o aviso do deposito, nunca uma compra na fatura)."""
-    if not is_flash_detection(detection):
-        return False
+    """A porta do servidor, pura (so olha a deteccao): um APK velho que mande
+    qualquer coisa passa por ela. O Flash, como sempre: so gasto (o beneficio
+    que cai e digitado pelo dono; "credito" num cartao so debito e o aviso do
+    deposito). Os bancos: a tabela NOTIFICATION_POLICY, menos o texto de
+    investimento. O interruptor bank_notifications e lido em ingest_detection()."""
     kind = detection["kind"]
-    return kind == "DECLINED" or (KIND_SHAPES[kind][0] == "OUT" and kind != "CREDIT_PURCHASE")
+    if is_flash_detection(detection):
+        return kind == "DECLINED" or (KIND_SHAPES[kind][0] == "OUT" and kind != "CREDIT_PURCHASE")
+    app = detection.get("app")
+    if kind not in NOTIFICATION_POLICY.get(app, ()):
+        return False
+    if app == BROKERAGE_APP or kind in MOVEMENT_KINDS:
+        return not is_investment_text(detection.get("merchant"), detection.get("counterparty"))
+    return True
 
 
 def card_hint_part(detection):
@@ -538,6 +574,11 @@ def parse_detection(raw):
         issuer = issuer_of_institution(card_name)
     installments = raw.get("installments")
     installments = 1 if installments in (None, "") else _int(installments, "Parcelas", minimum=1, maximum=72)
+    international = raw.get("international")
+    if international is None:
+        international = False
+    elif not isinstance(international, bool):
+        raise ValidationError("Internacional invalido.")
     counterparty_doc = re.sub(r"\D", "", str(raw.get("counterparty_doc") or "")) or None
     if counterparty_doc and not DOC_PATTERN.match(counterparty_doc):
         raise ValidationError("Documento do outro lado invalido.")
@@ -558,6 +599,9 @@ def parse_detection(raw):
         "counterparty": _short_text(raw, "counterparty", 120) if kind in MOVEMENT_KINDS else None,
         "counterparty_doc": counterparty_doc if kind in MOVEMENT_KINDS else None,
         "counterparty_bank": _short_text(raw, "counterparty_bank", 80) if kind in MOVEMENT_KINDS else None,
+        # A compra no exterior (a estimativa em reais do banco): o APK manda
+        # desde a Fase 2; em outra moeda, e internacional de qualquer jeito.
+        "international": international or currency != "BRL",
     }
 
 
@@ -1004,6 +1048,13 @@ def _has_detection_source(conn, current_user_id, item_id):
     ).fetchone() is not None or bool(open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,)))
 
 
+def _has_notification_source(conn, current_user_id, item_id):
+    return conn.execute(
+        "SELECT 1 FROM notify_detections WHERE user_id = ? AND item_id = ? AND role = 'SOURCE' LIMIT 1",
+        (current_user_id, item_id),
+    ).fetchone() is not None
+
+
 def open_finance_sources(conn, current_user_id, item_id, roles=None):
     """As transacoes do Open Finance ligadas a um item (043)."""
     sql = "SELECT * FROM open_finance_transactions WHERE user_id = ? AND item_id = ?"
@@ -1211,6 +1262,116 @@ def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, 
     return _pick_closest(found, date_text)
 
 
+def _side_sources(conn, current_user_id, item_id):
+    """As observacoes vivas de um item: as notificacoes fonte e as transacoes
+    da Pluggy fonte (a sumida nao conta)."""
+    detections = [
+        {**row_to_dict(row), "channel": CLAIM_NOTIFY}
+        for row in item_detections(conn, current_user_id, item_id) if row["role"] == SOURCE
+    ]
+    rows = [
+        {**row_to_dict(row), "channel": CLAIM_PLUGGY}
+        for row in open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,))
+        if (row["conflict"] or "") != "vanished"
+    ]
+    return detections + rows
+
+
+def _is_movement_source(source):
+    if source["channel"] == CLAIM_NOTIFY:
+        return source["kind"] in MOVEMENT_KINDS
+    return source.get("movement") in ("TRANSFER", "SELF_TRANSFER")
+
+
+def _source_untouched(conn, current_user_id, item, source):
+    """Intocado pelo snapshot (nunca por needs_review): o do item, se a fonte e
+    uma notificacao; o da transacao da Pluggy, se e ela."""
+    if source["channel"] == CLAIM_NOTIFY:
+        return recorded_snapshot.snapshot_unchanged(conn, current_user_id, item)
+    return recorded_snapshot.untouched(conn, current_user_id, source)
+
+
+def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents, date_text, occurred_at=None,
+                         counterparty=None, description=None):
+    """Defeito I (design §3.2 passo 4): a outra ponta de uma transferencia entre
+    contas do dono chega (notificacao ou Pluggy) e a primeira ja virou
+    despesa/receita sozinha. Se aquela linha esta como nasceu, ela vira a
+    transferencia: uma linha so, nunca despesa numa conta e receita na outra.
+
+    O par: lancamento gravado de um item (APPROVED) do tipo oposto, mesmos
+    centavos, outra conta ativa em reais, ate TRANSFER_MATCH_DAYS dias, sem
+    divisao, o item com UMA fonte e ela um movimento (Pix/TED; nunca compra ou
+    boleto), contrapartes que podem ser a mesma pessoa. Devolve o item ja
+    transferencia (o chamador liga a nova observacao e chama finish_absorb), ou None."""
+    if not account_id or not _brl_active_account(conn, current_user_id, account_id):
+        return None
+    twin_type = "EXPENSE" if direction == "IN" else "INCOME"
+    rows = conn.execute(
+        """
+        SELECT i.*, t.account_id AS twin_account, t.date AS twin_date, t.occurred_at AS twin_occurred
+        FROM inbox_items i
+        JOIN transactions t ON t.id = i.target_id AND t.user_id = i.user_id
+        WHERE i.user_id = ? AND i.state = 'APPROVED' AND i.target_table = 'transactions'
+          AND t.type = ? AND t.account_id <> ? AND t.share_mode IS NULL
+          AND CAST(ROUND(t.amount * 100) AS INTEGER) = ? AND t.date BETWEEN ? AND ?
+        """,
+        (current_user_id, twin_type, account_id, int(cents), _shift(date_text, -TRANSFER_MATCH_DAYS),
+         _shift(date_text, TRANSFER_MATCH_DAYS)),
+    ).fetchall()
+    candidates = []
+    for row in rows:
+        if not _brl_active_account(conn, current_user_id, row["twin_account"]):
+            continue
+        sources = _side_sources(conn, current_user_id, row["id"])
+        if len(sources) != 1 or not _is_movement_source(sources[0]):
+            continue
+        if counterparty and counterparties_conflict(counterparty, sources[0]):
+            continue
+        item = item_dict(row)
+        if not _source_untouched(conn, current_user_id, item, sources[0]):
+            continue
+        candidates.append((row, item))
+    if not candidates:
+        return None
+    row, item = sorted(
+        candidates, key=lambda pair: (_date_gap(pair[0]["twin_date"], date_text), pair[0]["twin_date"], pair[0]["id"]),
+    )[0]
+    if direction == "OUT":
+        origin, destination, day, occurred = account_id, row["twin_account"], date_text, occurred_at
+    else:
+        origin, destination, day, occurred = row["twin_account"], account_id, row["twin_date"], row["twin_occurred"]
+    occurred = occurred or day
+    text = _transfer_description(conn, current_user_id, origin, destination, description or item.get("description"))
+    conn.execute(
+        "DELETE FROM recurring_settlements WHERE user_id = ? AND target_table = 'transactions' AND target_id = ?",
+        (current_user_id, item["target_id"]),
+    )
+    conn.execute(
+        """
+        UPDATE transactions SET type = 'TRANSFER', account_id = ?, transfer_account_id = ?, date = ?, occurred_at = ?,
+            category = ?, category_id = NULL, description = ?, card_id = NULL
+        WHERE id = ? AND user_id = ?
+        """,
+        (origin, destination, day, occurred, TRANSFER_CATEGORY, text, item["target_id"], current_user_id),
+    )
+    # O palpite continua palpite do lado em que estava.
+    old_side = _side_need("IN" if direction == "OUT" else "OUT")
+    guessed = [old_side] if "account" in (item.get("guessed") or []) else []
+    save_item(conn, current_user_id, item, {
+        "entry_type": "TRANSFER", "direction": "OUT", "account_id": origin, "transfer_account_id": destination,
+        "card_id": None, "occurred_at": occurred, "category": TRANSFER_CATEGORY, "category_id": None,
+        "description": text, "reason": "own_transfer", "guessed": guessed, "needs": [],
+    })
+    return item
+
+
+def finish_absorb(conn, current_user_id, item):
+    """Depois de ligar a nova observacao: os snapshots passam a ser o da
+    transferencia (o app mudou a linha, nao o dono)."""
+    recorded_snapshot.mark_auto_recorded(conn, current_user_id, item["id"], "transactions", item["target_id"])
+    recorded_snapshot.refresh_snapshots(conn, current_user_id, item["id"], "transactions", item["target_id"])
+
+
 # ---------------------------------------------------------------------------
 # Lancamentos parecidos ja gravados
 # ---------------------------------------------------------------------------
@@ -1221,13 +1382,53 @@ def candidate_kind(row):
     return OUT_OF_REACH_SOURCES.get(row["source_type"], "entry")
 
 
+CLAIM_NOTIFY = "notify"
+CLAIM_PLUGGY = "pluggy"
+
+
+def pluggy_claimed(conn, current_user_id, table, target_id, exclude_item_id=None):
+    """Uma transacao viva da Pluggy aponta para este lancamento (a que sumiu do
+    banco, `vanished`, e a REMOVED nao contam). Um digitado pelo dono nao tem
+    dono: e livre para os dois canais."""
+    sql = """
+        SELECT 1 FROM open_finance_transactions
+        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
+          AND COALESCE(conflict, '') <> 'vanished'
+    """
+    params = [current_user_id, table, target_id]
+    if exclude_item_id:
+        sql += " AND COALESCE(item_id, '') <> ?"
+        params.append(exclude_item_id)
+    return conn.execute(sql + " LIMIT 1", params).fetchone() is not None
+
+
+def notification_claimed(conn, current_user_id, table, target_id, exclude_item_id=None):
+    """Uma notificacao viva (fonte, par ou ligada) aponta para este lancamento."""
+    sql = """
+        SELECT 1 FROM notify_detections
+        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role IN ('SOURCE', 'PAIRED', 'MATCHED')
+    """
+    params = [current_user_id, table, target_id]
+    if exclude_item_id:
+        sql += " AND COALESCE(item_id, '') <> ?"
+        params.append(exclude_item_id)
+    return conn.execute(sql + " LIMIT 1", params).fetchone() is not None
+
+
+def claimed(conn, current_user_id, channel, table, target_id, exclude_item_id=None):
+    """O lancamento ja e de outra observacao deste canal (I2: uma por canal)."""
+    check = pluggy_claimed if channel == CLAIM_PLUGGY else notification_claimed
+    return check(conn, current_user_id, table, target_id, exclude_item_id)
+
+
 def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_text,
-                  account_id=None, card_id=None, days=None, for_notification=False):
+                  account_id=None, card_id=None, days=None, claimed_by=None):
     """Lancamentos ja gravados que podem ser este movimento.
 
-    Mesmo valor e data a `days` dias; na conta/cartao, quando se sabe. Para uma
-    notificacao, fica de fora o que outra notificacao ja explica (duas compras
-    de mesmo valor no mesmo dia continuam duas).
+    Mesmo valor e data a `days` dias; na conta/cartao, quando se sabe.
+    `claimed_by` ("notify" ou "pluggy"): fica de fora o que outra observacao do
+    MESMO canal ja explica (duas compras de mesmo valor no mesmo dia continuam
+    duas); a de outro canal nao esconde nada (a notificacao nunca segura a Pluggy).
     """
     days = INBOX_MATCH_DAYS if days is None else days
     start, end = _shift(date_text, -days), _shift(date_text, days)
@@ -1267,8 +1468,10 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
                 if account_id and row["account_id"] != account_id:
                     continue
             found.append({"table": "transactions", "id": row["id"], "kind": candidate_kind(row), "date": row["date"]})
-    if for_notification:
-        found = [entry for entry in found if not _explained_by_notification(conn, current_user_id, entry)]
+    if claimed_by:
+        found = [
+            entry for entry in found if not claimed(conn, current_user_id, claimed_by, entry["table"], entry["id"])
+        ]
     found.sort(key=lambda entry: (_date_gap(entry["date"], date_text), entry["date"]))
     return [{key: entry[key] for key in ("table", "id", "kind")} for entry in found]
 
@@ -1278,26 +1481,6 @@ def _installment_count(info):
         return max(1, int(str(info).split("/", 1)[1]))
     except (IndexError, ValueError):
         return 1
-
-
-def _explained_by_notification(conn, current_user_id, entry):
-    """Outra fonte (notificacao ou transacao do Open Finance) ja explica este
-    lancamento: duas compras de mesmo valor no mesmo dia continuam duas."""
-    params = (current_user_id, entry["table"], entry["id"])
-    return conn.execute(
-        """
-        SELECT 1 FROM notify_detections
-        WHERE user_id = ? AND target_table = ? AND target_id = ? LIMIT 1
-        """,
-        params,
-    ).fetchone() is not None or conn.execute(
-        """
-        SELECT 1 FROM open_finance_transactions
-        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
-          AND COALESCE(conflict, '') <> 'vanished' LIMIT 1
-        """,
-        params,
-    ).fetchone() is not None
 
 
 def candidate_details(conn, current_user_id, candidates):
@@ -1398,6 +1581,7 @@ def _insert_detection(conn, current_user_id, detection, role, **extra):
         "counterparty": detection.get("counterparty"),
         "counterparty_doc": detection.get("counterparty_doc"),
         "counterparty_bank": detection.get("counterparty_bank"),
+        "international": 1 if is_international(detection) else 0,
         "role": role,
     }
     row.update(extra)
@@ -1450,7 +1634,10 @@ def ingest_detection(conn, current_user_id, detection, rules=None):
         return {"key": detection["key"], "status": "ignored", "item_id": None}
 
     if not notification_wanted(detection):
-        # Os bancos vem so pela Pluggy (dono, 2026-10-30).
+        return {"key": detection["key"], "status": "ignored", "item_id": None}
+    if not is_flash_detection(detection) and not bank_notifications(conn, current_user_id):
+        # O freio (Ajustes > Avisos dos bancos): desligado, o banco nao deixa
+        # rastro, para que ligar de novo nao grave avisos velhos de uma vez.
         return {"key": detection["key"], "status": "ignored", "item_id": None}
 
     repeated = _repeated_posting(conn, current_user_id, detection)
@@ -1639,12 +1826,32 @@ def _ingest_alone(conn, current_user_id, detection, rules):
             ):
                 learn_self(conn, current_user_id, [detection, *others])
             return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
+        # A outra ponta ja virou despesa/receita sozinha (defeito I): a mesma
+        # linha vira a transferencia.
+        absorbed = absorb_recorded_side(
+            conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,
+            date_text=date_of(when), occurred_at=when, counterparty=detection,
+            description=detection_description(detection),
+        )
+        if absorbed:
+            _insert_detection(
+                conn, current_user_id, detection, SOURCE, item_id=absorbed["id"], target_table="transactions",
+                target_id=absorbed["target_id"],
+            )
+            finish_absorb(conn, current_user_id, absorbed)
+            return {"key": detection["key"], "status": "merged", "item_id": absorbed["id"]}
 
     # 2. O Open Finance ja trouxe este movimento (a notificacao chegou depois,
     # o celular estava sem rede): a mesma compra e o mesmo item.
     of_item = open_finance_item_for_detection(conn, current_user_id, detection, target)
     if of_item:
         return _join_open_finance_item(conn, current_user_id, detection, of_item)
+
+    # 2b. O Open Finance ja trouxe esta compra com outro valor (design §3.7):
+    # o unico par de cada lado, mesma loja, na faixa. O valor do banco fica.
+    near = near_item_for_detection(conn, current_user_id, detection, target)
+    if near:
+        return _join_open_finance_item(conn, current_user_id, detection, near)
 
     # 3. Um item novo, com os lancamentos parecidos ja gravados (o dono pode
     # ter digitado antes do aviso chegar): ele decide no Aprovar se e o mesmo.
@@ -1654,7 +1861,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
         date_text=date_of(when),
         account_id=known_account,
         card_id=target["card_id"] if target["remembered"] else None,
-        for_notification=True,
+        claimed_by=CLAIM_NOTIFY,
     )
     item_id = new_item_for_detection(conn, current_user_id, detection, target, candidates, rules)
     _insert_detection(conn, current_user_id, detection, SOURCE, item_id=item_id)
@@ -1822,7 +2029,8 @@ def open_finance_fits_item(item, *, entry_type, direction, account_id=None, card
 def notification_item_for_open_finance(conn, current_user_id, *, entry_type, direction, cents, date_text,
                                        account_id=None, card_id=None, rounds_up=False):
     """O item que uma notificacao ja abriu para este movimento (pendente ou ja
-    decidido), sem transacao do Open Finance ainda: a mesma compra, o mesmo item.
+    decidido) com a vaga da Pluggy DESTE lado livre (I2: numa transferencia, uma
+    por ponta; a sumida e a REMOVED nao ocupam): a mesma compra, o mesmo item.
     Sem par no dia (+-1), o que ja virou lancamento ate OPEN_FINANCE_LATE_POST_DAYS
     antes (o banco lancou depois). `rounds_up`: o banco arredondou o valor."""
     def look(states, date_from, date_to):
@@ -1834,9 +2042,10 @@ def notification_item_for_open_finance(conn, current_user_id, *, entry_type, dir
               AND EXISTS (SELECT 1 FROM notify_detections d
                           WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
               AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
-                              WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED')
+                              WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED'
+                                AND COALESCE(o.conflict, '') <> 'vanished' AND o.direction = ?)
             """,
-            (current_user_id, *states, date_from, date_to),
+            (current_user_id, *states, date_from, date_to, direction),
         ).fetchall()
         found = [
             row for row in rows
@@ -1929,6 +2138,213 @@ def _join_open_finance_item(conn, current_user_id, detection, row):
     if description and "description" not in set(item["edited"]) and item["entry_type"] != "TRANSFER":
         save_item(conn, current_user_id, item, {"description": description})
     return {"key": detection["key"], "status": "merged", "item_id": item["id"]}
+
+
+# ---------------------------------------------------------------------------
+# A mesma compra com outro valor (design §3.7): o par aproximado
+# ---------------------------------------------------------------------------
+
+NEAR_STOP_WORDS = {
+    "compra", "cartao", "debito", "credito", "pagamento", "pagto", "transferencia", "ltda", "eireli", "comercio",
+    "servicos", "brasil", "internet", "online", "loja", "store", "sao", "paulo", "rio", "janeiro",
+}
+
+
+def merchant_agrees(merchant, *texts):
+    """O estabelecimento da notificacao e o da Pluggy (nome ou descricao) sao o
+    mesmo: uma palavra de 4+ letras que nao e generica aparece no outro, ou o
+    nome sem espacos (5+) esta dentro do outro sem espacos ("SMART FIT" e
+    "SMARTFIT"). So palavras genericas ("COMPRA") nunca bastam."""
+    wanted = normalized(merchant)
+    if not wanted:
+        return False
+    tokens = [token for token in wanted.split() if len(token) >= 4 and token.isalpha() and token not in NEAR_STOP_WORDS]
+    meaningful = any(token not in NEAR_STOP_WORDS for token in wanted.split())
+    squeezed = wanted.replace(" ", "")
+    for text in texts:
+        other = normalized(text)
+        if not other:
+            continue
+        words = set(other.split())
+        if any(token in words for token in tokens):
+            return True
+        if meaningful and len(squeezed) >= 5 and squeezed in other.replace(" ", ""):
+            return True
+    return False
+
+
+def near_amount(notified_cents, bank_cents, international):
+    """O valor do banco esta na faixa do notificado: +-NEAR_MATCH_FOREIGN_PERCENT
+    (internacional) ou +-NEAR_MATCH_DOMESTIC_PERCENT, so inteiros."""
+    notified, bank = int(notified_cents), int(bank_cents)
+    if notified <= 0 or bank <= 0:
+        return False
+    percent = NEAR_MATCH_FOREIGN_PERCENT if international else NEAR_MATCH_DOMESTIC_PERCENT
+    return abs(bank - notified) * 100 <= percent * notified
+
+
+def is_international(detection):
+    return bool(detection.get("international")) or (detection.get("currency") or "BRL") != "BRL"
+
+
+def late_posting_days():
+    """LATE_POSTING_DAYS, de onde ele e definido (services/open_finance.py, que
+    importa este modulo: por isso so na hora)."""
+    from services.open_finance import LATE_POSTING_DAYS
+    return LATE_POSTING_DAYS
+
+
+def near_detection_ok(detection):
+    """So compra (credito, debito, sem metodo), com estabelecimento, a vista."""
+    return (
+        detection["kind"] in PURCHASE_KINDS and bool(detection.get("merchant"))
+        and int(detection.get("installments") or 1) == 1
+    )
+
+
+def near_row_ok(conn, current_user_id, row):
+    """A transacao da Pluggy pode ser o par aproximado: uma compra (sem
+    movimento), de saida, a vista, num cartao ou conta em reais que nao e a
+    Corretora nem a conta global."""
+    if row["movement"] or row["direction"] != "OUT":
+        return False
+    if (row["total_installments"] or 1) > 1 or (row["installment_number"] or 1) > 1:
+        return False
+    target = conn.execute(
+        """
+        SELECT a.account_id, a.card_id, x.type AS app_type, x.currency FROM open_finance_accounts a
+        LEFT JOIN accounts x ON x.id = a.account_id AND x.user_id = a.user_id
+        WHERE a.id = ? AND a.user_id = ?
+        """,
+        (row["of_account_id"], current_user_id),
+    ).fetchone()
+    if not target or not (target["account_id"] or target["card_id"]):
+        return False
+    if target["account_id"] and (target["app_type"] == "BROKERAGE" or (target["currency"] or "BRL") != "BRL"):
+        return False
+    return True
+
+
+def _near_window(notified_date, bank_date, international, recorded):
+    """A data do banco menos a do aviso: -1..+1 (ate +5 no ja gravado, como o
+    par exato), ou ate LATE_POSTING_DAYS na compra internacional (fica "em
+    processamento" e o banco lista dias depois)."""
+    first, second = parse_iso_date(date_of(notified_date)), parse_iso_date(date_of(bank_date))
+    if not first or not second:
+        return False
+    gap = (second - first).days
+    if international:
+        high = late_posting_days()
+    else:
+        high = OPEN_FINANCE_LATE_POST_DAYS if recorded else OPEN_FINANCE_PAIR_DAYS
+    return -OPEN_FINANCE_PAIR_DAYS <= gap <= high
+
+
+def row_target(conn, current_user_id, row):
+    """(entry_type, account_id, card_id) do mapeamento da transacao."""
+    account = conn.execute(
+        "SELECT type, account_id, card_id FROM open_finance_accounts WHERE id = ? AND user_id = ?",
+        (row["of_account_id"], current_user_id),
+    ).fetchone()
+    if account["type"] == "CREDIT":
+        return "CARD", None, account["card_id"]
+    return ("EXPENSE" if row["direction"] == "OUT" else "INCOME"), account["account_id"], None
+
+
+def near_notification_items(conn, current_user_id, row, exclude_item_id=None):
+    """Os itens de notificacao que podem ser esta transacao com outro valor:
+    a vaga da Pluggy livre, cabem no mapeamento, mesma loja, na faixa e na janela."""
+    if not near_row_ok(conn, current_user_id, row):
+        return []
+    entry_type, account_id, card_id = row_target(conn, current_user_id, row)
+    rows = conn.execute(
+        f"""
+        SELECT i.* FROM inbox_items i
+        WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
+          AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
+          AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
+                          WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED'
+                            AND COALESCE(o.conflict, '') <> 'vanished' AND o.direction = 'OUT')
+        """,
+        (current_user_id, *PAIRABLE_STATES, _shift(row["date"], -late_posting_days()),
+         _shift(row["date"], OPEN_FINANCE_PAIR_DAYS)),
+    ).fetchall()
+    found = []
+    for item_row in rows:
+        if item_row["id"] == exclude_item_id or int(item_row["installments"] or 1) != 1:
+            continue
+        detection = next(
+            (entry for entry in map(row_to_dict, item_detections(conn, current_user_id, item_row["id"]))
+             if entry["role"] == SOURCE and near_detection_ok(entry)),
+            None,
+        )
+        if detection is None:
+            continue
+        international = is_international(detection) or bool(row.get("original_currency"))
+        if not _near_window(item_row["occurred_at"], row["date"], international, item_row["state"] in RECORDED_STATES):
+            continue
+        if not open_finance_fits_item(
+            item_dict(item_row), entry_type=entry_type, direction="OUT", account_id=account_id, card_id=card_id,
+        ):
+            continue
+        if not merchant_agrees(detection["merchant"], row.get("merchant_name"), row.get("description")):
+            continue
+        if not near_amount(_cents(item_row["amount"]), row["amount_cents"], international):
+            continue
+        found.append(item_row)
+    return found
+
+
+def near_open_finance_items(conn, current_user_id, detection, target):
+    """Os itens da Pluggy (pendentes ou gravados, sem notificacao) que podem ser
+    esta compra com outro valor. Devolve [(item, transacao)]."""
+    if not near_detection_ok(detection):
+        return []
+    when = date_of(detection["occurred_at"])
+    international = is_international(detection)
+    rows = conn.execute(
+        f"""
+        SELECT i.* FROM inbox_items i
+        WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
+          AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
+          AND NOT EXISTS (SELECT 1 FROM notify_detections d
+                          WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
+        """,
+        (current_user_id, *PAIRABLE_STATES, _shift(when, -OPEN_FINANCE_PAIR_DAYS), _shift(when, late_posting_days())),
+    ).fetchall()
+    found = []
+    for item_row in rows:
+        sources = [
+            row_to_dict(entry)
+            for entry in open_finance_sources(conn, current_user_id, item_row["id"], roles=(SOURCE, MATCHED))
+            if (entry["conflict"] or "") != "vanished"
+        ]
+        if len(sources) != 1 or not near_row_ok(conn, current_user_id, sources[0]):
+            continue
+        row = sources[0]
+        both = international or bool(row.get("original_currency"))
+        if not _near_window(detection["occurred_at"], row["date"], both, item_row["state"] in RECORDED_STATES):
+            continue
+        if not _detection_fits_open_finance(conn, current_user_id, detection, target, item_row):
+            continue
+        if not merchant_agrees(detection["merchant"], row.get("merchant_name"), row.get("description")):
+            continue
+        if not near_amount(detection["amount_cents"], row["amount_cents"], both):
+            continue
+        found.append((item_row, row))
+    return found
+
+
+def near_item_for_detection(conn, current_user_id, detection, target):
+    """Passo 5b: o unico item da Pluggy que a notificacao pode ser com outro
+    valor, e ela a unica notificacao que sobra para ele. Senao None."""
+    found = near_open_finance_items(conn, current_user_id, detection, target)
+    if len(found) != 1:
+        return None
+    item_row, row = found[0]
+    if near_notification_items(conn, current_user_id, row):
+        return None
+    return item_row
 
 
 # ---------------------------------------------------------------------------
@@ -2150,6 +2566,9 @@ def list_items(conn, current_user_id, view="pending", limit=200):
 # ---------------------------------------------------------------------------
 
 ALWAYS_ASK_SETTING = "inbox_always_ask"
+# Avisos dos bancos (Fase 2): Itau, BB e BTG gravam na hora pelo aviso do
+# celular. Sem escolha, vale BANK_NOTIFICATIONS_DEFAULT (ligado).
+BANK_NOTIFICATIONS_SETTING = "bank_notifications"
 
 
 def setting_value(conn, current_user_id, key):
@@ -2169,6 +2588,15 @@ def save_setting(conn, current_user_id, key, value):
         """,
         (current_user_id, key, value, utc_timestamp()),
     )
+
+
+def bank_notifications(conn, current_user_id):
+    value = setting_value(conn, current_user_id, BANK_NOTIFICATIONS_SETTING)
+    return BANK_NOTIFICATIONS_DEFAULT if value is None else value == "1"
+
+
+def set_bank_notifications(conn, current_user_id, value):
+    save_setting(conn, current_user_id, BANK_NOTIFICATIONS_SETTING, "1" if value else "0")
 
 
 def always_ask(conn, current_user_id):

@@ -47,13 +47,32 @@ public class NotifyRulesTest {
     }
 
     @Test
-    public void banksAreDroppedOnThePhone() {
+    public void banksAreHeard() {
+        // Fase 2 (dono, 2026-11-04): o aviso do banco grava na hora; a Pluggy confere depois.
         for (String pkg : new String[] {
             "com.itau", "br.com.bb.android",
             "com.btg.pactual.banking", "com.btg.pactual.digital.mobile",
         }) {
-            assertFalse(pkg, NotifyRules.isAllowed(pkg, false));
-            assertFalse(pkg, NotifyRules.accepts(row(pkg, "k", 1L), false));
+            assertTrue(pkg, NotifyRules.isAllowed(pkg, false));
+            assertTrue(pkg, NotifyRules.accepts(row(pkg, "k", 1L), false));
+        }
+    }
+
+    @Test
+    public void banksHaveTheServersNames() {
+        // backend/services/inbox.py APP_LABELS
+        assertEquals("Itaú", NotifyRules.labelFor("com.itau"));
+        assertEquals("Banco do Brasil", NotifyRules.labelFor("br.com.bb.android"));
+        assertEquals("BTG Pactual", NotifyRules.labelFor("com.btg.pactual.banking"));
+        assertEquals("BTG Investimentos", NotifyRules.labelFor("com.btg.pactual.digital.mobile"));
+    }
+
+    @Test
+    public void samsungWalletWithABankCardIsStillRejected() {
+        for (String title : new String[] { "BTG Pactual Banking", "Itaú Visa", "Ourocard Visa" }) {
+            NotifyRules.Captured samsung = row("com.samsung.android.spay", "k", 1L);
+            samsung.title = title;
+            assertFalse(title, NotifyRules.accepts(samsung, false));
         }
     }
 

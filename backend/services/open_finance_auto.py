@@ -165,15 +165,7 @@ def _linked_elsewhere(conn, current_user_id, candidate, item_id):
     ).fetchone()
     if not exists:
         return True
-    return conn.execute(
-        """
-        SELECT 1 FROM open_finance_transactions
-        WHERE user_id = ? AND target_table = ? AND target_id = ? AND role <> 'REMOVED'
-          AND COALESCE(conflict, '') <> 'vanished'
-          AND COALESCE(item_id, '') <> ?
-        """,
-        (current_user_id, table, target_id, item_id),
-    ).fetchone() is not None
+    return inbox.pluggy_claimed(conn, current_user_id, table, target_id, exclude_item_id=item_id or None)
 
 
 def hold_reason(conn, current_user_id, item, sources, today):

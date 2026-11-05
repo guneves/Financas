@@ -9,7 +9,7 @@
 
 ## 1. Open work, in priority order
 
-### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — designed, decided, not built
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phases 1–3 merged, 4–5 open
 Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
 back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
 and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
@@ -26,37 +26,27 @@ transfer whose origin was guessed keeps the wrong origin after Pluggy shows anot
 in Phase 1a.
 
 **Session prompts**: `docs/prompts/notify-pluggy/`; `README.md` has the order and the exact message
-for each session. There are **five sessions**: 1 engine (1a + 1b), 2 gate, 3 investments, 4 review,
-twins and orphans, 5 the final verification of everything. Each builds on the previous session's
-branch, and only session 5 opens a PR. The owner merges that one PR, so nothing reaches the server
-unverified.
-- [ ] **Phase 1 — engine invariants** (server only; invisible while the gate is closed):
-  - Pluggy id succession in the pull: missing → ingest with hand-over → vanish the rest,
-    `MATCHED`/`PAIRED` included.
-  - Claims scoped per channel (`existing_rows(claimed_by=…)`), with one claim helper shared by
-    `free_candidates()` and `_linked_elsewhere()`.
-  - One shared absorb helper, so the other side of an own transfer converts a recorded
-    despesa/receita from either channel; one-sided own transfers no longer wait.
-  - **Near match** (design §3.7, owner 2026-11-04 "add the fix"): a second pass after the exact
-    pairing, for purchases only, same merchant, unique on both sides, ±10% international / ±30%
-    domestic; the bank's amount wins unless the owner typed the amount. Also step 5b for a late
-    notification, near-amount succession, and a foreign-currency notification recorded at PTAX.
-  - Migrations `superseded_by` and `original_currency`, numbered after merging main.
-  - `test_notify_pluggy_identity.py` with matrix A–Q and an I1/I2 invariant helper.
-  - `scripts/check_identity.py`.
-- [ ] **Phase 2 — open the gate**:
-  - `NOTIFICATION_POLICY` (BTG Investimentos: transfers only; investment words and invoice payments
-    ignored; Samsung Wallet Flash only).
-  - `bank_notifications` brake in `/api/inbox/settings`, **on by default**.
-  - APK `NotifyRules.APPS`, parser filters and the `international` flag, with JVM tests.
-  - Ajustes text.
-  - CLAUDE.md rewrite of "Open Finance is the only banking source".
-- [ ] **Phase 3 — investments Pluggy-only**:
-  - One real GET of BTG `/investments` (which of `rate`/`rateType`/`fixedAnnualRate`/`dueDate`/
-    `issuer` MeuPluggy fills).
-  - Save them; record fixed income, Tesouro and INTEREST when complete.
-  - Refuse typed operations and proventos on the Pluggy-fed Corretora.
-  - An incomplete `HELD` line opens pre-filled.
+for each session. **The chain changed on 2026-11-04**: the owner asked session 3 to open a PR and merge
+Phases 1–3 into `main` (they continue in cloud sessions). Sessions 4 (Phases 4 + 5) and 5 (final
+verification, `06-verify-and-fix.md`) now start from `main`, not from a session branch; the final
+verification still checks everything, including what was merged. See `docs/handoff.md` › "For the
+final verification".
+- [ ] **Owner, after the final PR is merged and the APK is updated** (Phase 2's checks, in order):
+  1. an Itaú card purchase shows up in seconds;
+  2. after the next pull it is still one row;
+  3. a Pix to BTG Investimentos gives one transfer;
+  4. a week later, `scripts/check_identity.py` prints nothing.
+  The real notice texts of the four bank apps are not captured yet for the brokerage app and for an
+  invoice payment: if one of them reaches the Extrato, export it from Ajustes › Notificações do
+  celular (modo captura) and adjust `NotifyParsers`.
+- [ ] **Owner, after the deploy and the next pull (Phase 3)**: run
+  `sudo docker compose exec -T -w /app/backend app python scripts/position_fields.py --email <email>`.
+  Until then nobody knows whether MeuPluggy fills `rateType`/`rate`/`fixedAnnualRate`/`dueDate` for BTG,
+  so whether held fixed-income lines fill themselves on real data is unknown. If the keys are missing,
+  the lines stay `HELD missing:<field>` with "Lançar". If the unit of `rate` is not percent, widen nothing:
+  fix `title_terms()` with the real shape and a test.
+- [ ] **Phase 3 leftovers**: the APK's "Lançar" opens only operations (coupon and redemption: web).
+  The web's one-tap redemption needs exactly one fixed-income position with the same name.
 - [ ] **Phase 4 — quiet review**:
   - Pluggy-confirmed rows with a confident category (rule/merchant/CNAE), and two-sided transfers,
     leave Revisar by themselves.

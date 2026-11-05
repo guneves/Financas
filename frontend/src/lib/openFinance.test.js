@@ -181,5 +181,39 @@ test('portfolio summary and held reasons', () => {
   assert.equal(heldReasonLabel('corporate_action: Ha um desdobramento'), 'antes de um evento corporativo do ativo')
   assert.equal(heldReasonLabel('refused: Venda maior que a quantidade disponivel na carteira.'),
     'Venda maior que a quantidade disponivel na carteira.')
-  assert.equal(heldReasonLabel('type'), 'renda fixa, Tesouro, custódia ou cupom: lance você')
+  assert.equal(heldReasonLabel('type'), 'fundo, custódia ou outro tipo: lance você')
+})
+
+test('fixed income waits for the field Pluggy did not give exactly', () => {
+  assert.equal(heldReasonLabel('missing:rateType'), 'falta o indexador')
+  assert.equal(heldReasonLabel('unmapped:rateType'), 'o indexador sem um significado só')
+  assert.equal(heldReasonLabel('missing:buy'), 'falta a compra do título no app')
+  assert.equal(heldReasonLabel('missing:novo'), 'falta novo')
+})
+
+test('the Lançar of a held line', async () => {
+  const { heldLaunch, redemptionPosition, heldProceedPayload, heldRedemptionPayload } = await import('./openFinance.js')
+  assert.equal(heldLaunch({ op_key: 'k', prefill: null }), null)
+  assert.equal(heldLaunch({ prefill: { kind: 'operation' } }), null)
+  assert.equal(heldLaunch({ op_key: 'k', prefill: { kind: 'operation' } }).kind, 'operation')
+  assert.equal(heldLaunch({ op_key: 'k', prefill: { kind: 'proceed', asset_id: null } }), null)
+  assert.equal(heldLaunch({ op_key: 'k', prefill: { kind: 'proceed', asset_id: 'a' } }).kind, 'proceed')
+  const assets = [
+    { id: 'p1', class: 'FIXED_INCOME', ticker: 'CDB BANCO X' },
+    { id: 'p2', class: 'FIXED_INCOME', ticker: 'CDB BANCO Y' },
+    { id: 'p3', class: 'FIXED_INCOME', ticker: 'CDB BANCO Y' },
+    { id: 's', class: 'STOCKS', ticker: 'CDB BANCO X' },
+  ]
+  assert.equal(redemptionPosition(assets, { ticker_or_name: ' cdb  banco x ' }).id, 'p1')
+  assert.equal(redemptionPosition(assets, { ticker_or_name: 'CDB BANCO Y' }), null)
+  assert.equal(redemptionPosition(assets, { ticker_or_name: '' }), null)
+  const metadata = { open_finance_op_key: 'k' }
+  assert.deepEqual(
+    heldProceedPayload({ asset_id: 'a', proceeds_type: 'INTEREST', payment_date: '2026-10-20', gross_amount: 50, metadata }),
+    { asset_id: 'a', proceeds_type: 'INTEREST', payment_date: '2026-10-20', gross_amount: 50, metadata },
+  )
+  assert.deepEqual(
+    heldRedemptionPayload({ amount: 100, date: '2026-10-20', metadata }, { id: 'p1' }),
+    { position_id: 'p1', amount: 100, date: '2026-10-20', cash_account_id: null, metadata },
+  )
 })

@@ -21,13 +21,13 @@ da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
   quantidade 0, que so a tira de um proximo vinculo.
 - **Evento corporativo (017)**: uma operacao antes do ultimo evento do ativo
   nao entra (HELD `corporate_action`); nem uma venda maior que a posicao.
-- Renda fixa, Tesouro, fundos, TRANSFER (custodia) e INTEREST (cupom) esperam
-  (HELD `type`): aparecem na conferencia para o dono lancar. Gravar um titulo
-  pede o que a operacao nao traz: indexador e taxa contratada
-  (`validate_fixed_income_metadata()`; um palpite errado marca a carteira errada
-  sem aviso), o tipo do titulo (define IR e categoria) e, no resgate, a compra
-  exata que ele baixa (`related_id`, o IR de cada lote). O cupom e um provento
-  tributado desde a primeira compra do titulo, que nao esta aqui. Os proventos de
+- Renda fixa, Tesouro e INTEREST (cupom) de um titulo (Fase 3): gravados por
+  services/open_finance_fixed_income.py so quando a posicao da Pluggy (`raw`,
+  guardada inteira a cada pull, sem `transactions`) da indexador, taxa e tipo
+  do titulo exatos; senao esperam (HELD `missing:<campo>` / `unmapped:<campo>`).
+  Fundos, TRANSFER (custodia) e o resto esperam (HELD `type`). O que espera
+  aparece na conferencia com o que da para preencher (`prefill`) e o `op_key`:
+  o "Lancar" do dono o completa (`complete_held()`). Os proventos de
   acoes/FIIs ja sao calculados (026); o dinheiro deles na conta da corretora e
   COVERED (services/open_finance_inbox.py), nunca um segundo provento.
 - **Desfazer**: apagar a operacao no Extrato. A linha daqui fica DISMISSED e
@@ -43,6 +43,7 @@ da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
   da Pluggy (`cash_check()`), o resto esta em transito (`broker_cash.py`).
 """
 
+import json
 from datetime import timedelta
 from itertools import combinations
 
@@ -52,7 +53,8 @@ from asset_classes import QUOTED_ASSET_CLASSES
 from dates import parse_iso_date
 from db import encode_metadata, new_id, parse_metadata_value, utc_timestamp
 from money import rounded_money
-from services import invoices
+from services import broker_statement, invoices
+from services import open_finance_fixed_income as fixed_income_ops
 from services.broker_cash import broker_settlement
 from services.corporate_actions import ensure_outside_corporate_actions
 from services.investments import (
@@ -81,6 +83,9 @@ QUANTITY_TOLERANCE = 0.000001
 MAX_SUMMED_ROWS = 14
 PART_KEY = "#part:"
 PROVISIONAL_KEY = "provisional"
+# O "Lancar" de uma linha HELD manda o op_key no metadata (Fase 3).
+OP_KEY_METADATA = "open_finance_op_key"
+UNKNOWN_HELD_MESSAGE = "Operacao da Pluggy nao encontrada entre as que esperam."
 
 
 # ---------------------------------------------------------------------------
@@ -286,8 +291,11 @@ def _drop_provisional(conn, current_user_id, ticker):
 
 
 def decide(conn, current_user_id, op):
-    """(state, held_reason, investment_id) de uma operacao nova (ou segurada).
-    Na soma de digitadas, as outras ficam em op["other_links"]."""
+    """(state, held_reason, investment_id[, proceed_id]) de uma operacao nova
+    (ou segurada). Na soma de digitadas, as outras ficam em op["other_links"].
+    Renda fixa (compra, resgate, cupom) vai por open_finance_fixed_income."""
+    if op["pluggy_type"] == fixed_income_ops.PLUGGY_FIXED_INCOME:
+        return fixed_income_ops.decide(conn, current_user_id, op)
     if op["op_type"] not in RECORDED_TYPES or op["pluggy_type"] not in EQUITY_TYPES:
         return "HELD", "type", None
     if not op["code"] or not op["trade_date"] or op["quantity"] <= 0 or op["unit_price"] <= 0:
@@ -332,6 +340,10 @@ def _save_positions(conn, current_user_id, of_item_id, positions):
             "balance": safe_float(raw.get("balance"), None),
             "status": raw.get("status"),
             "position_date": _day(raw.get("date")),
+            # Tudo o que a Pluggy disse da posicao (taxa, indexador, vencimento...),
+            # menos as operacoes: o que grava a renda fixa le daqui.
+            "raw": json.dumps({key: value for key, value in raw.items() if key != "transactions"},
+                              ensure_ascii=False, sort_keys=True, default=str),
             "updated_at": stamp,
         }
         existing = conn.execute(
@@ -364,7 +376,7 @@ def apply(conn, current_user_id, of_item_id, data, today):
             (current_user_id, op["op_key"]),
         ).fetchone()
         if existing and existing["state"] in ("RECORDED", "LINKED"):
-            if existing["investment_id"] is None:
+            if existing["investment_id"] is None and existing["proceed_id"] is None:
                 # O dono apagou a operacao no Extrato: desfeita para sempre.
                 conn.execute(
                     "UPDATE open_finance_investment_operations SET state = 'DISMISSED', updated_at = ? WHERE id = ? AND user_id = ?",
@@ -374,7 +386,9 @@ def apply(conn, current_user_id, of_item_id, data, today):
             continue
         if existing and existing["state"] == "DISMISSED":
             continue
-        state, reason, investment_id = decide(conn, current_user_id, op)
+        decided = decide(conn, current_user_id, op)
+        state, reason, investment_id = decided[:3]
+        proceed_id = decided[3] if len(decided) > 3 else None
         counts[state.lower()] += 1
         values = {key: op[key] for key in (
             "pluggy_investment_id", "code", "name", "pluggy_type", "op_type", "trade_date", "quantity",
@@ -382,7 +396,7 @@ def apply(conn, current_user_id, of_item_id, data, today):
         )}
         values["trade_date"] = values["trade_date"] or today.isoformat()
         values.update({"state": state, "held_reason": reason, "investment_id": investment_id,
-                       "updated_at": utc_timestamp()})
+                       "proceed_id": proceed_id, "updated_at": utc_timestamp()})
         if existing:
             conn.execute(
                 f"UPDATE open_finance_investment_operations SET {', '.join(f'{key} = ?' for key in values)} WHERE id = ? AND user_id = ?",
@@ -510,9 +524,12 @@ def portfolio_check(conn, current_user_id, today=None):
             entry["expected_quantity"] = expected
             entry["matches"] = abs(app_quantity - expected) < QUANTITY_TOLERANCE
         listed.append(entry)
+    prices = fixed_income_ops.treasury_prices()
     held = [
-        {"code": row["code"], "name": row["name"], "type": row["op_type"], "trade_date": row["trade_date"],
-         "quantity": row["quantity"], "amount": row["amount"], "reason": row["held_reason"]}
+        {"op_key": row["op_key"], "code": row["code"], "name": row["name"], "type": row["op_type"],
+         "pluggy_type": row["pluggy_type"], "trade_date": row["trade_date"], "quantity": row["quantity"],
+         "amount": row["amount"], "reason": row["held_reason"],
+         "prefill": held_prefill(conn, current_user_id, row, prices)}
         for row in conn.execute(
             """
             SELECT * FROM open_finance_investment_operations
@@ -527,6 +544,84 @@ def portfolio_check(conn, current_user_id, today=None):
         "held": held,
         "cash": cash_check(conn, current_user_id, today),
     }
+
+
+def held_prefill(conn, current_user_id, row, prices=None):
+    """O que o "Lancar" de uma linha que espera abre preenchido (web e APK).
+
+    `kind`: `operation` (POST /api/investments), `redemption` ou `proceed`
+    (POST /api/investment-proceeds). O `op_key` vai no metadata: e o que deixa
+    o lancamento passar pela Corretora da Pluggy e marca a linha RECORDED.
+    `cash_account_id`: a Corretora na renda variavel (o bruto do pregao no
+    extrato e COVERED: o caixa e da operacao), None na renda fixa (o dinheiro
+    ja e uma linha do extrato da corretora)."""
+    op_type = row["op_type"]
+    day = row["trade_date"]
+    quantity = safe_float(row["quantity"])
+    amount = safe_float(row["amount"])
+    expenses = safe_float(row["expenses"])
+    metadata = {OP_KEY_METADATA: row["op_key"]}
+    if row["pluggy_type"] == fixed_income_ops.PLUGGY_FIXED_INCOME:
+        raw = fixed_income_ops.raw_position(conn, current_user_id, row["pluggy_investment_id"])
+        terms = fixed_income_ops.partial_terms(raw, prices)
+        name = terms["ticker"] or row["name"]
+        treasury = terms["metadata"].get("fixed_income_type") == "TESOURO"
+        if op_type == "INTEREST":
+            lots = fixed_income_ops.title_lots(conn, current_user_id, row["pluggy_investment_id"])
+            return {"kind": "proceed", "proceeds_type": "INTEREST", "ticker_or_name": name,
+                    "asset_id": lots[0]["asset_id"] if lots else None,
+                    "payment_date": day, "gross_amount": amount, "metadata": metadata}
+        if op_type not in ("BUY", "SELL"):
+            return None
+        if op_type == "SELL":
+            return {"kind": "redemption", "ticker_or_name": name, "date": day, "amount": amount,
+                    "metadata": metadata, "cash_account_id": None}
+        if treasury and quantity > 0:
+            metadata["treasury_units"] = quantity
+        return {"kind": "operation", "asset_class": "FIXED_INCOME", "treasury": treasury, "ticker_or_name": name,
+                "quantity": 1, "average_price": amount + expenses,
+                "metadata": {**terms["metadata"], "purchase_date": day, "other_costs": expenses, **metadata},
+                "cash_account_id": None}
+    if op_type not in RECORDED_TYPES:
+        return None
+    signed = -quantity if op_type == "SELL" else quantity
+    metadata.update({("sale_date" if signed < 0 else "purchase_date"): day, "other_costs": expenses})
+    if signed < 0:
+        metadata["sale_price"] = safe_float(row["unit_price"])
+    return {"kind": "operation", "asset_class": equity_class(conn, current_user_id, row["code"]) if row["code"] else None,
+            "treasury": False, "ticker_or_name": row["code"] or row["name"], "quantity": signed,
+            "average_price": safe_float(row["unit_price"]), "metadata": metadata,
+            "cash_account_id": portfolio_cash_account_id(conn, current_user_id)}
+
+
+def held_operation(conn, current_user_id, key):
+    """A linha HELD deste usuario com este op_key, ou None."""
+    if not isinstance(key, str) or not key.startswith(OP_KEY_PREFIX):
+        return None
+    return conn.execute(
+        "SELECT * FROM open_finance_investment_operations WHERE user_id = ? AND op_key = ? AND state = 'HELD'",
+        (current_user_id, key),
+    ).fetchone()
+
+
+def complete_held(conn, current_user_id, key, investment_id=None, proceed_id=None):
+    """O dono lancou a linha que esperava: ela fica RECORDED com o que ele gravou,
+    na mesma transacao. Um cupom lancado assim adota a linha do extrato que ja o
+    pagou (nunca dois lancamentos). Recusa (ValidationError) um op_key que nao e
+    uma linha HELD deste usuario."""
+    row = held_operation(conn, current_user_id, key)
+    if not row:
+        raise ValidationError(UNKNOWN_HELD_MESSAGE)
+    conn.execute(
+        """
+        UPDATE open_finance_investment_operations
+        SET state = 'RECORDED', held_reason = NULL, investment_id = ?, proceed_id = ?, updated_at = ?
+        WHERE id = ? AND user_id = ? AND state = 'HELD'
+        """,
+        (investment_id, proceed_id, utc_timestamp(), row["id"], current_user_id),
+    )
+    if proceed_id:
+        broker_statement.adopt_proceed_line(conn, current_user_id, proceed_id)
 
 
 def cash_check(conn, current_user_id, today):

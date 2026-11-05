@@ -12,10 +12,15 @@ A compra so do Samsung Wallet grava na hora: nenhum banco vai avisar dela. Se o
 app do Flash chegar depois com a mesma compra, junta (uma linha so); se chegar
 com a negativa, o lancamento intocado sai (`undo_declined()`).
 
-Espera, so:
-- a transferencia entre contas do dono com uma ponta so, ate a outra ponta
-  chegar e fazer dela UMA transferencia (fica no Aprovar, que o Extrato aponta);
-- o valor em outra moeda: nunca grava (o valor em reais vem do banco).
+Nada espera (design §3.2 passo 7, dono 2026-11-04):
+- a transferencia entre contas do dono com uma ponta so vira, ja, a
+  despesa/receita da conta que avisou (`one_side_now()`); quando a outra ponta
+  chegar (notificacao ou Pluggy), inbox.absorb_recorded_side() faz da mesma
+  linha a transferencia. So a que toca a Corretora (receita/despesa la
+  distorceria Investimentos e o Resumo) ou a conta global espera;
+- o valor em outra moeda num cartao/conta em reais grava pela PTAX do dia
+  (open_finance_auto.in_reais_now(); a notificacao guarda a moeda, e o par
+  aproximado troca pelo valor do banco). Sem PTAX ainda, espera.
 
 Um parecido que o dono digitou antes (`candidates`) e LIGADO, nunca duplicado.
 O item guarda como o lancamento nasceu (`recorded_snapshot`): o que uma
@@ -32,7 +37,7 @@ import json
 
 from config import AUTO_RECORD_DEFAULT
 from db import utc_timestamp
-from services import inbox, inbox_decisions, open_finance_inbox, review
+from services import global_account, inbox, inbox_decisions, open_finance_auto, open_finance_inbox, review
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
@@ -55,6 +60,40 @@ def hold_reason(item):
     if item.get("entry_type") == "TRANSFER" and not (item.get("account_id") and item.get("transfer_account_id")):
         return "awaiting_transfer"
     return None
+
+
+def one_side_now(conn, current_user_id, item):
+    """A transferencia entre contas do dono de uma ponta so (a notificacao viu
+    um lado) vira a despesa/receita desse lado, a revisar, como
+    open_finance_auto.one_side_now() faz para a Pluggy. Nunca na Corretora nem
+    na conta global (fica como esta). Devolve o item mudado, ou None."""
+    if item.get("entry_type") != "TRANSFER":
+        return None
+    origin, destination = item.get("account_id"), item.get("transfer_account_id")
+    if bool(origin) == bool(destination):
+        return None
+    seen = origin or destination
+    direction = "OUT" if origin else "IN"
+    account = conn.execute(
+        "SELECT type, currency FROM accounts WHERE id = ? AND user_id = ? AND archived_at IS NULL",
+        (seen, current_user_id),
+    ).fetchone()
+    if not account or account["type"] == "BROKERAGE" or global_account.is_foreign(conn, current_user_id, seen):
+        return None
+    detections = _source_detections(conn, current_user_id, item["id"])
+    detection = inbox.detection_from_row(detections[0]) if detections else {}
+    entry_type = "EXPENSE" if direction == "OUT" else "INCOME"
+    description = (inbox.detection_description(detection) if detection else None) or item.get("description")
+    name, category_id = inbox.suggest_category(conn, current_user_id, description, entry_type, item["amount"], seen)
+    guessed = ["account"] if inbox._side_need(direction) in (item.get("guessed") or []) else []
+    changes = {
+        "entry_type": entry_type, "direction": direction, "account_id": seen, "transfer_account_id": None,
+        "card_id": None, "transfer_amount": None, "category": name, "category_id": category_id,
+        "reason": "external_transfer", "description": description, "guessed": guessed,
+    }
+    changes["needs"] = inbox.recompute_needs({**item, **changes})
+    inbox.save_item(conn, current_user_id, item, changes)
+    return inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
 
 
 def remember_recording(conn, current_user_id, item_id, table, target_id):
@@ -99,6 +138,10 @@ def record_item(conn, current_user_id, row):
         return "skipped"
     if not _source_detections(conn, current_user_id, item["id"]):
         return "skipped"
+    if hold_reason(item) == "awaiting_transfer":
+        item = one_side_now(conn, current_user_id, item) or item
+    if hold_reason(item) == "foreign_currency":
+        item = open_finance_auto.in_reais_now(conn, current_user_id, item) or item
     if hold_reason(item):
         return "held"
     return approve_alone(conn, current_user_id, item)

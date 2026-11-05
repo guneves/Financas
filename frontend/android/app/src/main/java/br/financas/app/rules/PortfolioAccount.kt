@@ -25,13 +25,15 @@ object PortfolioAccount {
         val type: String?,
         val currency: String? = null,
         val archivedAt: String? = null,
+        /** Alimentada pela Pluggy (`pluggy` de GET /api/accounts, Fase 3). */
+        val pluggy: Boolean = false,
     )
 
     /**
      * O valor do campo: [enabled] falso e a marca "não descontar de nenhuma conta"; [missing] diz
      * que o dono ainda nao tem conta da carteira (a tela preenche quando a lista de contas chega).
      */
-    data class CashLink(val enabled: Boolean, val accountId: String, val missing: Boolean)
+    data class CashLink(val enabled: Boolean, val accountId: String, val missing: Boolean, val fresh: Boolean = false)
 
     /** Uma recusa do campo, com o texto para a tela (o `throw new Error` da web). */
     class CashLinkError(message: String) : IllegalArgumentException(message)
@@ -48,7 +50,37 @@ object PortfolioAccount {
 
     fun pickPortfolioAccountId(accounts: List<Account>?): String = portfolioAccounts(accounts).firstOrNull()?.id ?: ""
 
-    fun emptyCashLink(): CashLink = CashLink(enabled = true, accountId = "", missing = false)
+    /** [CashLink.fresh]: ainda nao passou pela lista de contas ([cashLinkWithAccounts] decide o padrao). */
+    fun emptyCashLink(): CashLink = CashLink(enabled = true, accountId = "", missing = false, fresh = true)
+
+    /**
+     * Investimentos so pela Pluggy (Fase 3): a Corretora alimentada pela Pluggy recebe sozinha o que
+     * a corretora faz, e o servidor recusa uma operacao digitada com o caixa nela. Por isso o padrao,
+     * ali, e "Não descontar de nenhuma conta", nunca a Corretora.
+     */
+    const val PLUGGY_FED_NOTE = "A Corretora é atualizada pela Pluggy: o que a corretora faz entra sozinho. " +
+        "Aqui só o que ela não vê (cripto, outra instituição), sem descontar da Corretora."
+
+    fun pluggyFedPortfolio(accounts: List<Account>?): Boolean = portfolioAccounts(accounts).firstOrNull()?.pluggy == true
+
+    /**
+     * O valor do campo quando a lista de contas chega: a falta de conta da carteira, o padrao de uma
+     * operacao nova (desligado na Corretora da Pluggy) e a conta da carteira quando ligado.
+     */
+    fun cashLinkWithAccounts(value: CashLink, accounts: List<Account>?): CashLink {
+        val portfolio = portfolioAccounts(accounts)
+        var next = value.copy(missing = portfolio.isEmpty())
+        if (next.fresh) {
+            next = next.copy(fresh = false)
+            if (portfolio.firstOrNull()?.pluggy == true) next = next.copy(enabled = false)
+        }
+        val first = portfolio.firstOrNull()
+        if (next.enabled && next.accountId.isEmpty() && first != null) next = next.copy(accountId = first.id)
+        return next
+    }
+
+    fun isPluggyFedAccount(accounts: List<Account>?, accountId: String?): Boolean =
+        !accountId.isNullOrEmpty() && accounts.orEmpty().firstOrNull { it.id == accountId }?.pluggy == true
 
     /** O campo a partir do metadata salvo: so `cash_account_id` texto conta. */
     fun cashLinkFromMetadata(metadata: Map<String, Any?>?): CashLink {

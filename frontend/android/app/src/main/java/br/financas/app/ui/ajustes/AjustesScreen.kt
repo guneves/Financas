@@ -21,6 +21,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
@@ -129,6 +130,11 @@ fun AjustesScreen(
     viewModel.editingAccount?.let { EditAccountSheet(it, viewModel) }
     viewModel.editingCard?.let { EditCardSheet(it, viewModel) }
     ConfirmDialog(viewModel.confirm, stringResource(R.string.lanc_cancel), viewModel::dismissConfirm)
+    br.financas.app.ui.investimentos.LaunchSheetView(
+        viewModel.launchSheet,
+        viewModel.hidden,
+        LocalContext.current.applicationContext as android.app.Application,
+    )
 }
 
 private fun titleOf(section: AjustesSection): Int = when (section) {
@@ -620,9 +626,42 @@ private fun OpenFinanceSection(viewModel: AjustesViewModel) {
                     data != null && data.items.isEmpty() -> EmptyState(stringResource(R.string.ajustes_open_finance_empty))
                 }
                 data?.items.orEmpty().forEach { item -> OpenFinanceItemCard(item, viewModel) }
+                HeldOperationsBlock(data?.investments?.held.orEmpty(), viewModel)
                 val settings = viewModel.openFinanceSettings.value
                 if (data?.configured == true && settings != null) OpenFinanceSettingsBlock(settings, viewModel)
                 Text(stringResource(R.string.ajustes_open_finance_desktop), fontSize = 13.sp, color = palette.muted)
+            }
+        }
+    }
+}
+
+/** As operacoes da corretora que esperam o dono (Fase 3): o motivo e "Lançar" (o formulario
+ *  preenchido, com o op_key). O cupom e o resgate se lancam na web. */
+@Composable
+private fun HeldOperationsBlock(rows: List<br.financas.app.data.OpenFinanceHeldDto>, viewModel: AjustesViewModel) {
+    if (rows.isEmpty()) return
+    val palette = LocalPalette.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.ajustes_open_finance_held), fontWeight = FontWeight.SemiBold, color = palette.text)
+        rows.forEach { row ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "${br.financas.app.core.formatDateBR(row.tradeDate.orEmpty())} · ${row.type.orEmpty()} ${row.code ?: row.name.orEmpty()} · " +
+                        br.financas.app.rules.InvestmentPrefill.heldReasonLabel(row.reason),
+                    fontSize = 13.sp,
+                    color = palette["zinc-600"],
+                    modifier = Modifier.weight(1f),
+                )
+                val prefill = row.prefill
+                val launchable = br.financas.app.rules.InvestmentPrefill.launchable(
+                    row.opKey,
+                    prefill?.let { br.financas.app.rules.InvestmentPrefill.Prefill(it.kind) },
+                )
+                if (launchable) {
+                    TextButton(onClick = { viewModel.launchHeld(row) }) {
+                        Text(stringResource(R.string.ajustes_open_finance_launch), color = palette.accent)
+                    }
+                }
             }
         }
     }
@@ -862,6 +901,30 @@ private fun NotificacoesSection(viewModel: AjustesViewModel) {
     }
 }
 
+/** "Avisos dos bancos" (bank_notifications, no servidor): o mesmo interruptor da web. */
+@Composable
+private fun BankNotificationsBlock(viewModel: AjustesViewModel) {
+    val palette = LocalPalette.current
+    val settings = viewModel.inboxSettings.value
+    val on = settings?.bankNotifications ?: true
+    val enabled = settings != null && !viewModel.busy
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp).clickable(enabled = enabled) { viewModel.setBankNotifications(!on) },
+    ) {
+        Checkbox(
+            on,
+            { viewModel.setBankNotifications(it) },
+            enabled = enabled,
+            colors = CheckboxDefaults.colors(checkedColor = palette.accent, checkmarkColor = palette.onAccent),
+        )
+        Column(Modifier.padding(top = 12.dp, end = 12.dp)) {
+            Text(stringResource(R.string.ajustes_bank_notifications), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
+            Text(stringResource(R.string.ajustes_bank_notifications_hint), fontSize = 14.sp, color = palette["zinc-600"])
+        }
+    }
+}
+
 @Composable
 private fun NotifyBody(status: NotifyTexts.NotifyStatus, viewModel: AjustesViewModel) {
     val palette = LocalPalette.current
@@ -890,6 +953,8 @@ private fun NotifyBody(status: NotifyTexts.NotifyStatus, viewModel: AjustesViewM
                     }
                 }
             }
+            HorizontalDivider(color = palette["zinc-100"])
+            BankNotificationsBlock(viewModel)
             HorizontalDivider(color = palette["zinc-100"])
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.ajustes_capture_mode), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)

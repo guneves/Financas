@@ -49,3 +49,20 @@ def require_manual_transfer(conn, current_user_id, origin_id, destination_id):
 def require_manual_card(conn, current_user_id, card_id):
     if MANUAL_ONLY_OFF_PLUGGY and card_id in bank_fed_card_ids(conn, current_user_id):
         raise ValidationError(BANK_FED_CARD_MESSAGE)
+
+
+# Investimentos so pela Pluggy (Fase 3, docs/notifications-pluggy-design.md §5):
+# a Corretora alimentada pela Pluggy recebe as operacoes, os resgates e os
+# proventos da corretora sozinha; digitar ali seria a mesma operacao em dobro.
+# So as rotas HTTP chamam isto; os gravadores do servidor (proceeds_sync,
+# apply_paid_proceeds(), open_finance_investments) nunca.
+BROKER_FED_MESSAGE = "A Pluggy traz as operações da corretora."
+
+
+def require_manual_investment_cash(conn, current_user_id, account_id, completes_held=False):
+    """Recusa a operacao digitada cujo caixa e uma conta da Pluggy (a Corretora),
+    a nao ser que ela complete uma linha HELD da Pluggy (o "Lancar")."""
+    if completes_held or not account_id or not MANUAL_ONLY_OFF_PLUGGY:
+        return
+    if account_id in bank_fed_account_ids(conn, current_user_id):
+        raise ValidationError(BROKER_FED_MESSAGE)

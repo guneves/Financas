@@ -212,21 +212,23 @@ class TestIncludePending:
         [row] = rows_of("open_finance_transactions", "pluggy_transaction_id = ?", (tx_id,))
         assert (row["date"], row["description"], row["role"]) == ("2026-10-26", "PADARIA BOM PAO", "SOURCE")
 
-    def test_a_new_id_on_posting_removes_the_old_item(self, world):
+    def test_a_new_id_on_posting_succeeds_the_old_one_in_the_same_item(self, world):
+        # Sucessao (design §3.3 passo 0): a pendente que liquida com outra id e
+        # a mesma observacao; o item fica o mesmo, a linha velha aponta a nova.
         item_id, _p, made = connected(world)
         world.call("patch", SETTINGS, json={"include_pending": True})
         old_id = world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-25", status="PENDING"))
         world.sync(item_id)
         [old_item] = world.pending()
         world.fake.drop_tx(made["bank"][0], old_id)
-        world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-26"))
+        new_id = world.fake.add_tx(made["bank"][0], bank_tx(-10, "2026-10-26"))
         world.sync(item_id)
         [new_item] = world.pending()
-        assert new_item["id"] != old_item["id"]
+        assert new_item["id"] == old_item["id"]
         [old_row] = rows_of("open_finance_transactions", "pluggy_transaction_id = ?", (old_id,))
-        assert old_row["role"] == "REMOVED"
-        [removed] = rows_of("inbox_items", "id = ?", (old_item["id"],))
-        assert removed["state"] == "REMOVED"
+        [new_row] = rows_of("open_finance_transactions", "pluggy_transaction_id = ?", (new_id,))
+        assert (old_row["role"], old_row["superseded_by"]) == ("REMOVED", new_row["id"])
+        assert (new_row["role"], new_row["item_id"]) == ("SOURCE", old_item["id"])
 
     def test_turning_it_off_keeps_what_was_pulled(self, world):
         item_id, _p, made = connected(world)

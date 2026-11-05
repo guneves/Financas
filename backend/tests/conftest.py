@@ -22,8 +22,10 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 
-@pytest.fixture(scope="session")
-def app_module():
+def _test_environment():
+    """O ambiente dos testes, posto no import deste arquivo: um teste puro que
+    importa `services.*` antes de `app_module` (o `db` copia DATABASE_PATH de
+    config no import) nunca aponta para o backend/finance.db de verdade."""
     tmp_dir = tempfile.mkdtemp(prefix="financas-tests-")
     os.environ["DATABASE_PATH"] = os.path.join(tmp_dir, "test.db")
     os.environ["DATABASE_MIGRATIONS_DIR"] = os.path.join(PROJECT_DIR, "database", "migrations")
@@ -58,6 +60,12 @@ def app_module():
     os.environ["AUTO_RECORD_DEFAULT"] = "0"
     os.environ["MANUAL_ONLY_OFF_PLUGGY"] = "0"
 
+
+_test_environment()
+
+
+@pytest.fixture(scope="session")
+def app_module():
     # config.py le o ambiente no import, e os modulos do app (db, auth...) copiam
     # os valores dele. Por isso nenhum teste importa esses modulos no topo do
     # arquivo: pegue-os por fixture (app_module, db_module), depois daqui.
@@ -121,7 +129,7 @@ def any_bank_notifications(app_module, monkeypatch):
     """Desliga so a porta de services/inbox.py (`notification_wanted()`: o servidor
     so aceita gasto do Flash, dono 2026-10-30) para exercitar o motor de baixo: o
     pareamento, que o Flash ainda usa, e o que uma notificacao de banco ja gravou
-    e a Pluggy ainda confere. O que a porta faz esta em test_flash_only.py."""
+    e a Pluggy ainda confere. O que a porta faz esta em test_notification_policy.py."""
     monkeypatch.setattr(importlib.import_module("services.inbox"), "notification_wanted", lambda detection: True)
 
 

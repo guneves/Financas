@@ -54,6 +54,8 @@ from services.fixed_income import (
 from services.asset_categories import categories_by_asset
 from services.treasury import finish_treasury_refresh, redemption_parts, start_treasury_refresh
 from services.broker_cash import broker_settlement
+from services.manual_entries import require_manual_investment_cash
+from services.open_finance_investments import OP_KEY_METADATA, UNKNOWN_HELD_MESSAGE, complete_held, held_operation
 from services.investments import (
     CASH_ACCOUNT_KEY,
     MAX_MOVEMENT_NUMBER,
@@ -402,6 +404,8 @@ def create_movements(current_user_id, items, client_id=None):
 
     inserted = []
     affected_asset_ids = set()
+    # O "Lancar" de uma linha que espera (Fase 3): op_key -> a primeira operacao que o leva.
+    held_keys = {}
     # Posicoes (em `inserted`) das operacoes que ganharam a conta da carteira
     # sem pedir: sem valor a lancar, ficam fora do extrato em vez de recusadas.
     defaulted_cash = set()
@@ -428,6 +432,15 @@ def create_movements(current_user_id, items, client_id=None):
                 if metadata not in (None, "") and not isinstance(metadata, (dict, str)):
                     raise ValidationError("Metadata deve ser um objeto valido.")
                 metadata_dict = investment_metadata_dict(metadata)
+                op_key = metadata_dict.get(OP_KEY_METADATA)
+                if OP_KEY_METADATA in metadata_dict:
+                    if not held_operation(conn, current_user_id, op_key):
+                        raise ValidationError(UNKNOWN_HELD_MESSAGE)
+                    metadata_dict = {
+                        **{key: value for key, value in metadata_dict.items() if key != OP_KEY_METADATA},
+                        "open_finance_operation": op_key,
+                    }
+                    metadata = metadata_dict
                 validate_movement_metadata(metadata_dict)
                 validate_fixed_income_metadata(asset_class, quantity, metadata_dict)
                 currency = read_movement_currency(item, asset_class)
@@ -459,6 +472,10 @@ def create_movements(current_user_id, items, client_id=None):
                         resolve_investment_cash_account(conn, current_user_id, metadata_dict),
                     )
                     metadata = metadata_dict
+                # A Corretora da Pluggy nao recebe operacao digitada (Fase 3).
+                require_manual_investment_cash(
+                    conn, current_user_id, investment_cash_account_id(metadata_dict), completes_held=bool(op_key),
+                )
                 validate_investment_movement(
                     conn,
                     current_user_id,
@@ -508,6 +525,11 @@ def create_movements(current_user_id, items, client_id=None):
                     source="manual",
                 )
                 inserted.append(item_id)
+                if op_key and op_key not in held_keys:
+                    held_keys[op_key] = item_id
+
+            for key, item_id in held_keys.items():
+                complete_held(conn, current_user_id, key, investment_id=item_id)
 
             for asset_id in affected_asset_ids:
                 validate_asset_transaction_backing(conn, current_user_id, asset_id)
@@ -593,6 +615,9 @@ def redeem_fixed_income(current_user_id):
         return validation_error(str(exc))
 
     cash = {CASH_ACCOUNT_KEY: payload.get(CASH_ACCOUNT_KEY)} if CASH_ACCOUNT_KEY in payload else {}
+    payload_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    if OP_KEY_METADATA in payload_metadata:
+        cash[OP_KEY_METADATA] = payload_metadata[OP_KEY_METADATA]
     items = [
         {
             "asset_class": position["class"],
@@ -728,6 +753,8 @@ def investment_detail(current_user_id, investment_id):
                 requested_cash,
                 previous_account_id=previous_cash_account_id,
             )
+            if cash_account_id != previous_cash_account_id:
+                require_manual_investment_cash(conn, current_user_id, cash_account_id)
         except ValidationError as exc:
             return validation_error(str(exc))
         if not cash_account_id and investment_cash_receipt_count(conn, current_user_id, investment_id):
