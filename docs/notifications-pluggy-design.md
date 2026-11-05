@@ -3,8 +3,10 @@
 > Design, 2026-11-04. Owner's request: integrate phone notifications with Pluggy with **no overlap and
 > no duplicates**; when a real purchase really happens twice, the app must **recognize both**;
 > **investments are Pluggy-only**, and notifications deliver only **transfers to and from BTG
-> Investimentos**. The owner's decisions are in §7 (least friction). Nothing here is built yet: the phased plan is in `docs/next-steps.md` and
-> CLAUDE.md changes with each phase, never ahead of the code.
+> Investimentos**. The owner's decisions are in §7 (least friction). **Built** in Phases 1–5
+> (2026-11-04/05, PRs #67 and #68) and verified in session 5 (2026-11-05). §1–§7 are the design as
+> decided; §8 says what was really built, every deviation and why. CLAUDE.md holds the rules as they
+> are now.
 
 ## 1. Where we start
 
@@ -473,6 +475,53 @@ balances stay right.
 | 6 | Review (found while deciding) | **Only guesses are reviewed** (§3.6) | The Revisar queue shrinks to rows whose category is a broad guess |
 | 7 | One-sided own transfer (found while deciding, defect I) | **Never waits**; recorded as the side seen, turned into the transfer by the other side | Nothing in "Não gravou sozinho"; no income/expense split |
 | 8 | Same purchase, different amount (owner, 2026-11-04: "add the fix") | **Near match** (§3.7): exact pass first; then purchases only, same merchant, unique on both sides, ±10% international / ±30% domestic; the bank's amount wins; a foreign-currency notice is recorded at PTAX | No double row for days; nothing to delete; an amount the owner typed is never overwritten |
+
+## 8. What was built (verified 2026-11-05)
+
+Each phase followed its prompt in `docs/prompts/notify-pluggy/`; the rules as built are in CLAUDE.md
+("Notifications are fast, Pluggy is the record", "Auto-record → reconcile → review", "The inbox
+engine"). Tests: `test_notify_pluggy_identity.py` (matrix A–S, regressions, interleaving, one world
+with A–S), `test_notify_pluggy_fuzz.py` (200 generated worlds), `test_notify_pluggy_plans.py`,
+`test_notification_policy.py`, `test_quiet_review.py`, `test_twins.py`, `test_open_finance_orphans.py`,
+`test_open_finance_fixed_income.py`.
+
+### 8.1 Deviations from §1–§7, with the reason
+
+| Where | Design said | Built | Why |
+|-------|-------------|-------|-----|
+| §3.3 step 0 | compute *missing*, then vanish what nobody took over | the same, but `vanish_missing()` used to run **before** ingest; now the missing rows stay live during the batch and `vanish_rows()` runs after it | succession needs the old row to hand over; the price is that a not-succeeded missing row still occupies its item's Pluggy slot during that one batch (not seen in 200 generated worlds) |
+| §3.3 step 2 | "its `PLUGGY` slot must be free" | one free Pluggy slot **per side** of a transfer | a transfer has an OUT and an IN Pluggy row |
+| §3.2 step 4 / §6 | the absorbed side's item has exactly one side source | at most **one observation per channel** on that side, all movements (Phase 4); a notice that joined an item Pluggy recorded has no snapshot and doesn't decide (session 5) | a despesa notified *and* confirmed by Pluggy is still one side; without this the own transfer split into despesa + receita |
+| §3.4 orphans | "the account's (or card's) balance" | **bank accounts only**; cards are list-only | a card's balance mixes the used limit, pending holds and BB's rounding |
+| §3.4 orphans | runs after the pull | runs **last**, after `record_bank_payments()`, `mark_bank_investments()` and the `last_sync_at` stamp, and only when `bank_refreshed_since(date + 5 d)` holds for **every** active connection | the stamp makes this pull count as read; one stale connection must not let a row go |
+| §3.4 wording | "app − bank equals the orphan's effect" (first bullet) | bank − app, the Conferência's own `balance_difference()`; an expense orphan of X fixes +X, an income −X | the second paragraph of §3.4 already said bank − app; one formula, extracted, used by the screen and the sweep |
+| §3.6 / Phase 4 | "untouched" | snapshot equality only, everywhere; "É meu" is not a touch | otherwise clearing review would silence the bank's later corrections; consequence: a row the owner only reviewed is redone by the bank (date, card) and removed by a Flash decline or a vanish |
+| §4 investment words | Tesouro, fundo, ordem, ... | whole words over `normalized()`: aplicação, resgate, CDB, LCI, LCA, **tesouro direto**, **fundo de investimento**, **ordem de compra/venda**, provento, dividendo, JCP; applied to Pix/TED and the brokerage app, **never** to a card purchase's merchant | "FUNDO DE QUINTAL BAR" and "TESOURO DO MAR RESTAURANTE" are restaurants; a Pix to a person named "Resgate" is ignored, and Pluggy still brings it |
+| §4 / APK | invoice-payment texts ignored | the APK drops "fatura" + pago/paga/pagamento/quitada **before** `kindOf()` | "Pagamento da fatura aprovado" matched the purchase regex |
+| §5 / Phase 3 | first, one real GET of BTG `/investments` | not done (production data is off-limits); `scripts/position_fields.py` lists which keys MeuPluggy fills, for the owner to run; Pluggy's `rate`/`fixedAnnualRate` are assumed to be percent (the docs); outside `CDI_PERCENT_RANGE`/`ANNUAL_PERCENT_RANGE` the line is held | never guess a rate; a held line fills itself when the position completes |
+| §5 | typed provento on the Corretora refused | refused on the routes only; `proceeds_sync`, `apply_paid_proceeds()` and `open_finance_investments` still write | the server's own writers are the record |
+| §3.7 near pass (session 5) | — | `near_notification_items()` starts from the window's SOURCE notifications (`CROSS JOIN`), not from every item | it runs once per new Pluggy purchase; a first pull of 3000 rows went 5.1 s → 12.6 s with Phase 1, and is 6.0 s now |
+
+### 8.2 Bugs found by the verification (session 5), each with its test and fix commit
+
+1. **A late notice of a transfer side Pluggy already completed opened a second transfer**
+   (`approved_transfer_awaiting()` treated a side as taken when any channel observed it).
+   `TestFuzzRegressions::test_a_late_brokerage_notice_joins_the_transfer_pluggy_completed`.
+2. **The near pass scanned every inbox item once per new row** (2.4× slower first pull).
+   `test_notify_pluggy_plans.py::test_the_near_pass_costs_the_notifications_not_the_pluggy_items`.
+3. **An own transfer split into despesa + receita** when Pluggy recorded the first side and its
+   notice joined. `TestFuzzRegressions::test_a_pluggy_side_confirmed_by_its_notice_still_becomes_the_transfer`.
+
+### 8.3 Known limits (not bugs, kept on purpose)
+
+- An account with **no** Pluggy history looks back only `OVERLAP_DAYS` (7), so an international
+  purchase posted weeks later with its purchase date isn't seen on a just-connected account. Every
+  real account has history from its first pull (30 days); the generator gives each account one old
+  line for the same reason.
+- A card with a single sandbox-sign purchase learns the sign as the docs' (+) and reads it as a
+  refund; real cards have the invoice payment or a majority (`learn_charge_sign()`).
+- Card twins (`card_twin_keys()`) read the user's card rows through a bounded subquery; fine at
+  this size, the only twin query not driven by an index range.
 
 ## References
 
