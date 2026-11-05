@@ -65,7 +65,7 @@ built by the real migrations — **`backend/finance.db` is never touched.**
 - `conftest.py` blanks `BRAPI_TOKEN`, `PLUGGY_CLIENT_ID/SECRET`, `TESOURO_PRICES_URL/FILE`,
   `HISTORY_CACHE_FILE`, sets `QUOTE_AUTO_REFRESH_SECONDS=0`, `OPEN_FINANCE_SYNC_SECONDS=0`,
   `AUTO_RECORD_DEFAULT=0` (Aprovar tests; `test_auto_record.py` turns it on per user),
-  `MANUAL_ONLY_OFF_PLUGGY=0` (tests type on mapped accounts; `test_pluggy_owner_rules.py` turns it on) and
+  `MANUAL_ONLY_OFF_PLUGGY=0` (the default too; `test_pluggy_owner_rules.py` turns the brake on per test) and
   `ALLOW_SIGNUP=1`. Open Finance tests use `open_finance.set_client(FakePluggy())`
   (`tests/open_finance_world.py`); `pluggy_client` tests patch `pluggy_client.urlopen`. StatusInvest is patched in
   `test_proceeds_sync.py` (`statusinvest_client.get_proceed_events`, plus `clear_cache()`); Tesouro
@@ -267,10 +267,12 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 ### Notifications are fast, Pluggy is the record (owner 2026-11-04, design §4)
 **A phone notice records at once; Pluggy confirms it later and is the record.** The Flash, which Pluggy
 doesn't cover, comes only from notices (and typing).
-- **Only the Flash is typed** (owner 2026-10-31, `services/manual_entries.py`): a mapped account or card refuses a
-  typed row, purchase, refund and statement import (400); a transfer needs one side off Pluggy. `pluggy` on
-  `GET /api/accounts` and `/api/credit-cards` tells the screens; "+ Novo" offers only the rest. `MANUAL_ONLY_OFF_PLUGGY`
-  is the switch. Investment operations stay typed (bitcoin isn't on Pluggy).
+- **Everything can be typed** (owner 2026-11-05, reversing 2026-10-31): "+ Novo" (web and APK) offers every reais
+  account and every card, Pluggy-mapped or not; the engine links a typed look-alike to what the bank brings later
+  (`free_candidates()`, the investments' typed twin), never a second row. The old rule survives as a brake,
+  `MANUAL_ONLY_OFF_PLUGGY` (env, **default off**, `services/manual_entries.py`): on, a mapped account or card refuses
+  a typed row, purchase, refund and statement import (400), a transfer needs one side off Pluggy, and the Pluggy-fed
+  Corretora refuses typed operations (below). `pluggy` on `GET /api/accounts` and `/api/credit-cards` stays.
 - **There is no Aprovar screen** (owner 2026-10-31): page and route are gone, `/aprovar` and `/lancamentos/aprovar`
   redirect to the Extrato. Waiting items resolve there: `WaitingItems` (web), `ReviewSection` (APK), shown only
   while one exists. Ajustes has no Aprovar section and no "Gravar sozinho" switch; the settings stay on the API
@@ -586,8 +588,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   line that paid it becomes its row (`broker_statement.adopt_proceed_line()`). Typed twins (same cents,
   ±2 days) are linked. `scripts/position_fields.py --email X` (read-only) lists which keys MeuPluggy
   fills, never values.
-- **Typing is refused on the Pluggy-fed Corretora** (Phase 3, `manual_entries.require_manual_investment_cash()`,
-  only while `MANUAL_ONLY_OFF_PLUGGY`): `POST /api/investments`, `/api/investments/redemptions` and
+- **The brake can refuse typing on the Pluggy-fed Corretora** (Phase 3, `manual_entries.require_manual_investment_cash()`,
+  only while `MANUAL_ONLY_OFF_PLUGGY`, off by default since 2026-11-05): `POST /api/investments`, `/api/investments/redemptions` and
   `/api/investment-proceeds` answer 400 "A Pluggy traz as operações da corretora." when the cash account
   (a provento: the portfolio account from `portfolio_since`, `proceed_cash_account_id()`) is in
   `bank_fed_account_ids()`; a PATCH moving an operation onto it too. `cash_account_id: null` or another
@@ -600,7 +602,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   Open Finance (operation → `InvestmentLaunchModal prefill`, coupon/redemption one tap,
   `lib/openFinance.js` `heldLaunch()`); APK: "Lançar" opens `LaunchSheet` (operations only,
   `rules/InvestmentPrefill.kt`). On a fed Corretora the cash field defaults to "Não descontar" with a note
-  (`cashLinkWithAccounts()` in `lib/portfolioAccount.js` / `PortfolioAccount.kt`).
+  (`cashLinkWithAccounts()` in `lib/portfolioAccount.js` / `PortfolioAccount.kt`); the owner may pick the Corretora.
 
 ### Receipts
 - **A receipt is a file on disk referenced by a row** (014; card purchases 016): bytes in
@@ -680,6 +682,9 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   `test_route_map.py` fails.
 - `formatCurrency` and the date helpers live in `lib/format.js`; `pages/lancamentos/helpers.js`
   keeps a local `getLocalDateString`/`formatDateBR` on purpose (clock hook, `''` vs `'-'`).
+- **The "+" lives in the bottom bar** (owner 2026-11-05): web `Layout.jsx` (middle of the bar; desktop: the
+  header) and APK `ShellBottomBar` (after Lançamentos, `ShellNav.NEW_ENTRY_AFTER`, on every page with the bar).
+  Never a floating button over the page: it covered the end of the lists.
 - **Frontend**: pages use only `ui.jsx` pieces; emerald is the only accent; tabs come from the URL;
   data via `useQuery`; `apiFetch` invalidates after every write (no manual refetch). Loading lists
   show `ListSkeleton`. Headline numbers in one `SummaryPanel`; two+ row actions behind a `Menu`;

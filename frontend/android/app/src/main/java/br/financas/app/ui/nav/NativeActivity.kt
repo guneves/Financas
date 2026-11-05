@@ -571,13 +571,7 @@ private fun AppShell(
                         AjustesScreen(viewModel = ajustes, onBack = back, onOpenLink = openLink, onSignedOut = signedOut)
                     }
                 }
-                if (ShellNav.showsNewEntry(route)) {
-                    NewEntryButton(
-                        onClick = { onNewEntry(if (route == NativeRoutes.CARTOES) "CARD" else "EXPENSE") },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                    )
-                }
-                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)) { data ->
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)) { data ->
                     Snackbar(containerColor = palette["zinc-900"], contentColor = palette["white"]) {
                         Text(data.visuals.message, color = palette["white"])
                     }
@@ -585,7 +579,12 @@ private fun AppShell(
             }
             if (section != null) {
                 shell.apkPrompt?.let { prompt -> ApkBanner(prompt, shell.apkStatus, shell.apkBusy, shell::installApk) }
-                ShellBottomBar(section) { selected ->
+                val newEntry: (() -> Unit)? = if (ShellNav.showsNewEntry(route)) {
+                    { onNewEntry(if (route == NativeRoutes.CARTOES) "CARD" else "EXPENSE") }
+                } else {
+                    null
+                }
+                ShellBottomBar(section, newEntry) { selected ->
                     if (selected == section && selected.root == route) return@ShellBottomBar
                     if (ShellNav.reopensRoot(selected, section, route)) nav.reopenSection(selected) else nav.openSection(selected)
                 }

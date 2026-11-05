@@ -221,8 +221,11 @@ AUTO_RECORD_DEFAULT = str(os.getenv("AUTO_RECORD_DEFAULT", "1")).strip().lower()
 # celular grava na hora, e a Pluggy confere depois. O padrao de quem nunca mexeu
 # no interruptor (Ajustes); desligado, so o Flash fala.
 BANK_NOTIFICATIONS_DEFAULT = str(os.getenv("BANK_NOTIFICATIONS_DEFAULT", "1")).strip().lower() not in {"0", "false", "no"}
-# A conta e o cartao que a Pluggy alimenta nao recebem lancamento digitado (dono, 2026-10-31).
-MANUAL_ONLY_OFF_PLUGGY = str(os.getenv("MANUAL_ONLY_OFF_PLUGGY", "1")).strip().lower() not in {"0", "false", "no"}
+# Lancamento digitado em conta e cartao da Pluggy (dono, 2026-11-05): o dono
+# lanca a mao em tudo, e o motor liga o digitado ao que o banco trouxer depois
+# (free_candidates(), o gemeo digitado dos investimentos). "1" volta a recusar
+# digitar no que a Pluggy alimenta (a regra de 2026-10-31), como freio.
+MANUAL_ONLY_OFF_PLUGGY = str(os.getenv("MANUAL_ONLY_OFF_PLUGGY", "0")).strip().lower() not in {"0", "false", "no"}
 
 # Open Finance pela Pluggy (pluggy_client.py, services/open_finance.py). As
 # credenciais ficam so aqui, no ambiente: nunca no frontend, em log ou em

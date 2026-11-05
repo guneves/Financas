@@ -59,7 +59,7 @@ object PortfolioAccount {
      * ali, e "Não descontar de nenhuma conta", nunca a Corretora.
      */
     const val PLUGGY_FED_NOTE = "A Corretora é atualizada pela Pluggy: o que a corretora faz entra sozinho. " +
-        "Aqui só o que ela não vê (cripto, outra instituição), sem descontar da Corretora."
+        "Por isso o padrão é não descontar dela; escolha a Corretora se quiser lançar o caixa à mão."
 
     fun pluggyFedPortfolio(accounts: List<Account>?): Boolean = portfolioAccounts(accounts).firstOrNull()?.pluggy == true
 

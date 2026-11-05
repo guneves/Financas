@@ -36,7 +36,8 @@ class ShellNavTest {
     fun theNewEntryButtonAndBack() {
         assertTrue(ShellNav.showsNewEntry(NativeRoutes.HOME))
         assertTrue(ShellNav.showsNewEntry(NativeRoutes.PROVENTOS))
-        assertFalse(ShellNav.showsNewEntry(NativeRoutes.AJUSTES))
+        assertTrue(ShellNav.showsNewEntry(NativeRoutes.AJUSTES))
+        assertEquals(ShellNav.Section.LANCAMENTOS, ShellNav.NEW_ENTRY_AFTER)
         assertFalse(ShellNav.showsNewEntry(NativeRoutes.LOGIN))
         assertFalse(ShellNav.backGoesHome(NativeRoutes.HOME))
         assertFalse(ShellNav.backGoesHome(NativeRoutes.LOGIN))

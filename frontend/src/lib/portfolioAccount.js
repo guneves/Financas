@@ -38,7 +38,7 @@ export const emptyCashLink = () => ({ enabled: true, accountId: '', missing: fal
 // servidor recusa uma operacao digitada com o caixa nela. Por isso o padrao, ali,
 // e "Não descontar de nenhuma conta" (ou outra conta), nunca a Corretora.
 export const PLUGGY_FED_NOTE = 'A Corretora é atualizada pela Pluggy: o que a corretora faz entra sozinho. '
-  + 'Aqui só o que ela não vê (cripto, outra instituição), sem descontar da Corretora.'
+  + 'Por isso o padrão é não descontar dela; escolha a Corretora se quiser lançar o caixa à mão.'
 
 export function pluggyFedPortfolio(accounts) {
   return Boolean(portfolioAccounts(accounts)[0]?.pluggy)

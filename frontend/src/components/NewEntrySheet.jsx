@@ -102,13 +102,14 @@ export default function NewEntrySheet({ open, initialType = 'EXPENSE', editingIt
   const cardsQuery = useQuery({ queryKey: ['cartoes'], queryFn: () => creditCardsApi.list() })
   // So contas em reais: a conta global (outra moeda) registra o Pix na tela
   // dela, com o valor que entrou (pages/ContaGlobal.jsx).
-  // Conta e cartao da Pluggy nao se digitam (dono, 2026-10-31): sobra a Flash.
+  // Toda conta e todo cartao se digitam, Pluggy ou nao (dono, 2026-11-05): o
+  // servidor liga o digitado ao que o banco trouxer depois.
   const accounts = useMemo(
-    () => (accountsQuery.data || NO_ITEMS).filter((account) => isBrlAccount(account) && !account.pluggy),
+    () => (accountsQuery.data || NO_ITEMS).filter((account) => isBrlAccount(account)),
     [accountsQuery.data]
   )
   const categories = categoriesQuery.data || NO_ITEMS
-  const cards = useMemo(() => (cardsQuery.data || NO_ITEMS).filter((card) => !card.pluggy), [cardsQuery.data])
+  const cards = cardsQuery.data || NO_ITEMS
   const loading = open && (accountsQuery.isPending || categoriesQuery.isPending || cardsQuery.isPending)
   // Sem servidor, as listas vem do cache guardado no aparelho: a busca falha,
   // mas ha o que mostrar, e o formulario segue valendo.
