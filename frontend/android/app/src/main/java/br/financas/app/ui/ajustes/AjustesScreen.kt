@@ -715,6 +715,7 @@ private fun OpenFinanceCheckBlock(check: OpenFinanceCheckDto?, hidden: Boolean) 
     listOf(
         R.string.ajustes_open_finance_check_bank to check.bankOnly,
         R.string.ajustes_open_finance_check_app to check.appOnly,
+        R.string.ajustes_open_finance_check_balance to check.balanceConfirmed,
         R.string.ajustes_open_finance_check_conflicts to check.conflicts,
     )
         .filter { it.second.isNotEmpty() }

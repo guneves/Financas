@@ -348,6 +348,19 @@ doesn't cover, comes only from notices (and typing).
 - **A bank's own fund is an aporte/resgate** (`BANK_INVESTMENT`, in `INVESTMENT_SOURCE_TYPES`,
   `mark_bank_investments()`): Pluggy `0302` on a bank account (RF High, RF LP Selic, Tesouro Reserva) stays in the
   balance, never expense nor income, no review. It runs after each pull; Rende Fácil stays out (below).
+- **A notified row Pluggy never lists: the bank's balance decides** (Phase 5, owner 2026-11-04, design §3.4,
+  `services/open_finance_orphans.py`): `sweep()` runs last in each pull (after `record_bank_payments()`,
+  `mark_bank_investments()` and the `last_sync_at` stamp), only with auto-record on, only on **mapped BANK
+  accounts in reais** (never the Corretora, never the Conta global). **Cards are list-only** (their balance
+  mixes the used limit, pending holds and BB's rounding). An orphan: EXPENSE/INCOME recorded by a notification
+  item, no live Pluggy claim, date ≤ today − `OPEN_FINANCE_LATE_POST_DAYS`, and `bank_refreshed_since(date + 5
+  days)`. The difference is the Conferência's own (`open_finance_check.balance_difference()`, bank − app in
+  cents, the one formula the overview uses): removing an expense of X fixes +X, an income −X; the oldest orphan
+  whose fix equals it leaves, or all when their sum does; no subset search, no tolerance. Removal is like
+  `undo_declined()` (item `REMOVED`, reason `orphan`), counted as `removed_orphans` in the pull result and log.
+  Never removed: a receipt, a share, "Aconteceu", an amount the owner typed (≠ the snapshot's), a transfer;
+  review doesn't protect. Difference 0 → the row stays and the Conferência lists it under `balance_confirmed`
+  ("Confirmado pelo saldo", web and APK), including an international purchase "em processamento".
 - **The Conferência's buttons** (`services/open_finance_resolve.py`, web): "Lançar" records a bank-only row
   (a one-sided transfer takes the side the bank saw), "Aconteceu" keeps an app-only row
   (`open_finance_confirmed`, 051; listed in `confirmed`, "Desfazer"). A difference that is only `awaiting`

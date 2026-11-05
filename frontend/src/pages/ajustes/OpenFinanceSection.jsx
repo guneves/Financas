@@ -105,7 +105,7 @@ function AccountCheck({ check, money, busy, onRecord, onConfirm }) {
       : ' · o banco não tem mais'}`,
   }))
   const hasRows = check.bank_only?.length || check.app_only?.length || check.awaiting?.length || conflicts.length
-    || check.awaiting_bank?.length || check.confirmed?.length || explained.length
+    || check.awaiting_bank?.length || check.confirmed?.length || check.balance_confirmed?.length || explained.length
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
@@ -132,6 +132,13 @@ function AccountCheck({ check, money, busy, onRecord, onConfirm }) {
               rows={check.confirmed}
               money={money}
               action={{ key: 'confirm', label: 'Desfazer', busy, run: (row) => onConfirm(row, true) }}
+            />
+            {/* Fase 5: so a notificacao os sustenta e o saldo do banco ja os conta
+                (a compra em processamento): ficam, sem nada a fazer. */}
+            <CheckList
+              title="Confirmado pelo saldo (o banco já descontou; a Pluggy ainda não listou)"
+              rows={check.balance_confirmed}
+              money={money}
             />
             <CheckList title="Esperando no Revisar" rows={check.awaiting} money={money} />
             <CheckList title="Esperando a Pluggy atualizar" rows={check.awaiting_bank} money={money} />

@@ -874,6 +874,7 @@
     <string name="ajustes_open_finance_check_match">Movimentos conferem</string>
     <string name="ajustes_open_finance_check_bank">Só no banco</string>
     <string name="ajustes_open_finance_check_app">Só no app</string>
+    <string name="ajustes_open_finance_check_balance">Confirmado pelo saldo (o banco já descontou; a Pluggy ainda não listou)</string>
     <string name="ajustes_open_finance_auto">Busca automática</string>
     <string name="ajustes_open_finance_auto_hint">O app só lê o que a Pluggy já trouxe do banco (ela atualiza sozinha, de 6 a 24 h); nunca menos de 6 h. \"Atualizar\" lê na hora.</string>
     <string name="ajustes_open_finance_auto_server_off">O servidor está com a busca automática desligada; só \"Atualizar\".</string>

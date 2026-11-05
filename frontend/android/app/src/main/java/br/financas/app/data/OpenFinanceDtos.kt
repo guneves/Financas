@@ -86,6 +86,11 @@ data class OpenFinanceCheckDto(
     @SerialName("bank_only_count") val bankOnlyCount: Int = 0,
     @SerialName("app_only_count") val appOnlyCount: Int = 0,
     @SerialName("awaiting_count") val awaitingCount: Int = 0,
+    /**
+     * So a notificacao os sustenta e o saldo do banco ja os conta (Fase 5,
+     * services/open_finance_orphans.py): "Confirmado pelo saldo", nada a fazer.
+     */
+    @SerialName("balance_confirmed") val balanceConfirmed: List<OpenFinanceCheckRowDto> = emptyList(),
     /** Gravados sozinhos que o banco mudou depois que o dono editou (044). */
     val conflicts: List<OpenFinanceCheckRowDto> = emptyList(),
     /** De onde vem a diferenca de saldo, em centavos (044). */
