@@ -1,10 +1,12 @@
 package br.financas.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -35,6 +37,8 @@ data class ShellChrome(
     /** Gravados sozinhos esperando "é meu" (045, GET /api/review). */
     val reviewCount: Int = 0,
     val onOpenReview: () -> Unit = {},
+    /** A engrenagem de Ajustes no topo (Ajustes saiu da barra de baixo); null no proprio Ajustes. */
+    val onOpenSettings: (() -> Unit)? = null,
 )
 
 val LocalShellChrome = compositionLocalOf<ShellChrome?> { null }
@@ -106,6 +110,28 @@ fun ReviewPill() {
                 fontSize = 14.sp,
                 modifier = Modifier.padding(start = 6.dp),
             )
+        }
+    }
+}
+
+/**
+ * A engrenagem de Ajustes, no topo de toda pagina com barra (dono, 2026-11-05: Ajustes saiu da
+ * barra de baixo, e o "+" ficou no centro dela). Some no proprio Ajustes.
+ */
+@Composable
+fun SettingsButton() {
+    val onOpen = LocalShellChrome.current?.onOpenSettings ?: return
+    val palette = LocalPalette.current
+    val label = stringResource(R.string.shell_nav_settings)
+    Surface(
+        onClick = onOpen,
+        shape = CircleShape,
+        color = palette.surface,
+        border = BorderStroke(1.dp, palette.border),
+        modifier = Modifier.size(48.dp).semantics { contentDescription = label },
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(AppIcons.Settings, contentDescription = null, tint = palette["zinc-700"], modifier = Modifier.size(20.dp))
         }
     }
 }

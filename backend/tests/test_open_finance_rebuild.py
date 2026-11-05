@@ -531,14 +531,62 @@ class TestInvoices:
         assert statuses == {"Loja Velha": "PAID", "Loja Nova": "OPEN"}
         assert balance_of(world, bb) == 500.0
 
-    def test_autopay_never_debits_a_connected_card(self, world, user, invoices_module):
-        item, _p, bb, card, card_pluggy = self.card_world(world)
+    def autopay_world(self, world):
+        item, pluggy_account, bb, card, card_pluggy = self.card_world(world)
         world.call("patch", f"/api/credit-cards/{card}", json={"autopay_account_id": bb, "autopay_start_date": "2026-01-01"})
-        world.fake.add_tx(card_pluggy, card_tx(100.0, "2026-09-20", "LOJA", docs_sign=True))
+        # Fecha 03/11, vence 10/11.
+        world.fake.add_tx(card_pluggy, card_tx(100.0, "2026-10-20", "LOJA", docs_sign=True))
         history(world)
+        typed(world, bb, 500.0, date="2026-11-01", kind="INCOME")
+        return item, pluggy_account, bb, card
+
+    def autopay(self, invoices_module, user, day):
+        from datetime import date
+
         with importlib.import_module("db").get_db() as conn:
-            assert invoices_module.apply_due_autopay(conn, user["id"]) == []
-        assert world.transactions(bb) == []
+            return invoices_module.apply_due_autopay(conn, user["id"], today=date.fromisoformat(day))
+
+    def test_autopay_debits_a_connected_card_on_the_due_day(self, world, user, invoices_module):
+        item, pluggy_account, bb, card = self.autopay_world(world)
+        assert self.autopay(invoices_module, user, "2026-11-09") == []
+        [payment] = self.autopay(invoices_module, user, "2026-11-10")
+        assert (payment["source_type"], payment["amount"], payment["date"]) == ("CC_AUTOPAY", 100.0, "2026-11-10")
+        assert rows_of("cc_expenses", "card_id = ?", (card,))[0]["status"] == "PAID"
+        assert balance_of(world, bb) == 400.0
+
+    def test_the_banks_later_payment_links_to_the_autopay_with_its_amount(self, world, user, invoices_module):
+        item, pluggy_account, bb, card = self.autopay_world(world)
+        [payment] = self.autopay(invoices_module, user, "2026-11-10")
+        world.fake.add_tx(pluggy_account, bank_tx(-100.4, "2026-11-11", "PAGAMENTO FATURA", category_id="05100000"))
+        world.sync(item)
+        [row] = [entry for entry in world.transactions(bb) if entry["type"] == "EXPENSE"]
+        assert row["id"] == payment["id"] and row["amount"] == 100.4
+        assert rows_of("cc_expenses", "card_id = ?", (card,))[0]["paid_by"] == payment["id"]
+
+    def test_autopay_waits_without_balance_on_the_due_day(self, world, user, invoices_module):
+        item, pluggy_account, bb, card = self.autopay_world(world)
+        typed(world, bb, 450.0, date="2026-11-08")
+        assert self.autopay(invoices_module, user, "2026-11-10") == []
+        assert rows_of("cc_expenses", "card_id = ?", (card,))[0]["status"] == "OPEN"
+        # Um lancamento depois do vencimento nao conta para aquele dia.
+        typed(world, bb, 500.0, date="2026-11-12", kind="INCOME")
+        assert self.autopay(invoices_module, user, "2026-11-12") == []
+
+    def test_an_old_invoice_of_a_connected_card_is_never_debited(self, world, user, invoices_module):
+        item, pluggy_account, bb, card = self.autopay_world(world)
+        assert self.autopay(invoices_module, user, "2026-11-16") == []
+        assert [entry["type"] for entry in world.transactions(bb)] == ["INCOME"]
+
+    def test_a_loose_bank_payment_near_the_due_day_blocks_the_autopay(self, world, user, invoices_module):
+        item, pluggy_account, bb, card = self.autopay_world(world)
+        with importlib.import_module("db").get_db() as conn:
+            conn.execute(
+                "INSERT INTO transactions (id, user_id, account_id, amount, date, category, description, type,"
+                " source_type, source_id) VALUES ('solto', ?, ?, 90, '2026-11-08', 'Pagamento Fatura', 'x', 'EXPENSE',"
+                " 'CC_INVOICE_PAYMENT', 'pluggy:abc')",
+                (user["id"], bb),
+            )
+        assert self.autopay(invoices_module, user, "2026-11-10") == []
 
     def test_a_card_that_does_not_add_up_is_named(self, world, rebuild, user):
         item, _p, bb, card, card_pluggy = self.card_world(world)

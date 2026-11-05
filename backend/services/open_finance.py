@@ -59,7 +59,7 @@ from services import (
     open_finance_orphans,
     realized_results,
 )
-from services.accounts import account_balance_rows
+from services.accounts import account_balance_rows, account_balance_until
 from services.broker_cash import settled_balance
 from services.import_rules import import_rules_for_matching
 from validators import ValidationError
@@ -1184,10 +1184,12 @@ def list_view(current_user_id):
                     entry["target_name"] = mine["name"]
                     # Conferir, nunca ajustar: o saldo da conta e o do app
                     # (inicial + lancamentos), o mesmo do consolidado.
-                    settled = None
+                    # O banco nao tem o que ainda vai acontecer: so o que o app tem ate hoje
+                    # (na Corretora, o que ja liquidou; num banco, sem o lancamento futuro).
                     if entry["brokerage"]:
-                        # O banco nao tem o que ainda vai liquidar: so o que chegou ate hoje.
                         settled = settled_balance(conn, current_user_id, account["account_id"], _day_text(_today()))
+                    else:
+                        settled = account_balance_until(conn, current_user_id, account["account_id"], _day_text(_today()))
                     entry["app_balance"], difference_cents = open_finance_check.balance_difference(account, mine, settled)
                     if difference_cents is not None:
                         entry["difference"] = rounded_money(difference_cents / 100)

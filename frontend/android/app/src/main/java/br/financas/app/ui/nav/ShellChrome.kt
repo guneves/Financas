@@ -61,8 +61,9 @@ import br.financas.app.ui.theme.LocalPalette
 // ---- A barra de baixo ----
 
 /**
- * A barra de baixo, com o "+" (o "+ Novo") no meio, entre Lancamentos e Planejar, como na web
- * (Layout.jsx): dentro da barra ele nunca cobre a pagina. `onNewEntry` null tira o "+".
+ * A barra de baixo, com o "+" (o "+ Novo") no centro, entre Lancamentos e Planejar, como na web
+ * (Layout.jsx): dentro da barra ele nunca cobre a pagina. `onNewEntry` null tira o "+". Ajustes
+ * nao tem aba aqui (abre pela engrenagem do topo); nele nenhuma aba acende.
  */
 @Composable
 fun ShellBottomBar(current: ShellNav.Section?, onNewEntry: (() -> Unit)?, onSelect: (ShellNav.Section) -> Unit) {
@@ -77,13 +78,13 @@ fun ShellBottomBar(current: ShellNav.Section?, onNewEntry: (() -> Unit)?, onSele
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(vertical = 4.dp),
             ) {
-                ShellNav.Section.entries.forEach { section ->
+                ShellNav.BAR.forEach { section ->
                     val (icon, label) = when (section) {
                         ShellNav.Section.HOME -> AppIcons.Home to R.string.home_nav_home
                         ShellNav.Section.LANCAMENTOS -> AppIcons.Receipt to R.string.home_nav_entries
                         ShellNav.Section.PLANEJAR -> AppIcons.Target to R.string.home_nav_plan
                         ShellNav.Section.INVESTIR -> AppIcons.Briefcase to R.string.home_nav_invest
-                        ShellNav.Section.AJUSTES -> AppIcons.Settings to R.string.shell_nav_settings
+                        ShellNav.Section.AJUSTES -> AppIcons.Settings to R.string.shell_nav_settings // fora de BAR
                     }
                     NavTab(icon, stringResource(label), active = section == current, onClick = { onSelect(section) }, modifier = Modifier.weight(1f))
                     if (section == ShellNav.NEW_ENTRY_AFTER && onNewEntry != null) {

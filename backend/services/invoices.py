@@ -16,13 +16,14 @@ As regras moram aqui para que o front nunca tenha uma copia:
 `routes/cards.py`, os dois modulos que o chamam.
 """
 
-from datetime import datetime
+from datetime import date as date_type, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from dates import clamped_date, parse_iso_date
 from db import new_id, row_to_dict
 from money import rounded_money
-from source_types import CC_AUTOPAY_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
+from services.accounts import account_balance_until
+from source_types import CC_AUTOPAY_SOURCE_TYPE, CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import ValidationError
 
 
@@ -393,38 +394,70 @@ def autopay_source_id(card_id, invoice_month, invoice_year):
     return f"{card_id}:{int(invoice_year):04d}-{int(invoice_month):02d}"
 
 
+AUTOPAY_CONNECTED_DAYS = 5
+"""Cartao conectado a Pluggy: o debito do app so vale ate tantos dias depois do
+vencimento. Depois disso o pull ja trouxe o pagamento do banco (ou a falta
+dele), e uma fatura antiga em aberto nao vira um debito que o banco nao fez."""
+
+
+def _bank_paid_loose(conn, current_user_id, account_id, due):
+    """Um pagamento de fatura do banco, gravado sem fatura para baixar
+    ('pluggy:<id>'), perto do vencimento: pode ser o desta fatura, e o debito
+    do app seria o segundo."""
+    low = date_type.fromordinal(due.toordinal() - AUTOPAY_CONNECTED_DAYS).isoformat()
+    high = date_type.fromordinal(due.toordinal() + AUTOPAY_CONNECTED_DAYS).isoformat()
+    return conn.execute(
+        """
+        SELECT 1 FROM transactions
+        WHERE user_id = ? AND account_id = ? AND source_type = ? AND source_id LIKE 'pluggy:%'
+          AND date BETWEEN ? AND ?
+        """,
+        (current_user_id, account_id, CC_INVOICE_PAYMENT_SOURCE_TYPE, low, high),
+    ).fetchone() is not None
+
+
 def apply_due_autopay(conn, current_user_id, today=None):
-    """Debito automatico: paga toda fatura vencida de cartao com conta de debito.
+    """Debito automatico: paga toda fatura vencida de cartao com conta de debito,
+    quando a conta tem saldo para ela no dia do vencimento (dono, 2026-11-05).
 
     Um cartao arquivado (037) ou so debito (041) nunca debita sozinho.
 
     Roda no inicio das leituras que dependem dele (lancamentos, contas,
-    cartoes, faturas) — o app e local e nao tem cron. O pagamento sai no dia
-    do vencimento, mesmo que o app so seja aberto dias depois. Idempotente
-    pelo source_id deterministico '<cartao>:<AAAA-MM>': uma fatura reaberta a
-    mao depois do debito nao e paga de novo, nem uma cujo pagamento foi
-    desfeito (cc_invoice_manual, 037). Cartao conectado a Pluggy fica de fora: o
-    pagamento vem do banco (services/open_finance_invoices.py), e aqui seria um
-    lancamento que o banco nao mandou.
+    cartoes, faturas, Inicio) — o app nao tem cron. O pagamento sai no dia do
+    vencimento, mesmo que o app so seja aberto dias depois, e so se o saldo da
+    conta no fim daquele dia (lancamentos datados ate ele, os debitos ja feitos
+    nesta passada incluidos) cobre a fatura; sem saldo ela fica em aberto, como
+    no banco, e o Pagar continua com o dono. Idempotente pelo source_id
+    deterministico '<cartao>:<AAAA-MM>': uma fatura reaberta a mao depois do
+    debito nao e paga de novo, nem uma cujo pagamento foi desfeito
+    (cc_invoice_manual, 037).
+
+    Cartao conectado a Pluggy (dono, 2026-11-05, revendo 2026-10-30): debita
+    tambem, para o saldo mudar no dia; o pagamento que o banco manda depois liga
+    neste lancamento (`invoice_payment_link()` no mesmo valor, `_kept_payment()`
+    em open_finance_invoices.py no mesmo dia ou ate CARD_SIDE_DAYS com outro
+    valor) e o valor passa a ser o do banco. So ate AUTOPAY_CONNECTED_DAYS
+    depois do vencimento, e nunca com um pagamento solto do banco por perto.
     """
     today = today or local_today()
     cards = conn.execute(
         """
-        SELECT cc.*
+        SELECT cc.*,
+               EXISTS (
+                   SELECT 1 FROM open_finance_accounts o
+                   JOIN open_finance_items i ON i.id = o.of_item_id AND i.user_id = o.user_id
+                   WHERE o.user_id = cc.user_id AND o.card_id = cc.id AND i.archived_at IS NULL
+                     AND o.ignored_at IS NULL
+               ) AS connected
         FROM credit_cards cc
         JOIN accounts a ON a.id = cc.autopay_account_id AND a.user_id = cc.user_id
         WHERE cc.user_id = ? AND a.archived_at IS NULL
           AND cc.archived_at IS NULL AND cc.credit_enabled = 1
-          AND NOT EXISTS (
-              SELECT 1 FROM open_finance_accounts o
-              JOIN open_finance_items i ON i.id = o.of_item_id AND i.user_id = o.user_id
-              WHERE o.user_id = cc.user_id AND o.card_id = cc.id AND i.archived_at IS NULL
-          )
         """,
         (current_user_id,),
     ).fetchall()
 
-    paid = []
+    due_invoices = []
     for card in cards:
         start = parse_iso_date(card["autopay_start_date"])
         start = start.date() if start else None
@@ -440,27 +473,44 @@ def apply_due_autopay(conn, current_user_id, today=None):
             due = invoice_due_date(invoice["invoice_month"], invoice["invoice_year"], card["due_day"])
             if due > today or (start and due < start):
                 continue
-            if conn.execute(
-                """
-                SELECT 1 FROM cc_invoice_manual
-                WHERE user_id = ? AND card_id = ? AND invoice_year = ? AND invoice_month = ?
-                """,
-                (current_user_id, card["id"], invoice["invoice_year"], invoice["invoice_month"]),
-            ).fetchone():
+            if card["connected"] and (today - due).days > AUTOPAY_CONNECTED_DAYS:
                 continue
-            row = settle_invoice(
-                conn,
-                current_user_id,
-                card,
-                invoice["invoice_month"],
-                invoice["invoice_year"],
-                account_id=card["autopay_account_id"],
-                payment_date=due.strftime("%Y-%m-%d"),
-                source_type=CC_AUTOPAY_SOURCE_TYPE,
-                source_id=autopay_source_id(card["id"], invoice["invoice_month"], invoice["invoice_year"]),
-            )
-            if row:
-                paid.append(row)
+            due_invoices.append((due, card, invoice))
+
+    paid = []
+    # Pela ordem do vencimento: uma conta que paga dois cartoes paga primeiro o
+    # que vence antes, e o saldo do segundo ja conta o primeiro debito.
+    for due, card, invoice in sorted(due_invoices, key=lambda entry: (entry[0], entry[1]["created_at"] or "", entry[1]["id"])):
+        if conn.execute(
+            """
+            SELECT 1 FROM cc_invoice_manual
+            WHERE user_id = ? AND card_id = ? AND invoice_year = ? AND invoice_month = ?
+            """,
+            (current_user_id, card["id"], invoice["invoice_year"], invoice["invoice_month"]),
+        ).fetchone():
+            continue
+        _lines, total = invoice_open_lines(
+            conn, current_user_id, card["id"], invoice["invoice_month"], invoice["invoice_year"],
+        )
+        if total > 0:
+            if card["connected"] and _bank_paid_loose(conn, current_user_id, card["autopay_account_id"], due):
+                continue
+            balance = account_balance_until(conn, current_user_id, card["autopay_account_id"], due.strftime("%Y-%m-%d"))
+            if Decimal(str(rounded_money(balance))) < Decimal(str(rounded_money(total))):
+                continue
+        row = settle_invoice(
+            conn,
+            current_user_id,
+            card,
+            invoice["invoice_month"],
+            invoice["invoice_year"],
+            account_id=card["autopay_account_id"],
+            payment_date=due.strftime("%Y-%m-%d"),
+            source_type=CC_AUTOPAY_SOURCE_TYPE,
+            source_id=autopay_source_id(card["id"], invoice["invoice_month"], invoice["invoice_year"]),
+        )
+        if row:
+            paid.append(row)
     return paid
 
 

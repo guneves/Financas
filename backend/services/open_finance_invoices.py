@@ -51,10 +51,12 @@ from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from open_finance_categories import plain_text
 from services import inbox, invoices
-from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import CC_AUTOPAY_SOURCE_TYPE, CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 
 CARD_SIDE_DAYS = 5
 DUE_WINDOW_DAYS = 45
+# O debito automatico do app e o pagamento do banco dias depois: o mesmo, ate 5%.
+AUTOPAY_NEAR_PERCENT = 5
 ANTICIPATED_TEXT = re.compile(r"^desconto na parcela (\d+) de (\d+) (.+)$")
 
 
@@ -366,15 +368,24 @@ def _link(conn, current_user_id, row, transaction_id):
     )
 
 
+def _near_autopay(app_cents, bank_cents):
+    """Puro. O valor do banco perto do debito automatico do app."""
+    return abs(app_cents - bank_cents) * 100 <= AUTOPAY_NEAR_PERCENT * max(app_cents, 1)
+
+
 def _kept_payment(conn, current_user_id, row, account):
-    """O pagamento de fatura do app, sem transacao, que esta saida do banco explica."""
+    """O pagamento de fatura do app, sem transacao, que esta saida do banco explica:
+    no mesmo dia (qualquer valor), de mesmo valor ate CARD_SIDE_DAYS, ou o debito
+    automatico do app ate CARD_SIDE_DAYS com valor perto (AUTOPAY_NEAR_PERCENT: o banco
+    debita no dia util seguinte, e a fatura do app nem sempre fecha no centavo da do
+    banco). Outro valor, longe, em outro dia, e outro pagamento."""
     kinds = sorted(INVOICE_PAYMENT_SOURCE_TYPES)
     day = _ordinal(row["date"])
     cents = int(row["amount_cents"])
     found = [
         payment for payment in conn.execute(
             f"""
-            SELECT t.id, t.date, t.amount FROM transactions t
+            SELECT t.id, t.date, t.amount, t.source_type FROM transactions t
             WHERE t.user_id = ? AND t.account_id = ? AND t.source_type IN ({', '.join('?' for _ in kinds)})
               AND NOT EXISTS (
                   SELECT 1 FROM open_finance_transactions o
@@ -385,24 +396,35 @@ def _kept_payment(conn, current_user_id, row, account):
             (current_user_id, account["account_id"], *kinds),
         ).fetchall()
         if payment["date"] == row["date"] or (
-            _cents(payment["amount"]) == cents and abs(_ordinal(payment["date"]) - day) <= CARD_SIDE_DAYS
+            abs(_ordinal(payment["date"]) - day) <= CARD_SIDE_DAYS
+            and (
+                _cents(payment["amount"]) == cents
+                or (payment["source_type"] == CC_AUTOPAY_SOURCE_TYPE and _near_autopay(_cents(payment["amount"]), cents))
+            )
         )
     ]
     if not found:
         return None
-    kept = min(found, key=lambda payment: (abs(_cents(payment["amount"]) - cents), payment["date"] != row["date"], payment["id"]))
-    # Dois pagamentos do banco no dia: o do app e o de valor mais perto dele.
-    same_day = conn.execute(
+    kept = min(found, key=lambda payment: (
+        abs(_cents(payment["amount"]) - cents), abs(_ordinal(payment["date"]) - day), payment["id"],
+    ))
+    # Dois pagamentos do banco por perto: o do app e o de valor mais perto dele.
+    if kept["date"] == row["date"] or _cents(kept["amount"]) == cents:
+        low, high = row["date"], row["date"]
+    else:
+        low = date_type.fromordinal(_ordinal(kept["date"]) - CARD_SIDE_DAYS).isoformat()
+        high = date_type.fromordinal(_ordinal(kept["date"]) + CARD_SIDE_DAYS).isoformat()
+    nearby = conn.execute(
         """
         SELECT amount_cents FROM open_finance_transactions
-        WHERE user_id = ? AND of_account_id = ? AND date = ? AND role = 'INVOICE_PAYMENT' AND direction = 'OUT'
-          AND target_id IS NULL
+        WHERE user_id = ? AND of_account_id = ? AND date BETWEEN ? AND ? AND role = 'INVOICE_PAYMENT'
+          AND direction = 'OUT' AND target_id IS NULL
         """,
-        (current_user_id, row["of_account_id"], row["date"]),
+        (current_user_id, row["of_account_id"], low, high),
     ).fetchall()
     wanted = _cents(kept["amount"])
-    closest = min(abs(int(other["amount_cents"]) - wanted) for other in same_day) if same_day else 0
-    return kept if abs(cents - wanted) == closest else None
+    closest = min(abs(int(other["amount_cents"]) - wanted) for other in nearby) if nearby else 0
+    return kept if abs(cents - wanted) <= closest else None
 
 
 def _record_one(conn, current_user_id, row, account, cards, claims):

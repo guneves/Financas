@@ -7,36 +7,54 @@
 
 ---
 
-## Session — 2026-11-05 · Manual entry everywhere, and the "+" out of the way
+## Session — 2026-11-05 · Débito automático that actually debits, two Pluggy bugs, "+" centered
 
-Branch: **`claude/funny-wright-o348r5`**, from `main` at `03c77cc`. The owner asked: "I should be able to add
-transactions manually for everything in the app, and the button should not be where it is today, because it is
-hiding content", then to open a PR and merge it when done. No migration.
+Branch: **`claude/amazing-newton-wgnmle`**, from `main` at `b60c444`. The owner: "Débito automático should take
+the balance on the due day if I have enough; today I had to update mine by hand", plus a bug search on the
+notifications + Pluggy logic, then (mid-session) "center the + and move Ajustes from the bottom to the top".
+No migration.
 
 **Done**
-- **Typing everywhere**: `MANUAL_ONLY_OFF_PLUGGY` (config) now defaults to **off**. Every guard in
-  `services/manual_entries.py` (typed row, card purchase/refund, transfer, statement import, investment operation on
-  the Pluggy-fed Corretora) is skipped unless the env sets it to `1`; the code stays as a brake. The engine already
-  links a typed look-alike to the bank's row (`free_candidates()`), so no second row.
-- "+ Novo" lists every reais account and every card: web `NewEntrySheet.jsx`, APK `NewEntryViewModel.kt` (both
-  dropped the `!pluggy` filter; the Conta global is still out).
-- The Corretora cash note (`PLUGGY_FED_NOTE`, web + APK) now says the default is "não descontar" and the owner may
-  pick the Corretora, instead of "only what it doesn't see".
-- **The button**: on the APK the "+" was a floating 56 dp button over the page (bottom-right), covering the end of
-  every list. It now lives inside `ShellBottomBar`, after Lançamentos (`ShellNav.NEW_ENTRY_AFTER`), 48 dp, on every
-  page with the bar (Ajustes too). The snackbar's 80 dp lift (for the FAB) is 16 dp. The web already had it in the
-  bottom bar / header and needed no change.
-- Tests: `TestEverythingIsTyped` (default off via a subprocess, connected account/card/transfer accepted, a typed
-  bank row and a typed card purchase linked to Pluggy's row); `ShellNavTest` updated.
+- **Why the debit didn't happen**: `apply_due_autopay()` skipped every Pluggy-mapped card on purpose (2026-10-30:
+  "the payment comes from the bank"). So on the due day nothing moved until a pull brought the bank's payment
+  (6–24 h later, or never if the bank posted it in a way `_pick_invoice()` couldn't match). Now a mapped card is
+  debited like any other, on the due day, and **every** card (mapped or not) needs the account's balance at the
+  end of the due day (`account_balance_until()`, new in `services/accounts.py`) to cover the invoice; without it
+  the invoice stays open for Pagar.
+  Guards for the mapped card: only up to `AUTOPAY_CONNECTED_DAYS` (5) after the due day (an old open invoice
+  never becomes a debit the bank didn't make, which also keeps the rebuild test's promise), and never when a
+  loose bank invoice payment (`source_id 'pluggy:…'`) sits on that account within ±5 days.
+- **Bug 1 (autopay ↔ bank payment, would double)**: the bank often debits the next business day with an amount a
+  few cents off the app's invoice. `_kept_payment()` only linked same-day or same-cents, so that payment became a
+  second "loose" payment. It now also links an app `CC_AUTOPAY` row within `CARD_SIDE_DAYS` whose amount is within
+  `AUTOPAY_NEAR_PERCENT` (5%) of the bank's (closest-amount check over the nearby bank payments); the owner rule
+  "R$ 500 on 17/10 vs R$ 382,36 on 20/10 are two payments" (`test_pluggy_owner_rules.py`) still holds. Test fails
+  without the fix.
+- **Bug 2 (orphan sweep deleted real rows)**: `open_finance_orphans.account_difference()` and the Conferência
+  compared Pluggy's balance (today) with the app's *whole* balance, future-dated rows included. A typed boleto of
+  R$ 50 for next week made the difference +50, and the sweep removed a real, notified R$ 50 purchase Pluggy hadn't
+  listed. Both now use the balance up to today (the Corretora already did, `settled_balance`).
+  `test_a_future_typed_row_is_not_a_difference` fails without the fix.
+- **APK bar**: Ajustes left the bottom bar (`ShellNav.BAR` = Início, Lançamentos, "+", Planejar, Investir), so the
+  "+" is the exact center (test: as many tabs before it as after). Ajustes opens from a gear at the top
+  (`SettingsButton`, in `NativeTopBar` and Início's header, hidden on Ajustes itself; `ShellNav.showsSettings()`).
+  The web already had both (centered "+", gear in the header) and was not changed.
+- Tests: 5 autopay tests in `test_open_finance_rebuild.py::TestInvoices` (replacing "never debits a connected
+  card"), 1 in `test_open_finance_orphans.py`, `ShellNavTest` updated.
 
 **Not done, and why**
-- The APK was not compiled here (no Android SDK); CI's `android-check` builds and unit-tests it on the PR.
-- Nothing checked on a phone. The owner should look at the new bar once the APK updates.
+- The APK was not compiled here (no Android SDK); CI's `android-check` builds and unit-tests it.
+- Suspect, not changed: `auto_record.undo_declined()` removes an untouched row even when a live Pluggy row claims
+  it. A declined purchase shouldn't post, so it is theoretical; a guard (`inbox.pluggy_claimed()`) would be cheap
+  but needs a Samsung + bank + Pluggy test to prove.
+- Nothing checked against the owner's real data: on the next due day, the autopay row should appear on the
+  morning read and the bank's payment should link to it (one row, the bank's amount).
 
-**Next**: the owner's checks in `next-steps.md`, plus a look at the APK bar and one typed purchase on an Itaú card
-that later arrives from Pluggy (should stay one row).
+**Next**: watch the next autopay invoice of a connected card (Conferência shows no app-only payment once the bank
+posts); the owner's checks in `next-steps.md`.
 
 Lessons:
-- A single sandbox-sign card purchase is learned as a refund (`learn_charge_sign()`); a test with one purchase
-  uses `card_tx(..., docs_sign=True)`.
-- `pytest -n` isn't available (no xdist); `| tail` hides a pytest usage error's exit code.
+- An app account in `open_finance_world` starts at R$ 0 whatever Pluggy's balance says; an autopay test needs a
+  typed income first.
+- `balance_difference()` does float math: the as-of-day balance helper returns a rounded float, not a Decimal.
+

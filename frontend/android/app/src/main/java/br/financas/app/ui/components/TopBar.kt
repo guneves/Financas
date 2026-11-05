@@ -43,7 +43,8 @@ data class TopTab(val label: String, val active: Boolean, val onClick: () -> Uni
 
 /**
  * O topo das paginas nativas: voltar, o titulo, a pilula de pendentes da casca, o olho do modo
- * privado (sem [onToggleHidden], nenhum) e as abas da secao, que rolam de lado quando nao cabem.
+ * privado (sem [onToggleHidden], nenhum), a engrenagem de Ajustes (SettingsButton) e as abas da
+ * secao, que rolam de lado quando nao cabem.
  */
 @Composable
 fun NativeTopBar(
@@ -102,6 +103,7 @@ fun NativeTopBar(
                     }
                 }
             }
+            SettingsButton()
         }
         if (tabs.isNotEmpty()) {
             Row(

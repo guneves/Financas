@@ -79,6 +79,7 @@ import br.financas.app.ui.components.FitText
 import br.financas.app.ui.components.ListSkeleton
 import br.financas.app.ui.components.PendingPill
 import br.financas.app.ui.components.ReviewPill
+import br.financas.app.ui.components.SettingsButton
 import br.financas.app.ui.components.Panel
 import br.financas.app.ui.components.Badge
 import br.financas.app.ui.components.BadgeTone
@@ -237,6 +238,7 @@ private fun HomeTopBar(viewModel: HomeViewModel) {
             active = hidden,
             onClick = viewModel::toggleHidden,
         )
+        SettingsButton()
     }
 }
 

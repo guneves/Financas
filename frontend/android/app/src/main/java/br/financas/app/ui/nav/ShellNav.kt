@@ -1,8 +1,9 @@
 package br.financas.app.ui.nav
 
 /**
- * A barra de baixo da casca (00-shell.md): as quatro secoes e Ajustes, a pagina de entrada de
- * cada uma e a secao de cada rota. Puro: ShellNavTest.
+ * A barra de baixo da casca (00-shell.md): as quatro secoes, a pagina de entrada de cada uma e a
+ * secao de cada rota. Ajustes e uma secao sem aba: abre pela engrenagem do topo (dono,
+ * 2026-11-05). Puro: ShellNavTest.
  */
 object ShellNav {
 
@@ -28,13 +29,23 @@ object ShellNav {
         else -> null
     }
 
+    /**
+     * As abas da barra de baixo, na ordem. Ajustes saiu dela para o topo (a engrenagem de
+     * NativeTopBar e do Inicio): com quatro abas e o "+" no meio, o "+" fica no centro da barra.
+     */
+    val BAR: List<Section> = listOf(Section.HOME, Section.LANCAMENTOS, Section.PLANEJAR, Section.INVESTIR)
+
+    /** A engrenagem de Ajustes no topo: em toda pagina com barra, menos no proprio Ajustes. */
+    fun showsSettings(route: String?): Boolean = sectionOf(route) != null && route != NativeRoutes.AJUSTES
+
     /** O toque na aba da propria secao, numa pagina de dentro dela: volta a entrada da secao. */
     fun reopensRoot(selected: Section, current: Section?, route: String?): Boolean =
         selected == current && selected != Section.HOME && selected.root != route
 
     /**
-     * O "+" (o "+ Novo") mora na barra de baixo, logo depois desta aba (o meio da barra, como na
-     * web). Antes flutuava por cima da pagina e cobria o fim das listas (dono, 2026-11-05).
+     * O "+" (o "+ Novo") mora na barra de baixo, logo depois desta aba: o centro exato da barra
+     * (duas abas de cada lado, como na web). Antes flutuava por cima da pagina e cobria o fim das
+     * listas (dono, 2026-11-05).
      */
     val NEW_ENTRY_AFTER = Section.LANCAMENTOS
 

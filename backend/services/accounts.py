@@ -329,3 +329,40 @@ def account_balance_rows(conn, current_user_id):
         """,
         (current_user_id,),
     ).fetchall()
+
+
+def account_balance_until(conn, current_user_id, account_id, day):
+    """Saldo da conta no fim do dia `day` (AAAA-MM-DD): inicial + lancamentos
+    datados ate ele, com a mesma regra de `account_balance_rows()`. O que o banco
+    tem num dia: o debito automatico olha o do vencimento, a Conferencia e a
+    varredura das orfas o de hoje (um lancamento futuro, digitado, ainda nao saiu
+    do banco)."""
+    row = conn.execute(
+        """
+        SELECT
+            a.initial_balance
+              + COALESCE((
+                    SELECT SUM(CASE t.type
+                        WHEN 'INCOME' THEN t.amount
+                        WHEN 'EXPENSE' THEN -t.amount
+                        WHEN 'TRANSFER' THEN -t.amount
+                        ELSE 0 END)
+                    FROM transactions t
+                    WHERE t.user_id = a.user_id AND t.account_id = a.id AND t.date <= ?
+                ), 0)
+              + COALESCE((
+                    SELECT SUM(COALESCE(
+                        t.transfer_amount,
+                        CASE WHEN COALESCE(o.currency, 'BRL') = COALESCE(a.currency, 'BRL') THEN t.amount ELSE 0 END
+                    ))
+                    FROM transactions t
+                    LEFT JOIN accounts o ON o.id = t.account_id AND o.user_id = t.user_id
+                    WHERE t.user_id = a.user_id AND t.type = 'TRANSFER'
+                      AND t.transfer_account_id = a.id AND t.date <= ?
+                ), 0) AS balance
+        FROM accounts a
+        WHERE a.user_id = ? AND a.id = ?
+        """,
+        (day, day, current_user_id, account_id),
+    ).fetchone()
+    return rounded_money(row["balance"] or 0) if row else 0.0
