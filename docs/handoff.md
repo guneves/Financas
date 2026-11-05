@@ -59,7 +59,7 @@ Branch: **`claude/notify-pluggy-phase2`**, from `claude/notify-pluggy-phase1` at
 - Node: `lib/bankNotifications.test.js`.
 - Results: backend full suite green in 4 sequential chunks of files (one process for all ~1700 tests
   runs out of memory on this PC); `npm test` 227 green; `gradlew testDebugUnitTest assembleDebug` green
-  locally (561 JVM tests); android-check on the pushed branch: see the commit/push note below.
+  locally (561 JVM tests); android-check green on the pushed branch (run 41939989414, commit fbd166a).
 
 **Not done, and why**
 - `ignore_notifications: true` is still sent by `GET /api/open-finance/settings` (an old APK reads it;
