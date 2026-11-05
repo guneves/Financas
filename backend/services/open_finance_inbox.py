@@ -523,6 +523,7 @@ def place(conn, current_user_id, row, account, rules=None):
                 conn, current_user_id, row["id"], role="MATCHED", item_id=approved["id"],
                 target_table="transactions", target_id=approved["target_id"],
             )
+            inbox.settle_transfer_review(conn, current_user_id, approved["id"])
             return "matched"
         other = inbox.transfer_partner(
             conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
@@ -735,7 +736,7 @@ def _absorb_recorded_real_side(conn, current_user_id, row, target, dollar_cents)
         JOIN transactions t ON t.id = i.target_id AND t.user_id = i.user_id
         WHERE o.user_id = ? AND o.role = 'SOURCE' AND o.direction = 'OUT' AND o.auto_recorded_at IS NOT NULL
           AND i.state = 'APPROVED' AND i.target_table = 'transactions'
-          AND t.type = 'EXPENSE' AND t.needs_review = 1 AND t.share_mode IS NULL
+          AND t.type = 'EXPENSE' AND t.share_mode IS NULL
         """,
         (current_user_id,),
     ).fetchall():
@@ -843,16 +844,11 @@ def _join_item(conn, current_user_id, row, item, entry_type, account_id, card_id
 # ---------------------------------------------------------------------------
 
 def notification_untouched(conn, current_user_id, item):
-    """O lancamento que a notificacao gravou sozinha esta como nasceu e ainda
-    a revisar (revisado, o dono ja disse que esta certo: o banco nao o refaz)."""
-    table, target_id = item.get("target_table"), item.get("target_id")
-    if not item.get("recorded_snapshot") or not review.awaiting(conn, current_user_id, table, target_id):
-        return False
-    try:
-        recorded = json.loads(item["recorded_snapshot"])
-    except (TypeError, ValueError):
-        return False
-    return target_snapshot(conn, current_user_id, table, target_id) == recorded
+    """O lancamento que a notificacao gravou sozinha esta como nasceu: o
+    snapshot e a unica prova do que o dono mudou (Fase 4). Revisar ("e meu")
+    nao toca; mudar a categoria, o valor, a data ou a conta toca. Por isso a
+    revisao pode sair sozinha sem calar o banco."""
+    return snapshot_unchanged(conn, current_user_id, item)
 
 
 def bank_disagrees(item, row, entry_type, account_id, card_id):
@@ -924,6 +920,63 @@ def follow_bank_side(conn, current_user_id, row, item, account_id):
     return True
 
 
+def settle_review(conn, current_user_id, item, row, entry_type, account_id=None):
+    """A Pluggy confirmou o lancamento que o item gravou (design §3.6, Fase 4):
+    sai da revisao sozinho quando nao ha palpite.
+
+    - transferencia: com as duas pontas no app (inbox.settle_transfer_review);
+    - despesa, receita, compra no cartao: a categoria desta transacao vem de
+      CONFIDENT_CATEGORY_SOURCES (regra do dono, comerciante, CNAE); ainda
+      intocado pelo snapshot, a categoria passa a ser essa.
+
+    Ficam a revisar: categoria da arvore da Pluggy ou a padrao, o estorno, a
+    conta global (revisa na tela dela) e o editado pelo dono. Os snapshots
+    (do item e das transacoes) passam a ser o de agora, na mesma transacao:
+    o que o app mudou nunca conta como toque do dono. Devolve True se saiu."""
+    table, target_id = item.get("target_table"), item.get("target_id")
+    if not table or not target_id or not review.awaiting(conn, current_user_id, table, target_id):
+        return False
+    if item.get("entry_type") == "TRANSFER" or entry_type == "TRANSFER":
+        return inbox.settle_transfer_review(conn, current_user_id, item["id"])
+    if table == "transactions":
+        target = conn.execute(
+            "SELECT type, account_id FROM transactions WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+        ).fetchone()
+        if not target or target["type"] not in ("EXPENSE", "INCOME"):
+            return False
+        if global_account.is_foreign(conn, current_user_id, target["account_id"]):
+            return False
+        kind_type = target["type"]
+    else:
+        target = conn.execute(
+            "SELECT kind FROM cc_expenses WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+        ).fetchone()
+        if not target or target["kind"] == "REFUND":
+            return False
+        kind_type = "CARD"
+    fresh = conn.execute(
+        "SELECT * FROM open_finance_transactions WHERE id = ? AND user_id = ?", (row["id"], current_user_id),
+    ).fetchone()
+    if not fresh:
+        return False
+    source = row_to_dict(fresh)
+    if item.get("recorded_snapshot"):
+        if not snapshot_unchanged(conn, current_user_id, item):
+            return False
+    elif not untouched(conn, current_user_id, source):
+        return False
+    name, category_id, origin = category_decision(
+        conn, current_user_id, source, kind_type, item.get("amount"), account_id,
+    )
+    if origin not in CONFIDENT_CATEGORY_SOURCES:
+        return False
+    review.clear(conn, current_user_id, table, target_id, (name, category_id))
+    refresh_snapshots(conn, current_user_id, item["id"], table, target_id)
+    if item.get("recorded_snapshot"):
+        item["recorded_snapshot"] = _dump(target_snapshot(conn, current_user_id, table, target_id))
+    return True
+
+
 def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id, card_id):
     """A transacao da Pluggy e o movimento que uma notificacao ja gravou
     sozinha. Nunca vira um segundo lancamento:
@@ -934,8 +987,11 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
     - intocado e o banco diz outra data ou conta/cartao: o lancamento sai e o
       item volta a esperar com o que o banco diz; a passada da Pluggy logo
       depois do pull o grava de novo, a revisar;
-    - revisado ou editado (ou uma transferencia): so liga (MATCHED); a
+    - editado pelo dono (ou uma transferencia): so liga (MATCHED); a
       Conferencia aponta o que nao bater.
+
+    "Intocado" e o snapshot (Fase 4): o "e meu" sem mudar nada nao conta como
+    toque, e a revisao que saiu sozinha (settle_review) tambem nao.
     """
     table, target_id = item["target_table"], item["target_id"]
     if item["entry_type"] == "TRANSFER":
@@ -945,6 +1001,8 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
             conn, current_user_id, row["id"], role="MATCHED", item_id=item["id"],
             target_table=table, target_id=target_id,
         )
+        if item["entry_type"] == "TRANSFER":
+            inbox.settle_transfer_review(conn, current_user_id, item["id"])
         return "matched"
     if bank_disagrees(item, row, entry_type, account_id, card_id):
         _drop_target(conn, current_user_id, item)
@@ -981,6 +1039,7 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
             (row["dedup_key"], current_user_id, target_id, current_user_id),
         )
     mark_auto_recorded(conn, current_user_id, item["id"], table, target_id)
+    settle_review(conn, current_user_id, item, row, entry_type, account_id)
     return "matched"
 
 
@@ -1663,6 +1722,9 @@ def apply_change(conn, current_user_id, row, tx):
         recorded_snapshot=_dump(target_snapshot(conn, current_user_id, row["target_table"], row["target_id"])),
         **{field: tx[field] for field in ROW_FIELDS if field != "dedup_key"},
     )
+    # O app mudou o lancamento (nao o dono): o snapshot do item (notificacao)
+    # e o das outras fontes tambem, ou o proximo ajuste do banco pararia.
+    refresh_snapshots(conn, current_user_id, row.get("item_id"), row["target_table"], row["target_id"])
     return "corrected"
 
 

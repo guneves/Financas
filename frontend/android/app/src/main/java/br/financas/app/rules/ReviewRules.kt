@@ -36,6 +36,7 @@ object ReviewRules {
         categoryId = purchase.categoryId,
         createdAt = purchase.createdAt,
         needsReview = purchase.needsReview,
+        twin = purchase.twin,
         kind = CARD_KIND,
         clientId = purchase.clientId,
         cardName = purchase.cardName,

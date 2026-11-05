@@ -290,6 +290,12 @@ def record_item(conn, current_user_id, row, today):
     open_finance_inbox.mark_auto_recorded(
         conn, current_user_id, item["id"], decided["target_table"], decided["target_id"],
     )
+    # Na mesma passada que grava (Fase 4): o contador do Revisar nunca mostra
+    # e logo tira a linha cuja categoria e certa.
+    recorded = inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
+    open_finance_inbox.settle_review(
+        conn, current_user_id, recorded, sources[0], recorded["entry_type"], recorded.get("account_id"),
+    )
     return "recorded"
 
 

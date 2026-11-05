@@ -16,6 +16,7 @@ recategorizadas juntas. Uma transferencia nao tem categoria a escolher.
 from db import utc_timestamp
 from services.accounts import resolve_category
 from services.sharing import PERSON_MAX_LENGTH
+from services.twins import card_twin_keys, transaction_twin_ids
 from validators import ValidationError
 
 TABLES = ("transactions", "cc_expenses")
@@ -52,6 +53,34 @@ def awaiting(conn, current_user_id, table, target_id):
         f"SELECT needs_review FROM {table} WHERE id = ? AND user_id = ?", (target_id, current_user_id),
     ).fetchone()
     return bool(row) and bool(row["needs_review"])
+
+
+def clear(conn, current_user_id, table, target_id, category=None):
+    """O app (nao o dono) tira da revisao: a Pluggy confirmou e a categoria e
+    certa (Fase 4, design §3.6). Com `category` (nome, id), ela entra junto. Na
+    compra no cartao, todas as parcelas. Quem chama renova os snapshots."""
+    if table == "transactions":
+        if category:
+            conn.execute(
+                "UPDATE transactions SET needs_review = 0, category = ?, category_id = ? WHERE id = ? AND user_id = ?",
+                (*category, target_id, current_user_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE transactions SET needs_review = 0 WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+            )
+    elif table == "cc_expenses":
+        same = "client_id = (SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?)"
+        if category:
+            conn.execute(
+                f"UPDATE cc_expenses SET needs_review = 0, category = ?, category_id = ? WHERE user_id = ? AND {same}",
+                (*category, current_user_id, target_id, current_user_id),
+            )
+        else:
+            conn.execute(
+                f"UPDATE cc_expenses SET needs_review = 0 WHERE user_id = ? AND {same}",
+                (current_user_id, target_id, current_user_id),
+            )
 
 
 def _transaction_items(conn, current_user_id):
@@ -122,6 +151,7 @@ def _card_items(conn, current_user_id):
             "category_id": first["category_id"],
             "card_id": first["card_id"],
             "card_name": first["card_name"],
+            "client_id": row["client_id"],
             "installments": row["installments"],
             "created_at": row["created_at"],
         })
@@ -130,7 +160,15 @@ def _card_items(conn, current_user_id):
 
 def queue(conn, current_user_id):
     """O que espera a revisao, do mais novo para o mais antigo."""
-    items = _transaction_items(conn, current_user_id) + _card_items(conn, current_user_id)
+    transactions, cards = _transaction_items(conn, current_user_id), _card_items(conn, current_user_id)
+    # "2x igual" (design §3.5): so um selo, nada a decidir.
+    twin_ids = transaction_twin_ids(conn, current_user_id, transactions)
+    twin_cards = card_twin_keys(conn, current_user_id, cards)
+    for item in transactions:
+        item["twin"] = item["id"] in twin_ids
+    for item in cards:
+        item["twin"] = item["client_id"] in twin_cards
+    items = transactions + cards
     items.sort(key=lambda item: (item["date"] or "", item["created_at"] or "", item["id"]), reverse=True)
     return items
 

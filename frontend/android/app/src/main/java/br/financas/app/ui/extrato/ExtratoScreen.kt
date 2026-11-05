@@ -442,6 +442,8 @@ private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel, onO
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (ExtratoRules.reviewMark(row)) Badge(stringResource(R.string.extrato_review_mark), BadgeTone.WARNING)
+                    // Neutro (design §3.5): nem ganho, nem perda, nem aviso.
+                    if (row.twin) Badge(stringResource(R.string.twin_badge))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     val second = buildString {

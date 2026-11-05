@@ -30,6 +30,8 @@ data class TransactionDto(
     @SerialName("created_at") val createdAt: String? = null,
     /** Gravado sozinho (045) e ainda nao revisado: "A revisar". */
     @SerialName("needs_review") val needsReview: Flag = false,
+    /** Outra despesa igual (conta, centavos, descricao, ate 60 min; services/twins.py): "2× igual". */
+    val twin: Boolean = false,
     /**
      * "card": uma compra no cartao na linha do tempo (rules/ReviewRules.cardStatementRow, nunca
      * vem de /api/transactions); null num lancamento de conta.

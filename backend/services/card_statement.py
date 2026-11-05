@@ -16,6 +16,7 @@ nada) e account_id (uma compra nao e de conta nenhuma: com conta, nada).
 """
 
 from money import rounded_money
+from services.twins import card_twin_keys
 from validators import ValidationError, optional_date, parse_optional_number, require_choice
 
 TYPES = ("INCOME", "EXPENSE", "TRANSFER")
@@ -142,4 +143,7 @@ def card_purchases(conn, current_user_id, args):
     filters = parse_filters(conn, current_user_id, args)
     found = [entry for entry in _purchases(conn, current_user_id, filters["card_id"]) if _matches(entry, filters)]
     found.sort(key=lambda entry: (entry["date"] or "", entry["created_at"] or "", entry["id"]), reverse=True)
+    twins = card_twin_keys(conn, current_user_id, found)
+    for entry in found:
+        entry["twin"] = entry["client_id"] in twins
     return found

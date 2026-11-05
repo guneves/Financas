@@ -46,7 +46,7 @@ from config import (
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import rounded_money
-from services import recorded_snapshot, recurring
+from services import recorded_snapshot, recurring, review
 from services.import_rules import (
     DEFAULT_IMPORT_CATEGORIES,
     import_default_category,
@@ -1092,6 +1092,14 @@ def _brl_active_account(conn, current_user_id, account_id):
     ).fetchone()
 
 
+def _brl_account(conn, current_user_id, account_id):
+    """Uma conta em reais do dono (arquivada tambem)."""
+    return conn.execute(
+        "SELECT id FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(currency, 'BRL') = 'BRL'",
+        (account_id, current_user_id),
+    ).fetchone()
+
+
 def _side_need(direction):
     """O campo de uma transferencia que a ponta desta direcao preenche."""
     return "account" if direction == "OUT" else "transfer_account"
@@ -1283,6 +1291,12 @@ def _is_movement_source(source):
     return source.get("movement") in ("TRANSFER", "SELF_TRANSFER")
 
 
+def _source_direction(source):
+    if source["channel"] == CLAIM_NOTIFY:
+        return KIND_SHAPES.get(source["kind"], (None,))[0]
+    return source.get("direction")
+
+
 def _source_untouched(conn, current_user_id, item, source):
     """Intocado pelo snapshot (nunca por needs_review): o do item, se a fonte e
     uma notificacao; o da transacao da Pluggy, se e ela."""
@@ -1300,8 +1314,9 @@ def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents,
 
     O par: lancamento gravado de um item (APPROVED) do tipo oposto, mesmos
     centavos, outra conta ativa em reais, ate TRANSFER_MATCH_DAYS dias, sem
-    divisao, o item com UMA fonte e ela um movimento (Pix/TED; nunca compra ou
-    boleto), contrapartes que podem ser a mesma pessoa. Devolve o item ja
+    divisao, o item com UM lado (no maximo uma observacao por canal: a
+    notificacao e a Pluggy que a confirmou), todas movimento (Pix/TED; nunca
+    compra ou boleto), contrapartes que podem ser a mesma pessoa. Devolve o item ja
     transferencia (o chamador liga a nova observacao e chama finish_absorb), ou None."""
     if not account_id or not _brl_active_account(conn, current_user_id, account_id):
         return None
@@ -1323,12 +1338,19 @@ def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents,
         if not _brl_active_account(conn, current_user_id, row["twin_account"]):
             continue
         sources = _side_sources(conn, current_user_id, row["id"])
-        if len(sources) != 1 or not _is_movement_source(sources[0]):
+        # Um lado so (a notificacao e a Pluggy da mesma ponta contam como um):
+        # no maximo uma observacao por canal, todas movimento, na mesma direcao.
+        channels = [source["channel"] for source in sources]
+        if not sources or len(channels) != len(set(channels)):
             continue
-        if counterparty and counterparties_conflict(counterparty, sources[0]):
+        if not all(_is_movement_source(source) for source in sources):
+            continue
+        if len({_source_direction(source) for source in sources}) != 1:
+            continue
+        if counterparty and any(counterparties_conflict(counterparty, source) for source in sources):
             continue
         item = item_dict(row)
-        if not _source_untouched(conn, current_user_id, item, sources[0]):
+        if not all(_source_untouched(conn, current_user_id, item, source) for source in sources):
             continue
         candidates.append((row, item))
     if not candidates:
@@ -1367,9 +1389,66 @@ def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents,
 
 def finish_absorb(conn, current_user_id, item):
     """Depois de ligar a nova observacao: os snapshots passam a ser o da
-    transferencia (o app mudou a linha, nao o dono)."""
+    transferencia (o app mudou a linha, nao o dono); com a Pluggy numa das
+    pontas, sai da revisao (settle_transfer_review)."""
     recorded_snapshot.mark_auto_recorded(conn, current_user_id, item["id"], "transactions", item["target_id"])
     recorded_snapshot.refresh_snapshots(conn, current_user_id, item["id"], "transactions", item["target_id"])
+    settle_transfer_review(conn, current_user_id, item["id"])
+
+
+def transfer_confirmed(conn, current_user_id, item_id):
+    """As duas pontas da transferencia estao no app (uma saida e uma entrada
+    observadas) e ao menos uma veio da Pluggy (design §3.6): nao ha o que
+    revisar. A sumida e a REMOVED nao contam."""
+    directions, pluggy = set(), False
+    for row in conn.execute(
+        """
+        SELECT direction FROM open_finance_transactions
+        WHERE user_id = ? AND item_id = ? AND role IN ('SOURCE', 'MATCHED') AND COALESCE(conflict, '') <> 'vanished'
+        """,
+        (current_user_id, item_id),
+    ).fetchall():
+        directions.add(row["direction"])
+        pluggy = True
+    for row in conn.execute(
+        "SELECT kind FROM notify_detections WHERE user_id = ? AND item_id = ? AND role = 'SOURCE'",
+        (current_user_id, item_id),
+    ).fetchall():
+        if row["kind"] in KIND_SHAPES:
+            directions.add(KIND_SHAPES[row["kind"]][0])
+    return pluggy and directions >= {"IN", "OUT"}
+
+
+def settle_transfer_review(conn, current_user_id, item_id):
+    """A transferencia gravada sozinha com as duas pontas confirmadas sai da
+    revisao. A conta global revisa na tela dela; a editada pelo dono fica como
+    ele deixou. Devolve True se saiu."""
+    row = fetch_item(conn, current_user_id, item_id)
+    if not row or row["state"] != APPROVED or row["target_table"] != "transactions" or not row["target_id"]:
+        return False
+    target = conn.execute(
+        "SELECT type, account_id, transfer_account_id, needs_review FROM transactions WHERE id = ? AND user_id = ?",
+        (row["target_id"], current_user_id),
+    ).fetchone()
+    if not target or target["type"] != "TRANSFER" or not target["needs_review"]:
+        return False
+    for account_id in (target["account_id"], target["transfer_account_id"]):
+        if not account_id or not _brl_account(conn, current_user_id, account_id):
+            return False
+    if not transfer_confirmed(conn, current_user_id, item_id):
+        return False
+    item = item_dict(row)
+    sources = [
+        row_to_dict(source) for source in open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE, "MATCHED"))
+        if source["recorded_snapshot"]
+    ]
+    if not (
+        recorded_snapshot.snapshot_unchanged(conn, current_user_id, item)
+        or any(recorded_snapshot.untouched(conn, current_user_id, source) for source in sources)
+    ):
+        return False
+    review.clear(conn, current_user_id, "transactions", row["target_id"])
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1805,6 +1884,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
                 conn, current_user_id, detection, SOURCE, item_id=approved["id"],
                 target_table="transactions", target_id=approved["target_id"],
             )
+            settle_transfer_review(conn, current_user_id, approved["id"])
             return {"key": detection["key"], "status": "matched", "item_id": approved["id"]}
         partner = transfer_partner(
             conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,

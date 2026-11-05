@@ -97,6 +97,7 @@ private fun ReviewItemRow(item: ReviewItemDto, viewModel: ExtratoViewModel) {
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (item.table == ReviewRules.TABLE_CARD) Badge(stringResource(R.string.review_card_badge))
+                    if (item.twin) Badge(stringResource(R.string.twin_badge))
                 }
                 Text(
                     "${formatDateBR(item.date)} · ${ReviewRules.reviewPlace(item)}",

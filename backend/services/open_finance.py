@@ -56,6 +56,7 @@ from services import (
     open_finance_inbox,
     open_finance_investments,
     open_finance_invoices,
+    open_finance_orphans,
     realized_results,
 )
 from services.accounts import account_balance_rows
@@ -782,6 +783,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
 
     counts = {}
     removed = 0
+    orphans_removed = 0
     auto = None
     today_text = _day_text(today)
     with get_db() as conn:
@@ -863,14 +865,20 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
             "UPDATE open_finance_items SET last_sync_at = ?, last_sync_error = NULL, updated_at = ? WHERE id = ? AND user_id = ?",
             (stamp, stamp, of_item_id, current_user_id),
         )
+        if record and open_finance_auto.enabled(conn, current_user_id):
+            # As orfas (Fase 5, design §3.4): por ultimo, com tudo do pull no
+            # lugar (pagamentos e fundos do banco inclusive) e o app ja tendo lido
+            # o banco (last_sync_at acima), para o saldo comparar o que ficou.
+            orphans_removed = open_finance_orphans.sweep(conn, current_user_id, of_item_id, today)
     if open_finance_investments.recorded_any(investments):
         realized_results.refresh_realized_results(current_user_id)
     logger.info(
         "Open Finance: pull",
         extra={"user_id": current_user_id, "item": of_item_id, "status": pluggy_item.get("status"), **counts,
-               "removed": removed, "auto_recorded": auto},
+               "removed": removed, "removed_orphans": orphans_removed, "auto_recorded": auto},
     )
-    result = {"status": pluggy_item.get("status"), "counts": counts, "removed": removed}
+    result = {"status": pluggy_item.get("status"), "counts": counts, "removed": removed,
+              "removed_orphans": orphans_removed}
     if auto is not None:
         result["auto_recorded"] = auto
     if investments is not None:
@@ -1170,22 +1178,25 @@ def list_view(current_user_id):
                 if not account["account_id"] and not account["card_id"] and not account["ignored_at"]:
                     entry["suggested_id"] = suggest_target(conn, current_user_id, account, row["connector_name"])
                 difference_cents = None
+                proven = {}
                 if account["account_id"] and account["account_id"] in balances:
                     mine = balances[account["account_id"]]
                     entry["target_name"] = mine["name"]
                     # Conferir, nunca ajustar: o saldo da conta e o do app
                     # (inicial + lancamentos), o mesmo do consolidado.
-                    app_balance = mine["balance"]
+                    settled = None
                     if entry["brokerage"]:
                         # O banco nao tem o que ainda vai liquidar: so o que chegou ate hoje.
-                        app_balance = settled_balance(conn, current_user_id, account["account_id"], _day_text(_today()))
-                    entry["app_balance"] = rounded_money(app_balance)
-                    if account["balance"] is not None:
-                        entry["difference"] = rounded_money(account["balance"] - app_balance)
-                        difference_cents = int(round(entry["difference"] * 100))
+                        settled = settled_balance(conn, current_user_id, account["account_id"], _day_text(_today()))
+                    entry["app_balance"], difference_cents = open_finance_check.balance_difference(account, mine, settled)
+                    if difference_cents is not None:
+                        entry["difference"] = rounded_money(difference_cents / 100)
+                    proven = open_finance_orphans.balance_confirmed(conn, current_user_id, account, difference_cents)
                 elif account["card_id"]:
                     entry["target_name"] = names.get(account["card_id"])
-                entry["check"] = open_finance_check.account_check(conn, current_user_id, account, difference_cents)
+                entry["check"] = open_finance_check.account_check(
+                    conn, current_user_id, account, difference_cents, balance_confirmed=proven,
+                )
                 accounts.append(entry)
             items.append({
                 "id": row["id"],

@@ -348,6 +348,19 @@ doesn't cover, comes only from notices (and typing).
 - **A bank's own fund is an aporte/resgate** (`BANK_INVESTMENT`, in `INVESTMENT_SOURCE_TYPES`,
   `mark_bank_investments()`): Pluggy `0302` on a bank account (RF High, RF LP Selic, Tesouro Reserva) stays in the
   balance, never expense nor income, no review. It runs after each pull; Rende Fácil stays out (below).
+- **A notified row Pluggy never lists: the bank's balance decides** (Phase 5, owner 2026-11-04, design §3.4,
+  `services/open_finance_orphans.py`): `sweep()` runs last in each pull (after `record_bank_payments()`,
+  `mark_bank_investments()` and the `last_sync_at` stamp), only with auto-record on, only on **mapped BANK
+  accounts in reais** (never the Corretora, never the Conta global). **Cards are list-only** (their balance
+  mixes the used limit, pending holds and BB's rounding). An orphan: EXPENSE/INCOME recorded by a notification
+  item, no live Pluggy claim, date ≤ today − `OPEN_FINANCE_LATE_POST_DAYS`, and `bank_refreshed_since(date + 5
+  days)`. The difference is the Conferência's own (`open_finance_check.balance_difference()`, bank − app in
+  cents, the one formula the overview uses): removing an expense of X fixes +X, an income −X; the oldest orphan
+  whose fix equals it leaves, or all when their sum does; no subset search, no tolerance. Removal is like
+  `undo_declined()` (item `REMOVED`, reason `orphan`), counted as `removed_orphans` in the pull result and log.
+  Never removed: a receipt, a share, "Aconteceu", an amount the owner typed (≠ the snapshot's), a transfer;
+  review doesn't protect. Difference 0 → the row stays and the Conferência lists it under `balance_confirmed`
+  ("Confirmado pelo saldo", web and APK), including an international purchase "em processamento".
 - **The Conferência's buttons** (`services/open_finance_resolve.py`, web): "Lançar" records a bank-only row
   (a one-sided transfer takes the side the bank saw), "Aconteceu" keeps an app-only row
   (`open_finance_confirmed`, 051; listed in `confirmed`, "Desfazer"). A difference that is only `awaiting`
@@ -395,13 +408,35 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   keeps its category); a batch is all or nothing (404 on an unknown id). The Extrato shows the
   `ReviewPanel` (one tap per row, "Confirmar todos"), an "A revisar" badge, `?review=1`; the header
   pill and the Extrato tab count it (`review_count` in `GET /api/home`).
+- **Only guesses are reviewed** (Phase 4, design §3.6, `open_finance_inbox.settle_review()`): a row leaves
+  review by itself, in the same pass that records or confirms it, when Pluggy confirms it
+  (`reconcile_recorded()`'s untouched path, which the near match goes through, and
+  `open_finance_auto.record_item()`) and `category_decision()` of the Pluggy row comes from
+  `CONFIDENT_CATEGORY_SOURCES` (rule, merchant, CNAE): that category is set while untouched, `needs_review = 0`,
+  and the snapshots are refreshed in the same transaction (`review.clear()` + `refresh_snapshots()`). A
+  transfer leaves review when both sides are observed and one is Pluggy's (`inbox.settle_transfer_review()`:
+  `finish_absorb()`, a side joining a recorded transfer, Pluggy recording both). These stay: Pluggy's tree or
+  the default category, a card refund, the Flash (no Pluggy), the Conta global (its own screen), a row the
+  owner changed.
+- **"Untouched" is the snapshot, never the review** (Phase 4): `notification_untouched()`,
+  `recorded_snapshot.untouched()` and the absorb helper compare the snapshot only. "É meu" without a change
+  is not a touch (the bank's date, amount, vanish, other side and near match still apply); a new category,
+  amount, date, account, share or receipt is. Whenever the server changes a recorded row it refreshes the
+  item's and the Pluggy rows' snapshots (`refresh_snapshots()`, also in `apply_change()`). So a Flash decline
+  removes a row the owner only reviewed, and keeps one they recategorised.
+- **Twins: "2× igual"** (Phase 4, design §3.5, `services/twins.py`): `twin` on the rows of
+  `GET /api/transactions` (paged too), `GET /api/review` and `GET /api/cc-expenses/statement`: another expense
+  (EXPENSE or card purchase) on the same account/card, same cents, same `normalized()` description, ≤ 60 min
+  apart when both have a time, else the same date; queried for the page's dates ±1 day. A neutral `Badge`
+  (web Extrato row and `ReviewPanel`; APK Extrato row and `ReviewSection`, `twin_badge`); no attention card,
+  nothing to dismiss, no action.
 - **Pluggy reconciles what a notification recorded** (`reconcile_recorded()` in
   `open_finance_inbox.py`): the item keeps `auto_recorded_at` + `recorded_snapshot`. Same date and
-  target and still untouched (equals the snapshot and `needs_review = 1`) → the Pluggy row becomes
+  target and still untouched (equals the snapshot) → the Pluggy row becomes
   the source (transaction `source_type = 'OPEN_FINANCE'`, card `client_id = 'pluggy:<id>'`, OF
   snapshot), so later bank changes apply as for a Pluggy-recorded row; another date or account/card
-  → the row is deleted and the item re-recorded the bank's way right after the pull; reviewed,
-  edited or a transfer → only `MATCHED`.
+  → the row is deleted and the item re-recorded the bank's way right after the pull; edited (snapshot
+  differs) or a transfer → only `MATCHED`.
 - **Card purchases are in the Extrato** (`GET /api/cc-expenses/statement`,
   `services/card_statement.py`): one row per purchase (total, installments, `needs_review`), the
   Extrato's filters (type EXPENSE = purchases, INCOME = refunds, TRANSFER or an account → none),

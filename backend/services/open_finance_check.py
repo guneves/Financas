@@ -24,6 +24,7 @@ nao mandam o total), entao aceita ate n centavos de diferenca.
 from datetime import date as date_type
 
 from services import inbox, open_finance_invoices
+from money import rounded_money
 from source_types import INVESTMENT_CASH_SOURCE_TYPE
 
 MATCH_DAYS = 3
@@ -239,6 +240,22 @@ def _listed(entries):
     return listed
 
 
+def balance_difference(of_account, balance_row, settled_balance=None):
+    """A diferenca da Conferencia: saldo do banco (o da Pluggy, `of_account`)
+    - saldo do app (`balance_row`: a conta como no Inicio, inicial + lancamentos;
+    na Corretora, `settled_balance`, so o que ja liquidou). Devolve (saldo do
+    app, diferenca em centavos); sem conta, (None, None); sem saldo do banco, a
+    diferenca e None. A unica formula: a tela e a varredura das orfas
+    (services/open_finance_orphans.py) a usam."""
+    if not balance_row:
+        return None, None
+    app_balance = balance_row["balance"] if settled_balance is None else settled_balance
+    if of_account["balance"] is None:
+        return rounded_money(app_balance), None
+    difference = rounded_money(of_account["balance"] - app_balance)
+    return rounded_money(app_balance), int(round(difference * 100))
+
+
 def balance_explanation(difference_cents, bank_only, app_only, awaiting):
     """Puro. Saldo do banco - saldo do app = o que so o banco tem (inclusive o
     que espera no Aprovar) - o que so o app tem + `before`: o que nenhum movimento
@@ -285,22 +302,27 @@ def _bank_stamp(conn, current_user_id, of_account):
     return row["pluggy_updated_at"] if row else None
 
 
-def account_check(conn, current_user_id, of_account, difference_cents=None):
+def account_check(conn, current_user_id, of_account, difference_cents=None, balance_confirmed=None):
     """A conferencia de uma conta da Pluggy mapeada, ou None (sem mapeamento
     ou nada puxado ainda). Com `difference_cents` (saldo do banco - do app, na
-    conta), `explanation` diz de onde ela vem (balance_explanation)."""
+    conta), `explanation` diz de onde ela vem (balance_explanation).
+    `balance_confirmed`: ids de lancamentos que so a notificacao sustenta e o
+    saldo do banco ja conta (open_finance_orphans.balance_confirmed): saem de
+    "so no app" e "esperando o banco" para "confirmado pelo saldo"."""
     card = of_account["type"] == "CREDIT"
     target = of_account["card_id"] if card else of_account["account_id"]
     if not target or not of_account["synced_until"]:
         return None
     bank, awaiting = _bank_rows(conn, current_user_id, of_account, card)
     conflicts = _conflicts(conn, current_user_id, of_account)
-    dates = [entry["date"] for entry in bank + awaiting]
+    # O que o saldo confirma entra na janela mesmo sem linha da Pluggy (a compra
+    # em processamento: a Pluggy nao lista nada ainda).
+    dates = [entry["date"] for entry in bank + awaiting] + [day for day in (balance_confirmed or {}).values() if day]
     if not dates:
         return {"from": None, "to": of_account["synced_until"], "bank_only": [], "app_only": [], "awaiting": [],
-                "awaiting_bank": [], "confirmed": [], "bank_only_count": 0, "app_only_count": 0, "awaiting_count": 0,
-                "awaiting_bank_count": 0, "conflicts": conflicts,
-                "explanation": balance_explanation(difference_cents, [], [], [])}
+                "awaiting_bank": [], "confirmed": [], "balance_confirmed": [], "bank_only_count": 0,
+                "app_only_count": 0, "awaiting_count": 0, "awaiting_bank_count": 0, "balance_confirmed_count": 0,
+                "conflicts": conflicts, "explanation": balance_explanation(difference_cents, [], [], [])}
     date_from, date_to = min(dates), max(max(dates), of_account["synced_until"])
     app = (_card_rows if card else _account_rows)(conn, current_user_id, target, date_from, date_to)
     # Os que esperam no Aprovar tambem tiram seu par do app: um lancamento
@@ -310,7 +332,15 @@ def account_check(conn, current_user_id, of_account, difference_cents=None):
     stamp = _bank_stamp(conn, current_user_id, of_account)
     done = _confirmed_keys(conn, current_user_id)
     confirmed = [entry for entry in unmatched if (entry["table"], entry["id"]) in done]
-    open_rows = [entry for entry in unmatched if (entry["table"], entry["id"]) not in done]
+    by_balance = set(balance_confirmed or {})
+    proven = [
+        entry for entry in unmatched
+        if (entry["table"], entry["id"]) not in done and entry["table"] == "transactions" and entry["id"] in by_balance
+    ]
+    open_rows = [
+        entry for entry in unmatched
+        if (entry["table"], entry["id"]) not in done and not (entry["table"] == "transactions" and entry["id"] in by_balance)
+    ]
     awaiting_bank = [entry for entry in open_rows if newer_than_bank(entry, stamp)]
     app_only = [entry for entry in open_rows if not newer_than_bank(entry, stamp)]
     for entry in app_only:
@@ -323,6 +353,8 @@ def account_check(conn, current_user_id, of_account, difference_cents=None):
         "awaiting": _listed(awaiting),
         "awaiting_bank": _listed(awaiting_bank),
         "confirmed": _listed(confirmed),
+        "balance_confirmed": _listed(proven),
+        "balance_confirmed_count": len(proven),
         "bank_only_count": len(bank_only),
         "app_only_count": len(app_only),
         "awaiting_count": len(awaiting),
