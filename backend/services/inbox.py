@@ -1310,8 +1310,12 @@ def _source_direction(source):
 
 def _source_untouched(conn, current_user_id, item, source):
     """Intocado pelo snapshot (nunca por needs_review): o do item, se a fonte e
-    uma notificacao; o da transacao da Pluggy, se e ela."""
+    uma notificacao; o da transacao da Pluggy, se e ela. A notificacao que entrou
+    num item que a Pluggy gravou (o item sem snapshot proprio) nao gravou nada:
+    None, quem decide e a linha da Pluggy (sessao 5, semente 158)."""
     if source["channel"] == CLAIM_NOTIFY:
+        if not item.get("recorded_snapshot"):
+            return None
         return recorded_snapshot.snapshot_unchanged(conn, current_user_id, item)
     return recorded_snapshot.untouched(conn, current_user_id, source)
 
@@ -1361,7 +1365,8 @@ def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents,
         if counterparty and any(counterparties_conflict(counterparty, source) for source in sources):
             continue
         item = item_dict(row)
-        if not all(_source_untouched(conn, current_user_id, item, source) for source in sources):
+        checks = [_source_untouched(conn, current_user_id, item, source) for source in sources]
+        if False in checks or True not in checks:
             continue
         candidates.append((row, item))
     if not candidates:

@@ -910,3 +910,30 @@ class TestFuzzRegressions:
         ]
         assert world.pending() == []
         assert_identity(user["id"])
+
+    @pytest.mark.parametrize("status", ["POSTED", "PENDING"])
+    def test_a_pluggy_side_confirmed_by_its_notice_still_becomes_the_transfer(self, world, user, status):
+        """Semente 158: a Pluggy grava a receita do BB (Pix entre contas do dono),
+        o aviso do BB entra no mesmo item, e so depois a Pluggy traz a saida do
+        Itau. O item nasceu da Pluggy (sem snapshot proprio): o intocado e o da
+        linha da Pluggy, e a mesma linha vira a transferencia (defeito I)."""
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True, "include_pending": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        in_id = world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(269.93, "2026-10-20", "RECEBIMENTO TRANSFERÊNCIA",
+                                                                 category_id=SELF_TRANSFER, counterparty="Fulano Dono"))
+        world.sync(made["items"]["bb"])
+        [first] = _amount_rows(world, 269.93)
+        [result] = send(world.client, world.auth, detection("PIX_IN", 26993, at=ms(2026, 10, 20, 16, 0), app=BB,
+                                                            merchant=None, counterparty="Fulano Dono"))
+        assert result["status"] == "matched"
+        out_id = world.fake.add_tx(made["itau:0001/1-1"][0], bank_tx(-269.93, "2026-10-20", "PIX ENVIADO", status=status,
+                                                                    category_id=SELF_TRANSFER, counterparty="Fulano Dono"))
+        world.sync(made["items"]["itau"])
+        rows = _amount_rows(world, 269.93)
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (first["id"], "TRANSFER", itau, bb)
+        ]
+        assert {of_row(user["id"], in_id)["target_id"], of_row(user["id"], out_id)["target_id"]} == {first["id"]}
+        assert world.pending() == []
+        assert_identity(user["id"])
