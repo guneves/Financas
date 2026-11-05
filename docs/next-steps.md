@@ -9,7 +9,7 @@
 
 ## 1. Open work, in priority order
 
-### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phases 1–5 built; final verification open
+### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phases 1–5 built and verified (2026-11-05); owner checks open
 Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
 back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
 and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
@@ -47,16 +47,18 @@ final verification".
   fix `title_terms()` with the real shape and a test.
 - [ ] **Phase 3 leftovers**: the APK's "Lançar" opens only operations (coupon and redemption: web).
   The web's one-tap redemption needs exactly one fixed-income position with the same name.
-- [ ] **Final verification** (session 5, `06-verify-and-fix.md`): Phases 4–5 were merged into `main` by the
-  owner's request on 2026-11-05 (same as Phases 1–3); the verification checks everything on `main`.
 - [ ] **Phase 5 leftovers**: cards are list-only (no removal by balance: the card balance mixes the used
   limit, pending holds and BB's rounding). With `include_pending` on, a pending Pluggy row the bank's
   balance doesn't count makes the difference never equal an orphan, so nothing is removed (safe side).
   Watch the Conferência's "Confirmado pelo saldo" list on real data for a week.
 - [ ] **Owner, Phase 4**: look at Revisar after a few pulls — only Pluggy-tree/default categories, the
   Flash and the Conta global should be there. A "2× igual" pair should be real twins.
-- [ ] After a week with the gate open: run `scripts/check_identity.py` on the server; it must print
-  nothing.
+- [ ] After a week with the gate open, and then weekly: run
+  `sudo docker compose exec -T -w /app/backend app python scripts/check_identity.py --email <email>` on
+  the server; it must print nothing.
+- [ ] **Left by the verification** (`docs/notifications-pluggy-design.md` §8.3, not bugs): an account with
+  no Pluggy history looks back only `OVERLAP_DAYS`; card twins read the user's card rows through a
+  bounded subquery. Revisit only if real data shows them.
 
 ### Open Finance only (2026-10-30) — what is left
 - [ ] After deploying "nothing waits" (2026-11-01): watch the 5-minute fresh pulls in the log; read BB's Conferência

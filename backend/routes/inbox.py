@@ -1,5 +1,5 @@
-"""Aprovar: o que o celular traz (so o Flash, dono 2026-10-30) e o que a Pluggy
-deixou esperando.
+"""Os avisos do celular (Flash, Itau, BB, BTG; services/inbox.py
+`NOTIFICATION_POLICY`) e o que ainda espera o dono (o Revisar do Extrato).
 
 As regras moram em services/inbox.py (guardar e juntar) e
 services/inbox_decisions.py (o que o dono decide). Tudo fica no servidor: o
@@ -83,8 +83,8 @@ def inbox_count(current_user_id):
 def post_detections(current_user_id):
     """As notificacoes que os parsers do celular leram: so os campos lidos,
     nunca o texto. Reenviar a mesma chave nao duplica (status "known"). Qualquer
-    coisa que nao seja gasto do Flash responde "ignored", mande o que mandar
-    um APK antigo: os bancos vem so pela Pluggy."""
+    coisa fora da politica de quem fala (ou com o freio `bank_notifications`
+    desligado) responde "ignored", mande o que mandar um APK antigo."""
     payload = parse_json_body()
     detections = payload.get("detections") if isinstance(payload, dict) else None
     with get_db() as conn:

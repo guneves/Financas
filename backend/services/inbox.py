@@ -4,11 +4,12 @@ O celular manda cada notificacao que um parser leu (`ingest_detections`, POST
 /api/inbox/detections) — so os campos lidos (valor, hora, cartao,
 estabelecimento), nunca o texto. Nada grava sozinho aqui.
 
-Dono, 2026-10-30: a Pluggy e a unica fonte dos bancos. So o Flash, que nao tem
-Open Finance, passa daqui (`notification_wanted()`, seja o que for que um APK
-antigo mande); o resto responde `ignored` e nao deixa rastro. O pareamento
-abaixo continua para o Flash (app e Samsung Wallet) e para o que uma
-notificacao gravou antes disso e a Pluggy ainda vai conferir.
+Dono, 2026-11-04 (docs/notifications-pluggy-design.md §4): a notificacao grava
+na hora, a Pluggy confere depois e e o registro. Passam o Flash (app e Samsung
+Wallet com o cartao dele), Itau, BB e BTG Banking, e do BTG Investimentos so o
+Pix/TED (`NOTIFICATION_POLICY`, `notification_wanted()`, seja o que for que um
+APK antigo mande; o freio e `bank_notifications`). O resto responde `ignored` e
+nao deixa rastro.
 
 Cada movimento do mundo real vira UM item (`inbox_items`), por mais fontes que
 o contem:
@@ -1039,6 +1040,11 @@ def _shift(date_text, days):
     return (parse_iso_date(date_text) + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
+def _day_ms(date_text):
+    """A meia-noite UTC do dia, em ms (para comparar com posted_ms)."""
+    return int(datetime.combine(parse_iso_date(date_text), datetime.min.time(), timezone.utc).timestamp() * 1000)
+
+
 def _has_detection_source(conn, current_user_id, item_id):
     """O item ainda tem uma fonte viva: uma notificacao ou uma transacao do
     Open Finance (043) que o alimenta."""
@@ -1065,14 +1071,20 @@ def open_finance_sources(conn, current_user_id, item_id, roles=None):
     return conn.execute(sql + " ORDER BY date, created_at, id", params).fetchall()
 
 
-def _source_directions(conn, current_user_id, item_id):
+def _source_directions(conn, current_user_id, item_id, channel=None):
+    """Os lados que as fontes do item ja observaram; `channel` (CLAIM_NOTIFY ou
+    CLAIM_PLUGGY) olha so as daquele canal: a vaga e por canal e lado (I2)."""
     directions = set()
+    if channel == CLAIM_PLUGGY:
+        return {row["direction"] for row in open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,))}
     for row in conn.execute(
         "SELECT kind FROM notify_detections WHERE user_id = ? AND item_id = ? AND role = 'SOURCE'",
         (current_user_id, item_id),
     ).fetchall():
         if row["kind"] in KIND_SHAPES:
             directions.add(KIND_SHAPES[row["kind"]][0])
+    if channel == CLAIM_NOTIFY:
+        return directions
     for row in open_finance_sources(conn, current_user_id, item_id, roles=(SOURCE,)):
         directions.add(row["direction"])
     return directions
@@ -1240,7 +1252,7 @@ def remembered_transfer(conn, current_user_id, *, account_id, direction, descrip
     return hint
 
 
-def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, cents, date_text):
+def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, cents, date_text, channel=None):
     """Uma transferencia que o dono ja decidiu aqui (aprovou, ou disse "e esta")
     com uma ponta so, e este movimento e a outra (a outra conta notificou
     depois): confirma a transferencia, nao e um movimento
@@ -1264,7 +1276,7 @@ def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, 
         side_account = row["destination"] if direction == "IN" else row["origin"]
         if side_account != account_id:
             continue
-        if direction in _source_directions(conn, current_user_id, row["id"]):
+        if direction in _source_directions(conn, current_user_id, row["id"], channel):
             continue
         found.append(row)
     return _pick_closest(found, date_text)
@@ -1299,8 +1311,12 @@ def _source_direction(source):
 
 def _source_untouched(conn, current_user_id, item, source):
     """Intocado pelo snapshot (nunca por needs_review): o do item, se a fonte e
-    uma notificacao; o da transacao da Pluggy, se e ela."""
+    uma notificacao; o da transacao da Pluggy, se e ela. A notificacao que entrou
+    num item que a Pluggy gravou (o item sem snapshot proprio) nao gravou nada:
+    None, quem decide e a linha da Pluggy (sessao 5, semente 158)."""
     if source["channel"] == CLAIM_NOTIFY:
+        if not item.get("recorded_snapshot"):
+            return None
         return recorded_snapshot.snapshot_unchanged(conn, current_user_id, item)
     return recorded_snapshot.untouched(conn, current_user_id, source)
 
@@ -1350,7 +1366,8 @@ def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents,
         if counterparty and any(counterparties_conflict(counterparty, source) for source in sources):
             continue
         item = item_dict(row)
-        if not all(_source_untouched(conn, current_user_id, item, source) for source in sources):
+        checks = [_source_untouched(conn, current_user_id, item, source) for source in sources]
+        if False in checks or True not in checks:
             continue
         candidates.append((row, item))
     if not candidates:
@@ -1679,7 +1696,8 @@ def ingest_detections(conn, current_user_id, raw_detections):
     pendente: o par do Samsung, a outra ponta da transferencia),
     matched (era um lancamento que ja existe), denied (o par ja foi recusado),
     declined (compra negada), cancelled (Samsung de uma compra negada),
-    ignored (nao e gasto do Flash, ou a aplicacao automatica: nada guardado),
+    ignored (fora da politica de quem fala, o freio desligado, ou a aplicacao
+    automatica: nada guardado),
     invalid (nao serviu; o celular nao manda de novo).
     """
     if not isinstance(raw_detections, list) or not raw_detections:
@@ -1877,7 +1895,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
     if detection["kind"] in MOVEMENT_KINDS and target["account_id"] and "account" not in target["needs"]:
         approved = approved_transfer_awaiting(
             conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,
-            date_text=date_of(when),
+            date_text=date_of(when), channel=CLAIM_NOTIFY,
         )
         if approved:
             _insert_detection(
@@ -2337,17 +2355,24 @@ def near_notification_items(conn, current_user_id, row, exclude_item_id=None):
     if not near_row_ok(conn, current_user_id, row):
         return []
     entry_type, account_id, card_id = row_target(conn, current_user_id, row)
+    first, last = _shift(row["date"], -late_posting_days()), _shift(row["date"], OPEN_FINANCE_PAIR_DAYS)
+    # Pelas notificacoes da janela (indice user_id, posted_ms; a hora do item
+    # fica a ate 24 h do aviso), nunca por todos os itens: roda uma vez por
+    # linha nova do pull, e os itens da Pluggy sao a maioria (sessao 5).
     rows = conn.execute(
         f"""
-        SELECT i.* FROM inbox_items i
+        SELECT i.* FROM (
+            SELECT DISTINCT d.item_id FROM notify_detections d
+            WHERE d.user_id = ? AND d.role = 'SOURCE' AND d.posted_ms BETWEEN ? AND ? AND d.item_id IS NOT NULL
+        ) n CROSS JOIN inbox_items i ON i.id = n.item_id
         WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
-          AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
+          AND i.occurred_at >= ? AND i.occurred_at < ?
           AND NOT EXISTS (SELECT 1 FROM open_finance_transactions o
                           WHERE o.user_id = i.user_id AND o.item_id = i.id AND o.role <> 'REMOVED'
                             AND COALESCE(o.conflict, '') <> 'vanished' AND o.direction = 'OUT')
         """,
-        (current_user_id, *PAIRABLE_STATES, _shift(row["date"], -late_posting_days()),
-         _shift(row["date"], OPEN_FINANCE_PAIR_DAYS)),
+        (current_user_id, _day_ms(_shift(first, -2)), _day_ms(_shift(last, 3)),
+         current_user_id, *PAIRABLE_STATES, first, _shift(last, 1)),
     ).fetchall()
     found = []
     for item_row in rows:
