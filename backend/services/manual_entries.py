@@ -1,9 +1,10 @@
-"""O que a Pluggy alimenta nao se digita (dono, 2026-10-31).
+"""O freio do lancamento digitado no que a Pluggy alimenta.
 
-Conta e cartao conectados sao atualizados so pela Pluggy: um lancamento digitado
-neles viraria o mesmo movimento em dobro quando o banco o trouxesse. Digita-se so
-no que nao tem Pluggy, a Flash; a mesma regra vale para importar extrato. Uma
-transferencia pode ser digitada quando uma das pontas nao tem Pluggy.
+Desde 2026-11-05 (dono) digita-se em tudo: o motor liga o lancamento digitado
+ao movimento que o banco trouxer depois (free_candidates()), sem dobrar. Com
+MANUAL_ONLY_OFF_PLUGGY ligado (env, desligado por padrao) volta a regra de
+2026-10-31: conta e cartao conectados recusam o digitado, a importacao de
+extrato tambem, e uma transferencia precisa de uma ponta fora da Pluggy.
 
 `"pluggy": true` em GET /api/accounts e /api/credit-cards e como as telas sabem.
 """

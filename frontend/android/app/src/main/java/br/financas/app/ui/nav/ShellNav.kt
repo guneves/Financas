@@ -32,11 +32,14 @@ object ShellNav {
     fun reopensRoot(selected: Section, current: Section?, route: String?): Boolean =
         selected == current && selected != Section.HOME && selected.root != route
 
-    /** O "+" (o "+ Novo") aparece em toda pagina com barra, menos Ajustes. */
-    fun showsNewEntry(route: String?): Boolean {
-        val section = sectionOf(route)
-        return section != null && section != Section.AJUSTES
-    }
+    /**
+     * O "+" (o "+ Novo") mora na barra de baixo, logo depois desta aba (o meio da barra, como na
+     * web). Antes flutuava por cima da pagina e cobria o fim das listas (dono, 2026-11-05).
+     */
+    val NEW_ENTRY_AFTER = Section.LANCAMENTOS
+
+    /** O "+" aparece em toda pagina com barra (dentro dela nao cobre nada, nem em Ajustes). */
+    fun showsNewEntry(route: String?): Boolean = sectionOf(route) != null
 
     /**
      * O voltar do sistema numa pagina sem nada por baixo: no Inicio (e no login) o app vai para o

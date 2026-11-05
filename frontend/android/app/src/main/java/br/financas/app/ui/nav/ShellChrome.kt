@@ -60,8 +60,12 @@ import br.financas.app.ui.theme.LocalPalette
 
 // ---- A barra de baixo ----
 
+/**
+ * A barra de baixo, com o "+" (o "+ Novo") no meio, entre Lancamentos e Planejar, como na web
+ * (Layout.jsx): dentro da barra ele nunca cobre a pagina. `onNewEntry` null tira o "+".
+ */
 @Composable
-fun ShellBottomBar(current: ShellNav.Section?, onSelect: (ShellNav.Section) -> Unit) {
+fun ShellBottomBar(current: ShellNav.Section?, onNewEntry: (() -> Unit)?, onSelect: (ShellNav.Section) -> Unit) {
     val palette = LocalPalette.current
     Surface(color = palette.surface) {
         Column {
@@ -82,6 +86,11 @@ fun ShellBottomBar(current: ShellNav.Section?, onSelect: (ShellNav.Section) -> U
                         ShellNav.Section.AJUSTES -> AppIcons.Settings to R.string.shell_nav_settings
                     }
                     NavTab(icon, stringResource(label), active = section == current, onClick = { onSelect(section) }, modifier = Modifier.weight(1f))
+                    if (section == ShellNav.NEW_ENTRY_AFTER && onNewEntry != null) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
+                            NewEntryButton(onClick = onNewEntry)
+                        }
+                    }
                 }
             }
         }
@@ -115,20 +124,19 @@ private fun NavTab(icon: ImageVector, name: String, active: Boolean, onClick: ()
     }
 }
 
-/** O "+" (o "+ Novo"): o botao verde de 56 dp, por cima da pagina, no canto de baixo. */
+/** O "+" (o "+ Novo"): o botao verde de 48 dp no meio da barra de baixo. */
 @Composable
 fun NewEntryButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val palette = LocalPalette.current
     val label = stringResource(R.string.home_nav_new)
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         color = palette.accent,
-        shadowElevation = 6.dp,
-        modifier = modifier.size(56.dp).semantics { contentDescription = label },
+        modifier = modifier.size(48.dp).semantics { contentDescription = label },
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(AppIcons.Plus, contentDescription = null, tint = palette.onAccent, modifier = Modifier.size(26.dp))
+            Icon(AppIcons.Plus, contentDescription = null, tint = palette.onAccent, modifier = Modifier.size(24.dp))
         }
     }
 }

@@ -420,3 +420,75 @@ class TestOnlyFlashIsTyped:
         cards = {row["id"]: row["pluggy"] for row in world.client.get("/api/credit-cards", headers=world.auth).get_json()}
         assert accounts[made["bank"][2]] is True and accounts[flash] is False
         assert cards[made["card"][2]] is True
+
+
+class TestEverythingIsTyped:
+    """Dono, 2026-11-05: lanca-se a mao em tudo, Pluggy ou nao. O freio
+    (MANUAL_ONLY_OFF_PLUGGY) fica desligado por padrao; o motor liga o digitado
+    ao que o banco trouxer depois, sem dobrar."""
+
+    def test_the_brake_is_off_by_default(self):
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        env = {key: value for key, value in os.environ.items() if key != "MANUAL_ONLY_OFF_PLUGGY"}
+        backend = Path(__file__).resolve().parent.parent
+        out = subprocess.run(
+            [sys.executable, "-c", "import config; print(config.MANUAL_ONLY_OFF_PLUGGY)"],
+            cwd=backend, env=env, capture_output=True, text=True, check=True,
+        )
+        assert out.stdout.strip() == "False"
+
+    def test_a_connected_account_takes_a_typed_row(self, world):
+        _item, _p, made = connected(world)
+        response = world.client.post("/api/transactions", headers=world.auth, json={
+            "account_id": made["bank"][2], "amount": 10, "date": "2026-10-20", "type": "EXPENSE", "category": "Outros",
+        })
+        assert response.status_code == 201
+
+    def test_a_connected_card_takes_a_purchase_and_a_refund(self, world):
+        _item, _p, made = connected(world, bank=False, card=True)
+        purchase = world.client.post("/api/cc-expenses/purchases", headers=world.auth, json={
+            "card_id": made["card"][2], "description": "Loja", "total_amount": 10, "purchase_date": "2026-10-20",
+            "installments": 1, "category": "Outros",
+        })
+        refund = world.client.post("/api/cc-expenses/refunds", headers=world.auth, json={
+            "card_id": made["card"][2], "description": "Loja", "amount": 5, "purchase_date": "2026-10-20",
+        })
+        assert (purchase.status_code, refund.status_code) == (201, 201)
+
+    def test_a_transfer_between_two_connected_accounts(self, world):
+        _item, _p, first = connected(world)
+        _item2, _p2, second = connected(world, connector_name="Banco do Brasil")
+        typed = world.client.post("/api/transfers", headers=world.auth, json={
+            "account_id": first["bank"][2], "transfer_account_id": second["bank"][2], "amount": 10,
+            "date": "2026-10-20",
+        })
+        assert typed.status_code in (200, 201)
+
+    def test_a_typed_row_on_a_connected_account_is_linked_when_the_bank_brings_it(self, world):
+        item_id, _p, made = connected(world)
+        pluggy_account, _of, mine = made["bank"]
+        typed = world.call("post", "/api/transactions", json={
+            "account_id": mine, "amount": 32.5, "date": "2026-10-20", "type": "EXPENSE", "category": "Outros",
+            "description": "farmacia",
+        })["id"]
+        auto_on(world)
+        world.fake.add_tx(pluggy_account, bank_tx(-32.5, "2026-10-20", "FARMACIA"))
+        world.sync(item_id)
+        assert [row["id"] for row in world.transactions(mine)] == [typed]
+
+    def test_a_typed_card_purchase_is_linked_when_the_bank_brings_it(self, world):
+        item_id, _p, made = connected(world, bank=False, card=True)
+        pluggy_card, _of, card_id = made["card"]
+        world.call("post", "/api/cc-expenses/purchases", json={
+            "card_id": card_id, "description": "Livraria", "total_amount": 80, "purchase_date": "2026-10-20",
+            "installments": 1, "category": "Outros",
+        })
+        auto_on(world)
+        # docs_sign: uma compra so nao ensina o sinal do sandbox (learn_charge_sign()).
+        world.fake.add_tx(pluggy_card, card_tx(80, "2026-10-20", "LIVRARIA", docs_sign=True))
+        world.sync(item_id)
+        assert len(world.card_rows(card_id)) == 1
