@@ -15,13 +15,11 @@ EXPORT_FORMATS = {"csv", "xlsx"}
 def download_response(body, mimetype, filename):
     """Resposta de download.
 
-    Content-Disposition fica exposto no CORS para o navegador poder ler o nome
-    do arquivo; o cliente busca com o Bearer no cabecalho, entao o download nao
-    pode ser um link simples.
+    O cliente busca com o Bearer no cabecalho, entao o download nao pode ser um
+    link simples; o nome do arquivo vem do Content-Disposition (mesma origem).
     """
     response = Response(body, mimetype=mimetype)
     response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
     return response
 
 

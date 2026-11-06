@@ -1,8 +1,8 @@
-// Em desenvolvimento o Vite (5173) fala com o Flask (5000). O build e servido
-// pelo proprio Flask (routes/frontend.py), entao a API e a mesma origem da
-// tela: e o que o celular abre pelo endereco do Tailscale. VITE_API_BASE_URL
-// vence os dois (o APK aponta para o endereco do Tailscale no build).
-const DEFAULT_API_BASE_URL = import.meta.env.DEV ? 'http://localhost:5000' : ''
+// A API e sempre a mesma origem da tela: o build e servido pelo proprio Flask
+// (routes/frontend.py) e, em desenvolvimento, o Vite (5173) repassa /api ao
+// Flask (vite.config.js). O servidor nao tem CORS: VITE_API_BASE_URL, se usado,
+// tem de ser da mesma origem da tela (um caminho, ou o proprio endereco).
+const DEFAULT_API_BASE_URL = ''
 const AUTH_STORAGE_KEY = '@financeMVP:auth'
 
 const normalizeBaseUrl = (value) => {
@@ -165,7 +165,7 @@ export async function apiFetch(path, options = {}) {
 // Download autenticado: o token vai no cabecalho, entao um <a href> simples
 // nao serve — a resposta vira um Blob e um link temporario dispara o salvamento.
 // O nome do arquivo vem do Content-Disposition quando o navegador consegue
-// ler o cabecalho (CORS o expoe); senao, cai no nome sugerido aqui.
+// ler o cabecalho; senao, cai no nome sugerido aqui.
 function filenameFromDisposition(disposition, fallback) {
   if (!disposition) return fallback
   const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)

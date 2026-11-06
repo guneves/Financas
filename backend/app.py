@@ -9,13 +9,11 @@ entao importa este modulo.
 import os
 
 from flask import Flask, request
-from flask_cors import CORS
 
 import tesouro_client
 from services import open_finance_refresh, quote_refresh
 from gzip_responses import compress_response
 from applog import configure_logging
-from config import CORS_ORIGINS
 from db import init_db, run_startup_backup
 from routes import (
     accounts as account_routes,
@@ -43,15 +41,8 @@ from routes import (
 from services.attachments import prune_orphan_attachment_files
 
 app = Flask(__name__)
-cors_origins = "*" if CORS_ORIGINS == "*" else [
-    origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()
-] or "*"
-# O APK (origem https://localhost) chama a API em outra origem com Authorization:
-# cada GET precisa de um preflight OPTIONS. Sem Max-Age o Chrome guarda a
-# resposta por 5 s, e quase todo pedido do celular virava duas idas ao PC.
-# 7200 s e o teto do Chrome.
-CORS_PREFLIGHT_MAX_AGE = 7200
-CORS(app, resources={r"/api/*": {"origins": cors_origins}}, max_age=CORS_PREFLIGHT_MAX_AGE)
+# Sem CORS: a tela e a API sao uma origem so (o build servido aqui, o Vite
+# com proxy de /api em desenvolvimento, o APK nativo nao e um navegador).
 
 for blueprint_module in (
     system_routes,

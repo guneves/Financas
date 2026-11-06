@@ -99,7 +99,6 @@ JWT_SECRET = load_jwt_secret()
 # o primeiro cadastro e o do dono — ou com ALLOW_SIGNUP=1. O app e de um
 # usuario so, e o servidor nao deve aceitar contas de qualquer um.
 ALLOW_SIGNUP = str(os.getenv("ALLOW_SIGNUP", "0")).strip().lower() in {"1", "true", "yes"}
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 
 
 def read_int_env(name, default, *, minimum=None, maximum=None):

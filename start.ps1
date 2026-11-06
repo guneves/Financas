@@ -107,7 +107,7 @@ $jobs += Start-Job -Name 'financas-backend' -ScriptBlock {
 } -ArgumentList $Python, $BackendDir
 
 if (-not $Built) {
-    Write-Host 'Starting frontend on http://localhost:5173 ...' -ForegroundColor Cyan
+    Write-Host 'Starting frontend on http://127.0.0.1:5173 ...' -ForegroundColor Cyan
     $jobs += Start-Job -Name 'financas-frontend' -ScriptBlock {
         param($dir)
         Set-Location $dir
@@ -143,9 +143,9 @@ try {
         } else {
             Write-Host 'The backend did not serve the build in time. Check the log below.' -ForegroundColor Yellow
         }
-    } elseif (Wait-ForUrl 'http://localhost:5173') {
+    } elseif (Wait-ForUrl 'http://127.0.0.1:5173') {
         Write-Host 'Frontend is up.' -ForegroundColor Green
-        if (-not $NoBrowser) { Start-Process 'http://localhost:5173' }
+        if (-not $NoBrowser) { Start-Process 'http://127.0.0.1:5173' }
     } else {
         Write-Host 'Frontend did not answer in time — check the log below.' -ForegroundColor Yellow
     }
