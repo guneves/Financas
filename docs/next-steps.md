@@ -9,6 +9,24 @@
 
 ## 1. Open work, in priority order
 
+### Remote access: Funnel :8443 behind Google / device key — built (2026-11-06); rollout open
+Code merged with branch `feat/funnel-auth` (README "Remote access", DEPLOY.md "Remote access: the auth
+proxy on :8443"). Nothing is public yet: Funnel is off.
+- [ ] **Rollout, in order, each `sudo`/Tailscale step approved by the owner** (DEPLOY.md steps 1–10):
+  Google OAuth client (Testing, one test user); `OAUTH2_ALLOWED_EMAILS` in the server `.env`
+  (`oauth2.env`/`proxy.env` already exist); `tailscale serve --https=8443` before the merge; merge;
+  `curl` checks on 8102; tailnet tests (Google + app login, receipt, CSV, Pluggy "Atualizar" and
+  quote refresh timed, sign-out reload with a "+ Novo" landing once); phone installs the new APK
+  **over the VPN from 443** and pastes the key; the `funnel` nodeAttr; `tailscale funnel --https=8443`;
+  public tests on mobile data; LAN ports closed.
+- [ ] Not checked on a real device yet: the APK's login key field, the shell's "Chave de acesso
+  inválida ou ausente" dialog and Ajustes › Perfil › "Trocar chave de acesso" (JVM tests and the
+  build only). The web reload on a proxy 401 was only unit-tested (`proxySession.test.js`).
+- [ ] Known limits to watch: Funnel's timeout is undocumented (gunicorn caps at 120 s); the Pluggy
+  Connect widget through :8443 is unchecked; `rd={uri}` may drop a query string after the Google
+  login; logs may show 127.0.0.1 as the client. 443 (tailnet, no proxy) can be retired once every
+  phone is on the :8443 APK.
+
 ### Notifications + Pluggy, one movement one row — built and verified (2026-11-05); owner checks open
 The rules as built are in CLAUDE.md ("Notifications are fast, Pluggy is the record", "Auto-record →
 reconcile → review", "The inbox engine"); the tests are `test_notify_pluggy_identity.py`,

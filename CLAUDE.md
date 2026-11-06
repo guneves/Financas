@@ -42,7 +42,11 @@ The home server is the only real backend; `backend\finance.db` on the PC is a de
 `start.ps1` refuses to start without `-Local`. Production is the Docker image
 `ghcr.io/guneves/financas-app`, deployed by `.github/workflows/deploy.yml` on every push to `main`
 (tests → GHCR → Tailscale SSH → `docker compose pull/up`); data lives in the `financas_data`
-volume. `DEPLOY.md` has setup, manual deploy, import and rollback.
+volume. `DEPLOY.md` has setup, manual deploy, import and rollback. **Off the VPN**, Funnel publishes
+only :8443, to Caddy on `127.0.0.1:8102` (`compose.yaml`): browsers pass oauth2-proxy (Google, one
+email), the APK a device key (`X-Device-Key`, `outbox/DeviceKey.java`); the app's JWT still applies
+behind both, and a proxy 401 (`X-Proxy-Auth: required`) never clears it. 443 stays tailnet-only,
+straight to the app. No CORS: dev is one origin through Vite's `/api` proxy. README "Remote access".
 
 ## Tests
 
@@ -472,7 +476,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
   bank's notification wins over Samsung's.
 - **Open Finance (Pluggy) reconciles the connected banks** (043, 044, 045, `services/open_finance.py` +
-  `open_finance_inbox.py`): pulled (no webhooks: the server is tailnet-only) into
+  `open_finance_inbox.py`): pulled (no webhooks: only the gated :8443 proxy is public) into
   `open_finance_transactions`, unique `pluggy:<id>` per user, feeding `inbox_items` like
   notifications. A Pluggy account goes only where the owner mapped it (a card needs credit; the
   Corretora takes only the broker's investments account, `is_investment_account()`), or is
