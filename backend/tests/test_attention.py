@@ -93,13 +93,15 @@ def test_payable_hidden_while_an_invoice_is_overdue(world, clock):
     assert kinds(world.attention()) == ["INVOICE_PAYABLE"]
 
 
-def test_autopay_shortfall_in_the_next_31_days(world, clock):
+def test_autopay_shortfall_in_the_next_5_days(world, clock):
     itau = world.account("Itaú", initial=80)
     clock.set("2026-09-01")
     card = world.card("Débito", due_day=25, closing_day=18, autopay_account_id=itau["id"])
     world.purchase(card, 100, "2026-10-01")   # 10/2026, vence 25/10
     world.purchase(card, 300, "2026-11-20")   # 12/2026, vence 25/12: fora da janela
-    clock.set("2026-10-18")
+    clock.set("2026-10-19")                   # 25/10 = hoje + 6
+    assert by_kind(world.attention(), "AUTOPAY_SHORTFALL") == []
+    clock.set("2026-10-20")                   # 25/10 = hoje + 5
 
     [shortfall] = by_kind(world.attention(), "AUTOPAY_SHORTFALL")
     assert shortfall == {
@@ -115,9 +117,9 @@ def test_shortfall_window_is_inclusive(world, clock):
     clock.set("2026-08-01")
     card = world.card(due_day=18, closing_day=11, autopay_account_id=itau["id"])
     world.purchase(card, 10, "2026-10-12")    # 11/2026, vence 18/11
-    clock.set("2026-10-18")                   # 18/11 = hoje + 31
+    clock.set("2026-11-13")                   # 18/11 = hoje + 5
     assert len(by_kind(world.attention(), "AUTOPAY_SHORTFALL")) == 1
-    clock.set("2026-10-17")                   # 18/11 = hoje + 32
+    clock.set("2026-11-12")                   # 18/11 = hoje + 6
     assert by_kind(world.attention(), "AUTOPAY_SHORTFALL") == []
 
 
@@ -130,8 +132,8 @@ def test_shortfall_skips_archived_corretora_and_no_rate_accounts(world, clock):
     for name, account in (("A", archived), ("C", corretora), ("D", dollar)):
         card = world.card(name, autopay_account_id=banco["id"])
         world.set_rows("UPDATE credit_cards SET autopay_account_id = ? WHERE id = ?", (account["id"], card["id"]))
-        world.purchase(card, 10, "2026-10-12")
-    clock.set("2026-10-18")
+        world.purchase(card, 10, "2026-10-12")  # 11/2026, vence 10/11
+    clock.set("2026-11-05")
     # A Corretora nao tem saldo no Inicio: nunca entra.
     assert {item["account_id"] for item in by_kind(world.attention(), "AUTOPAY_SHORTFALL")} == {archived["id"], dollar["id"]}
 
