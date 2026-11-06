@@ -9,56 +9,40 @@
 
 ## 1. Open work, in priority order
 
-### Notifications + Pluggy, one movement one row (owner, 2026-11-04) — Phases 1–5 built and verified (2026-11-05); owner checks open
-Design and decisions: `docs/notifications-pluggy-design.md`. The owner wants bank notifications
-back, integrated with Pluggy: no overlap, no duplicates; two real identical purchases are two rows
-and the app shows it; investments are Pluggy-only, and notifications bring only bank ↔ BTG
-Investimentos transfers. The owner chose "the best scenario for each, no friction": the design's
-§7 table. A probe of today's engine with the gate opened found two defects, which Phase 1 must fix
-before the gate opens:
-- **A**: a reviewed notification row, then Pluggy's `PENDING` id posting under a new id, gives two
-  rows.
-- **I**: an own Pix whose two notifications reach the server in separate uploads becomes an income
-  plus an expense.
-
-CLAUDE.md changes with each phase. A third defect, **R**, was found while writing the prompts: a
-transfer whose origin was guessed keeps the wrong origin after Pluggy shows another account. It is
-in Phase 1a.
-
-**Session prompts**: `docs/prompts/notify-pluggy/`; `README.md` has the order and the exact message
-for each session. **The chain changed on 2026-11-04**: the owner asked session 3 to open a PR and merge
-Phases 1–3 into `main` (they continue in cloud sessions). Sessions 4 (Phases 4 + 5) and 5 (final
-verification, `06-verify-and-fix.md`) now start from `main`, not from a session branch; the final
-verification still checks everything, including what was merged. See `docs/handoff.md` › "For the
-final verification".
-- [ ] **Owner, after the final PR is merged and the APK is updated** (Phase 2's checks, in order):
+### Notifications + Pluggy, one movement one row — built and verified (2026-11-05); owner checks open
+The rules as built are in CLAUDE.md ("Notifications are fast, Pluggy is the record", "Auto-record →
+reconcile → review", "The inbox engine"); the tests are `test_notify_pluggy_identity.py`,
+`test_notify_pluggy_fuzz.py`, `test_notify_pluggy_plans.py`, `test_notification_policy.py`,
+`test_quiet_review.py`, `test_twins.py`, `test_open_finance_orphans.py`.
+- [ ] **Owner, with the new APK installed**, in order:
   1. an Itaú card purchase shows up in seconds;
   2. after the next pull it is still one row;
   3. a Pix to BTG Investimentos gives one transfer;
   4. a week later, `scripts/check_identity.py` prints nothing.
-  The real notice texts of the four bank apps are not captured yet for the brokerage app and for an
-  invoice payment: if one of them reaches the Extrato, export it from Ajustes › Notificações do
-  celular (modo captura) and adjust `NotifyParsers`.
-- [ ] **Owner, after the deploy and the next pull (Phase 3)**: run
+  The real notice texts of the brokerage app and of an invoice payment are not captured yet: if one
+  of them reaches the Extrato, export it from Ajustes › Notificações do celular (modo captura) and
+  adjust `NotifyParsers`.
+- [ ] **Owner, after the next pull**: run
   `sudo docker compose exec -T -w /app/backend app python scripts/position_fields.py --email <email>`.
   Until then nobody knows whether MeuPluggy fills `rateType`/`rate`/`fixedAnnualRate`/`dueDate` for BTG,
   so whether held fixed-income lines fill themselves on real data is unknown. If the keys are missing,
   the lines stay `HELD missing:<field>` with "Lançar". If the unit of `rate` is not percent, widen nothing:
   fix `title_terms()` with the real shape and a test.
-- [ ] **Phase 3 leftovers**: the APK's "Lançar" opens only operations (coupon and redemption: web).
-  The web's one-tap redemption needs exactly one fixed-income position with the same name.
-- [ ] **Phase 5 leftovers**: cards are list-only (no removal by balance: the card balance mixes the used
-  limit, pending holds and BB's rounding). With `include_pending` on, a pending Pluggy row the bank's
-  balance doesn't count makes the difference never equal an orphan, so nothing is removed (safe side).
-  Watch the Conferência's "Confirmado pelo saldo" list on real data for a week.
-- [ ] **Owner, Phase 4**: look at Revisar after a few pulls — only Pluggy-tree/default categories, the
-  Flash and the Conta global should be there. A "2× igual" pair should be real twins.
-- [ ] After a week with the gate open, and then weekly: run
+- [ ] **Owner, review and twins**: look at Revisar after a few pulls — only Pluggy-tree/default
+  categories, the Flash and the Conta global should be there. A "2× igual" pair should be real twins.
+- [ ] Weekly: run
   `sudo docker compose exec -T -w /app/backend app python scripts/check_identity.py --email <email>` on
   the server; it must print nothing.
-- [ ] **Left by the verification** (`docs/notifications-pluggy-design.md` §8.3, not bugs): an account with
-  no Pluggy history looks back only `OVERLAP_DAYS`; card twins read the user's card rows through a
-  bounded subquery. Revisit only if real data shows them.
+- [ ] The APK's "Lançar" opens only operations (coupon and redemption: web). The web's one-tap
+  redemption needs exactly one fixed-income position with the same name.
+- [ ] Orphans by balance: cards are list-only (a card balance mixes the used limit, pending holds and
+  BB's rounding). With `include_pending` on, a pending Pluggy row the bank's balance doesn't count makes
+  the difference never equal an orphan, so nothing is removed (safe side). Watch the Conferência's
+  "Confirmado pelo saldo" list on real data.
+- [ ] Known limits, kept on purpose; revisit only if real data shows them: an account with **no** Pluggy
+  history looks back only `OVERLAP_DAYS` (7), so an international purchase posted weeks later isn't seen
+  on a just-connected account; a card with a single sandbox-sign purchase learns the docs' sign (+) and
+  reads it as a refund; card twins (`card_twin_keys()`) read the card rows through a bounded subquery.
 
 ### Open Finance only (2026-10-30) — what is left
 - [ ] After deploying "nothing waits" (2026-11-01): watch the 5-minute fresh pulls in the log; read BB's Conferência
@@ -88,16 +72,13 @@ final verification".
   and no Pluggy `01` category, marked same-person by Pluggy, still arrives as a one-sided transfer.
 - [ ] The APK does not list `awaiting_bank` rows of the Conferência (the web does).
 - [ ] A card purchase cannot become a transfer (it moves no account).
-- [ ] Fixed income, Tesouro, funds and INTEREST stay HELD: Pluggy's operations lack indexer, title type,
-  redemption lot and coupon tax start. So later fixed-income buys, IR and fees are `COVERED`, and the
-  Corretora can drift from BTG's cash after a rebuild. `cash_check()` shows it.
 - [ ] Some test writes to `backend/finance.db` (the PC's dev copy): `user-…@example.com` rows since
   2026-10-27 (453 users), against the rule that tests never touch it. Find it; the data is not real.
 - [ ] Tune the merchant table with `--report-categories` on real rows.
 
 ### Conta global (047, 2026-10-27) — what is left
 Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10-28 (see
-`done-tasks.md`). Prompt: `docs/prompts/global-account-usd.md`.
+`done-tasks.md`).
 - **Owner's data, after deploy** (through the API from the owner's Chrome tab, OK per batch):
   1. Read balances before (BTG conta corrente 170,00, Wise R$ 559,43, October Gastar 1.172,73).
   2. `PATCH /api/accounts/<Wise> {"currency": "USD"}` (allowed: it only received the three BTG Pix);
@@ -117,96 +98,17 @@ Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10
   US$ receita after the hold, and the reais Pix, when it arrives, turns it into the transfer.
 
 ### Auto-record → reconcile → review (045, 2026-10-27) — what is left
-The paradigm (CLAUDE.md › "Auto-record → reconcile → review"): every notification is recorded at
-once, Pluggy reconciles it (and feeds Investimentos), the owner only confirms and categorizes in
-the Extrato's Revisar panel. Built on `main` for the server and the web; see `done-tasks.md`.
-
-**Owner, after the deploy:**
-- [ ] Both switches come **on by default** (`AUTO_RECORD_DEFAULT`): the first phone upload records
-  every pending notification, and the first Pluggy pull records the Pluggy backlog of mapped
-  accounts. Check the card purchase sign first (the item below in the 044 section), or turn
-  Ajustes › Open Finance › Gravar sozinho off until then.
-- [ ] Ajustes › Avisos do celular: "Gravar sozinho" on. Make a Flash and an Itaú purchase; each must
-  appear in Extrato › Revisar within seconds, then disappear with "É meu".
-- [ ] After a Pluggy pull, the same purchases must still be **one** row each (now marked
-  `OPEN_FINANCE` in the database) and the Conferência must read "Confere".
-- [ ] Decide whether "Ignorar avisos dos bancos conectados" stays: with notifications recording
-  first, leaving it off is the new default flow (on, connected banks are recorded by Pluggy only).
-
-**Not built / limits:**
-- [ ] **APK on the phone (built 2026-10-27, not run on a device)**: install the update after the PR
-  merges (the deploy's apk job; the app offers it). Walk: a Flash/Itaú purchase appears in Extrato ›
-  Revisar within a minute (the pill "N para revisar" too); "É meu" clears it; a card purchase shows in
-  the timeline with "Cartão · Nx" and no day total of its own; tapping it opens Cartões; no Aprovar
-  anywhere (tabs, Início, notifications); an own Pix with one side shows under "Não gravou sozinho"
-  and "Gravar" with the other account makes one transfer. Light and dark.
-- [ ] An own transfer with one side waits until the other side arrives (the Extrato says
-  "N movimentos não puderam ser gravados sozinhos · Ver"). A transfer to an account that is neither
-  connected nor notifies (another bank) needs the owner there.
+- [ ] A transfer to an account that is neither connected nor notifies (another bank) needs the owner.
 - [ ] Review has no "não é meu" action: an error is deleted with the row's normal Excluir (a
   Pluggy row deleted this way is not re-recorded: its item stays decided). A fraud is real money:
   keep the row and contest with the bank.
-- [ ] Pluggy corrects a notification-recorded row only when it is untouched; amounts are matched
-  exactly (or installment vs total), so a different amount (IOF, foreign purchase) is a second
-  movement, not a correction.
 - [ ] Editing a row (PATCH) does not clear `needs_review`; only Revisar does.
-- [ ] "Sempre perguntar a conta/cartão" only matters with Gravar sozinho off (disabled in Ajustes
-  otherwise); `inbox_hints` are no longer learned while auto-recording (`remember: False`).
 
 ### Open Finance as the only source for connected banks (044, 2026-10-27) — what is left
-Built on `main` (see `done-tasks.md`, CLAUDE.md › "Gravar sozinho", DEPLOY.md › Open Finance). The
-owner's decisions: Pluggy (MeuPluggy, free plan) is the only source for Itaú, BTG and BB, recorded
-automatically; Aprovar stays for Flash and what only the owner decides; GET only, never more often
-than every 6 h; BTG Investimentos goes into Investimentos.
-
-**Owner, after the deploy (in this order; nothing of it ran on real data yet). Since 045 the
-Pluggy switch is on by default and Aprovar is out of the tabs — read the 045 section first:**
-- [ ] Ajustes › Open Finance (web): map every account. Expected: Itaú → "Itaú"; BTG Banking →
-  "BTG conta corrente"; Cartão BTG BLACK → "BTG black"; **BTG Investimentos → "BTG Corretora"** (now
-  allowed: it is the broker's cash); BB checking → "BB"; OUROCARD FACIL VISA → "BB ourocard"; the
-  second Ourocard → **"Não usar"**. Suggestions now come from the account name.
-- [ ] "Atualizar" each connection, then turn on **Gravar sozinho** (refused with the reason while an
-  account lacks a destination or a connection has no pull in 48 h). The toast says how many of the
-  ~210 waiting items were recorded/linked; what stays in Aprovar should be only transfers missing
-  their other side and investments on a bank account.
-- [ ] Before that, in Aprovar, check once that **card purchases come as −R$ purchases, not +
-  credits/"Estorno"** (`SELECT name, charge_sign, charge_sign_source FROM open_finance_accounts`):
-  the auto engine records whatever sign was learned.
-- [ ] Turn on **Ignorar avisos dos bancos conectados**; check a Flash purchase still reaches Aprovar
-  and an Itaú/BTG/BB notification does not.
-- [ ] **Histórico**: "Ver prévia" with 365 days, read the counts per account, then "Trazer o
-  histórico". Afterwards every account should read "Confere"; if not, "Ver a conferência" now says
-  why per line and how the balance difference splits (only bank / awaiting / only app / before the
-  window — the last one is the account's initial balance in the app).
-- [ ] Investimentos: after a pull, Ajustes › Open Finance › "Carteira da corretora" shows quantities
-  per asset and the cash (with "a liquidar" for D+1/D+2). The BTG operations of the last months may
-  link to typed ones (same asset, quantity, ±2 days) or be recorded; check the Extrato
-  (investimentos) for duplicates before trusting it.
-
-**Unknown until the first real pull (code has fallbacks; adjust on the real rows):**
-- [ ] Whether MeuPluggy's investment transactions have an `id` (the key falls back to investment +
-  trade date + type + quantity + amount), the shape of `expenses` (number or object; both handled),
-  and whether `/investments/{id}/transactions` paginates as assumed (`page`/`totalPages`).
-- [ ] Whether ETFs/FIIs come as `EQUITY` (the probe said all 17 equities are `EQUITY/STOCK`); the
-  app's own class (or the B3 catalog) decides; an unknown ticker is `HELD unknown_asset`.
-- [ ] The Pluggy category table (`open_finance_categories.py`) was written from Pluggy's public tree;
-  tune it on what the owner's rows actually carry.
-- [ ] The BTG Investimentos account's own categories: only `04…`/Pix/TED rows become transfers;
-  if aportes arrive with another category they will be `COVERED` and the bank side will wait in
-  Aprovar as a one-sided transfer.
-
-**Not built / limits:**
-- [ ] Fixed income, Tesouro, custody `TRANSFER` and `INTEREST` operations are `HELD` and only listed
-  ("operações para você lançar"); recording them needs per-title metadata (`services/treasury.py`,
-  coupons 040).
 - [ ] A `conflict` (the bank changed/dropped a row the owner had edited) has no "resolvido" action:
   the owner edits or deletes the lançamento; the line stays in the Conferência.
-- [ ] A transfer to an account that is not connected (Flash, another bank) stays in Aprovar for the
-  owner; a Pix to someone else is held 2 days (`TRANSFER_HOLD_DAYS`) and then recorded as
-  despesa/receita.
 - [ ] The APK shows the switches, reasons and the balance explanation, but not the history preview,
   the portfolio check or "Não usar" (web only, like mapping).
-- [ ] The web screen was not opened in a browser this session (vite build and node tests only).
 - [ ] Carried over from 043: a posting dated more than `LATE_POSTING_DAYS` (35) before the last pull is
   still never pulled (use the history); `synced_until` advances even while Pluggy's `lastUpdatedAt` is stale,
   so an outage longer than that loses rows (anchor it to Pluggy's date); a mapping change does not move items already pending;
@@ -293,7 +195,7 @@ Purchase deletion, purchases into paid invoices, card deletion and payment undo 
 
 ### Owner's review, "Média" and "Baixa" (2026-10-18 night) — what is left
 Items 4–21 of the review were fixed in one PR (see `docs/done-tasks.md`). Open:
-- [ ] **Aprovar, "3x de R$ 50,00"** (item 19): `NotifyParsers` now reads that R$ as the
+- [ ] **Notifications, "3x de R$ 50,00"** (item 19): `NotifyParsers` now reads that R$ as the
   installment and records 3 × 50 (or the total when the text also has one). Written against
   hand-made texts, not a capture — the convention asks for a capture first. On the first real
   installment notification, export it and turn it into a `NotifyParsersTest` case.
@@ -311,25 +213,11 @@ Items 4–21 of the review were fixed in one PR (see `docs/done-tasks.md`). Open
   archived account in the Extrato. Clicked through in Chromium (390 px and desktop) on a throwaway
   DB; not on the phone or on real data.
 
-### Aprovar: ambiguous target and "Sempre perguntar" (2026-10-18) — what is left
-- [ ] **Depends on the bank field (owner's "Prompt 1"):** the rule counts only accounts whose bank
-  is set. Today that is `accounts.institution`, now editable in Ajustes › Contas › "⋯" › Editar
-  conta (2026-10-18 night); existing accounts read as "Sem banco" until the owner fills it.
-- [ ] **Owner, after the deploy and the bank field:** set each account's bank. With two Itaú accounts, a Pix from Itaú
-  should ask every time and offer no "Lembrar a escolha". Try "Trocar" on a remembered item and the
-  Ajustes › Aprovar switch. Tested in pytest/node and screenshotted at 390 px; not on the phone.
-- [ ] Cards have no bank field, so two cards at one bank still remember as before. When a bank
-  field lands for accounts and cards (a `bank` column), `bank_of_row()` already reads it first;
-  check that its values name the bank in a way `issuer_of_institution()` recognizes.
-
 ### Native phone app and the desktop redesign (owner, 2026-10-22)
-Decisions in `mobile-docs/native-app.md`; the project docs (architecture, conventions, build,
-order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/native/`. Step 0
-(Kotlin + Compose in the Android project, the native theme from the web's tokens,
-`android-check.yml`) is done. Open, in order:
-- [ ] **Steps 1–2 — "+ Novo" and Aprovar native, owner's phone check**: both are merged (PRs #32
-  and #33) but no session recorded a phone check. Run each spec's Acceptance list
-  (`screens/01-novo.md`, `screens/02-aprovar.md`) on the debug APK, online and in airplane mode,
+The project docs (architecture, conventions, desktop, one spec per screen) are in
+`mobile-docs/native/`. The APK is all native since session E (2026-10-25). Open, in order:
+- [ ] **Step 1 — "+ Novo" native, owner's phone check**: merged (PR #32) but no session recorded a
+  phone check. Run `screens/01-novo.md`'s Acceptance list on the debug APK, online and in airplane mode,
   light and dark. Known, minor: an item left by a save killed mid-POST is sent on the next app open
   (`OutboxPlugin.load()` schedules the worker), not while the app stays closed.
 - [ ] **The web's `createEntry()` can still duplicate after a killed tab**: it queues only after
@@ -371,7 +259,7 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   and `11-ajustes.md` on the debug APK, light and dark, online and in airplane mode. Left from
   that session:
   - not built: month swipe and pull to refresh in Orçamento, swipe/long-press menus, the widgets
-    (Saldo do plano, a pinned goal), "Sempre perguntar" inside native Aprovar, the biometric gate
+    (Saldo do plano, a pinned goal), the biometric gate
     on Sair, the listener-lost notification;
   - privacy is as on the web (Recorrentes and A receber mask nothing; Metas masks Atual, Faltam,
     Objetivo): the owner may want more masked;
@@ -394,7 +282,7 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
 - [ ] **Session E — the native shell and no WebView, owner's phone check** (built 2026-10-25 on
   `claude/affectionate-thompson-3vd16f`; the PR body has the full checklist). Install the debug APK
   first, then the release one over the WebView app from its banner: fresh login, every section,
-  offline entry with the app closed, bank notifications reaching Aprovar, the APK banner. Left:
+  offline entry with the app closed, bank notifications reaching the Extrato, the APK banner. Left:
   - the "+" inside Investimentos opens "+ Novo", not Registrar operação (that sheet lives in the
     Posição/Operações view models); the launcher shortcut "Novo lançamento";
   - "Sem conexão" in the pill is the phone's network (no non-VPN network), not the server's
@@ -412,10 +300,7 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   (A session on the owner's PC can: `gradlew.bat --offline testDebugUnitTest assembleDebug` with
   Android Studio's JDK, as session A did.)
 - [ ] Plus Jakarta Sans in the native screens (needs the `.ttf` in `res/font`; the web ships woff2).
-- [ ] **`findings.md`, what is left** (its possible bugs and stale texts were fixed 2026-10-23,
-  the grouped Tesouro delete made atomic 2026-10-24, `done-tasks.md`): the native shell's 401
-  handling is done (session E). Inconsistencies waiting on the owner
-  (questions in `docs/handoff.md`): Corretora accounts offered in banking forms and autopay; Início
+- [ ] **Inconsistencies waiting on the owner** (found by the native port, 2026-10-23): Corretora accounts offered in banking forms and autopay; Início
   groups categories by name; privacy mode uneven across screens; the Extrato vs Início
   classification of a transfer to the Corretora; a débito purchase reopened as Despesa by
   Corrigir; 48 vs 72 installments and the required description; the two `/api/credit-cards`
@@ -444,10 +329,8 @@ order, rules, one spec per screen, desktop, agents and prompts) in `mobile-docs/
   artifact, to try a branch on the phone before the merge? (CLAUDE.md says APKs never go to GitHub.)
 
 ### Mobile app — an Android APK with offline entry and bank notifications
-The plan, its decisions and the status of each phase are in `mobile-docs/steps-to-production.md`.
-Phase 3 (idempotent creation) and the PC halves of Phases 1 and 4 were built on 2026-10-13, Phase 2
-on the PC and Phase 5 (built, installed on the phone) on 2026-10-16, and Phase 6's listener and
-capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
+Built 2026-10-13 to 2026-10-17 (see `docs/done-tasks.md`): idempotent creation, the offline outbox,
+the APK on the owner's phone, the notification listener and capture mode. Open, in order:
 - [ ] Phase 5, the last phone checks. The APK is built, signed and installed on the owner's Galaxy
   S25; login, real data, the bars in the theme and the offline queue work there. Left:
   - the "done when" with the app really **closed** (swiped from recent apps): airplane mode,
@@ -504,20 +387,13 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   notification appear in the test APK's capture — and **not** in the real app's; one export (JSON
   and text) opens the share sheet. If the adb notification does not appear, `adb logcat -s
   FinancasNotify` names the package it came from.
-- [ ] **Install the APK with the parsers and check Aprovar** (owner; built 2026-10-17, see
-  `docs/done-tasks.md`, "Notification auto-identifier"). CI builds it on the push; update by
-  "Nova versão disponível". Then a Pix between two of your accounts, a Pix to someone else and a
-  card purchase: each must appear in Lançamentos › Aprovar (the first as one transfer, the second
-  as a despesa "Pix para …", the third with "crédito ou débito?"). The first own-account Pix must
-  have **both** banks notify (or be approved as a transfer once) before a single-leg Pix to
-  yourself is recognised: the "it's me" CPF digits are learned, never typed.
 - [ ] **Keep capturing, then a third parser pass.** The second pass (2026-10-22, 60 notifications)
   fixed the Samsung Wallet purchase ("<LUGAR> R$ <valor>" with the card name as the title, never
   read before) and BB's "Pix Recebido" sender name. Still unseen: any **Flash** app notification
   (the app was added to the allow-list on 2026-10-22 and its texts go through the generic parser —
   capture one purchase and one benefit credit, "você recebeu R$ … de benefício" is not a detection
   today), a credit/debit purchase with "final 1234", Itaú and BB purchases, an estorno, a declined
-  purchase, a boleto payment, BTG Investimentos' buy and sell. Keep capture on and bring a new
+  purchase, a boleto payment. Keep capture on and bring a new
   "Exportar JSON"; anything mis-read becomes a `NotifyParsersTest` case first. Not answered by the
   export either: whether a bank *updates* a notification (new posted time, same key) — BTG posts
   "Compra autorizada" twice, ~25 ms apart, with different keys; the server folds them as `repeated`.
@@ -530,10 +406,10 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   label for a meal/voucher card maps to the issuer `flash` (`ISSUER_ALIASES`). If the owner ever
   adds a second benefits card (Alelo, VR…) to Samsung Wallet, both would read as the Flash: then
   the label stops being enough and the pick goes to the hint (the owner chooses once per card name).
-- [ ] **Card estorno from Aprovar.** A card refund exists now (033, `POST /api/cc-expenses/refunds`),
+- [ ] **Card estorno from a notification.** A card refund exists now (033, `POST /api/cc-expenses/refunds`),
   but an estorno detection still drafts an INCOME lançamento. Once a real estorno capture shows
   the card final, approve it as a card refund instead.
-- [ ] **Aprovar × Recorrentes, what is left** (034, 2026-10-18). Owner walk-through: a Netflix
+- [ ] **Notifications × Recorrentes, what is left** (034, 2026-10-18). Owner walk-through: a Netflix
   (or similar) recurrence, its card purchase notification → the item says "Recorrente: ao aprovar…"
   → approve → Recorrentes shows the next month as próxima and no pending; the salary's Pix the same
   way. Not built: (1) an occurrence `/run` **already wrote** is a candidate only at the exact amount
@@ -546,17 +422,10 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
   tune `NOTIFY_WINDOW_MS` (and `NotifyPairing.DEFAULT_WINDOW_MS`, kept equal). The phone-side
   `NotifyPairing` stays unwired: the phone sends every detection at once and the server pairs,
   so a held Samsung detection needs no WorkManager timer.
-- [ ] **Mapping screen** (Phase 6 step 5) — not built: Aprovar's remembered choices
-  (`inbox_hints`) already do the job of "this card final / this app is that card or account",
-  learned on the first approval. Build it only if the owner wants to set them up front.
 - [ ] Unrecognised text from an allowed app (Phase 6 step 6) is **not** sent: the texts never
   leave the phone. Only the capture export shows what the parsers missed.
 - [ ] `DEPLOY.md` ("Updating the phone") does not mention `/apk/financas-debug.apk` or the
   `.debug` package; left alone because another session owns that file.
-- Brokerage operations from notifications (owner, 2026-10-17) are **withdrawn** by the owner's
-  rule of 2026-11-04: investments come only from Pluggy, and the BTG Investimentos app delivers only
-  transfers (`docs/notifications-pluggy-design.md` §5).
-- [ ] Phases 7 to 9 (inbox, statement dedup, hardening).
 - [ ] **APK on every deploy — phone check** (2026-10-22): after the next push to `main`, the
   `apk` job must run even with no change under `frontend/android/` (Actions › deploy), and the
   phone must show "Nova versão disponível" and install it from the app, data kept. Each deploy now
@@ -574,8 +443,8 @@ capture mode on 2026-10-17 (see `docs/done-tasks.md`). Open, in order:
 - [ ] **Owner walk-through.** Ajustes › Cartões: create the Flash as "Débito" with a "Flash" account
   (any type but Corretora), give the BTG card "Os dois" with BTG Banking as the debit account. Then
   "+ Novo › Cartão": the BTG card offers Crédito/Débito, the Flash is débito only; a débito
-  purchase must land in the account (Extrato), never in Cartões. In Aprovar, the Samsung "Card used
-  for Meal and Voucher" purchase must arrive as a despesa in the Flash account, confirmed once.
+  purchase must land in the account (Extrato), never in Cartões. The Samsung "Card used for Meal and
+  Voucher" purchase must arrive as a despesa in the Flash account, in Extrato › Revisar.
 - [ ] **A débito purchase does not remember its card.** It is a plain EXPENSE in the card's account
   (`transactions` has no card column); the Extrato shows the account, not "Flash". Add a
   `metadata.card_id` (or a column) only if the owner wants to filter by card.
@@ -611,9 +480,8 @@ Investimento is not a category: a typed aporte is a transfer to the Corretora. O
   `SELECT COUNT(*) FROM transactions WHERE category = 'Investimento' AND type <> 'TRANSFER'`.
 - [ ] The Extrato shows a transfer to the Corretora as "Transferência" (its badge and totals), not
   "Aporte"; Início already reads it as an aporte. Owner's call whether the Extrato should too.
-- [ ] Imports and Aprovar have no "transfer to the Corretora" target: a BTG transfer seen in a bank
-  statement imports as a despesa ("Outros") and must be recorded as a transfer by hand (Aprovar's
-  own-account pairing already drafts one when both legs are seen).
+- [ ] Imports have no "transfer to the Corretora" target: a BTG transfer seen in a bank statement
+  imports as a despesa ("Outros") and must be recorded as a transfer by hand.
 - [ ] Owner, on the server: Ajustes › Contas → "Vincular à carteira" on the brokerage account (or
   create one of type Corretora with its current balance); register one operation as is and one
   with "Não descontar de nenhuma conta"; check the brokerage balance, the Extrato and Operações

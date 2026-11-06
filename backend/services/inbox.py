@@ -4,7 +4,7 @@ O celular manda cada notificacao que um parser leu (`ingest_detections`, POST
 /api/inbox/detections) — so os campos lidos (valor, hora, cartao,
 estabelecimento), nunca o texto. Nada grava sozinho aqui.
 
-Dono, 2026-11-04 (docs/notifications-pluggy-design.md §4): a notificacao grava
+Dono, 2026-11-04: a notificacao grava
 na hora, a Pluggy confere depois e e o registro. Passam o Flash (app e Samsung
 Wallet com o cartao dele), Itau, BB e BTG Banking, e do BTG Investimentos so o
 Pix/TED (`NOTIFICATION_POLICY`, `notification_wanted()`, seja o que for que um
@@ -304,7 +304,7 @@ def is_flash_detection(detection):
     return app == FLASH_APP or (app == SAMSUNG_WALLET and issuer_of(detection) == FLASH_ISSUER)
 
 
-# Quem fala e do que (docs/notifications-pluggy-design.md §4, dono 2026-11-04):
+# Quem fala e do que (dono 2026-11-04):
 # os tres bancos mandam tudo o que o parser reconhece; o app da corretora so a
 # transferencia de ou para um banco (ordem, provento, aplicacao e taxa vem pela
 # Pluggy); o Samsung Wallet so o cartao do Flash (is_flash_detection()). O resto
@@ -1323,7 +1323,7 @@ def _source_untouched(conn, current_user_id, item, source):
 
 def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents, date_text, occurred_at=None,
                          counterparty=None, description=None):
-    """Defeito I (design §3.2 passo 4): a outra ponta de uma transferencia entre
+    """Defeito I: a outra ponta de uma transferencia entre
     contas do dono chega (notificacao ou Pluggy) e a primeira ja virou
     despesa/receita sozinha. Se aquela linha esta como nasceu, ela vira a
     transferencia: uma linha so, nunca despesa numa conta e receita na outra.
@@ -1415,7 +1415,7 @@ def finish_absorb(conn, current_user_id, item):
 
 def transfer_confirmed(conn, current_user_id, item_id):
     """As duas pontas da transferencia estao no app (uma saida e uma entrada
-    observadas) e ao menos uma veio da Pluggy (design §3.6): nao ha o que
+    observadas) e ao menos uma veio da Pluggy: nao ha o que
     revisar. A sumida e a REMOVED nao contam."""
     directions, pluggy = set(), False
     for row in conn.execute(
@@ -1945,7 +1945,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
     if of_item:
         return _join_open_finance_item(conn, current_user_id, detection, of_item)
 
-    # 2b. O Open Finance ja trouxe esta compra com outro valor (design §3.7):
+    # 2b. O Open Finance ja trouxe esta compra com outro valor:
     # o unico par de cada lado, mesma loja, na faixa. O valor do banco fica.
     near = near_item_for_detection(conn, current_user_id, detection, target)
     if near:
@@ -2239,7 +2239,7 @@ def _join_open_finance_item(conn, current_user_id, detection, row):
 
 
 # ---------------------------------------------------------------------------
-# A mesma compra com outro valor (design §3.7): o par aproximado
+# A mesma compra com outro valor: o par aproximado
 # ---------------------------------------------------------------------------
 
 NEAR_STOP_WORDS = {

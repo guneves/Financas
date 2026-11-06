@@ -1,4 +1,4 @@
-// "Avisos dos bancos" (Fase 2, docs/notifications-pluggy-design.md §4): o
+// "Avisos dos bancos" (Fase 2): o
 // interruptor bank_notifications de GET /api/inbox/settings. Ligado por padrao;
 // um servidor antigo que nao manda o campo vale ligado, como o APK
 // (InboxSettingsDto.bankNotifications = true).

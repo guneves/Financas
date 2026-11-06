@@ -792,7 +792,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
         rules = import_rules_for_matching(conn, current_user_id)
         stamp = utc_timestamp()
         batch = []
-        # Sucessao (design §3.3 passo 0): o que sumiu de cada conta e calculado
+        # Sucessao: o que sumiu de cada conta e calculado
         # antes, sem gravar; a id nova que continua uma sumida a sucede no
         # ingest(); so o que ninguem sucedeu some depois.
         missing = {}
@@ -848,7 +848,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
             counts[status] = counts.get(status, 0) + 1
         for seen, left, _pulled in missing.values():
             removed += open_finance_inbox.vanish_rows(conn, current_user_id, left, seen)
-        # O par aproximado (design §3.3 passo 3b): depois de todos os pares
+        # O par aproximado: depois de todos os pares
         # exatos do pull e antes de gravar, para nunca gravar duas vezes.
         near = open_finance_inbox.near_match_pass(conn, current_user_id, pending_before)
         if near:
@@ -866,7 +866,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
             (stamp, stamp, of_item_id, current_user_id),
         )
         if record and open_finance_auto.enabled(conn, current_user_id):
-            # As orfas (Fase 5, design §3.4): por ultimo, com tudo do pull no
+            # As orfas (Fase 5): por ultimo, com tudo do pull no
             # lugar (pagamentos e fundos do banco inclusive) e o app ja tendo lido
             # o banco (last_sync_at acima), para o saldo comparar o que ficou.
             orphans_removed = open_finance_orphans.sweep(conn, current_user_id, of_item_id, today)

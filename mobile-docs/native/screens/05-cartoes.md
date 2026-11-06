@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Migration order | 4 (see `../migration-order.md`; same step as Extrato) |
+| Migration order | 4 (same step as Extrato) |
 | Status | Built 2026-10-24 on `claude/native-session-a` (native-level 6): `ui/cartoes/` over `GET /api/cc-invoices` (totals, closed/past-due/payable/nearest/future from the server), pay-invoice (suggested account = autopay, else default), refund with `client_id` per sheet open and the installments' prefill, "De quem é?" (`CardRules.shareStart`, comma accepted), delete purchase/refund through `DELETE /api/cc-expenses/purchases/<id>`, receipts; `rules/CardRules.kt` (cardPurchase.js port + the inline rules); CI green; waiting for the owner's phone check (Acceptance) and the merge. Not built: card carousel, haptic confirm on Pagar, the home-screen widget, refunds queued offline (a decision) |
 | React source | `frontend/src/pages/lancamentos/Cartoes.jsx`, `pages/lancamentos/CardRefundSheet.jsx`, `pages/lancamentos/CardShareSheet.jsx`, `pages/lancamentos/useLancamentos.js`, `pages/lancamentos/ProjectionHeader.jsx`, `pages/lancamentos/helpers.js`, `components/PayInvoiceSheet.jsx`, `components/AttachmentsSheet.jsx` (purchase mode), `components/ShareFields.jsx` |
 | Route(s) | `/lancamentos/cartoes` |

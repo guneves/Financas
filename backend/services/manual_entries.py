@@ -52,7 +52,7 @@ def require_manual_card(conn, current_user_id, card_id):
         raise ValidationError(BANK_FED_CARD_MESSAGE)
 
 
-# Investimentos so pela Pluggy (Fase 3, docs/notifications-pluggy-design.md §5):
+# Investimentos so pela Pluggy (Fase 3):
 # a Corretora alimentada pela Pluggy recebe as operacoes, os resgates e os
 # proventos da corretora sozinha; digitar ali seria a mesma operacao em dobro.
 # So as rotas HTTP chamam isto; os gravadores do servidor (proceeds_sync,

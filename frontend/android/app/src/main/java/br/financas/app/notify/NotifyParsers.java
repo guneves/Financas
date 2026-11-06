@@ -66,7 +66,7 @@ public final class NotifyParsers {
         public String counterpartyBank;
         /** O nome do cartao que a notificacao mostra (o titulo do Samsung Wallet). */
         public String cardName;
-        /** Compra no exterior ou em outra moeda: o R$ e a estimativa do banco (design §3.7). */
+        /** Compra no exterior ou em outra moeda: o R$ e a estimativa do banco. */
         public boolean international;
     }
 

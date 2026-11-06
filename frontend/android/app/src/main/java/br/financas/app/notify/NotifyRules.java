@@ -29,7 +29,7 @@ import java.util.TreeMap;
  * - o texto que vale: o bigText quando veio (costuma trazer o nome inteiro do lugar), senao o text;
  * - a exportacao da captura, em JSON ou texto. E o unico caminho por onde um texto sai do aparelho.
  *
- * Quem fala (docs/notifications-pluggy-design.md §4, dono 2026-11-04): o Flash (o app e o Samsung
+ * Quem fala (dono 2026-11-04): o Flash (o app e o Samsung
  * Wallet com o cartao do Flash), o Itaú, o BB, o BTG Banking e o app da BTG Investimentos (so a
  * transferencia: NotifyParsers descarta o resto). O aviso grava na hora; a Pluggy confere depois.
  */

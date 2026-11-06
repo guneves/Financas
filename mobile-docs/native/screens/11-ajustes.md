@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Migration order | 6 (see `../migration-order.md`) |
+| Migration order | 6 |
 | Status | Built 2026-10-24 on `claude/practical-hamilton-e6nxfi` (native-level 7): `ui/ajustes/` — a section list opening each section: Contas (create with signed initial balance, edit, default, link/unlink portfolio, archive, reactivate; balances masked), Cartões (functions via `CardFunctions.cardFormPayload`, closing-day auto-fill, the row's Débito automático select, edit keeping an archived debit account, delete), Categorias, Aprovar (`always_ask`), Aparência, Perfil (username, masked e-mail, Sair), Notificações dos bancos (`NotifyPlugin`'s static helpers, `rules/NotifyTexts.kt` = `notifyRules.js`), Versão do app (APK only: `ApkUpdatePlugin.latestState/installNow`, `rules/ApkUpdateTexts.kt`). Session E (2026-10-25): no WebView — the theme applies by recreating the activity ("Sistema" follows the phone), Sair goes to the native login, `NotifyAccess`/`ApkUpdater` replace the plugins, and **Regras de importação and Integrações are desktop-only** (a note under the list). Every list re-read after a write refreshes the copies "+ Novo" and Aprovar use. Waiting for the owner's phone check. Not built: biometric gate, the listener-lost notification, "Sempre perguntar" inside native Aprovar Open Finance (2026-10-27, `claude/pluggy-open-finance`): section `open-finance` after Aprovar — each connection's status (`rules/OpenFinanceRules.kt` = `lib/openFinance.js`), where each account goes, Pluggy's balance next to the app's (masked in privacy mode) and "Atualizar"; connecting, reconnecting and mapping are web-only (the Pluggy Connect widget is web; no WebView). |
 | React source | `frontend/src/pages/Ajustes.jsx`; `pages/ajustes/ContasSection.jsx`, `CartoesSection.jsx`, `CategoriasSection.jsx`, `RegrasSection.jsx`, `AprovarSection.jsx`, `IntegracoesSection.jsx`, `AparenciaSection.jsx`, `PerfilSection.jsx`, `NotificacoesSection.jsx`, `AppVersionSection.jsx`; `components/ApkUpdateBanner.jsx` (`ApkUpdatePrompt`) |
 | Route(s) | `/ajustes` with anchors `#contas`, `#cartoes`, `#categorias`, `#regras-de-importacao`, `#aprovar`, `#open-finance`, `#integracoes`, `#aparencia`, `#perfil`, `#notificacoes`, `#versao` (last two only in the APK) |
@@ -131,19 +131,11 @@ default categories on first use.
   igual a essa." / `Ja existe uma regra para "<p>".`, "O valor minimo nao pode passar do maximo.",
   "Escolha ao menos um lancamento em 'transaction_ids'.", 404 "Regra nao encontrada.".
 
-### Avisos do celular (anchor `#aprovar`) — built; was "Aprovar"
-Since 2026-10-27 (045), as on the web: "Gravar sozinho" (`auto_record` of `GET/PATCH
-/api/inbox/settings`, on by default; toasts "Os avisos viram lançamento na hora; revise no Extrato."
-/ "Os avisos voltam a esperar; resolva no Extrato, em Revisar.") and "Sempre perguntar a
-conta/cartão", disabled while Gravar sozinho is on. The phone has no Aprovar screen; the Open Finance
-texts say "no Revisar" where the web says "no Aprovar". The original spec below is history.
-
-#### Original spec
-- Checkbox "Sempre perguntar a conta/cartão" + explanation ("…"Aprovar prontos" não leva nenhum…").
-- `GET /api/inbox/settings` → `{always_ask}` (key `['aprovar', 'ajustes']`); `PATCH` `{always_ask:
-  bool}` (400 "Envie always_ask como true ou false."); toast "Aprovar vai pedir a conta/cartão de todo
-  item." / "Aprovar volta a usar as escolhas lembradas.". Read error "Não foi possível ler os ajustes
-  de Aprovar.".
+### Notificações do celular — built
+The brake "Avisos dos bancos" (`bank_notifications` of `GET/PATCH /api/inbox/settings`, on by
+default): off, only the Flash's notices are recorded. Every notice the policy accepts becomes a
+lançamento at once; the owner confirms it in Extrato › Revisar (CLAUDE.md › "Notifications are fast,
+Pluggy is the record"). There is no Aprovar screen and no "Gravar sozinho" switch on any client.
 
 ### Integrações — **late / desktop** (diagnostic)
 - Overall alert from `status`: ok "Cotações e índices chegando normalmente.", degraded "Uma integração

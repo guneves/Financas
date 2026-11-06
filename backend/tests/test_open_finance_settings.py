@@ -213,7 +213,7 @@ class TestIncludePending:
         assert (row["date"], row["description"], row["role"]) == ("2026-10-26", "PADARIA BOM PAO", "SOURCE")
 
     def test_a_new_id_on_posting_succeeds_the_old_one_in_the_same_item(self, world):
-        # Sucessao (design §3.3 passo 0): a pendente que liquida com outra id e
+        # Sucessao: a pendente que liquida com outra id e
         # a mesma observacao; o item fica o mesmo, a linha velha aponta a nova.
         item_id, _p, made = connected(world)
         world.call("patch", SETTINGS, json={"include_pending": True})

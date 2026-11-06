@@ -1,4 +1,4 @@
-"""Gemeos: duas compras iguais de verdade ganham "2× igual" (design §3.5, Fase 4).
+"""Gemeos: duas compras iguais de verdade ganham "2× igual" (Fase 4).
 
 Duas observacoes do mesmo canal sao dois movimentos (I2), entao o app guarda as
 duas. Para o dono ver sem pergunta nenhuma (o segundo cafe nao custa toque; a

@@ -57,7 +57,7 @@ def awaiting(conn, current_user_id, table, target_id):
 
 def clear(conn, current_user_id, table, target_id, category=None):
     """O app (nao o dono) tira da revisao: a Pluggy confirmou e a categoria e
-    certa (Fase 4, design §3.6). Com `category` (nome, id), ela entra junto. Na
+    certa (Fase 4). Com `category` (nome, id), ela entra junto. Na
     compra no cartao, todas as parcelas. Quem chama renova os snapshots."""
     if table == "transactions":
         if category:
@@ -161,7 +161,7 @@ def _card_items(conn, current_user_id):
 def queue(conn, current_user_id):
     """O que espera a revisao, do mais novo para o mais antigo."""
     transactions, cards = _transaction_items(conn, current_user_id), _card_items(conn, current_user_id)
-    # "2x igual" (design §3.5): so um selo, nada a decidir.
+    # "2x igual": so um selo, nada a decidir.
     twin_ids = transaction_twin_ids(conn, current_user_id, transactions)
     twin_cards = card_twin_keys(conn, current_user_id, cards)
     for item in transactions:

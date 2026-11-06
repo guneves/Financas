@@ -12,7 +12,7 @@ A compra so do Samsung Wallet grava na hora: nenhum banco vai avisar dela. Se o
 app do Flash chegar depois com a mesma compra, junta (uma linha so); se chegar
 com a negativa, o lancamento intocado sai (`undo_declined()`).
 
-Nada espera (design §3.2 passo 7, dono 2026-11-04):
+Nada espera (dono 2026-11-04):
 - a transferencia entre contas do dono com uma ponta so vira, ja, a
   despesa/receita da conta que avisou (`one_side_now()`); quando a outra ponta
   chegar (notificacao ou Pluggy), inbox.absorb_recorded_side() faz da mesma

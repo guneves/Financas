@@ -1,4 +1,4 @@
-"""Um movimento, uma linha: as invariantes I1/I2 (docs/notifications-pluggy-design.md §2).
+"""Um movimento, uma linha: as invariantes I1/I2.
 
 Puro: recebe uma conexao sqlite3 (qualquer uma, ate somente leitura) e um
 user_id, e devolve as violacoes em texto. Nao importa `db` nem `services`, para

@@ -178,8 +178,9 @@ APK updates after that: "Updating the phone", below.
 
 ## Open Finance (Pluggy)
 
-The app pulls the owner's bank and card movements from Pluggy into **Lançamentos › Aprovar**;
-nothing is recorded without approval. Code: `backend/pluggy_client.py`, `services/open_finance*.py`,
+The app pulls the owner's bank and card movements from Pluggy and records them by itself; the owner
+confirms and categorizes in Extrato › Revisar. Phone notices record first, and Pluggy confirms them
+(CLAUDE.md › "Notifications are fast, Pluggy is the record"). Code: `backend/pluggy_client.py`, `services/open_finance*.py`,
 `routes/open_finance.py`, migration 043.
 
 **Secrets.** `PLUGGY_CLIENT_ID` and `PLUGGY_CLIENT_SECRET` (Pluggy dashboard › Applications) go in
@@ -214,14 +215,11 @@ button (with MeuPluggy the connector is "MeuPluggy" for every bank, so the accou
 nothing is mapped silently, and an unmapped account produces nothing (its movements wait, counted,
 until mapped).
 
-**Gravar sozinho** (044, Ajustes › Open Finance): turns on only when every account of every
-connection has a destination or "Não usar" and every connection was pulled in the last 48 h. On, a
-pulled movement becomes a lançamento without Aprovar (what already waited there from Pluggy is
-recorded at once); Aprovar keeps Flash and what only the owner decides (a transfer whose other side
-never came, an investment on a bank account). Phone notifications are only for the Flash (no Pluggy support); the server ignores every other one. **Histórico**: "Ver prévia" counts,
-per account, what the last N days would link/record and what is only in the app; "Trazer o
-histórico" applies it (needs Gravar sozinho). Nothing typed by the owner is deleted.
-The first real connection is the owner's check after the deploy — see `docs/handoff.md`.
+**Recording** (`auto_record`, on by default; the off switch is API only): a pulled movement of a
+mapped account becomes a lançamento right away; what only the owner can decide (a one-sided transfer
+into the Corretora or the Conta global) waits in the Extrato. **Histórico** (Ajustes › Open Finance):
+"Ver prévia" counts, per account, what the last N days would link/record and what is only in the
+app; "Trazer o histórico" applies it. Nothing typed by the owner is deleted.
 
 **Rebuild from Pluggy** (wipes lançamentos, keeps Flash; a verified backup comes first). Dry-run on the
 running container, then apply with the app stopped, so no tick or screen records mid-way:
@@ -239,7 +237,7 @@ sudo docker compose up -d app
 
 **Disconnect**: "⋯ › Desconectar" (confirm; the API asks for the bank's name, e.g. "BTG Pactual",
 not "MeuPluggy"). It deletes the item at Pluggy and archives ours.
-Approved lançamentos stay; items still pending in Aprovar stay for you to decide.
+Recorded lançamentos stay; items still waiting stay in the Extrato for you to decide.
 
 **Troubleshooting.** The item's status and Pluggy's error message are in Ajustes; the last failure
 of a real call is under Integrações › Pluggy. Server logs: `sudo docker compose logs | grep -i pluggy`

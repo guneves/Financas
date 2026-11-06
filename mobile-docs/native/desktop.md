@@ -40,7 +40,6 @@ manter o desktop, inclusive gostaria que as interfaces fossem diferentes".
 |---|---|
 | Início | A dashboard grid: balance and accounts, Resumo do mês, attention items, next invoices, the month's cash flow and categories on one screen without scrolling at 1440×900. |
 | Extrato | The main desktop workspace: a full table (date, description, category, account, amount, balance), filters in a side panel, search, multi-select for bulk recategorize/delete, inline edit, the selected row's details and receipts in the side panel. |
-| Aprovar | A list + detail layout: pending items on the left, the selected item's draft on the right; keyboard to approve and move to the next. |
 | Cartões | Invoices as columns (open, next, paid) with the purchase table of the selected invoice; refunds and sharing in the side panel. |
 | A receber | A table grouped by person with totals; mark several as paid at once. |
 | Importar | Desktop-first: drag-and-drop file, the preview as a wide table with rules applied, duplicates flagged. |
