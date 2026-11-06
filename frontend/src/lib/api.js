@@ -2,6 +2,8 @@
 // (routes/frontend.py) e, em desenvolvimento, o Vite (5173) repassa /api ao
 // Flask (vite.config.js). O servidor nao tem CORS: VITE_API_BASE_URL, se usado,
 // tem de ser da mesma origem da tela (um caminho, ou o proprio endereco).
+import { isProxyAuthResponse, shouldReload } from './proxySession.js'
+
 const DEFAULT_API_BASE_URL = ''
 const AUTH_STORAGE_KEY = '@financeMVP:auth'
 
@@ -21,6 +23,48 @@ export class ApiNetworkError extends Error {
 }
 
 const NETWORK_MESSAGE = 'Sem conexão com o servidor. Esta ação só funciona conectado.'
+
+const PROXY_AUTH_MESSAGE = 'O login do Google venceu. A página vai recarregar para você entrar de novo.'
+
+// O proxy de autenticacao (login do Google na porta 8443) recusou o pedido
+// antes do app: a sessao do Google venceu. Nao e ApiNetworkError (o servidor
+// respondeu) nem o login do app vencido (o JWT fica). Uma criacao do "+ Novo"
+// tambem vai para a fila (lib/outboxRules.js `queuesCreation()`), e a pagina
+// recarrega para passar pelo login do Google (lib/proxySession.js).
+export class ApiProxyAuthError extends Error {
+  constructor(message = PROXY_AUTH_MESSAGE) {
+    super(message)
+    this.name = 'ApiProxyAuthError'
+    this.proxyAuth = true
+    this.status = 401
+  }
+}
+
+const PROXY_RELOAD_KEY = '@financeMVP:proxyReloadAt'
+// A recarga espera um pouco: quem recebeu o erro (createEntry) ainda guarda o
+// lancamento na fila antes de a pagina sair.
+const PROXY_RELOAD_DELAY_MS = 1_000
+
+function readReloadTs() {
+  try {
+    return sessionStorage.getItem(PROXY_RELOAD_KEY)
+  } catch {
+    return null
+  }
+}
+
+function proxyAuthFailure() {
+  const now = Date.now()
+  if (typeof window !== 'undefined' && shouldReload(readReloadTs(), now)) {
+    try {
+      sessionStorage.setItem(PROXY_RELOAD_KEY, String(now))
+    } catch {
+      // sem sessionStorage: recarrega mesmo assim (o login do Google para o laco)
+    }
+    setTimeout(() => window.location.reload(), PROXY_RELOAD_DELAY_MS)
+  }
+  return new ApiProxyAuthError()
+}
 
 // O servidor respondeu da ultima vez? Quem mostra o aviso de "sem conexao"
 // (Layout) assina aqui; muda a cada pedido, com ou sem sucesso.
@@ -129,7 +173,9 @@ export async function apiFetch(path, options = {}) {
     response = await fetch(`${API_BASE_URL}${normalizePath(path)}`, {
       ...fetchOptions,
       ...(controller ? { signal: controller.signal } : {}),
-      headers
+      headers,
+      // Um 302 do proxy (login do Google) nao e seguido: vira `opaqueredirect`.
+      redirect: 'manual'
     })
   } catch {
     setServerReachable(false)
@@ -138,6 +184,9 @@ export async function apiFetch(path, options = {}) {
     if (timer) clearTimeout(timer)
   }
   setServerReachable(true)
+
+  // Antes do 401 do app: o do proxy nunca apaga o JWT.
+  if (isProxyAuthResponse(response)) throw proxyAuthFailure()
 
   const contentType = response.headers.get('content-type') || ''
   const payload = contentType.includes('application/json')
@@ -183,13 +232,16 @@ export async function apiBlob(path) {
   let response
   try {
     response = await fetch(`${API_BASE_URL}${normalizePath(path)}`, {
-      headers: { Authorization: `Bearer ${authData.access_token}` }
+      headers: { Authorization: `Bearer ${authData.access_token}` },
+      redirect: 'manual'
     })
   } catch {
     setServerReachable(false)
     throw new ApiNetworkError(NETWORK_MESSAGE)
   }
   setServerReachable(true)
+
+  if (isProxyAuthResponse(response)) throw proxyAuthFailure()
 
   if (!response.ok) {
     if (response.status === 401) clearStoredAuth()

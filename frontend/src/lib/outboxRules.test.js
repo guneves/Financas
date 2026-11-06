@@ -19,6 +19,7 @@ import {
   newClientId,
   outcomeOf,
   pendingAccountDeltas,
+  queuesCreation,
   pendingAsTransactions,
   sendOrder,
 } from './outboxRules.js'
@@ -112,6 +113,18 @@ test('resposta do envio: gravou sai, sem rede e 5xx esperam, 401 para, recusa pe
   // Sem nada que diga que o servidor recebeu, o item nunca e descartado.
   assert.equal(outcomeOf({}), 'retry')
   assert.equal(outcomeOf(undefined), 'retry')
+})
+
+test('o proxy de autenticacao recusou: a criacao vai para a fila e o envio espera', () => {
+  // O login do Google venceu: o pedido nao chegou ao app, como sem rede.
+  assert.equal(queuesCreation({ proxyAuth: true, status: 401 }), true)
+  assert.equal(queuesCreation({ network: true }), true)
+  assert.equal(outcomeOf({ proxyAuth: true }), 'retry')
+  // O 401 do app (JWT vencido) e as recusas do app sobem como erro.
+  assert.equal(queuesCreation({ status: 401 }), false)
+  assert.equal(queuesCreation({ status: 400 }), false)
+  assert.equal(queuesCreation(new Error('x')), false)
+  assert.equal(queuesCreation(undefined), false)
 })
 
 test('a fila sai na ordem em que foi lancada', () => {

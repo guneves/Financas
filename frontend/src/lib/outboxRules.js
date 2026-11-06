@@ -92,14 +92,23 @@ export function editedItem(current, { kind, payload }) {
   return next
 }
 
+// Uma criacao que falhou vai para a fila quando o pedido nunca chegou ao app:
+// sem rede (`network`, ApiNetworkError) ou recusado pelo proxy de autenticacao
+// (`proxyAuth`, ApiProxyAuthError: o login do Google venceu). Qualquer outra
+// resposta veio do app e sobe como erro.
+export function queuesCreation(error) {
+  return Boolean(error?.network || error?.proxyAuth)
+}
+
 // O que uma tentativa de envio faz com o item.
 //   done      — o servidor gravou (201) ou ja tinha gravado (200): sai da fila.
-//   retry     — nao chegou, ou o servidor caiu (5xx): fica pendente, a rodada para.
+//   retry     — nao chegou (sem rede, ou o proxy de autenticacao recusou), ou o
+//               servidor caiu (5xx): fica pendente, a rodada para.
 //   stop      — 401: fica tudo como esta ate o dono entrar de novo.
 //   attention — o servidor recusou (400, 409...): precisa do dono; os proximos seguem.
 export function outcomeOf(result) {
   if (result?.ok) return 'done'
-  if (result?.network) return 'retry'
+  if (result?.network || result?.proxyAuth) return 'retry'
   const status = Number(result?.status) || 0
   if (status === 401) return 'stop'
   if (status >= 500 || status === 408 || status === 429 || status === 0) return 'retry'

@@ -162,8 +162,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 - **"+ Novo" creations are idempotent by `client_id`** (024): `POST /api/transactions`,
   `/api/transfers`, `/api/cc-expenses/purchases`. A repeat returns the first result (200) — the
   lookup runs before validation. The row stays "Manual" and editable.
-- **The outbox holds creations only, and only when the request never reached the server**
-  (`ApiNetworkError`). A creation times out at 6 s and is queued (offline: queued without trying);
+- **The outbox holds creations only, and only when the request never reached the app**
+  (`ApiNetworkError`, or the auth proxy refused it: `ApiProxyAuthError`). A proxy 401 never clears
+  the JWT; the page reloads into the Google login at most once per 30 s (`lib/proxySession.js`). A creation times out at 6 s and is queued (offline: queued without trying);
   reads 45 s; edits and deletes have no timeout and are never queued. Rules in `lib/outboxRules.js`
   (tested): a pending transfer leaves the balance alone, a pending card purchase touches no account,
   a balance counting pending items is labelled an estimate.
