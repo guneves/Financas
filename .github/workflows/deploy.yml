@@ -1,7 +1,7 @@
 # Push to main: test, build the image into GHCR, deploy it on guilhermeserver.
 # The server only pulls: /srv/apps/financas holds compose.yaml and .env (never touched here).
 # On every deploy the "apk" job also builds the signed APK and publishes it,
-# with apk/version.json, in /srv/apps/financas/apk (served on the tailnet by tailscale serve),
+# with apk/version.json, in /srv/apps/financas/apk (served by the auth proxy on :8443, behind the device key),
 # next to the test APK (financas-debug.apk, package br.financas.app.debug, never in version.json).
 name: deploy
 
@@ -18,7 +18,7 @@ env:
   IMAGE: ghcr.io/guneves/financas-app
   SERVER: guilherme@guilhermeserver.tail5084ff.ts.net
   APP_DIR: /srv/apps/financas
-  API_BASE: https://guilhermeserver.tail5084ff.ts.net
+  API_BASE: https://guilhermeserver.tail5084ff.ts.net:8443
 
 jobs:
   test:

@@ -30,10 +30,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import br.financas.app.BuildConfig;
 import br.financas.app.JsonOut;
+import br.financas.app.outbox.DeviceKey;
+import br.financas.app.outbox.Session;
 
 /**
  * O APK novo (o aviso do Inicio e Ajustes › Versão do app): o CI publica o APK assinado e
- * /apk/version.json no servidor, so na tailnet (tailscale serve, DEPLOY.md).
+ * /apk/version.json no servidor; o proxy da porta 8443 (Caddy) serve a pasta, atras da chave de
+ * acesso remoto (DeviceKey), como a API (DEPLOY.md).
  * Aqui: perguntar qual e o mais novo, baixar, conferir e abrir o instalador do Android.
  *
  * O instalador e o do sistema; ele confere a assinatura e so instala por cima um APK da
@@ -58,7 +61,7 @@ public final class ApkUpdater {
      */
     public static JSONObject latestState(Context context, String baseUrl) throws Exception {
         JSONObject result = installed(context);
-        ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
+        ApkUpdateRules.Latest latest = fetchLatest(baseUrl, Session.deviceKey(context));
         if (latest != null) {
             JSONObject out = new JSONObject();
             JsonOut.put(out, "versionCode", latest.versionCode);
@@ -97,7 +100,7 @@ public final class ApkUpdater {
     /** Baixa, confere e abre o instalador: { status: installing | up-to-date }. Bloqueia (rede). */
     public static JSONObject installNow(Context context, String baseUrl) throws Exception {
         try {
-            ApkUpdateRules.Latest latest = fetchLatest(baseUrl);
+            ApkUpdateRules.Latest latest = fetchLatest(baseUrl, Session.deviceKey(context));
             JSONObject result = new JSONObject();
             if (BuildConfig.DEBUG || !ApkUpdateRules.isNewer(latest, installedCode(context))) {
                 JsonOut.put(result, "status", "up-to-date");
@@ -154,10 +157,12 @@ public final class ApkUpdater {
         }
     }
 
-    private static ApkUpdateRules.Latest fetchLatest(String baseUrl) throws Exception {
-        HttpURLConnection connection = open(baseUrl + ApkUpdateRules.MANIFEST_PATH);
+    // Pacote: ApkUpdaterTest confere a chave e o 401 do proxy num servidor de teste.
+    static ApkUpdateRules.Latest fetchLatest(String baseUrl, String deviceKey) throws Exception {
+        HttpURLConnection connection = open(baseUrl + ApkUpdateRules.MANIFEST_PATH, deviceKey);
         try {
             int status = connection.getResponseCode();
+            refuseProxy(connection, status);
             if (status == 404) return null;
             if (status != 200) throw new IOException("O servidor respondeu " + status + ".");
             try (InputStream in = connection.getInputStream()) {
@@ -181,9 +186,10 @@ public final class ApkUpdater {
         // Ja baixado numa tentativa anterior (o dono cancelou o instalador): reaproveita.
         if (!(apk.length() == latest.size && sha256(apk).equals(latest.sha256))) {
             File part = new File(dir, latest.file + ".part");
-            HttpURLConnection connection = open(baseUrl + latest.path());
+            HttpURLConnection connection = open(baseUrl + latest.path(), Session.deviceKey(context));
             try {
                 int status = connection.getResponseCode();
+                refuseProxy(connection, status);
                 if (status != 200) throw new IOException("O servidor respondeu " + status + " ao baixar o APK.");
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
                 long total = 0;
@@ -218,8 +224,15 @@ public final class ApkUpdater {
         return apk;
     }
 
-    private static HttpURLConnection open(String address) throws IOException {
+    /** O 401 do proxy de autenticacao: a chave de acesso remoto falta ou esta errada. */
+    private static void refuseProxy(HttpURLConnection connection, int status) throws IOException {
+        if (DeviceKey.isProxyAuthRequired(connection, status)) throw new IOException(DeviceKey.MESSAGE + ".");
+    }
+
+    // O manifesto e o download, os dois com a chave de acesso remoto (o proxy serve /apk/).
+    static HttpURLConnection open(String address, String deviceKey) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        DeviceKey.apply(connection, deviceKey);
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
         // Um portal de Wi-Fi responderia 3xx com uma pagina qualquer: nao segue.

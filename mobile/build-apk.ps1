@@ -35,7 +35,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$ApiBase = 'https://guilhermeserver.tail5084ff.ts.net',
+    [string]$ApiBase = 'https://guilhermeserver.tail5084ff.ts.net:8443',
     [switch]$NoInstall,
     [switch]$SkipTests,
     [int]$VersionCode = 0

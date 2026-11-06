@@ -201,6 +201,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         NotifyEvents.setListener(notifyListener)
+        readDeviceKey()
     }
 
     override fun onCleared() {
@@ -700,6 +701,38 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
      * "Sair": apaga a sessao do APK (o envio da fila para; os itens ficam, de cada usuario) e as
      * copias guardadas; [onDone] leva ao login.
      */
+    // ---- Chave de acesso remoto (Perfil) ----
+
+    var hasDeviceKey by mutableStateOf(false)
+        private set
+
+    var deviceKeyOpen by mutableStateOf(false)
+        private set
+
+    private fun readDeviceKey() {
+        viewModelScope.launch {
+            hasDeviceKey = withContext(Dispatchers.IO) { graph.deviceKey().isNotEmpty() }
+        }
+    }
+
+    fun openDeviceKey() {
+        deviceKeyOpen = true
+    }
+
+    fun closeDeviceKey() {
+        deviceKeyOpen = false
+    }
+
+    /** Troca a chave de acesso remoto; a fila e as deteccoes guardadas saem em seguida. */
+    fun saveDeviceKey(key: String) {
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) { runCatching { graph.saveDeviceKey(key) }.isSuccess }
+            deviceKeyOpen = false
+            profileMessage = saved to app.getString(if (saved) R.string.device_key_saved else R.string.device_key_save_failed)
+            readDeviceKey()
+        }
+    }
+
     fun signOut(onDone: () -> Unit) {
         Outbox.signOut(app)
         graph.cache.clear()

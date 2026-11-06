@@ -2,6 +2,7 @@ package br.financas.app.data
 
 import android.content.Context
 import br.financas.app.BuildConfig
+import br.financas.app.notify.DetectionSender
 import br.financas.app.outbox.LoginNotifier
 import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.OutboxStore
@@ -9,6 +10,7 @@ import br.financas.app.outbox.Session
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,7 +24,52 @@ class AppGraph private constructor(context: Context) {
 
     private val appContext: Context = context.applicationContext
 
+    init {
+        // Um login guardado com o endereco antigo (443, so na VPN) passa para o do build (8443).
+        Session.migrateBaseUrl(appContext, BuildConfig.API_BASE_URL)
+    }
+
     private val _sessionExpired = MutableStateFlow(false)
+
+    private val _deviceKeyNeeded = MutableStateFlow(false)
+
+    /**
+     * true depois de um 401 do proxy de autenticacao (outbox/DeviceKey.java): a casca pede a chave
+     * de acesso remoto. O login fica. "Agora nao" cala o pedido ate a proxima chave salva.
+     */
+    val deviceKeyNeeded: StateFlow<Boolean> = _deviceKeyNeeded.asStateFlow()
+
+    @Volatile
+    private var keyPromptDismissed = false
+
+    private fun handleProxyAuth() {
+        if (!keyPromptDismissed) _deviceKeyNeeded.value = true
+    }
+
+    /** "Agora nao" no pedido da chave: nao pergunta de novo ate uma chave nova ser salva. */
+    fun dismissDeviceKeyPrompt() {
+        keyPromptDismissed = true
+        _deviceKeyNeeded.value = false
+    }
+
+    /** A chave de acesso remoto guardada ("" sem chave). Bloqueia (Keystore): fora da tela. */
+    fun deviceKey(): String = Session.deviceKey(appContext)
+
+    /**
+     * Guarda a chave de acesso remoto (vazia apaga) e, com login, manda ja o que a fila e as
+     * deteccoes guardaram enquanto o proxy recusava. Bloqueia (Keystore): fora da tela.
+     */
+    fun saveDeviceKey(key: String) {
+        Session.saveDeviceKey(appContext, key)
+        keyPromptDismissed = false
+        _deviceKeyNeeded.value = false
+        if (Session.load(appContext) != null) {
+            appScope.launch(Dispatchers.IO) {
+                Outbox.flush(appContext, false)
+                DetectionSender.run(appContext)
+            }
+        }
+    }
 
     /**
      * true depois de um 401 (ou sem sessao): a casca (NativeActivity) volta para o login. Volta a
@@ -54,12 +101,14 @@ class AppGraph private constructor(context: Context) {
     fun serverUrl(): String =
         Session.load(appContext)?.baseUrl?.takeIf { it.startsWith("https://") } ?: BuildConfig.API_BASE_URL
 
-    /** O login nativo (POST /api/auth/login, sem token). */
-    val auth = AuthRepository()
+    /** O login nativo (POST /api/auth/login, sem token; com a chave de acesso remoto). */
+    val auth = AuthRepository(deviceKey = ::deviceKey)
 
     val api: ApiClient = ApiClient(
         session = { currentSession().also { if (it != null) _sessionExpired.value = false } },
         onUnauthorized = ::handleUnauthorized,
+        deviceKey = ::deviceKey,
+        onProxyAuth = ::handleProxyAuth,
     )
 
     /** O POST de uma criacao do "+ Novo" (ui/newentry/): o mesmo cliente, com o prazo de 6 s. */
@@ -67,6 +116,8 @@ class AppGraph private constructor(context: Context) {
         session = { currentSession().also { if (it != null) _sessionExpired.value = false } },
         http = ApiClient.creationHttpClient(),
         onUnauthorized = ::handleUnauthorized,
+        deviceKey = ::deviceKey,
+        onProxyAuth = ::handleProxyAuth,
     )
 
     /** Escritas que nao sao criacao (Inicio: pagar fatura, lancar): sem prazo de resposta. */
@@ -74,6 +125,8 @@ class AppGraph private constructor(context: Context) {
         session = { currentSession().also { if (it != null) _sessionExpired.value = false } },
         http = ApiClient.writeHttpClient(),
         onUnauthorized = ::handleUnauthorized,
+        deviceKey = ::deviceKey,
+        onProxyAuth = ::handleProxyAuth,
     )
 
     /**

@@ -6,6 +6,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import br.financas.app.outbox.DeviceKey
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -28,6 +29,9 @@ data class SessionInfo(val baseUrl: String, val token: String, val userId: Strin
  * Por que um pedido nao deu certo. Tres casos que a tela trata diferente:
  * - [Network]: o pedido nao chegou (sem rede, Tailscale fora, tempo esgotado). Leitura mostra o
  *   cache; criacao vai para a fila (outbox).
+ *   - [ProxyAuth], um [Network]: o proxy de autenticacao recusou a chave de acesso remoto (401
+ *     com X-Proxy-Auth: required) e o app nem viu o pedido. Tratado como "nao chegou" (cache,
+ *     fila); nunca apaga o login. A casca pede a chave (AppGraph.deviceKeyNeeded).
  * - [Unauthorized]: sem login ou 401. Para tudo, pede para entrar de novo (como o outbox).
  * - [Http]: o servidor respondeu e recusou. [serverMessage] e o "error" do JSON, em portugues,
  *   mostrado como chegou; null quando a resposta nao trouxe mensagem.
@@ -35,7 +39,9 @@ data class SessionInfo(val baseUrl: String, val token: String, val userId: Strin
  */
 sealed class ApiException(message: String, cause: Throwable? = null) : Exception(message, cause) {
 
-    class Network(cause: Throwable?) : ApiException("Sem conexao com o servidor", cause)
+    open class Network(cause: Throwable?, message: String = "Sem conexao com o servidor") : ApiException(message, cause)
+
+    class ProxyAuth : Network(null, DeviceKey.MESSAGE)
 
     class Unauthorized(val serverMessage: String?) : ApiException(serverMessage ?: "Sessao expirada")
 
@@ -46,7 +52,14 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
 }
 
 /** Um arquivo baixado da API: os bytes, o Content-Type e o nome do Content-Disposition. */
-class Downloaded(val status: Int, val bytes: ByteArray, val contentType: String?, val fileName: String?)
+class Downloaded(
+    val status: Int,
+    val bytes: ByteArray,
+    val contentType: String?,
+    val fileName: String?,
+    /** O 401 do proxy de autenticacao (chave de acesso remoto), nao o do app. */
+    val proxyAuth: Boolean = false,
+)
 
 /** Uma leitura da API: o corpo da resposta, como texto (o ReadCache guarda esse texto). */
 fun interface Fetcher {
@@ -60,13 +73,21 @@ fun interface Fetcher {
  * Um 401 (ou nenhuma sessao) chama [onUnauthorized] com o token que o pedido usou (null sem
  * sessao) — o AppGraph apaga a sessao se ainda for aquela e a casca volta ao login — e vira
  * [ApiException.Unauthorized].
+ *
+ * Todo pedido leva a chave de acesso remoto ([deviceKey], X-Device-Key, por um interceptor). O
+ * 401 do proxy (X-Proxy-Auth: required) chama [onProxyAuth] e vira [ApiException.ProxyAuth]:
+ * o login fica.
  */
 class ApiClient(
     private val session: () -> SessionInfo?,
-    private val http: OkHttpClient = defaultHttpClient(),
+    http: OkHttpClient = defaultHttpClient(),
     private val onUnauthorized: (token: String?) -> Unit = {},
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    deviceKey: () -> String? = { null },
+    private val onProxyAuth: () -> Unit = {},
 ) : Fetcher, FileApi {
+
+    private val http: OkHttpClient = http.newBuilder().addInterceptor(DeviceKeyInterceptor(deviceKey)).build()
 
     override suspend fun get(path: String): String = send("GET", path, null)
 
@@ -93,15 +114,9 @@ class ApiClient(
             .header("Accept", "application/json")
             .method(upper, body)
             .build()
-        val (status, text) = execute(http.newCall(request))
-        when {
-            status in 200..299 -> text
-            status == 401 -> {
-                onUnauthorized(current.token)
-                throw ApiException.Unauthorized(serverMessage(text))
-            }
-            else -> throw ApiException.Http(status, serverMessage(text))
-        }
+        val reply = execute(http.newCall(request))
+        check(reply.status, reply.text, current.token, reply.proxyAuth)
+        reply.text
     }
 
     /**
@@ -115,9 +130,9 @@ class ApiClient(
                 .addFormDataPart(field, fileName, bytes.toRequestBody(mimeType.toMediaTypeOrNull()))
                 .build()
             val request = authorized(path)?.post(body)?.build() ?: throw ApiException.Unauthorized(null)
-            val (status, text) = execute(http.newCall(request))
-            check(status, text, tokenOf(request))
-            text
+            val reply = execute(http.newCall(request))
+            check(reply.status, reply.text, tokenOf(request), reply.proxyAuth)
+            reply.text
         }
 
     /** Os bytes de um GET (comprovante, exportacao), com o tipo e o nome que o servidor mandou. */
@@ -139,6 +154,7 @@ class ApiClient(
                                 bytes = it.body?.bytes() ?: ByteArray(0),
                                 contentType = it.header("Content-Type"),
                                 fileName = fileNameOf(it.header("Content-Disposition")),
+                                proxyAuth = it.isProxyAuthRequired(),
                             )
                         }
                     } catch (error: IOException) {
@@ -149,7 +165,7 @@ class ApiClient(
                 }
             })
         }
-        if (result.status !in 200..299) check(result.status, String(result.bytes, Charsets.UTF_8), tokenOf(request))
+        if (result.status !in 200..299) check(result.status, String(result.bytes, Charsets.UTF_8), tokenOf(request), result.proxyAuth)
         result
     }
 
@@ -173,9 +189,14 @@ class ApiClient(
     // O token do cabecalho do pedido (o que o 401 recusou).
     private fun tokenOf(request: Request): String? = request.header("Authorization")?.removePrefix("Bearer ")
 
-    private fun check(status: Int, text: String, token: String?) {
+    private fun check(status: Int, text: String, token: String?, proxyAuth: Boolean) {
         when {
             status in 200..299 -> Unit
+            // Antes do 401 do app: o do proxy nunca apaga o login.
+            proxyAuth -> {
+                onProxyAuth()
+                throw ApiException.ProxyAuth()
+            }
             status == 401 -> {
                 onUnauthorized(token)
                 throw ApiException.Unauthorized(serverMessage(text))
@@ -184,7 +205,9 @@ class ApiClient(
         }
     }
 
-    private suspend fun execute(call: Call): Pair<Int, String> =
+    private class Reply(val status: Int, val text: String, val proxyAuth: Boolean)
+
+    private suspend fun execute(call: Call): Reply =
         suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
@@ -194,7 +217,7 @@ class ApiClient(
 
                 override fun onResponse(call: Call, response: Response) {
                     val result = try {
-                        response.use { it.code to (it.body?.string() ?: "") }
+                        response.use { Reply(it.code, it.body?.string() ?: "", it.isProxyAuthRequired()) }
                     } catch (error: IOException) {
                         if (continuation.isActive) continuation.resumeWithException(ApiException.Network(error))
                         return

@@ -147,7 +147,16 @@ public final class OutboxRules {
      *   ATTENTION — 400, 409...: precisa do dono; os proximos seguem.
      */
     public static Outcome outcomeOf(boolean network, int status) {
-        if (network) return Outcome.RETRY;
+        return outcomeOf(network, false, status);
+    }
+
+    /**
+     * Com o 401 do proxy de autenticacao ([proxyAuth], DeviceKey): o pedido nao chegou ao app
+     * (a chave falta ou esta errada), entao RETRY, nunca STOP — o login fica (lib/outboxRules.js,
+     * `proxyAuth`).
+     */
+    public static Outcome outcomeOf(boolean network, boolean proxyAuth, int status) {
+        if (network || proxyAuth) return Outcome.RETRY;
         if (status >= 200 && status < 300) return Outcome.DONE;
         if (status == 401) return Outcome.STOP;
         if (status >= 500 || status == 408 || status == 429 || status == 0) return Outcome.RETRY;

@@ -1450,4 +1450,15 @@
     <string name="login_session_expired">Sua sessão expirou. Entre de novo; os lançamentos guardados neste aparelho continuam aqui.</string>
     <string name="ajustes_open_finance_held">Operações da corretora para você lançar</string>
     <string name="ajustes_open_finance_launch">Lançar</string>
+    <string name="device_key_label">Chave de acesso remoto</string>
+    <string name="device_key_hint">Cole a chave do servidor (proxy.env). Ela fica neste aparelho, mesmo ao sair.</string>
+    <string name="device_key_invalid">Chave de acesso inválida ou ausente</string>
+    <string name="device_key_prompt">O servidor recusou a chave de acesso remoto deste aparelho. Cole a chave certa; os lançamentos guardados continuam aqui e são enviados depois.</string>
+    <string name="device_key_save">Salvar chave</string>
+    <string name="device_key_later">Agora não</string>
+    <string name="device_key_change">Trocar chave de acesso</string>
+    <string name="device_key_stored">Uma chave está guardada neste aparelho.</string>
+    <string name="device_key_missing">Nenhuma chave guardada neste aparelho.</string>
+    <string name="device_key_saved">Chave de acesso salva.</string>
+    <string name="device_key_save_failed">Não foi possível guardar a chave.</string>
 </resources>

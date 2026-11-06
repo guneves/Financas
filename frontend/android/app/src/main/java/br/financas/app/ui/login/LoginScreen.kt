@@ -90,6 +90,13 @@ fun LoginScreen(viewModel: LoginViewModel, expired: Boolean, onSignedIn: () -> U
                             password = true,
                         )
                     }
+                    Field(stringResource(R.string.device_key_label), hint = stringResource(R.string.device_key_hint)) {
+                        AppTextField(
+                            value = viewModel.deviceKey,
+                            onValueChange = { viewModel.deviceKey = it },
+                            password = true,
+                        )
+                    }
                     AppButton(
                         stringResource(R.string.login_submit),
                         { viewModel.submit(onSignedIn) },

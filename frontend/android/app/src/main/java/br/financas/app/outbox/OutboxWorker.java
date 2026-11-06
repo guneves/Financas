@@ -40,11 +40,19 @@ public final class OutboxWorker extends Worker {
         WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request);
     }
 
+    /**
+     * A rodada parou sem chegar ao app: sem resposta ("offline") ou o proxy recusou a chave de
+     * acesso remoto ("key", tenta de novo ate o dono colar a chave certa).
+     */
+    public static boolean retries(String stopped) {
+        return "offline".equals(stopped) || "key".equals(stopped);
+    }
+
     @NonNull
     @Override
     public Result doWork() {
         OutboxSender.Summary summary = OutboxSender.run(getApplicationContext(), false);
-        if ("offline".equals(summary.stopped)) return Result.retry();
+        if (retries(summary.stopped)) return Result.retry();
         if ("login".equals(summary.stopped) && summary.kept > 0) {
             // Sem login nao adianta tentar de novo: o proximo setSession agenda outra rodada.
             LoginNotifier.show(getApplicationContext(), summary.kept);

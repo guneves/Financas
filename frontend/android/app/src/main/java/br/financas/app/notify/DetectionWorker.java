@@ -42,7 +42,8 @@ public final class DetectionWorker extends Worker {
     @Override
     public Result doWork() {
         String stopped = DetectionSender.run(getApplicationContext());
-        if ("offline".equals(stopped)) return Result.retry();
+        // "key": o proxy recusou a chave de acesso remoto; tenta de novo, a fila fica.
+        if ("offline".equals(stopped) || "key".equals(stopped)) return Result.retry();
         // "login": o proximo setSession agenda outra rodada.
         return Result.success();
     }
