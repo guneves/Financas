@@ -64,7 +64,7 @@ built by the real migrations — **`backend/finance.db` is never touched.**
   `export_csv`, `market_catalog`, `irpf_text`) are fine at the top.
 - `conftest.py` blanks `BRAPI_TOKEN`, `PLUGGY_CLIENT_ID/SECRET`, `TESOURO_PRICES_URL/FILE`,
   `HISTORY_CACHE_FILE`, sets `QUOTE_AUTO_REFRESH_SECONDS=0`, `OPEN_FINANCE_SYNC_SECONDS=0`,
-  `AUTO_RECORD_DEFAULT=0` (Aprovar tests; `test_auto_record.py` turns it on per user),
+  `AUTO_RECORD_DEFAULT=0` (inbox tests; `test_auto_record.py` turns it on per user),
   `MANUAL_ONLY_OFF_PLUGGY=0` (the default too; `test_pluggy_owner_rules.py` turns the brake on per test) and
   `ALLOW_SIGNUP=1`. Open Finance tests use `open_finance.set_client(FakePluggy())`
   (`tests/open_finance_world.py`); `pluggy_client` tests patch `pluggy_client.urlopen`. StatusInvest is patched in
@@ -272,7 +272,7 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `apply` rewrites only the sent ids, re-checking the rule. Transfers, investment cash, proventos
   and invoice payments are out of reach.
 
-### Notifications are fast, Pluggy is the record (owner 2026-11-04, design §4)
+### Notifications are fast, Pluggy is the record (owner 2026-11-04)
 **A phone notice records at once; Pluggy confirms it later and is the record.** The Flash, which Pluggy
 doesn't cover, comes only from notices (and typing).
 - **Everything can be typed** (owner 2026-11-05, reversing 2026-10-31): "+ Novo" (web and APK) offers every reais
@@ -358,7 +358,7 @@ doesn't cover, comes only from notices (and typing).
 - **A bank's own fund is an aporte/resgate** (`BANK_INVESTMENT`, in `INVESTMENT_SOURCE_TYPES`,
   `mark_bank_investments()`): Pluggy `0302` on a bank account (RF High, RF LP Selic, Tesouro Reserva) stays in the
   balance, never expense nor income, no review. It runs after each pull; Rende Fácil stays out (below).
-- **A notified row Pluggy never lists: the bank's balance decides** (Phase 5, owner 2026-11-04, design §3.4,
+- **A notified row Pluggy never lists: the bank's balance decides** (Phase 5, owner 2026-11-04,
   `services/open_finance_orphans.py`): `sweep()` runs last in each pull (after `record_bank_payments()`,
   `mark_bank_investments()` and the `last_sync_at` stamp), only with auto-record on, only on **mapped BANK
   accounts in reais** (never the Corretora, never the Conta global). **Cards are list-only** (their balance
@@ -397,7 +397,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   issuer's first card else the first credit card; no account → the issuer's account else the
   default one, never the Corretora) and nothing is remembered (`remember: False`). A look-alike the
   owner typed is linked (`free_candidates()`), never duplicated, and needs no review.
-- **Nothing waits** (design §3.2 step 7, owner 2026-11-04): an **own transfer with one side** is
+- **Nothing waits** (owner 2026-11-04): an **own transfer with one side** is
   recorded as the despesa/receita of the side the notification saw (`auto_record.one_side_now()`),
   and the other side, from either channel, turns that same row into the transfer
   (`inbox.absorb_recorded_side()`). Only a one-sided transfer touching **the Corretora** (an
@@ -412,14 +412,14 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
 - **The switches** default to `AUTO_RECORD_DEFAULT` (config, on): `auto_record` in
   `GET/PATCH /api/inbox/settings` (notifications) and in `/api/open-finance/settings` (Pluggy).
   Off is the emergency brake, API only: items wait in the Extrato's list. `conftest.py` sets `AUTO_RECORD_DEFAULT=0` so the
-  Aprovar tests see pending items; `test_auto_record.py` turns them on per user.
+  inbox tests see pending items; `test_auto_record.py` turns them on per user.
 - **Review** (`services/review.py`, `GET/POST /api/review`): an auto-recorded row has
   `needs_review = 1` (`transactions` and every installment of a card purchase, by `client_id`);
   typed and screen-generated rows are 0. Reviewing = "é meu" + optional `category_id` (a transfer
   keeps its category); a batch is all or nothing (404 on an unknown id). The Extrato shows the
   `ReviewPanel` (one tap per row, "Confirmar todos"), an "A revisar" badge, `?review=1`; the header
   pill and the Extrato tab count it (`review_count` in `GET /api/home`).
-- **Only guesses are reviewed** (Phase 4, design §3.6, `open_finance_inbox.settle_review()`): a row leaves
+- **Only guesses are reviewed** (Phase 4, `open_finance_inbox.settle_review()`): a row leaves
   review by itself, in the same pass that records or confirms it, when Pluggy confirms it
   (`reconcile_recorded()`'s untouched path, which the near match goes through, and
   `open_finance_auto.record_item()`) and `category_decision()` of the Pluggy row comes from
@@ -435,7 +435,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   amount, date, account, share or receipt is. Whenever the server changes a recorded row it refreshes the
   item's and the Pluggy rows' snapshots (`refresh_snapshots()`, also in `apply_change()`). So a Flash decline
   removes a row the owner only reviewed, and keeps one they recategorised.
-- **Twins: "2× igual"** (Phase 4, design §3.5, `services/twins.py`): `twin` on the rows of
+- **Twins: "2× igual"** (Phase 4, `services/twins.py`): `twin` on the rows of
   `GET /api/transactions` (paged too), `GET /api/review` and `GET /api/cc-expenses/statement`: another expense
   (EXPENSE or card purchase) on the same account/card, same cents, same `normalized()` description, ≤ 60 min
   apart when both have a time, else the same date; queried for the page's dates ±1 day. A neutral `Badge`
@@ -456,7 +456,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   day). They never count in the day total or the filter totals (the invoice payment moves the
   account); a day with only card rows shows no total.
 
-### The inbox engine (Aprovar)
+### The inbox engine
 - Detections arrive as parsed fields at `POST /api/inbox/detections` and become items; with the
   switches on they are recorded right away (above), and a look-alike of an existing lançamento is
   an item with a candidate.
@@ -488,7 +488,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   purchases stay two (rows = max(notified, posted)). `identity_invariants.violations()` checks it;
   every test of `test_notify_pluggy_identity.py` ends with `assert_identity()`, and the owner runs
   `scripts/check_identity.py --email X` (read-only) on the server.
-  **Succession** (design §3.3 step 0): the pull computes `missing_rows()` (the account's live rows in
+  **Succession**: the pull computes `missing_rows()` (the account's live rows in
   the window Pluggy didn't return, `MATCHED`/`PAIRED` included) before `ingest()`; a new id that
   continues one (`successor_for()`: same account and direction, same cents or BB rounding, same
   installment, ≤ 3 days; one to one; a near amount only for a single-installment purchase, same
@@ -501,7 +501,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   **The guessed side of a recorded transfer follows the bank** (`follow_bank_side()` in
   `reconcile_recorded()`): untouched by the item's snapshot, the side in `guessed` and not `edited`
   takes the account Pluggy shows (never both sides on one account, never the Conta global).
-  **Near match** (design §3.7): the same purchase posted with another amount. A pass after the
+  **Near match**: the same purchase posted with another amount. A pass after the
   pull's exact pairing and before `record_pending()` (`near_match_pass()`), and step 2b for a late
   notification (`near_item_for_detection()`): purchases only (a notification of `PURCHASE_KINDS`
   with a merchant, a Pluggy row without movement, out, 1 installment; never Pix, refund, invoice
@@ -534,7 +534,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   (source OPEN_FINANCE + `source_id` = Pluggy id; a card purchase `client_id = 'pluggy:<id>'`).
   Turning it on is refused (400) unless every BANK/CREDIT account of every active connection is
   mapped or "não usar" and each connection was pulled OK in the last 48 h (`blockers()`); on, the
-  Pluggy backlog in Aprovar is recorded in one pass. Since 045 it is on unless the owner turned it
+  waiting Pluggy backlog is recorded in one pass. Since 045 it is on unless the owner turned it
   off, and what an item lacks is guessed (`fill_defaults()`), recorded with `needs_review = 1`.
   **Nothing waits** (owner 2026-11-01: "every transaction updates the moment it arrives, no matter what
   it is"): a Pix to/from someone else is a despesa/receita in the pull that brings it,

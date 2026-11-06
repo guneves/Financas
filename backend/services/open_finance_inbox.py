@@ -251,7 +251,7 @@ def normalize_transaction(raw, account_type, charge_sign=1, include_pending=Fals
     account_currency = str(account_currency or "BRL").upper()
     currency = str(raw.get("currencyCode") or account_currency).upper()
     # A compra no exterior que a Pluggy ja converteu: a moeda dela fica (o par
-    # aproximado a trata como internacional, design §3.7).
+    # aproximado a trata como internacional).
     original_currency = currency if currency != account_currency else None
     if currency != account_currency and raw.get("amountInAccountCurrency") is not None:
         amount, currency = raw["amountInAccountCurrency"], account_currency
@@ -921,7 +921,7 @@ def follow_bank_side(conn, current_user_id, row, item, account_id):
 
 
 def settle_review(conn, current_user_id, item, row, entry_type, account_id=None):
-    """A Pluggy confirmou o lancamento que o item gravou (design §3.6, Fase 4):
+    """A Pluggy confirmou o lancamento que o item gravou (Fase 4):
     sai da revisao sozinho quando nao ha palpite.
 
     - transferencia: com as duas pontas no app (inbox.settle_transfer_review);
@@ -1354,7 +1354,7 @@ def vanish_missing(conn, current_user_id, account, seen_ids, date_from, date_to)
 
 
 # ---------------------------------------------------------------------------
-# Sucessao (design §3.3 passo 0): a pendente que liquida com outra id
+# Sucessao: a pendente que liquida com outra id
 # ---------------------------------------------------------------------------
 
 SUCCESSION_DAYS = 3
@@ -1440,7 +1440,7 @@ def _near_successor(conn, current_user_id, account, tx, missing, pulled):
 
 
 def follow_bank_amount(conn, current_user_id, item, bank_cents, snapshot_text=None):
-    """O banco lancou a mesma compra com outro valor (design §3.7): o valor do
+    """O banco lancou a mesma compra com outro valor: o valor do
     banco entra no lancamento, revisado ou com outra categoria, salvo se o dono
     digitou o valor (o de agora nao e o com que ele nasceu). Na compra no cartao,
     so a de uma linha em aberto. Devolve True se o lancamento esta no valor do
@@ -1497,7 +1497,7 @@ def follow_after_succession(conn, current_user_id, row, tx):
 
 
 # ---------------------------------------------------------------------------
-# O par aproximado no pull (design §3.3 passo 3b)
+# O par aproximado no pull
 # ---------------------------------------------------------------------------
 
 def pending_pluggy_items(conn, current_user_id):

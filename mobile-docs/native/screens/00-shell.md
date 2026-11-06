@@ -2,22 +2,16 @@
 
 | | |
 |---|---|
-| Migration order | 0 (see `../migration-order.md`) — the shell is built gradually; login + the session handover matter for step 1 |
+| Migration order | 0 — the shell is built gradually; login + the session handover matter for step 1 |
 | Status | **Built** 2026-10-25 (session E): `ui/nav/NativeActivity` is the launcher (alias `.MainActivity`), `ui/login/` (Entrar only, signup closed on the phone), the bottom bar Início · Lançamentos · Planejar · Investir · Ajustes with a floating "+" (no centre slot), the pending pill in every header and the native Pendentes sheet (Corrigir, Descartar, Sincronizar agora), the APK banner above the bottom bar, a 401 clearing the session and returning to the login. The WebView, Capacitor, the bundle and `NativeScreens` are gone. Not built: the "+" opening Registrar operação inside Investimentos (it opens "+ Novo"), the launcher shortcut. Waiting for the owner's phone check |
 | React source | `frontend/src/App.jsx`, `main.jsx`, `components/Layout.jsx`, `components/Attention.jsx` (`AttentionBell`), `components/PendingSheet.jsx`, `components/ApkUpdateBanner.jsx`, `components/InvestmentLaunchModal.jsx` (opened by "+ Novo" inside Investimentos), `pages/Auth.jsx`, `lib/navigation.js`, `lib/auth.js`, `lib/api.js`, `lib/nativeApp.js`, `lib/privacy.js`, `lib/theme.js`, `lib/connection.js`, `lib/inboxCount.js`, `lib/outbox.js`, `lib/layers.js`, `lib/appBundle.js` + `appBundleRules.js`, `lib/queryPersist.js`; Java `outbox/Session.java`, `outbox/OutboxPlugin.java`, `outbox/LoginNotifier.java`, `ShellPlugin.java`, `MainActivity.java`, `update/ApkUpdatePlugin.java`; Kotlin `ui/theme/Theme.kt` (`ShellPrefs`) |
 | Route(s) | `/` (login when signed out), every route under `Layout`: `/inicio`, `/lancamentos/*`, `/planejamento/*`, `/investimentos/*`, `/ajustes` (+ `legacyRedirects`) |
 | Endpoints | `POST /api/auth/login`, `POST /api/auth/signup`, `GET /api/inbox/count`; the bell reads Início's queries (`GET /api/transactions`, `GET /api/cc-expenses`, `GET /api/accounts?include_archived=1`, `GET /api/credit-cards`, `GET /api/recurring`, `GET /api/budgets?month=`, see `03-inicio.md`); `GET /api/investments/portfolio?refresh_prices=false` (assets for the investment modal); APK: `<baseUrl>/apk/version.json` via `ApkUpdatePlugin` |
 | Client rules | `lib/navigation.js` (`sections`, `findSection()`), `lib/attentionRules.js` (`attentionItems()` …, via `lib/attention.js` `useAttentionItems()`), `lib/outboxRules.js` (`NEEDS_ATTENTION`, `KIND_LABELS`, `itemAmount()`, `itemDate()`), `lib/appBundleRules.js` (`apkPrompt()`, `installStatusMessage()`), `lib/privacy.js` (`usePrivateFormatter()`) |
 
-> **2026-10-27 (045):** the Aprovar pill, tab badge and "Novo para aprovar" notification are gone
-> from the phone. In their place the amber **review pill** ("<n> para revisar", bell-ring + number;
-> `ReviewPill` in every header, count = `count` of `GET /api/review`, read by `ShellViewModel` on
-> resume, on every data change and every 60 s while resumed) opens the Extrato in review mode; the
-> Extrato tab shows "Extrato · N". The old notification channel `financas_inbox` is deleted on start.
-
 ## What it is for
 The frame every screen lives in: the bottom navigation and header on the phone, the counters that
-say "something waits for you" (Aprovar, pending outbox, the bell), the privacy eye, the theme, the
+say "something waits for you" (Revisar, pending outbox, the bell), the privacy eye, the theme, the
 APK update banner and the "+ Novo" button. It also owns login and hands the session to the Java
 side, which is what lets a native screen (and the outbox worker) call the API with the app closed.
 
@@ -26,9 +20,9 @@ Phone (below `lg`, 1024 px). Top to bottom:
 
 1. **Header** (`Layout.jsx`, sticky, `h-16`): left the brand mark (green `bg-brand` square with "F"
    + "Finanças"); right, in this order, each 44 px:
-   - **Aprovar pill** (`InboxPill compact`): shown only when `GET /api/inbox/count` → `pending_count`
-     > 0. Amber (warning: something to decide), bell-ring icon + the number. Tap → `/lancamentos/aprovar`.
-     Refetched every 60 s while visible and on window focus (`lib/inboxCount.js`, `retry: 0`; offline → 0, hidden).
+   - **Review pill** (`ReviewPill`): "<n> para revisar", shown only when `count` of `GET /api/review`
+     > 0. Amber (warning: something to decide), bell-ring icon + the number. Tap → the Extrato in review
+     mode. Re-read on resume, on every data change and every 60 s while resumed (offline: hidden).
    - **Pending pill** (`PendingPill compact`): shown when the outbox has items for the current
      user **or** the server is unreachable. Label `"<n> pendente(s)"`, or (no items, offline) a
      cloud-off icon with the sr-only text "Sem conexão". Amber when any item is `needs_attention`
@@ -45,8 +39,8 @@ Phone (below `lg`, 1024 px). Top to bottom:
    'Instalador aberto. Toque em "Atualizar"; os dados do app são mantidos.', 'Permita "Instalar apps
    desconhecidos" para o Finanças e volte: o download começa sozinho.'. A debug build never reports
    `newer` (`ApkUpdatePlugin`).
-3. **Section tabs** (`Tabs`, from `sections[i].tabs`): Lançamentos = Extrato, Aprovar (badge =
-   inbox count), Cartões, A receber, Importar; Planejamento = Orçamento, Recorrentes, Metas;
+3. **Section tabs** (`Tabs`, from `sections[i].tabs`): Lançamentos = Extrato ("Extrato · N" =
+   review count), Cartões, A receber, Importar; Planejamento = Orçamento, Recorrentes, Metas;
    Investimentos = Posição, Rentabilidade, Operações, Alocação, Proventos, IR, Calculadora. Início
    and Ajustes have no tabs.
 4. **Page content** (fade-up when the section changes, fade-in between tabs of a section).
@@ -85,7 +79,7 @@ Footer "Fechar" + "Sincronizar agora".
 | Sign out | Ajustes › Perfil "Sair" (desktop: user menu) | none: `clearStoredAuth()` → `finance-auth-change` → `Outbox.clearSession()`; caches cleared (`clearServerData`, `clearPersistedQueryCache`) | none | works; the outbox survives logout (per user) |
 | Toggle privacy | Eye | none (`setValuesHidden`, localStorage `@financeMVP:hideValues`) | none | works |
 | Open "+ Novo" | Bottom **+** | opens `NewEntrySheet` (`01-novo.md`); inside `/investimentos` opens `InvestmentLaunchModal` ("Registrar operação") after `GET /api/investments/portfolio?refresh_prices=false` | — | sheet works offline; the investment modal does not |
-| Open Aprovar | Aprovar pill | navigation | — | pill hidden offline |
+| Open Revisar | Review pill | navigation to the Extrato in review mode | — | pill hidden offline |
 | Open bell / follow item | Bell | navigation to the item's screen | — | cached data |
 | Sync now | Pendentes › "Sincronizar agora" | `flush({retryAttention: true})` → in the APK `Outbox.flush` → `OutboxSender.run` | toast "1 lançamento enviado." / "N lançamentos enviados."; warnings: "Entre novamente para enviar os lançamentos pendentes." (login), "O servidor não respondeu. Os lançamentos continuam guardados neste aparelho." (offline), "O servidor recusou um ou mais lançamentos. Veja o motivo em cada um." | tries; reports offline |
 | Fix a pending item | Pendentes › "⋯" › Corrigir | reopens "+ Novo" pre-filled (`01-novo.md`, edit mode) | — | works |
@@ -116,7 +110,7 @@ encontrado.") signs the WebView out (`apiFetch` → `clearStoredAuth()`).
   `Session.load()` for `baseUrl` + `Bearer <token>`**; the username is not stored there.
 - `setSession` also cancels the "Sessão expirada" notification (`LoginNotifier`) and schedules
   `OutboxWorker` and `DetectionWorker`.
-- `GET /api/inbox/count` → `{pending_count}`. Query key `['aprovar', 'contagem']`.
+- `GET /api/review` → `{count, …}`: the review pill and the Extrato tab's count.
 - The bell: `useAttentionItems()` (`lib/attention.js`) with Início's keys `['inicio','movimentos']`,
   `['inicio','cartoes']`, `['inicio','recorrencias']`, `['inicio','orcamento', <AAAA-MM>]` plus the
   outbox (pending items adjust account balances via `applyPendingToAccounts()`). Field details in
@@ -195,7 +189,7 @@ encontrado.") signs the WebView out (`apiFetch` → `clearStoredAuth()`).
 - [ ] Logging in on the debug APK lands on Início; killing and reopening the app keeps the session.
 - [ ] After login, a creation made in airplane mode is sent by the worker with the app closed.
 - [ ] Logging out and in as the same user keeps pending items; a different user does not see them.
-- [ ] The Aprovar pill appears within a minute of a new notification and opens Aprovar.
+- [ ] The review pill appears within a minute of a new notification and opens the Extrato in review mode.
 - [ ] The pending pill turns amber with "Sem conexão" in airplane mode and disappears when synced.
 - [ ] The bell lists the same items as Início's "Precisa de atenção", including dismissed ones.
 - [ ] The eye hides balances on every screen instantly and survives a restart.
@@ -204,7 +198,7 @@ encontrado.") signs the WebView out (`apiFetch` → `clearStoredAuth()`).
 - [ ] With an older APK installed, the banner offers "Instalar" and the installer opens.
 
 ## Desktop
-Keep the single top strip (brand, section pills, Aprovar/pending pills, bell, eye, user menu,
+Keep the single top strip (brand, section pills, review/pending pills, bell, eye, user menu,
 "+ Novo") but move to the planned fixed sidebar ≥ 1280 px; drop the bottom navigation and the 44 px
 targets; "+ Novo" becomes a dialog or inline row. The login page can lose the phone-specific
 layout (it is "Finanças" since 2026-10-23).

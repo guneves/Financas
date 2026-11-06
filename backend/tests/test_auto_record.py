@@ -184,7 +184,7 @@ class TestWhatWaits:
         assert len(card_rows(client, auth)) == 1
 
     def test_an_own_transfer_in_separate_uploads_is_one_transfer(self, client, auth, auto):
-        # Nada espera (design §3.2, dono 2026-11-04): a saida vira despesa na
+        # Nada espera (dono 2026-11-04): a saida vira despesa na
         # hora; a entrada, que chega noutro envio, faz da mesma linha a
         # transferencia (inbox.absorb_recorded_side). No mesmo envio, tambem uma.
         itau = create_account(client, auth, "Itaú")
@@ -239,7 +239,7 @@ class TestPluggyReconciles:
         [after] = world.transactions(mine)
         assert after["id"] == before["id"]
         # Padaria e da tabela de comerciantes: a Pluggy confirmou e a categoria e
-        # certa, sai da revisao sozinha (Fase 4, design §3.6).
+        # certa, sai da revisao sozinha (Fase 4).
         assert (after["source_type"], after["source_id"], after["needs_review"]) == ("OPEN_FINANCE", pluggy_id, 0)
         [of_row] = rows_of("open_finance_transactions", "user_id = ? AND pluggy_transaction_id = ?", (user["id"], pluggy_id))
         assert (of_row["role"], of_row["target_id"]) == ("SOURCE", before["id"])

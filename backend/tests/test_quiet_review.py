@@ -1,4 +1,4 @@
-"""Fase 4: so o palpite vai para o Revisar (design §3.6, decisao 6).
+"""Fase 4: so o palpite vai para o Revisar (decisao 6).
 
 O que estes testes protegem:
 

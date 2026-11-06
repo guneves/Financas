@@ -1,4 +1,4 @@
-"""Notificacoes + Pluggy: um movimento, uma linha (docs/notifications-pluggy-design.md).
+"""Notificacoes + Pluggy: um movimento, uma linha.
 
 O que estes testes protegem (Fase 1a):
 
@@ -630,7 +630,7 @@ class TestNothingWaits:
 
 
 # ---------------------------------------------------------------------------
-# A mesma compra com outro valor (J-S, design §3.7)
+# A mesma compra com outro valor (J-S)
 # ---------------------------------------------------------------------------
 
 def _notify(world, amount_cents, day, merchant, kind="DEBIT_PURCHASE", hour=12, **extra):

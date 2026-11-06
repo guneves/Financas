@@ -1,4 +1,4 @@
-"""Investimentos so pela Pluggy (Fase 3, docs/notifications-pluggy-design.md §5, decisao 3).
+"""Investimentos so pela Pluggy (Fase 3, decisao 3).
 
 O que estes testes protegem:
 - com MANUAL_ONLY_OFF_PLUGGY ligado, uma operacao, um resgate ou um provento

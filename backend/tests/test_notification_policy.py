@@ -1,5 +1,5 @@
-"""Quem fala e do que: a porta das notificacoes (docs/notifications-pluggy-design.md
-§4, dono 2026-11-04; services/inbox.py `notification_wanted()` e o interruptor
+"""Quem fala e do que: a porta das notificacoes (dono 2026-11-04;
+services/inbox.py `notification_wanted()` e o interruptor
 `bank_notifications`).
 
 O que estes testes protegem:

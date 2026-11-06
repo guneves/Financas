@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Migration order | 5 (see `../migration-order.md`) |
+| Migration order | 5 |
 | Status | Built 2026-10-24 on `claude/practical-hamilton-e6nxfi` (native-level 7): `ui/orcamento/` over `GET /api/monthly-plan` (every R$ from the server; a pre-038 copy without `invest` is ignored), the "Plano do mês" sheet with `ui/components/PercentSlider.kt` and the live preview (`rules/MonthlyPlan.kt`, the input side of `lib/monthlyPlan.js` with its node cases), flags dismissed per device (`PlanFlagDismissals`, SharedPreferences, separate from the WebView's list), categories (add with the slider bounded by `percentRoom`, edit %, Acumula, remove, lines per category, copy the previous month); only Saldo do plano / Disponível por dia masked, as on the web; CI to be confirmed in the PR; waiting for the owner's phone check (Acceptance). Not built: month swipe, long-press menu, pull to refresh, the widget |
 | React source | `frontend/src/pages/Orcamento.jsx`, `components/MonthlyPlanPanel.jsx` (`MonthlyPlanPanel`, `MonthlyPlanSheet`), `components/BudgetLines.jsx`, `components/BudgetProgress.jsx`, `components/ui.jsx` (`PercentSlider`, `SummaryPanel`, `Menu`, `Collapsible`, `Expand`) |
 | Route(s) | `/planejamento/orcamento` (legacy `/orcamento` redirects); tab "Orçamento" of section "Planejamento" ("Planejar" in the bottom bar) |

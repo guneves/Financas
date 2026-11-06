@@ -155,7 +155,7 @@ function ReviewMark({ transaction }) {
   return <Badge tone="warning">A revisar</Badge>
 }
 
-// Duas despesas iguais de verdade (design §3.5): so um selo neutro, sem acao.
+// Duas despesas iguais de verdade: so um selo neutro, sem acao.
 // Nem ganho, nem perda, nem aviso: nunca verde, vermelho, ambar ou azul.
 function TwinMark({ transaction }) {
   if (!transaction.twin) return null

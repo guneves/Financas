@@ -1,4 +1,4 @@
-"""Gemeos: "2× igual" (design §3.5, decisao 4; services/twins.py).
+"""Gemeos: "2× igual" (decisao 4; services/twins.py).
 
 Duas compras iguais de verdade ficam duas (I2) e ganham um selo neutro no
 Extrato e no Revisar: mesma conta (ou cartao), mesmos centavos, mesma descricao

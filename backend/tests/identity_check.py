@@ -1,4 +1,4 @@
-"""I1/I2 no fim de cada cenario (docs/notifications-pluggy-design.md §2).
+"""I1/I2 no fim de cada cenario.
 
 `assert_identity(user_id)` falha com a lista de violacoes de
 `identity_invariants.violations()`. Importa `db` so dentro da funcao: os testes

@@ -1,5 +1,5 @@
 """Renda fixa, Tesouro e cupom da corretora so com dados exatos (Fase 3,
-services/open_finance_fixed_income.py; docs/notifications-pluggy-design.md §5).
+services/open_finance_fixed_income.py).
 
 O que estes testes protegem:
 - a posicao inteira da Pluggy fica guardada (`raw`, sem `transactions`), a cada pull;

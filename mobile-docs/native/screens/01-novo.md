@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Migration order | 1 (see `../migration-order.md`) |
+| Migration order | 1 |
 | Status | Built 2026-10-22 on `claude/native-novo` (`ui/newentry/`, `NativeScreens` lists `new-entry`, `native-level.txt` 3, Corrigir native too); waiting for the owner's phone check (Acceptance) and the merge |
 | React source | `frontend/src/components/NewEntrySheet.jsx`, `components/Layout.jsx` (host, `openNewEntry()`, edit from Pendentes), `components/PendingSheet.jsx` ("Corrigir"), `lib/newEntry.js`, `lib/outbox.js`, `lib/outboxRules.js`, `lib/cardFunctions.js`, `lib/api.js` (`ApiNetworkError`, timeouts), `lib/nativeApp.js` (native outbox backend), `lib/inboxRules.js` (`matchedInboxNotice()`), `lib/monthlyPlan.js` (`parseMoneyInput()`), `pages/lancamentos/helpers.js` (`buildCategoryOptions`, `categoryLabel`, `categoryIdForName`, `categoryNameOf`, `filterCategoryOptions`, `pickDefaultAccountId`, `getLocalDateString`, `parseLocalDate`); Java `outbox/OutboxStore.java`, `OutboxRules.java`, `OutboxSender.java`, `OutboxWorker.java`, `OutboxPlugin.java`, `OutboxEvents.java`, `Session.java` |
 | Route(s) | none — a sheet over any banking route; opened by the bottom **+**, Extrato's empty state ("Novo lançamento") and Cartões' "Nova compra" (`openNewEntry('CARD')`). Inside `/investimentos` the **+** opens "Registrar operação" instead (out of scope) |
@@ -272,7 +272,7 @@ creation: the three POSTs ignore them; sharing is set later by `PATCH /api/trans
 
 ## Native-only improvements
 - `NewEntryActivity` (Compose bottom sheet over the WebView), opened from the WebView by a new plugin
-  method (`NativeScreens.open("new-entry", {type})` per `native-app.md`; **bump
+  method (`NativeScreens.open("new-entry", {type})`; **bump
   `native-level.txt`**). Pendentes › Corrigir should open it too with the item's `client_id`.
 - Save path: do what `createEntry()` does — `hasNetwork()` false → `OutboxStore.put()` +
   `OutboxWorker.schedule()`; else POST with `Session` (6 s, no redirects, like `OutboxSender.post`);

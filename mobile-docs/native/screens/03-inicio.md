@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Migration order | 3 (see `../migration-order.md`) |
+| Migration order | 3 |
 | Status | Built 2026-10-23 on `claude/wizardly-faraday-cbx3mb` (native-level 5, PR #38): `ui/home/`, the bell, privacy mirrored both ways, `ui/charts/`; CI green, parity review clean after two fix rounds; waiting for the owner's phone check and the merge. **Session E (2026-10-25):** the four history panels are native too — Despesas por categoria, Próximas faturas (projection + the items + Pagar fatura), Parcelamentos abertos and Ritmo de gastos, from `GET /api/home/panels` (`services/home_panels.py`, `test_home_panels.py`; `ui/home/HomeHistoryPanels.kt`, `rules/HomePanelsRules.kt`). The web Início still computes them on the client |
 | React source | `frontend/src/pages/Dashboard.jsx` (with its inline `BalanceHero`, `MonthSummary`, `NextInvoiceTile`, `NeedsAttention`, `CategoryList`, `BudgetStrip`, `FlowTooltip`, `InlineStat`, `DashboardSkeleton`, `buildSpending()`), `components/Attention.jsx` (`AttentionCards`), `components/PayInvoiceSheet.jsx`, `components/BudgetProgress.jsx`, `components/charts.jsx` (`DonutChart`, `CHART`, `FLOW`, `SERIES`, `OTHER_COLOR`), `lib/attention.js`, `lib/attentionRules.js`, `lib/transactions.js`, `lib/cashFlow.js`, `lib/sharing.js` (`ownAmount()`, `othersAmount()`), `lib/outboxRules.js` (`applyPendingToAccounts()`, `pendingAsTransactions()`), `lib/format.js`, `lib/privacy.js` |
 | Route(s) | `/inicio` (also `/dashboard` → redirect) |

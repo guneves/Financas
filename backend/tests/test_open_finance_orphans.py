@@ -1,5 +1,5 @@
 """Fase 5: a notificacao que a Pluggy nunca listou, o saldo do banco decide
-(design §3.4, decisao 1; services/open_finance_orphans.py).
+(decisao 1; services/open_finance_orphans.py).
 
 O que estes testes protegem:
 

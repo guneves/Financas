@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Migration order | 4 (see `../migration-order.md`; same step as Cartões) |
+| Migration order | 4 (same step as Cartões) |
 | Status | Built 2026-10-24 on `claude/native-session-a` (native-level 6): `ui/extrato/` (both views), `ui/lancamentos/` (projection header, receipts with camera/file picker, "De quem é?", section tabs), `rules/ExtratoRules.kt`, `rules/InvestmentStatement.kt`; the list reads `GET /api/transactions?limit=200` pages with the server's `totals`/`day_totals`, the header `/api/home` (`consolidated_balance`, new `projections`); export through the Android share sheet; local JVM tests + assembleDebug and CI green; waiting for the owner's phone check (Acceptance) and the merge. Not built: swipe-to-delete, long-press menu, the flash on new rows, attaching from another app's share sheet |
 | React source | `frontend/src/pages/lancamentos/Extrato.jsx` (`Extrato`, `ExtratoContas`), `pages/lancamentos/ExtratoInvestimentos.jsx`, `pages/lancamentos/useLancamentos.js`, `pages/lancamentos/ProjectionHeader.jsx`, `pages/lancamentos/helpers.js`, `components/AttachmentsSheet.jsx`, `components/ExportSheet.jsx`, `components/ShareFields.jsx` |
 | Route(s) | `/lancamentos/extrato` (`?ver=contas\|investimentos`, filters `?q=&from=&to=&type=&account_id=&category_id=&min_amount=&max_amount=`); `/transactions` and `/carteira` redirect here |

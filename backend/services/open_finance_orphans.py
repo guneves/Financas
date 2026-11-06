@@ -1,5 +1,5 @@
 """A notificacao que a Pluggy nunca listou: o saldo do banco decide (Fase 5,
-design §3.4, decisao 1).
+decisao 1).
 
 A notificacao grava na hora; a Pluggy e o registro. Se a Pluggy nunca lista a
 linha, isso nao prova que o dinheiro nao andou: ela ja deixou linhas de fora
