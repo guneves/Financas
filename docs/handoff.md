@@ -7,6 +7,15 @@
 
 ---
 
+## Session — 2026-11-06 (small) · Débito automático warning only 5 days before the due date
+
+Done: `AUTOPAY_WINDOW_DAYS` 31 → 5 in `services/attention.py` (owner 2026-11-06: "saldo da conta menor que a
+fatura" appears only when the invoice is due in 5 days or less; the total compared is only those invoices).
+`test_attention.py` adjusted (window edges at +5/+6). No client change: web and APK only render the item.
+Not done: nothing. Next: unchanged (the entry below).
+
+---
+
 ## Session — 2026-11-06 · Remote access: a login in front of the app on Tailscale Funnel
 
 Branch: **`feat/funnel-auth`**, from `main` at `9b6a1ff`. The owner's plan (design + implementation prompt,

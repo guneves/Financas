@@ -8,7 +8,7 @@ byte a byte a do cliente: os avisos ja dispensados em cada aparelho
   1. fatura vencida — todas juntas, `fatura-vencida:<cartao>|<ano>-<mes>,...`
      (o mes SEM zero a esquerda, como o `invoiceId()` do cliente);
   2. fatura fechada da proxima de cada cartao, so sem vencida;
-  3. debito automatico que a conta nao cobre nos proximos 31 dias, um por conta;
+  3. debito automatico que a conta nao cobre, so com vencimento em ate 5 dias, um por conta;
   4. recorrencias vencidas, todas juntas;
   5. categoria acima do orcamento do mes, uma por categoria.
 
@@ -26,7 +26,8 @@ from services.invoices import local_today
 from services.monthly_plan import build_budget_view
 from services.recurring import recurring_pending_count, recurring_rows
 
-AUTOPAY_WINDOW_DAYS = 31
+# Owner 2026-11-06: o aviso so aparece faltando 5 dias ou menos para vencer.
+AUTOPAY_WINDOW_DAYS = 5
 
 
 def overdue_item(invoices):
@@ -85,7 +86,7 @@ def payable_item(invoices):
 
 def autopay_shortfalls(conn, current_user_id, invoices, accounts, today):
     """Debito automatico que a conta nao cobre: as faturas que vencem de hoje
-    ate hoje + 31 dias, somadas por conta e comparadas ao saldo em reais."""
+    ate hoje + 5 dias, somadas por conta e comparadas ao saldo em reais."""
     autopay_by_card = {
         row["id"]: row["autopay_account_id"]
         for row in conn.execute(

@@ -1406,3 +1406,6 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   link to a view of the page already on top (none exist today) does not switch the view;
   `Session.load` on the main thread (a few ms, as before).
 
+### Débito automático warning window — 2026-11-06
+- "Débito automático sem saldo" (`AUTOPAY_SHORTFALL`, `services/attention.py`) counts only invoices due from
+  today to today + 5 days (`AUTOPAY_WINDOW_DAYS`, was 31), per the owner.
