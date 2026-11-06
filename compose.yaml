@@ -1,5 +1,6 @@
-# Runs on the server, next to .env and nothing else. The image is built by the
-# GitHub Actions workflow into GHCR; to build it locally, see compose.build.yaml.
+# Runs on the server, next to .env, oauth2.env, proxy.env and apk/ (the APKs CI
+# uploads). The image is built by the GitHub Actions workflow into GHCR; to build
+# it locally, see compose.build.yaml.
 name: financas
 
 services:
@@ -20,6 +21,97 @@ services:
       retries: 3
       start_period: 30s
 
+  # The login in front of the app on Tailscale Funnel (README "Remote access").
+  # Funnel :8443 -> proxy (127.0.0.1:8102) -> Google (browsers, oauth2-proxy) or
+  # the device key (APK) -> app. 443 stays tailnet-only, straight to the app.
+  # Secrets live in oauth2.env and proxy.env next to .env (chmod 600, never in
+  # git); a missing file fails closed without breaking the app's deploy.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+    restart: unless-stopped
+    env_file: [{path: oauth2.env, required: false}]   # CLIENT_ID, CLIENT_SECRET, COOKIE_SECRET
+    configs: [{source: oauth2_emails, target: /etc/oauth2-proxy/emails.txt}]
+    environment:
+      OAUTH2_PROXY_PROVIDER: google
+      OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/emails.txt
+      OAUTH2_PROXY_REDIRECT_URL: https://guilhermeserver.tail5084ff.ts.net:8443/oauth2/callback
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_UPSTREAMS: static://202
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_HTTPONLY: "true"
+      OAUTH2_PROXY_COOKIE_SAMESITE: lax
+      OAUTH2_PROXY_COOKIE_EXPIRE: 168h
+      OAUTH2_PROXY_COOKIE_REFRESH: 1h
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "false"
+      OAUTH2_PROXY_SET_AUTHORIZATION_HEADER: "false"
+  proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    env_file: [{path: proxy.env, required: false}]    # PROXY_DEVICE_KEY
+    ports: ["127.0.0.1:${PROXY_PORT:-8102}:8080"]
+    volumes: ["./apk:/srv/apk:ro"]
+    configs: [{source: caddyfile, target: /etc/caddy/Caddyfile}]
+    depends_on: [app, oauth2-proxy]
+
 volumes:
   # finance.db, backups/, attachments/ (receipts) and logs/
   data:
+
+configs:
+  # The allowed Google account: OAUTH2_ALLOWED_EMAILS in .env (never in git).
+  # Empty = nobody gets in.
+  oauth2_emails:
+    content: "${OAUTH2_ALLOWED_EMAILS:-}"
+  # No dollar sign in here: compose would interpolate it. No access log: the device key
+  # would be written.
+  caddyfile:
+    content: |
+      {
+        admin off
+        auto_https off
+      }
+      (upstream) {
+        request_header -X-Device-Key
+        handle_path /apk/* {
+          root * /srv/apk
+          file_server
+        }
+        handle {
+          reverse_proxy app:5000 {
+            flush_interval -1
+          }
+        }
+      }
+      :8080 {
+        header Strict-Transport-Security "max-age=31536000"
+        @device expression `{http.request.header.X-Device-Key} == {env.PROXY_DEVICE_KEY} && size({env.PROXY_DEVICE_KEY}) >= 32`
+        handle /oauth2/* {
+          reverse_proxy oauth2-proxy:4180
+        }
+        handle @device {
+          import upstream
+        }
+        handle /api/* {
+          forward_auth oauth2-proxy:4180 {
+            uri /oauth2/auth
+            @denied status 401
+            handle_response @denied {
+              header X-Proxy-Auth required
+              respond 401
+            }
+          }
+          import upstream
+        }
+        handle {
+          forward_auth oauth2-proxy:4180 {
+            uri /oauth2/auth
+            @denied status 401
+            handle_response @denied {
+              redir * /oauth2/sign_in?rd={uri}
+            }
+          }
+          import upstream
+        }
+      }

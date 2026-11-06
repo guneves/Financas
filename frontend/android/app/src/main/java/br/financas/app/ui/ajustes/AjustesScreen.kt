@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.financas.app.R
+import br.financas.app.ui.login.DeviceKeyDialog
 import br.financas.app.core.maskEmail
 import br.financas.app.data.AccountDto
 import br.financas.app.data.CategoryDto
@@ -877,6 +878,23 @@ private fun PerfilSection(viewModel: AjustesViewModel, onSignedOut: () -> Unit) 
                 HorizontalDivider(color = palette["zinc-100"])
                 Text(stringResource(R.string.ajustes_email), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = palette.muted)
                 Text(maskEmail(user?.email), fontWeight = FontWeight.SemiBold, color = palette.text)
+                HorizontalDivider(color = palette["zinc-100"])
+                Text(stringResource(R.string.device_key_label), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = palette.muted)
+                Text(
+                    stringResource(if (viewModel.hasDeviceKey) R.string.device_key_stored else R.string.device_key_missing),
+                    color = palette.text,
+                )
+                AppButton(stringResource(R.string.device_key_change), viewModel::openDeviceKey, Modifier.fillMaxWidth(), ButtonVariant.SECONDARY)
+                if (viewModel.deviceKeyOpen) {
+                    DeviceKeyDialog(
+                        title = stringResource(R.string.device_key_change),
+                        message = null,
+                        busy = viewModel.busy,
+                        onSave = viewModel::saveDeviceKey,
+                        onDismiss = viewModel::closeDeviceKey,
+                    )
+                }
+                HorizontalDivider(color = palette["zinc-100"])
                 AppButton(stringResource(R.string.ajustes_sign_out), { viewModel.signOut(onSignedOut) }, Modifier.fillMaxWidth(), ButtonVariant.SECONDARY)
             }
         }

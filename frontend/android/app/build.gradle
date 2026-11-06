@@ -36,8 +36,9 @@ android {
         versionCode((project.findProperty('financasVersionCode') ?: '1') as Integer)
         versionName((project.findProperty('financasVersionName') ?: 'dev') as String)
         // O servidor do login nativo (ui/login/) e do APK novo; o CI passa -PfinancasApiBase (o
-        // API_BASE de deploy.yml), e o padrao e o mesmo endereco. So https.
-        buildConfigField "String", "API_BASE_URL", "\"${(project.findProperty('financasApiBase') ?: 'https://guilhermeserver.tail5084ff.ts.net')}\""
+        // API_BASE de deploy.yml), e o padrao e o mesmo endereco: a porta 8443, a do
+        // proxy de autenticacao (X-Device-Key), com e sem a VPN. So https.
+        buildConfigField "String", "API_BASE_URL", "\"${(project.findProperty('financasApiBase') ?: 'https://guilhermeserver.tail5084ff.ts.net:8443')}\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {

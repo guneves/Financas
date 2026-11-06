@@ -194,7 +194,6 @@ def send_attachment_file(owner, current_user_id, owner_id, attachment_id):
         max_age=0,
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
     return response
 
 

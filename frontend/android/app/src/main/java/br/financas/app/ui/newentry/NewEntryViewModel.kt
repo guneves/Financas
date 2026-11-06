@@ -310,7 +310,7 @@ class NewEntryViewModel(application: Application) : AndroidViewModel(application
         }
         Thread {
             val summary = OutboxSender.run(app, false)
-            if ("offline" == summary.stopped) OutboxWorker.schedule(app)
+            if (OutboxWorker.retries(summary.stopped)) OutboxWorker.schedule(app)
         }.start()
     }
 }

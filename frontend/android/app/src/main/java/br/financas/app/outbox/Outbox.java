@@ -48,7 +48,10 @@ public final class Outbox {
         DetectionWorker.schedule(context);
     }
 
-    /** "Sair" (ou um 401): o envio para; a fila fica no aparelho, de cada usuario. */
+    /**
+     * "Sair" (ou um 401 do app): o envio para; a fila fica no aparelho, de cada usuario. A chave
+     * de acesso remoto fica (Session.clear).
+     */
     public static void signOut(Context context) {
         Session.clear(context);
     }
@@ -59,7 +62,7 @@ public final class Outbox {
      */
     public static OutboxSender.Summary flush(Context context, boolean retryAttention) {
         OutboxSender.Summary summary = OutboxSender.run(context, retryAttention);
-        if ("offline".equals(summary.stopped)) OutboxWorker.schedule(context);
+        if (OutboxWorker.retries(summary.stopped)) OutboxWorker.schedule(context);
         return summary;
     }
 

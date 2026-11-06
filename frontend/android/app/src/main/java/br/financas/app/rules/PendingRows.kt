@@ -85,6 +85,7 @@ object PendingRows {
     fun syncWarning(stopped: String?, attention: Int): String? = when {
         stopped == "login" -> "Entre novamente para enviar os lançamentos pendentes."
         stopped == "offline" -> "O servidor não respondeu. Os lançamentos continuam guardados neste aparelho."
+        stopped == "key" -> "Chave de acesso inválida ou ausente. Os lançamentos continuam guardados neste aparelho; troque a chave em Ajustes › Perfil."
         attention > 0 -> "O servidor recusou um ou mais lançamentos. Veja o motivo em cada um."
         else -> null
     }

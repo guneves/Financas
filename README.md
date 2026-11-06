@@ -82,7 +82,6 @@ DATABASE_BACKUP_DIR=backups
 SQLITE_BUSY_TIMEOUT_MS=5000
 JWT_SECRET=change-this-key-in-production
 JWT_EXP_DAYS=30
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 FLASK_DEBUG=0
 PRICE_CACHE_TTL_SECONDS=60
 PRICE_FETCH_TIMEOUT_SECONDS=6
@@ -103,11 +102,8 @@ The API comes up at `http://localhost:5000`.
 
 ### 2. Frontend
 
-Create `frontend/.env` from `frontend/.env.example`:
-
-```env
-VITE_API_BASE_URL=http://localhost:5000
-```
+The screen and the API share one origin: in development Vite forwards `/api` to Flask on
+`127.0.0.1:5000` (`vite.config.js`), and the server has no CORS. No `frontend/.env` is needed.
 
 Install dependencies and run:
 
@@ -117,7 +113,7 @@ npm install
 npm run dev
 ```
 
-The frontend normally comes up at `http://localhost:5173`.
+The frontend comes up at `http://127.0.0.1:5173`.
 
 ## Tests
 
@@ -208,7 +204,6 @@ Use an authenticated `POST /api/database/backups` to create a backup in `DATABAS
 - `SQLITE_BUSY_TIMEOUT_MS`: maximum wait when SQLite is busy. Default: `5000`.
 - `JWT_SECRET`: token signing key.
 - `JWT_EXP_DAYS`: token lifetime in days.
-- `CORS_ORIGINS`: origins allowed to reach the API.
 - `FLASK_DEBUG`: use `1` only in local development when you need debug mode.
 - `PRICE_CACHE_TTL_SECONDS`: how long yfinance quotes are cached, in seconds.
 - `PRICE_FETCH_TIMEOUT_SECONDS`: how long the API waits before falling back to cache or a stored value.
@@ -218,7 +213,72 @@ Use an authenticated `POST /api/database/backups` to create a backup in `DATABAS
 
 ### Frontend
 
-- `VITE_API_BASE_URL`: base URL of the Flask API.
+- `VITE_API_BASE_URL`: base URL of the Flask API. Empty by default; if set, it must be the same
+  origin as the screen (there is no CORS).
+
+## Remote access
+
+The app is reachable off the VPN through **Tailscale Funnel on port 8443 only**, with a login in
+front of it. Port 443 stays tailnet-only and goes straight to the app, as before; it is the bridge
+for installing a new APK and the rollback.
+
+```
+Internet: https://guilhermeserver.tail5084ff.ts.net:8443   (Funnel; on the tailnet, `tailscale serve`)
+  └─ 127.0.0.1:8102  Caddy ("proxy" in compose.yaml)
+       ├─ /oauth2/*                       → oauth2-proxy (Google login flow)
+       ├─ X-Device-Key == PROXY_DEVICE_KEY → header stripped → app / /apk/*   (the APK)
+       ├─ /api/*  Google session?  yes → app   no → 401 + X-Proxy-Auth: required
+       └─ else    Google session?  yes → app or /apk/*   no → 302 to the Google sign-in
+Tailnet only: https://guilhermeserver.tail5084ff.ts.net (443) → 127.0.0.1:8101 (the app)
+```
+
+Behind either gate the app's own login (JWT) still applies.
+
+- **Browsers** sign in with Google. Only the address in `OAUTH2_ALLOWED_EMAILS` gets through, and
+  the Google consent screen stays in Testing with that one test user. The session lasts **7 days**,
+  re-checked with Google every hour. Sign out at `https://…ts.net:8443/oauth2/sign_out`. When the
+  session ends on an open page, the next API call gets the proxy's 401: the page reloads into the
+  Google login (at most once per 30 s), the app login is kept, and a "+ Novo" saved at that moment
+  goes to the pending queue and is sent after the login.
+- **The APK** sends a device key in `X-Device-Key` on every request (screens, the pending queue,
+  bank notifications, APK updates). Paste the key once: on the login screen ("Chave de acesso
+  remoto") or in Ajustes › Perfil › "Trocar chave de acesso". "Sair" does not erase it. A wrong or
+  missing key shows "Chave de acesso inválida ou ausente" with a field to paste it; nothing is
+  lost, and queued entries and notifications are sent once the key is right.
+
+### Secrets (server only, `/srv/apps/financas/`, never in git)
+
+| File | Variables | Used by |
+|---|---|---|
+| `oauth2.env` (chmod 600) | `OAUTH2_PROXY_CLIENT_ID`, `OAUTH2_PROXY_CLIENT_SECRET` (the Google OAuth client), `OAUTH2_PROXY_COOKIE_SECRET` (`openssl rand -base64 32 \| tr -- '+/' '-_'`) | oauth2-proxy |
+| `proxy.env` (chmod 600) | `PROXY_DEVICE_KEY` (`openssl rand -base64 32 \| tr -- '+/' '-_' \| tr -d '='`, at least 32 characters) | Caddy |
+| `.env` | `OAUTH2_ALLOWED_EMAILS` (the Google address let in; empty = nobody), `PROXY_PORT` (default 8102) | compose |
+
+Both files are optional to compose: a missing one fails closed (oauth2-proxy stops and the
+browser routes answer 502; without a key no device passes), and the app's deploy still works.
+
+After changing one of them:
+
+```bash
+cd /srv/apps/financas
+sudo docker compose up -d --force-recreate oauth2-proxy   # oauth2.env, or OAUTH2_ALLOWED_EMAILS
+sudo docker compose up -d --force-recreate proxy          # proxy.env
+```
+
+- **Rotate the device key:** new `PROXY_DEVICE_KEY` in `proxy.env`, recreate `proxy`, paste the
+  new key in the APK (Ajustes › Perfil).
+- **End every browser session:** new `OAUTH2_PROXY_COOKIE_SECRET`, recreate `oauth2-proxy`.
+- **Change who may sign in:** edit `OAUTH2_ALLOWED_EMAILS` in `.env`, recreate `oauth2-proxy`.
+
+### Rollback
+
+- `sudo tailscale funnel --https=8443 off`: 8443 is tailnet-only again; the APK keeps working on
+  the VPN, no reinstall.
+- Full revert: also `sudo tailscale serve --https=8443 off`, remove the `funnel` nodeAttr from the
+  tailnet policy, and `git revert` the APK commit ("APK: reach the server on :8443 with a device
+  key") so CI ships an APK pointing at 443 again.
+
+DEPLOY.md ("Remote access: the auth proxy on :8443") has the first-time setup and rollout.
 
 ## Notes
 

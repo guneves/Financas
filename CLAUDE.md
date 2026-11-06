@@ -42,7 +42,11 @@ The home server is the only real backend; `backend\finance.db` on the PC is a de
 `start.ps1` refuses to start without `-Local`. Production is the Docker image
 `ghcr.io/guneves/financas-app`, deployed by `.github/workflows/deploy.yml` on every push to `main`
 (tests → GHCR → Tailscale SSH → `docker compose pull/up`); data lives in the `financas_data`
-volume. `DEPLOY.md` has setup, manual deploy, import and rollback.
+volume. `DEPLOY.md` has setup, manual deploy, import and rollback. **Off the VPN**, Funnel publishes
+only :8443, to Caddy on `127.0.0.1:8102` (`compose.yaml`): browsers pass oauth2-proxy (Google, one
+email), the APK a device key (`X-Device-Key`, `outbox/DeviceKey.java`); the app's JWT still applies
+behind both, and a proxy 401 (`X-Proxy-Auth: required`) never clears it. 443 stays tailnet-only,
+straight to the app. No CORS: dev is one origin through Vite's `/api` proxy. README "Remote access".
 
 ## Tests
 
@@ -162,8 +166,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 - **"+ Novo" creations are idempotent by `client_id`** (024): `POST /api/transactions`,
   `/api/transfers`, `/api/cc-expenses/purchases`. A repeat returns the first result (200) — the
   lookup runs before validation. The row stays "Manual" and editable.
-- **The outbox holds creations only, and only when the request never reached the server**
-  (`ApiNetworkError`). A creation times out at 6 s and is queued (offline: queued without trying);
+- **The outbox holds creations only, and only when the request never reached the app**
+  (`ApiNetworkError`, or the auth proxy refused it: `ApiProxyAuthError`). A proxy 401 never clears
+  the JWT; the page reloads into the Google login at most once per 30 s (`lib/proxySession.js`). A creation times out at 6 s and is queued (offline: queued without trying);
   reads 45 s; edits and deletes have no timeout and are never queued. Rules in `lib/outboxRules.js`
   (tested): a pending transfer leaves the balance alone, a pending card purchase touches no account,
   a balance counting pending items is labelled an estimate.
@@ -471,7 +476,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
   bank's notification wins over Samsung's.
 - **Open Finance (Pluggy) reconciles the connected banks** (043, 044, 045, `services/open_finance.py` +
-  `open_finance_inbox.py`): pulled (no webhooks: the server is tailnet-only) into
+  `open_finance_inbox.py`): pulled (no webhooks: only the gated :8443 proxy is public) into
   `open_finance_transactions`, unique `pluggy:<id>` per user, feeding `inbox_items` like
   notifications. A Pluggy account goes only where the owner mapped it (a card needs credit; the
   Corretora takes only the broker's investments account, `is_investment_account()`), or is

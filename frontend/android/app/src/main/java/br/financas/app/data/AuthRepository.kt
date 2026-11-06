@@ -34,6 +34,9 @@ sealed class LoginResult {
     data class Done(val userId: String, val token: String, val username: String?) : LoginResult()
     data class Refused(val message: String?) : LoginResult()
     object Offline : LoginResult()
+
+    /** O proxy de autenticacao recusou a chave de acesso remoto (outbox/DeviceKey.java). */
+    object KeyNeeded : LoginResult()
 }
 
 /**
@@ -42,9 +45,13 @@ sealed class LoginResult {
  * ALLOW_SIGNUP). Sem prazo curto: um login que nao chegou e repetido pelo dono.
  */
 class AuthRepository(
-    private val http: OkHttpClient = defaultHttpClient(),
+    http: OkHttpClient = defaultHttpClient(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    deviceKey: () -> String? = { null },
 ) {
+    // A chave de acesso remoto em todo pedido (o login tambem passa pelo proxy da 8443).
+    private val http: OkHttpClient = http.newBuilder().addInterceptor(DeviceKeyInterceptor(deviceKey)).build()
+
     suspend fun login(baseUrl: String, email: String, password: String): LoginResult = withContext(io) {
         val url = try {
             (baseUrl.trimEnd('/') + LOGIN_PATH).toHttpUrl()
@@ -58,7 +65,10 @@ class AuthRepository(
             .post(body.toRequestBody(JSON))
             .build()
         val (status, text) = try {
-            http.newCall(request).execute().use { it.code to (it.body?.string() ?: "") }
+            http.newCall(request).execute().use {
+                if (it.isProxyAuthRequired()) return@withContext LoginResult.KeyNeeded
+                it.code to (it.body?.string() ?: "")
+            }
         } catch (error: IOException) {
             return@withContext LoginResult.Offline
         }

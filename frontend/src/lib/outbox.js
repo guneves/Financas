@@ -5,11 +5,12 @@
 // este modulo. O APK tem a sua (nativa, outbox/ no Android), com as mesmas
 // regras (OutboxRules.java ⇄ outboxRules.js).
 //
-// So criacao entra aqui, e so quando o pedido nao chegou ao servidor
-// (ApiNetworkError). Cada item leva um client_id, entao reenviar nunca
-// duplica (migration 024). As regras estao em outboxRules.js, com testes.
+// So criacao entra aqui, e so quando o pedido nao chegou ao app
+// (ApiNetworkError, ou o proxy de autenticacao recusou: ApiProxyAuthError).
+// Cada item leva um client_id, entao reenviar nunca duplica (migration 024).
+// As regras estao em outboxRules.js, com testes.
 import { useSyncExternalStore } from 'react'
-import { ApiNetworkError, apiFetch, getStoredAuth } from './api'
+import { apiFetch, getStoredAuth } from './api'
 import { OUTBOX_STORE, storeAll, storeDelete, storePut } from './offlineStore'
 import {
   ALREADY_DELIVERED_MESSAGE,
@@ -21,6 +22,7 @@ import {
   endpointFor,
   newClientId,
   outcomeOf,
+  queuesCreation,
   sendOrder,
 } from './outboxRules'
 
@@ -38,13 +40,14 @@ const browserBackend = {
   all: () => storeAll(OUTBOX_STORE),
   put: (item) => storePut(OUTBOX_STORE, item),
   remove: (clientId) => storeDelete(OUTBOX_STORE, clientId),
-  // Devolve { ok: true, data } | { network: true } | { status, message }.
+  // Devolve { ok: true, data } | { network: true } | { proxyAuth: true } | { status, message }.
   async send(item) {
     try {
       const data = await apiFetch(endpointFor(item.kind), { method: 'POST', body: JSON.stringify(item.payload), timeoutMs: CREATE_TIMEOUT_MS })
       return { ok: true, data }
     } catch (error) {
-      if (error instanceof ApiNetworkError) return { network: true }
+      if (error?.network) return { network: true }
+      if (error?.proxyAuth) return { proxyAuth: true }
       return { status: error.status || 0, message: error.message }
     }
   },
@@ -197,7 +200,7 @@ export async function createEntry(kind, payload) {
     const data = await apiFetch(endpointFor(kind), { method: 'POST', body: JSON.stringify(body), timeoutMs: CREATE_TIMEOUT_MS })
     return { queued: false, data }
   } catch (error) {
-    if (!(error instanceof ApiNetworkError)) throw error
+    if (!queuesCreation(error)) throw error
     const item = await enqueue({ kind, payload: body })
     return { queued: true, item }
   }

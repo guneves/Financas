@@ -34,12 +34,17 @@ public final class OutboxSender {
         public int sent;
         public int kept;
         public int attention;
-        /** "" (terminou), "offline" (servidor nao respondeu) ou "login" (sem sessao ou 401). */
+        /**
+         * "" (terminou), "offline" (servidor nao respondeu), "key" (o proxy recusou a chave de
+         * acesso remoto: tentar de novo) ou "login" (sem sessao ou 401 do app).
+         */
         public String stopped = "";
     }
 
-    private static final class Response {
+    static final class Response {
         boolean network;
+        /** O 401 do proxy (DeviceKey): a chave falta ou esta errada; o app nem viu o pedido. */
+        boolean proxyAuth;
         int status;
         String body = "";
     }
@@ -87,7 +92,7 @@ public final class OutboxSender {
                 // o pedido esta no ar, e o resultado so vale para esta versao (ver OutboxStore).
                 String sentVersion = item.toString();
                 Response response = post(session, endpoint, item.optJSONObject("payload"));
-                switch (OutboxRules.outcomeOf(response.network, response.status)) {
+                switch (OutboxRules.outcomeOf(response.network, response.proxyAuth, response.status)) {
                     case DONE:
                         Object data = parse(response.body);
                         if (!OutboxRules.isCreationResponse(item.optString("kind"), data)) {
@@ -117,7 +122,7 @@ public final class OutboxSender {
                         return summary;
                     case RETRY:
                     default:
-                        summary.stopped = "offline";
+                        summary.stopped = response.proxyAuth ? "key" : "offline";
                         summary.kept = queue.size() - index;
                         return summary;
                 }
@@ -137,7 +142,8 @@ public final class OutboxSender {
         }
     }
 
-    private static Response post(Session session, String endpoint, JSONObject payload) {
+    // Pacote: OutboxSenderTest confere a chave e o 401 do proxy num servidor de teste.
+    static Response post(Session session, String endpoint, JSONObject payload) {
         Response response = new Response();
         HttpURLConnection connection = null;
         try {
@@ -153,12 +159,14 @@ public final class OutboxSender {
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Authorization", "Bearer " + session.token);
+            DeviceKey.apply(connection, session.deviceKey);
             byte[] body = (payload == null ? "{}" : payload.toString()).getBytes(StandardCharsets.UTF_8);
             connection.setFixedLengthStreamingMode(body.length);
             try (OutputStream out = connection.getOutputStream()) {
                 out.write(body);
             }
             response.status = connection.getResponseCode();
+            response.proxyAuth = DeviceKey.isProxyAuthRequired(connection, response.status);
             InputStream in = response.status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             response.body = read(in);
         } catch (IOException error) {

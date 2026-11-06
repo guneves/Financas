@@ -44,7 +44,6 @@ def _test_environment():
     os.environ["TESOURO_PRICES_FILE"] = ""
     # Nem a thread que atualiza as cotacoes de hora em hora (services/quote_refresh.py).
     os.environ["QUOTE_AUTO_REFRESH_SECONDS"] = "0"
-    os.environ["CORS_ORIGINS"] = "*"
     # Log so no stderr: os testes nao criam backend/logs.
     os.environ["LOG_TO_FILE"] = "0"
     # O token real do backend/.env nao vale nos testes: nenhum teste vai a brapi

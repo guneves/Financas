@@ -22,6 +22,9 @@ function sourceHash(dir) {
 
 export default defineConfig({
   plugins: [react()],
+  // Uma origem so tambem em desenvolvimento: o Vite repassa /api ao Flask, e o
+  // servidor nao tem CORS.
+  server: { host: '127.0.0.1', proxy: { '/api': 'http://127.0.0.1:5000' } },
   define: {
     // O cache de leitura salvo no aparelho (lib/queryPersist.js) so volta com
     // as mesmas telas: uma tela nova pode nao entender uma resposta velha.

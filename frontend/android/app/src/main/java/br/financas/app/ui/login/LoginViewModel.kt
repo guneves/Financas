@@ -27,6 +27,19 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     var email by mutableStateOf("")
     var password by mutableStateOf("")
 
+    /** A chave de acesso remoto (DeviceKey), preenchida com a guardada; sair nao a apaga. */
+    var deviceKey by mutableStateOf("")
+
+    private var storedKey = ""
+
+    init {
+        viewModelScope.launch {
+            val stored = withContext(Dispatchers.IO) { graph.deviceKey() }
+            storedKey = stored
+            if (deviceKey.isEmpty()) deviceKey = stored
+        }
+    }
+
     var busy by mutableStateOf(false)
         private set
 
@@ -43,6 +56,16 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         error = ""
         val base = graph.serverUrl()
         viewModelScope.launch {
+            val typedKey = deviceKey.trim()
+            if (typedKey != storedKey) {
+                val saved = withContext(Dispatchers.IO) { runCatching { graph.saveDeviceKey(typedKey) }.isSuccess }
+                if (!saved) {
+                    busy = false
+                    error = app.getString(R.string.device_key_save_failed)
+                    return@launch
+                }
+                storedKey = typedKey
+            }
             val result = graph.auth.login(base, email, password)
             val failure = when (result) {
                 is LoginResult.Done -> withContext(Dispatchers.IO) {
@@ -55,6 +78,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 is LoginResult.Refused -> result.message ?: app.getString(R.string.login_failed)
                 LoginResult.Offline -> app.getString(R.string.login_offline)
+                LoginResult.KeyNeeded -> app.getString(R.string.device_key_invalid)
             }
             busy = false
             if (failure == null) {

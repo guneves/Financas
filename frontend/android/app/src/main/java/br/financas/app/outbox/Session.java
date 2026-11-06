@@ -19,7 +19,10 @@ import javax.crypto.spec.GCMParameterSpec;
  * Endereco da API e token, para o envio com o app fechado. O login nativo grava os dois
  * (Outbox.signIn) e "Sair" ou um 401 apagam (Outbox.signOut).
  *
- * O token fica cifrado com uma chave do Android Keystore (AES-GCM), que nunca sai
+ * A chave de acesso remoto (DeviceKey, o X-Device-Key do proxy) mora aqui tambem, mas e do
+ * aparelho, nao do login: "Sair" e um 401 do app nao a apagam.
+ *
+ * O token e a chave ficam cifrados com uma chave do Android Keystore (AES-GCM), que nunca sai
  * do aparelho; o endereco e o usuario ficam em claro.
  */
 public final class Session {
@@ -29,14 +32,24 @@ public final class Session {
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
     private static final int IV_BYTES = 12;
 
+    private static final String DEVICE_KEY = "device_key";
+
     public final String baseUrl;
     public final String token;
     public final String userId;
+    /** A chave de acesso remoto ("" sem chave). */
+    public final String deviceKey;
 
-    private Session(String baseUrl, String token, String userId) {
+    private Session(String baseUrl, String token, String userId, String deviceKey) {
         this.baseUrl = baseUrl;
         this.token = token;
         this.userId = userId;
+        this.deviceKey = deviceKey == null ? "" : deviceKey;
+    }
+
+    /** Uma sessao com estes valores, sem ler o aparelho (os testes dos remetentes). */
+    public static Session of(String baseUrl, String token, String userId, String deviceKey) {
+        return new Session(baseUrl, token, userId, deviceKey);
     }
 
     public static synchronized void save(Context context, String baseUrl, String token, String userId) throws Exception {
@@ -47,8 +60,41 @@ public final class Session {
             .apply();
     }
 
+    /** "Sair" ou um 401 do app: o login sai, a chave de acesso remoto fica. */
     public static synchronized void clear(Context context) {
-        prefs(context).edit().clear().apply();
+        prefs(context).edit().remove("base_url").remove("user_id").remove("token").apply();
+    }
+
+    /** Guarda a chave de acesso remoto (cifrada); vazia apaga. */
+    public static synchronized void saveDeviceKey(Context context, String key) throws Exception {
+        String value = DeviceKey.normalize(key);
+        if (value.isEmpty()) {
+            prefs(context).edit().remove(DEVICE_KEY).apply();
+        } else {
+            prefs(context).edit().putString(DEVICE_KEY, encrypt(value)).apply();
+        }
+    }
+
+    /** A chave de acesso remoto guardada, ou "" (nenhuma, ou nao pode mais ser lida). */
+    public static synchronized String deviceKey(Context context) {
+        String sealed = prefs(context).getString(DEVICE_KEY, "");
+        if (sealed.isEmpty()) return "";
+        try {
+            return decrypt(sealed);
+        } catch (Exception error) {
+            return "";
+        }
+    }
+
+    /**
+     * Ao abrir o app: um login guardado com o endereco antigo (443, so na VPN) passa para o
+     * padrao do build (ServerAddress).
+     */
+    public static synchronized void migrateBaseUrl(Context context, String defaultBase) {
+        SharedPreferences prefs = prefs(context);
+        String stored = prefs.getString("base_url", "");
+        String next = ServerAddress.migrate(stored, defaultBase);
+        if (next != null && !next.equals(stored)) prefs.edit().putString("base_url", next).apply();
     }
 
     /** A sessao guardada, ou null se nao ha login (ou o token nao pode mais ser lido). */
@@ -59,7 +105,7 @@ public final class Session {
         String sealed = prefs.getString("token", "");
         if (baseUrl.isEmpty() || userId.isEmpty() || sealed.isEmpty()) return null;
         try {
-            return new Session(baseUrl, decrypt(sealed), userId);
+            return new Session(baseUrl, decrypt(sealed), userId, deviceKey(context));
         } catch (Exception error) {
             // Chave perdida (backup restaurado em outro aparelho, por exemplo): pede login de novo.
             return null;

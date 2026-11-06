@@ -59,6 +59,9 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+# Segredos do proxy de autenticacao (compose.yaml), so no servidor
+oauth2.env
+proxy.env
 
 # ==========================================
 # SISTEMA OPERACIONAL E IDE (VS Code)

@@ -16,13 +16,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import br.financas.app.outbox.DeviceKey;
 import br.financas.app.outbox.Session;
 
 /**
  * Manda a fila de deteccoes para o servidor, com o app fechado (DetectionWorker). Em lotes, na
  * ordem em que as notificacoes chegaram. Cada resposta 200 traz um resultado por deteccao, e
  * qualquer resultado (nova, juntada, repetida, ja conhecida, invalida) e final: sai da fila.
- * Sem rede ou 5xx: fica para a proxima rodada. 401 ou sem login: espera o proximo login. Outro
+ * Sem rede, 5xx ou o 401 do proxy (chave de acesso remoto, DeviceKey): fica para a proxima
+ * rodada. 401 do app ou sem login: espera o proximo login. Outro
  * 4xx no lote inteiro: o lote nao serve e sai (nao trava a fila para sempre).
  *
  * O servidor grava na hora o que chegou (045, services/auto_record.py): a resposta traz
@@ -38,7 +40,10 @@ public final class DetectionSender {
     private static final int READ_TIMEOUT_MS = 30_000;
     private static final Object LOCK = new Object();
 
-    /** "" (terminou), "offline" (tentar de novo) ou "login" (esperar o login). */
+    /**
+     * "" (terminou), "offline" (tentar de novo), "key" (o proxy recusou a chave de acesso remoto:
+     * tentar de novo, a fila fica) ou "login" (esperar o login).
+     */
     public static String run(Context context) {
         synchronized (LOCK) {
             Context app = context.getApplicationContext();
@@ -55,6 +60,7 @@ public final class DetectionSender {
                     keys.add(item.optString("key"));
                 }
                 Answer answer = post(session, list);
+                if (answer.proxyAuth) return "key";
                 int status = answer.status;
                 if (status == -1 || status >= 500) return "offline";
                 if (status == 401) return "login";
@@ -65,17 +71,25 @@ public final class DetectionSender {
     }
 
     /** O status da resposta (-1 = nao chegou) e o corpo de um 200. */
-    private static final class Answer {
+    static final class Answer {
         final int status;
         final String body;
+        /** O 401 do proxy (DeviceKey): o app nem viu o lote; nada sai da fila. */
+        final boolean proxyAuth;
 
         Answer(int status, String body) {
+            this(status, body, false);
+        }
+
+        Answer(int status, String body, boolean proxyAuth) {
             this.status = status;
             this.body = body;
+            this.proxyAuth = proxyAuth;
         }
     }
 
-    private static Answer post(Session session, JSONArray detections) {
+    // Pacote: DetectionSenderTest confere a chave e o 401 do proxy num servidor de teste.
+    static Answer post(Session session, JSONArray detections) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL(session.baseUrl.replaceAll("/+$", "") + ENDPOINT);
@@ -89,12 +103,14 @@ public final class DetectionSender {
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Authorization", "Bearer " + session.token);
+            DeviceKey.apply(connection, session.deviceKey);
             byte[] body = new JSONObject().put("detections", detections).toString().getBytes(StandardCharsets.UTF_8);
             connection.setFixedLengthStreamingMode(body.length);
             try (OutputStream out = connection.getOutputStream()) {
                 out.write(body);
             }
             int status = connection.getResponseCode();
+            if (DeviceKey.isProxyAuthRequired(connection, status)) return new Answer(status, "", true);
             if (status >= 300 && status < 400) return new Answer(-1, "");
             if (status != 200) return new Answer(status, "");
             String answerBody = read(connection.getInputStream());

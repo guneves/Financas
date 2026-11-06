@@ -56,6 +56,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import br.financas.app.R
+import br.financas.app.ui.login.DeviceKeyDialog
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.res.stringResource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import br.financas.app.data.AppGraph
 import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.Session
@@ -401,6 +406,28 @@ private fun AppShell(
             expired = true
             nav.toLogin()
         }
+    }
+
+    // Um 401 do proxy de autenticacao: a chave de acesso remoto falta ou esta errada. O login
+    // fica; pede a chave (no login, o proprio formulario tem o campo).
+    val deviceKeyNeeded by graph.deviceKeyNeeded.collectAsState()
+    var savingKey by remember { mutableStateOf(false) }
+    if (deviceKeyNeeded && route != null && route != NativeRoutes.LOGIN) {
+        val keyScope = rememberCoroutineScope()
+        DeviceKeyDialog(
+            title = stringResource(R.string.device_key_invalid),
+            message = stringResource(R.string.device_key_prompt),
+            busy = savingKey,
+            onSave = { key ->
+                savingKey = true
+                keyScope.launch {
+                    withContext(Dispatchers.IO) { runCatching { graph.saveDeviceKey(key) } }
+                    savingKey = false
+                    shell.refresh()
+                }
+            },
+            onDismiss = graph::dismissDeviceKeyPrompt,
+        )
     }
 
     // Uma intent pediu uma pagina: entra por cima do Inicio.

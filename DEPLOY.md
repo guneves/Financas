@@ -1,8 +1,10 @@
 # Deploy
 
 The app runs on a home server (x86_64, reached over Tailscale) as one Docker container:
-gunicorn serving the API and the built frontend on one origin. The server holds no source code and
-no Git — `/srv/apps/financas/` contains only `compose.yaml` and `.env`. The image lives in GHCR.
+gunicorn serving the API and the built frontend on one origin, plus the auth proxy in front of it
+(Caddy and oauth2-proxy, "Remote access" below). The server holds no source code and no Git —
+`/srv/apps/financas/` contains `compose.yaml`, `.env`, the proxy secrets `oauth2.env` and
+`proxy.env`, and `apk/`. The image lives in GHCR.
 
 **The server is the only backend** (since 2026-10-16). The first-time setup below is done, the PC's
 data was imported, and the APK points at the server. The PC is a development machine now:
@@ -15,7 +17,7 @@ snapshot imported).
 |---|---|
 | Image | `ghcr.io/guneves/financas-app`, tags `latest` and the full commit SHA |
 | Host port | **8101**, localhost only (`APP_PORT` in the server's `.env`). Ports on this server: 81xx, one per app. |
-| Address | `https://<server>.<tailnet>.ts.net` (`tailscale serve`, HTTPS 443 → `127.0.0.1:8101`) |
+| Address | `https://<server>.<tailnet>.ts.net` (`tailscale serve`, HTTPS 443 → `127.0.0.1:8101`, tailnet only) and `https://<server>.<tailnet>.ts.net:8443` (Funnel → the auth proxy on `127.0.0.1:8102`, public) |
 | Volume | `financas_data`, mounted at `/data`: `finance.db`, `backups/`, `attachments/`, `logs/` |
 
 Pulling a new image or recreating the container never touches the volume.
@@ -201,7 +203,8 @@ an older value below 6 is read as 6). A Pluggy refusal is kept in the item's `la
 (shown in Ajustes) and logged as `Open Finance: a Pluggy recusou o pull` (status, code) in
 `docker compose logs`.
 
-**No webhooks.** The server is tailnet-only, so Pluggy cannot call it: the app pulls, on
+**No webhooks.** Only the auth proxy on :8443 is public, and every path but the Google login
+needs a Google session or the device key, so Pluggy cannot call the app: it pulls, on
 "Atualizar" and in the background thread. Each pull reads from the last pull minus 7 days (the
 first one: Ajustes' "Primeira busca", 30 days by default); every transaction is keyed
 `pluggy:<id>`, so overlap and re-pulls never duplicate.
@@ -267,8 +270,10 @@ versionCode, so the app offers it whatever changed. The job:
    `native_level: 9`: the WebView APKs (native level 8 and below) refuse a manifest without it,
    and 9 makes their banner say the new APK is needed. The native APK ignores it.
 
-`tailscale serve` publishes that folder at `https://<server>.<tailnet>.ts.net/apk/`, on
-the tailnet only. Nothing goes to GitHub Releases or workflow artifacts.
+The auth proxy serves that folder at `https://<server>.<tailnet>.ts.net:8443/apk/`, behind the
+same gates as the app (the APK sends its device key). `tailscale serve` still publishes it at
+`https://<server>.<tailnet>.ts.net/apk/` on the tailnet only, for an APK that still points at
+443. Nothing goes to GitHub Releases or workflow artifacts.
 
 The app reads `/apk/version.json` when it opens and when it comes back to the front (at most every
 6 h; Ajustes › Versão do app › **Verificar atualizações** asks right away). When the published
@@ -304,7 +309,49 @@ ssh -t <user>@<server> "mkdir -p /srv/apps/financas/apk && sudo tailscale serve 
 ```
 
 `/` keeps proxying to the container on 8101. `/apk` is served by tailscaled straight from the
-folder, independent of the image.
+folder, independent of the image. On :8443 the proxy container mounts the same folder read-only
+(`./apk:/srv/apk:ro`).
+
+## Remote access: the auth proxy on :8443
+
+How it works, the secrets, rotation and rollback: README, "Remote access". Here: the first-time
+setup and the rollout, in order. Every `sudo` and Tailscale step is the owner's call.
+
+1. **Google** (owner): turn on 2-Step Verification. At console.cloud.google.com create a project;
+   Google Auth Platform › Get started: External; Audience: keep it in **Testing**, the owner's
+   Gmail the only test user; Data access: `openid`, `email`, `profile`; Clients › Create client:
+   Web application, redirect URI `https://guilhermeserver.tail5084ff.ts.net:8443/oauth2/callback`.
+2. **Server files** in `/srv/apps/financas/`, chmod 600: `oauth2.env` (`OAUTH2_PROXY_CLIENT_ID`,
+   `OAUTH2_PROXY_CLIENT_SECRET`, `OAUTH2_PROXY_COOKIE_SECRET`) and `proxy.env`
+   (`PROXY_DEVICE_KEY`); in `.env`, `OAUTH2_ALLOWED_EMAILS=<the Gmail>`. Check them without
+   printing values: `sudo sed 's/=.*/=<set>/' oauth2.env proxy.env`.
+3. `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8102` — tailnet only; 502 until the
+   deploy. It must exist before the phone installs the new APK.
+4. Merge to `main`: CI deploys `app`, `proxy` and `oauth2-proxy` and publishes the APK that points
+   at :8443.
+5. On the server: `curl -si http://127.0.0.1:8102/api/health` → 401 with `X-Proxy-Auth`;
+   with `-H "X-Device-Key: <key>"` → 200.
+6. On the tailnet: Google login then the app login, a receipt upload, a CSV download, Pluggy
+   "Atualizar" and the quote refresh (timed). On the phone, on the VPN: install the new APK from
+   the banner (it still comes from 443), then paste the key.
+7. Tailnet policy (owner): `"nodeAttrs": [{"target": ["tag:server"], "attr": ["funnel"]}]`.
+8. `sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8102`; `tailscale funnel status` must
+   show Funnel on 8443 only and 443 "(tailnet only)".
+9. Off the VPN (mobile data, Tailscale off): `:8443` goes to Google then the app; another Google
+   account is refused; `/api/transactions` without the cookie is 401; 443 doesn't connect. The APK
+   loads and saves, an airplane-mode entry lands once, a bank notification arrives, Verificar
+   atualizações works.
+10. LAN: ports 8101, 8102, 4180 and 5000 closed from the PC (`Test-NetConnection`); `ss -ltn` on
+    the server shows only `127.0.0.1` binds.
+
+**Rollback:** `sudo tailscale funnel --https=8443 off` (the APK keeps working on the VPN). Full
+revert: also `sudo tailscale serve --https=8443 off`, remove the nodeAttr, `git revert` the APK
+commit.
+
+Known limits: the `*.ts.net` name is in certificate-transparency logs, so scanners will find 8443
+(they see the Google login or a 401); Funnel's request timeout is undocumented (gunicorn caps at
+120 s), so time Pluggy "Atualizar" through it; logs may show 127.0.0.1 as the client; `rd={uri}`
+may drop a query string after the Google login.
 
 ## Building and running on the PC
 
