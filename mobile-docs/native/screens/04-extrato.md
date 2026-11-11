@@ -66,7 +66,10 @@ view's filters.
    "Filtros" button with a count of hidden active filters; "Limpar filtros". Filter panel: "De", "Até",
    "Tipo" (Todos / Entradas / Saídas / Transferências), "Conta" (active accounts), "Categoria" (all, label
    "Pai > Filho"; the server includes subcategories), "Valor mín.", "Valor máx.". Filters live in the URL;
-   requests are debounced 250 ms.
+   requests are debounced 250 ms. **The Extrato opens without filters** (owner 2026-11-11): the APK keeps
+   them only while that page lives (a tab switch restores it), never across openings, and the review
+   filter of the pill is dropped when the page is entered again without a review request
+   (`dropReviewFilter()`).
 6. **Day groups**: header `dayLabel(date)` ("Hoje", "Ontem", "ter., 22 de set.", year only when not the
    current one) and the day total = Σ INCOME − Σ EXPENSE of the shown rows (TRANSFER skipped; investment cash
    rows *are* counted here), `formatSignedCurrency`.

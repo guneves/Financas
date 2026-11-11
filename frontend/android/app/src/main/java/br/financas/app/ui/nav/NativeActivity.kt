@@ -528,6 +528,11 @@ private fun AppShell(
                         // A vista pedida pela intent ou por um link (a pilula de revisar, com o
                         // Extrato ja aberto inclusive).
                         val pendingView = ExtratoPendingView.value
+                        // Aberto sem pedir o Revisar (a aba, a barra), o "So a revisar" de uma
+                        // abertura anterior sai: o Extrato nao abre filtrado (dono 2026-11-11).
+                        LaunchedEffect(Unit) {
+                            if ((viewRequest ?: pendingView) != NativeLinks.VIEW_REVIEW) extrato.dropReviewFilter()
+                        }
                         LaunchedEffect(viewRequest, pendingView) {
                             val requested = viewRequest ?: pendingView
                             if (requested != null) {

@@ -19,6 +19,7 @@ import {
   cx,
 } from '../../components/ui'
 import { investmentsApi } from '../../lib/dataApi'
+import { quoteFailureCount, quoteFailureGroups } from '../../lib/quoteUpdate'
 import { formatCurrency, formatDateBR, formatPercent, formatQuantity, formatSignedCurrency, getLocalDateString } from '../../lib/format'
 import { MASKED_CURRENCY, MASKED_TEXT, usePrivateFormatter, useValuesHidden } from '../../lib/privacy'
 import { toast } from '../../lib/toast'
@@ -615,42 +616,25 @@ function RedeemSheet({ asset, onClose, onSave }) {
   )
 }
 
+// So as falhas (dono 2026-11-11): o que atualizou nao vira aviso, e sem
+// falha o painel nem aparece (lib/quoteUpdate.js).
 function QuoteUpdateResult({ result, onClose }) {
+  const count = quoteFailureCount(result)
+  if (!count) return null
   return (
     <Panel className="animate-slide-down">
       <PanelHeader
-        title="Atualização de cotações"
-        description={`${result.updated_assets?.length || 0} atualizada(s), ${result.failed_assets?.length || 0} falha(s), ${result.stale_assets?.length || 0} desatualizada(s)/sem cotação.`}
+        title="Cotações não atualizadas"
+        description={count === 1 ? '1 ativo ficou sem cotação nova.' : `${count} ativos ficaram sem cotação nova.`}
         actions={<IconButton label="Fechar resultado" icon={X} variant="subtle" onClick={onClose} />}
       />
-      {result.updated_assets?.length || result.cached_assets?.length || result.failed_assets?.length || result.stale_assets?.length ? (
-        <div className="space-y-2 px-5 py-4 text-sm">
-          {result.updated_assets?.length ? (
-            <p className="text-emerald-700">
-              Atualizados: {result.updated_assets.map((item) => item.ticker || item.name).join(', ')}
-            </p>
-          ) : null}
-          {result.cached_assets?.length ? (
-            <p className="text-amber-700">
-              Usando cache: {result.cached_assets.map((item) => item.ticker || item.name).join(', ')}
-            </p>
-          ) : null}
-          {/* Uma linha por motivo: um tempo limite do provedor nao se repete ticker a ticker. */}
-          {Object.entries((result.failed_assets || []).reduce((groups, item) => {
-            const error = item.error || 'sem detalhe'
-            return { ...groups, [error]: [...(groups[error] || []), item] }
-          }, {})).map(([error, items]) => (
-            <p key={error} className="text-rose-700">
-              {error}: {items.map((item) => item.ticker || item.name).join(', ')}
-            </p>
-          ))}
-          {result.stale_assets?.length ? (
-            <p className="text-zinc-600">
-              Desatualizada/sem cotação: {result.stale_assets.map((item) => item.ticker || item.name).join(', ')}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <div className="space-y-2 px-5 py-4 text-sm">
+        {quoteFailureGroups(result).map(({ error, names }) => (
+          <p key={error} className="text-rose-700">
+            {error}: {names.join(', ')}
+          </p>
+        ))}
+      </div>
     </Panel>
   )
 }
