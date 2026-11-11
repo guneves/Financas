@@ -47,6 +47,7 @@ import br.financas.app.rules.FixedIncome
 import br.financas.app.rules.HomeFlow
 import br.financas.app.rules.Operations
 import br.financas.app.rules.PortfolioView
+import br.financas.app.rules.QuoteUpdateRules
 import br.financas.app.rules.TreasuryLabels
 import br.financas.app.ui.charts.BarColumn
 import br.financas.app.ui.charts.DonutChart
@@ -370,30 +371,28 @@ internal fun PanelTitle(title: String, description: String? = null) {
     }
 }
 
+/** So as falhas (dono 2026-11-11): o que atualizou nao vira aviso; sem falha, nada (QuoteUpdateRules). */
 @Composable
 private fun QuoteResultPanel(result: QuoteUpdateDto, onClose: () -> Unit) {
     val palette = LocalPalette.current
-    fun names(list: List<br.financas.app.data.QuoteAssetDto>) = list.joinToString(", ") { it.ticker ?: it.name.orEmpty() }
+    val count = QuoteUpdateRules.failureCount(result)
+    if (count == 0) return
     Panel {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.inv_quotes_result_title), color = palette.text, fontWeight = FontWeight.Bold)
                     Text(
-                        stringResource(R.string.inv_quotes_result_summary, result.updatedAssets.size, result.failedAssets.size, result.staleAssets.size),
+                        if (count == 1) stringResource(R.string.inv_quotes_result_one) else stringResource(R.string.inv_quotes_result_many, count),
                         color = palette.muted,
                         fontSize = 13.sp,
                     )
                 }
                 AppButton(stringResource(R.string.inv_close), onClose, variant = ButtonVariant.SUBTLE)
             }
-            if (result.updatedAssets.isNotEmpty()) Text(stringResource(R.string.inv_quotes_updated, names(result.updatedAssets)), color = palette["emerald-700"], fontSize = 13.sp)
-            if (result.cachedAssets.isNotEmpty()) Text(stringResource(R.string.inv_quotes_cached, names(result.cachedAssets)), color = palette["amber-800"], fontSize = 13.sp)
-            // Uma linha por motivo: um tempo limite do provedor nao se repete ticker a ticker.
-            result.failedAssets.groupBy { it.error ?: "sem detalhe" }.forEach { (error, assets) ->
-                Text(stringResource(R.string.inv_quotes_failed_list, error, names(assets)), color = palette["rose-700"], fontSize = 13.sp)
+            QuoteUpdateRules.failureGroups(result).forEach { group ->
+                Text(stringResource(R.string.inv_quotes_failed_list, group.error, group.names.joinToString(", ")), color = palette["rose-700"], fontSize = 13.sp)
             }
-            if (result.staleAssets.isNotEmpty()) Text(stringResource(R.string.inv_quotes_stale, names(result.staleAssets)), color = palette["zinc-600"], fontSize = 13.sp)
         }
     }
 }

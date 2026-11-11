@@ -1020,12 +1020,10 @@
     <string name="inv_group_many">%1$d posições · %2$s</string>
     <string name="inv_position_proceeds">Proventos %1$s</string>
     <string name="inv_position_with_proceeds">c/ proventos</string>
-    <string name="inv_quotes_result_title">Atualização de cotações</string>
-    <string name="inv_quotes_result_summary">%1$d atualizada(s), %2$d falha(s), %3$d desatualizada(s)/sem cotação.</string>
-    <string name="inv_quotes_updated">Atualizados: %1$s</string>
-    <string name="inv_quotes_cached">Usando cache: %1$s</string>
+    <string name="inv_quotes_result_title">Cotações não atualizadas</string>
+    <string name="inv_quotes_result_one">1 ativo ficou sem cotação nova.</string>
+    <string name="inv_quotes_result_many">%1$d ativos ficaram sem cotação nova.</string>
     <string name="inv_quotes_failed_list">%1$s: %2$s</string>
-    <string name="inv_quotes_stale">Desatualizada/sem cotação: %1$s</string>
     <string name="inv_quotes_failed">Erro de conexão ao tentar atualizar os preços.</string>
     <string name="inv_menu_details">Detalhes do título</string>
     <string name="inv_menu_edit_quote">Editar cotação</string>

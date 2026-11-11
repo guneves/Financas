@@ -7,6 +7,20 @@
 
 ---
 
+## Session — 2026-11-11 (small) · Extrato without a default filter; quote refresh shows only failures
+
+Done: **Extrato** — the web keeps filters only in the URL (already clean); the APK kept them across openings in
+`ExtratoMemory.filters` (so the pill's "Só a revisar" stuck). Removed: filters start empty in each new
+`ExtratoViewModel`; a restored tab (`openTab` saves state) drops only the review filter when entered without a
+review request (`dropReviewFilter()`, `LaunchedEffect(Unit)` in `NativeActivity`). **Atualizar cotações** —
+web `QuoteUpdateResult` and APK `QuoteResultPanel` render only `failed_assets`, grouped by error; no failure =
+no panel (`lib/quoteUpdate.js` + `quoteUpdate.test.js`, `rules/QuoteUpdateRules.kt` + `QuoteUpdateRulesTest`).
+"Usando cache" and "Desatualizada/sem cotação" lines are gone too (the row's dot shows staleness).
+Checks: `npm test` 245 pass, `vite build` OK; the APK could not build here (no Android SDK / offline Gradle),
+so the `android-check` workflow on the PR is the check. Not done: nothing. Next: unchanged (below).
+
+---
+
 ## Session — 2026-11-06 (small) · Débito automático warning only 5 days before the due date
 
 Done: `AUTOPAY_WINDOW_DAYS` 31 → 5 in `services/attention.py` (owner 2026-11-06: "saldo da conta menor que a

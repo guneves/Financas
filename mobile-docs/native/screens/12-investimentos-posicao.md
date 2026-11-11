@@ -21,11 +21,12 @@ Top to bottom (phone layout = the `xl:hidden` branch of the React page).
    cotações" (spinner while running), "Exportar" (disabled with no assets), "Registrar operação"
    (primary).
 2. **Error banner** (warning, dismissible): `dataError` from either query or an action.
-3. **Quote update result** (only after "Atualizar cotações", closable): "Atualização de cotações" /
-   "N atualizada(s), N falha(s), N desatualizada(s)/sem cotação." from `updated_assets`,
-   `failed_assets`, `stale_assets`; lines "Atualizados: …" (emerald), "Usando cache: …"
-   (`cached_assets`, amber), "Falharam: TICKER (error)" (rose), "Desatualizada/sem cotação: …"
-   (neutral). Names = `ticker || name`.
+3. **Quote update failures** (only after "Atualizar cotações" with at least one `failed_assets`,
+   closable; owner 2026-11-11: successes are never shown, no failure = no panel): "Cotações não
+   atualizadas" / "1 ativo ficou sem cotação nova." or "N ativos ficaram sem cotação nova."; one rose
+   line per error, "<error>: TICKER, …" (`quoteFailureGroups()` in `lib/quoteUpdate.js`,
+   `rules/QuoteUpdateRules.kt`). Names = `ticker || name`. `updated_assets`, `cached_assets` and
+   `stale_assets` are not shown (the quote dot of each row already says fresh/stale).
 4. **Summary** (`PortfolioSummary`, only when there are assets): lead "Carteira" = `current_balance`
    ("Valor de mercado bruto"); figures "Valor aplicado" = `total_invested` ("Custo das posições
    abertas"); "Resultado" = `current_balance − total_invested`, signed, tone gain/loss, hint
@@ -106,7 +107,7 @@ dd/mm/aaaa"; info alert when not MARKET; list Saldo bruto (+ "N títulos"), Cust
 
 | Action | Where | Request | Confirmation | Offline |
 |---|---|---|---|---|
-| Atualizar cotações | header | `POST /api/investments/update-prices` `{}`; refresh screens only when `updated_count > 0` (`refreshQuotes()`) | result panel (item 3) | refused (needs the providers) |
+| Atualizar cotações | header | `POST /api/investments/update-prices` `{}`; refresh screens only when `updated_count > 0` (`refreshQuotes()`) | failures panel (item 3), nothing on full success | refused (needs the providers) |
 | Atualizar cotação / "Atualizar valor" (fixed) | card "⋯" | same, `{asset_id, asset_class}` | result panel | refused |
 | Editar cotação (not fixed income) | card "⋯" → sheet "Editar cotação", field "Cotação (R$)", hint "Um ativo com fonte de mercado volta ao preço da fonte na próxima atualização." | `PATCH /api/investments/price-by-asset/<asset_id \|\| id>` `{asset_class, current_price}` | toast "Cotação de <name> salva." | refused |
 | Vender | card button | opens "Registrar operação" in Venda mode with the asset (`13-…`) | — | refused |

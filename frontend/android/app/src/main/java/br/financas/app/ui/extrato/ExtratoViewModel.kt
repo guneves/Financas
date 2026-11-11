@@ -64,12 +64,11 @@ import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 
 /**
- * O que o Extrato guarda entre uma abertura e outra no mesmo processo: os filtros (na web moram
- * na URL e voltam com ela) e a vista escolhida por ultimo (a web guarda no localStorage).
+ * O que o Extrato guarda entre uma abertura e outra: so a vista escolhida por ultimo (a web guarda
+ * no localStorage). Os filtros nao (dono 2026-11-11): o Extrato sempre abre sem filtro, e o "So a
+ * revisar" da pilula vale so para aquela abertura.
  */
 object ExtratoMemory {
-    var filters: ExtratoFilters = ExtratoFilters()
-
     private const val PREFS = "financas_native_extrato"
     private const val VIEW = "view"
 
@@ -125,9 +124,9 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
 
     // ---- Contas ----
 
-    var filters by mutableStateOf(ExtratoMemory.filters)
+    var filters by mutableStateOf(ExtratoFilters())
         private set
-    var filtersOpen by mutableStateOf(ExtratoRules.countHiddenFilters(ExtratoMemory.filters) > 0)
+    var filtersOpen by mutableStateOf(false)
         private set
 
     /** As linhas do servidor ja carregadas (todas as paginas); null antes da primeira. */
@@ -579,11 +578,17 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** O "So a revisar" vale para a abertura que o pediu; a seguinte abre sem ele. */
+    fun dropReviewFilter() {
+        if (filters.review.isEmpty()) return
+        changeFilters(filters.copy(review = ""))
+        if (ExtratoRules.countHiddenFilters(filters) == 0) filtersOpen = false
+    }
+
     fun changeFilters(next: ExtratoFilters) {
         if (next == filters) return
         val before = ExtratoRules.filterParams(filters)
         filters = next
-        ExtratoMemory.filters = next
         if (ExtratoRules.filterParams(next) != before) readList()
     }
 
