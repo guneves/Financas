@@ -20,7 +20,7 @@ from datetime import date as date_type, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from dates import clamped_date, parse_iso_date
-from db import new_id, row_to_dict
+from db import begin_write, new_id, row_to_dict
 from money import rounded_money
 from services.accounts import account_balance_until
 from source_types import CC_AUTOPAY_SOURCE_TYPE, CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
@@ -281,6 +281,10 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
     Fatura com credito (total negativo) nao e paga: o credito fica para a
     proxima. Fatura zerada por estorno e baixada sem lancamento (None).
     """
+    # A escrita abre antes da leitura: outro pagamento desta fatura em andamento
+    # (toque duplo, Pagar junto com o debito automatico) termina primeiro, e esta
+    # leitura ja nao encontra os itens que ele baixou.
+    begin_write(conn)
     lines, total = invoice_open_lines(conn, current_user_id, card["id"], invoice_month, invoice_year)
     if not lines or total < 0:
         return None
@@ -540,6 +544,7 @@ def undo_invoice_payment(conn, current_user_id, transaction_id):
     037) e so apagado. Recusa (409) enquanto o lancamento tem comprovante.
     Devolve {"transaction", "reopened"} ou None quando nao e um pagamento.
     """
+    begin_write(conn)  # dois "Desfazer" (ou um Desfazer e um Pagar) nao se cruzam
     placeholders = ",".join("?" for _ in INVOICE_PAYMENT_SOURCE_TYPES)
     payment = conn.execute(
         f"""

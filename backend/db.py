@@ -57,6 +57,20 @@ def get_db():
     return conn
 
 
+def begin_write(conn):
+    """Abre ja a transacao de escrita desta conexao (BEGIN IMMEDIATE).
+
+    O sqlite3 do Python so abre a transacao no primeiro INSERT/UPDATE/DELETE: o
+    que uma rota le antes disso nao esta protegido, e dois pedidos simultaneos
+    leem o mesmo estado e gravam os dois (a fatura paga duas vezes). Quem
+    confere e depois grava chama isto antes de conferir: o segundo pedido espera
+    o commit do primeiro (ate o busy_timeout) e le o que ele deixou. Com a
+    transacao ja aberta, nao faz nada. O `with get_db()` fecha como sempre.
+    """
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+
+
 def configure_sqlite_database(conn):
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
