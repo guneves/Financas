@@ -17,7 +17,6 @@ import threading
 from datetime import date
 
 import pytest
-
 from finance_world import World, freeze
 
 PAYMENT_TYPES = ("CC_INVOICE_PAYMENT", "CC_AUTOPAY")
