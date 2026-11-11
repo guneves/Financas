@@ -12,14 +12,19 @@ transacao, so o guardado e lido.
 import importlib
 
 import pytest
-
-from tests.open_finance_world import World, bank_tx, connected, fake_pluggy, open_finance_module  # noqa: F401
+from tests.open_finance_world import (  # noqa: F401
+    World,
+    bank_tx,
+    connected,
+    fake_pluggy,
+    open_finance_module,
+)
 
 NOW = "2026-10-27"
 
 
 @pytest.fixture()
-def world(client, auth, fake_pluggy, db_module, user):
+def world(client, auth, fake_pluggy, db_module, user):  # noqa: F811
     made = World(client, auth, fake_pluggy)
     with db_module.get_db() as conn:
         for key in ("open_finance_auto_record", "auto_record_notifications"):

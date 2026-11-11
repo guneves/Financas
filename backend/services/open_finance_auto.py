@@ -45,12 +45,15 @@ mudar o valor ou a transacao sumir, so o intocado e corrigido ou apagado.
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from applog import get_logger
 from config import AUTO_RECORD_DEFAULT
 from dates import parse_iso_date
 from money import rounded_money
 from services import fx, global_account, inbox, inbox_decisions, open_finance_inbox, review
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
+
+logger = get_logger(__name__)
 
 AUTO_RECORD_SETTING = "open_finance_auto_record"
 FRESH_PULL_HOURS = 48
@@ -257,8 +260,9 @@ def prefetch_rates(conn, current_user_id, wanted=()):
             continue
         try:
             fx.rate_on(conn, current_user_id, currency, day)
-        except Exception:  # sem PTAX (BCB fora, moeda sem serie): o item espera
-            pass
+        except fx.FxUnavailable:
+            # Sem PTAX (BCB fora, moeda sem serie): o item espera a proxima passada.
+            logger.info("PTAX ainda indisponivel", extra={"currency": currency, "day": day})
         conn.commit()
 
 
