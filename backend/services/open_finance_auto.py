@@ -243,7 +243,7 @@ def prefetch_rates(conn, current_user_id, wanted=()):
     chegar) e os itens pendentes em outra moeda. Com a transacao ja aberta nesta
     conexao nao faz nada (a rede nunca espera com a trava do SQLite presa: o
     item fica para a proxima passada, como sem PTAX). Sai com o cambio
-    confirmado e nenhuma transacao aberta. Nunca levanta."""
+    confirmado e nenhuma transacao aberta. A falta de PTAX nao levanta."""
     if conn.in_transaction:
         return
     pairs = {(str(currency or "").upper(), str(day or "")[:10] or None) for currency, day in wanted}
