@@ -234,6 +234,34 @@ def one_side_now(conn, current_user_id, item, sources):
     return inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
 
 
+def prefetch_rates(conn, current_user_id, wanted=()):
+    """Busca e guarda a PTAX de que `in_reais_now()` vai precisar, ANTES de a
+    transacao de escrita abrir: `wanted` ((moeda, AAAA-MM-DD) do que acabou de
+    chegar) e os itens pendentes em outra moeda. Com a transacao ja aberta nesta
+    conexao nao faz nada (a rede nunca espera com a trava do SQLite presa: o
+    item fica para a proxima passada, como sem PTAX). Sai com o cambio
+    confirmado e nenhuma transacao aberta. Nunca levanta."""
+    if conn.in_transaction:
+        return
+    pairs = {(str(currency or "").upper(), str(day or "")[:10] or None) for currency, day in wanted}
+    for row in conn.execute(
+        """
+        SELECT DISTINCT currency, substr(occurred_at, 1, 10) AS day FROM inbox_items
+        WHERE user_id = ? AND state = 'PENDING' AND COALESCE(currency, 'BRL') <> 'BRL'
+        """,
+        (current_user_id,),
+    ).fetchall():
+        pairs.add((str(row["currency"]).upper(), row["day"] or None))
+    for currency, day in sorted(pairs, key=lambda pair: (pair[0], pair[1] or "")):
+        if not currency or currency == "BRL":
+            continue
+        try:
+            fx.rate_on(conn, current_user_id, currency, day)
+        except Exception:  # sem PTAX (BCB fora, moeda sem serie): o item espera
+            pass
+        conn.commit()
+
+
 def in_reais_now(conn, current_user_id, item):
     """Um movimento em outra moeda numa conta em reais (a Pluggy nao mandou o
     valor na moeda da conta): o valor em reais pela PTAX do dia, a revisar
@@ -245,7 +273,11 @@ def in_reais_now(conn, current_user_id, item):
     if item.get("account_id") and global_account.is_foreign(conn, current_user_id, item["account_id"]):
         return None
     try:
-        rate = fx.rate_on(conn, current_user_id, currency, str(item.get("occurred_at") or "")[:10] or None)
+        # So o guardado: aqui a transacao de escrita esta aberta (prefetch_rates()
+        # buscou antes, fora dela).
+        rate = fx.rate_on(
+            conn, current_user_id, currency, str(item.get("occurred_at") or "")[:10] or None, fetch=False,
+        )
     except Exception:  # sem PTAX (BCB fora, moeda sem serie): espera
         return None
     if not rate:

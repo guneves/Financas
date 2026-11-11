@@ -722,6 +722,20 @@ def _seconds(stamp):
         return 0
 
 
+def _foreign_days(pulled):
+    """(moeda, dia) dos movimentos que a Pluggy trouxe em outra moeda sem o
+    valor na moeda da conta: os que in_reais_now() converte pela PTAX."""
+    days = set()
+    for _date_from, transactions in pulled.values():
+        for raw in transactions:
+            if not isinstance(raw, dict) or raw.get("amountInAccountCurrency") is not None:
+                continue
+            currency = str(raw.get("currencyCode") or "BRL").upper()
+            if currency != "BRL":
+                days.add((currency, str(raw.get("date") or "")[:10]))
+    return days
+
+
 def sync_item(current_user_id, of_item_id, today=None, history_from=None, record=True):
     """Um pull completo de um item, so com GET: o item, as contas, as
     transacoes de cada conta e, na corretora, as posicoes e operacoes.
@@ -780,6 +794,10 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
         _record_refusal(current_user_id, of_item_id, exc)
         raise
     investments = open_finance_investments.fetch(api, row["pluggy_item_id"], logger)
+    # Ainda na fase de rede: a PTAX dos movimentos em outra moeda, antes de a
+    # transacao de escrita abrir (la dentro in_reais_now() le so o guardado).
+    with get_db() as conn:
+        open_finance_auto.prefetch_rates(conn, current_user_id, _foreign_days(pulled))
 
     counts = {}
     removed = 0
