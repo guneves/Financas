@@ -153,6 +153,8 @@ def record_notifications(conn, current_user_id):
     counts = {"recorded": 0, "linked": 0, "held": 0}
     if not enabled(conn, current_user_id):
         return counts
+    # A PTAX do que espera em outra moeda, enquanto nenhuma transacao esta aberta.
+    open_finance_auto.prefetch_rates(conn, current_user_id)
     rows = conn.execute(
         """
         SELECT DISTINCT i.id FROM inbox_items i
