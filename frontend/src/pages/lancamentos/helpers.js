@@ -1,6 +1,5 @@
 // Helpers de Lancamentos (Extrato, Cartoes) e do sheet "+ Novo".
 // Movidos de Transactions.jsx sem mudanca de comportamento.
-import { cardPurchaseKey } from '../../lib/transactions'
 
 // Relogio local: as datas padrao passam por aqui, nao por `new Date()` direto
 // (ver CLAUDE.md › Known sharp edges).
@@ -41,11 +40,6 @@ export function parseInstallmentInfo(value) {
   }
 }
 
-// A compra de uma parcela: o client_id dela (lib/transactions.js).
-export function getPurchaseGroupKey(expense) {
-  return cardPurchaseKey(expense)
-}
-
 export function formatInvoiceLabel(month, year) {
   return `${String(month).padStart(2, '0')}/${year}`
 }
@@ -58,11 +52,6 @@ export function readStoredJson(key, fallback) {
     localStorage.removeItem(key)
     return fallback
   }
-}
-
-export function readStoredNumber(key, fallback = 0) {
-  const parsed = Number(localStorage.getItem(key))
-  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 export function categoryLabel(category) {

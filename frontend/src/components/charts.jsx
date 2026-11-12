@@ -4,8 +4,8 @@
 // que os graficos do app leiam como um sistema so. A paleta categorica segue uma
 // ordem fixa validada para daltonismo (azul, laranja, verde-agua, amarelo...) —
 // a cor segue a entidade, nunca a posicao no ranking, e nunca e "ciclada".
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { formatCurrency } from '../lib/format'
 import { cx, prefersReducedMotion } from './ui'
 
@@ -75,19 +75,6 @@ export const axisProps = {
 // Eixo de valores (sem o "R$"): a regra mora em lib/chartFormat.js, testada.
 export { compactAxis } from '../lib/chartFormat'
 
-export function compactCurrency(value) {
-  const numeric = Number(value || 0)
-  const absolute = Math.abs(numeric)
-  const sign = numeric < 0 ? '-' : ''
-  if (absolute >= 1_000_000) {
-    return `${sign}R$ ${(absolute / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`
-  }
-  if (absolute >= 1000) {
-    return `${sign}R$ ${(absolute / 1000).toLocaleString('pt-BR', { maximumFractionDigits: absolute >= 10000 ? 0 : 1 })} mil`
-  }
-  return `${sign}R$ ${absolute.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
-}
-
 // Tooltip unico do app. `rows` permite trocar o rotulo de cada serie; valores
 // negativos (saidas desenhadas abaixo do zero) aparecem em modulo.
 export function ChartTooltip({
@@ -140,46 +127,6 @@ export function LegendDot({ color, label, className = '', shape = 'dot' }) {
       />
       {label}
     </span>
-  )
-}
-
-// Linha minima com lavagem de area — cabe dentro de um MetricCard.
-export function Sparkline({ data, dataKey = 'value', color = SERIES[0], formatter = formatCurrency, labelKey = 'label' }) {
-  const gradientId = useId().replace(/:/g, '')
-  const animation = useChartAnimation()
-  if (!data || data.length < 2) return null
-
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.22} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Tooltip
-          cursor={{ stroke: CHART.axis, strokeWidth: 1 }}
-          content={(
-            <ChartTooltip
-              labelFormatter={(_, payload) => payload?.[0]?.payload?.[labelKey]}
-              names={{ [dataKey]: 'Valor' }}
-              valueFormatter={formatter}
-            />
-          )}
-        />
-        <Area
-          type="monotone"
-          dataKey={dataKey}
-          stroke={color}
-          strokeWidth={2}
-          fill={`url(#${gradientId})`}
-          dot={false}
-          activeDot={{ r: 4, strokeWidth: 2, stroke: 'rgb(var(--white))' }}
-          {...animation}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
   )
 }
 

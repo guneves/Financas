@@ -56,15 +56,6 @@ export function setThemePreference(next) {
   apply()
 }
 
-// A escolha atual ('system' | 'light' | 'dark'), fora do React.
-export function themePreferenceNow() {
-  return preference
-}
-
-export function useIsDark() {
-  return useSyncExternalStore(subscribe, isDark)
-}
-
 export function useThemePreference() {
   return useSyncExternalStore(subscribe, () => preference)
 }
