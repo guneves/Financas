@@ -14,7 +14,7 @@ tambem le `yf` (o historico), entao o teste de evolucao troca os dois.
 """
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 import math
 import threading
 import time
@@ -37,7 +37,7 @@ from config import (
     PRICE_FETCH_WORKERS,
     PRICE_QUOTE_STALE_HOURS,
 )
-from dates import parse_iso_date, parse_iso_datetime, subtract_months
+from dates import local_now, parse_iso_date, parse_iso_datetime, subtract_months
 from db import encode_metadata, new_id, utc_timestamp
 from money import rounded_money
 from validators import safe_float
@@ -593,7 +593,7 @@ HISTORY_FETCH_MONTHS = 63
 
 def history_fetch_floor(today=None):
     """Dia 1 do mes HISTORY_FETCH_MONTHS meses atras (um date)."""
-    today = today or date.today()
+    today = today or local_now().date()
     return subtract_months(today.replace(day=1), HISTORY_FETCH_MONTHS)
 
 

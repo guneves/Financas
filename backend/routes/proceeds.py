@@ -13,7 +13,7 @@ import sqlite3
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
-from dates import clamped_date, parse_iso_date
+from dates import clamped_date, local_now, parse_iso_date
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
 from money import rounded_money
@@ -470,11 +470,11 @@ def investment_proceeds_calendar(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_now().strftime("%Y-%m-%d")
     if not filters.get("date_from"):
         filters["date_from"] = today
     if not filters.get("date_to"):
-        filters["date_to"] = (datetime.now() + timedelta(days=180)).strftime("%Y-%m-%d")
+        filters["date_to"] = (local_now() + timedelta(days=180)).strftime("%Y-%m-%d")
     filters["ascending"] = True
 
     with get_db() as conn:

@@ -17,7 +17,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from db import new_id, serialize_metadata_row, serialize_transaction, utc_timestamp
 from money import rounded_money
 from services.accounts import ensure_default_account
@@ -55,7 +55,7 @@ def recurring_next_date(date_value, frequency, interval_count, anchor_day=None):
 
 
 def recurring_today():
-    return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_now().replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def recurring_pause_gaps(row):
@@ -403,7 +403,7 @@ def build_recurring_forecast(conn, current_user_id, days):
     Nada e gravado. Ocorrencias com data <= hoje aparecem como `pending` — elas
     ja venceram e so nao existem porque /run ainda nao foi chamado.
     """
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = local_now().replace(hour=0, minute=0, second=0, microsecond=0)
     horizon = today + timedelta(days=days)
     occurrences = []
     for row in recurring_rows(conn, current_user_id, include_inactive=False):

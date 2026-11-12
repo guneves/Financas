@@ -12,7 +12,7 @@ from datetime import datetime
 import math
 
 from asset_classes import is_crypto_asset, is_quoted_asset
-from dates import month_end, month_key, month_label, parse_iso_date, subtract_months
+from dates import local_now, month_end, month_key, month_label, parse_iso_date, subtract_months
 from db import encode_metadata, get_db
 from money import rounded_money
 from services.fixed_income import (
@@ -63,7 +63,7 @@ def investment_movement_date(investment):
         parsed = parse_iso_date(metadata.get(key))
         if parsed:
             return parsed
-    return parse_iso_date(investment.get("created_at")) or datetime.now()
+    return parse_iso_date(investment.get("created_at")) or local_now()
 
 
 def historical_price_for_month(historical_prices, ticker, target_month_key):
@@ -108,7 +108,7 @@ def position_value_today(asset_class, quantity, applied, original_applied, curre
 
 
 def portfolio_evolution_months(months_back):
-    current_month = datetime(datetime.now().year, datetime.now().month, 1)
+    current_month = datetime(local_now().year, local_now().month, 1)
     return [
         subtract_months(current_month, months_back - 1 - index)
         for index in range(months_back)
@@ -266,7 +266,7 @@ def portfolio_month_positions(
             market_value,
             # Hoje no mes atual, como a Posicao (a faixa do IR pode mudar
             # entre hoje e o fim do mes).
-            datetime.now() if is_current_month else target_end,
+            local_now() if is_current_month else target_end,
         )
         valued[group_key] = {
             "ticker": position["ticker"],
@@ -277,7 +277,7 @@ def portfolio_month_positions(
         }
 
     if treasury_entries:
-        valuation_day = datetime.now() if target_key == current_month_key else target_end
+        valuation_day = local_now() if target_key == current_month_key else target_end
         for treasury_position in build_treasury_positions(treasury_entries, valuation_day, treasury_prices):
             for entry, lot in zip(treasury_position["entries"], treasury_position["lots"]):
                 valued[entry["id"]] = {
@@ -296,7 +296,7 @@ def iter_portfolio_months(investments_data, historical_prices, months_back, inde
 
     E o laco da evolucao; a rentabilidade (services/returns.py) le as posicoes
     uma a uma daqui, para as duas sairem da mesma avaliacao."""
-    current_month_key = month_key(datetime.now())
+    current_month_key = month_key(local_now())
     movement_dates = [investment_movement_date(investment) for investment in investments_data]
     treasury_prices = tesouro_client.get_prices()
     for month_start in portfolio_evolution_months(months_back):
@@ -551,7 +551,7 @@ def treasury_quote(position, entries):
     if position["valuation"] != "MARKET" or not position.get("price_date"):
         return entries[0].get("quote") or {}
     price_day = parse_iso_date(position["price_date"])
-    age_days = (datetime.now() - price_day).days if price_day else None
+    age_days = (local_now() - price_day).days if price_day else None
     status = "fresh" if age_days is not None and age_days <= TREASURY_QUOTE_FRESH_DAYS else "stale"
     return {
         "id": None,
@@ -758,7 +758,7 @@ def build_portfolio_snapshot(current_user_id):
             data.get("metadata") or {},
             data["total_invested"],
             current_value,
-            datetime.now(),
+            local_now(),
         )
         is_tax_free = fixed_income_is_tax_free(data.get("metadata"))
         profitability = (

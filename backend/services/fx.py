@@ -13,7 +13,7 @@ import time
 from datetime import date, datetime, timedelta
 
 from applog import get_logger
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from money import rounded_money
 from services.fixed_income import fetch_bcb_window
 from validators import safe_float
@@ -68,7 +68,7 @@ def _as_date(value):
     if isinstance(value, date):
         return value
     parsed = parse_iso_date(value)
-    return parsed.date() if parsed else date.today()
+    return parsed.date() if parsed else local_now().date()
 
 
 def _stored_rate(conn, current_user_id, currency, on_date):
@@ -123,7 +123,7 @@ def rate_on(conn, current_user_id, currency, on_date=None, *, fetch=True):
         return 1.0
     if currency not in BCB_FX_SERIES:
         raise FxUnavailable(f"Moeda sem cambio configurado: {currency}.")
-    target = min(_as_date(on_date), date.today())
+    target = min(_as_date(on_date), local_now().date())
 
     row = _stored_rate(conn, current_user_id, currency, target)
     # O guardado serve se for do proprio dia, ou de ate 4 dias antes quando o
@@ -131,7 +131,7 @@ def rate_on(conn, current_user_id, currency, on_date=None, *, fetch=True):
     # a PTAX do dia sai a tarde.
     fresh_enough = row and (
         row["rate_date"] == target.isoformat()
-        or (target < date.today() and (target - _as_date(row["rate_date"])).days <= 4)
+        or (target < local_now().date() and (target - _as_date(row["rate_date"])).days <= 4)
     )
     if fresh_enough:
         return safe_float(row["rate"])
@@ -161,14 +161,14 @@ def monthly_rates(conn, current_user_id, currency, month_keys):
     missing_history = not have or not have["first_date"] or have["first_date"] > start.isoformat()
     if missing_history and _may_fetch((current_user_id, currency, "monthly", start.isoformat())):
         try:
-            fetch_and_store(conn, current_user_id, currency, start - timedelta(days=LOOKBACK_DAYS), date.today())
+            fetch_and_store(conn, current_user_id, currency, start - timedelta(days=LOOKBACK_DAYS), local_now().date())
         except Exception as exc:
             logger.warning(f"Serie mensal de {currency} indisponivel: {exc}", extra={"currency": currency})
     rates = {}
     for key in month_keys:
         year, month = int(key[:4]), int(key[5:7])
         next_month = date(year + (month == 12), month % 12 + 1, 1)
-        month_end = min(next_month - timedelta(days=1), date.today())
+        month_end = min(next_month - timedelta(days=1), local_now().date())
         row = _stored_rate(conn, current_user_id, currency, month_end)
         rates[key] = safe_float(row["rate"]) if row else None
     return rates

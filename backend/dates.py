@@ -4,6 +4,26 @@ import calendar
 from datetime import datetime, timezone
 
 
+def system_now():
+    return datetime.now()
+
+
+# O relogio do app. Um teste congela o tempo de todos os modulos de uma vez com
+# `monkeypatch.setattr(dates, "now_source", lambda: datetime(2026, 10, 27, 12))`:
+# quem importa `local_now`/`local_today` pelo nome continua lendo daqui.
+now_source = system_now
+
+
+def local_now():
+    """Agora, na hora local do servidor (sem fuso), como datetime.now()."""
+    return now_source()
+
+
+def local_today():
+    """Hoje (data local, sem hora)."""
+    return local_now().date()
+
+
 def clamped_date(year, month, day):
     """Dia `day` do mes, recuado para o ultimo dia quando o mes e mais curto."""
     year, month = int(year), int(month)

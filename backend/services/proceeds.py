@@ -10,9 +10,9 @@ Provento de ativo em moeda estrangeira e somado como esta gravado (em reais,
 regra atual): nao ha conversao aqui.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from db import serialize_metadata_row
 from money import rounded_money
 from validators import ValidationError, require_date, safe_float
@@ -57,7 +57,7 @@ TRAILING_DAYS = 365
 
 
 def trailing_window(today=None):
-    today = today or date.today()
+    today = today or local_now().date()
     return (today - timedelta(days=TRAILING_DAYS)).isoformat(), today.isoformat()
 
 
@@ -156,7 +156,7 @@ def accumulate_position(rows):
 
 def proceed_status(payment_date):
     parsed_payment = parse_iso_date(payment_date)
-    today = datetime.now().date()
+    today = local_now().date()
     if parsed_payment and parsed_payment.date() > today:
         return "SCHEDULED"
     return "PAID"
@@ -232,7 +232,7 @@ def fetch_investment_proceeds(conn, current_user_id, filters=None):
         query += " AND proceeds.payment_date <= ?"
         params.append(filters["date_to"])
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_now().strftime("%Y-%m-%d")
     if filters.get("status") == "PAID":
         query += " AND proceeds.payment_date <= ?"
         params.append(today)
@@ -470,7 +470,7 @@ def paid_proceeds_by_asset(conn, current_user_id, today=None):
     E o que a carteira soma na rentabilidade com proventos. Agendado nao conta
     como recebido.
     """
-    today = today or date.today()
+    today = today or local_now().date()
     start, end = trailing_window(today)
     rows = conn.execute(
         """

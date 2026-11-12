@@ -24,9 +24,9 @@ Secoes:
 """
 
 from collections import defaultdict
-from datetime import datetime
 
 from asset_classes import is_crypto_asset
+from dates import local_now
 from db import get_db
 from irpf_text import br_money, build_irpf_text
 from money import rounded_money
@@ -459,7 +459,7 @@ def build_tax_report(current_user_id, year):
     isentos.sort(key=lambda item: item["line"])
     report = {
         "year": year,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": local_now().isoformat(timespec="seconds"),
         "disclaimer": DISCLAIMER,
         "available_years": available_years(investments, rows),
         "bens_e_direitos": bens_e_direitos(investments, year, names),

@@ -19,7 +19,7 @@ As regras moram aqui para que o front nunca tenha uma copia:
 from datetime import date as date_type, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from dates import clamped_date, parse_iso_date
+from dates import clamped_date, local_now, parse_iso_date
 from db import begin_write, new_id, row_to_dict
 from money import rounded_money
 from services.accounts import account_balance_until
@@ -184,7 +184,7 @@ def serialize_cc_expense(row):
 
 def local_today():
     """Hoje (data local, sem hora). Ponto unico para os testes congelarem o relogio."""
-    return datetime.now().date()
+    return local_now().date()
 
 
 def invoice_closing_date(invoice_month, invoice_year, due_day, closing_day=None):

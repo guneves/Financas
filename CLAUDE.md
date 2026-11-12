@@ -63,6 +63,11 @@ built by the real migrations — **`backend/finance.db` is never touched.**
   test imports `db` or `app` (the `app_module` fixture then drops
   `app` and `config` from `sys.modules`), because `config.py` reads the environment once and
   `app.py` runs `init_db()` at import. Different config goes there, not in a test.
+- **One clock** (`dates.local_now()` / `local_today()`; `test_architecture.py` refuses a bare
+  `datetime.now()` / `date.today()` in app code). A test freezes every module at once with
+  `monkeypatch.setattr(dates, "now_source", lambda: datetime(...))` (`test_clock.py`); the older
+  `finance_world.freeze()` (patches `local_today` module by module) still works. SQLite's own `now`
+  (`created_at`) is never frozen: don't assert a fixed date against it.
 - A test never imports `db`, `routes.*` or `services.*` at the top; use a fixture or
   `importlib.import_module` inside the test. Pure modules (`brapi_client`, `statement_import`,
   `export_csv`, `market_catalog`, `irpf_text`) are fine at the top.

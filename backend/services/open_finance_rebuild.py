@@ -35,12 +35,12 @@ import shutil
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import db as database
 from applog import get_logger
 from asset_classes import QUOTED_ASSET_CLASSES, is_crypto_asset
-from dates import parse_iso_datetime
+from dates import local_now, parse_iso_datetime
 from db import create_database_backup, get_db, parse_metadata_value, row_to_dict
 from money import from_cents, rounded_money, to_cents
 from services import (
@@ -735,7 +735,7 @@ def verified_backup():
             check.close()
         if verdict != "ok" or not users:
             raise RebuildRefused(f"O backup {path} nao passou na conferencia: {verdict}.")
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = local_now().strftime("%Y%m%d-%H%M%S")
         milestone = os.path.join(os.path.dirname(path), f"finance-before-rebuild-{stamp}.db")
         shutil.copy2(path, milestone)
     except RebuildRefused:
@@ -750,7 +750,7 @@ def copy_receipts(user_id, names, out):
     dos backups. Um que nao copia para tudo: o espelho do backup so avisa no log."""
     if not names:
         return None
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = local_now().strftime("%Y%m%d-%H%M%S")
     folder = os.path.join(database.DATABASE_BACKUP_DIR, f"receipts-before-rebuild-{stamp}", user_id)
     try:
         os.makedirs(folder, exist_ok=True)

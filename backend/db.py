@@ -26,6 +26,7 @@ from config import (
     SQLITE_BUSY_TIMEOUT_MS,
 )
 from applog import get_logger
+from dates import local_now
 
 logger = get_logger(__name__)
 
@@ -179,7 +180,7 @@ def database_status():
 
 def create_database_backup():
     os.makedirs(DATABASE_BACKUP_DIR, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = local_now().strftime("%Y%m%d-%H%M%S")
     backup_path = os.path.join(DATABASE_BACKUP_DIR, f"finance-{timestamp}.db")
 
     with sqlite3.connect(DATABASE_PATH, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000) as source:
@@ -202,7 +203,7 @@ def create_database_backup():
         "dump_path": dump_path,
         "zip_path": zip_path,
         "attachments": mirror_attachments(),
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": local_now().isoformat(timespec="seconds"),
     }
 
 
@@ -245,7 +246,7 @@ def mirror_attachments(retention_days=None):
             logger.warning(f"Nao foi possivel copiar o comprovante {relative} para o backup: {exc}")
 
     moved = 0
-    today_dir = os.path.join(removed_root, datetime.now().strftime("%Y%m%d"))
+    today_dir = os.path.join(removed_root, local_now().strftime("%Y%m%d"))
     for relative in sorted(mirror_files - source_files):
         target = os.path.join(today_dir, relative)
         try:
@@ -257,7 +258,7 @@ def mirror_attachments(retention_days=None):
 
     expired = []
     if os.path.isdir(removed_root):
-        cutoff = datetime.now().date().toordinal() - retention_days
+        cutoff = local_now().date().toordinal() - retention_days
         for name in os.listdir(removed_root):
             if not REMOVED_DAY_PATTERN.match(name):
                 continue

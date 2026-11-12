@@ -20,7 +20,7 @@ import math
 import urllib.error
 import urllib.request
 
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from db import get_db
 import gov_http
 import history_store
@@ -283,7 +283,7 @@ def fetch_bcb_series(series_code, start_date, end_date=None):
 
     Periodos acima de 10 anos sao buscados em janelas consecutivas.
     """
-    end_date = end_date or datetime.now()
+    end_date = end_date or local_now()
     series = []
     window_start = start_date
     try:

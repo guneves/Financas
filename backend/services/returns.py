@@ -37,7 +37,7 @@ from bisect import bisect_right
 from datetime import datetime, timedelta
 
 from asset_classes import is_quoted_asset
-from dates import month_end, month_key, month_label, subtract_months
+from dates import local_now, month_end, month_key, month_label, subtract_months
 from db import get_db
 from money import rounded_money
 from services.benchmarks import benchmark_note
@@ -83,7 +83,7 @@ EPSILON = 0.005
 def returns_evaluated_months(months_back):
     """Meses avaliados para uma janela de `months_back`: um a mais (o V0 do
     primeiro) e, no minimo, o ano corrente inteiro (acumulado no ano)."""
-    return max(months_back, datetime.now().month) + 1
+    return max(months_back, local_now().month) + 1
 
 
 def daily_return(previous_value, value, inflow=0.0, outflow=0.0, income=0.0):
@@ -448,7 +448,7 @@ def build_investment_returns(
     `services.benchmarks.load_benchmarks()` devolve:
     {codigo: {"label", "monthly": {AAAA-MM: fracao}, "source", "error", ...}}.
     """
-    now = datetime.now()
+    now = local_now()
     evaluated = returns_evaluated_months(months_back)
     current_month = datetime(now.year, now.month, 1)
     month_starts = [subtract_months(current_month, evaluated - 1 - index) for index in range(evaluated)]
