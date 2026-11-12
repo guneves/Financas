@@ -53,8 +53,8 @@ import calendar
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+import money
 import statement_import
 from db import new_id, row_to_dict, utc_timestamp
 from open_finance_categories import (
@@ -70,7 +70,6 @@ from services.recorded_snapshot import (  # noqa: F401  (reexportados: quem cham
     CARD_SNAPSHOT_COLUMNS,
     TRANSACTION_SNAPSHOT_COLUMNS,
     _dump,
-    _snapshot_cents,
     mark_auto_recorded,
     refresh_snapshots,
     snapshot_amount_cents,
@@ -122,8 +121,8 @@ def to_cents(value):
     """Reais (numero da Pluggy, com sinal) em centavos inteiros, ROUND_HALF_UP
     (o mesmo de rounded_money)."""
     try:
-        return int((Decimal(str(value)) * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
-    except (InvalidOperation, TypeError, ValueError) as exc:
+        return money.to_cents(value)
+    except (TypeError, ValueError) as exc:
         raise Skip("valor invalido") from exc
 
 
@@ -612,7 +611,7 @@ def _place_cross_currency(conn, current_user_id, row, account_id, cents):
                 # A conta virou global depois: o valor em dolar e o do banco.
                 conn.execute(
                     "UPDATE transactions SET transfer_amount = ? WHERE id = ? AND user_id = ?",
-                    (inbox._reais(cents), recorded["id"], current_user_id),
+                    (money.from_cents(cents), recorded["id"], current_user_id),
                 )
             _update_row(
                 conn, current_user_id, row["id"], role="MATCHED", item_id=None,
@@ -626,7 +625,7 @@ def _place_cross_currency(conn, current_user_id, row, account_id, cents):
         _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
         changes = {
             "transfer_account_id": target["id"],
-            "transfer_amount": inbox._reais(cents),
+            "transfer_amount": money.from_cents(cents),
             "guessed": [guess for guess in item.get("guessed") or [] if guess != "transfer_account"],
             "description": global_account.transfer_description(
                 global_account.account_name(conn, current_user_id, item["account_id"]), target["name"],
@@ -649,7 +648,7 @@ def _place_cross_currency(conn, current_user_id, row, account_id, cents):
         "direction": "OUT",
         "account_id": account_id,
         "transfer_account_id": destination["id"],
-        "amount": inbox._reais(cents),
+        "amount": money.from_cents(cents),
         "currency": "BRL",
         "transfer_amount": item["amount"],
         # A data da transferencia e a da saida.
@@ -691,7 +690,7 @@ def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, desti
             candidates.append({**source, "id": source["the_item"], "date": source["item_date"]})
     best = global_account._best(
         conn, current_user_id, normalize_currency_of(destination), row["date"], candidates,
-        brl_of=lambda candidate: cents, foreign_of=lambda candidate: inbox._cents(candidate["dollars"]),
+        brl_of=lambda candidate: cents, foreign_of=lambda candidate: money.to_cents(candidate["dollars"]),
     )
     if not best:
         return None
@@ -707,13 +706,13 @@ def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, desti
             source_id = ?
         WHERE id = ? AND user_id = ?
         """,
-        (account_id, destination["id"], inbox._reais(cents), best["dollars"], row["date"], row["occurred_at"],
+        (account_id, destination["id"], money.from_cents(cents), best["dollars"], row["date"], row["occurred_at"],
          inbox.TRANSFER_CATEGORY, description, row["pluggy_transaction_id"], target_id, current_user_id),
     )
     _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
     inbox.save_item(conn, current_user_id, item, {
         "entry_type": "TRANSFER", "direction": "OUT", "account_id": account_id,
-        "transfer_account_id": destination["id"], "amount": inbox._reais(cents), "currency": "BRL",
+        "transfer_account_id": destination["id"], "amount": money.from_cents(cents), "currency": "BRL",
         "transfer_amount": best["dollars"], "occurred_at": row["occurred_at"],
         "category": inbox.TRANSFER_CATEGORY, "category_id": None, "description": description,
     })
@@ -751,7 +750,7 @@ def _absorb_recorded_real_side(conn, current_user_id, row, target, dollar_cents)
             candidates.append({**source, "id": source["the_item"], "date": source["item_date"]})
     best = global_account._best(
         conn, current_user_id, normalize_currency_of(target), row["date"], candidates,
-        brl_of=lambda candidate: inbox._cents(candidate["reais"]), foreign_of=lambda candidate: dollar_cents,
+        brl_of=lambda candidate: money.to_cents(candidate["reais"]), foreign_of=lambda candidate: dollar_cents,
     )
     if not best:
         return None
@@ -765,13 +764,13 @@ def _absorb_recorded_real_side(conn, current_user_id, row, target, dollar_cents)
             category_id = NULL, description = ?
         WHERE id = ? AND user_id = ?
         """,
-        (target["id"], inbox._reais(dollar_cents), inbox.TRANSFER_CATEGORY, description, best["the_target"],
+        (target["id"], money.from_cents(dollar_cents), inbox.TRANSFER_CATEGORY, description, best["the_target"],
          current_user_id),
     )
     _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
     inbox.save_item(conn, current_user_id, item, {
         "entry_type": "TRANSFER", "direction": "OUT", "transfer_account_id": target["id"],
-        "transfer_amount": inbox._reais(dollar_cents), "category": inbox.TRANSFER_CATEGORY, "category_id": None,
+        "transfer_amount": money.from_cents(dollar_cents), "category": inbox.TRANSFER_CATEGORY, "category_id": None,
         "description": description, "reason": "own_transfer",
     })
     mark_auto_recorded(conn, current_user_id, item["id"], "transactions", best["the_target"])
@@ -1053,7 +1052,7 @@ def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
     account_id = account["account_id"] if entry_type != "CARD" else None
     card_id = account["card_id"] if entry_type == "CARD" else None
     cents = int(row["amount_cents"])
-    amount = inbox._reais(cents)
+    amount = money.from_cents(cents)
     candidates = inbox.existing_rows(
         conn, current_user_id, entry_type=entry_type, direction=direction, cents=cents, date_text=row["date"],
         account_id=account_id, card_id=card_id, claimed_by=inbox.CLAIM_PLUGGY,
@@ -1464,11 +1463,11 @@ def follow_bank_amount(conn, current_user_id, item, bank_cents, snapshot_text=No
         ).fetchall()
         if len(rows) != 1 or rows[0]["status"] != "OPEN":
             return False
-    if not rows or recorded is None or _snapshot_cents(rows[0]["amount"]) != int(recorded):
+    if not rows or recorded is None or money.to_cents(rows[0]["amount"]) != int(recorded):
         return False
     if int(recorded) == int(bank_cents):
         return True
-    amount = inbox._reais(bank_cents)
+    amount = money.from_cents(bank_cents)
     if table == "transactions":
         conn.execute("UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?", (amount, target_id, current_user_id))
     else:
@@ -1490,7 +1489,7 @@ def follow_after_succession(conn, current_user_id, row, tx):
         return
     item = inbox.item_dict(item_row)
     if item["state"] == inbox.PENDING:
-        inbox.save_item(conn, current_user_id, item, {"amount": inbox._reais(tx["amount_cents"])})
+        inbox.save_item(conn, current_user_id, item, {"amount": money.from_cents(tx["amount_cents"])})
         return
     if not follow_bank_amount(conn, current_user_id, item, tx["amount_cents"], row.get("recorded_snapshot")):
         _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
@@ -1557,7 +1556,7 @@ def near_join(conn, current_user_id, row, notification_row):
     item = inbox.item_dict(notification_row)
     bank_cents = int(row["amount_cents"])
     if item["state"] == inbox.PENDING:
-        inbox.save_item(conn, current_user_id, item, {"amount": inbox._reais(bank_cents)})
+        inbox.save_item(conn, current_user_id, item, {"amount": money.from_cents(bank_cents)})
         return _join_item(conn, current_user_id, row, item, entry_type, account_id, card_id)
     if item["state"] == inbox.DENIED:
         return _join_item(conn, current_user_id, row, item, entry_type, account_id, card_id)
@@ -1697,7 +1696,7 @@ def apply_change(conn, current_user_id, row, tx):
         or not own_target(conn, current_user_id, row)
     ):
         return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
-    amount = inbox._reais(tx["amount_cents"])
+    amount = money.from_cents(tx["amount_cents"])
     if row["target_table"] == "transactions":
         conn.execute(
             "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
@@ -1744,7 +1743,7 @@ def apply_payment_change(conn, current_user_id, row, tx):
         return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
     conn.execute(
         "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
-        (inbox._reais(tx["amount_cents"]), row["target_id"], current_user_id),
+        (money.from_cents(tx["amount_cents"]), row["target_id"], current_user_id),
     )
     _update_row(
         conn, current_user_id, row["id"], conflict=None, conflict_amount_cents=None,

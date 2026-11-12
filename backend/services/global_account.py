@@ -21,6 +21,7 @@ reais, e o resto do motor (gravar sozinho, revisar, snapshot) segue igual.
 
 from datetime import date as date_type
 
+from money import to_cents
 from services import inbox
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from validators import ValidationError
@@ -141,7 +142,7 @@ def awaiting_real_side(conn, current_user_id, global_account, cents, date_text):
         candidates.append(row)
     return _best(
         conn, current_user_id, normalize_currency(global_account["currency"]), date_text, candidates,
-        brl_of=lambda candidate: inbox._cents(candidate["amount"]), foreign_of=lambda candidate: cents,
+        brl_of=lambda candidate: to_cents(candidate["amount"]), foreign_of=lambda candidate: cents,
     )
 
 
@@ -161,7 +162,7 @@ def awaiting_foreign_side(conn, current_user_id, global_account, brl_cents, date
     ).fetchall()
     return _best(
         conn, current_user_id, normalize_currency(global_account["currency"]), date_text, rows,
-        brl_of=lambda candidate: brl_cents, foreign_of=lambda candidate: inbox._cents(candidate["amount"]),
+        brl_of=lambda candidate: brl_cents, foreign_of=lambda candidate: to_cents(candidate["amount"]),
     )
 
 
@@ -188,12 +189,12 @@ def recorded_transfer(conn, current_user_id, global_account, cents, date_text):
     ).fetchall()
     currency = normalize_currency(global_account["currency"])
     for candidates in (
-        [row for row in rows if row["transfer_amount"] is not None and inbox._cents(row["transfer_amount"]) == cents],
+        [row for row in rows if row["transfer_amount"] is not None and to_cents(row["transfer_amount"]) == cents],
         [row for row in rows if row["transfer_amount"] is None],
     ):
         best = _best(
             conn, current_user_id, currency, date_text, candidates,
-            brl_of=lambda candidate: inbox._cents(candidate["amount"]), foreign_of=lambda candidate: cents,
+            brl_of=lambda candidate: to_cents(candidate["amount"]), foreign_of=lambda candidate: cents,
         )
         if best:
             return best

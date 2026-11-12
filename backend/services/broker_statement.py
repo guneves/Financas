@@ -20,7 +20,7 @@ import re
 from datetime import date, timedelta
 
 from db import encode_metadata, utc_timestamp
-from money import rounded_money
+from money import cents_or_zero, rounded_money
 from open_finance_categories import plain_text
 from services import proceeds_cash
 from source_types import (
@@ -50,10 +50,6 @@ def line_kind(description):
     if TRADE_TEXT.search(text):
         return "trade"
     return "cash"
-
-
-def _cents(value):
-    return int(round(safe_float(value) * 100))
 
 
 def _shifted(date_text, days):
@@ -96,7 +92,7 @@ def _proceed_for_line(conn, current_user_id, row):
         """,
         (current_user_id, _shifted(row["date"], -PROCEED_DAYS), _shifted(row["date"], PROCEED_DAYS)),
     ).fetchall():
-        gap = abs(_cents(candidate["net_amount"]) - int(row["amount_cents"]))
+        gap = abs(cents_or_zero(candidate["net_amount"]) - int(row["amount_cents"]))
         if (ticker and candidate["ticker"] != ticker) or (not ticker and gap > PROCEED_TOLERANCE_CENTS):
             continue
         entry = _proceed_entry(conn, current_user_id, candidate["id"])
@@ -214,7 +210,7 @@ def adopt_proceed_line(conn, current_user_id, proceed_id):
         if not PROCEED_TEXT.search(text):
             continue
         found = TICKER_TEXT.search(text)
-        gap = abs(_cents(proceed["net_amount"]) - int(row["amount_cents"]))
+        gap = abs(cents_or_zero(proceed["net_amount"]) - int(row["amount_cents"]))
         if (found and found.group(0).upper() != proceed["ticker"]) or (not found and gap > PROCEED_TOLERANCE_CENTS):
             continue
         if best is None or gap < best[0]:

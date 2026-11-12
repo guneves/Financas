@@ -46,7 +46,7 @@ from config import (
 )
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
-from money import rounded_money
+from money import from_cents, to_cents
 from services import recorded_snapshot, recurring, review
 from services.import_rules import (
     DEFAULT_IMPORT_CATEGORIES,
@@ -182,14 +182,6 @@ MAX_DETECTIONS_PER_REQUEST = 200
 # ---------------------------------------------------------------------------
 # Puro: horas, chaves, pareamento
 # ---------------------------------------------------------------------------
-
-def _cents(value):
-    return int(round(float(value) * 100))
-
-
-def _reais(cents):
-    return rounded_money(cents / 100)
-
 
 def _jlist(value):
     if not value:
@@ -1028,7 +1020,7 @@ def _pending_items(conn, current_user_id, *, cents, date_text, days, direction=N
 
 
 def _amount_matches(item_row, cents, rounds_up=False):
-    total = _cents(item_row["amount"])
+    total = to_cents(item_row["amount"])
     if total == cents or (rounds_up and rounded_up(total, cents)):
         return True
     installments = int(item_row["installments"] or 1)
@@ -1128,7 +1120,7 @@ def transfer_partner(conn, current_user_id, *, account_id, direction, cents, dat
     other_direction = "IN" if direction == "OUT" else "OUT"
     found = []
     for row in _pending_items(conn, current_user_id, cents=cents, date_text=date_text, days=TRANSFER_MATCH_DAYS):
-        if int(row["installments"] or 1) != 1 or _cents(row["amount"]) != cents:
+        if int(row["installments"] or 1) != 1 or to_cents(row["amount"]) != cents:
             continue
         if detection and any(
             counterparties_conflict(detection, source)
@@ -1271,7 +1263,7 @@ def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, 
     ).fetchall()
     found = []
     for row in rows:
-        if _cents(row["transfer_amount"]) != cents:
+        if to_cents(row["transfer_amount"]) != cents:
             continue
         side_account = row["destination"] if direction == "IN" else row["origin"]
         if side_account != account_id:
@@ -1544,7 +1536,7 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
             params.append(card_id)
         for row in conn.execute(sql, params).fetchall():
             count = _installment_count(row["installment_info"])
-            if _cents(row["amount"]) == cents or abs(_cents(row["amount"]) * count - cents) <= count:
+            if to_cents(row["amount"]) == cents or abs(to_cents(row["amount"]) * count - cents) <= count:
                 found.append({"table": "cc_expenses", "id": row["id"], "kind": "card_purchase", "date": row["date"]})
     if entry_type in (None, "EXPENSE", "INCOME", "TRANSFER"):
         sql = """
@@ -1983,7 +1975,7 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
         "reason": "several_candidates" if len(candidates) > 1 else ("possible_duplicate" if candidates else "new"),
         "entry_type": target["entry_type"],
         "direction": direction,
-        "amount": _reais(detection["amount_cents"]),
+        "amount": from_cents(detection["amount_cents"]),
         "currency": detection["currency"],
         "installments": detection["installments"] if target["entry_type"] in (None, "CARD") else 1,
         "occurred_at": detection["occurred_at"],
@@ -2214,7 +2206,7 @@ def open_finance_item_for_detection(conn, current_user_id, detection, target):
         row for row in rows
         if (
             _amount_matches(row, detection["amount_cents"])
-            or (rounded_up(detection["amount_cents"], _cents(row["amount"])) and _item_rounds_up(conn, current_user_id, row))
+            or (rounded_up(detection["amount_cents"], to_cents(row["amount"])) and _item_rounds_up(conn, current_user_id, row))
         )
         and _detection_fits_open_finance(conn, current_user_id, detection, target, row)
     ]
@@ -2401,7 +2393,7 @@ def near_notification_items(conn, current_user_id, row, exclude_item_id=None):
             continue
         if not merchant_agrees(detection["merchant"], row.get("merchant_name"), row.get("description")):
             continue
-        if not near_amount(_cents(item_row["amount"]), row["amount_cents"], international):
+        if not near_amount(to_cents(item_row["amount"]), row["amount_cents"], international):
             continue
         found.append(item_row)
     return found
@@ -2581,7 +2573,7 @@ def serialize_item(conn, current_user_id, row, names=None, recurrences=None, ask
             "app": detection["app"],
             "app_label": APP_LABELS.get(detection["app"], detection["app"]),
             "kind": detection["kind"],
-            "amount": _reais(detection["amount_cents"]),
+            "amount": from_cents(detection["amount_cents"]),
             "currency": detection["currency"],
             "occurred_at": detection["occurred_at"],
             "posted_at": detection["posted_at"],
@@ -2614,7 +2606,7 @@ def serialize_item(conn, current_user_id, row, names=None, recurrences=None, ask
             "account_type": row["of_account_type"],
             "direction": row["direction"],
             "movement": row["movement"],
-            "amount": _reais(row["amount_cents"]),
+            "amount": from_cents(row["amount_cents"]),
             "currency": row["currency"],
             "date": row["date"],
             "occurred_at": row["occurred_at"],
