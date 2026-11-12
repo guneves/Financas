@@ -879,6 +879,11 @@ def test_forecast_projects_without_writing_anything(client, auth):
     assert transactions_of(client, auth) == []
 
 
+# As recorrencias dos dois testes abaixo comecam 5 dias (ou mais) depois de hoje:
+# com 1 a 3 dias, em fevereiro (28 dias) a segunda ocorrencia mensal caia dentro
+# da janela de 30 dias e os totais dobravam (os testes falhavam todo ano, do fim
+# de janeiro ao fim de fevereiro). Com 5, a 2a fica sempre depois do dia 30, a
+# 3a depois do dia 60 e a 4a depois do dia 90, em qualquer mes.
 def test_forecast_totals_income_against_expense(client, auth):
     create_ok(
         client,
@@ -887,9 +892,9 @@ def test_forecast_totals_income_against_expense(client, auth):
         type="INCOME",
         category="Receita",
         description="Salario",
-        start_date=iso(today_date() + timedelta(days=2)),
+        start_date=iso(today_date() + timedelta(days=5)),
     )
-    create_ok(client, auth, amount=1500, start_date=iso(today_date() + timedelta(days=3)))
+    create_ok(client, auth, amount=1500, start_date=iso(today_date() + timedelta(days=6)))
     body = client.get(
         "/api/recurring/forecast", headers=auth, query_string={"days": 30}
     ).get_json()
@@ -898,7 +903,7 @@ def test_forecast_totals_income_against_expense(client, auth):
 
 
 def test_forecast_windows_grow_with_the_horizon(client, auth):
-    create_ok(client, auth, amount=100, start_date=iso(today_date() + timedelta(days=1)))
+    create_ok(client, auth, amount=100, start_date=iso(today_date() + timedelta(days=5)))
     body = client.get(
         "/api/recurring/forecast", headers=auth, query_string={"days": 90}
     ).get_json()
