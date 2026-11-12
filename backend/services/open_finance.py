@@ -68,12 +68,9 @@ logger = get_logger(__name__)
 
 PluggyError = pluggy_client.PluggyError
 
-# Folga do pull: o banco lanca com data de dias antes (o D+1 do cartao, a
-# compensacao, a compra internacional que fica "em processamento" dias e entra
-# com a data da compra); a chave pluggy:<id> faz a repeticao nao custar nada.
-# Com 7 dias, um lancamento que a Pluggy listou com data de 8+ dias atras nunca
-# era puxado (2026-11-04). 35 cobre o prazo de liquidacao das bandeiras (30 dias).
-LATE_POSTING_DAYS = 35
+# Folga do pull (definida em services/inbox.py, que este modulo importa e que
+# tambem a usa no par aproximado; o nome continua valendo aqui).
+LATE_POSTING_DAYS = inbox.LATE_POSTING_DAYS
 # Sem nenhuma linha da conta ainda, a folga antiga: nao traz o que o dono deixou
 # fora da primeira busca.
 OVERLAP_DAYS = 7

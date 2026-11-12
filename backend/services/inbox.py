@@ -2065,6 +2065,15 @@ PAIRABLE_STATES = (PENDING, APPROVED, MATCHED, DENIED)
 # movimento duas vezes. So para tras e so o que ja tem lancamento (o pendente
 # e o descartado ficam no dia).
 OPEN_FINANCE_LATE_POST_DAYS = 5
+# Folga do pull (services/open_finance.py): o banco lanca com data de dias antes
+# (o D+1 do cartao, a compensacao, a compra internacional que fica "em
+# processamento" dias e entra com a data da compra); a chave pluggy:<id> faz a
+# repeticao nao custar nada. Com 7 dias, um lancamento que a Pluggy listou com
+# data de 8+ dias atras nunca era puxado (2026-11-04). 35 cobre o prazo de
+# liquidacao das bandeiras (30 dias). Mora aqui, e nao no modulo do pull, porque
+# aquele importa este: o caminho inverso era um import dentro de funcao, e um
+# ciclo entre dez modulos.
+LATE_POSTING_DAYS = 35
 RECORDED_STATES = (APPROVED, MATCHED)
 # O Banco do Brasil manda a Pluggy o valor arredondado para cima, em reais
 # inteiros (dono, 2026-10-27: 18,19 chega 19,00). A notificacao tem os
@@ -2286,9 +2295,7 @@ def is_international(detection):
 
 
 def late_posting_days():
-    """LATE_POSTING_DAYS, de onde ele e definido (services/open_finance.py, que
-    importa este modulo: por isso so na hora)."""
-    from services.open_finance import LATE_POSTING_DAYS
+    """A folga do pull (LATE_POSTING_DAYS), em dias."""
     return LATE_POSTING_DAYS
 
 

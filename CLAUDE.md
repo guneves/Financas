@@ -690,10 +690,13 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
 
 ## Known sharp edges
 
-- **Strict layering**: `config` ← `db` ← `validators`/`money`/`dates`/`auth`/`asset_classes`/
-  `responses` ← `services/*` ← `routes/*` ← `app`. Nothing imports `app`; a blueprint never imports
-  another (shared code goes in `services/`). A new blueprint goes in `app.py`'s list, or
-  `test_route_map.py` fails.
+- **Strict layering**: `config` ← `applog`/`source_types` ← `db` ← `validators`/`money`/`dates`/`auth`/
+  `asset_classes`/`responses` ← `services/*` ← `routes/*` ← `app`. Nothing imports `app`; a blueprint never
+  imports another (shared code goes in `services/`). A new blueprint goes in `app.py`'s list, or
+  `test_route_map.py` fails. **`test_architecture.py` checks it from the code**: the layers, no import
+  cycle (function-level imports count: never "fix" a cycle with an import inside a function), and a
+  ratchet on uses of another module's `_private` name (`tests/architecture_private_uses.txt` only
+  shrinks: a new use fails, a removed use must leave the list).
 - `formatCurrency` and the date helpers live in `lib/format.js`; `pages/lancamentos/helpers.js`
   keeps a local `getLocalDateString`/`formatDateBR` on purpose (clock hook, `''` vs `'-'`).
 - **The "+" lives in the bottom bar, at its center** (owner 2026-11-05): web `Layout.jsx` (middle of the bar;
