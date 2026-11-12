@@ -31,7 +31,6 @@ from services.proceeds import (
     build_investment_proceeds_summary,
     default_tax_for_proceed,
     fetch_investment_proceed_by_id,
-    fetch_investment_proceeds,
     interest_tax_rate,
     investment_position_at_date,
     serialize_investment_proceed,

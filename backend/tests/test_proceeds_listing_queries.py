@@ -57,8 +57,7 @@ def test_the_listing_reads_each_assets_operations_once(client, auth, user, portf
     assert by_month["02"] == 100 and by_month["07"] == 150
 
 
-def test_the_route_returns_what_the_service_lists(client, auth, user, portfolio, db_module):
-    proceeds = importlib.import_module("services.proceeds")
+def test_the_route_returns_the_listing(client, auth, portfolio):
     response = client.get("/api/investment-proceeds?date_from=2025-01-01&date_to=2025-12-31", headers=auth)
     assert response.status_code == 200, response.get_data(as_text=True)
     body = response.get_json()
