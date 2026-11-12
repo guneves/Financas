@@ -359,11 +359,7 @@ def investment_proceeds(current_user_id):
             return validation_error(str(exc))
 
         with get_db() as conn:
-            rows = fetch_investment_proceeds(conn, current_user_id, filters)
-            items = [
-                serialize_investment_proceed(row, conn, current_user_id)
-                for row in rows
-            ]
+            items = serialized_proceeds(conn, current_user_id, filters)
         return jsonify(items), 200
 
     payload = parse_json_body()
@@ -443,8 +439,7 @@ def export_investment_proceeds(current_user_id):
         return validation_error(str(exc))
 
     with get_db() as conn:
-        rows = fetch_investment_proceeds(conn, current_user_id, filters)
-        items = [serialize_investment_proceed(row, conn, current_user_id) for row in rows]
+        items = serialized_proceeds(conn, current_user_id, filters)
     return export_response(fmt, columns, items, basename="proventos", sheet_name="Proventos")
 
 
@@ -478,11 +473,7 @@ def investment_proceeds_calendar(current_user_id):
     filters["ascending"] = True
 
     with get_db() as conn:
-        rows = fetch_investment_proceeds(conn, current_user_id, filters)
-        items = [
-            serialize_investment_proceed(row, conn, current_user_id)
-            for row in rows
-        ]
+        items = serialized_proceeds(conn, current_user_id, filters)
     return jsonify(items), 200
 
 
