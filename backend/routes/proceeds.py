@@ -27,7 +27,6 @@ from services.proceeds import (
     ALLOWED_PROCEEDS_TYPES,
     FIXED_INCOME_EVENT_TYPES,
     INTEREST_TYPE,
-    asset_movement_rows,
     build_investment_proceeds_summary,
     default_tax_for_proceed,
     fetch_investment_proceed_by_id,

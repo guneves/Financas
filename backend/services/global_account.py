@@ -201,21 +201,6 @@ def recorded_transfer(conn, current_user_id, global_account, cents, date_text):
     return None
 
 
-def unconfirmed_transfers(conn, current_user_id, account_id):
-    """Quantas transferencias entram nesta conta em outra moeda sem o valor que
-    entrou (ficam fora do saldo ate a Pluggy ou o dono dizer)."""
-    return conn.execute(
-        """
-        SELECT COUNT(*) FROM transactions t
-        JOIN accounts o ON o.id = t.account_id AND o.user_id = t.user_id
-        JOIN accounts d ON d.id = t.transfer_account_id AND d.user_id = t.user_id
-        WHERE t.user_id = ? AND t.type = 'TRANSFER' AND t.transfer_account_id = ?
-          AND t.transfer_amount IS NULL AND COALESCE(o.currency, 'BRL') <> COALESCE(d.currency, 'BRL')
-        """,
-        (current_user_id, account_id),
-    ).fetchone()[0]
-
-
 CONVERT_MESSAGE = (
     "So vira conta global uma conta que so recebeu transferencias de contas em reais, "
     "sem saldo inicial."
