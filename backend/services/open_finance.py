@@ -181,12 +181,6 @@ def _parse_first_sync_days(value):
     return days
 
 
-def set_first_sync_days(conn, current_user_id, value):
-    days = _parse_first_sync_days(value)
-    inbox.save_setting(conn, current_user_id, FIRST_SYNC_SETTING, str(days))
-    return days
-
-
 def default_sync_hours():
     """O intervalo de quem nunca escolheu: o do servidor (OPEN_FINANCE_SYNC_SECONDS),
     6 h se ele desligou a thread (aí nada roda sozinho para ninguém)."""

@@ -42,16 +42,6 @@ export function setValuesHidden(hidden) {
   listeners.forEach((listener) => listener())
 }
 
-// O valor de agora, fora do React.
-export function valuesHiddenNow() {
-  return valuesHidden
-}
-
-// Avisa a cada troca (o espelho do APK). Devolve o cancelamento.
-export function onValuesHiddenChange(listener) {
-  return subscribe(listener)
-}
-
 export function useValuesHidden() {
   return useSyncExternalStore(subscribe, getSnapshot)
 }

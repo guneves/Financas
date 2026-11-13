@@ -15,14 +15,6 @@ function syncBodyScroll() {
   document.body.style.overflow = layers.some((layer) => layer.locksScroll) ? 'hidden' : ''
 }
 
-// Fecha a camada de cima. false quando nao ha nenhuma aberta.
-export function closeTopLayer() {
-  const top = layers[layers.length - 1]
-  if (!top) return false
-  top.close()
-  return true
-}
-
 export function useLayer(open, onClose, { locksScroll = false } = {}) {
   const onCloseRef = useRef(onClose)
   useEffect(() => {
