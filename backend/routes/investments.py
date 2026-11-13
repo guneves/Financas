@@ -115,34 +115,27 @@ from validators import (
     validation_error,
 )
 from applog import get_logger
+from services.investment_payload import (  # noqa: F401  (as regras desta rota; os nomes continuam valendo aqui)
+    AssetDeleteRefused,
+    FOREIGN_CURRENCY_CLASSES,
+    _index_history_executor,
+    months_since_first_movement,
+    movement_export_item,
+    movements_by_client_id,
+    read_months_arg,
+    read_movement_currency,
+    read_report_year,
+    registered_split_events,
+    request_client_id,
+    start_index_history,
+)
 
 logger = get_logger(__name__)
 
 bp = Blueprint("investments", __name__)
 
-# CDI/IPCA da evolucao e da rentabilidade: fora do executor do yfinance, que o
-# historico ja ocupa. Dois: a rentabilidade busca o CDI da janela e o da renda
-# fixa ao mesmo tempo.
-_index_history_executor = ThreadPoolExecutor(max_workers=2)
 # Os indices de comparacao da rentabilidade correm ao lado do historico.
 _benchmarks_executor = ThreadPoolExecutor(max_workers=2)
-
-# Moeda estrangeira: acoes/ETFs de fora e "outros" (cripto, conta no
-# exterior). Renda fixa e FII sao em reais.
-FOREIGN_CURRENCY_CLASSES = {"STOCKS", "OTHER"}
-
-
-def read_movement_currency(item, asset_class):
-    currency = normalize_currency(item.get("currency"))
-    if currency not in SUPPORTED_CURRENCIES:
-        raise ValidationError(f"Moeda nao suportada: {currency}. Use BRL, USD, EUR ou GBP.")
-    if currency != BASE_CURRENCY and asset_class not in FOREIGN_CURRENCY_CLASSES:
-        raise ValidationError("So acoes do exterior e 'outros' podem ser em moeda estrangeira.")
-    if currency != BASE_CURRENCY and is_crypto_asset(asset_class, item.get("ticker_or_name")):
-        # A cotacao (BTC-BRL) e o IR sao em reais: lance a operacao em reais.
-        raise ValidationError("Bitcoin e lancado em reais.")
-    return currency
-
 
 def with_fx_rate(conn, current_user_id, currency, metadata):
     """Guarda o cambio da operacao: o informado (o da corretora) ou a PTAX da data."""
@@ -190,35 +183,6 @@ def export_portfolio(current_user_id):
     return export_response(
         fmt, columns, portfolio.get("assets") or [], basename="carteira", sheet_name="Carteira",
     )
-
-
-def movement_export_item(investment):
-    """Uma operacao como a tela Operacoes mostra: preco de venda/resgate na
-    venda, bruto = quantidade x preco, custos, e o resultado realizado (custo medio)."""
-    metadata = investment.get("metadata") or {}
-    movement_type = investment_movement_type(investment.get("quantity"), metadata)
-    quantity = abs(float(investment.get("quantity") or 0))
-    if metadata.get("is_redemption"):
-        unit_price = float(investment.get("current_price") or 0)
-    elif movement_type == "SELL" and metadata.get("sale_price"):
-        unit_price = float(metadata.get("sale_price") or 0)
-    else:
-        unit_price = float(investment.get("average_price") or 0)
-    realized_fee = investment.get("realized_fee_amount")
-    return {
-        "date": investment_transaction_date(metadata, investment.get("created_at")),
-        "movement_type": movement_type,
-        "ticker": investment.get("ticker_or_name"),
-        "asset_class": investment.get("asset_class"),
-        "quantity": quantity,
-        "unit_price": unit_price,
-        "gross_amount": rounded_money(investment_gross_amount(quantity, unit_price)),
-        "fees": realized_fee if realized_fee is not None else investment_fee_amount(metadata),
-        "realized_cost_basis": investment.get("realized_cost_basis"),
-        "realized_profit": investment.get("realized_profit"),
-        "realized_tax_amount": investment.get("realized_tax_amount"),
-        "realized_net_profit_after_tax": investment.get("realized_net_profit_after_tax"),
-    }
 
 
 @bp.route("/api/investments/export", methods=["GET"])
@@ -367,30 +331,6 @@ def investments(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
     return create_movements(current_user_id, items, client_id)
-
-
-def request_client_id(items):
-    """O client_id do envio (042): uma lista e um envio so, entao todas as
-    operacoes levam o mesmo id (ou nenhuma leva)."""
-    ids = {optional_client_id(item) if isinstance(item, dict) else None for item in items}
-    if len(ids) > 1:
-        raise ValidationError("Todas as operacoes de um envio levam o mesmo client_id.")
-    return ids.pop()
-
-
-def movements_by_client_id(conn, current_user_id, client_id):
-    """As operacoes que um envio com este client_id ja criou (042), na ordem do envio."""
-    if not client_id:
-        return []
-    ids = conn.execute(
-        """
-        SELECT id FROM investment_transactions
-        WHERE user_id = ? AND client_id = ?
-        ORDER BY client_part
-        """,
-        (current_user_id, client_id),
-    ).fetchall()
-    return [fetch_investment_rows(conn, current_user_id, investment_id=row["id"])[0] for row in ids]
 
 
 def create_movements(current_user_id, items, client_id=None):
@@ -896,14 +836,6 @@ def delete_investments_by_assets(current_user_id):
     return delete_assets(current_user_id, asset_ids, asset_class)
 
 
-class AssetDeleteRefused(Exception):
-    """Recusa no meio da exclusao: sai do `with` (rollback) levando a resposta."""
-
-    def __init__(self, response):
-        super().__init__("refused")
-        self.response = response
-
-
 def delete_assets(current_user_id, asset_ids, asset_class):
     """Exclui os ativos e as operacoes deles numa transacao so. Um ativo que
     nao existe (404) ou de outra classe (409) desfaz tudo."""
@@ -1123,50 +1055,6 @@ def update_stock_prices(current_user_id):
         return jsonify({"error": "Nao foi possivel atualizar os precos."}), 500
 
 
-def read_months_arg(args, default=12):
-    """`?months=` do historico e da rentabilidade: de 1 a 60."""
-    try:
-        months_back = int(args.get("months", default))
-    except (TypeError, ValueError):
-        months_back = default
-    return max(1, min(months_back, 60))
-
-
-def months_since_first_movement(current_user_id, asset_class_filter=None, default=12):
-    """Meses do mes da primeira operacao ate o atual (os dois inclusive), de 1 a 60."""
-    query = """
-        SELECT MIN(it.transaction_date) AS first_date
-        FROM investment_transactions it
-        JOIN assets a ON a.id = it.asset_id AND a.user_id = it.user_id
-        WHERE it.user_id = ?
-    """
-    params = [current_user_id]
-    if asset_class_filter:
-        query += " AND a.asset_class = ?"
-        params.append(asset_class_filter)
-    with get_db() as conn:
-        row = conn.execute(query, params).fetchone()
-    first = parse_iso_date(row["first_date"]) if row else None
-    if first is None:
-        return default
-    now = local_now()
-    months = (now.year - first.year) * 12 + now.month - first.month + 1
-    return max(1, min(months, 60))
-
-
-def registered_split_events(current_user_id):
-    """{ticker: [(data ex, fator)]} dos desdobramentos e grupamentos registrados."""
-    with get_db() as conn:
-        actions = list_corporate_actions(conn, current_user_id)
-    events = {}
-    for action in actions:
-        if action.get("action_type") in ("SPLIT", "REVERSE_SPLIT"):
-            events.setdefault(ticker_key(action.get("ticker")), []).append(
-                (action.get("ex_date"), action_factor(action)),
-            )
-    return events
-
-
 def load_history_inputs(current_user_id, months_back, asset_class_filter):
     """O que a evolucao e a rentabilidade avaliam: as movimentacoes (em reais,
     filtradas pela classe), o fechamento diario dos cotados em reais, na base
@@ -1237,14 +1125,6 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
 
     index_series = wait_index_history(pending_index) if pending_index else None
     return filtered_investments, daily_prices, index_series
-
-
-def start_index_history(start_date, need_ipca):
-    """Comeca a buscar CDI (e IPCA) do BCB; `wait_index_history()` colhe.
-
-    O prazo conta daqui: quem espera depois de outra busca nao ganha outro."""
-    future = _index_history_executor.submit(index_history, start_date, need_ipca)
-    return future, time.monotonic() + PRICE_FETCH_TIMEOUT_SECONDS
 
 
 def wait_index_history(pending):
@@ -1386,16 +1266,6 @@ def delete_corporate_action_route(current_user_id, action_id):
         return validation_error(str(exc), 409)
     refresh_realized_results(current_user_id)
     return jsonify({"deleted": True}), 200
-
-
-def read_report_year(args):
-    try:
-        year = int(args.get("year") or local_now().year - 1)
-    except (TypeError, ValueError):
-        raise ValidationError("Ano invalido.")
-    if year < 2000 or year > local_now().year:
-        raise ValidationError("Ano fora do intervalo.")
-    return year
 
 
 @bp.route("/api/tax-report", methods=["GET"])
