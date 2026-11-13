@@ -7,50 +7,31 @@ na data com, que vezes o valor por cota da o bruto. A leitura (lista, status,
 YOC e os resumos) mora em `services/proceeds.py`; aqui fica a escrita.
 """
 
-from datetime import datetime, timedelta
 import sqlite3
+from datetime import timedelta
 
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
-from dates import clamped_date, local_now, parse_iso_date
-from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
+from dates import local_now
+from db import encode_metadata, get_db, serialize_metadata_row
 from export_csv import ColumnError
-from money import rounded_money
 from responses import export_response, read_export_options
-from services.investments import ensure_asset_owner, investment_metadata_dict
 from services.manual_entries import require_manual_investment_cash
-from services.open_finance_investments import OP_KEY_METADATA, UNKNOWN_HELD_MESSAGE, complete_held, held_operation
-from services.proceeds_cash import proceed_cash_account_id
-from services.proceeds_sync import sync_proceeds
+from services.open_finance_investments import (
+    OP_KEY_METADATA,
+    UNKNOWN_HELD_MESSAGE,
+    complete_held,
+    held_operation,
+)
 from services.proceeds import (
-    ALLOWED_PROCEEDS_TYPES,
-    FIXED_INCOME_EVENT_TYPES,
-    INTEREST_TYPE,
     build_investment_proceeds_summary,
-    default_tax_for_proceed,
     fetch_investment_proceed_by_id,
-    interest_tax_rate,
-    investment_position_at_date,
     serialize_investment_proceed,
     serialized_proceeds,
     trailing_net_by_asset,
 )
-from validators import (
-    MAX_YEAR,
-    MIN_YEAR,
-    ValidationError,
-    optional_client_id,
-    optional_date,
-    optional_string,
-    parse_json_body,
-    parse_optional_number,
-    require_choice,
-    require_date,
-    require_string,
-    safe_float,
-    validation_error,
-)
+from services.proceeds_cash import proceed_cash_account_id
 from services.proceeds_payload import (  # noqa: F401  (as regras desta rota; os nomes continuam valendo aqui)
     PROCEEDS_TYPE_CLASS_MESSAGES,
     REPEAT_EVERY_MONTHS,
@@ -63,6 +44,13 @@ from services.proceeds_payload import (  # noqa: F401  (as regras desta rota; os
     proceeds_by_client_id,
     repeated_payloads,
     shifted_date,
+)
+from services.proceeds_sync import sync_proceeds
+from validators import (
+    ValidationError,
+    optional_client_id,
+    parse_json_body,
+    validation_error,
 )
 
 bp = Blueprint("proceeds", __name__)

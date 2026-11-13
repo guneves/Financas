@@ -4,58 +4,16 @@ Saiu de routes/cards.py (2026-11-13): nada aqui usa o Flask. A rota continua imp
 todos estes nomes.
 """
 
-import sqlite3
 
 
-from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
-from money import parse_money, rounded_money
 from services.accounts import (
-    category_id_for_name,
     fetch_account,
     require_account,
     resolve_account_id,
-    resolve_category,
 )
-from services.attachments import (
-    cc_expense_attachment_names,
-    cc_purchase_expense_ids,
-    remove_attachment_files,
-    same_purchase_sql,
-)
-from services import entries, manual_entries
-from services.card_statement import card_purchases
-from services.inbox_decisions import absorb_created
-from services.sharing import update_purchase_share
-from services.invoices import (
-    InvoiceConflictError,
-    InvoiceStillOpenError,
-    apply_due_autopay,
-    autopay_source_id,
-    build_installment_rows,
-    ensure_invoice_closed,
-    invoice_label,
-    invoice_open_lines,
-    local_today,
-    purchase_invoices,
-    refund_invoice,
-    require_active_card,
-    serialize_cc_expense,
-    settle_invoice,
-    signed_amount_sql,
-    undo_invoice_payment,
-)
-from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
+from source_types import INVOICE_PAYMENT_SOURCE_TYPES
 from validators import (
-    MAX_YEAR,
     ValidationError,
-    optional_client_id,
-    optional_date,
-    parse_int_number,
-    parse_json_body,
-    require_date,
-    require_id_list,
-    require_string,
-    validation_error,
 )
 
 

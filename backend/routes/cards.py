@@ -15,11 +15,9 @@ from flask import Blueprint, jsonify, request
 from auth import token_required
 from db import get_db, new_id, row_to_dict, serialize_transaction, utc_timestamp
 from money import parse_money, rounded_money
+from services import entries, manual_entries
 from services.accounts import (
     category_id_for_name,
-    fetch_account,
-    require_account,
-    resolve_account_id,
     resolve_category,
 )
 from services.attachments import (
@@ -28,10 +26,24 @@ from services.attachments import (
     remove_attachment_files,
     same_purchase_sql,
 )
-from services import entries, manual_entries
+from services.card_payload import (  # noqa: F401  (as regras desta rota; os nomes continuam valendo aqui)
+    ARCHIVED_CARD_NAME_MESSAGE,
+    CARD_NAME_TAKEN_MESSAGE,
+    DEBIT_BROKERAGE_MESSAGE,
+    DEBIT_ONLY_AUTOPAY_MESSAGE,
+    FLAG_VALUES,
+    NO_FUNCTION_MESSAGE,
+    card_name_conflict_message,
+    card_payment_count,
+    check_card_functions,
+    fetch_purchase_by_client_id,
+    invoice_payment_account_id,
+    parse_card_flag,
+    resolve_autopay_account,
+    resolve_debit_account,
+)
 from services.card_statement import card_purchases
 from services.inbox_decisions import absorb_created
-from services.sharing import update_purchase_share
 from services.invoices import (
     InvoiceConflictError,
     InvoiceStillOpenError,
@@ -50,7 +62,8 @@ from services.invoices import (
     signed_amount_sql,
     undo_invoice_payment,
 )
-from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
+from services.sharing import update_purchase_share
+from source_types import CC_INVOICE_PAYMENT_SOURCE_TYPE
 from validators import (
     MAX_YEAR,
     ValidationError,
@@ -62,22 +75,6 @@ from validators import (
     require_id_list,
     require_string,
     validation_error,
-)
-from services.card_payload import (  # noqa: F401  (as regras desta rota; os nomes continuam valendo aqui)
-    ARCHIVED_CARD_NAME_MESSAGE,
-    CARD_NAME_TAKEN_MESSAGE,
-    DEBIT_BROKERAGE_MESSAGE,
-    DEBIT_ONLY_AUTOPAY_MESSAGE,
-    FLAG_VALUES,
-    NO_FUNCTION_MESSAGE,
-    card_name_conflict_message,
-    card_payment_count,
-    check_card_functions,
-    fetch_purchase_by_client_id,
-    invoice_payment_account_id,
-    parse_card_flag,
-    resolve_autopay_account,
-    resolve_debit_account,
 )
 
 bp = Blueprint("cards", __name__)

@@ -4,37 +4,29 @@ Saiu de routes/imports.py (2026-11-13): nada aqui usa o Flask. A rota continua i
 todos estes nomes.
 """
 
-import sqlite3
 
 
 import statement_import
-from db import get_db, new_id, row_to_dict, utc_timestamp
-from money import parse_money, rounded_money
-from services import manual_entries
-from services.accounts import require_account, resolve_account_id, resolve_category
+from db import row_to_dict
+from money import rounded_money
+from services.accounts import require_account, resolve_category
 from services.import_rules import (
-    count_rule_hits,
-    import_default_category,
     import_rules_for_matching,
 )
 from source_types import (
     INVESTMENT_SOURCE_TYPES,
-    MONTH_SUMMARY_SOURCE_TYPE,
     INVOICE_PAYMENT_SOURCE_TYPES,
+    MONTH_SUMMARY_SOURCE_TYPE,
     STATEMENT_IMPORT_SOURCE_TYPE,
 )
 from validators import (
     ValidationError,
     optional_string,
-    parse_json_body,
     parse_number,
     parse_optional_number,
     require_choice,
-    require_date,
     require_string,
-    validation_error,
 )
-
 
 ALLOWED_IMPORT_MATCH_TYPES = {"CONTAINS", "STARTS_WITH", "EQUALS"}
 

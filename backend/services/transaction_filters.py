@@ -4,53 +4,17 @@ Saiu de routes/transactions.py (2026-11-13): nada aqui usa o Flask. A rota conti
 todos estes nomes.
 """
 
-import sqlite3
 
 
-from db import get_db, serialize_transaction
-from money import parse_money, rounded_money
-from export_csv import ColumnError
-from responses import export_response, read_export_options
-from services.accounts import (
-    CLIENT_ID_OTHER_KIND_MESSAGE,
-    fetch_account,
-    fetch_transaction_by_client_id,
-    keep_or_require_account,
-    resolve_account_id,
-    resolve_category,
-    transfer_amount_for,
-)
-from services import auto_record, entries, manual_entries
-from services.attachments import remove_attachment_files
-from services.inbox import TRANSFER_CATEGORY
-from services.inbox_decisions import absorb_created, absorb_other_side
-from services.invoices import apply_due_autopay
-from services.proceeds_cash import apply_paid_proceeds
-from services.transaction_pages import fetch_page, parse_page_args
+from db import serialize_transaction
+from money import rounded_money
 from services.twins import transaction_twin_ids
-from services.sharing import (
-    check_split_fits,
-    has_share_fields,
-    parse_share,
-)
-from source_types import (
-    INVESTMENT_CASH_SOURCE_TYPE,
-    INVESTMENT_PROCEED_SOURCE_TYPE,
-    INVOICE_PAYMENT_LOCKED_MESSAGE,
-    INVOICE_PAYMENT_SOURCE_TYPES,
-)
 from validators import (
     ValidationError,
-    optional_client_id,
     optional_date,
-    optional_string,
-    parse_json_body,
     parse_optional_number,
     require_choice,
-    require_date,
-    validation_error,
 )
-
 
 ALLOWED_TRANSACTION_TYPES = {"INCOME", "EXPENSE", "TRANSFER"}
 

@@ -9,26 +9,44 @@ busca historico — os testes trocam `yf` aqui e em services/prices.py, e
 `get_daily_history` aqui.
 """
 
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from datetime import datetime
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
-from asset_classes import ALLOWED_ASSET_CLASSES, is_crypto_asset, is_quoted_asset, parse_asset_class_filter
+import export_csv
+import export_xlsx
+from applog import get_logger
+from asset_classes import (
+    ALLOWED_ASSET_CLASSES,
+    is_quoted_asset,
+    parse_asset_class_filter,
+)
 from auth import token_required
 from config import PRICE_FETCH_TIMEOUT_SECONDS, PRICE_REFRESH_TIMEOUT_SECONDS
 from dates import local_now, parse_iso_date, subtract_months
-from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
+from db import (
+    encode_metadata,
+    get_db,
+    new_id,
+    parse_metadata_value,
+    serialize_metadata_row,
+)
 from export_csv import ColumnError
 from money import parse_money, rounded_money
-import export_csv
-import export_xlsx
-from responses import XLSX_MIMETYPE, download_response
-from responses import export_response, read_export_options
+from responses import (
+    XLSX_MIMETYPE,
+    download_response,
+    export_response,
+    read_export_options,
+)
+from services.asset_categories import categories_by_asset
+from services.benchmarks import load_benchmarks
+from services.broker_cash import broker_settlement
 from services.corporate_actions import (
-    action_factor,
     corporate_action_by_client_id,
     create_corporate_action,
     delete_corporate_action,
@@ -36,51 +54,63 @@ from services.corporate_actions import (
     is_bonus_movement,
     list_corporate_actions,
 )
-from services.fx import (
-    BASE_CURRENCY,
-    SUPPORTED_CURRENCIES,
-    FxUnavailable,
-    monthly_rates,
-    normalize_currency,
-    rate_on,
-)
-from services.tax_report import build_tax_report, exemption_meter
 from services.fixed_income import (
-    index_history,
     finish_fixed_income_refresh,
     start_fixed_income_refresh,
     validate_fixed_income_metadata,
 )
-from services.asset_categories import categories_by_asset
-from services.treasury import finish_treasury_refresh, redemption_parts, start_treasury_refresh
-from services.broker_cash import broker_settlement
-from services.manual_entries import require_manual_investment_cash
-from services.open_finance_investments import OP_KEY_METADATA, UNKNOWN_HELD_MESSAGE, complete_held, held_operation
+from services.fx import (
+    BASE_CURRENCY,
+    FxUnavailable,
+    monthly_rates,
+    rate_on,
+)
+from services.investment_payload import (  # noqa: F401  (as regras desta rota; os nomes continuam valendo aqui)
+    FOREIGN_CURRENCY_CLASSES,
+    AssetDeleteRefused,
+    _index_history_executor,
+    months_since_first_movement,
+    movement_export_item,
+    movements_by_client_id,
+    read_months_arg,
+    read_movement_currency,
+    read_report_year,
+    registered_split_events,
+    request_client_id,
+    start_index_history,
+)
 from services.investments import (
     CASH_ACCOUNT_KEY,
     MAX_MOVEMENT_NUMBER,
     delete_investment_cash_transaction,
-    resync_investment_cash_dates,
     fetch_investment_rows,
     fetch_investments,
     fetch_position_quantity,
     get_or_create_asset,
     investment_cash_account_id,
     investment_cash_receipt_count,
-    portfolio_cash_account_id,
     investment_fee_amount,
     investment_gross_amount,
     investment_metadata_dict,
     investment_movement_type,
     investment_transaction_date,
+    portfolio_cash_account_id,
     resolve_catalog_ticker,
     resolve_investment_cash_account,
+    resync_investment_cash_dates,
     serialize_investment,
     sync_investment_cash_transaction,
     validate_asset_transaction_backing,
     validate_investment_movement,
     validate_movement_metadata,
     with_investment_cash_account,
+)
+from services.manual_entries import require_manual_investment_cash
+from services.open_finance_investments import (
+    OP_KEY_METADATA,
+    UNKNOWN_HELD_MESSAGE,
+    complete_held,
+    held_operation,
 )
 from services.portfolio import (
     build_portfolio_evolution,
@@ -98,9 +128,14 @@ from services.prices import (
     ticker_key,
     yf,
 )
-from services.benchmarks import load_benchmarks
 from services.realized_results import realized_results_summary, refresh_realized_results
 from services.returns import build_investment_returns, returns_evaluated_months
+from services.tax_report import build_tax_report, exemption_meter
+from services.treasury import (
+    finish_treasury_refresh,
+    redemption_parts,
+    start_treasury_refresh,
+)
 from validators import (
     ValidationError,
     normalize_month,
@@ -113,21 +148,6 @@ from validators import (
     require_string,
     safe_float,
     validation_error,
-)
-from applog import get_logger
-from services.investment_payload import (  # noqa: F401  (as regras desta rota; os nomes continuam valendo aqui)
-    AssetDeleteRefused,
-    FOREIGN_CURRENCY_CLASSES,
-    _index_history_executor,
-    months_since_first_movement,
-    movement_export_item,
-    movements_by_client_id,
-    read_months_arg,
-    read_movement_currency,
-    read_report_year,
-    registered_split_events,
-    request_client_id,
-    start_index_history,
 )
 
 logger = get_logger(__name__)
