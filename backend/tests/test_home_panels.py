@@ -1,7 +1,8 @@
 """GET /api/home/panels: os quatro paineis de historico do Inicio no servidor.
 
-Cobre o que `pages/Dashboard.jsx` montava no cliente (buildSpending, o ritmo,
-a projecao das faturas e os parcelamentos), para o Inicio nativo. O dia
+Cobre o que `pages/Dashboard.jsx` montava no cliente (o gasto do mes, o ritmo,
+a projecao das faturas e os parcelamentos); o Inicio nativo e o da web leem
+este pedido. O dia
 congelado e 2026-10-20; o cartao de `World.card()` fecha dia 3 e vence dia 10,
 entao uma compra de outubro depois do dia 3 cai na fatura de novembro.
 """

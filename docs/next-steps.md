@@ -11,7 +11,7 @@
 
 ### Architecture audit (`docs/audit.md`) — what is left
 Both stacks (#76–#93) are merged and deployed. The owner's decisions of 2026-11-13: the month's
-spending is one rule on every screen (#95, deployed) and the web Início reads `GET /api/home/panels` (#96, **open: merge it and watch the deploy**).
+spending is one rule on every screen (#95, deployed) and the web Início reads `GET /api/home/panels` (#96).
 - [ ] **Owner, on the PC**: delete `%TEMP%\financas-tests-*` by hand. Every test run before #91 left 3.7 GB there.
 - [ ] **Owner walk-through of the web Início** after #96, on the real data: Despesas por categoria, Ritmo de
   gastos, Parcelamentos abertos and the purchases under each invoice now come from the server. Checked in a

@@ -7,7 +7,7 @@
 
 ---
 
-## Session — 2026-11-13 · One spending rule (#95, deployed) and the web Início on the server's panels (#96, open)
+## Session — 2026-11-13 · One spending rule (#95) and the web Início on the server's panels (#96), both merged
 
 The owner's three decisions of 2026-11-13 (audit findings B2 and B3).
 
@@ -18,7 +18,8 @@ out of expenses **and** income everywhere. Tests rewritten first and failing (9 
 Client mirrors that repeat the name test were updated too: `lib/transactions.js` `isInvoicePayment()`,
 `lib/outboxRules.js` and the APK's `rules/OutboxPending.kt` (pending-item estimates). Suite 2929 → 2936.
 
-**Done, open as a PR: #96** (branch `refactor/web-home-reads-panels`). `Dashboard.jsx` reads `GET /api/home/panels`
+**Done and merged: #96** (its deploy was watched at the end of the session; this file was written just before,
+so if the latest `deploy.yml` run on `main` is red, start there). `Dashboard.jsx` reads `GET /api/home/panels`
 through `useHomePanels()` (`lib/attention.js`): categories, spending total, pace, the purchases under each invoice,
 installments. Nothing on the page needs the whole history, so `useInicioMovements`, `lib/homeSpending.js`,
 `homeSpending.parity.mjs` and `test_home_panels_parity.py` were removed. The balance, "Saiu" and the "estimado"
@@ -31,13 +32,11 @@ note still count pending items (`applyPendingToHome`).
   from the repo root before and after.
 
 **Not done, and why**
-- **#96 is not merged and its deploy was not watched**: the session ran out of usage right after the suite
-  finished. Merge it (the repo has no auto-merge and no branch protection: `gh pr merge --auto` merges at once),
-  watch `deploy.yml`, then delete the branch `pr-assets/web-home-panels` if the screenshots are no longer wanted.
-- Two docstrings still name `buildSpending()` (`services/home_panels.py`, `tests/test_home_panels.py`).
+- The branch `pr-assets/web-home-panels` (screenshots only) is still on the remote: #96's description links to
+  it. Delete it when the pictures are no longer wanted.
 - The owner has not clicked through the web Início on the real data.
 
-**Next**: merge #96 and watch the deploy; then one long view at a time (`next-steps.md`).
+**Next**: the owner's walk-through of the web Início; then one long view at a time (`next-steps.md`).
 
 **Lessons**
 - `gh pr merge --auto` on this repo merges immediately (auto-merge is off, `main` is unprotected): #95 merged

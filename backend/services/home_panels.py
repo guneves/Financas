@@ -1,10 +1,11 @@
 """Os quatro paineis de historico do Inicio (GET /api/home/panels).
 
-O que `pages/Dashboard.jsx` montava no cliente sobre todo o historico, aqui,
-para o Inicio nativo (que nao baixa `/api/transactions`):
+O que `pages/Dashboard.jsx` montava no cliente sobre todo o historico, aqui.
+O Inicio nativo e o da web leem este pedido (a web desde 2026-11-13); nenhum
+dos dois baixa `/api/transactions` para isso:
 
 1. **Despesas por categoria** do mes atual, com a seta contra o mes passado
-   inteiro (`buildSpending()`): saidas de conta na visao bancaria (sem
+   inteiro: saidas de conta na visao bancaria (sem
    Corretora, sem pagamento de fatura, sem o caixa da carteira, so a parte do
    dono) mais as compras no cartao pelo total da compra, no dia da compra; o
    estorno abate. Agrupa pelo nome da categoria, como a web.
