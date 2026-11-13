@@ -9,24 +9,13 @@
 
 ## 1. Open work, in priority order
 
-### Architecture audit (`docs/audit.md`) — the second stack to merge, and what is left
-The first stack (#76–#87) is merged and deployed (2026-11-13, deploy run 129). A second stack is open, each PR
-based on the previous branch:
-- [ ] **Owner: merge bottom up**: #88 (inbox split) → #89 (Open Finance split) → #90 (one INSERT,
-  `services/entries.py`) → #91 (tests remove their temp directory) → #92 (Flask-free helpers out of the routes) →
-  #93 (web Início spending in a lib + parity test) → the docs PR. Full suite at the top: 2929 passed. Merging
-  them upward into #88's branch and then #88 into `main` gives one deploy, as was done for the first stack.
+### Architecture audit (`docs/audit.md`) — what is left
+Both stacks (#76–#93) are merged and deployed. The owner's decisions of 2026-11-13: the month's
+spending is one rule on every screen (#95, deployed) and the web Início reads `GET /api/home/panels` (#96, **open: merge it and watch the deploy**).
 - [ ] **Owner, on the PC**: delete `%TEMP%\financas-tests-*` by hand. Every test run before #91 left 3.7 GB there.
-- [ ] **Owner decision, R10's second half** (#93 explains): make the web Início read `GET /api/home/panels` and drop
-  the whole-history fetch (548 KB + 671 KB on a 3-year seed). The parity test proves the numbers are equal; the
-  one visible change is that an expense still pending in the web outbox would count in "Despesas por categoria"
-  and the Ritmo only after it is sent (the APK already behaves so). Recommended: switch. Then `useInicioMovements`,
-  `lib/homeSpending.js` and its parity script can go, and the page should be clicked through in a browser.
-- [ ] **Owner decisions the audit raised** (each is one line in `services/spending_rules.py` plus its case in
-  `test_month_spending_rules.py`): (1) a despesa/receita typed in a Corretora account counts in the plan and the
-  budget but not in Início ("B2"); (2) a category starting with "pagamento fatura" in lower case is spending for
-  Início only; (3) an INCOME named "Pagamento Fatura…" is income for Início only. Recommended: the plan and the
-  budget follow Início on (1); the case-insensitive match everywhere on (2) and (3).
+- [ ] **Owner walk-through of the web Início** after #96, on the real data: Despesas por categoria, Ritmo de
+  gastos, Parcelamentos abertos and the purchases under each invoice now come from the server. Checked in a
+  browser only on the 3-year seed (text and chart paths identical to the old page).
 - [ ] **Not done: the five long views** (R8's other half): `investment_detail` (219 lines), `create_movements`
   (172), `cc_expenses` (148), `update_transaction` (141), `account_detail` (127). A view decides and answers in
   the same breath, and several read names the tests patch on the route module (`refresh_market_prices`,
@@ -353,9 +342,6 @@ The project docs (architecture, conventions, desktop, one spec per screen) are i
     reachability: with Tailscale down and Wi-Fi up it stays hidden until a request fails;
   - Importar, Regras de importação, Integrações, the full IR report and editing allocation
     targets/sectors are desktop-only (owner, session E): the desktop redesign gives them a home;
-  - `GET /api/home/panels` feeds only the native Início: the web Início still computes the same
-    four panels from the whole history (`useInicioMovements()`); switch it over and drop
-    `buildSpending()` from `Dashboard.jsx`.
 - [ ] **Desktop redesign** for ≥ 1280 px (sidebar, tables, columns, analysis first): a plan per
   screen here before it starts.
 - [ ] **Session containers cannot build an APK**: `dl.google.com` is blocked by the environment's

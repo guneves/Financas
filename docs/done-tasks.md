@@ -220,6 +220,8 @@
 - **2026-10-30/31 · The owner's account equals Pluggy**: broker statement as cash (`BROKER_STATEMENT`), card
   invoices mirroring the bank (`bill_month`, pending rows), AUPO11 D+1, Conferência buttons (Lançar, Aconteceu),
   provisional buys, rebuild applied on production and validated month by month. See `docs/handoff.md`.
+| The month's spending is one rule on every screen: Corretora rows out of plan and budget, "Pagamento Fatura" in any case, out of expenses and income (#95, audit B2) | 2026-11-13 |
+| Web Início reads `GET /api/home/panels`; `useInicioMovements`, `lib/homeSpending.js` and the parity test removed (#96, audit B3 for Início) | 2026-11-13 |
 
 ## Notes on completed work
 
@@ -1412,3 +1414,16 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
 ### Débito automático warning window — 2026-11-06
 - "Débito automático sem saldo" (`AUTOPAY_SHORTFALL`, `services/attention.py`) counts only invoices due from
   today to today + 5 days (`AUTOPAY_WINDOW_DAYS`, was 31), per the owner.
+
+### One spending rule and the web Início on the server's panels — 2026-11-13
+- **#95** (owner decisions of 2026-11-13): `spending_rules.invoice_payment_sql()` is one expression (`LOWER`
+  over the category prefix), `plan_row_sql()` skips the Corretora, `home.py` takes the invoice payment out of
+  income too. The pending-item estimates repeat the name test (`lib/outboxRules.js`, `rules/OutboxPending.kt`).
+  `test_month_spending_rules.py` was rewritten first and failed (9 cases), then the fix.
+- **#96**: `Dashboard.jsx` reads `categories`, `spending_total`, `pace`, `next_invoice_items`, `installments`
+  and `installments_total` through `useHomePanels()`; nothing on the page reads the whole history any more, so
+  `useInicioMovements`, `lib/homeSpending.js`, `homeSpending.parity.mjs` and `test_home_panels_parity.py` went.
+  A pending offline expense counts in the two spending panels only after it is sent; the balance, "Saiu" and
+  the "estimado" note still count it (`applyPendingToHome`). Início's API bytes on the 3-year seed:
+  1 268 606 → 21 897 (10 requests → 8). `invoice_projection` and `next_invoice_months` are not used by the web
+  page (it has no "Próximas faturas" panel; the tile's label comes from `/api/home`).
