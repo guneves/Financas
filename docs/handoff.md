@@ -31,6 +31,21 @@ note still count pending items (`applyPendingToHome`).
 - Full backend suite 2935 passed (2936 minus the removed parity test), `npm test` 246, `vite build` ok, ruff 405
   from the repo root before and after.
 
+**Also this day: Metas, "Atual" is what is invested (migration 057)**. The owner asked that a goal's "Atual"
+be what they have invested today and that "Previsão" follow it. The forecast already started from `current`;
+the wrong number came from the form's default kind, "Patrimônio" (`NET_WORTH`), which added every account's
+balance to the portfolio. That kind is gone: `services/goals.py` reads only the portfolio (net) or one class,
+057 turns stored `NET_WORTH` goals into `PORTFOLIO`, an old APK that still sends `NET_WORTH` is stored as
+`PORTFOLIO`, and the web and APK forms offer "Carteira | Classe | Renda" (default Carteira). Tests:
+`test_goals.py` (4 new), `npm test` 246, `GoalsTest` 6 (local Gradle). Related backend files only, not the full
+suite; ruff is not installed in the venv here.
+- **Not seen on the real data**: the Chrome extension was disconnected and the PC's `finance.db` has no goals,
+  so this is the reading of the request from the code (it also closes the old "owner's call" on `NET_WORTH`).
+  If the owner meant something else (gross value as in Posição's "Carteira", or the Corretora's cash counted),
+  it is one line in `current_values()`; both are in `next-steps.md`.
+- A second session (pluggy/open_finance files, `test_zz_*`) was working in the same tree, uncommitted; none of
+  it is in this PR.
+
 **Not done, and why**
 - The branch `pr-assets/web-home-panels` (screenshots only) is still on the remote: #96's description links to
   it. Delete it when the pictures are no longer wanted.

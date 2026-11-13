@@ -2,8 +2,9 @@
 
 O que estes testes fixam:
 
-- o valor atual de cada tipo: carteira (liquido), patrimonio (carteira +
-  contas), classe de ativo, e renda mensal (proventos liquidos de 12 meses / 12);
+- o valor atual de cada tipo: carteira (liquido, o investido hoje, nunca saldo
+  de conta), classe de ativo, e renda mensal (proventos liquidos de 12 meses / 12);
+- o tipo antigo NET_WORTH (carteira + contas) vira PORTFOLIO (057);
 - a previsao em meses com aporte mensal, com e sem rentabilidade esperada;
   sem aporte e sem rentabilidade nao ha previsao;
 - com data desejada: o aporte mensal necessario e se o plano chega a tempo;
@@ -13,8 +14,11 @@ O que estes testes fixam:
 
 import importlib
 from datetime import date
+from pathlib import Path
 
 import pytest
+
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "database" / "migrations"
 
 
 @pytest.fixture(autouse=True)
@@ -79,16 +83,45 @@ def test_a_reached_goal_is_zero_months_away(client, auth):
     assert goal["reached"] is True and goal["estimated_months"] == 0 and goal["remaining"] == 0
 
 
-def test_net_worth_adds_the_accounts(client, auth):
-    buy(client, auth, "PETR4", 100, 25.0)
+def test_current_is_what_is_invested_never_the_account_balances(client, auth):
+    # Dono, 2026-11-13: "Atual" e o que esta investido hoje; saldo de conta nao entra.
+    buy(client, auth, "PETR4", 100, 25.0)   # 2.500
     response = client.post("/api/accounts", headers=auth, json={"name": "Reserva", "type": "SAVINGS", "initial_balance": 1500})
     assert response.status_code in (200, 201), response.get_data(as_text=True)
+    goal = created(create_goal(client, auth, target_amount=10000, monthly_contribution=1000))
+    assert goal["current"] == 2500
+    assert goal["remaining"] == 7500
+    assert goal["estimated_months"] == 8
+
+
+def test_the_forecast_follows_what_is_invested_today(client, auth):
+    goal = created(create_goal(client, auth, target_amount=10000, monthly_contribution=1000))
+    assert goal["current"] == 0 and goal["estimated_months"] == 10
+    buy(client, auth, "PETR4", 100, 25.0)   # 2.500 investidos: a previsao encurta sozinha
+    after = client.get(f"/api/goals/{goal['id']}", headers=auth).get_json()
+    assert after["current"] == 2500
+    assert after["estimated_months"] == 8 and after["estimated_month"] == "2026-08"
+
+
+def test_the_old_net_worth_kind_is_stored_as_portfolio(client, auth):
+    # Um APK antigo ainda manda NET_WORTH (era o padrao do formulario).
+    buy(client, auth, "PETR4", 100, 25.0)
+    client.post("/api/accounts", headers=auth, json={"name": "Reserva", "type": "SAVINGS", "initial_balance": 1500})
     goal = created(create_goal(client, auth, kind="NET_WORTH", target_amount=10000))
-    # A compra saiu da conta padrao (vinculo investimento <-> caixa), entao
-    # o patrimonio e a carteira mais o saldo de todas as contas.
-    accounts = client.get("/api/accounts?include_archived=1", headers=auth).get_json()
-    cash = sum(item["balance_brl"] for item in accounts)
-    assert goal["current"] == pytest.approx(2500 + cash)
+    assert goal["kind"] == "PORTFOLIO"
+    assert goal["kind_label"] == "Carteira de investimentos"
+    assert goal["current"] == 2500
+    edited = client.patch(f"/api/goals/{goal['id']}", headers=auth, json={"kind": "NET_WORTH", "name": "Meta"})
+    assert edited.status_code == 200 and edited.get_json()["kind"] == "PORTFOLIO"
+
+
+def test_migration_057_turns_net_worth_goals_into_portfolio(client, auth, db_module):
+    migration = (MIGRATIONS_DIR / "057_goals_current_is_invested.sql").read_text(encoding="utf-8")
+    goal = created(create_goal(client, auth, target_amount=10000))
+    with db_module.get_db() as conn:
+        conn.execute("UPDATE investment_goals SET kind = 'NET_WORTH' WHERE id = ?", (goal["id"],))
+        conn.executescript(migration)
+    assert client.get(f"/api/goals/{goal['id']}", headers=auth).get_json()["kind"] == "PORTFOLIO"
 
 
 def test_asset_class_goal_counts_only_that_class(client, auth):

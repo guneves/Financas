@@ -72,7 +72,7 @@ object Goals {
     /** O formulario do sheet, como digitado. */
     data class GoalForm(
         val name: String = "",
-        val kind: String = "NET_WORTH",
+        val kind: String = "PORTFOLIO",
         val assetClass: String = "STOCKS",
         val targetAmount: String = "",
         val monthlyContribution: String = "",

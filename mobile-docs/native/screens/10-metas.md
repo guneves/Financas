@@ -51,11 +51,11 @@ anos e M meses" (singular "1 ano", "1 mês"; parts omitted when 0; "" when 0 mon
 | Edit | "⋯" › "Editar" → sheet "Editar meta" → "Salvar" | `PATCH /api/goals/<id>` same full payload | toast "Meta atualizada." | refused |
 | Remove | "⋯" › "Remover" | `DELETE /api/goals/<id>` (real delete, no guard) | confirmAction "Remover a meta "<nome>"?" / "Só o plano sai; nenhum lançamento muda." → toast "Meta removida." | refused |
 
-Sheet: the description is the kind's hint (`KIND_HINTS`): NET_WORTH "Carteira de investimentos +
-saldo das contas — o número do Início.", PORTFOLIO "Valor líquido da carteira de investimentos.",
+Sheet: the description is the kind's hint (`KIND_HINTS`): PORTFOLIO "O que você tem investido hoje: o valor
+líquido da carteira.",
 ASSET_CLASS "Valor líquido de uma classe de ativo.", MONTHLY_INCOME "Média mensal dos proventos
-líquidos recebidos nos últimos 12 meses.". Fields: segmented kind "Patrimônio | Carteira | Classe |
-Renda" (default Patrimônio); "Nome" (required, ≤ 120, placeholder "Ex.: Primeiros 100 mil"); "Classe
+líquidos recebidos nos últimos 12 meses.". Fields: segmented kind "Carteira | Classe | Renda" (default Carteira;
+"Patrimônio"/NET_WORTH was removed on 2026-11-13, 057: the server stores it as PORTFOLIO); "Nome" (required, ≤ 120, placeholder "Ex.: Primeiros 100 mil"); "Classe
 de ativo" only for Classe (Ações, Fundos Imobiliários, Renda Fixa, Outros → `STOCKS|REIT|FIXED_INCOME|OTHER`,
 default STOCKS); "Valor da meta" / for Renda "Renda mensal desejada" (required, ≥ 0,01); for non-income
 kinds also "Aporte mensal" (hint "Quanto você pretende pôr por mês."), "Rentabilidade esperada ao ano
@@ -83,9 +83,7 @@ arrived still takes a rename or a new amount with its stored date sent back.
   `estimated_months`, `estimated_month`, `required_contribution`, `on_track` (true/false/null),
   `income_last_12_months` (income goals only).
 - Values are computed on read: PORTFOLIO = `build_portfolio_snapshot().current_net_balance`;
-  ASSET_CLASS = Σ positions' `net_value` of the class; NET_WORTH = portfolio + every account's
-  balance in BRL (`account_balance_rows()`, archived and Corretora included, foreign accounts
-  without a rate skipped); MONTHLY_INCOME = net proventos paid in (today − 365 d, today] / 12.
+  ASSET_CLASS = Σ positions' `net_value` of the class (never an account balance); MONTHLY_INCOME = net proventos paid in (today − 365 d, today] / 12.
   Forecast: months to target with contribution at month end and the annual rate as an equivalent
   monthly rate, capped at 1 200 months; no contribution and no positive rate → no forecast.
 - The read builds the portfolio snapshot, so it is as slow as Posição on a cold cache — keep the
@@ -118,8 +116,7 @@ arrived still takes a rename or a new amount with its stored date sent back.
 - "The monthly plan is a plan…" — goal flags in Orçamento are per goal, never summed; a goal edit
   changes them.
 - "Money" — the client only formats; `rounded_money()` happens on the server.
-- "The app is reais-only on screen" — NET_WORTH converts foreign accounts on the server; never show
-  a currency.
+- "The app is reais-only on screen" — never show a currency.
 - "Privacy mode" — use the private formatter for the sensitive figures.
 
 ## Native-only improvements
@@ -140,5 +137,4 @@ arrived still takes a rename or a new amount with its stored date sent back.
 ## Desktop
 Keep; widen into a two-column grid (already `xl:grid-cols-2`) and add a projection chart per goal
 (value over time at the planned contribution vs the target line), computed by a new server endpoint,
-not in the browser. Fix the NET_WORTH hint: Início no longer shows the portfolio, so "o número do
-Início" is wrong.
+not in the browser.

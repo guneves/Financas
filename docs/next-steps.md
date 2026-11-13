@@ -542,9 +542,9 @@ Investimento is not a category: a typed aporte is a transfer to the Corretora. O
 - [ ] Owner's call — the "no mês" pill on Início is now the accounts' net movement (receitas −
   despesas − aportes + resgates, the chart's "Resultado"). It used to be receitas − despesas,
   which read as "how much net worth moved". Say so if the old meaning is the wanted one.
-- [ ] Owner's call — goals: a `NET_WORTH` goal (Planejamento → Metas) still adds accounts and
-  portfolio. It is the one place left where the two areas are summed. Related: moving Metas to
-  Investimentos.
+- [ ] Owner's call — goals: moving Metas to Investimentos (a goal now reads only the portfolio,
+  057). Also theirs: "Atual" is the **net** value (after estimated IR on fixed income), while
+  Posição's "Carteira" is gross, and the Corretora's cash is not counted.
 - [ ] Owner's call: the same opt-in for proventos (they never reach an account); remembering the
   checkbox's last choice on this device.
 - [ ] Not guarded: deleting a movement (or its whole asset) removes the linked lançamento together

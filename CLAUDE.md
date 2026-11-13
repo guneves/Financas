@@ -236,7 +236,7 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   of Ajustes › Nova conta (CHECKING + `currency: USD`). **It is never in "Saldo em contas"** (owner
   2026-10-28 and 2026-10-30, list and total: `consolidated_balance()` skips non-BRL accounts, so
   Extrato/Cartões projections too): on Início it is only the "Conta global" entry, and it pays no
-  invoice. A `NET_WORTH` goal still counts it converted. A foreign
+  invoice. A foreign
   account is never the default nor the Corretora. Its own despesas/receitas stay out of every reais
   total (Resumo do mês, plan, budget, the Extrato without `account_id`, the review queue/count):
   they are listed and reviewed on its screen. "+ Novo" doesn't offer it.
@@ -693,7 +693,10 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   write runs after the sheet closes (`refreshQuotes()`). Writes don't rebuild
   `investment_positions`; `replace_realized_results()` writes only on change.
 - **Allocation targets and goals are plans** (020, 021): computed on read from
-  `build_portfolio_snapshot()`, never stored.
+  `build_portfolio_snapshot()`, never stored. **A goal's "Atual" is what is invested today** (owner
+  2026-11-13, 057): the portfolio's net value (or one class), never an account balance; the forecast
+  starts from it. The old `NET_WORTH` kind (portfolio + accounts) is gone: an old APK sending it is
+  stored as `PORTFOLIO`.
 - BCB and Tesouro are fetched through `gov_http.get()` (Python 3.14 strict X.509 flag dropped,
   one retry). A test's fake `urlopen` takes `**kwargs`.
 - Registrar provento picks the type first, then only assets that can pay it
