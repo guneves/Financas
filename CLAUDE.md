@@ -703,6 +703,12 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   cycle (function-level imports count: never "fix" a cycle with an import inside a function), and a
   ratchet on uses of another module's `_private` name (`tests/architecture_private_uses.txt` only
   shrinks: a new use fails, a removed use must leave the list).
+- **The inbox is four modules** (2026-11-13): `inbox_rules.py` (pure: policy, parsing, matching),
+  `inbox_store.py` (items, lookups, hints, settings), `inbox_transfers.py` (own transfers, absorption) and
+  `inbox.py` (the engine: notifications, Open Finance, near match, serialization), which re-exports every
+  name of the other three. **A function that reads a name a test replaces on `services.inbox`
+  (`notification_wanted`, `BANK_NOTIFICATIONS_DEFAULT`) must stay in `inbox.py`**: moved, it would read
+  its own module's copy and the test's patch would silently do nothing.
 - `formatCurrency` and the date helpers live in `lib/format.js`; `pages/lancamentos/helpers.js`
   keeps a local `getLocalDateString`/`formatDateBR` on purpose (clock hook, `''` vs `'-'`).
 - **The "+" lives in the bottom bar, at its center** (owner 2026-11-05): web `Layout.jsx` (middle of the bar;
