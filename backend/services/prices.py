@@ -489,33 +489,6 @@ def download_monthly_history(tickers, start_date):
     return historical_prices
 
 
-def get_monthly_history(tickers, start_date):
-    normalized_tickers = tuple(sorted({ticker_key(ticker) for ticker in tickers if ticker_key(ticker)}))
-    if not normalized_tickers:
-        return {}
-
-    cache_key = (normalized_tickers, start_date)
-    now = time.time()
-    with _price_cache_lock:
-        cached = _history_cache.get(cache_key)
-        if cached and now - cached.get("updated_at", 0) <= HISTORY_CACHE_TTL_SECONDS:
-            return {
-                ticker: dict(prices)
-                for ticker, prices in cached.get("prices", {}).items()
-            }
-
-    prices = download_monthly_history(list(normalized_tickers), start_date)
-    with _price_cache_lock:
-        _history_cache[cache_key] = {
-            "prices": {
-                ticker: dict(monthly_prices)
-                for ticker, monthly_prices in prices.items()
-            },
-            "updated_at": now,
-        }
-    return prices
-
-
 def extract_split_events(data, yf_symbol):
     """[(AAAA-MM-DD, fator)] da coluna "Stock Splits" (download com actions=True).
 

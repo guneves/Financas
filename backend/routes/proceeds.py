@@ -27,11 +27,9 @@ from services.proceeds import (
     ALLOWED_PROCEEDS_TYPES,
     FIXED_INCOME_EVENT_TYPES,
     INTEREST_TYPE,
-    asset_movement_rows,
     build_investment_proceeds_summary,
     default_tax_for_proceed,
     fetch_investment_proceed_by_id,
-    fetch_investment_proceeds,
     interest_tax_rate,
     investment_position_at_date,
     serialize_investment_proceed,
@@ -359,11 +357,7 @@ def investment_proceeds(current_user_id):
             return validation_error(str(exc))
 
         with get_db() as conn:
-            rows = fetch_investment_proceeds(conn, current_user_id, filters)
-            items = [
-                serialize_investment_proceed(row, conn, current_user_id)
-                for row in rows
-            ]
+            items = serialized_proceeds(conn, current_user_id, filters)
         return jsonify(items), 200
 
     payload = parse_json_body()
@@ -443,8 +437,7 @@ def export_investment_proceeds(current_user_id):
         return validation_error(str(exc))
 
     with get_db() as conn:
-        rows = fetch_investment_proceeds(conn, current_user_id, filters)
-        items = [serialize_investment_proceed(row, conn, current_user_id) for row in rows]
+        items = serialized_proceeds(conn, current_user_id, filters)
     return export_response(fmt, columns, items, basename="proventos", sheet_name="Proventos")
 
 
@@ -478,11 +471,7 @@ def investment_proceeds_calendar(current_user_id):
     filters["ascending"] = True
 
     with get_db() as conn:
-        rows = fetch_investment_proceeds(conn, current_user_id, filters)
-        items = [
-            serialize_investment_proceed(row, conn, current_user_id)
-            for row in rows
-        ]
+        items = serialized_proceeds(conn, current_user_id, filters)
     return jsonify(items), 200
 
 

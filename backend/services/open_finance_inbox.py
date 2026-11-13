@@ -50,7 +50,6 @@ sai (REMOVED) se nao tiver outra fonte.
 """
 
 import calendar
-import json
 import re
 from datetime import datetime, timedelta, timezone
 

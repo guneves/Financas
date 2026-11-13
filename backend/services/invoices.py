@@ -27,15 +27,6 @@ from source_types import CC_AUTOPAY_SOURCE_TYPE, CC_INVOICE_PAYMENT_SOURCE_TYPE,
 from validators import ValidationError
 
 
-def ensure_credit_card_owner(conn, current_user_id, card_id):
-    card = conn.execute(
-        "SELECT id FROM credit_cards WHERE id = ? AND user_id = ?",
-        (card_id, current_user_id),
-    ).fetchone()
-    if not card:
-        raise ValidationError("Cartao nao encontrado.")
-
-
 def require_active_card(conn, current_user_id, card_id):
     """O cartao, para lancar no credito: do dono, nao arquivado (037) e com a
     funcao credito (041)."""

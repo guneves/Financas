@@ -95,15 +95,6 @@ export function useOutbox() {
   return useSyncExternalStore(subscribe, getSnapshot)
 }
 
-export function outboxItems() {
-  return getSnapshot()
-}
-
-// O remetente nativo mexeu na fila sem a tela pedir (enviou, ou o servidor recusou).
-export function reloadOutbox() {
-  return load()
-}
-
 async function load() {
   try {
     setItems((await backend.all()) || [])
