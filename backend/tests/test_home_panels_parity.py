@@ -17,7 +17,6 @@ import subprocess
 from datetime import date
 
 import pytest
-
 from finance_world import World, freeze
 
 SCRIPT = os.path.join(
@@ -43,14 +42,18 @@ def web_spending(world):
         "accounts": world.get("/api/accounts?include_archived=1"),
         "month": MONTH,
     }
-    done = subprocess.run(["node", SCRIPT], input=json.dumps(payload), capture_output=True, text=True, timeout=60)
+    done = subprocess.run(
+        ["node", SCRIPT], input=json.dumps(payload), capture_output=True, text=True, timeout=60, check=False,
+    )
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
 
 
 def server_spending(world):
     panels = world.panels()
-    cents = lambda value: round(value * 100)  # noqa: E731
+    def cents(value):
+        return round(value * 100)
+
     return {
         "total": cents(panels["spending_total"]),
         "categories": {
