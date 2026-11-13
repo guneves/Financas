@@ -31,26 +31,14 @@ As chamadas a Pluggy acontecem fora da transacao do banco; a escrita vem
 depois, numa so.
 """
 
-import re
-import threading
-import time
 from datetime import datetime, timedelta
 
-import pluggy_client
 from applog import get_logger
-from config import (
-    OPEN_FINANCE_SYNC_SECONDS,
-    PLUGGY_BASE_URL,
-    PLUGGY_CLIENT_ID,
-    PLUGGY_CLIENT_SECRET,
-    PLUGGY_TIMEOUT_SECONDS,
-)
 from dates import parse_iso_date
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from services import (
     inbox,
-    invoices,
     open_finance_auto,
     open_finance_check,
     open_finance_inbox,
@@ -59,255 +47,68 @@ from services import (
     open_finance_orphans,
     realized_results,
 )
+# `open_finance.invoices` e lido de fora (os testes congelam o relogio por ele): fica,
+# mesmo sem uso direto aqui desde que `_today()` foi para open_finance_settings.
+from services import invoices  # noqa: F401
 from services.accounts import account_balance_rows, account_balance_until
 from services.broker_cash import settled_balance
 from services.import_rules import import_rules_for_matching
+from services.open_finance_mapping import (  # noqa: F401  (reexportados: o resto do app os le daqui)
+    _require_bank_target,
+    _require_card_target,
+    _set_ignored,
+    _target_id,
+    is_investment_account,
+    map_account,
+    suggest_target,
+)
+from services.open_finance_settings import (  # noqa: F401  (reexportados: o resto do app os le daqui)
+    AUTO_RECORD_SETTING,
+    DEFAULT_FIRST_SYNC_DAYS,
+    DEFAULT_HISTORY_DAYS,
+    DEFAULT_SYNC_HOURS,
+    FIRST_SYNC_SETTING,
+    INCLUDE_PENDING_SETTING,
+    LATE_POSTING_DAYS,
+    MAX_FIRST_SYNC_DAYS,
+    MAX_SYNC_HOURS,
+    MIN_SYNC_HOURS,
+    OVERLAP_DAYS,
+    OWNER_ACTION_EXECUTIONS,
+    OWNER_ACTION_STATUSES,
+    PLUGGY_ID_PATTERN,
+    SETTINGS_FIELDS,
+    SYNC_HOURS_SETTING,
+    SYNC_OFF,
+    NotConfigured,
+    PluggyError,
+    _bool_field,
+    _client,
+    _client_lock,
+    _day_text,
+    _parse_first_sync_days,
+    _require_configured,
+    _sync_lock,
+    _sync_locks,
+    _sync_locks_guard,
+    _today,
+    active_items,
+    client,
+    default_sync_hours,
+    fetch_item,
+    first_sync_days,
+    include_pending,
+    is_configured,
+    item_accounts,
+    needs_owner,
+    set_client,
+    settings,
+    sync_hours,
+    update_settings,
+)
 from validators import ValidationError
 
 logger = get_logger(__name__)
-
-PluggyError = pluggy_client.PluggyError
-
-# Folga do pull (definida em services/inbox.py, que este modulo importa e que
-# tambem a usa no par aproximado; o nome continua valendo aqui).
-LATE_POSTING_DAYS = inbox.LATE_POSTING_DAYS
-# Sem nenhuma linha da conta ainda, a folga antiga: nao traz o que o dono deixou
-# fora da primeira busca.
-OVERLAP_DAYS = 7
-FIRST_SYNC_SETTING = "open_finance_first_days"
-DEFAULT_FIRST_SYNC_DAYS = 30
-# A Pluggy guarda ate 12 meses de transacoes.
-MAX_FIRST_SYNC_DAYS = 365
-# Busca automatica por usuario (Ajustes). Toda conta mapeada atualiza sem o dono
-# (dono, 2026-10-30): sem escolha vale o padrao, e so "Desligada" escolhida em
-# Ajustes (gravada como SYNC_OFF) deixa so o botao "Atualizar"; um "0" gravado
-# antes disso nao diz que alguem escolheu e vale o padrao. Nunca abaixo de 6 h
-# (dono, 2026-10-27): a Pluggy so traz dado novo do banco de 6 em 6 a 24 h, ler
-# mais vezes nao adianta.
-SYNC_HOURS_SETTING = "open_finance_sync_hours"
-SYNC_OFF = "off"
-MIN_SYNC_HOURS = 6
-MAX_SYNC_HOURS = 24
-DEFAULT_SYNC_HOURS = 6
-INCLUDE_PENDING_SETTING = "open_finance_include_pending"
-# Gravar sozinho (044): services/open_finance_auto.py.
-AUTO_RECORD_SETTING = open_finance_auto.AUTO_RECORD_SETTING
-# O historico (preview -> apply): ate onde a Pluggy guarda.
-DEFAULT_HISTORY_DAYS = 365
-# Status em que so o dono resolve (nova senha, um codigo, aceitar termos no
-# banco): a mensagem fica em Ajustes.
-OWNER_ACTION_STATUSES = {"LOGIN_ERROR", "WAITING_USER_INPUT"}
-OWNER_ACTION_EXECUTIONS = {
-    "INVALID_CREDENTIALS", "ACCOUNT_LOCKED", "ACCOUNT_NEEDS_ACTION", "USER_NOT_SUPPORTED",
-    "ACCOUNT_CREDENTIALS_RESET", "USER_AUTHORIZATION_NOT_GRANTED", "USER_AUTHORIZATION_REVOKED",
-    "USER_AUTHORIZATION_PENDING", "INVALID_CREDENTIALS_MFA",
-}
-PLUGGY_ID_PATTERN = re.compile(r"^[0-9A-Fa-f-]{8,64}$")
-
-_client = None
-_client_lock = threading.Lock()
-_sync_locks = {}
-_sync_locks_guard = threading.Lock()
-
-
-class NotConfigured(Exception):
-    pass
-
-
-def client():
-    global _client
-    with _client_lock:
-        if _client is None:
-            _client = pluggy_client.PluggyClient(
-                PLUGGY_CLIENT_ID, PLUGGY_CLIENT_SECRET, PLUGGY_BASE_URL, PLUGGY_TIMEOUT_SECONDS,
-            )
-        return _client
-
-
-def set_client(value):
-    """Para os testes: um cliente falso (None volta ao de verdade)."""
-    global _client
-    with _client_lock:
-        _client = value
-
-
-def is_configured():
-    return bool(client().configured)
-
-
-def _require_configured():
-    if not is_configured():
-        raise NotConfigured("Open Finance desligado: o servidor nao tem PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET.")
-
-
-def _sync_lock(current_user_id):
-    with _sync_locks_guard:
-        return _sync_locks.setdefault(current_user_id, threading.Lock())
-
-
-def _today():
-    return invoices.local_today()
-
-
-def _day_text(day):
-    return day.strftime("%Y-%m-%d")
-
-
-# ---------------------------------------------------------------------------
-# Preferencias
-# ---------------------------------------------------------------------------
-
-def first_sync_days(conn, current_user_id):
-    row = conn.execute(
-        "SELECT value FROM user_settings WHERE user_id = ? AND setting_key = ?",
-        (current_user_id, FIRST_SYNC_SETTING),
-    ).fetchone()
-    try:
-        value = int(row["value"]) if row else DEFAULT_FIRST_SYNC_DAYS
-    except (TypeError, ValueError):
-        value = DEFAULT_FIRST_SYNC_DAYS
-    return min(max(value, 1), MAX_FIRST_SYNC_DAYS)
-
-
-def _parse_first_sync_days(value):
-    if isinstance(value, bool):
-        raise ValidationError("Informe os dias da primeira busca.")
-    try:
-        days = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValidationError("Informe os dias da primeira busca.") from exc
-    if not 1 <= days <= MAX_FIRST_SYNC_DAYS:
-        raise ValidationError(f"A primeira busca vai de 1 a {MAX_FIRST_SYNC_DAYS} dias.")
-    return days
-
-
-def default_sync_hours():
-    """O intervalo de quem nunca escolheu: o do servidor (OPEN_FINANCE_SYNC_SECONDS),
-    6 h se ele desligou a thread (aí nada roda sozinho para ninguém)."""
-    if OPEN_FINANCE_SYNC_SECONDS <= 0:
-        return DEFAULT_SYNC_HOURS
-    return min(max(round(OPEN_FINANCE_SYNC_SECONDS / 3600), MIN_SYNC_HOURS), MAX_SYNC_HOURS)
-
-
-def sync_hours(conn, current_user_id):
-    """0 (o dono escolheu so o botao) ou MIN_SYNC_HOURS..MAX_SYNC_HOURS; um valor
-    antigo abaixo de 6 h (o limite era 1 h ate 044) sobe para 6."""
-    value = inbox.setting_value(conn, current_user_id, SYNC_HOURS_SETTING)
-    if value == SYNC_OFF:
-        return 0
-    try:
-        hours = int(value)
-    except (TypeError, ValueError):
-        return default_sync_hours()
-    return max(hours, MIN_SYNC_HOURS) if 0 < hours <= MAX_SYNC_HOURS else default_sync_hours()
-
-
-def include_pending(conn, current_user_id):
-    """Ligado sem escolha (dono, 2026-11-01: toda transacao, no momento em que
-    chega; migracao 052): so "0" gravado em Ajustes desliga."""
-    return inbox.setting_value(conn, current_user_id, INCLUDE_PENDING_SETTING) != "0"
-
-
-def settings(conn, current_user_id):
-    return {
-        "first_sync_days": first_sync_days(conn, current_user_id),
-        "sync_hours": sync_hours(conn, current_user_id),
-        "min_sync_hours": MIN_SYNC_HOURS,
-        "include_pending": include_pending(conn, current_user_id),
-        "auto_sync_available": OPEN_FINANCE_SYNC_SECONDS > 0,
-        "auto_record": open_finance_auto.enabled(conn, current_user_id),
-        "auto_record_blockers": open_finance_auto.blockers(conn, current_user_id, time.time()),
-        # Sem efeito desde 2026-10-30 (o servidor ignora os avisos dos bancos
-        # sempre): so para um APK antigo que ainda le o campo.
-        "ignore_notifications": True,
-    }
-
-
-SETTINGS_FIELDS = ("first_sync_days", "sync_hours", "include_pending", "auto_record")
-
-
-def _bool_field(payload, key):
-    if not isinstance(payload[key], bool):
-        raise ValidationError(f"Envie {key} como true ou false.")
-    return payload[key]
-
-
-def update_settings(conn, current_user_id, payload):
-    """PATCH parcial: valida tudo antes de gravar qualquer coisa. Ligar
-    `auto_record` e recusado enquanto houver conta sem destino ou conexao sem
-    pull recente; ligado, o que ja esperava no Aprovar vindo da Pluggy e
-    gravado numa passada (`auto_recorded` na resposta)."""
-    if not isinstance(payload, dict):
-        raise ValidationError("Envie um objeto JSON.")
-    unknown = sorted(set(payload) - set(SETTINGS_FIELDS))
-    if unknown:
-        raise ValidationError(f"Preferencia desconhecida: {', '.join(unknown)}.")
-    if not payload:
-        raise ValidationError("Envie ao menos uma preferencia.")
-    writes = []
-    if "first_sync_days" in payload:
-        writes.append((FIRST_SYNC_SETTING, str(_parse_first_sync_days(payload["first_sync_days"]))))
-    if "sync_hours" in payload:
-        hours = payload["sync_hours"]
-        if isinstance(hours, bool) or not isinstance(hours, int):
-            raise ValidationError("Informe a busca automática em horas (0 desliga).")
-        if hours != 0 and not MIN_SYNC_HOURS <= hours <= MAX_SYNC_HOURS:
-            raise ValidationError(
-                f"A busca automática vai de {MIN_SYNC_HOURS} a {MAX_SYNC_HOURS} horas, ou 0 para desligar: "
-                f"a Pluggy só traz dados novos do banco de {MIN_SYNC_HOURS} em {MIN_SYNC_HOURS} horas ou mais."
-            )
-        writes.append((SYNC_HOURS_SETTING, str(hours) if hours else SYNC_OFF))
-    if "include_pending" in payload:
-        writes.append((INCLUDE_PENDING_SETTING, "1" if _bool_field(payload, "include_pending") else "0"))
-    turning_on = False
-    if "auto_record" in payload:
-        wanted = _bool_field(payload, "auto_record")
-        if wanted and not open_finance_auto.enabled(conn, current_user_id):
-            problems = open_finance_auto.blockers(conn, current_user_id, time.time())
-            if problems:
-                raise ValidationError("Gravar sozinho ainda não pode ligar: " + " ".join(problems))
-            turning_on = True
-        writes.append((AUTO_RECORD_SETTING, "1" if wanted else "0"))
-    for key, value in writes:
-        inbox.save_setting(conn, current_user_id, key, value)
-    body = settings(conn, current_user_id)
-    if turning_on:
-        body["auto_recorded"] = open_finance_auto.record_pending(conn, current_user_id, _today())
-        logger.info("Open Finance: gravar sozinho ligado", extra={"user_id": current_user_id, **body["auto_recorded"]})
-    return body
-
-
-# ---------------------------------------------------------------------------
-# Leituras
-# ---------------------------------------------------------------------------
-
-def fetch_item(conn, current_user_id, of_item_id, active_only=True):
-    row = conn.execute(
-        "SELECT * FROM open_finance_items WHERE id = ? AND user_id = ?",
-        (of_item_id, current_user_id),
-    ).fetchone()
-    if not row or (active_only and row["archived_at"]):
-        return None
-    return row
-
-
-def active_items(conn, current_user_id):
-    return conn.execute(
-        "SELECT * FROM open_finance_items WHERE user_id = ? AND archived_at IS NULL ORDER BY created_at, id",
-        (current_user_id,),
-    ).fetchall()
-
-
-def item_accounts(conn, current_user_id, of_item_id):
-    return conn.execute(
-        "SELECT * FROM open_finance_accounts WHERE user_id = ? AND of_item_id = ? ORDER BY type, name, id",
-        (current_user_id, of_item_id),
-    ).fetchall()
-
-
-def needs_owner(item_row):
-    return (item_row["status"] in OWNER_ACTION_STATUSES) or (item_row["execution_status"] in OWNER_ACTION_EXECUTIONS)
-
 
 # ---------------------------------------------------------------------------
 # Conectar
@@ -468,196 +269,6 @@ def disconnect(current_user_id, of_item_id, confirm):
             (utc_timestamp(), utc_timestamp(), of_item_id, current_user_id),
         )
     return True
-
-
-# ---------------------------------------------------------------------------
-# Mapear
-# ---------------------------------------------------------------------------
-
-def map_account(current_user_id, of_account_id, payload):
-    """Liga uma conta da Pluggy a uma conta (BANK) ou a um cartao (CREDIT) do
-    dono; `null` desliga; `{"ignore": true}` e "nao usar" (044: fica puxada,
-    nunca gera nada). O que ja foi puxado sem mapeamento entra no Aprovar (e,
-    com "Gravar sozinho", e gravado)."""
-    if not isinstance(payload, dict):
-        raise ValidationError("Envie um objeto JSON.")
-    if "ignore" in payload:
-        if not isinstance(payload["ignore"], bool) or set(payload) != {"ignore"}:
-            raise ValidationError("Envie so ignore: true ou false.")
-        return _set_ignored(current_user_id, of_account_id, payload["ignore"])
-    with get_db() as conn:
-        account = conn.execute(
-            """
-            SELECT a.* FROM open_finance_accounts a
-            JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
-            WHERE a.id = ? AND a.user_id = ? AND i.archived_at IS NULL
-            """,
-            (of_account_id, current_user_id),
-        ).fetchone()
-        if not account:
-            raise LookupError("Conta do Open Finance nao encontrada.")
-        if account["type"] == "BANK":
-            target = _target_id(payload, "account_id")
-            if target:
-                _require_bank_target(conn, current_user_id, target, account)
-            column, other = "account_id", "card_id"
-        else:
-            target = _target_id(payload, "card_id")
-            if target:
-                _require_card_target(conn, current_user_id, target)
-            column, other = "card_id", "account_id"
-        if target:
-            taken = conn.execute(
-                f"""
-                SELECT 1 FROM open_finance_accounts a
-                JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
-                WHERE a.user_id = ? AND a.{column} = ? AND a.id <> ? AND i.archived_at IS NULL
-                """,
-                (current_user_id, target, of_account_id),
-            ).fetchone()
-            if taken:
-                # Duas contas da Pluggy no mesmo destino trariam tudo duas vezes.
-                raise ValidationError("Outra conta do Open Finance ja vai para este destino.")
-        conn.execute(
-            f"""
-            UPDATE open_finance_accounts SET {column} = ?, {other} = NULL, mapped_at = ?, ignored_at = NULL,
-                updated_at = ?
-            WHERE id = ? AND user_id = ?
-            """,
-            (target, utc_timestamp() if target else None, utc_timestamp(), of_account_id, current_user_id),
-        )
-        account = open_finance_inbox.fetch_account(conn, current_user_id, of_account_id)
-        placed = []
-        recorded = None
-        if target:
-            placed = open_finance_inbox.place_unmapped(
-                conn, current_user_id, account, import_rules_for_matching(conn, current_user_id),
-            )
-            if open_finance_auto.enabled(conn, current_user_id):
-                recorded = open_finance_auto.record_pending(conn, current_user_id, _today())
-    return {"placed": len(placed), "auto_recorded": recorded}
-
-
-def _set_ignored(current_user_id, of_account_id, ignored):
-    with get_db() as conn:
-        account = conn.execute(
-            """
-            SELECT a.* FROM open_finance_accounts a
-            JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
-            WHERE a.id = ? AND a.user_id = ? AND i.archived_at IS NULL
-            """,
-            (of_account_id, current_user_id),
-        ).fetchone()
-        if not account:
-            raise LookupError("Conta do Open Finance nao encontrada.")
-        if ignored and (account["account_id"] or account["card_id"]):
-            raise ValidationError("Tire o destino desta conta antes de marcar \"não usar\".")
-        conn.execute(
-            "UPDATE open_finance_accounts SET ignored_at = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-            (utc_timestamp() if ignored else None, utc_timestamp(), of_account_id, current_user_id),
-        )
-    return {"placed": 0, "auto_recorded": None}
-
-
-def _target_id(payload, key):
-    if key not in payload:
-        raise ValidationError("Escolha a conta ou o cartao.")
-    value = payload[key]
-    if value in (None, ""):
-        return None
-    if not isinstance(value, str) or len(value) > 64:
-        raise ValidationError("Destino invalido.")
-    return value
-
-
-def is_investment_account(of_account):
-    """A conta da Pluggy e o caixa da corretora ("BTG Investimentos"): pelo nome
-    ou pelo subtipo."""
-    text = inbox.normalized(f"{of_account['name'] or ''} {of_account['subtype'] or ''}")
-    return any(word in text.split() for word in ("investimentos", "investimento", "investments", "corretora"))
-
-
-def _require_bank_target(conn, current_user_id, account_id, of_account=None):
-    row = conn.execute(
-        "SELECT * FROM accounts WHERE id = ? AND user_id = ?", (account_id, current_user_id),
-    ).fetchone()
-    if not row:
-        raise ValidationError("Conta nao encontrada.")
-    if row["archived_at"]:
-        raise ValidationError("Conta esta arquivada.")
-    if row["type"] == "BROKERAGE" and not (of_account is not None and is_investment_account(of_account)):
-        # O dinheiro da carteira tem o caminho dele (039): so a conta de
-        # investimentos da corretora vai para a Corretora (044), e dela so a
-        # transferencia com o banco vira lancamento.
-        raise ValidationError("A Corretora so recebe a conta de investimentos da corretora.")
-    # A moeda casa (conta global, 2026-10-27): a conta em dolar da Pluggy so
-    # vai para a conta em dolar do app, e uma em reais so para uma em reais.
-    of_currency = str((of_account["currency"] if of_account is not None else None) or "BRL").upper()
-    if (row["currency"] or "BRL").upper() != of_currency:
-        if of_currency == "BRL":
-            raise ValidationError("Conta nao e em reais.")
-        raise ValidationError(f"A conta do banco e em {of_currency}: escolha uma conta do app em {of_currency}.")
-
-
-def _require_card_target(conn, current_user_id, card_id):
-    row = conn.execute(
-        "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?", (card_id, current_user_id),
-    ).fetchone()
-    if not row:
-        raise ValidationError("Cartao nao encontrado.")
-    if row["archived_at"]:
-        raise ValidationError("Cartao esta arquivado.")
-    if not row["credit_enabled"]:
-        raise ValidationError("Este cartao e so debito: mapeie a conta dele.")
-
-
-def suggest_target(conn, current_user_id, account_row, connector_name):
-    """Um palpite para o dono confirmar: no cartao, o final do numero no nome
-    do cartao, senao o unico cartao do banco; na conta, a unica conta ativa
-    do banco (campo banco ou nome); a conta de investimentos da corretora, a
-    Corretora. O banco sai do nome da conta da Pluggy ("Cartão BTG BLACK") —
-    no MeuPluggy o conector nao diz o banco —, senao do conector. Nunca
-    gravado sozinho."""
-    issuer = inbox.issuer_of_institution(account_row["name"]) or inbox.issuer_of_institution(connector_name)
-    taken_column = "card_id" if account_row["type"] == "CREDIT" else "account_id"
-    taken = {
-        row[taken_column] for row in conn.execute(
-            f"""
-            SELECT a.{taken_column} FROM open_finance_accounts a
-            JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
-            WHERE a.user_id = ? AND a.{taken_column} IS NOT NULL AND i.archived_at IS NULL
-            """,
-            (current_user_id,),
-        ).fetchall()
-    }
-    if account_row["type"] == "CREDIT":
-        cards = [row for row in inbox._cards(conn, current_user_id) if row["id"] not in taken]
-        digits = re.sub(r"\D", "", account_row["number"] or "")[-4:]
-        if len(digits) == 4:
-            by_digits = [card for card in cards if digits in (card["name"] or "")]
-            if len(by_digits) == 1:
-                return by_digits[0]["id"]
-        if issuer in inbox.ISSUER_ALIASES:
-            by_issuer = [card for card in cards if inbox._mentions(card["name"], inbox.ISSUER_ALIASES[issuer])]
-            if len(by_issuer) == 1:
-                return by_issuer[0]["id"]
-        return None
-    brokerage = is_investment_account(account_row)
-    accounts = [
-        row for row in inbox._active_accounts(conn, current_user_id)
-        if (row["type"] == "BROKERAGE") == brokerage
-        and (row["currency"] or "BRL").upper() == str(account_row["currency"] or "BRL").upper()
-        and row["id"] not in taken
-    ]
-    if brokerage or str(account_row["currency"] or "BRL").upper() != "BRL":
-        # A Corretora, e a conta global: a unica da moeda.
-        return accounts[0]["id"] if len(accounts) == 1 else None
-    if issuer in inbox.ISSUER_ALIASES:
-        aliases = inbox.ISSUER_ALIASES[issuer]
-        by_issuer = [row for row in accounts if inbox._mentions(row["institution"], aliases) or inbox._mentions(row["name"], aliases)]
-        if len(by_issuer) == 1:
-            return by_issuer[0]["id"]
-    return None
 
 
 # ---------------------------------------------------------------------------

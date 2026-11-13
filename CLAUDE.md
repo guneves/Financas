@@ -709,6 +709,13 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   name of the other three. **A function that reads a name a test replaces on `services.inbox`
   (`notification_wanted`, `BANK_NOTIFICATIONS_DEFAULT`) must stay in `inbox.py`**: moved, it would read
   its own module's copy and the test's patch would silently do nothing.
+- **Open Finance is split the same way** (2026-11-13): `open_finance_rows.py` (pure: reading a Pluggy
+  transaction), `open_finance_settings.py` (the client, the per-user lock, settings, basic reads) and
+  `open_finance_mapping.py`, re-exported by `open_finance_inbox.py` / `open_finance.py`. The old module keeps
+  every attribute others reach through it: `open_finance.invoices` is read by the tests' clock helper
+  (`pin_today`), so that import stays though nothing in the file uses it. The engine sections of
+  `open_finance_inbox.py` (placing, reconciliation, succession, near match, auto-record) call each other in
+  a knot and were left together.
 - `formatCurrency` and the date helpers live in `lib/format.js`; `pages/lancamentos/helpers.js`
   keeps a local `getLocalDateString`/`formatDateBR` on purpose (clock hook, `''` vs `'-'`).
 - **The "+" lives in the bottom bar, at its center** (owner 2026-11-05): web `Layout.jsx` (middle of the bar;
