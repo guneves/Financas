@@ -29,7 +29,7 @@ from services.accounts import (
     transfer_amount_for,
 )
 from services.fx import BASE_CURRENCY, SUPPORTED_CURRENCIES, normalize_currency, with_balance_in_brl
-from services import global_account, manual_entries
+from services import entries, global_account, manual_entries
 from services.inbox_decisions import absorb_created
 from services.invoices import apply_due_autopay
 from services.investments import PORTFOLIO_ACCOUNT_TYPE
@@ -289,29 +289,13 @@ def create_transfer(current_user_id):
         except ValidationError as exc:
             return validation_error(str(exc))
 
-        item_id = new_id()
         default_description = "{} -> {}".format(origin["name"], destination["name"])
         try:
-            conn.execute(
-                """
-                INSERT INTO transactions
-                (id, user_id, account_id, transfer_account_id, amount, transfer_amount, date,
-                 category, category_id, description, type, client_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER', ?)
-                """,
-                (
-                    item_id,
-                    current_user_id,
-                    origin["id"],
-                    destination["id"],
-                    amount,
-                    transfer_amount,
-                    date_value,
-                    category or TRANSFER_CATEGORY,
-                    category_id,
-                    description or default_description,
-                    client_id,
-                ),
+            item_id = entries.insert_transaction(
+                conn, current_user_id, entry_type="TRANSFER", account_id=origin["id"],
+                transfer_account_id=destination["id"], amount=amount, transfer_amount=transfer_amount,
+                date=date_value, category=category or TRANSFER_CATEGORY, category_id=category_id,
+                description=description or default_description, client_id=client_id,
             )
         except sqlite3.IntegrityError:
             # Entregas simultaneas do mesmo envio: a outra ja gravou.

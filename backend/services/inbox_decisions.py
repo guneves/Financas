@@ -24,7 +24,7 @@ from config import INBOX_MATCH_DAYS
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
 from money import parse_money, rounded_money, to_cents
-from services import inbox, open_finance_inbox, recurring
+from services import entries, inbox, open_finance_inbox, recurring
 from services.accounts import category_id_for_name, fetch_category, fetch_transaction_by_client_id
 from services.import_rules import DEFAULT_IMPORT_CATEGORIES
 from services.invoices import build_installment_rows, purchase_invoices, refund_invoice, require_active_card
@@ -361,56 +361,34 @@ def create_entry(conn, current_user_id, item):
             # O client_id e a compra (035): sem o da notificacao, um novo.
             purchase_id = client_id or new_id()
             for row in rows:
-                row_id = new_id()
-                first = first or row_id
-                conn.execute(
-                    """
-                    INSERT INTO cc_expenses
-                    (id, user_id, card_id, category, category_id, description, amount, purchase_date,
-                     invoice_month, invoice_year, installment_info, status, client_id, occurred_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        row_id, current_user_id, row["card_id"], row["category"], row["category_id"],
-                        row["description"], row["amount"], row["purchase_date"], row["invoice_month"],
-                        row["invoice_year"], row["installment_info"], row["status"], purchase_id,
-                        item["occurred_at"],
-                    ),
+                row_id = entries.insert_card_row(
+                    conn, current_user_id, card_id=row["card_id"], category=row["category"],
+                    category_id=row["category_id"], description=row["description"], amount=row["amount"],
+                    purchase_date=row["purchase_date"], invoice_month=row["invoice_month"],
+                    invoice_year=row["invoice_year"], installment_info=row["installment_info"],
+                    status=row["status"], client_id=purchase_id, occurred_at=item["occurred_at"],
                 )
+                first = first or row_id
             return "cc_expenses", first
 
-        row_id = new_id()
         if entry_type == "TRANSFER":
-            conn.execute(
-                """
-                INSERT INTO transactions
-                (id, user_id, account_id, transfer_account_id, amount, transfer_amount, date, category,
-                 category_id, description, type, client_id, occurred_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRANSFER', ?, ?)
-                """,
-                (
-                    row_id, current_user_id, item["account_id"], item["transfer_account_id"], amount,
-                    rounded_money(item["transfer_amount"]) if item.get("transfer_amount") else None, date_text,
-                    item["category"] or inbox.TRANSFER_CATEGORY, item.get("category_id"),
-                    item.get("description"), client_id, item["occurred_at"],
-                ),
+            row_id = entries.insert_transaction(
+                conn, current_user_id, entry_type="TRANSFER", account_id=item["account_id"],
+                transfer_account_id=item["transfer_account_id"], amount=amount,
+                transfer_amount=rounded_money(item["transfer_amount"]) if item.get("transfer_amount") else None,
+                date=date_text, category=item["category"] or inbox.TRANSFER_CATEGORY,
+                category_id=item.get("category_id"), description=item.get("description"), client_id=client_id,
+                occurred_at=item["occurred_at"],
             )
         else:
             # A compra no debito (049): o cartao que a notificacao nomeia, se
             # ele debita da conta escolhida.
             card_id = _debit_card_id(conn, current_user_id, item) if entry_type == "EXPENSE" else None
-            conn.execute(
-                """
-                INSERT INTO transactions
-                (id, user_id, account_id, amount, date, category, category_id, description, type,
-                 client_id, occurred_at, card_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    row_id, current_user_id, item["account_id"], amount, date_text, item["category"],
-                    item.get("category_id"), item.get("description"), entry_type, client_id,
-                    item["occurred_at"], card_id,
-                ),
+            row_id = entries.insert_transaction(
+                conn, current_user_id, entry_type=entry_type, account_id=item["account_id"], amount=amount,
+                date=date_text, category=item["category"], category_id=item.get("category_id"),
+                description=item.get("description"), client_id=client_id, occurred_at=item["occurred_at"],
+                card_id=card_id,
             )
         _mark_open_finance_origin(conn, current_user_id, item, row_id)
         return "transactions", row_id
@@ -424,19 +402,12 @@ def _create_card_refund(conn, current_user_id, item, amount, date_text, client_i
     de POST /api/cc-expenses/refunds."""
     card = _card(conn, current_user_id, item["card_id"])
     invoice = refund_invoice(conn, current_user_id, card, date_text)
-    row_id = new_id()
-    conn.execute(
-        """
-        INSERT INTO cc_expenses
-        (id, user_id, card_id, category, category_id, description, amount, purchase_date,
-         invoice_month, invoice_year, installment_info, status, client_id, kind, occurred_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '1/1', 'OPEN', ?, 'REFUND', ?)
-        """,
-        (
-            row_id, current_user_id, card["id"], item.get("category") or "Estorno", item.get("category_id"),
-            item.get("description") or "Estorno no cartão", amount, date_text, invoice["invoice_month"],
-            invoice["invoice_year"], client_id or new_id(), item["occurred_at"],
-        ),
+    row_id = entries.insert_card_row(
+        conn, current_user_id, card_id=card["id"], category=item.get("category") or "Estorno",
+        category_id=item.get("category_id"), description=item.get("description") or "Estorno no cartão",
+        amount=amount, purchase_date=date_text, invoice_month=invoice["invoice_month"],
+        invoice_year=invoice["invoice_year"], installment_info="1/1", client_id=client_id or new_id(),
+        kind="REFUND", occurred_at=item["occurred_at"],
     )
     return row_id
 
