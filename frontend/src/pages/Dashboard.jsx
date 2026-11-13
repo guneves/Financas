@@ -70,10 +70,10 @@ import {
 } from '../components/charts'
 import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, cardSignedAmount, isCardRefund, isInvestmentOutflow, isInvoicePayment, withoutForeignEntries } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, isCardRefund, withoutForeignEntries } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { GLOBAL_ACCOUNT_LABEL, globalAccounts, withoutGlobal } from '../lib/globalAccount'
-import { ownAmount } from '../lib/sharing'
+import { buildSpending } from '../lib/homeSpending'
 import { flowPoint, flowSummary as flowSummaryOf, savingsRateText } from '../lib/homeFlow'
 
 const INVOICE_MONTHS = 6
@@ -97,47 +97,6 @@ const shortMonth = shortMonthLabel
 const percentChange = (current, previous) => {
   if (!previous) return null
   return ((current - previous) / Math.abs(previous)) * 100
-}
-
-// Gasto de consumo de um mes, por dia e por categoria: saidas da conta (menos
-// o pagamento de fatura, que ja e a soma das compras, e os aportes em
-// investimento) + compras no cartao pelo valor total da compra, na data da compra.
-// So a parte do dono (lib/sharing.js): o que era de outra pessoa nao e gasto dele.
-function buildSpending(transactions, ccExpenses, key) {
-  const byDay = {}
-  const byCategory = {}
-  const add = (day, category, channel, amount) => {
-    byDay[day] = (byDay[day] || 0) + amount
-    const name = category || 'Outros'
-    if (!byCategory[name]) byCategory[name] = { cash: 0, credit: 0 }
-    byCategory[name][channel] += amount
-  }
-
-  transactions.forEach((transaction) => {
-    if (transaction.type !== 'EXPENSE' || isInvoicePayment(transaction) || isInvestmentOutflow(transaction)) return
-    // O gasto de um mes numa linha so nao tem dia (Inter): fora do ritmo.
-    if (transaction.source_type === 'MONTH_SUMMARY') return
-    if (String(transaction.date).slice(0, 7) !== key) return
-    const own = ownAmount(transaction)
-    if (own > 0) add(Number(transaction.date.slice(8, 10)), transaction.category, 'cash', own)
-  })
-
-  const purchases = {}
-  ccExpenses.forEach((expense) => {
-    if (String(expense.purchase_date || '').slice(0, 7) !== key) return
-    const groupKey = cardPurchaseKey(expense)
-    if (!purchases[groupKey]) {
-      purchases[groupKey] = { day: Number(expense.purchase_date.slice(8, 10)), category: expense.category, amount: 0 }
-    }
-    // O estorno (033) abate a categoria no dia dele.
-    purchases[groupKey].amount += isCardRefund(expense) ? cardSignedAmount(expense) : ownAmount(expense)
-  })
-  Object.values(purchases).forEach((purchase) => {
-    if (purchase.amount !== 0) add(purchase.day, purchase.category, 'credit', purchase.amount)
-  })
-
-  const total = Object.values(byDay).reduce((acc, value) => acc + value, 0)
-  return { byDay, byCategory, total }
 }
 
 const NO_ITEMS = []
