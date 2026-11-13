@@ -5,7 +5,7 @@
 // Dispensar um aviso no Inicio e por aparelho (localStorage) e por caso: o
 // mesmo aviso nao volta ao Inicio, um novo volta. O sino mostra todos.
 import { useMemo, useSyncExternalStore } from 'react'
-import { accountsApi, attentionApi, budgetsApi, ccExpensesApi, homeApi, transactionsApi } from './dataApi'
+import { attentionApi, budgetsApi, homeApi } from './dataApi'
 import { useOutbox } from './outbox'
 import { applyPendingToHome } from './outboxRules'
 import { useQuery } from './queries'
@@ -44,20 +44,13 @@ export function useDismissedAttention() {
   return useSyncExternalStore(subscribe, () => dismissed)
 }
 
-// As movimentacoes do Inicio: todo o historico, para os paineis que ainda o
-// leem no cliente (categorias, ritmo, parcelamentos, a projecao das faturas).
-export function useInicioMovements() {
-  return useQuery({
-    queryKey: ['inicio', 'movimentos'],
-    queryFn: async () => {
-      const [transactions, ccExpenses, accounts] = await Promise.all([
-        transactionsApi.list(),
-        ccExpensesApi.list(),
-        accountsApi.list({ include_archived: 1 }),
-      ])
-      return { transactions: transactions || [], ccExpenses: ccExpenses || [], allAccounts: accounts || [] }
-    },
-  })
+// Os paineis de historico do Inicio (GET /api/home/panels, services/home_panels.py):
+// despesas por categoria, ritmo de gastos, as compras das proximas faturas e os
+// parcelamentos abertos, somados no servidor (o mesmo pedido do APK). A fila
+// do aparelho nao entra: um lancamento pendente so conta aqui depois de enviado
+// (dono 2026-11-13); o saldo e o "Saiu" continuam com os pendentes (useHome).
+export function useHomePanels() {
+  return useQuery({ queryKey: ['inicio', 'paineis'], queryFn: () => homeApi.panels() })
 }
 
 export function useInicioBudget(month) {

@@ -244,7 +244,9 @@ export const ccExpensesApi = {
 
 // Inicio, avisos e faturas, somados no servidor (proposta home-attention-invoices.md).
 export const homeApi = {
-  get: (params = {}) => apiFetch(`/api/home${queryString(params)}`)
+  get: (params = {}) => apiFetch(`/api/home${queryString(params)}`),
+  // Categorias, ritmo, itens das proximas faturas e parcelamentos, somados no servidor.
+  panels: () => apiFetch('/api/home/panels')
 }
 
 export const attentionApi = {

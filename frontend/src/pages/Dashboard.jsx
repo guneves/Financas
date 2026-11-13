@@ -29,11 +29,11 @@ import {
   X,
 } from 'lucide-react'
 import { ccExpensesApi, recurringApi } from '../lib/dataApi'
-import { dismissAttention, useAttentionItems, useDismissedAttention, useHome, useInicioBudget, useInicioMovements } from '../lib/attention'
+import { dismissAttention, useAttentionItems, useDismissedAttention, useHome, useHomePanels, useInicioBudget } from '../lib/attention'
 import { invoiceMonthKey, overdueDetail as overdueDetailOf, undismissedItems } from '../lib/attentionRules'
 import { AttentionCards } from '../components/Attention'
 import { useOutbox } from '../lib/outbox'
-import { ACCOUNT_KINDS, PENDING, pendingAsTransactions } from '../lib/outboxRules'
+import { ACCOUNT_KINDS, PENDING } from '../lib/outboxRules'
 import { invalidateServerData, queryErrorMessage } from '../lib/queries'
 import PayInvoiceSheet from '../components/PayInvoiceSheet'
 import {
@@ -68,36 +68,18 @@ import {
   axisProps,
   compactAxis,
 } from '../components/charts'
-import { formatCurrency, formatDateBR, formatSignedCurrency, getLocalDateString, monthKey, monthLabel, shiftMonth, shortMonthLabel } from '../lib/format'
+import { formatCurrency, formatDateBR, formatSignedCurrency, monthKey, monthLabel, shortMonthLabel } from '../lib/format'
 import { MASKED_CURRENCY, usePrivateAxisFormatter, usePrivateFormatter, useValuesHidden } from '../lib/privacy'
-import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, bankingTransactions, cardPurchaseKey, isCardRefund, withoutForeignEntries } from '../lib/transactions'
+import { accountBalanceBrl, activeAccounts, bankingAccounts, blockedRecurringMessage, isCardRefund } from '../lib/transactions'
 import { toast } from '../lib/toast'
 import { GLOBAL_ACCOUNT_LABEL, globalAccounts, withoutGlobal } from '../lib/globalAccount'
-import { buildSpending } from '../lib/homeSpending'
 import { flowPoint, flowSummary as flowSummaryOf, savingsRateText } from '../lib/homeFlow'
 
-const INVOICE_MONTHS = 6
-// Meses anteriores que formam a media do "Ritmo de gastos".
+// Meses anteriores que formam a media do "Ritmo de gastos" (PACE_MONTHS em
+// services/home_panels.py).
 const PACE_MONTHS = 3
 
-const parseInstallmentInfo = (value) => {
-  if (!value || typeof value !== 'string' || !value.includes('/')) {
-    return { current: 1, total: 1 }
-  }
-
-  const [current, total] = value.split('/').map(Number)
-  return {
-    current: Number.isFinite(current) ? current : 1,
-    total: Number.isFinite(total) ? total : 1,
-  }
-}
-
 const shortMonth = shortMonthLabel
-
-const percentChange = (current, previous) => {
-  if (!previous) return null
-  return ((current - previous) / Math.abs(previous)) * 100
-}
 
 const NO_ITEMS = []
 
@@ -115,16 +97,16 @@ export default function Dashboard() {
   const [payError, setPayError] = useState('')
   const [isRunningRecurring, setIsRunningRecurring] = useState(false)
 
-  // Queries independentes: uma que falha nao derruba as outras. O saldo, o
-  // fluxo e a proxima fatura vem de /api/home e os avisos de /api/attention,
-  // somados no servidor; o historico (movimentacoes) so alimenta os paineis
-  // que ainda o leem aqui (categorias, ritmo, parcelamentos, projecao).
+  // Queries independentes: uma que falha nao derruba as outras. Tudo vem
+  // somado do servidor: o saldo, o fluxo e a proxima fatura de /api/home, os
+  // avisos de /api/attention e os paineis de historico (categorias, ritmo,
+  // compras das faturas, parcelamentos) de /api/home/panels. A pagina nao
+  // baixa o historico nem soma nada.
   const homeQuery = useHome()
-  // Todas as compras do cartao, nao so as abertas: o ritmo de gastos do mes
-  // passado precisa das compras que ja foram pagas.
-  const movementsQuery = useInicioMovements()
+  const panelsQuery = useHomePanels()
   // Orcamento do mes para a faixa de orcamento.
-  const budgetMonth = monthKey(new Date())
+  const currentKey = monthKey(new Date())
+  const budgetMonth = currentKey
   const budgetQuery = useInicioBudget(budgetMonth)
   // "Precisa de atencao", o mesmo pedido do sino do cabecalho.
   const attention = useAttentionItems()
@@ -132,22 +114,11 @@ export default function Dashboard() {
 
   // Lancamentos guardados no aparelho, ainda sem chegar ao servidor
   // (lib/outbox.js): entram nas contas e no mes (applyPendingToHome, em
-  // useHome) e nos paineis como em Lancamentos, e o saldo fica marcado como
-  // estimativa. O saldo e o historico leem os mesmos pendentes, entao a curva
-  // continua terminando no saldo do topo.
+  // useHome), e o saldo fica marcado como estimativa. Os paineis de historico
+  // sao do servidor: um pendente so entra neles depois de enviado.
   const pending = useOutbox()
   const home = homeQuery.data
-  const serverTransactions = movementsQuery.data?.transactions || NO_ITEMS
-  const serverAccounts = movementsQuery.data?.allAccounts || NO_ITEMS
-  // Vistos da area bancaria (bankingTransactions): a conta Corretora fica de
-  // fora, e a transferencia para ela e um aporte.
-  const transactions = useMemo(() => {
-    const waiting = pending.filter((item) => item.status === PENDING)
-    const defaultAccountId = serverAccounts.find((account) => account.is_default)?.id || ''
-    const all = waiting.length ? [...pendingAsTransactions(waiting, { defaultAccountId }), ...serverTransactions] : serverTransactions
-    return withoutForeignEntries(bankingTransactions(all, serverAccounts), serverAccounts)
-  }, [serverTransactions, serverAccounts, pending])
-  const ccExpenses = movementsQuery.data?.ccExpenses || NO_ITEMS
+  const panels = panelsQuery.data
   const pendingInBalance = useMemo(
     // Compra no cartao, operacao e provento pendentes nao mexem em conta.
     () => pending.filter((item) => item.status === PENDING && ACCOUNT_KINDS.includes(item.kind)).length,
@@ -156,12 +127,12 @@ export default function Dashboard() {
   const budget = budgetQuery.data || null
 
   useEffect(() => {
-    const failed = homeQuery.error ? homeQuery : movementsQuery.error ? movementsQuery : null
+    const failed = homeQuery.error ? homeQuery : panelsQuery.error ? panelsQuery : null
     if (failed) {
       console.warn('Erro ao buscar movimentações:', failed.error)
       setDataError(queryErrorMessage(failed, 'Não foi possível carregar movimentações e faturas.'))
     }
-  }, [homeQuery.error, movementsQuery.error])
+  }, [homeQuery.error, panelsQuery.error])
 
   const fetchAllData = () => invalidateServerData()
 
@@ -187,11 +158,8 @@ export default function Dashboard() {
     }
   }
 
-  const today = new Date()
-  const currentKey = monthKey(today)
-  const todayText = getLocalDateString(today)
-
-  const openCcExpenses = useMemo(() => ccExpenses.filter((expense) => expense.status === 'OPEN'), [ccExpenses])
+  // As compras das proximas faturas (uma lista por fatura no tile).
+  const nextInvoiceItems = panels?.next_invoice_items || NO_ITEMS
 
   // Todas as contas de /api/home (arquivadas inclusive), com os pendentes.
   const allAccounts = home?.accounts || NO_ITEMS
@@ -209,74 +177,24 @@ export default function Dashboard() {
   // rules/HomeFlow.kt).
   const flowSummary = useMemo(() => flowSummaryOf(monthlyHistory), [monthlyHistory])
 
-  const currentSpending = useMemo(() => buildSpending(transactions, ccExpenses, currentKey), [transactions, ccExpenses, currentKey])
-  // Os meses anteriores, do mais recente para o mais antigo.
-  const pastSpending = useMemo(
-    () => Array.from({ length: PACE_MONTHS }, (_, index) => {
-      const key = shiftMonth(currentKey, -(index + 1))
-      return { key, ...buildSpending(transactions, ccExpenses, key) }
-    }),
-    [transactions, ccExpenses, currentKey]
-  )
-  const previousSpending = pastSpending[0]
-
-  // Acumulado dia a dia: este mes (ate hoje) contra a media dos meses
-  // anteriores no mesmo dia. Mes sem nenhum gasto e mes sem registro (antes de
-  // comecar a usar o app) e fica fora da media, senao ela puxaria para baixo.
-  // Mes mais curto que o dia de hoje entra pelo total dele.
+  // "Despesas por categoria" e "Ritmo de gastos" (services/home_panels.py):
+  // o gasto de consumo do mes por categoria, com a seta contra o mes passado
+  // inteiro, e o acumulado dia a dia contra a media dos meses anteriores com
+  // gasto. Os numeros chegam prontos; aqui so mudam de nome.
+  const categoryBreakdown = panels?.categories || NO_ITEMS
+  const spendingTotal = panels?.spending_total || 0
   const spendingPace = useMemo(() => {
-    const daysInCurrent = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
-    const todayDay = today.getDate()
-    const baseline = pastSpending.filter((month) => month.total > 0)
-    const running = baseline.map(() => 0)
-    let current = 0
-    let currentToDate = 0
-    let averageToDate = 0
-    let monthsToDate = baseline.map(() => 0)
-    const rows = []
-    for (let day = 1; day <= Math.max(daysInCurrent, 31); day += 1) {
-      current += currentSpending.byDay[day] || 0
-      baseline.forEach((month, index) => {
-        running[index] += month.byDay[day] || 0
-      })
-      const average = baseline.length > 0 ? running.reduce((acc, value) => acc + value, 0) / baseline.length : null
-      if (day === todayDay) {
-        currentToDate = current
-        averageToDate = average || 0
-        monthsToDate = [...running]
-      }
-      rows.push({
-        day,
-        current: day <= todayDay ? Number(current.toFixed(2)) : null,
-        average: average === null ? null : Number(average.toFixed(2)),
-      })
-    }
+    const pace = panels?.pace
     return {
-      rows,
-      todayDay,
-      currentToDate,
-      averageToDate,
-      averageMonth: baseline.length > 0 ? baseline.reduce((acc, month) => acc + month.total, 0) / baseline.length : 0,
-      months: baseline.map((month, index) => ({ key: month.key, toDate: monthsToDate[index] })),
+      rows: pace?.rows || NO_ITEMS,
+      todayDay: pace?.today_day || new Date().getDate(),
+      currentToDate: pace?.current_to_date || 0,
+      averageToDate: pace?.average_to_date || 0,
+      averageMonth: pace?.average_month || 0,
+      vsAverage: pace?.vs_average ?? null,
+      months: (pace?.months || NO_ITEMS).map((month) => ({ key: month.month, toDate: month.to_date })),
     }
-  }, [currentSpending, pastSpending])
-
-  const categoryBreakdown = useMemo(() => {
-    return Object.entries(currentSpending.byCategory)
-      .map(([name, totals]) => {
-        const value = totals.cash + totals.credit
-        const previous = previousSpending.byCategory[name]
-        const previousValue = previous ? previous.cash + previous.credit : 0
-        return {
-          name,
-          value: Number(value.toFixed(2)),
-          cash: totals.cash,
-          credit: totals.credit,
-          delta: percentChange(value, previousValue),
-        }
-      })
-      .filter((item) => item.value > 0)
-  }, [currentSpending, previousSpending])
+  }, [panels])
 
   // A proxima fatura de cada cartao: a que vence primeiro, de hoje em diante
   // (services/card_invoices.py) — a mesma regra do sino e da tela Cartoes. "A
@@ -306,52 +224,9 @@ export default function Dashboard() {
 
   const nextClosingDate = home?.next_closing_date || null
 
-  const groupedInstallmentExpenses = useMemo(() => {
-    const grouped = openCcExpenses.reduce((acc, expense) => {
-      const installment = parseInstallmentInfo(expense.installment_info)
-      if (installment.total <= 1) return acc
-
-      // A compra e o client_id (lib/transactions.js): duas compras parceladas
-      // iguais sao dois parcelamentos.
-      const key = cardPurchaseKey(expense)
-
-      if (!acc[key]) {
-        acc[key] = {
-          key,
-          description: expense.description,
-          cardName: expense.card_name || expense.credit_cards?.name || 'Cartão',
-          installmentAmount: parseFloat(expense.amount),
-          remainingInstallments: 0,
-          totalInstallments: installment.total,
-          nextInvoiceMonth: expense.invoice_month,
-          nextInvoiceYear: expense.invoice_year,
-        }
-      }
-
-      acc[key].remainingInstallments += 1
-
-      if (
-        expense.invoice_year < acc[key].nextInvoiceYear ||
-        (expense.invoice_year === acc[key].nextInvoiceYear && expense.invoice_month < acc[key].nextInvoiceMonth)
-      ) {
-        acc[key].nextInvoiceMonth = expense.invoice_month
-        acc[key].nextInvoiceYear = expense.invoice_year
-      }
-
-      return acc
-    }, {})
-
-    return Object.values(grouped).sort((a, b) => {
-      if (a.nextInvoiceYear !== b.nextInvoiceYear) return a.nextInvoiceYear - b.nextInvoiceYear
-      if (a.nextInvoiceMonth !== b.nextInvoiceMonth) return a.nextInvoiceMonth - b.nextInvoiceMonth
-      return String(a.description).localeCompare(String(b.description))
-    })
-  }, [openCcExpenses])
-
-  const installmentTotal = groupedInstallmentExpenses.reduce(
-    (acc, item) => acc + item.installmentAmount * item.remainingInstallments,
-    0
-  )
+  // "Parcelamentos abertos": uma linha por compra, na ordem da proxima fatura.
+  const installments = panels?.installments || NO_ITEMS
+  const installmentTotal = panels?.installments_total || 0
 
   const handlePayCurrentMonthInvoice = () => {
     if (payableInvoices.length === 0 || payableTotal <= 0) return
@@ -408,13 +283,13 @@ export default function Dashboard() {
 
   // Esqueleto ate as movimentacoes chegarem: sem elas os numeros de cima
   // piscariam zerados.
-  if (homeQuery.isPending || movementsQuery.isPending) {
+  if (homeQuery.isPending || panelsQuery.isPending) {
     return <DashboardSkeleton />
   }
 
   const paceMonths = spendingPace.months.length
   const paceDifference = spendingPace.currentToDate - spendingPace.averageToDate
-  const spendingVsAverage = paceMonths > 0 ? percentChange(spendingPace.currentToDate, spendingPace.averageToDate) : null
+  const spendingVsAverage = paceMonths > 0 ? spendingPace.vsAverage : null
   const paceAverageLabel = paceMonths > 1 ? `Média de ${paceMonths} meses` : `Mês de ${shortMonth(spendingPace.months[0]?.key)}`
   // O mes atual do fluxo de caixa (o cartao no dia da compra). Aporte,
   // resgate e outras pessoas nao sao despesa nem receita do dono e aparecem a
@@ -469,7 +344,7 @@ export default function Dashboard() {
             closingDate={nextClosingDate}
             payable={payableInvoices.length > 0}
             invoices={nextInvoices}
-            expenses={openCcExpenses}
+            expenses={nextInvoiceItems}
             paying={isPayingCurrentInvoice}
             onPay={handlePayCurrentMonthInvoice}
             label={nextInvoiceMonths.length === 1
@@ -601,24 +476,24 @@ export default function Dashboard() {
           />
 
           <div className="p-5">
-            {groupedInstallmentExpenses.length > 0 ? (
+            {installments.length > 0 ? (
               <div className="stagger max-h-[420px] space-y-3 overflow-y-auto pr-1">
-                {groupedInstallmentExpenses.map((expense) => {
-                  const paid = expense.totalInstallments - expense.remainingInstallments
-                  const progress = expense.totalInstallments > 0 ? (paid / expense.totalInstallments) * 100 : 0
+                {installments.map((expense, index) => {
+                  const progress = expense.total_installments > 0 ? (expense.paid / expense.total_installments) * 100 : 0
+                  const key = `${expense.card_id}-${expense.next_invoice_year}-${expense.next_invoice_month}-${expense.description}-${index}`
                   return (
-                    <div key={expense.key} className="rounded-lg border border-zinc-200 p-4 transition hover:border-zinc-300 hover:shadow-card">
+                    <div key={key} className="rounded-lg border border-zinc-200 p-4 transition hover:border-zinc-300 hover:shadow-card">
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
                           <p className="truncate font-semibold text-zinc-900">{expense.description}</p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <Badge>{expense.cardName}</Badge>
-                            <Badge>{expense.remainingInstallments}x de {formatCurrency(expense.installmentAmount)}</Badge>
+                            <Badge>{expense.card_name || 'Cartão'}</Badge>
+                            <Badge>{expense.remaining}x de {formatCurrency(expense.installment_amount)}</Badge>
                           </div>
                         </div>
                         <div className="text-right">
                           <p className="whitespace-nowrap font-bold tabular text-zinc-950">
-                            {formatCurrency(expense.installmentAmount * expense.remainingInstallments)}
+                            {formatCurrency(expense.remaining_amount)}
                           </p>
                           <p className="mt-1 text-xs font-medium uppercase tracking-wide text-zinc-500">Restante</p>
                         </div>
@@ -628,7 +503,7 @@ export default function Dashboard() {
                           <div className="bar-grow h-full rounded-full bg-zinc-800" style={{ width: `${progress}%` }} />
                         </div>
                         <span className="text-xs font-semibold tabular text-zinc-600">
-                          {paid}/{expense.totalInstallments} pagas
+                          {expense.paid}/{expense.total_installments} pagas
                         </span>
                       </div>
                     </div>
@@ -662,7 +537,7 @@ export default function Dashboard() {
             )}
           />
           <div className="p-5">
-            {currentSpending.total > 0 || paceMonths > 0 ? (
+            {spendingTotal > 0 || paceMonths > 0 ? (
               <>
                 {paceMonths > 0 ? (
                   <>
