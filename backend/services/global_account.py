@@ -21,6 +21,7 @@ reais, e o resto do motor (gravar sozinho, revisar, snapshot) segue igual.
 
 from datetime import date as date_type
 
+from money import to_cents
 from services import inbox
 from services.fx import BASE_CURRENCY, FxUnavailable, normalize_currency, rate_on
 from validators import ValidationError
@@ -141,7 +142,7 @@ def awaiting_real_side(conn, current_user_id, global_account, cents, date_text):
         candidates.append(row)
     return _best(
         conn, current_user_id, normalize_currency(global_account["currency"]), date_text, candidates,
-        brl_of=lambda candidate: inbox._cents(candidate["amount"]), foreign_of=lambda candidate: cents,
+        brl_of=lambda candidate: to_cents(candidate["amount"]), foreign_of=lambda candidate: cents,
     )
 
 
@@ -161,7 +162,7 @@ def awaiting_foreign_side(conn, current_user_id, global_account, brl_cents, date
     ).fetchall()
     return _best(
         conn, current_user_id, normalize_currency(global_account["currency"]), date_text, rows,
-        brl_of=lambda candidate: brl_cents, foreign_of=lambda candidate: inbox._cents(candidate["amount"]),
+        brl_of=lambda candidate: brl_cents, foreign_of=lambda candidate: to_cents(candidate["amount"]),
     )
 
 
@@ -188,31 +189,16 @@ def recorded_transfer(conn, current_user_id, global_account, cents, date_text):
     ).fetchall()
     currency = normalize_currency(global_account["currency"])
     for candidates in (
-        [row for row in rows if row["transfer_amount"] is not None and inbox._cents(row["transfer_amount"]) == cents],
+        [row for row in rows if row["transfer_amount"] is not None and to_cents(row["transfer_amount"]) == cents],
         [row for row in rows if row["transfer_amount"] is None],
     ):
         best = _best(
             conn, current_user_id, currency, date_text, candidates,
-            brl_of=lambda candidate: inbox._cents(candidate["amount"]), foreign_of=lambda candidate: cents,
+            brl_of=lambda candidate: to_cents(candidate["amount"]), foreign_of=lambda candidate: cents,
         )
         if best:
             return best
     return None
-
-
-def unconfirmed_transfers(conn, current_user_id, account_id):
-    """Quantas transferencias entram nesta conta em outra moeda sem o valor que
-    entrou (ficam fora do saldo ate a Pluggy ou o dono dizer)."""
-    return conn.execute(
-        """
-        SELECT COUNT(*) FROM transactions t
-        JOIN accounts o ON o.id = t.account_id AND o.user_id = t.user_id
-        JOIN accounts d ON d.id = t.transfer_account_id AND d.user_id = t.user_id
-        WHERE t.user_id = ? AND t.type = 'TRANSFER' AND t.transfer_account_id = ?
-          AND t.transfer_amount IS NULL AND COALESCE(o.currency, 'BRL') <> COALESCE(d.currency, 'BRL')
-        """,
-        (current_user_id, account_id),
-    ).fetchone()[0]
 
 
 CONVERT_MESSAGE = (

@@ -6,12 +6,11 @@ ocorrencias vencidas como `transactions` com
 e o indice unico de source torna a segunda execucao um no-op.
 """
 
-from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from db import get_db, new_id, utc_timestamp
 from money import parse_money
 from services.accounts import resolve_account_id, resolve_category
@@ -178,7 +177,7 @@ def recurring_transactions(current_user_id):
         include_inactive = str(request.args.get("include_inactive", "1")).lower() in (
             "1", "true", "yes",
         )
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = local_now().replace(hour=0, minute=0, second=0, microsecond=0)
         with get_db() as conn:
             rows = recurring_rows(conn, current_user_id, include_inactive=include_inactive)
             items = [
@@ -206,7 +205,7 @@ def recurring_transactions(current_user_id):
             (recurring_id, current_user_id, *fields.values()),
         )
         row = fetch_recurring(conn, current_user_id, recurring_id)
-        item = serialize_recurring(row, pending=recurring_pending_count(conn, current_user_id, row, datetime.now()))
+        item = serialize_recurring(row, pending=recurring_pending_count(conn, current_user_id, row, local_now()))
     return jsonify(item), 201
 
 
@@ -252,7 +251,7 @@ def recurring_detail(current_user_id, recurring_id):
         )
         updated = fetch_recurring(conn, current_user_id, recurring_id)
         item = serialize_recurring(
-            updated, pending=recurring_pending_count(conn, current_user_id, updated, datetime.now())
+            updated, pending=recurring_pending_count(conn, current_user_id, updated, local_now())
         )
     return jsonify(item), 200
 
@@ -271,7 +270,7 @@ def run_recurring(current_user_id):
             through = optional_date(payload, "through", "Data limite")
         except ValidationError as exc:
             return validation_error(str(exc))
-        through_date = parse_iso_date(through) if through else datetime.now().replace(
+        through_date = parse_iso_date(through) if through else local_now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
 

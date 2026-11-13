@@ -432,25 +432,6 @@ def category_detail(current_user_id, category_id):
 
         payload = parse_json_body()
         updates = {}
-        if "currency" in payload:
-            # Virar conta global (2026-10-27): so a conta que so recebeu Pix
-            # de contas em reais (services/global_account.py). A moeda nunca
-            # volta nem muda de outro jeito.
-            currency = normalize_currency(payload.get("currency"))
-            if currency == normalize_currency(account["currency"]):
-                payload = {key: value for key, value in payload.items() if key != "currency"}
-            else:
-                try:
-                    if currency not in SUPPORTED_CURRENCIES or currency == BASE_CURRENCY:
-                        raise ValidationError("A moeda de uma conta nao muda depois de criada.")
-                    if normalize_currency(account["currency"]) != BASE_CURRENCY:
-                        raise ValidationError("A moeda de uma conta nao muda depois de criada.")
-                    global_account.convert_to_foreign(conn, current_user_id, account, currency)
-                except ValidationError as exc:
-                    return validation_error(str(exc))
-                payload = {key: value for key, value in payload.items() if key != "currency"}
-                if not payload:
-                    return jsonify(serialize_account(fetch_account(conn, current_user_id, account_id))), 200
         try:
             if "name" in payload:
                 updates["name"] = require_string(payload, "name", "Nome da categoria")

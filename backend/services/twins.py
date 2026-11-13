@@ -18,6 +18,7 @@ consulta pega so a janela da pagina (±1 dia), sempre com user_id.
 from datetime import datetime, timedelta
 
 import statement_import
+from money import to_cents
 
 TWIN_WINDOW_MINUTES = 60
 
@@ -26,8 +27,8 @@ def _normalized(value):
     return statement_import.normalize_description(value or "")
 
 
-def _cents(value):
-    return int(round(float(value or 0) * 100))
+def _twin_cents(value):
+    return to_cents(value or 0)
 
 
 def _when(occurred_at):
@@ -94,7 +95,7 @@ def transaction_twin_ids(conn, current_user_id, rows):
         (current_user_id, *window, *accounts),
     ).fetchall()
     found = twin_keys([
-        {"key": row["id"], "target": row["account_id"], "cents": _cents(row["amount"]),
+        {"key": row["id"], "target": row["account_id"], "cents": _twin_cents(row["amount"]),
          "description": row["description"], "date": row["date"], "occurred_at": row["occurred_at"]}
         for row in candidates
     ])
@@ -127,7 +128,7 @@ def card_twin_keys(conn, current_user_id, purchases):
         (current_user_id, *cards, current_user_id, *window),
     ).fetchall()
     found = twin_keys([
-        {"key": row["key"], "target": row["card_id"], "cents": _cents(row["amount"]),
+        {"key": row["key"], "target": row["card_id"], "cents": _twin_cents(row["amount"]),
          "description": row["description"], "date": row["date"], "occurred_at": row["occurred_at"]}
         for row in rows
     ])

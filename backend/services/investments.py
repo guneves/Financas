@@ -26,11 +26,10 @@ exterior). O caixa ligado tambem sai em reais. As telas de operacao leem
 `fetch_investment_rows()`, na moeda original.
 """
 
-from datetime import datetime
 import math
 
 from asset_classes import ASSET_CLASS_LABELS, CRYPTO_ASSETS, QUOTED_ASSET_CLASSES, crypto_ticker, is_crypto_asset
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from db import encode_metadata, get_db, new_id, parse_metadata_value, row_to_dict
 import market_catalog
 from money import rounded_money
@@ -90,7 +89,7 @@ def investment_transaction_date(metadata, created_at=None):
     parsed_created_at = parse_iso_date(created_at)
     if parsed_created_at:
         return parsed_created_at.strftime("%Y-%m-%d")
-    return datetime.now().strftime("%Y-%m-%d")
+    return local_now().strftime("%Y-%m-%d")
 
 
 MOVEMENT_DATE_KEYS = ("redemption_date", "sale_date", "purchase_date", SETTLEMENT_DATE_KEY)

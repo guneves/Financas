@@ -30,8 +30,6 @@ const ENDPOINTS = {
   PROCEED: '/api/investment-proceeds',
 }
 
-export const ENTRY_KINDS = Object.keys(ENDPOINTS)
-
 // Os que mexem em conta (saldo estimado, linhas do extrato, o Inicio). Uma
 // operacao ou provento pendente nao mexe: o lancamento ligado na Corretora so
 // existe depois que o servidor grava.

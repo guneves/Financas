@@ -11,6 +11,7 @@ conta, valor nem data, e a Fase 4 tira da revisao sozinha.
 import json
 
 from db import utc_timestamp
+from money import to_cents
 
 TRANSACTION_SNAPSHOT_COLUMNS = (
     "account_id", "transfer_account_id", "amount", "date", "category_id", "description", "type",
@@ -20,10 +21,6 @@ CARD_SNAPSHOT_COLUMNS = (
     "card_id", "amount", "purchase_date", "category_id", "description", "kind",
     "share_mode", "share_others_amount", "share_person",
 )
-
-
-def _snapshot_cents(value):
-    return int(round(float(value) * 100))
 
 
 def target_snapshot(conn, current_user_id, table, target_id):
@@ -38,11 +35,11 @@ def target_snapshot(conn, current_user_id, table, target_id):
         if not row:
             return None
         snapshot = {column: row[column] for column in TRANSACTION_SNAPSHOT_COLUMNS}
-        snapshot["amount"] = _snapshot_cents(snapshot["amount"])
+        snapshot["amount"] = to_cents(snapshot["amount"])
         if row["transfer_amount"] is not None:
             # Entre moedas (047); so quando existe, para os snapshots de antes
             # continuarem iguais.
-            snapshot["transfer_amount"] = _snapshot_cents(row["transfer_amount"])
+            snapshot["transfer_amount"] = to_cents(row["transfer_amount"])
         snapshot["attachments"] = conn.execute(
             "SELECT COUNT(*) FROM transaction_attachments WHERE user_id = ? AND transaction_id = ?",
             (current_user_id, target_id),
@@ -61,7 +58,7 @@ def target_snapshot(conn, current_user_id, table, target_id):
             (current_user_id, first["client_id"]),
         ).fetchall()
         snapshot = {"rows": [
-            [_snapshot_cents(row[column]) if column == "amount" else row[column] for column in CARD_SNAPSHOT_COLUMNS]
+            [to_cents(row[column]) if column == "amount" else row[column] for column in CARD_SNAPSHOT_COLUMNS]
             for row in rows
         ]}
         ids = [row["id"] for row in rows]

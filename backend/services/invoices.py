@@ -19,21 +19,12 @@ As regras moram aqui para que o front nunca tenha uma copia:
 from datetime import date as date_type, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from dates import clamped_date, parse_iso_date
-from db import new_id, row_to_dict
+from dates import clamped_date, local_now, parse_iso_date
+from db import begin_write, new_id, row_to_dict
 from money import rounded_money
 from services.accounts import account_balance_until
 from source_types import CC_AUTOPAY_SOURCE_TYPE, CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import ValidationError
-
-
-def ensure_credit_card_owner(conn, current_user_id, card_id):
-    card = conn.execute(
-        "SELECT id FROM credit_cards WHERE id = ? AND user_id = ?",
-        (card_id, current_user_id),
-    ).fetchone()
-    if not card:
-        raise ValidationError("Cartao nao encontrado.")
 
 
 def require_active_card(conn, current_user_id, card_id):
@@ -184,7 +175,7 @@ def serialize_cc_expense(row):
 
 def local_today():
     """Hoje (data local, sem hora). Ponto unico para os testes congelarem o relogio."""
-    return datetime.now().date()
+    return local_now().date()
 
 
 def invoice_closing_date(invoice_month, invoice_year, due_day, closing_day=None):
@@ -281,6 +272,10 @@ def settle_invoice(conn, current_user_id, card, invoice_month, invoice_year, *,
     Fatura com credito (total negativo) nao e paga: o credito fica para a
     proxima. Fatura zerada por estorno e baixada sem lancamento (None).
     """
+    # A escrita abre antes da leitura: outro pagamento desta fatura em andamento
+    # (toque duplo, Pagar junto com o debito automatico) termina primeiro, e esta
+    # leitura ja nao encontra os itens que ele baixou.
+    begin_write(conn)
     lines, total = invoice_open_lines(conn, current_user_id, card["id"], invoice_month, invoice_year)
     if not lines or total < 0:
         return None
@@ -540,6 +535,7 @@ def undo_invoice_payment(conn, current_user_id, transaction_id):
     037) e so apagado. Recusa (409) enquanto o lancamento tem comprovante.
     Devolve {"transaction", "reopened"} ou None quando nao e um pagamento.
     """
+    begin_write(conn)  # dois "Desfazer" (ou um Desfazer e um Pagar) nao se cruzam
     placeholders = ",".join("?" for _ in INVOICE_PAYMENT_SOURCE_TYPES)
     payment = conn.execute(
         f"""

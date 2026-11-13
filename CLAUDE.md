@@ -63,6 +63,11 @@ built by the real migrations — **`backend/finance.db` is never touched.**
   test imports `db` or `app` (the `app_module` fixture then drops
   `app` and `config` from `sys.modules`), because `config.py` reads the environment once and
   `app.py` runs `init_db()` at import. Different config goes there, not in a test.
+- **One clock** (`dates.local_now()` / `local_today()`; `test_architecture.py` refuses a bare
+  `datetime.now()` / `date.today()` in app code). A test freezes every module at once with
+  `monkeypatch.setattr(dates, "now_source", lambda: datetime(...))` (`test_clock.py`); the older
+  `finance_world.freeze()` (patches `local_today` module by module) still works. SQLite's own `now`
+  (`created_at`) is never frozen: don't assert a fixed date against it.
 - A test never imports `db`, `routes.*` or `services.*` at the top; use a fixture or
   `importlib.import_module` inside the test. Pure modules (`brapi_client`, `statement_import`,
   `export_csv`, `market_catalog`, `irpf_text`) are fine at the top.
@@ -290,7 +295,8 @@ doesn't cover, comes only from notices (and typing).
   redirect to the Extrato. Waiting items resolve there: `WaitingItems` (web), `ReviewSection` (APK), shown only
   while one exists. Ajustes has no Aprovar section and no "Gravar sozinho" switch; the settings stay on the API
   as the brake. The owner's only job: categories and doubts, in Revisar.
-- **Who speaks** (`NOTIFICATION_POLICY` + `notification_wanted(detection)` in `services/inbox.py`, pure; the
+- **Who speaks** (`NOTIFICATION_POLICY` + `notification_wanted(detection)`, pure, in `services/inbox_rules.py`:
+  the rules that touch no database live there and `services/inbox.py`, the engine, re-exports every name; the
   APK's `NotifyRules.APPS`, manifest `<queries>` and `NotifyParsers.parse()` repeat it, but an old APK is safe
   because the server decides):
 
@@ -690,10 +696,13 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
 
 ## Known sharp edges
 
-- **Strict layering**: `config` ← `db` ← `validators`/`money`/`dates`/`auth`/`asset_classes`/
-  `responses` ← `services/*` ← `routes/*` ← `app`. Nothing imports `app`; a blueprint never imports
-  another (shared code goes in `services/`). A new blueprint goes in `app.py`'s list, or
-  `test_route_map.py` fails.
+- **Strict layering**: `config` ← `applog`/`source_types` ← `db` ← `validators`/`money`/`dates`/`auth`/
+  `asset_classes`/`responses` ← `services/*` ← `routes/*` ← `app`. Nothing imports `app`; a blueprint never
+  imports another (shared code goes in `services/`). A new blueprint goes in `app.py`'s list, or
+  `test_route_map.py` fails. **`test_architecture.py` checks it from the code**: the layers, no import
+  cycle (function-level imports count: never "fix" a cycle with an import inside a function), and a
+  ratchet on uses of another module's `_private` name (`tests/architecture_private_uses.txt` only
+  shrinks: a new use fails, a removed use must leave the list).
 - `formatCurrency` and the date helpers live in `lib/format.js`; `pages/lancamentos/helpers.js`
   keeps a local `getLocalDateString`/`formatDateBR` on purpose (clock hook, `''` vs `'-'`).
 - **The "+" lives in the bottom bar, at its center** (owner 2026-11-05): web `Layout.jsx` (middle of the bar;

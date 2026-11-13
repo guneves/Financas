@@ -88,6 +88,11 @@ def post_detections(current_user_id):
     payload = parse_json_body()
     detections = payload.get("detections") if isinstance(payload, dict) else None
     with get_db() as conn:
+        # A PTAX de um aviso em outra moeda, antes de a transacao abrir.
+        open_finance_auto.prefetch_rates(conn, current_user_id, [
+            (entry.get("currency"), None) for entry in (detections if isinstance(detections, list) else [])
+            if isinstance(entry, dict) and isinstance(entry.get("currency"), str)
+        ])
         try:
             results = inbox.ingest_detections(conn, current_user_id, detections)
         except ValidationError as exc:

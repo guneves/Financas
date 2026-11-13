@@ -13,7 +13,7 @@ import time
 from datetime import date, datetime, timedelta
 
 from applog import get_logger
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from money import rounded_money
 from services.fixed_income import fetch_bcb_window
 from validators import safe_float
@@ -68,7 +68,7 @@ def _as_date(value):
     if isinstance(value, date):
         return value
     parsed = parse_iso_date(value)
-    return parsed.date() if parsed else date.today()
+    return parsed.date() if parsed else local_now().date()
 
 
 def _stored_rate(conn, current_user_id, currency, on_date):
@@ -83,9 +83,12 @@ def _stored_rate(conn, current_user_id, currency, on_date):
 
 
 def fetch_and_store(conn, current_user_id, currency, start, end):
-    """Busca a PTAX de [start, end] no BCB e guarda. Devolve quantos dias vieram."""
+    """Busca a PTAX de [start, end] no BCB e guarda. Devolve quantos dias vieram.
+
+    A rede vem toda antes da primeira gravacao: o INSERT abre a transacao de
+    escrita, e nenhuma janela do BCB e esperada com a trava do SQLite presa."""
     series = BCB_FX_SERIES[currency]
-    stored = 0
+    fetched = []
     window_start = start
     while window_start <= end:
         window_end = min(window_start + timedelta(days=MAX_WINDOW_DAYS - 1), end)
@@ -94,28 +97,33 @@ def fetch_and_store(conn, current_user_id, currency, start, end):
             rate = safe_float(row.get("valor"), None)
             if not rate or rate <= 0:
                 continue
-            rate_date = datetime.strptime(row["data"], "%d/%m/%Y").date().isoformat()
-            conn.execute(
-                """
-                INSERT INTO fx_rates (user_id, currency, rate_date, rate)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(user_id, currency, rate_date) DO UPDATE SET rate = excluded.rate
-                """,
-                (current_user_id, currency, rate_date, rate),
-            )
-            stored += 1
+            fetched.append((datetime.strptime(row["data"], "%d/%m/%Y").date().isoformat(), rate))
         window_start = window_end + timedelta(days=1)
-    return stored
+    for rate_date, rate in fetched:
+        conn.execute(
+            """
+            INSERT INTO fx_rates (user_id, currency, rate_date, rate)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, currency, rate_date) DO UPDATE SET rate = excluded.rate
+            """,
+            (current_user_id, currency, rate_date, rate),
+        )
+    return len(fetched)
 
 
-def rate_on(conn, current_user_id, currency, on_date=None):
-    """BRL por unidade de `currency` em `on_date` (ultimo dia util ate ela)."""
+def rate_on(conn, current_user_id, currency, on_date=None, *, fetch=True):
+    """BRL por unidade de `currency` em `on_date` (ultimo dia util ate ela).
+
+    `fetch=False` le so o guardado, sem ir ao BCB: e o que usa quem ja esta com a
+    transacao de escrita aberta (o pull, a passada das notificacoes), para a
+    trava do SQLite nunca esperar a rede. Quem precisa do cambio la dentro o
+    busca antes (`open_finance_auto.prefetch_rates`)."""
     currency = normalize_currency(currency)
     if currency == BASE_CURRENCY:
         return 1.0
     if currency not in BCB_FX_SERIES:
         raise FxUnavailable(f"Moeda sem cambio configurado: {currency}.")
-    target = min(_as_date(on_date), date.today())
+    target = min(_as_date(on_date), local_now().date())
 
     row = _stored_rate(conn, current_user_id, currency, target)
     # O guardado serve se for do proprio dia, ou de ate 4 dias antes quando o
@@ -123,12 +131,12 @@ def rate_on(conn, current_user_id, currency, on_date=None):
     # a PTAX do dia sai a tarde.
     fresh_enough = row and (
         row["rate_date"] == target.isoformat()
-        or (target < date.today() and (target - _as_date(row["rate_date"])).days <= 4)
+        or (target < local_now().date() and (target - _as_date(row["rate_date"])).days <= 4)
     )
     if fresh_enough:
         return safe_float(row["rate"])
 
-    if _may_fetch((current_user_id, currency, target.isoformat())):
+    if fetch and _may_fetch((current_user_id, currency, target.isoformat())):
         try:
             fetch_and_store(conn, current_user_id, currency, target - timedelta(days=LOOKBACK_DAYS), target)
         except Exception as exc:  # rede, BCB fora do ar: cai no guardado
@@ -153,14 +161,14 @@ def monthly_rates(conn, current_user_id, currency, month_keys):
     missing_history = not have or not have["first_date"] or have["first_date"] > start.isoformat()
     if missing_history and _may_fetch((current_user_id, currency, "monthly", start.isoformat())):
         try:
-            fetch_and_store(conn, current_user_id, currency, start - timedelta(days=LOOKBACK_DAYS), date.today())
+            fetch_and_store(conn, current_user_id, currency, start - timedelta(days=LOOKBACK_DAYS), local_now().date())
         except Exception as exc:
             logger.warning(f"Serie mensal de {currency} indisponivel: {exc}", extra={"currency": currency})
     rates = {}
     for key in month_keys:
         year, month = int(key[:4]), int(key[5:7])
         next_month = date(year + (month == 12), month % 12 + 1, 1)
-        month_end = min(next_month - timedelta(days=1), date.today())
+        month_end = min(next_month - timedelta(days=1), local_now().date())
         row = _stored_rate(conn, current_user_id, currency, month_end)
         rates[key] = safe_float(row["rate"]) if row else None
     return rates

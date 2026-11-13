@@ -6,7 +6,6 @@ caixa de investimento nascem de outros fluxos e nao sao editados por aqui.
 """
 
 import sqlite3
-from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 

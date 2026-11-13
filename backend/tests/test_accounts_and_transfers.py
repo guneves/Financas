@@ -551,3 +551,19 @@ def test_a_date_without_leading_zeros_is_stored_padded(client, auth):
             headers=auth,
         )
         assert response.status_code == 400, bad
+
+
+def test_a_category_patch_ignores_a_currency_key(client, auth):
+    """Moeda e da conta. O trecho de "virar conta global" estava colado tambem
+    na rota da categoria e lia `account`, que la nao existe: 500 (NameError)."""
+    category = client.post("/api/categories", headers=auth, json={"name": "Viagens", "kind": "EXPENSE"}).get_json()
+    renamed = client.patch(
+        f"/api/categories/{category['id']}", headers=auth, json={"name": "Passeios", "currency": "USD"},
+    )
+    assert renamed.status_code == 200, renamed.get_data(as_text=True)
+    assert renamed.get_json()["name"] == "Passeios"
+    assert "currency" not in renamed.get_json()
+    unknown = client.patch(f"/api/categories/{category['id']}", headers=auth, json={"cor_favorita": "azul"})
+    only_currency = client.patch(f"/api/categories/{category['id']}", headers=auth, json={"currency": "USD"})
+    assert only_currency.status_code == unknown.status_code
+    assert only_currency.get_json() == unknown.get_json()

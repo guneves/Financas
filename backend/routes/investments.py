@@ -19,7 +19,7 @@ from flask import Blueprint, jsonify, request
 from asset_classes import ALLOWED_ASSET_CLASSES, is_crypto_asset, is_quoted_asset, parse_asset_class_filter
 from auth import token_required
 from config import PRICE_FETCH_TIMEOUT_SECONDS, PRICE_REFRESH_TIMEOUT_SECONDS
-from dates import parse_iso_date, subtract_months
+from dates import local_now, parse_iso_date, subtract_months
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
 from money import parse_money, rounded_money
@@ -1149,7 +1149,7 @@ def months_since_first_movement(current_user_id, asset_class_filter=None, defaul
     first = parse_iso_date(row["first_date"]) if row else None
     if first is None:
         return default
-    now = datetime.now()
+    now = local_now()
     months = (now.year - first.year) * 12 + now.month - first.month + 1
     return max(1, min(months, 60))
 
@@ -1177,7 +1177,7 @@ def load_history_inputs(current_user_id, months_back, asset_class_filter):
         inv for inv in investments_data
         if asset_class_filter is None or inv.get("asset_class") == asset_class_filter
     ]
-    start_date = subtract_months(datetime.now(), months_back + 1).strftime("%Y-%m-%d")
+    start_date = subtract_months(local_now(), months_back + 1).strftime("%Y-%m-%d")
 
     # Renda fixa nos meses passados: CDI/IPCA desde a compra mais antiga. O BCB
     # e buscado enquanto o Yahoo baixa os fechamentos, nao depois.
@@ -1301,7 +1301,7 @@ def get_investment_returns(current_user_id):
         # Um mes a mais (o valor inicial do primeiro) e, no minimo, o ano
         # corrente inteiro, para o acumulado no ano.
         evaluated_months = returns_evaluated_months(months_back)
-        first_month = subtract_months(datetime.now().replace(day=1), evaluated_months - 1)
+        first_month = subtract_months(local_now().replace(day=1), evaluated_months - 1)
         # Tudo o que vem da rede (fechamentos no Yahoo, CDI da janela e da
         # renda fixa no BCB, indices de comparacao) e pedido de uma vez: a
         # resposta espera a busca mais lenta, nao a soma delas.
@@ -1390,10 +1390,10 @@ def delete_corporate_action_route(current_user_id, action_id):
 
 def read_report_year(args):
     try:
-        year = int(args.get("year") or datetime.now().year - 1)
+        year = int(args.get("year") or local_now().year - 1)
     except (TypeError, ValueError):
         raise ValidationError("Ano invalido.")
-    if year < 2000 or year > datetime.now().year:
+    if year < 2000 or year > local_now().year:
         raise ValidationError("Ano fora do intervalo.")
     return year
 
@@ -1414,7 +1414,7 @@ def tax_report(current_user_id):
 def tax_exemption(current_user_id):
     """Isentometro do mes (padrao: o mes corrente); `planned_sale` simula uma venda."""
     try:
-        month = normalize_month(request.args.get("month") or datetime.now().strftime("%Y-%m"))
+        month = normalize_month(request.args.get("month") or local_now().strftime("%Y-%m"))
     except ValidationError as exc:
         return validation_error(str(exc))
     planned_sale = safe_float(request.args.get("planned_sale"), 0.0)

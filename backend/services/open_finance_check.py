@@ -24,7 +24,7 @@ nao mandam o total), entao aceita ate n centavos de diferenca.
 from datetime import date as date_type
 
 from services import inbox, open_finance_invoices
-from money import rounded_money
+from money import rounded_money, to_cents
 from source_types import INVESTMENT_CASH_SOURCE_TYPE
 
 MATCH_DAYS = 3
@@ -63,10 +63,6 @@ def match_movements(bank, app, days=MATCH_DAYS):
             free.remove(best[1])
     bank_ids = {id(entry) for entry in unmatched_bank}
     return [entry for entry in bank if id(entry) in bank_ids], [app[index] for index in sorted(free)]
-
-
-def _cents(amount):
-    return int(round(float(amount) * 100))
 
 
 def _bank_purchase_cents(conn, current_user_id, of_account):
@@ -201,7 +197,7 @@ def _account_rows(conn, current_user_id, account_id, date_from, date_to):
         ),
     ).fetchall()
     return [
-        {"id": row["id"], "table": "transactions", "date": row["date"], "cents": _cents(row["signed"]),
+        {"id": row["id"], "table": "transactions", "date": row["date"], "cents": to_cents(row["signed"]),
          "description": row["description"], "created_at": row["created_at"]}
         for row in rows
     ]
@@ -221,7 +217,7 @@ def _card_rows(conn, current_user_id, card_id, date_from, date_to):
         (current_user_id, card_id, date_from, date_to),
     ).fetchall()
     return [
-        {"id": row["id"], "table": "cc_expenses", "date": row["date"], "cents": _cents(row["signed"]),
+        {"id": row["id"], "table": "cc_expenses", "date": row["date"], "cents": to_cents(row["signed"]),
          "description": row["description"], "created_at": row["created_at"]}
         for row in rows if row["signed"]
     ]
@@ -253,7 +249,7 @@ def balance_difference(of_account, balance_row, settled_balance=None):
     if of_account["balance"] is None:
         return rounded_money(app_balance), None
     difference = rounded_money(of_account["balance"] - app_balance)
-    return rounded_money(app_balance), int(round(difference * 100))
+    return rounded_money(app_balance), to_cents(difference)
 
 
 def balance_explanation(difference_cents, bank_only, app_only, awaiting):

@@ -68,12 +68,9 @@ logger = get_logger(__name__)
 
 PluggyError = pluggy_client.PluggyError
 
-# Folga do pull: o banco lanca com data de dias antes (o D+1 do cartao, a
-# compensacao, a compra internacional que fica "em processamento" dias e entra
-# com a data da compra); a chave pluggy:<id> faz a repeticao nao custar nada.
-# Com 7 dias, um lancamento que a Pluggy listou com data de 8+ dias atras nunca
-# era puxado (2026-11-04). 35 cobre o prazo de liquidacao das bandeiras (30 dias).
-LATE_POSTING_DAYS = 35
+# Folga do pull (definida em services/inbox.py, que este modulo importa e que
+# tambem a usa no par aproximado; o nome continua valendo aqui).
+LATE_POSTING_DAYS = inbox.LATE_POSTING_DAYS
 # Sem nenhuma linha da conta ainda, a folga antiga: nao traz o que o dono deixou
 # fora da primeira busca.
 OVERLAP_DAYS = 7
@@ -181,12 +178,6 @@ def _parse_first_sync_days(value):
         raise ValidationError("Informe os dias da primeira busca.") from exc
     if not 1 <= days <= MAX_FIRST_SYNC_DAYS:
         raise ValidationError(f"A primeira busca vai de 1 a {MAX_FIRST_SYNC_DAYS} dias.")
-    return days
-
-
-def set_first_sync_days(conn, current_user_id, value):
-    days = _parse_first_sync_days(value)
-    inbox.save_setting(conn, current_user_id, FIRST_SYNC_SETTING, str(days))
     return days
 
 
@@ -722,6 +713,20 @@ def _seconds(stamp):
         return 0
 
 
+def _foreign_days(pulled):
+    """(moeda, dia) dos movimentos que a Pluggy trouxe em outra moeda sem o
+    valor na moeda da conta: os que in_reais_now() converte pela PTAX."""
+    days = set()
+    for _date_from, transactions in pulled.values():
+        for raw in transactions:
+            if not isinstance(raw, dict) or raw.get("amountInAccountCurrency") is not None:
+                continue
+            currency = str(raw.get("currencyCode") or "BRL").upper()
+            if currency != "BRL":
+                days.add((currency, str(raw.get("date") or "")[:10]))
+    return days
+
+
 def sync_item(current_user_id, of_item_id, today=None, history_from=None, record=True):
     """Um pull completo de um item, so com GET: o item, as contas, as
     transacoes de cada conta e, na corretora, as posicoes e operacoes.
@@ -780,6 +785,10 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
         _record_refusal(current_user_id, of_item_id, exc)
         raise
     investments = open_finance_investments.fetch(api, row["pluggy_item_id"], logger)
+    # Ainda na fase de rede: a PTAX dos movimentos em outra moeda, antes de a
+    # transacao de escrita abrir (la dentro in_reais_now() le so o guardado).
+    with get_db() as conn:
+        open_finance_auto.prefetch_rates(conn, current_user_id, _foreign_days(pulled))
 
     counts = {}
     removed = 0
