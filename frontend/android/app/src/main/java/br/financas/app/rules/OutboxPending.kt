@@ -216,7 +216,7 @@ object OutboxPending {
      * GET /api/home com os pendentes por cima (o servidor nao ve a fila do aparelho), em
      * centavos: as contas (applyPendingToAccounts); o saldo em contas + o que muda nas contas
      * em reais que nao sao Corretora; em cada mes do fluxo a despesa/receita inteira (um
-     * pendente nunca e dividido; "Pagamento Fatura..." nao e despesa), transferencia banco ->
+     * pendente nunca e dividido; "Pagamento Fatura...", em qualquer caixa, nao e despesa nem receita), transferencia banco ->
      * Corretora e aporte, Corretora -> banco resgate, banco -> banco nada, linha numa
      * Corretora de fora, compra no cartao nunca; o saldo de fim de mes anda do mes do
      * pendente em diante; summary e o ultimo mes de novo. Nada a mudar devolve o mesmo objeto.
@@ -264,10 +264,11 @@ object OutboxPending {
                 val account = payload.accountId.takeUnless { it.isNullOrEmpty() } ?: defaultAccountId
                 if (isPortfolio(account)) return@forEach
                 cash = if (item.kind == "INCOME") cents else -cents
-                val invoicePayment = (payload.category ?: "").startsWith("Pagamento Fatura")
+                // A regra de services/spending_rules.py: em qualquer caixa, nem despesa nem receita.
+                val invoicePayment = (payload.category ?: "").startsWith("Pagamento Fatura", ignoreCase = true)
                 field = when {
-                    item.kind == "INCOME" -> income
                     invoicePayment -> null
+                    item.kind == "INCOME" -> income
                     else -> expense
                 }
             }

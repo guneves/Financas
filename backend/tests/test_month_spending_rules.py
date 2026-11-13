@@ -4,15 +4,14 @@ Inicio (`GET /api/home`, services/home.py), o plano do mes
 (`GET /api/monthly-plan`, services/monthly_plan.py) e o orcamento
 (`GET /api/budgets`, services/budgets.py) somam o mes cada um com a sua
 consulta. As condicoes de cada linha moram em services/spending_rules.py; este
-arquivo fixa, linha a linha, o que cada tela conta hoje, inclusive onde elas
-discordam (decisoes do dono em aberto, nao erros a corrigir aqui):
+arquivo fixa, linha a linha, o que cada tela conta. As tres somam igual
+(decisoes do dono de 2026-11-13, antes divergencias):
 
-1. despesa/receita digitada numa conta Corretora: o Inicio ignora; o plano e o
-   orcamento contam (decisao "B2" de docs/next-steps.md);
-2. categoria que comeca com "pagamento fatura" em minusculas: o Inicio conta
-   (compara o prefixo exato), o plano e o orcamento nao (LIKE, sem caixa);
-3. receita com categoria "Pagamento Fatura...": o Inicio conta como receita, o
-   plano nao.
+1. despesa/receita digitada numa conta Corretora: nenhuma tela conta (o plano e
+   o orcamento seguem o Inicio);
+2. categoria que comeca com "pagamento fatura", em qualquer caixa: e pagamento
+   de fatura em todas;
+3. o pagamento de fatura fica fora das despesas e das receitas em todas.
 """
 
 from datetime import date
@@ -135,25 +134,61 @@ class TestWhatEveryScreenAgreesOn:
         assert delta(world, before) == spent(0)
 
 
-class TestWhereTheScreensDisagreeToday:
-    def test_an_expense_typed_in_the_corretora(self, world, base):
+class TestWhereTheScreensUsedToDisagree:
+    """Decisoes do dono de 2026-11-13: as tres telas somam igual."""
+
+    def test_an_expense_typed_in_the_corretora_counts_nowhere(self, world, base):
         broker = world.account("XP", type_="BROKERAGE", initial=1000)
         before = figures(world)
         world.tx("EXPENSE", 40, DAY, broker)
-        assert delta(world, before) == spent(40, screens={"plan_spent", "budget_spent"})
+        assert delta(world, before) == spent(0)
 
-    def test_an_income_typed_in_the_corretora(self, world, base):
+    def test_an_income_typed_in_the_corretora_counts_nowhere(self, world, base):
         broker = world.account("XP", type_="BROKERAGE", initial=1000)
         before = figures(world)
         world.tx("INCOME", 15, DAY, broker, category="Salário")
-        assert delta(world, before) == spent(15, screens=(), income=("plan_income",))
+        assert delta(world, before) == spent(0)
 
-    def test_a_lowercase_pagamento_fatura_category(self, world, base):
+    @pytest.mark.parametrize("category", [
+        "pagamento fatura antiga", "PAGAMENTO FATURA NUBANK", "Pagamento fatura Black",
+    ])
+    def test_the_pagamento_fatura_category_in_any_case_is_no_expense(self, world, base, category):
         before = figures(world)
+        world.insert_tx("EXPENSE", 7, DAY, base, category=category)
+        assert delta(world, before) == spent(0)
+
+    @pytest.mark.parametrize("category", ["Pagamento Fatura devolvida", "pagamento fatura devolvida"])
+    def test_an_income_named_pagamento_fatura_is_no_income(self, world, base, category):
+        before = figures(world)
+        world.insert_tx("INCOME", 3, DAY, base, category=category)
+        assert delta(world, before) == spent(0)
+
+    def test_an_income_with_an_invoice_payment_origin_is_no_income(self, world, base):
+        before = figures(world)
+        world.insert_tx("INCOME", 9, DAY, base, source_type="CC_INVOICE_PAYMENT")
+        assert delta(world, before) == spent(0)
+
+    def test_a_category_that_only_contains_the_words_still_counts(self, world, base):
+        before = figures(world)
+        world.insert_tx("EXPENSE", 12, DAY, base, category="Taxa de pagamento fatura")
+        assert delta(world, before) == spent(12)
+
+
+class TestThePanelsFollowTheSummary:
+    """`GET /api/home/panels` soma o gasto com a mesma regra do resumo."""
+
+    def total(self, world):
+        return world.get("/api/home/panels")["spending_total"]
+
+    def test_a_lowercase_pagamento_fatura_is_out_of_the_panels(self, world, base):
+        world.tx("EXPENSE", 100, DAY, base)
+        before = self.total(world)
         world.insert_tx("EXPENSE", 7, DAY, base, category="pagamento fatura antiga")
-        assert delta(world, before) == spent(7, screens={"home_expense"})
+        assert self.total(world) == before
 
-    def test_an_income_named_pagamento_fatura(self, world, base):
-        before = figures(world)
-        world.insert_tx("INCOME", 3, DAY, base, category="Pagamento Fatura devolvida")
-        assert delta(world, before) == spent(3, screens=(), income=("home_income",))
+    def test_an_expense_in_the_corretora_is_out_of_the_panels(self, world, base):
+        broker = world.account("XP", type_="BROKERAGE", initial=1000)
+        world.tx("EXPENSE", 100, DAY, base)
+        before = self.total(world)
+        world.tx("EXPENSE", 40, DAY, broker)
+        assert self.total(world) == before

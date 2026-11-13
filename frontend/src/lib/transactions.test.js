@@ -122,7 +122,11 @@ test('an invoice payment is never an expense (by origin or by the typed category
   assert.ok(isInvoicePayment({ type: 'EXPENSE', source_type: 'CC_INVOICE_PAYMENT' }))
   assert.ok(isInvoicePayment({ type: 'EXPENSE', source_type: 'CC_AUTOPAY' }))
   assert.ok(isInvoicePayment({ type: 'EXPENSE', category: 'Pagamento Fatura Nubank' }))
-  assert.ok(!isInvoicePayment({ type: 'EXPENSE', category: 'pagamento fatura' }))
+  // Em qualquer caixa (dono 2026-11-13), e so o prefixo.
+  assert.ok(isInvoicePayment({ type: 'EXPENSE', category: 'pagamento fatura' }))
+  assert.ok(isInvoicePayment({ type: 'EXPENSE', category: 'PAGAMENTO FATURA BLACK' }))
+  assert.ok(isInvoicePayment({ type: 'INCOME', category: 'Pagamento Fatura devolvida' }))
+  assert.ok(!isInvoicePayment({ type: 'EXPENSE', category: 'Taxa pagamento fatura' }))
   assert.ok(!isInvoicePayment({ type: 'EXPENSE', category: 'Mercado' }))
 })
 
