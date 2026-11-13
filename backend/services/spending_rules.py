@@ -6,16 +6,14 @@ orcamento (budgets.py). Cada uma escrevia de novo as mesmas condicoes ("e
 pagamento de fatura", "e caixa da carteira", "e da conta global"...); aqui cada
 condicao tem uma definicao so, e cada tela diz quais usa.
 
-As telas ainda NAO somam igual, e isso esta fixado em
-tests/test_month_spending_rules.py ate o dono decidir:
+As telas somam igual (dono 2026-11-13, tests/test_month_spending_rules.py):
 
-- o Inicio ignora a despesa/receita de uma conta Corretora (`brokerage_account_sql`);
-  o plano e o orcamento contam (decisao "B2" de docs/next-steps.md);
-- o pagamento de fatura antigo, reconhecido pelo nome da categoria: o Inicio
-  compara o prefixo exato (`exact_case=True`), o plano e o orcamento usam LIKE,
-  que ignora a caixa;
-- o Inicio so tira o pagamento de fatura das despesas; o plano e o orcamento
-  tiram a linha inteira (uma receita com esse nome de categoria tambem).
+- a despesa/receita de uma conta Corretora nao conta em nenhuma: o plano e o
+  orcamento seguem o Inicio (`brokerage_account_sql`);
+- o pagamento de fatura antigo, reconhecido pelo nome da categoria, e comparado
+  pelo prefixo sem diferenca de caixa em todas;
+- o pagamento de fatura sai das despesas e das receitas em todas (uma receita
+  com esse nome de categoria tambem nao e receita).
 
 Todas as expressoes recebem o alias com ponto (`"t."`, `"origin."`) e usam so
 constantes do codigo: nada de valor do usuario entra no SQL.
@@ -39,19 +37,18 @@ def invoice_payment_by_origin_sql(row="t."):
     return f"COALESCE({row}source_type, '') IN ({quoted(INVOICE_PAYMENT_SOURCE_TYPES)})"
 
 
-def invoice_payment_by_name_sql(row="t.", *, exact_case):
+def invoice_payment_by_name_sql(row="t."):
     """Pagamento de fatura de antes do pagamento pelo servidor: a categoria
-    "Pagamento Fatura...". `exact_case`: o prefixo exato; senao LIKE (sem caixa)."""
-    if exact_case:
-        return (
-            f"substr(COALESCE({row}category, ''), 1, {len(INVOICE_PAYMENT_CATEGORY_PREFIX)})"
-            f" = '{INVOICE_PAYMENT_CATEGORY_PREFIX}'"
-        )
-    return f"COALESCE({row}category, '') LIKE '{INVOICE_PAYMENT_CATEGORY_PREFIX}%'"
+    comeca com "Pagamento Fatura", em qualquer caixa (dono 2026-11-13). LOWER
+    sobre o prefixo, e nao LIKE, para nao depender de `case_sensitive_like`."""
+    return (
+        f"LOWER(substr(COALESCE({row}category, ''), 1, {len(INVOICE_PAYMENT_CATEGORY_PREFIX)}))"
+        f" = '{INVOICE_PAYMENT_CATEGORY_PREFIX.lower()}'"
+    )
 
 
-def invoice_payment_sql(row="t.", *, exact_case):
-    return f"({invoice_payment_by_origin_sql(row)} OR {invoice_payment_by_name_sql(row, exact_case=exact_case)})"
+def invoice_payment_sql(row="t."):
+    return f"({invoice_payment_by_origin_sql(row)} OR {invoice_payment_by_name_sql(row)})"
 
 
 def investment_cash_sql(row="t."):
@@ -77,10 +74,11 @@ def brokerage_account_sql(account="a."):
 def plan_row_sql(row="t.", account="a."):
     """A linha que o plano do mes e o orcamento somam (despesa ou receita):
     nao e transferencia, nem pagamento de fatura, nem caixa da carteira, nem a
-    linha do Inter, e a conta e em reais. A Corretora conta (ver o topo)."""
+    linha do Inter, e a conta e em reais e nao e a Corretora (ver o topo)."""
     return (
         f"{row}type <> 'TRANSFER'"
-        f" AND NOT {invoice_payment_sql(row, exact_case=False)}"
+        f" AND NOT {invoice_payment_sql(row)}"
+        f" AND NOT {brokerage_account_sql(account)}"
         f" AND NOT {investment_cash_sql(row)}"
         f" AND NOT {month_summary_sql(row)}"
         f" AND {reais_account_sql(account)}"

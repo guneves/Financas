@@ -236,7 +236,7 @@ export function pendingAsTransactions(items = [], { defaultAccountId = '' } = {}
 //   - as contas: applyPendingToAccounts();
 //   - o saldo em contas: + o que muda nas contas em reais que nao sao Corretora;
 //   - cada mes do fluxo: despesa/receita inteira (um pendente nunca e
-//     dividido; "Pagamento Fatura..." nao e despesa), transferencia banco ->
+//     dividido; "Pagamento Fatura...", em qualquer caixa, nao e despesa nem receita), transferencia banco ->
 //     Corretora e aporte, Corretora -> banco resgate, banco -> banco nada;
 //     linha numa Corretora fica de fora; compra no cartao nao entra;
 //   - o saldo de fim de mes anda do mes do pendente em diante;
@@ -284,8 +284,9 @@ export function applyPendingToHome(home, items = []) {
     } else {
       if (isPortfolio(item.payload.account_id || defaultAccountId)) return
       cash = item.kind === 'INCOME' ? cents : -cents
-      const invoicePayment = String(item.payload.category || '').startsWith('Pagamento Fatura')
-      field = item.kind === 'INCOME' ? 'income' : invoicePayment ? null : 'expense'
+      // A regra de services/spending_rules.py: em qualquer caixa, nem despesa nem receita.
+      const invoicePayment = String(item.payload.category || '').toLowerCase().startsWith('pagamento fatura')
+      field = invoicePayment ? null : item.kind === 'INCOME' ? 'income' : 'expense'
     }
     months.forEach((month) => {
       if (month.month === key && field) month[field] += cents

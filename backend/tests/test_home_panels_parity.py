@@ -43,7 +43,7 @@ def web_spending(world):
         "month": MONTH,
     }
     done = subprocess.run(
-        ["node", SCRIPT], input=json.dumps(payload), capture_output=True, text=True, timeout=60, check=False,
+        ["node", SCRIPT], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8", timeout=60, check=False,
     )
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)

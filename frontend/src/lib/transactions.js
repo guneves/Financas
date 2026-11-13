@@ -35,12 +35,16 @@ export function cardPurchaseKey(expense) {
   ].join('|')
 }
 
-// Pagamento de fatura: nunca e despesa (e a soma de compras ja contadas), mas
-// sai da conta. A mesma regra de services/home.py.
+// Pagamento de fatura: nunca e despesa nem receita (e a soma de compras ja
+// contadas), mas mexe na conta. A regra de services/spending_rules.py: a origem,
+// ou a categoria que comeca com "Pagamento Fatura" em qualquer caixa.
 const INVOICE_SOURCE_TYPES = ['CC_INVOICE_PAYMENT', 'CC_AUTOPAY']
 
+export const isInvoicePaymentCategory = (category) =>
+  String(category || '').toLowerCase().startsWith('pagamento fatura')
+
 export const isInvoicePayment = (transaction) =>
-  INVOICE_SOURCE_TYPES.includes(transaction?.source_type) || Boolean(transaction?.category?.startsWith('Pagamento Fatura'))
+  INVOICE_SOURCE_TYPES.includes(transaction?.source_type) || isInvoicePaymentCategory(transaction?.category)
 
 const isInvestmentRow = (transaction) =>
   INVESTMENT_SOURCE_TYPES.includes(transaction?.source_type) || Boolean(transaction?.portfolio_transfer)

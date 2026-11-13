@@ -78,9 +78,7 @@ def monthly_spending(conn, current_user_id, keys):
     """{mes: {by_day, by_category, total}} em centavos, para os meses `keys`."""
     months = {key: _empty_month() for key in keys}
     cases = investment_flow_sql()
-    invoice_payment = (
-        spending_rules.invoice_payment_sql("t.", exact_case=True)
-    )
+    invoice_payment = spending_rules.invoice_payment_sql("t.")
     placeholders = ", ".join("?" for _ in keys)
     rows = conn.execute(
         f"""

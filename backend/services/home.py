@@ -81,10 +81,12 @@ def banking_month_rows(conn, current_user_id):
     from_bank = cases["from_bank"]
     amount = _cents("t.amount")
     others = _others_cents("t.")
-    invoice_payment = spending_rules.invoice_payment_sql("t.", exact_case=True)
+    # Despesa ou receita de verdade: o pagamento de fatura nao e nenhuma das
+    # duas (dono 2026-11-13); ele so mexe no saldo (`cash`).
     plain = (
         f"t.type != 'TRANSFER' AND {from_bank} AND NOT {cases['portfolio_cash']}"
         f" AND NOT {spending_rules.month_summary_sql('t.')}"
+        f" AND NOT {spending_rules.invoice_payment_sql('t.')}"
     )
     # A transferencia com a conta global (outra moeda) muda o saldo em reais.
     origin_reais = spending_rules.reais_account_sql("origin.")
@@ -108,10 +110,8 @@ def banking_month_rows(conn, current_user_id):
           SUM(CASE WHEN {cases['resgate']} THEN {amount} ELSE 0 END) AS redeemed,
           SUM(CASE WHEN {plain} AND t.type = 'INCOME' THEN {amount} - {others} ELSE 0 END) AS income,
           SUM(CASE WHEN {plain} AND t.type = 'INCOME' THEN {others} ELSE 0 END) AS others_received,
-          SUM(CASE WHEN {plain} AND t.type = 'EXPENSE' AND NOT {invoice_payment}
-                   THEN {amount} - {others} ELSE 0 END) AS expense,
-          SUM(CASE WHEN {plain} AND t.type = 'EXPENSE' AND NOT {invoice_payment}
-                   THEN {others} ELSE 0 END) AS others_paid
+          SUM(CASE WHEN {plain} AND t.type = 'EXPENSE' THEN {amount} - {others} ELSE 0 END) AS expense,
+          SUM(CASE WHEN {plain} AND t.type = 'EXPENSE' THEN {others} ELSE 0 END) AS others_paid
         FROM transactions t
         LEFT JOIN accounts origin ON origin.id = t.account_id AND origin.user_id = t.user_id
         LEFT JOIN accounts target ON target.id = t.transfer_account_id AND target.user_id = t.user_id

@@ -216,6 +216,12 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   `isInvestmentInflow()`). "Resumo do mês" reads `summary` of `GET /api/home`.
 - **Investimento is not a category** (039): a row is aporte/resgate/provento by origin only
   (`INVESTMENT_SOURCE_TYPES`, or a bank ↔ Corretora transfer). Don't give a category name meaning.
+- **The month's spending is one rule on every screen** (owner 2026-11-13, `services/spending_rules.py`,
+  `test_month_spending_rules.py`): Início (summary and panels), the plan and the budget count the same rows. A
+  despesa/receita typed in a Corretora account counts in none of them. An invoice payment (by `source_type`, or
+  the old ones by a category starting with "Pagamento Fatura", **in any case**) is neither expense nor income
+  anywhere; it only moves the balance. The pending-item estimates repeat the name test (`lib/outboxRules.js`,
+  `rules/OutboxPending.kt`, `isInvoicePayment()`).
 - **Whose expense it is** (032, `services/sharing.py`, `lib/sharing.js`): owner, `SPLIT` or
   `OTHERS`. Balances never change; budget, plan and Início count only the owner's part
   (`own_amount_sql()` / `ownAmount()`). A receber lists the others' part until `share_settled_at`.
