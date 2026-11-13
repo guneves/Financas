@@ -294,6 +294,18 @@ test('home: receita entra inteira; "Pagamento Fatura" mexe no saldo, nao no Saiu
   assert.equal(result.flow[1].balance, 1560)
 })
 
+test('home: "pagamento fatura" em qualquer caixa nao e despesa nem receita, so saldo', () => {
+  const result = applyPendingToHome(home(), [
+    item('EXPENSE', { amount: 20, date: '2026-10-12', category: 'pagamento fatura antiga' }),
+    item('INCOME', { amount: 5, date: '2026-10-12', category: 'PAGAMENTO FATURA devolvida' }),
+    item('EXPENSE', { amount: 1, date: '2026-10-12', category: 'Taxa pagamento fatura' }),
+  ])
+  assert.equal(result.summary.income, 100)
+  assert.equal(result.summary.expense, 41)
+  assert.equal(result.consolidated_balance, 1534)
+  assert.equal(result.flow[1].balance, 1534)
+})
+
 test('home: transferencia para a Corretora e aporte, de volta resgate, entre bancos nada', () => {
   const result = applyPendingToHome(home(), [
     item('TRANSFER', { amount: 300, date: '2026-10-12', account_id: 'banco', transfer_account_id: 'corretora' }),

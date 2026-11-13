@@ -237,6 +237,20 @@ class OutboxPendingTest {
         assertMoney("1560", result.flow[1].balance)
     }
 
+    // node: 'home: "pagamento fatura" em qualquer caixa nao e despesa nem receita, so saldo'
+    @Test
+    fun homeInvoicePaymentInAnyCaseIsNeitherExpenseNorIncome() {
+        val result = applyPendingToHome(home(), listOf(
+            item("EXPENSE", PendingPayload(amount = money("20"), date = "2026-10-12", category = "pagamento fatura antiga")),
+            item("INCOME", PendingPayload(amount = money("5"), date = "2026-10-12", category = "PAGAMENTO FATURA devolvida")),
+            item("EXPENSE", PendingPayload(amount = money("1"), date = "2026-10-12", category = "Taxa pagamento fatura")),
+        ))
+        assertMoney("100", result.summary.income)
+        assertMoney("41", result.summary.expense)
+        assertMoney("1534", result.consolidatedBalance)
+        assertMoney("1534", result.flow[1].balance)
+    }
+
     // node: 'home: transferencia para a Corretora e aporte, de volta resgate, entre bancos nada'
     @Test
     fun homeTransferToCorretoraIsAporteBackIsResgate() {

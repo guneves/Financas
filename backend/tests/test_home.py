@@ -259,13 +259,14 @@ def test_invoice_payment_is_never_expense(world, clock):
     world.insert_tx("EXPENSE", 100, "2026-10-03", banco, source_type="CC_INVOICE_PAYMENT")
     world.insert_tx("EXPENSE", 50, "2026-10-04", banco, source_type="CC_AUTOPAY")
     world.insert_tx("EXPENSE", 25, "2026-10-05", banco, category="Pagamento Fatura Nubank")
-    # O prefixo e o do cliente (startsWith): com outra caixa e despesa.
+    # Em qualquer caixa (dono 2026-11-13); so o prefixo, nao o meio do nome.
     world.insert_tx("EXPENSE", 1, "2026-10-06", banco, category="pagamento fatura")
+    world.insert_tx("EXPENSE", 2, "2026-10-06", banco, category="Taxa pagamento fatura")
 
     home = world.home()
-    assert home["summary"]["expense"] == 1
-    assert home["consolidated_balance"] == 824
-    assert home["flow"][-1]["balance"] == 824
+    assert home["summary"]["expense"] == 2
+    assert home["consolidated_balance"] == 822
+    assert home["flow"][-1]["balance"] == 822
 
 
 def test_transfer_between_banks_is_not_flow(world, clock):
