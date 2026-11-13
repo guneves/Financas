@@ -7,57 +7,54 @@
 
 ---
 
-## Session — 2026-11-11/12 · Architecture audit, four fixes and the first refactoring stack
+## Session — 2026-11-13 · The first stack merged and deployed; a second refactoring stack (#88–#93)
 
-Owner's brief: audit the repository (read-only), plan, then refactor in small proven steps; financial rules and owner
-decisions untouchable. He approved C1–C4, then R1–R11 ("take the decisions that make sense for a spending tracker").
+Continuation of the audit session (its report is `docs/audit.md`). The owner asked to merge and watch the first
+stack, then to go on with R5, R7, R8, R10 and the rest of R6.
 
-**Done** — `docs/audit.md` (the report: baseline, layer map, findings with evidence, top-10 debt files, duplications)
-and eleven PRs, none merged when this was written:
+**Merged and deployed**: #76 first (deploy run 128 green: the pipeline blocked since 2026-11-11 is back), then
+#77–#87 as one deploy (the stack merged upward into #80's branch, #80 into `main`; run 129 green: test, build,
+deploy, apk). `main` = `3df0bf9`, the same tree that passed the full suite.
+
+**Done, open as PRs** (each based on the previous branch; nothing merged):
 
 | PR | Step | What |
 |---|---|---|
-| #76 | C1 | Tests only. Three tests failed from 2026-11-11 (hard-coded November dates against the real clock) and **blocked the deploy** (run 127); two more would fail every February. `fake_pluggy` freezes every clock module |
-| #77 | C2 | `PATCH /api/categories` with a `currency` key answered 500 (a block pasted from the account route) |
-| #78 | C3 | Two simultaneous requests paid one invoice twice. `db.begin_write()` (BEGIN IMMEDIATE) before `settle_invoice()` reads; the slower request gets the existing 409 |
-| #79 | C4 | The PTAX was fetched from the BCB with the SQLite write lock held (a slow BCB = 500 on the owner's writes). `prefetch_rates()` before the transaction, `rate_on(fetch=False)` inside |
-| #80 | R1 | `test_architecture.py`: layers, no import cycle (function-level included), ratchet on `_private` uses of other modules; the inbox ↔ open_finance cycle undone |
-| #81 | R2 | `money.to_cents()` / `from_cents()` / `cents_or_zero()` replace eight copies; proved equal on every two-decimal value |
-| #82 | R3 | One clock, `dates.local_now()` (51 direct reads replaced); `dates.now_source` freezes the whole app in a test |
-| #83 | R4 | `services/spending_rules.py`; an 18-case matrix pins what Início, the plan and the budget each count |
-| #84 | R9 | Proventos listing: one read per asset instead of one per provento |
-| #85 | R11 | Hygiene: WebView/Capacitor leftovers out of the APK tree, 7 dead backend functions, 13 dead frontend exports |
-| #86 | R6 (slice 1) | `services/inbox_rules.py`: the 94 pure names of `inbox.py` (2749 → 2071 lines), re-exported |
+| #88 | R6, rest | `inbox_store.py` (46 names) and `inbox_transfers.py` (16) out of `inbox.py`: 2749 → 1072 lines over the two slices |
+| #89 | R7 | `open_finance_rows.py` (pure), `open_finance_settings.py`, `open_finance_mapping.py`; `open_finance_inbox.py` 1862 → 1654, `open_finance.py` 1230 → 850 |
+| #90 | R5 | `services/entries.py`: one INSERT for a lançamento and one for a card row; nine hand-written statements call it |
+| #91 | — | `conftest.py` removes the session's temp directory (each run left 3.7 GB) |
+| #92 | R8, the move | ~940 Flask-free lines out of six blueprints into `*_payload.py` / `transaction_filters.py` |
+| #93 | R10, first half | `buildSpending()` in `lib/homeSpending.js` and a parity test (real module run with node) against `/api/home/panels` |
 
-Each fix has a test that failed before it (first commit of its PR). Each refactor has its characterization test
-written and green **before** the move.
+Every move is verbatim and re-exported by the old module. Characterization written and green before each:
+`test_entry_creation_rows.py` (the whole stored row per creation path), `test_home_panels_parity.py`.
 
-**Numbers.** Baseline on `main`: pytest 2868 passed / 3 failed, `npm test` 245, ruff 406. Full suite on the stack:
-after R1 (C1–C4 merged in) **2882 passed, 0 failed**; after R4 **2919 passed, 0 failed**; the runs at R11 and R6 are
-in the PR descriptions/comments. `npm test` 245 pass and `vite build` OK after R11. Ruff: no new finding in any step
-(402 after C2; 3 fewer after R11). APK: not built (no Android SDK in the cloud container).
+**Numbers.** Full backend suite: 2921 on `main` → 2921 (#88, #89) → 2928 (#90, #92) → **2929 passed, 0 failed**
+at the top (#93). `npm test` 245 pass, `vite build` ok. Ruff from `backend/`: 354 → 349, none new. APK: untouched.
 
-**Not done, and why**
-- **R5, R7, R8, R10 and the rest of R6** (see `next-steps.md`, top section). Each needs its own characterization
-  tests first (golden rows, response shapes, JS/server parity) and each moves code the eleven open PRs also touch.
-  Stacking five more risky moves on an unreviewed stack was the wrong trade; they start once the stack is merged.
-- **The three disagreements between Início, the plan and the budget** were pinned, not resolved: resolving them
-  changes numbers on screen. The recommendation is in #83 and in `next-steps.md`.
-- **Import sorting / `ruff.toml`**, the four client-less routes, the 12 test-only frontend exports: kept (reasons
-  in #85).
-- **APK**: #85 deletes files under `frontend/android/`; only `android-check` compiles it.
+**Not done, and why** (details in `next-steps.md`, top section)
+- **The five long views** of R8: taking the rule out of a view that returns responses mid-way is a rewrite of
+  money-moving code, not a move; one view per PR with a response-shape test first.
+- **The engine knot** in `open_finance_inbox.py` (1654 lines) and what is left of `inbox.py` (1072): the sections
+  call each other both ways; no mechanical cut exists.
+- **R10's switch** (the web Início reading the server's panels): proved equal by the parity test, but a pending
+  offline expense would stop counting in two panels until sent. The owner decides (#93).
+- **Merging the two auto-record modules**: decided against, they are not copies.
 
-**Next**: merge #76 first (the deploy is blocked), then the order in `next-steps.md`. Then R5.
+**Next**: the owner merges #88 → #93 and answers #93's question and the three spending-rule decisions; then one
+long view at a time.
 
 **Lessons**
-- Python's `sqlite3` opens a transaction only at the first write: a `SELECT` used as a guard is unprotected. Use
-  `db.begin_write(conn)` before the check when two requests racing would cost money.
-- Never call the network on a connection that already wrote; fetch first, then open the transaction.
-- A test world must freeze **every** module that reads the clock (`finance_world.freeze`), not only
-  `services.invoices`; from R3 on, `dates.now_source` does it in one place. SQLite's `now` never moves.
-- The cloud container was replaced twice mid-session and local work was lost once: push each commit as it is made,
-  run one full suite at a time, keep scratch scripts re-creatable.
-- `ruff check backend` from the repository root and `ruff check .` from `backend/` give different totals (406 vs
-  354 on `main`); compare like with like.
-- To extract code from a giant module without breaking test patches: move only functions whose dependencies are
-  all in the moved set and that read no name a test replaces on the old module; re-export by name.
+- Three times the full suite caught what the analysis missed, always the same shape: **something outside reaches
+  a module through an attribute the refactor removed or re-homed**. A test patches `inbox.BANK_NOTIFICATIONS_DEFAULT`
+  (an *imported* name, so a scan of the module's own definitions misses it); a test helper reads
+  `open_finance.invoices`. Rule: when a module is split, the old module keeps every name others reach through it,
+  and a function reading a test-patched name stays where the test patches. Never trust the related tests alone
+  for a move: run the whole suite.
+- After moving code, pruning unused imports from the **old** module is where those attributes disappear. Check
+  each pruned name against the tests before dropping it.
+- A full pytest run writes ~3.7 GB of temporary files. Before #91 nothing removed them: 35 runs filled a 250 GB
+  disk mid-session. In a cloud session point `TMPDIR` at memory-backed storage (`/dev/shm`) for the run.
+- The extraction scripts used (sections by dependency, Flask-free helpers by name) lived in the session's
+  scratch directory and are gone; their rules are written in #86, #88 and #92.
