@@ -83,8 +83,6 @@ export function proceedEntry(proceed, today) {
   }
 }
 
-export const STATEMENT_KINDS = ['ALL', 'MOVEMENTS', 'PROCEEDS']
-
 export function buildInvestmentStatement(movements = [], proceeds = [], { today = '', kind = 'ALL', query = '' } = {}) {
   const entries = []
   if (kind !== 'PROCEEDS') movements.forEach((movement) => entries.push(movementEntry(movement)))

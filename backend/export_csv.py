@@ -290,21 +290,8 @@ def table_csv(columns, items, context=None):
     return build_csv([column.header for column in columns], rows)
 
 
-def transaction_row(transaction, account_names=None):
-    context = {"account_names": account_names or {}}
-    return [format_cell(column.value(transaction, context), column.kind) for column in TRANSACTION_COLUMNS]
-
-
-def transactions_csv(transactions, account_names=None):
-    return table_csv(TRANSACTION_COLUMNS, transactions, {"account_names": account_names or {}})
-
-
 def portfolio_row(asset):
     return [format_cell(column.value(asset, {}), column.kind) for column in PORTFOLIO_COLUMNS]
-
-
-def portfolio_csv(assets):
-    return table_csv(PORTFOLIO_COLUMNS, assets or [])
 
 
 # --- relatorio anual de IR (services/tax_report.py) -----------------------------

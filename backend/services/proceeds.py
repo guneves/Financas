@@ -61,9 +61,17 @@ def trailing_window(today=None):
     return (today - timedelta(days=TRAILING_DAYS)).isoformat(), today.isoformat()
 
 
-def investment_position_at_date(conn, current_user_id, asset_id, date_value):
+def investment_position_at_date(conn, current_user_id, asset_id, date_value, movements=None):
+    """A posicao do ativo no fim de `date_value`. `movements` ({ativo: operacoes})
+    e a memoria de uma listagem: as operacoes de cada ativo sao lidas uma vez e
+    cortadas na data aqui, em vez de uma consulta por provento."""
     target_date = require_date({"date": date_value}, "date", "Data de referencia")
-    return accumulate_position(asset_movement_rows(conn, current_user_id, asset_id, target_date))
+    if movements is None:
+        return accumulate_position(asset_movement_rows(conn, current_user_id, asset_id, target_date))
+    if asset_id not in movements:
+        movements[asset_id] = asset_movement_rows(conn, current_user_id, asset_id)
+    # O mesmo corte do SQL (`transaction_date <= ?`, texto), na mesma ordem.
+    return accumulate_position([row for row in movements[asset_id] if row["transaction_date"] <= target_date])
 
 
 def asset_movement_rows(conn, current_user_id, asset_id, until_date=None):
@@ -162,7 +170,7 @@ def proceed_status(payment_date):
     return "PAID"
 
 
-def serialize_investment_proceed(row, conn=None, current_user_id=None):
+def serialize_investment_proceed(row, conn=None, current_user_id=None, movements=None):
     item = serialize_metadata_row(row)
     if not item:
         return None
@@ -183,6 +191,7 @@ def serialize_investment_proceed(row, conn=None, current_user_id=None):
                 current_user_id,
                 item["asset_id"],
                 item["record_date"],
+                movements,
             )
         except ValidationError:
             position = None
@@ -279,7 +288,8 @@ def fetch_investment_proceed_by_id(conn, current_user_id, proceed_id):
 
 def serialized_proceeds(conn, current_user_id, filters=None):
     rows = fetch_investment_proceeds(conn, current_user_id, filters)
-    return [serialize_investment_proceed(row, conn, current_user_id) for row in rows]
+    movements = {}
+    return [serialize_investment_proceed(row, conn, current_user_id, movements) for row in rows]
 
 
 def trailing_net_by_asset(conn, current_user_id, filters=None, today=None):
