@@ -14,7 +14,7 @@ O que estes testes fixam:
 """
 
 import importlib
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -157,14 +157,18 @@ class TestTheSettlementView:
     def test_an_announced_provento_is_in_transit(self, client, auth):
         account = corretora(client, auth, initial=0.0)
         investment = bought(client, auth, account, day="2026-10-01")
+        # Depois do dia em que a conta nasce (o `created_at` e o relogio de
+        # verdade, e os proventos entram na Corretora desde esse dia): uma data
+        # fixa virava passado e o teste falhava (2026-11-11).
+        payment = (date.today() + timedelta(days=30)).isoformat()
         response = client.post("/api/investment-proceeds", headers=auth, json={
             "asset_id": investment["asset_id"], "proceeds_type": "DIVIDEND",
-            "record_date": "2026-10-27", "payment_date": "2026-11-10", "gross_amount": 17.05,
+            "record_date": "2026-10-27", "payment_date": payment, "gross_amount": 17.05,
         })
         assert response.status_code == 201, response.get_data(as_text=True)
         view = settlement(client, auth)
         proceed = [item for item in view["in_transit"] if item["kind"] == "proceed"]
-        assert [(item["date"], item["amount"]) for item in proceed] == [("2026-11-10", 17.05)]
+        assert [(item["date"], item["amount"]) for item in proceed] == [(payment, 17.05)]
         assert view["expected"] == pytest.approx(view["settled"] + 17.05)
 
     def test_a_row_still_on_the_trade_date_is_moved(self, client, auth, db_module, user):

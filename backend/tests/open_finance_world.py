@@ -9,10 +9,12 @@ CREDIT (o contrario do que a doc diz — `card_tx(..., docs_sign=True)` da o da 
 
 import importlib
 import uuid
+from datetime import date
 
 import pytest
 
 import pluggy_client
+from finance_world import freeze
 
 
 def pluggy_id():
@@ -202,7 +204,10 @@ def fake_pluggy(open_finance_module, invoices_module, monkeypatch):
     fake = FakePluggy()
     open_finance_module.set_client(fake)
     # Hoje e 27/10/2026: a primeira busca (30 dias) comeca em 27/09.
-    monkeypatch.setattr(invoices_module, "local_today", lambda: __import__("datetime").date(2026, 10, 27))
+    # Em todo modulo que le o relogio (finance_world.CLOCK_MODULES): so em
+    # services.invoices, o Inicio e os cartoes liam o dia de verdade, e os testes
+    # com datas de 2026 mudavam de resultado conforme o calendario andava.
+    freeze(monkeypatch, date(2026, 10, 27))
     yield fake
     open_finance_module.set_client(None)
 
