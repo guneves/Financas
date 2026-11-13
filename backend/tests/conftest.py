@@ -7,8 +7,10 @@ by the real migrations in `database/migrations`, so the tests exercise the same
 schema the app runs against.
 """
 
+import atexit
 import importlib
 import os
+import shutil
 import sys
 import tempfile
 import uuid
@@ -27,6 +29,10 @@ def _test_environment():
     importa `services.*` antes de `app_module` (o `db` copia DATABASE_PATH de
     config no import) nunca aponta para o backend/finance.db de verdade."""
     tmp_dir = tempfile.mkdtemp(prefix="financas-tests-")
+    # Uma rodada inteira deixa aqui o banco, os backups e os comprovantes dos
+    # testes: 3,7 GB (medido em 2026-11-13). Sem apagar no fim, cada rodada
+    # somava isso ao disco (35 rodadas, 30 GB, e o disco encheu).
+    atexit.register(shutil.rmtree, tmp_dir, ignore_errors=True)
     os.environ["DATABASE_PATH"] = os.path.join(tmp_dir, "test.db")
     os.environ["DATABASE_MIGRATIONS_DIR"] = os.path.join(PROJECT_DIR, "database", "migrations")
     os.environ["DATABASE_BACKUP_DIR"] = os.path.join(tmp_dir, "backups")
