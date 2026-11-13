@@ -35,7 +35,7 @@ import time
 from applog import get_logger
 import brapi_client
 from config import HISTORY_CACHE_STALE_MAX_SECONDS, HISTORY_CACHE_TTL_SECONDS, PRICE_FETCH_TIMEOUT_SECONDS
-from dates import month_key, month_label, subtract_months
+from dates import local_now, month_key, month_label, subtract_months
 from db import get_db
 from integrations import record_provider_result
 from services import fixed_income
@@ -299,7 +299,7 @@ def load_benchmarks(current_user_id, first_month, now=None):
     "stored_since"}}. Um indice que falha nao derruba os outros: fica com
     `monthly` vazio e o motivo em `error`.
     """
-    now = now or datetime.now()
+    now = now or local_now()
     today = now.date()
     keys = []
     cursor = date(first_month.year, first_month.month, 1)

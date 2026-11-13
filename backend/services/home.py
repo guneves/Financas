@@ -26,23 +26,17 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from money import rounded_money
-from services import auto_record, review
+from services import auto_record, review, spending_rules
 from services.accounts import account_balance_rows, ensure_default_account, serialize_account
 from services.card_invoices import invoice_summary, next_invoices, open_invoices
 from services.fx import with_balance_in_brl
 from services.investments import PORTFOLIO_ACCOUNT_TYPE
 from services.invoices import apply_due_autopay, local_today
 from services.proceeds_cash import apply_paid_proceeds
-from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import ValidationError, shift_month
 
 MAX_MONTHS = 24
 BRT = timezone(timedelta(hours=-3))
-INVOICE_PAYMENT_CATEGORY_PREFIX = "Pagamento Fatura"
-
-
-def _quoted(values):
-    return ", ".join(f"'{value}'" for value in sorted(values))
 
 
 def investment_flow_sql(row="t.", origin="origin.", target="target."):
@@ -52,9 +46,9 @@ def investment_flow_sql(row="t.", origin="origin.", target="target."):
     (`month_investment_flow()`): os dois nunca discordam. `origin`/`target` sao
     as contas de `account_id` e `transfer_account_id` (LEFT JOIN).
     """
-    from_bank = f"COALESCE({origin}type, '') != '{PORTFOLIO_ACCOUNT_TYPE}'"
-    to_portfolio = f"COALESCE({target}type, '') = '{PORTFOLIO_ACCOUNT_TYPE}'"
-    portfolio_cash = f"COALESCE({row}source_type, '') IN ({_quoted(INVESTMENT_SOURCE_TYPES)})"
+    from_bank = f"NOT {spending_rules.brokerage_account_sql(origin)}"
+    to_portfolio = spending_rules.brokerage_account_sql(target)
+    portfolio_cash = spending_rules.investment_cash_sql(row)
     return {
         "aporte": (
             f"(({row}type = 'TRANSFER' AND {from_bank} AND {to_portfolio})"
@@ -87,18 +81,14 @@ def banking_month_rows(conn, current_user_id):
     from_bank = cases["from_bank"]
     amount = _cents("t.amount")
     others = _others_cents("t.")
-    invoice_payment = (
-        f"(COALESCE(t.source_type, '') IN ({_quoted(INVOICE_PAYMENT_SOURCE_TYPES)})"
-        f" OR substr(COALESCE(t.category, ''), 1, {len(INVOICE_PAYMENT_CATEGORY_PREFIX)})"
-        f" = '{INVOICE_PAYMENT_CATEGORY_PREFIX}')"
-    )
+    invoice_payment = spending_rules.invoice_payment_sql("t.", exact_case=True)
     plain = (
         f"t.type != 'TRANSFER' AND {from_bank} AND NOT {cases['portfolio_cash']}"
-        f" AND COALESCE(t.source_type, '') <> '{MONTH_SUMMARY_SOURCE_TYPE}'"
+        f" AND NOT {spending_rules.month_summary_sql('t.')}"
     )
     # A transferencia com a conta global (outra moeda) muda o saldo em reais.
-    origin_reais = "COALESCE(origin.currency, 'BRL') = 'BRL'"
-    target_reais = "COALESCE(target.currency, 'BRL') = 'BRL'"
+    origin_reais = spending_rules.reais_account_sql("origin.")
+    target_reais = spending_rules.reais_account_sql("target.")
     leaves_reais = f"(t.type = 'TRANSFER' AND {origin_reais} AND NOT {target_reais})"
     enters_reais = f"(t.type = 'TRANSFER' AND NOT {origin_reais} AND {target_reais})"
     return conn.execute(

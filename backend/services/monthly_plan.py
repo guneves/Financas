@@ -54,9 +54,9 @@ from services.budgets import (
 )
 from services.goals import list_goals
 from services.home import income_after_settled, investment_flow_sql
+from services import spending_rules
 from services.invoices import local_today, signed_amount_sql
 from services.sharing import own_amount_sql
-from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import (
     ValidationError,
     normalize_month,
@@ -84,26 +84,20 @@ def month_banking_totals(conn, current_user_id, month):
     So a parte do dono (032): o que era de outra pessoa nao e gasto nem renda dele.
     """
     own = own_amount_sql()
-    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE)
-    skipped_placeholders = ", ".join("?" for _ in skipped_types)
+    own_row = own_amount_sql("t.")
     row = conn.execute(
         f"""
         SELECT
-          SUM(CASE WHEN type = 'EXPENSE' THEN {own} ELSE 0 END) AS spent,
-          SUM(CASE WHEN type = 'INCOME' THEN {own} ELSE 0 END) AS income
-        FROM transactions
-        WHERE user_id = ?
-          AND type IN ('EXPENSE', 'INCOME')
-          AND substr(date, 1, 7) = ?
-          AND COALESCE(source_type, '') NOT IN ({skipped_placeholders})
-          AND COALESCE(category, '') NOT LIKE 'Pagamento Fatura%'
-          AND NOT EXISTS (
-              SELECT 1 FROM accounts a
-              WHERE a.id = transactions.account_id AND a.user_id = transactions.user_id
-                AND COALESCE(a.currency, 'BRL') <> 'BRL'
-          )
+          SUM(CASE WHEN t.type = 'EXPENSE' THEN {own_row} ELSE 0 END) AS spent,
+          SUM(CASE WHEN t.type = 'INCOME' THEN {own_row} ELSE 0 END) AS income
+        FROM transactions t
+        LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+        WHERE t.user_id = ?
+          AND t.type IN ('EXPENSE', 'INCOME')
+          AND substr(t.date, 1, 7) = ?
+          AND {spending_rules.plan_row_sql("t.", "a.")}
         """,
-        (current_user_id, month, *skipped_types),
+        (current_user_id, month),
     ).fetchone()
     card = conn.execute(
         f"""

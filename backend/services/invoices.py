@@ -19,21 +19,12 @@ As regras moram aqui para que o front nunca tenha uma copia:
 from datetime import date as date_type, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from dates import clamped_date, parse_iso_date
+from dates import clamped_date, local_now, parse_iso_date
 from db import begin_write, new_id, row_to_dict
 from money import rounded_money
 from services.accounts import account_balance_until
 from source_types import CC_AUTOPAY_SOURCE_TYPE, CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import ValidationError
-
-
-def ensure_credit_card_owner(conn, current_user_id, card_id):
-    card = conn.execute(
-        "SELECT id FROM credit_cards WHERE id = ? AND user_id = ?",
-        (card_id, current_user_id),
-    ).fetchone()
-    if not card:
-        raise ValidationError("Cartao nao encontrado.")
 
 
 def require_active_card(conn, current_user_id, card_id):
@@ -184,7 +175,7 @@ def serialize_cc_expense(row):
 
 def local_today():
     """Hoje (data local, sem hora). Ponto unico para os testes congelarem o relogio."""
-    return datetime.now().date()
+    return local_now().date()
 
 
 def invoice_closing_date(invoice_month, invoice_year, due_day, closing_day=None):

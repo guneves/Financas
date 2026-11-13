@@ -13,7 +13,7 @@ import sqlite3
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
-from dates import clamped_date, parse_iso_date
+from dates import clamped_date, local_now, parse_iso_date
 from db import encode_metadata, get_db, new_id, parse_metadata_value, serialize_metadata_row
 from export_csv import ColumnError
 from money import rounded_money
@@ -27,11 +27,9 @@ from services.proceeds import (
     ALLOWED_PROCEEDS_TYPES,
     FIXED_INCOME_EVENT_TYPES,
     INTEREST_TYPE,
-    asset_movement_rows,
     build_investment_proceeds_summary,
     default_tax_for_proceed,
     fetch_investment_proceed_by_id,
-    fetch_investment_proceeds,
     interest_tax_rate,
     investment_position_at_date,
     serialize_investment_proceed,
@@ -359,11 +357,7 @@ def investment_proceeds(current_user_id):
             return validation_error(str(exc))
 
         with get_db() as conn:
-            rows = fetch_investment_proceeds(conn, current_user_id, filters)
-            items = [
-                serialize_investment_proceed(row, conn, current_user_id)
-                for row in rows
-            ]
+            items = serialized_proceeds(conn, current_user_id, filters)
         return jsonify(items), 200
 
     payload = parse_json_body()
@@ -443,8 +437,7 @@ def export_investment_proceeds(current_user_id):
         return validation_error(str(exc))
 
     with get_db() as conn:
-        rows = fetch_investment_proceeds(conn, current_user_id, filters)
-        items = [serialize_investment_proceed(row, conn, current_user_id) for row in rows]
+        items = serialized_proceeds(conn, current_user_id, filters)
     return export_response(fmt, columns, items, basename="proventos", sheet_name="Proventos")
 
 
@@ -470,19 +463,15 @@ def investment_proceeds_calendar(current_user_id):
     except ValidationError as exc:
         return validation_error(str(exc))
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_now().strftime("%Y-%m-%d")
     if not filters.get("date_from"):
         filters["date_from"] = today
     if not filters.get("date_to"):
-        filters["date_to"] = (datetime.now() + timedelta(days=180)).strftime("%Y-%m-%d")
+        filters["date_to"] = (local_now() + timedelta(days=180)).strftime("%Y-%m-%d")
     filters["ascending"] = True
 
     with get_db() as conn:
-        rows = fetch_investment_proceeds(conn, current_user_id, filters)
-        items = [
-            serialize_investment_proceed(row, conn, current_user_id)
-            for row in rows
-        ]
+        items = serialized_proceeds(conn, current_user_id, filters)
     return jsonify(items), 200
 
 

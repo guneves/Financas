@@ -27,15 +27,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from money import rounded_money
 from services.card_invoices import fold, next_invoices, open_invoices, parse_installment
 from services.home import (
-    INVOICE_PAYMENT_CATEGORY_PREFIX,
     _cents,
     _others_cents,
-    _quoted,
     investment_flow_sql,
     prepare_reads,
 )
+from services import spending_rules
 from services.invoices import local_today
-from source_types import MONTH_SUMMARY_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
 from validators import shift_month
 
 INVOICE_MONTHS = 6
@@ -81,9 +79,7 @@ def monthly_spending(conn, current_user_id, keys):
     months = {key: _empty_month() for key in keys}
     cases = investment_flow_sql()
     invoice_payment = (
-        f"(COALESCE(t.source_type, '') IN ({_quoted(INVOICE_PAYMENT_SOURCE_TYPES)})"
-        f" OR substr(COALESCE(t.category, ''), 1, {len(INVOICE_PAYMENT_CATEGORY_PREFIX)})"
-        f" = '{INVOICE_PAYMENT_CATEGORY_PREFIX}')"
+        spending_rules.invoice_payment_sql("t.", exact_case=True)
     )
     placeholders = ", ".join("?" for _ in keys)
     rows = conn.execute(
@@ -96,7 +92,7 @@ def monthly_spending(conn, current_user_id, keys):
         WHERE t.user_id = ? AND t.type = 'EXPENSE' AND {cases['from_bank']}
           AND COALESCE(origin.currency, 'BRL') = 'BRL'
           AND NOT {cases['portfolio_cash']} AND NOT {invoice_payment}
-          AND COALESCE(t.source_type, '') <> '{MONTH_SUMMARY_SOURCE_TYPE}'
+          AND NOT {spending_rules.month_summary_sql("t.")}
           AND substr(t.date, 1, 7) IN ({placeholders})
         ORDER BY t.date, t.id
         """,
