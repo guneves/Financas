@@ -1,11 +1,11 @@
 """Respostas HTTP compartilhadas pelos blueprints (downloads)."""
 
-from datetime import datetime
 
 from flask import Response
 
 import export_csv
 import export_xlsx
+from dates import local_now
 from export_csv import ColumnError
 
 XLSX_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -42,7 +42,7 @@ def read_export_options(args, export_name):
 
 def export_response(fmt, columns, items, *, basename, sheet_name, context=None):
     """A mesma tabela em CSV (padrao) ou .xlsx, com a data de hoje no nome."""
-    filename = f"{basename}-{datetime.now().strftime('%Y-%m-%d')}.{fmt}"
+    filename = f"{basename}-{local_now().strftime('%Y-%m-%d')}.{fmt}"
     if fmt == "xlsx":
         body = export_xlsx.table_xlsx(sheet_name, columns, items, context)
         return download_response(body, XLSX_MIMETYPE, filename)

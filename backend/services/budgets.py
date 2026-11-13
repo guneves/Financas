@@ -37,9 +37,9 @@ from decimal import Decimal
 from db import new_id, row_to_dict, utc_timestamp
 from money import percent_of, rounded_money
 from services.accounts import category_ids_by_name, fetch_category
+from services import spending_rules
 from services.invoices import signed_amount_sql
 from services.sharing import own_amount_sql
-from source_types import INVESTMENT_SOURCE_TYPES, INVOICE_PAYMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import ValidationError, safe_float, shift_month, to_percent
 
 HUNDRED = Decimal(100)
@@ -296,8 +296,6 @@ def budget_month_lines(conn, current_user_id, month):
     """
     name_to_id = category_ids_by_name(conn, current_user_id)
 
-    skipped_types = (*sorted(INVOICE_PAYMENT_SOURCE_TYPES), *INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE)
-    skipped_placeholders = ", ".join("?" for _ in skipped_types)
     rows = conn.execute(
         f"""
         SELECT t.id, t.type, t.category_id, t.category, t.date, t.description,
@@ -306,14 +304,11 @@ def budget_month_lines(conn, current_user_id, month):
         FROM transactions t
         LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
         WHERE t.user_id = ?
-          AND t.type <> 'TRANSFER'
           AND substr(t.date, 1, 7) = ?
-          AND COALESCE(t.source_type, '') NOT IN ({skipped_placeholders})
-          AND COALESCE(t.category, '') NOT LIKE 'Pagamento Fatura%'
-          AND COALESCE(a.currency, 'BRL') = 'BRL'
+          AND {spending_rules.plan_row_sql("t.", "a.")}
         ORDER BY t.date, t.created_at, t.id
         """,
-        (current_user_id, month, *skipped_types),
+        (current_user_id, month),
     ).fetchall()
     card_rows = conn.execute(
         f"""

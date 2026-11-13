@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import brapi_client
 import tesouro_client
+from dates import local_now
 from applog import get_logger
 from config import PRICE_FETCH_TIMEOUT_SECONDS
 from integrations import provider_snapshot
@@ -69,7 +70,7 @@ def check_brapi():
 
 
 def check_bcb():
-    start = datetime.now() - timedelta(days=15)
+    start = local_now() - timedelta(days=15)
     # O limite das cotacoes (6 s) e curto para o SGS, que leva varios segundos
     # num dia comum: o teste esperava menos que a busca real e dava "erro".
     value, error, elapsed = _timed(
@@ -82,7 +83,7 @@ def check_bcb():
         return {"status": "error", "latency_ms": elapsed, "detail": "CDI sem valores nos últimos 15 dias."}
     last_date, _rate = value[-1]
     detail = f"CDI até {last_date.strftime('%d/%m/%Y')}"
-    if (datetime.now() - last_date).days > STALE_QUOTE_DAYS:
+    if (local_now() - last_date).days > STALE_QUOTE_DAYS:
         return {"status": "stale", "latency_ms": elapsed, "detail": detail + " (atrasado)"}
     return {"status": "ok", "latency_ms": elapsed, "detail": detail}
 
@@ -99,7 +100,7 @@ def check_tesouro():
             return {"status": "error", "detail": last["last_error"]}
         return {"status": "stale", "detail": "Preços do Tesouro ainda não baixados; o Tesouro Direto fica na curva."}
     detail = f"Preços até {loaded.latest_date.strftime('%d/%m/%Y')}" if loaded.latest_date else "Preços sem data"
-    if loaded.latest_date is None or (datetime.now().date() - loaded.latest_date).days > STALE_QUOTE_DAYS:
+    if loaded.latest_date is None or (local_now().date() - loaded.latest_date).days > STALE_QUOTE_DAYS:
         return {"status": "stale", "detail": detail + " (atrasado)"}
     return {"status": "ok", "detail": detail}
 

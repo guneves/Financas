@@ -48,7 +48,7 @@ from decimal import Decimal
 from applog import get_logger
 from config import AUTO_RECORD_DEFAULT
 from dates import parse_iso_date
-from money import rounded_money
+from money import from_cents, rounded_money
 from services import fx, global_account, inbox, inbox_decisions, open_finance_inbox, review
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
@@ -226,7 +226,7 @@ def one_side_now(conn, current_user_id, item, sources):
         "entry_type": entry_type, "direction": source["direction"], "account_id": account["account_id"],
         "transfer_account_id": None, "transfer_amount": None, "category": name, "category_id": category_id,
         "reason": "external_transfer", "guessed": [],
-        "amount": inbox._reais(source["amount_cents"]),
+        "amount": from_cents(source["amount_cents"]),
         "description": open_finance_inbox.display_name(
             source["description"], source.get("merchant_name"), source.get("counterparty"), "TRANSFER",
             source["direction"],

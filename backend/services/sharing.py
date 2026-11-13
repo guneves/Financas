@@ -19,7 +19,7 @@ R$ 69,72 e receita. Sem receita, o pago abate a do mes em que foi marcado
 from datetime import date, timedelta
 
 from db import row_to_dict, utc_timestamp
-from money import parse_money, rounded_money
+from money import cents_or_zero, parse_money, rounded_money
 from services.attachments import cc_purchase_expense_ids
 from source_types import INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 from validators import ValidationError, require_date, safe_float
@@ -329,10 +329,6 @@ def require_income(conn, current_user_id, income_id):
     return row
 
 
-def _cents_of(value):
-    return round(safe_float(value) * 100)
-
-
 def linked_others_cents(conn, current_user_id, income_id):
     """A parte dos outros, em centavos, dos itens de A receber pagos por esta receita."""
     total = 0
@@ -342,7 +338,7 @@ def linked_others_cents(conn, current_user_id, income_id):
             " WHERE user_id = ? AND share_paid_by = ? AND share_mode IS NOT NULL AND share_settled_at IS NOT NULL",
             (current_user_id, income_id),
         ).fetchall():
-            total += _cents_of(others_amount(row["share_mode"], row["share_others_amount"], row["amount"]))
+            total += cents_or_zero(others_amount(row["share_mode"], row["share_others_amount"], row["amount"]))
     return total
 
 
@@ -355,7 +351,7 @@ def link_income(conn, current_user_id, income_id):
     ).fetchone()
     if not row:
         return
-    amount = _cents_of(row["amount"])
+    amount = cents_or_zero(row["amount"])
     cents = min(linked_others_cents(conn, current_user_id, income_id), amount)
     if cents <= 0:
         conn.execute(
@@ -413,7 +409,7 @@ def income_candidates(conn, current_user_id, since):
     ).fetchall()
     items = []
     for row in rows:
-        room = _cents_of(row["amount"]) - linked_others_cents(conn, current_user_id, row["id"])
+        room = cents_or_zero(row["amount"]) - linked_others_cents(conn, current_user_id, row["id"])
         if room > 0:
             items.append({**_income_summary(row), "room": rounded_money(room / 100)})
     return items

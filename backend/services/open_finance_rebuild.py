@@ -35,14 +35,14 @@ import shutil
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import db as database
 from applog import get_logger
 from asset_classes import QUOTED_ASSET_CLASSES, is_crypto_asset
-from dates import parse_iso_datetime
+from dates import local_now, parse_iso_datetime
 from db import create_database_backup, get_db, parse_metadata_value, row_to_dict
-from money import rounded_money
+from money import from_cents, rounded_money, to_cents
 from services import (
     inbox,
     invoices,
@@ -735,7 +735,7 @@ def verified_backup():
             check.close()
         if verdict != "ok" or not users:
             raise RebuildRefused(f"O backup {path} nao passou na conferencia: {verdict}.")
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = local_now().strftime("%Y%m%d-%H%M%S")
         milestone = os.path.join(os.path.dirname(path), f"finance-before-rebuild-{stamp}.db")
         shutil.copy2(path, milestone)
     except RebuildRefused:
@@ -750,7 +750,7 @@ def copy_receipts(user_id, names, out):
     dos backups. Um que nao copia para tudo: o espelho do backup so avisa no log."""
     if not names:
         return None
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = local_now().strftime("%Y%m%d-%H%M%S")
     folder = os.path.join(database.DATABASE_BACKUP_DIR, f"receipts-before-rebuild-{stamp}", user_id)
     try:
         os.makedirs(folder, exist_ok=True)
@@ -859,7 +859,7 @@ def restore_known_transfers(conn, user_id, state):
                 transfer["transfer_amount"] if transfer["transfer_amount"] is not None else transfer["amount"]
             )
             gap = abs(open_finance_invoices._ordinal(transfer["date"]) - open_finance_invoices._ordinal(source["date"]))
-            if side != account["account_id"] or open_finance_invoices._cents(value) != source["amount_cents"]:
+            if side != account["account_id"] or to_cents(value) != source["amount_cents"]:
                 continue
             if gap <= RESTORE_TRANSFER_DAYS and (best is None or gap < best[0]):
                 best = (gap, transfer)
@@ -949,7 +949,7 @@ def resolve_one_sided(conn, user_id, today):
             "entry_type": entry_type, "direction": source["direction"], "account_id": account["account_id"],
             "transfer_account_id": None, "transfer_amount": None, "category": name, "category_id": category_id,
             "reason": "external_transfer", "guessed": [],
-            "amount": inbox._reais(source["amount_cents"]),
+            "amount": from_cents(source["amount_cents"]),
             "description": open_finance_inbox.display_name(
                 source["description"], source.get("merchant_name"), source.get("counterparty"), "TRANSFER",
                 source["direction"],
@@ -1154,7 +1154,7 @@ def balance_from_rows(conn, user_id, account_id, as_of):
     account = conn.execute(
         "SELECT initial_balance, currency FROM accounts WHERE id = ? AND user_id = ?", (account_id, user_id),
     ).fetchone()
-    cents = open_finance_invoices._cents(account["initial_balance"])
+    cents = to_cents(account["initial_balance"])
     currency = account["currency"] or "BRL"
     for row in conn.execute(
         """
@@ -1164,13 +1164,13 @@ def balance_from_rows(conn, user_id, account_id, as_of):
         """,
         (user_id, account_id, account_id, as_of),
     ).fetchall():
-        amount = open_finance_invoices._cents(row["amount"])
+        amount = to_cents(row["amount"])
         if row["type"] == "INCOME":
             cents += amount
         elif row["type"] == "EXPENSE" or (row["type"] == "TRANSFER" and row["account_id"] == account_id):
             cents -= amount
         elif row["transfer_amount"] is not None:
-            cents += open_finance_invoices._cents(row["transfer_amount"])
+            cents += to_cents(row["transfer_amount"])
         elif (row["origin"] or "BRL") == currency:
             cents += amount
     return cents / 100
@@ -1200,7 +1200,7 @@ def bank_rows_without_entry(conn, user_id):
             problems.append(f"sem lancamento: {label}")
             continue
         value = row["transfer_amount"] if row["origin"] != row["mine"] and row["transfer_amount"] is not None else row["amount"]
-        if open_finance_invoices._cents(value) != row["amount_cents"]:
+        if to_cents(value) != row["amount_cents"]:
             problems.append(f"valor diferente ({value}): {label}")
     return problems
 

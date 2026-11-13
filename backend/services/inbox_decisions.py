@@ -23,7 +23,7 @@ import sqlite3
 from config import INBOX_MATCH_DAYS
 from dates import parse_iso_date
 from db import new_id, row_to_dict, utc_timestamp
-from money import parse_money, rounded_money
+from money import parse_money, rounded_money, to_cents
 from services import inbox, open_finance_inbox, recurring
 from services.accounts import category_id_for_name, fetch_category, fetch_transaction_by_client_id
 from services.import_rules import DEFAULT_IMPORT_CATEGORIES
@@ -680,7 +680,7 @@ def absorb_other_side(conn, current_user_id, row, other_account_id, twin_type):
     o dono mexeu nela) e o item que esperava fecha nesta transferencia. Devolve
     quantos absorveu. O que chegar depois liga em
     open_finance_inbox.recorded_transfer_for_row()."""
-    cents = inbox._cents(row["amount"])
+    cents = to_cents(row["amount"])
     first, last = inbox._shift(row["date"], -OTHER_SIDE_DAYS), inbox._shift(row["date"], OTHER_SIDE_DAYS)
     rows = conn.execute(
         """
@@ -721,7 +721,7 @@ def absorb_other_side(conn, current_user_id, row, other_account_id, twin_type):
         """,
         (current_user_id, other_account_id, other_account_id, first, last),
     ).fetchall():
-        if inbox._cents(waiting["amount"]) != cents or not inbox.open_finance_sources(
+        if to_cents(waiting["amount"]) != cents or not inbox.open_finance_sources(
             conn, current_user_id, waiting["id"], roles=(inbox.SOURCE,),
         ):
             continue
@@ -889,7 +889,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
             return [_absorb(conn, current_user_id, same, table, row["id"])]
     if table == "cc_expenses":
         card_id = row["card_id"]
-        cents = sum(inbox._cents(entry["amount"]) for entry in (installments or [row]))
+        cents = sum(to_cents(entry["amount"]) for entry in (installments or [row]))
         match = _exact_pending(
             conn, current_user_id, cents=cents, date_text=row["purchase_date"], direction="OUT",
             accept=lambda item: item["entry_type"] == "CARD" and item["card_id"] == card_id
@@ -899,7 +899,7 @@ def absorb_created(conn, current_user_id, table, row, installments=None):
             absorbed.append(_absorb(conn, current_user_id, match, table, row["id"]))
         return absorbed
 
-    cents = inbox._cents(row["amount"])
+    cents = to_cents(row["amount"])
     if row["type"] == "TRANSFER":
         match = _exact_pending(
             conn, current_user_id, cents=cents, date_text=row["date"], direction="OUT",

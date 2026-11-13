@@ -36,7 +36,7 @@ from datetime import date, datetime, timedelta
 
 import tesouro_client
 from applog import get_logger
-from dates import parse_iso_date
+from dates import local_now, parse_iso_date
 from db import get_db
 from money import rounded_money
 from services.asset_categories import asset_category
@@ -302,7 +302,7 @@ def build_treasury_positions(lot_entries, today=None, prices="auto"):
     curva) e os campos da rentabilidade com proventos (contributed,
     sold_cost_basis, realized_net_profit). Devolve [{key, lots, ...}] na ordem
     da primeira compra de cada titulo."""
-    today = _as_date(today or datetime.now())
+    today = _as_date(today or local_now())
     if prices == "auto":
         prices = tesouro_client.get_prices()
 
@@ -491,7 +491,7 @@ def finish_treasury_refresh(current_user_id, investments, pending, fixed_income_
     if prices is None:
         return result
 
-    today = datetime.now()
+    today = local_now()
     valued_ids = set()
     with get_db() as conn:
         for inv in treasury_buys(investments):

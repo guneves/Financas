@@ -65,3 +65,28 @@ def percent_of(amount, percent):
     base = Decimal(str(rounded_money(amount)))
     value = base * Decimal(percent) / Decimal(100)
     return float(value.quantize(CENT, rounding=ROUND_HALF_UP))
+
+
+def to_cents(value):
+    """Reais em centavos inteiros, pela regra de rounded_money() (ROUND_HALF_UP).
+
+    O unico caminho de reais para centavos do app (pareamento, conferencia,
+    faturas): antes havia oito copias, sete com o round() do Python, que manda
+    o meio centavo para o par. Como float(): TypeError para None, ValueError
+    para texto que nao e numero (e para NaN/infinito)."""
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ValueError("valor nao finito")
+    with localcontext() as context:
+        context.prec = 400
+        return int((Decimal(str(numeric)) * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def cents_or_zero(value):
+    """to_cents() do que vem do banco ou de fora: None ou lixo vale 0 (safe_float)."""
+    return to_cents(safe_float(value))
+
+
+def from_cents(cents):
+    """Centavos inteiros em reais."""
+    return rounded_money(cents / 100)

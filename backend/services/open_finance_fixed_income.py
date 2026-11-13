@@ -46,7 +46,7 @@ from datetime import timedelta
 import tesouro_client
 from dates import parse_iso_date
 from db import encode_metadata, new_id, parse_metadata_value
-from money import rounded_money
+from money import cents_or_zero, rounded_money
 from services import broker_statement
 from services.corporate_actions import ensure_outside_corporate_actions
 from services.fixed_income import TAX_FREE_FIXED_INCOME_TYPES, validate_fixed_income_metadata
@@ -240,10 +240,6 @@ def _shifted(day, days):
     return (parse_iso_date(day).date() + timedelta(days=days)).isoformat()
 
 
-def _cents(value):
-    return int(round(safe_float(value) * 100))
-
-
 def _linked_ids(conn, current_user_id):
     return {
         row["investment_id"] for row in conn.execute(
@@ -270,13 +266,13 @@ def _fixed_income_rows(conn, current_user_id, date_from, date_to):
 def _typed_buy(conn, current_user_id, op):
     """A compra de renda fixa ja lancada com o mesmo valor (ate LINK_DAYS dias)."""
     linked = _linked_ids(conn, current_user_id)
-    wanted = {_cents(op["amount"]), _cents(op["amount"] + op["expenses"])}
+    wanted = {cents_or_zero(op["amount"]), cents_or_zero(op["amount"] + op["expenses"])}
     for row in _fixed_income_rows(
         conn, current_user_id, _shifted(op["trade_date"], -LINK_DAYS), _shifted(op["trade_date"], LINK_DAYS),
     ):
         if row["id"] in linked or safe_float(row["quantity"]) <= 0 or row["metadata"].get("is_redemption"):
             continue
-        if _cents(investment_gross_amount(row["quantity"], row["unit_price"])) in wanted:
+        if cents_or_zero(investment_gross_amount(row["quantity"], row["unit_price"])) in wanted:
             return row["id"]
     return None
 
@@ -462,7 +458,7 @@ def _typed_interest(conn, current_user_id, asset_id, op):
             _shifted(op["trade_date"], -LINK_DAYS), _shifted(op["trade_date"], LINK_DAYS),
         ),
     ).fetchall():
-        if _cents(op["amount"]) in (_cents(row["gross_amount"]), _cents(row["net_amount"])):
+        if cents_or_zero(op["amount"]) in (cents_or_zero(row["gross_amount"]), cents_or_zero(row["net_amount"])):
             return row["id"]
     return None
 

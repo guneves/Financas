@@ -175,3 +175,28 @@ def test_no_new_use_of_another_modules_private_name():
 def test_the_allowed_list_only_shrinks():
     gone = sorted(allowed_private_uses() - private_uses())
     assert gone == [], "ja nao existem: tire de tests/architecture_private_uses.txt: " + "; ".join(gone)
+
+
+def direct_clock_reads():
+    """Onde o codigo le o relogio sem passar por dates.local_now(): `datetime.now()`
+    sem fuso, `datetime.today()` e `date.today()`. (`datetime.now(timezone.utc)`,
+    o carimbo em UTC, nao e o "hoje" do app e fica.)"""
+    found = []
+    for module, tree in TREES.items():
+        if module == "dates":
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.args or node.keywords:
+                continue
+            owner = node.func.value
+            name = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", "")
+            if (name, node.func.attr) in {("datetime", "now"), ("datetime", "today"), ("date", "today")}:
+                found.append(f"{module}:{node.lineno}")
+    return found
+
+
+def test_the_app_reads_the_clock_only_through_dates():
+    """Um relogio so (dates.local_now / local_today): um teste congela o tempo de
+    todos os modulos em `dates.now_source`. Um `datetime.now()` solto volta a
+    deixar um teste com datas fixas mudar de resultado conforme o calendario."""
+    assert direct_clock_reads() == []

@@ -12,12 +12,11 @@ plano proprio antes da mudanca (`materialize_month()`).
 """
 
 import sqlite3
-from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
-from dates import month_key
+from dates import local_now, month_key
 from db import get_db, new_id, utc_timestamp
 from money import rounded_money
 from services.accounts import fetch_category
@@ -101,7 +100,7 @@ def parse_rollover(payload):
 @token_required
 def budgets(current_user_id):
     if request.method == "GET":
-        raw_month = request.args.get("month") or month_key(datetime.now())
+        raw_month = request.args.get("month") or month_key(local_now())
         try:
             month = normalize_month(raw_month)
         except ValidationError as exc:

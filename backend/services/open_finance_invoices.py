@@ -48,7 +48,7 @@ from collections import defaultdict
 from datetime import date as date_type
 
 from db import new_id, row_to_dict, utc_timestamp
-from money import rounded_money
+from money import rounded_money, to_cents
 from open_finance_categories import plain_text
 from services import inbox, invoices
 from source_types import CC_AUTOPAY_SOURCE_TYPE, CC_INVOICE_PAYMENT_SOURCE_TYPE, INVOICE_PAYMENT_SOURCE_TYPES
@@ -62,10 +62,6 @@ ANTICIPATED_TEXT = re.compile(r"^desconto na parcela (\d+) de (\d+) (.+)$")
 
 def _ordinal(text):
     return date_type.fromisoformat(str(text)[:10]).toordinal()
-
-
-def _cents(value):
-    return int(round(float(value) * 100))
 
 
 def mapped_cards(conn, current_user_id):
@@ -98,7 +94,7 @@ def open_invoices(conn, current_user_id, card):
     ).fetchall()
     return [
         {
-            "month": row["invoice_month"], "year": row["invoice_year"], "cents": _cents(row["total"]),
+            "month": row["invoice_month"], "year": row["invoice_year"], "cents": to_cents(row["total"]),
             "closing": invoices.invoice_closing_date(
                 row["invoice_month"], row["invoice_year"], card["due_day"], card["closing_day"],
             ),
@@ -398,18 +394,18 @@ def _kept_payment(conn, current_user_id, row, account):
         if payment["date"] == row["date"] or (
             abs(_ordinal(payment["date"]) - day) <= CARD_SIDE_DAYS
             and (
-                _cents(payment["amount"]) == cents
-                or (payment["source_type"] == CC_AUTOPAY_SOURCE_TYPE and _near_autopay(_cents(payment["amount"]), cents))
+                to_cents(payment["amount"]) == cents
+                or (payment["source_type"] == CC_AUTOPAY_SOURCE_TYPE and _near_autopay(to_cents(payment["amount"]), cents))
             )
         )
     ]
     if not found:
         return None
     kept = min(found, key=lambda payment: (
-        abs(_cents(payment["amount"]) - cents), abs(_ordinal(payment["date"]) - day), payment["id"],
+        abs(to_cents(payment["amount"]) - cents), abs(_ordinal(payment["date"]) - day), payment["id"],
     ))
     # Dois pagamentos do banco por perto: o do app e o de valor mais perto dele.
-    if kept["date"] == row["date"] or _cents(kept["amount"]) == cents:
+    if kept["date"] == row["date"] or to_cents(kept["amount"]) == cents:
         low, high = row["date"], row["date"]
     else:
         low = date_type.fromordinal(_ordinal(kept["date"]) - CARD_SIDE_DAYS).isoformat()
@@ -422,7 +418,7 @@ def _kept_payment(conn, current_user_id, row, account):
         """,
         (current_user_id, row["of_account_id"], low, high),
     ).fetchall()
-    wanted = _cents(kept["amount"])
+    wanted = to_cents(kept["amount"])
     closest = min(abs(int(other["amount_cents"]) - wanted) for other in nearby) if nearby else 0
     return kept if abs(cents - wanted) <= closest else None
 
@@ -447,7 +443,7 @@ def _record_one(conn, current_user_id, row, account, cards, claims):
             source_id=f"{card['id']}:{invoice['year']:04d}-{invoice['month']:02d}:{row['pluggy_transaction_id']}",
         )
         if payment:
-            differs = _cents(payment["amount"]) != int(row["amount_cents"])
+            differs = to_cents(payment["amount"]) != int(row["amount_cents"])
             conn.execute(
                 "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
                 (amount, payment["id"], current_user_id),

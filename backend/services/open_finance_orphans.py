@@ -42,9 +42,10 @@ from datetime import timedelta
 
 from dates import parse_iso_date
 from db import utc_timestamp
+from money import to_cents
 from services import global_account, inbox, invoices, open_finance_auto, open_finance_check, open_finance_inbox
 from services.accounts import account_balance_rows, account_balance_until
-from services.recorded_snapshot import _snapshot_cents, snapshot_amount_cents
+from services.recorded_snapshot import snapshot_amount_cents
 
 # O banco precisa ter atualizado depois de data + REFRESH_AFTER_DAYS.
 REFRESH_AFTER_DAYS = 5
@@ -97,7 +98,7 @@ def notified_rows(conn, current_user_id, account_id):
 
 def fix_cents(row):
     """O que tirar a orfa faz na diferenca banco - app: a despesa +X, a receita -X."""
-    cents = _snapshot_cents(row["amount"])
+    cents = to_cents(row["amount"])
     return cents if row["type"] == "EXPENSE" else -cents
 
 
@@ -120,7 +121,7 @@ def protected(conn, current_user_id, row):
     ).fetchone():
         return True
     recorded = snapshot_amount_cents(row.get("recorded_snapshot"), "transactions")
-    return recorded is None or int(recorded) != _snapshot_cents(row["amount"])
+    return recorded is None or int(recorded) != to_cents(row["amount"])
 
 
 def ripe(conn, current_user_id, row, today_text):
