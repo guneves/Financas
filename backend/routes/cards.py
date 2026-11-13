@@ -28,7 +28,7 @@ from services.attachments import (
     remove_attachment_files,
     same_purchase_sql,
 )
-from services import manual_entries
+from services import entries, manual_entries
 from services.card_statement import card_purchases
 from services.inbox_decisions import absorb_created
 from services.sharing import update_purchase_share
@@ -501,28 +501,11 @@ def cc_expenses(current_user_id):
                     group["installments"].add(installment_info)
                     client_id = group["client_id"]
 
-                item_id = new_id()
-                conn.execute(
-                    """
-                    INSERT INTO cc_expenses
-                    (id, user_id, card_id, category, category_id, description, amount, purchase_date,
-                     invoice_month, invoice_year, installment_info, status, client_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
-                    """,
-                    (
-                        item_id,
-                        current_user_id,
-                        card_id,
-                        category,
-                        category_id,
-                        description,
-                        amount,
-                        purchase_date,
-                        invoice_month,
-                        invoice_year,
-                        installment_info,
-                        client_id,
-                    ),
+                item_id = entries.insert_card_row(
+                    conn, current_user_id, card_id=card_id, category=category, category_id=category_id,
+                    description=description, amount=amount, purchase_date=purchase_date,
+                    invoice_month=invoice_month, invoice_year=invoice_year, installment_info=installment_info,
+                    client_id=client_id,
                 )
                 inserted.append(item_id)
 
@@ -588,29 +571,12 @@ def create_cc_purchase(current_user_id):
             rows = build_installment_rows(purchase, card, start)
             inserted = []
             for row in rows:
-                item_id = new_id()
-                conn.execute(
-                    """
-                    INSERT INTO cc_expenses
-                    (id, user_id, card_id, category, category_id, description, amount, purchase_date,
-                     invoice_month, invoice_year, installment_info, status, client_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        item_id,
-                        current_user_id,
-                        row["card_id"],
-                        row["category"],
-                        row["category_id"],
-                        row["description"],
-                        row["amount"],
-                        row["purchase_date"],
-                        row["invoice_month"],
-                        row["invoice_year"],
-                        row["installment_info"],
-                        row["status"],
-                        purchase_id,
-                    ),
+                item_id = entries.insert_card_row(
+                    conn, current_user_id, card_id=row["card_id"], category=row["category"],
+                    category_id=row["category_id"], description=row["description"], amount=row["amount"],
+                    purchase_date=row["purchase_date"], invoice_month=row["invoice_month"],
+                    invoice_year=row["invoice_year"], installment_info=row["installment_info"],
+                    status=row["status"], client_id=purchase_id,
                 )
                 inserted.append(item_id)
 
@@ -772,29 +738,11 @@ def create_cc_refund(current_user_id):
                     category, category_id = "Estorno", category_id_for_name(conn, current_user_id, "Estorno")
 
             invoice = refund_invoice(conn, current_user_id, card, refund_date)
-            item_id = new_id()
-            conn.execute(
-                """
-                INSERT INTO cc_expenses
-                (id, user_id, card_id, category, category_id, description, amount, purchase_date,
-                 invoice_month, invoice_year, installment_info, status, client_id,
-                 kind, refund_of)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '1/1', 'OPEN', ?, 'REFUND', ?)
-                """,
-                (
-                    item_id,
-                    current_user_id,
-                    card_id,
-                    category,
-                    category_id,
-                    description,
-                    amount,
-                    refund_date,
-                    invoice["invoice_month"],
-                    invoice["invoice_year"],
-                    client_id or new_id(),
-                    refund_of,
-                ),
+            item_id = entries.insert_card_row(
+                conn, current_user_id, card_id=card_id, category=category, category_id=category_id,
+                description=description, amount=amount, purchase_date=refund_date,
+                invoice_month=invoice["invoice_month"], invoice_year=invoice["invoice_year"],
+                installment_info="1/1", client_id=client_id or new_id(), kind="REFUND", refund_of=refund_of,
             )
             created = conn.execute(
                 "SELECT * FROM cc_expenses WHERE id = ? AND user_id = ?",

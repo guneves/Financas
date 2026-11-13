@@ -10,7 +10,7 @@ import sqlite3
 from flask import Blueprint, jsonify, request
 
 from auth import token_required
-from db import get_db, new_id, serialize_transaction
+from db import get_db, serialize_transaction
 from money import parse_money, rounded_money
 from export_csv import ColumnError
 from responses import export_response, read_export_options
@@ -23,7 +23,7 @@ from services.accounts import (
     resolve_category,
     transfer_amount_for,
 )
-from services import auto_record, manual_entries
+from services import auto_record, entries, manual_entries
 from services.attachments import remove_attachment_files
 from services.inbox import TRANSFER_CATEGORY
 from services.inbox_decisions import absorb_created, absorb_other_side
@@ -238,7 +238,6 @@ def transactions(current_user_id):
         return jsonify(items), 200
 
     payload = parse_json_body()
-    item_id = new_id()
     with get_db() as conn:
         try:
             client_id = optional_client_id(payload)
@@ -265,26 +264,10 @@ def transactions(current_user_id):
             return validation_error(str(exc))
 
         try:
-            conn.execute(
-                """
-                INSERT INTO transactions
-                (id, user_id, account_id, amount, date, category, category_id, description, type,
-                 client_id, card_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    item_id,
-                    current_user_id,
-                    account_id,
-                    rounded_money(amount),
-                    date_value,
-                    category,
-                    category_id,
-                    description,
-                    transaction_type,
-                    client_id,
-                    card_id,
-                ),
+            item_id = entries.insert_transaction(
+                conn, current_user_id, entry_type=transaction_type, account_id=account_id,
+                amount=rounded_money(amount), date=date_value, category=category, category_id=category_id,
+                description=description, client_id=client_id, card_id=card_id,
             )
         except sqlite3.IntegrityError:
             # Duas entregas do mesmo envio ao mesmo tempo: o indice unico
