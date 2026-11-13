@@ -472,8 +472,8 @@ reuse what the app already computes and need no new external data.
   go to the largest shortfall, so the split adds up exactly. "Oportunidade de compra" (as on
   Investidor10) = below its target in the class *and* quoted below the average price. An asset with
   a target and no position still appears (that is where the money should go).
-- **Goals (021, `services/goals.py`).** Kinds: NET_WORTH (portfolio net + accounts in BRL, same as
-  Início), PORTFOLIO, ASSET_CLASS, MONTHLY_INCOME (net proventos of the last 365 days / 12). The
+- **Goals (021, `services/goals.py`).** Kinds (NET_WORTH, portfolio + accounts, was removed on
+  2026-11-13, migration 057: "Atual" is what is invested): PORTFOLIO, ASSET_CLASS, MONTHLY_INCOME (net proventos of the last 365 days / 12). The
   forecast iterates months with the contribution and the expected annual return turned into a monthly
   rate (capped at 100 years); an optional target date gives the monthly contribution needed
   (annuity formula, `rounded_money()`), and "No prazo / Fora do prazo".

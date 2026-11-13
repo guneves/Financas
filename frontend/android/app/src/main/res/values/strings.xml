@@ -645,7 +645,7 @@
     <string name="metas_create">Criar meta</string>
     <string name="metas_load_failed">Não foi possível carregar as metas.</string>
     <string name="metas_empty_title">Nenhuma meta ainda</string>
-    <string name="metas_empty_message">Patrimônio, carteira, uma classe de ativo ou renda mensal de proventos: diga o alvo e o aporte, e a previsão aparece aqui.</string>
+    <string name="metas_empty_message">A carteira, uma classe de ativo ou renda mensal de proventos: diga o alvo e o aporte, e a previsão aparece aqui.</string>
     <string name="metas_edit">Editar</string>
     <string name="metas_actions">Ações da meta %1$s</string>
     <string name="metas_current">Atual</string>
@@ -657,11 +657,9 @@
     <string name="metas_rate">" a %1$s ao ano"</string>
     <string name="metas_no_rate">, sem rentabilidade</string>
     <string name="metas_needed">. Para chegar em %1$s: %2$s/mês.</string>
-    <string name="metas_hint_net_worth">Carteira de investimentos + saldo das contas.</string>
-    <string name="metas_hint_portfolio">Valor líquido da carteira de investimentos.</string>
+    <string name="metas_hint_portfolio">O que você tem investido hoje: o valor líquido da carteira.</string>
     <string name="metas_hint_class">Valor líquido de uma classe de ativo.</string>
     <string name="metas_hint_income">Média mensal dos proventos líquidos recebidos nos últimos 12 meses.</string>
-    <string name="metas_kind_net_worth">Patrimônio</string>
     <string name="metas_kind_portfolio">Carteira</string>
     <string name="metas_kind_class">Classe</string>
     <string name="metas_kind_income">Renda</string>

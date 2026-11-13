@@ -3,10 +3,8 @@
 A linha guarda so o plano (alvo, aporte mensal, rentabilidade esperada, data
 desejada). Tudo o que depende do mercado e calculado na leitura:
 
-- valor atual, por tipo:
+- valor atual, por tipo (sempre o que esta investido hoje, nunca saldo de conta):
   PORTFOLIO      - `current_net_balance` da carteira;
-  NET_WORTH      - carteira + saldo das contas em reais (arquivadas inclusive,
-                   como o consolidado do Inicio; conta sem cambio fica fora);
   ASSET_CLASS    - soma do liquido das posicoes da classe;
   MONTHLY_INCOME - proventos liquidos pagos nos ultimos 12 meses / 12;
 - previsao: meses ate o alvo com o aporte mensal, capitalizando a
@@ -14,14 +12,16 @@ desejada). Tudo o que depende do mercado e calculado na leitura:
   rentabilidade nao ha previsao. Meta de renda nao tem previsao (renda nao
   cresce por aporte de forma direta);
 - com data desejada: o aporte mensal necessario para chegar nela.
+
+"Patrimonio" (NET_WORTH, carteira + saldo das contas) deixou de existir (dono,
+2026-11-13, 057): o "Atual" de uma meta e o investido. Um APK antigo ainda
+manda NET_WORTH; vira PORTFOLIO na gravacao.
 """
 
 from asset_classes import ALLOWED_ASSET_CLASSES, ASSET_CLASS_LABELS
 from dates import month_key
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import parse_money, rounded_money
-from services.accounts import account_balance_rows
-from services.fx import FxUnavailable, normalize_currency, rate_on, BASE_CURRENCY
 from services.invoices import local_today
 from services.portfolio import build_portfolio_snapshot
 from services.proceeds import paid_proceeds_by_asset
@@ -35,10 +35,11 @@ from validators import (
     shift_month,
 )
 
-GOAL_KINDS = {"PORTFOLIO", "NET_WORTH", "ASSET_CLASS", "MONTHLY_INCOME"}
+GOAL_KINDS = {"PORTFOLIO", "ASSET_CLASS", "MONTHLY_INCOME"}
+# O tipo que saiu (057): aceito de um cliente antigo, gravado como PORTFOLIO.
+LEGACY_KIND_ALIASES = {"NET_WORTH": "PORTFOLIO"}
 GOAL_KIND_LABELS = {
     "PORTFOLIO": "Carteira de investimentos",
-    "NET_WORTH": "Patrimônio total",
     "ASSET_CLASS": "Classe de ativo",
     "MONTHLY_INCOME": "Renda mensal de proventos",
 }
@@ -88,21 +89,6 @@ def months_between(from_month, to_month):
     return (ty - fy) * 12 + (tm - fm)
 
 
-def accounts_total_brl(conn, current_user_id):
-    total = 0.0
-    for row in account_balance_rows(conn, current_user_id):
-        currency = normalize_currency(row["currency"] if "currency" in row.keys() else None)
-        balance = safe_float(row["balance"])
-        if currency == BASE_CURRENCY:
-            total += balance
-            continue
-        try:
-            total += balance * rate_on(conn, current_user_id, currency)
-        except FxUnavailable:
-            continue
-    return total
-
-
 def income_last_12_months(conn, current_user_id, today):
     # A mesma janela (hoje - 365 dias, hoje] da carteira e do resumo de proventos.
     by_asset = paid_proceeds_by_asset(conn, current_user_id, today)
@@ -113,15 +99,13 @@ def current_values(conn, current_user_id, kinds, today):
     """Valor atual por tipo de meta (so calcula o que as metas pedem)."""
     values = {}
     snapshot = None
-    if kinds & {"PORTFOLIO", "NET_WORTH", "ASSET_CLASS"}:
+    if kinds & {"PORTFOLIO", "ASSET_CLASS"}:
         snapshot = build_portfolio_snapshot(current_user_id)
         values["PORTFOLIO"] = safe_float(snapshot.get("current_net_balance"))
         by_class = {}
         for position in snapshot.get("assets") or []:
             by_class[position.get("class")] = by_class.get(position.get("class"), 0.0) + safe_float(position.get("net_value"))
         values["ASSET_CLASS"] = by_class
-    if "NET_WORTH" in kinds:
-        values["NET_WORTH"] = values["PORTFOLIO"] + accounts_total_brl(conn, current_user_id)
     if "MONTHLY_INCOME" in kinds:
         values["INCOME_12M"] = income_last_12_months(conn, current_user_id, today)
         values["MONTHLY_INCOME"] = values["INCOME_12M"] / 12
@@ -213,6 +197,9 @@ def get_goal(current_user_id, goal_id):
 def normalize_goal_payload(payload, existing=None):
     """Campos validados para gravar; `existing` preenche o que o PATCH nao mandou."""
     merged = {**(row_to_dict(existing) or {}), **payload}
+    legacy = str(merged.get("kind") or "").strip().upper()
+    if legacy in LEGACY_KIND_ALIASES:
+        merged["kind"] = LEGACY_KIND_ALIASES[legacy]
     name = require_string(merged, "name", "Nome da meta", max_length=120)
     kind = require_choice(merged, "kind", "Tipo da meta", GOAL_KINDS)
     asset_class = None

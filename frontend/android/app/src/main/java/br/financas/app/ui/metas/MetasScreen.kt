@@ -213,7 +213,7 @@ private fun GoalSheetView(sheet: GoalSheet, viewModel: MetasViewModel) {
                         "PORTFOLIO" -> R.string.metas_hint_portfolio
                         "ASSET_CLASS" -> R.string.metas_hint_class
                         Goals.INCOME -> R.string.metas_hint_income
-                        else -> R.string.metas_hint_net_worth
+                        else -> R.string.metas_hint_portfolio
                     },
                 ),
                 fontSize = 14.sp,
@@ -222,7 +222,6 @@ private fun GoalSheetView(sheet: GoalSheet, viewModel: MetasViewModel) {
             AlertMessage(viewModel.sheetError, AlertTone.DANGER, stringResource(R.string.lanc_dismiss))
             SegmentedChoice(
                 items = listOf(
-                    SelectOption("NET_WORTH", stringResource(R.string.metas_kind_net_worth)),
                     SelectOption("PORTFOLIO", stringResource(R.string.metas_kind_portfolio)),
                     SelectOption("ASSET_CLASS", stringResource(R.string.metas_kind_class)),
                     SelectOption(Goals.INCOME, stringResource(R.string.metas_kind_income)),

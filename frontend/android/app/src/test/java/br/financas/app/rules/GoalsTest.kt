@@ -25,7 +25,7 @@ class GoalsTest {
     // node: 'forecastText: alcancada, renda, sem previsao ou o mes'
     @Test
     fun forecastTextAlcancadaRendaSemPrevisaoOuOMes() {
-        assertEquals("Alcançada", forecastText(true, "NET_WORTH", "2028-10"))
+        assertEquals("Alcançada", forecastText(true, "PORTFOLIO", "2028-10"))
         assertEquals("—", forecastText(false, "MONTHLY_INCOME", null))
         assertEquals("Sem previsão", forecastText(false, "PORTFOLIO", null))
         assertEquals("dez/2028", forecastText(false, "PORTFOLIO", "2028-12"))
@@ -34,14 +34,14 @@ class GoalsTest {
     // node: 'forecastHint: anos e meses, no singular quando e um'
     @Test
     fun forecastHintAnosEMeses() {
-        fun hint(months: Int) = forecastHint(false, "NET_WORTH", "2030-01", months)
+        fun hint(months: Int) = forecastHint(false, "PORTFOLIO", "2030-01", months)
         assertEquals("em 2 anos e 3 meses", hint(27))
         assertEquals("em 1 ano e 1 mês", hint(13))
         assertEquals("em 2 anos", hint(24))
         assertEquals("em 5 meses", hint(5))
         assertEquals("", hint(0))
-        assertEquals("Informe um aporte mensal", forecastHint(false, "NET_WORTH", null, null))
-        assertEquals("", forecastHint(true, "NET_WORTH", "2030-01", 3))
+        assertEquals("Informe um aporte mensal", forecastHint(false, "PORTFOLIO", null, null))
+        assertEquals("", forecastHint(true, "PORTFOLIO", "2030-01", 3))
         assertEquals("", forecastHint(false, "MONTHLY_INCOME", null, null))
     }
 
@@ -56,7 +56,7 @@ class GoalsTest {
 
     @Test
     fun payloadLimpaOQueOTipoEsconde() {
-        val dated = Goals.GoalForm(name = "Reserva", kind = "NET_WORTH", targetAmount = "100.000", monthlyContribution = "2.000", annualReturnPercent = "8,5", targetDate = "2030-01-31")
+        val dated = Goals.GoalForm(name = "Reserva", kind = "PORTFOLIO", targetAmount = "100.000", monthlyContribution = "2.000", annualReturnPercent = "8,5", targetDate = "2030-01-31")
         val body = Goals.payload(dated)
         assertNull(body["asset_class"])
         assertEquals(0, BigDecimal(100000).compareTo(body["target_amount"] as BigDecimal))

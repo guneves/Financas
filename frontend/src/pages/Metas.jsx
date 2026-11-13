@@ -24,15 +24,13 @@ import { getClassLabel } from './investimentos/helpers'
 import { forecastHint, forecastText, goalBadge } from '../lib/goals'
 
 const KINDS = [
-  { value: 'NET_WORTH', label: 'Patrimônio' },
   { value: 'PORTFOLIO', label: 'Carteira' },
   { value: 'ASSET_CLASS', label: 'Classe' },
   { value: 'MONTHLY_INCOME', label: 'Renda' },
 ]
 
 const KIND_HINTS = {
-  NET_WORTH: 'Carteira de investimentos + saldo das contas.',
-  PORTFOLIO: 'Valor líquido da carteira de investimentos.',
+  PORTFOLIO: 'O que você tem investido hoje: o valor líquido da carteira.',
   ASSET_CLASS: 'Valor líquido de uma classe de ativo.',
   MONTHLY_INCOME: 'Média mensal dos proventos líquidos recebidos nos últimos 12 meses.',
 }
@@ -41,7 +39,7 @@ const CLASSES = ['STOCKS', 'REIT', 'FIXED_INCOME', 'OTHER']
 
 const emptyForm = () => ({
   name: '',
-  kind: 'NET_WORTH',
+  kind: 'PORTFOLIO',
   asset_class: 'STOCKS',
   target_amount: '',
   monthly_contribution: '',
@@ -171,8 +169,8 @@ function Figure({ label, value, hint }) {
   )
 }
 
-// Metas (GET /api/goals): o plano fica gravado; atual, progresso e previsao
-// sao calculados no servidor a cada leitura.
+// Metas (GET /api/goals): o plano fica gravado; atual (o investido hoje), progresso
+// e previsao sao calculados no servidor a cada leitura.
 export default function Metas() {
   const privateMoney = usePrivateFormatter(formatCurrency)
   const [sheet, setSheet] = useState({ open: false, goal: null })
@@ -208,7 +206,7 @@ export default function Metas() {
           <EmptyState
             icon={Flag}
             title="Nenhuma meta ainda"
-            message="Patrimônio, carteira, uma classe de ativo ou renda mensal de proventos: diga o alvo e o aporte, e a previsão aparece aqui."
+            message="A carteira, uma classe de ativo ou renda mensal de proventos: diga o alvo e o aporte, e a previsão aparece aqui."
             action={<Button type="button" icon={Plus} onClick={() => setSheet({ open: true, goal: null })}>Nova meta</Button>}
             className="min-h-48"
           />

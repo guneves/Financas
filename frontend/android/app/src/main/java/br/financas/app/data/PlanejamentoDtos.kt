@@ -206,8 +206,8 @@ data class RecurringDeletedDto(@SerialName("kept_transactions") val keptTransact
 data class GoalDto(
     val id: String,
     val name: String = "",
-    /** NET_WORTH, PORTFOLIO, ASSET_CLASS ou MONTHLY_INCOME. */
-    val kind: String = "NET_WORTH",
+    /** PORTFOLIO, ASSET_CLASS ou MONTHLY_INCOME (NET_WORTH saiu em 057). */
+    val kind: String = "PORTFOLIO",
     @SerialName("kind_label") val kindLabel: String? = null,
     @SerialName("asset_class") val assetClass: String? = null,
     @SerialName("target_amount") val targetAmount: Money? = null,
