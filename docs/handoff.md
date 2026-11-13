@@ -7,77 +7,57 @@
 
 ---
 
-## Session — 2026-11-11 (small) · Extrato without a default filter; quote refresh shows only failures
+## Session — 2026-11-11/12 · Architecture audit, four fixes and the first refactoring stack
 
-Done: **Extrato** — the web keeps filters only in the URL (already clean); the APK kept them across openings in
-`ExtratoMemory.filters` (so the pill's "Só a revisar" stuck). Removed: filters start empty in each new
-`ExtratoViewModel`; a restored tab (`openTab` saves state) drops only the review filter when entered without a
-review request (`dropReviewFilter()`, `LaunchedEffect(Unit)` in `NativeActivity`). **Atualizar cotações** —
-web `QuoteUpdateResult` and APK `QuoteResultPanel` render only `failed_assets`, grouped by error; no failure =
-no panel (`lib/quoteUpdate.js` + `quoteUpdate.test.js`, `rules/QuoteUpdateRules.kt` + `QuoteUpdateRulesTest`).
-"Usando cache" and "Desatualizada/sem cotação" lines are gone too (the row's dot shows staleness).
-Checks: `npm test` 245 pass, `vite build` OK; the APK could not build here (no Android SDK / offline Gradle),
-so the `android-check` workflow on the PR is the check. Not done: nothing. Next: unchanged (below).
+Owner's brief: audit the repository (read-only), plan, then refactor in small proven steps; financial rules and owner
+decisions untouchable. He approved C1–C4, then R1–R11 ("take the decisions that make sense for a spending tracker").
 
----
+**Done** — `docs/audit.md` (the report: baseline, layer map, findings with evidence, top-10 debt files, duplications)
+and eleven PRs, none merged when this was written:
 
-## Session — 2026-11-06 (small) · Débito automático warning only 5 days before the due date
+| PR | Step | What |
+|---|---|---|
+| #76 | C1 | Tests only. Three tests failed from 2026-11-11 (hard-coded November dates against the real clock) and **blocked the deploy** (run 127); two more would fail every February. `fake_pluggy` freezes every clock module |
+| #77 | C2 | `PATCH /api/categories` with a `currency` key answered 500 (a block pasted from the account route) |
+| #78 | C3 | Two simultaneous requests paid one invoice twice. `db.begin_write()` (BEGIN IMMEDIATE) before `settle_invoice()` reads; the slower request gets the existing 409 |
+| #79 | C4 | The PTAX was fetched from the BCB with the SQLite write lock held (a slow BCB = 500 on the owner's writes). `prefetch_rates()` before the transaction, `rate_on(fetch=False)` inside |
+| #80 | R1 | `test_architecture.py`: layers, no import cycle (function-level included), ratchet on `_private` uses of other modules; the inbox ↔ open_finance cycle undone |
+| #81 | R2 | `money.to_cents()` / `from_cents()` / `cents_or_zero()` replace eight copies; proved equal on every two-decimal value |
+| #82 | R3 | One clock, `dates.local_now()` (51 direct reads replaced); `dates.now_source` freezes the whole app in a test |
+| #83 | R4 | `services/spending_rules.py`; an 18-case matrix pins what Início, the plan and the budget each count |
+| #84 | R9 | Proventos listing: one read per asset instead of one per provento |
+| #85 | R11 | Hygiene: WebView/Capacitor leftovers out of the APK tree, 7 dead backend functions, 13 dead frontend exports |
+| #86 | R6 (slice 1) | `services/inbox_rules.py`: the 94 pure names of `inbox.py` (2749 → 2071 lines), re-exported |
 
-Done: `AUTOPAY_WINDOW_DAYS` 31 → 5 in `services/attention.py` (owner 2026-11-06: "saldo da conta menor que a
-fatura" appears only when the invoice is due in 5 days or less; the total compared is only those invoices).
-`test_attention.py` adjusted (window edges at +5/+6). No client change: web and APK only render the item.
-Not done: nothing. Next: unchanged (the entry below).
+Each fix has a test that failed before it (first commit of its PR). Each refactor has its characterization test
+written and green **before** the move.
 
----
-
-## Session — 2026-11-06 · Remote access: a login in front of the app on Tailscale Funnel
-
-Branch: **`feat/funnel-auth`**, from `main` at `9b6a1ff`. The owner's plan (design + implementation prompt,
-from a design session the same day): browsers through Google (oauth2-proxy), the APK through a device key,
-both behind Caddy on :8443, published by Funnel; 443 stays tailnet-only.
-
-**Done** (five commits, in the plan's order)
-1. *Dev on one origin*: flask-cors, `CORS_ORIGINS` and the `Access-Control-Expose-Headers` lines removed;
-   Vite proxies `/api` to `127.0.0.1:5000`; the dev API base is `''`; `start.ps1` waits on
-   `127.0.0.1:5173`; `test_no_cors.py`.
-2. *SPA*: `lib/proxySession.js` (`isProxyAuthResponse`, `shouldReload`) with a node test; `apiFetch`/`apiBlob`
-   fetch with `redirect: 'manual'`, throw `ApiProxyAuthError` (its own class, `proxyAuth: true`), reload after
-   1 s at most once per 30 s (sessionStorage), never clear the JWT; `queuesCreation()` and `outcomeOf`
-   `proxyAuth → retry` in `outboxRules.js`.
-3. *Compose*: `oauth2-proxy` and `proxy` (Caddy) as in the prompt; `PROXY_PORT`/`OAUTH2_ALLOWED_EMAILS` in
-   `.env.example`; `oauth2.env`/`proxy.env` ignored. Checked on the PC (Docker 29.6): every expected status
-   matched (401 + `X-Proxy-Auth`, 302, 200 with the key for `/api/health` and `/apk/version.json`, 401 for
-   wrong/empty/missing key, 502 without `oauth2.env` while 8101 answers); the `expression` matcher with
-   `{env.PROXY_DEVICE_KEY}` works as written.
-4. *APK*: base `…ts.net:8443` (build.gradle, deploy.yml, build-apk.ps1); `ServerAddress.migrate()` rewrites a
-   stored 443 base on start (`Session.migrateBaseUrl`, from `AppGraph` init); the key is in `Session`,
-   Keystore-encrypted, and `Session.clear()` keeps it; `DeviceKey` (header, `isProxyAuthRequired`, `apply`)
-   used by `OutboxSender`, `DetectionSender`, `ApkUpdater` (manifest and download) and an OkHttp
-   `DeviceKeyInterceptor` (ApiClient, AuthRepository). A proxy 401 is `ApiException.ProxyAuth`, **a subclass
-   of `Network`** (reads show the cache, "+ Novo" queues, no `when` had to change), calls `onProxyAuth` →
-   `AppGraph.deviceKeyNeeded` → the shell's `DeviceKeyDialog`; "Agora não" silences it until a new key is
-   saved. The outbox stops with `"key"` and the worker retries (`OutboxWorker.retries()`); the detection
-   sender returns `"key"` and retries. Login screen field "Chave de acesso remoto" (prefilled, saved before
-   the login; `LoginResult.KeyNeeded`); Ajustes › Perfil › "Trocar chave de acesso". Saving a key flushes
-   the queue and the detections.
-5. *Docs*: README "Remote access", DEPLOY.md (rollout section, address table, `/apk`, no-webhooks wording),
-   CLAUDE.md (deploy paragraph, outbox line), `frontend/.env.example` (empty `VITE_API_BASE_URL`).
-
-**Checks**: pytest in 4 chunks, all green (see the PR); `npm test` 243 pass; APK `testDebugUnitTest` 596
-pass + `assembleDebug`; `uvx ruff check backend`: 406 findings, all pre-existing (the touched files have
-the same 3 I001 as on `main`), reported, not fixed.
+**Numbers.** Baseline on `main`: pytest 2868 passed / 3 failed, `npm test` 245, ruff 406. Full suite on the stack:
+after R1 (C1–C4 merged in) **2882 passed, 0 failed**; after R4 **2919 passed, 0 failed**; the runs at R11 and R6 are
+in the PR descriptions/comments. `npm test` 245 pass and `vite build` OK after R11. Ruff: no new finding in any step
+(402 after C2; 3 fewer after R11). APK: not built (no Android SDK in the cloud container).
 
 **Not done, and why**
-- **The rollout** (DEPLOY.md "Remote access", steps 1–10): it needs the owner's Google OAuth client and an
-  approval at every `sudo`/Tailscale step; the order matters — `tailscale serve --https=8443` **before** the
-  merge, and the phone installs the new APK **over the VPN from 443** (the old APK knows only 443).
-- No real-device check of the APK's key UI, and the web reload only unit-tested.
+- **R5, R7, R8, R10 and the rest of R6** (see `next-steps.md`, top section). Each needs its own characterization
+  tests first (golden rows, response shapes, JS/server parity) and each moves code the eleven open PRs also touch.
+  Stacking five more risky moves on an unreviewed stack was the wrong trade; they start once the stack is merged.
+- **The three disagreements between Início, the plan and the budget** were pinned, not resolved: resolving them
+  changes numbers on screen. The recommendation is in #83 and in `next-steps.md`.
+- **Import sorting / `ruff.toml`**, the four client-less routes, the 12 test-only frontend exports: kept (reasons
+  in #85).
+- **APK**: #85 deletes files under `frontend/android/`; only `android-check` compiles it.
 
-**Next**: the rollout in `docs/next-steps.md` (top item).
+**Next**: merge #76 first (the deploy is blocked), then the order in `next-steps.md`. Then R5.
 
 **Lessons**
-- Bash heredocs collapse `\\` (a `"\\s+"` became `"\s+"` in Java); write edit scripts with the Write tool.
-- `frontend/.env.local` on the PC holds only old Supabase keys; it doesn't set `VITE_API_BASE_URL`, so dev
-  really is same-origin now.
-- Without `oauth2.env`, oauth2-proxy restart-loops; `/api` then answers 502 (not 401) through Caddy. The key
-  path still works.
+- Python's `sqlite3` opens a transaction only at the first write: a `SELECT` used as a guard is unprotected. Use
+  `db.begin_write(conn)` before the check when two requests racing would cost money.
+- Never call the network on a connection that already wrote; fetch first, then open the transaction.
+- A test world must freeze **every** module that reads the clock (`finance_world.freeze`), not only
+  `services.invoices`; from R3 on, `dates.now_source` does it in one place. SQLite's `now` never moves.
+- The cloud container was replaced twice mid-session and local work was lost once: push each commit as it is made,
+  run one full suite at a time, keep scratch scripts re-creatable.
+- `ruff check backend` from the repository root and `ruff check .` from `backend/` give different totals (406 vs
+  354 on `main`); compare like with like.
+- To extract code from a giant module without breaking test patches: move only functions whose dependencies are
+  all in the moved set and that read no name a test replaces on the old module; re-export by name.

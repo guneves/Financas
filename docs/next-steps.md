@@ -9,6 +9,46 @@
 
 ## 1. Open work, in priority order
 
+### Architecture audit (`docs/audit.md`, 2026-11-11/12) — the stack to merge, and what is left
+Eleven PRs are open. **Nothing deploys until #76 is merged**: `main`'s test job has failed since 2026-11-11.
+- [ ] **Owner: merge, in this order.** #76 (C1, tests only: unblocks the deploy) → #77 (C2) → #78 (C3) → #79 (C4);
+  then the stack, bottom up, each PR based on the previous branch: #80 (R1) → #81 (R2) → #82 (R3) → #83 (R4) →
+  #84 (R9) → #85 (R11) → #86 (R6, first slice) → the docs PR. Merging a base retargets the next one to `main`. If
+  GitHub shows a conflict after a squash-merge, merge with a merge commit instead, or ask a session to rebase the rest.
+- [ ] **#85 was not compiled**: it deletes the WebView assets from the APK tree; `android-check` on the PR is the
+  check. If it fails, drop that one commit.
+- [ ] **Owner decisions the audit raised** (each is one line in `services/spending_rules.py` plus its case in
+  `test_month_spending_rules.py`): (1) a despesa/receita typed in a Corretora account counts in the plan and the
+  budget but not in Início ("B2"); (2) a category starting with "pagamento fatura" in lower case is spending for
+  Início only; (3) an INCOME named "Pagamento Fatura…" is income for Início only. Recommended: the plan and the
+  budget follow Início on (1); the case-insensitive match everywhere on (2) and (3).
+- [ ] **Not done, each needs its characterization tests first** (plan in the PR descriptions and `docs/audit.md` §3 D):
+  - **R5** `services/entries.py`: one creation of a lançamento / card purchase / refund for the routes,
+    `inbox_decisions.create_entry()` and `open_finance_invoices`. Before moving: a "golden row" test (the same input
+    through the route and through the engine, every stored column compared).
+  - **R6, the rest**: `services/inbox.py` is still 2071 lines of engine (items, pairing against the database,
+    transfer absorption). Split by dependency order as the first slice was (leaf first, re-exported), checking the
+    names tests patch on `services.inbox` (today only `notification_wanted`).
+  - **R7** the same for `open_finance_inbox.py` (1860) and `open_finance.py` (1230); unify the shared steps of
+    `auto_record.py` and `open_finance_auto.py` (`hold_reason`, `one_side_now`, `record_item`).
+  - **R8** thin routes: `investment_detail` (219 lines), `create_movements` (172), `cc_expenses` (148),
+    `update_transaction` (141), `account_detail` (127) into services. Before moving: a response-shape test per route
+    (the APK depends on the keys).
+  - **R10** the web Início reads `GET /api/home/panels` and drops `buildSpending()` and the whole-history fetch
+    (548 KB + 671 KB on a 3-year seed). Before switching: a parity test (same data through `buildSpending` and the
+    server); every difference goes to the owner, because the web numbers change where they differ.
+  - Import sorting (ruff I001 ×139) and a `ruff.toml`: one PR after the stack is merged (it touches ~90 files).
+- [ ] **Audit findings left open**: no attempt limit on login and a 6-character password floor (C3); an unhandled
+  exception answers HTML, not JSON (C4); `recurring.settled_dates()` is read once per recurrence (14 statements);
+  the other check-then-write guards (budget sum ≤ 100%, card delete, signup "closed once a user exists") have the
+  window `db.begin_write()` closed for invoices: use it there too if one ever bites.
+- [ ] Four routes no current client calls (`POST /api/database/backups`, `GET /api/database/status`,
+  `DELETE /api/investments/by-ticker/<ticker>`, `PATCH /api/investments/price-by-ticker`) and 12 frontend exports
+  used only by their own tests were kept: remove only once no installed APK can call the routes.
+- [ ] The clock sweep (suite re-run with Python's clock at +30/+90/+400 days) cannot move SQLite's `now` or file
+  mtimes: 10 tests fail under it for that reason only. A test that compares a fixed date with `created_at` is
+  still a possible calendar bomb; `dates.now_source` (R3) is the way to freeze.
+
 ### Remote access: Funnel :8443 behind Google / device key — built (2026-11-06); rollout open
 Code merged with branch `feat/funnel-auth` (README "Remote access", DEPLOY.md "Remote access: the auth
 proxy on :8443"). Nothing is public yet: Funnel is off.
@@ -250,7 +290,8 @@ The project docs (architecture, conventions, desktop, one spec per screen) are i
   parte…" while every other money field takes a comma (`parseMoneyInput()`). Fix both sides with a
   test each (the port mirrors the JS on purpose). Native Extrato and Cartões already read the part
   with `parseMoneyInput()` before `shareFormError()` (`normalizedShare()`); the web still refuses.
-- [ ] **pytest fails between 21:00 and midnight local time**:
+- [ ] **pytest fails between 21:00 and midnight local time** (possibly fixed already: `proceeds_cash.portfolio_since()`
+  converts `created_at` to the local day; not re-run at that hour, 2026-11-12):
   `test_fixed_income_interest.py::TestTheCouponReachesTheAccount::test_paid_lands_in_the_portfolio_account_and_scheduled_waits`
   (`assert 0 == 1`) — at that hour UTC is already the next day, so the test's `days(0)` and
   `apply_paid_proceeds()`'s "today" disagree. Seen 2026-10-22 21:43 local; find which side uses

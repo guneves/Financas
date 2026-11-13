@@ -295,7 +295,8 @@ doesn't cover, comes only from notices (and typing).
   redirect to the Extrato. Waiting items resolve there: `WaitingItems` (web), `ReviewSection` (APK), shown only
   while one exists. Ajustes has no Aprovar section and no "Gravar sozinho" switch; the settings stay on the API
   as the brake. The owner's only job: categories and doubts, in Revisar.
-- **Who speaks** (`NOTIFICATION_POLICY` + `notification_wanted(detection)` in `services/inbox.py`, pure; the
+- **Who speaks** (`NOTIFICATION_POLICY` + `notification_wanted(detection)`, pure, in `services/inbox_rules.py`:
+  the rules that touch no database live there and `services/inbox.py`, the engine, re-exports every name; the
   APK's `NotifyRules.APPS`, manifest `<queries>` and `NotifyParsers.parse()` repeat it, but an old APK is safe
   because the server decides):
 
