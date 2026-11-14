@@ -471,6 +471,8 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
         # O par aproximado: depois de todos os pares
         # exatos do pull e antes de gravar, para nunca gravar duas vezes.
         near = open_finance_inbox.near_match_pass(conn, current_user_id, pending_before)
+        # E o par que so ficou unico agora, entre dois ja gravados.
+        near += open_finance_inbox.late_near_pass(conn, current_user_id, today_text)
         if near:
             counts["near_match"] = near
         if investments is not None:

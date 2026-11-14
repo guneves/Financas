@@ -189,6 +189,8 @@ def undo_declined(conn, current_user_id, results):
         item = inbox.item_dict(row)
         if not open_finance_inbox.notification_untouched(conn, current_user_id, item):  # o snapshot (Fase 4)
             continue
+        if open_finance_inbox.has_paid_installment(conn, current_user_id, item["target_table"], item["target_id"]):
+            continue  # a fatura paga e historia (037)
         open_finance_inbox._drop_target(conn, current_user_id, item)
         inbox.save_item(
             conn, current_user_id, item,

@@ -65,7 +65,7 @@ proxy on :8443"). Nothing is public yet: Funnel is off.
 The rules as built are in CLAUDE.md ("Notifications are fast, Pluggy is the record", "Auto-record →
 reconcile → review", "The inbox engine"); the tests are `test_notify_pluggy_identity.py`,
 `test_notify_pluggy_fuzz.py`, `test_notify_pluggy_plans.py`, `test_notification_policy.py`,
-`test_quiet_review.py`, `test_twins.py`, `test_open_finance_orphans.py`.
+`test_quiet_review.py`, `test_twins.py`, `test_open_finance_orphans.py`, `test_notify_pluggy_audit.py`.
 - [ ] **Owner, with the new APK installed**, in order:
   1. an Itaú card purchase shows up in seconds;
   2. after the next pull it is still one row;
@@ -91,6 +91,12 @@ reconcile → review", "The inbox engine"); the tests are `test_notify_pluggy_id
   BB's rounding). With `include_pending` on, a pending Pluggy row the bank's balance doesn't count makes
   the difference never equal an orphan, so nothing is removed (safe side). Watch the Conferência's
   "Confirmado pelo saldo" list on real data.
+- [ ] Owner's call (audit, 2026-11-13): a Pluggy **purchase** with the same cents, on the same day and account as
+  a notified own transfer, can take that transfer's Pluggy slot (`open_finance_fits_item()` accepts any row for a
+  TRANSFER item). Requiring a Pix/TED mark would double a transfer whose bank row has none; left as is.
+- [ ] Watch after the deploy: `near_match` in the pull log now also counts `late_near_pass()` joins (a
+  Pluggy-recorded row removed in favour of the notice's row). A pull that fails with "a Pluggy repetiu o
+  cursor" is the new refusal of a cut history: it retries by itself.
 - [ ] Known limits, kept on purpose; revisit only if real data shows them: an account with **no** Pluggy
   history looks back only `OVERLAP_DAYS` (7), so an international purchase posted weeks later isn't seen
   on a just-connected account; a card with a single sandbox-sign purchase learns the docs' sign (+) and

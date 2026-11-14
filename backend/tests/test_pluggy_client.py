@@ -2,7 +2,7 @@
 
 - a API key e pedida uma vez e reusada (o /auth tem limite); um 401 pede outra, uma vez;
 - a rede que falha tenta de novo UMA vez; um erro da Pluggy nao repete;
-- as transacoes seguem o cursor `next` ate null, e param num cursor repetido;
+- as transacoes seguem o cursor `next` ate null; um cursor repetido e erro;
 - nada de segredo, chave ou descricao no log;
 - cada resultado vai para o healthcheck (integrations).
 """
@@ -161,11 +161,13 @@ class TestTransactions:
         assert "after=Q1VSU09SMQ%3D%3D" in pages[1] and "dateFrom=2026-09-27" in pages[1]
         assert "pageSize" not in "".join(pages)
 
-    def test_a_repeated_cursor_stops(self, http):
+    def test_a_repeated_cursor_is_an_error_never_a_short_history(self, http):
+        # Um historico cortado faria o pull dar por sumido o que nao veio.
         http.on("POST", "/auth", {"apiKey": "chave-1"})
         http.on("GET", "/v2/transactions", {"results": [{"id": "t1"}], "next": "?after=MESMO"})
-        results = make_client().list_transactions("acc-1", "2026-09-27")
-        assert len(results) == 2
+        with pytest.raises(pluggy_client.PluggyError) as error:
+            make_client().list_transactions("acc-1", "2026-09-27")
+        assert error.value.network
         assert len([req for req in http.requests if "/v2/transactions" in req[1]]) == 2
 
     @pytest.mark.parametrize("value, expected", [
