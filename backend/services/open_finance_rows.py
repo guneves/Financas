@@ -84,7 +84,10 @@ def local_moment(text):
     if not raw:
         raise Skip("sem data")
     if len(raw) == 10:
-        datetime.strptime(raw, "%Y-%m-%d")
+        try:
+            datetime.strptime(raw, "%Y-%m-%d")
+        except ValueError as exc:
+            raise Skip("data invalida") from exc
         return raw, raw
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))

@@ -465,7 +465,9 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   snapshot), so later bank changes apply as for a Pluggy-recorded row; another date or account/card
   → the row is deleted and the item re-recorded the bank's way right after the pull; edited (snapshot
   differs) or a transfer → only `MATCHED` (a transfer's guessed side still follows the bank,
-  `follow_bank_side()`, below).
+  `follow_bank_side()`, below). **A card purchase with a paid installment is never redone**
+  (`has_paid_installment()`, 2026-11-13): another date or card from the bank only links it (`MATCHED`);
+  a paid invoice is history (037).
 - **Card purchases are in the Extrato** (`GET /api/cc-expenses/statement`,
   `services/card_statement.py`): one row per purchase (total, installments, `needs_review`), the
   Extrato's filters (type EXPENSE = purchases, INCOME = refunds, TRANSFER or an account → none),
@@ -530,7 +532,14 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   way**. The Pluggy item is `REMOVED` (`near_match`) and the row joins the notification's;
   **the bank's amount wins** (`follow_bank_amount()`), reviewed or recategorised too, unless the
   owner typed the amount (current ≠ the snapshot's): then only `MATCHED` + `conflict = 'changed'`.
-  An untouched row keeps its id and takes the bank's date. With no pair on the day, a bank row also pairs with a
+  An untouched row keeps its id and takes the bank's date. **A pair that only became unique later**
+  (`late_near_pass()`, 2026-11-13, after `near_match_pass()` in each pull): two near purchases at one merchant
+  notified before the bank listed either; the first bank row was ambiguous and was recorded alone, and once the
+  second finds its notice, the leftover notice row and bank row are one purchase: the Pluggy-recorded row
+  leaves (only untouched, its own, no paid installment) and the bank row joins the notice's item. **The same
+  id with another amount** (`apply_change()`): a row a notification recorded follows the bank's amount by
+  `follow_bank_amount()` too (reviewed or recategorised; a typed amount stays, `conflict = 'changed'`); a row
+  Pluggy itself recorded keeps the mutation guard below. With no pair on the day, a bank row also pairs with a
   notification that already became a lançamento up to `OPEN_FINANCE_LATE_POST_DAYS` (5) before it
   (the bank posts late), never a second row. **Banco do Brasil rounds up** (owner, 2026-10-27:
   18,19 reaches Pluggy as 19,00): for a `ROUNDS_UP_ISSUERS` connection a whole-reais amount pairs
@@ -541,7 +550,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   The card sign is learned per account (`learn_charge_sign()`): the sandbox contradicts the docs.
   **GET only** (owner, 2026-10-27): the app never asks the bank for new data (`PATCH /items` spends
   the free MeuPluggy CPF quota and blocks the account for the month); `pluggy_client.call()` refuses
-  PATCH. Pluggy refreshes banks itself (6–24 h); the app reads what it has. Settings live in
+  PATCH. Pluggy refreshes banks itself (6–24 h); the app reads what it has. A transactions cursor that
+  repeats is a `PluggyError`, never a short list (a cut history would vanish what it left out). Settings live in
   `user_settings` (`GET/PATCH /api/open-finance/settings`): `sync_hours` per user (0 = button only,
   else **6–24**; the thread ticks every 15 min and pulls whoever is due), `include_pending`,
   `first_sync_days`, `auto_record`.

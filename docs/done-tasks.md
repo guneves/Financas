@@ -1427,3 +1427,10 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   the "estimado" note still count it (`applyPendingToHome`). Início's API bytes on the 3-year seed:
   1 268 606 → 21 897 (10 requests → 8). `invoice_projection` and `next_invoice_months` are not used by the web
   page (it has no "Próximas faturas" panel; the tile's label comes from `/api/home`).
+
+### Notification / Open Finance engine audit — 2026-11-13
+- Five defects fixed, tests in `test_notify_pluggy_audit.py` and `test_pluggy_client.py`: a paid card purchase
+  is never redone the bank's way (`has_paid_installment()`); the near pair that only became unique later is
+  joined (`late_near_pass()`); a notification-recorded row follows the bank's amount when the same Pluggy id
+  changes it (`apply_change()`); a repeated transactions cursor is a `PluggyError`, never a short history; a
+  malformed date is a `Skip`. The generated worlds pass on seeds 0–499 (and 500–899 before the last narrowing of `apply_change()`).

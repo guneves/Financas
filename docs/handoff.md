@@ -46,6 +46,25 @@ suite; ruff is not installed in the venv here.
 - A second session (pluggy/open_finance files, `test_zz_*`) was working in the same tree, uncommitted; none of
   it is in this PR.
 
+**Also this day: audit of the notification / Open Finance engine** (owner: "verify the logic, no bugs").
+Read every module of the engine (inbox*, open_finance*, auto_record, recorded_snapshot, review, twins, the two
+routes, `pluggy_client`), probed suspicions with scratch tests and ran the generated worlds on 700 seeds beyond
+the 200 of the suite. Five defects, each with a test in `test_notify_pluggy_audit.py` (or its own file):
+- **A paid card purchase was deleted and redone** when the bank listed it under another date or card
+  (`reconcile_recorded()` dropped it and re-recorded it OPEN). Now only linked (`has_paid_installment()`).
+- **Two near purchases at one merchant ended as three rows** (fuzz seed 247: two foreign top-ups notified
+  before the bank listed either). `late_near_pass()` joins the leftover pair once it is unique.
+- **The same Pluggy id with another amount** (the tip on a pending row, fuzz seed 251) left a recategorised
+  notification row at the old amount; it now follows the bank (`apply_change()` → `follow_bank_amount()`). A
+  row Pluggy itself recorded keeps the 044 guard (edited → `conflict`), as its test demands.
+- **A repeated transactions cursor returned a short list** (`pluggy_client.list_transactions`): the pull would
+  have vanished what was left out. It is a `PluggyError` now (the old test asserted the short list; rewritten).
+- **A malformed 10-character date raised `ValueError`** and failed the whole pull; it is a `Skip`.
+- Checked and found right (no change): twin own transfers in any pull order, the per-channel slots, the gate.
+- **Not changed, owner's call**: a Pluggy purchase of the same cents on the same day as a notified own
+  transfer from that account can take the transfer's Pluggy slot (`open_finance_fits_item()` does not ask
+  for a movement); tightening it would double a transfer whose row has no Pix/TED mark.
+
 **Not done, and why**
 - The branch `pr-assets/web-home-panels` (screenshots only) is still on the remote: #96's description links to
   it. Delete it when the pictures are no longer wanted.

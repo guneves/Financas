@@ -672,6 +672,22 @@ def _drop_target(conn, current_user_id, item):
     )
 
 
+def has_paid_installment(conn, current_user_id, table, target_id):
+    """A compra no cartao com parcela ja baixada e historia (037): nunca sai, nem
+    para ser refeita do jeito do banco."""
+    if table != "cc_expenses" or not target_id:
+        return False
+    return conn.execute(
+        """
+        SELECT 1 FROM cc_expenses
+        WHERE user_id = ? AND status <> 'OPEN'
+          AND client_id = (SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?)
+        LIMIT 1
+        """,
+        (current_user_id, target_id, current_user_id),
+    ).fetchone() is not None
+
+
 def follow_bank_side(conn, current_user_id, row, item, account_id):
     """Defeito R: a notificacao de uma ponta so gravou a transferencia com o
     outro lado adivinhado (`guessed`); a Pluggy mostra de qual conta o dinheiro
@@ -778,7 +794,9 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
       item volta a esperar com o que o banco diz; a passada da Pluggy logo
       depois do pull o grava de novo, a revisar;
     - editado pelo dono (ou uma transferencia): so liga (MATCHED); a
-      Conferencia aponta o que nao bater.
+      Conferencia aponta o que nao bater. Tambem a compra com parcela ja paga
+      que o banco data ou poe em outro cartao: a fatura paga e historia (037),
+      refazer a compra a tiraria de la.
 
     "Intocado" e o snapshot (Fase 4): o "e meu" sem mudar nada nao conta como
     toque, e a revisao que saiu sozinha (settle_review) tambem nao.
@@ -786,7 +804,11 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
     table, target_id = item["target_table"], item["target_id"]
     if item["entry_type"] == "TRANSFER":
         follow_bank_side(conn, current_user_id, row, item, account_id)
-    if item["entry_type"] == "TRANSFER" or not notification_untouched(conn, current_user_id, item):
+    disagrees = bank_disagrees(item, row, entry_type, account_id, card_id)
+    if (
+        item["entry_type"] == "TRANSFER" or not notification_untouched(conn, current_user_id, item)
+        or (disagrees and has_paid_installment(conn, current_user_id, table, target_id))
+    ):
         _update_row(
             conn, current_user_id, row["id"], role="MATCHED", item_id=item["id"],
             target_table=table, target_id=target_id,
@@ -794,7 +816,7 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
         if item["entry_type"] == "TRANSFER":
             inbox.settle_transfer_review(conn, current_user_id, item["id"])
         return "matched"
-    if bank_disagrees(item, row, entry_type, account_id, card_id):
+    if disagrees:
         _drop_target(conn, current_user_id, item)
         _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"], target_table=None, target_id=None)
         changes = {
@@ -1332,6 +1354,82 @@ def near_match_pass(conn, current_user_id, before):
     return joined
 
 
+def late_near_pass(conn, current_user_id, today_text):
+    """O par aproximado que so ficou unico depois: duas compras na mesma loja,
+    de valores perto, avisadas antes de o banco listar qualquer uma (duas
+    recargas no exterior). A primeira linha do banco tinha dois avisos possiveis
+    e gravou sozinha; quando a segunda acha o aviso dela, sobram um aviso gravado
+    sem linha do banco e uma linha do banco gravada sem aviso: a mesma compra em
+    duas linhas (no cartao nem o saldo desfaz). Aqui elas se juntam, pela mesma
+    regra do par unico de cada lado: o lancamento que a Pluggy gravou sai, so se
+    intocado, dela e sem parcela paga, e a transacao entra no item do aviso
+    (near_join). Depois de near_match_pass(), antes de gravar. Devolve quantos."""
+    first = inbox._shift(today_text, -(inbox.late_posting_days() + inbox.OPEN_FINANCE_LATE_POST_DAYS))
+    rows = [row_to_dict(row) for row in conn.execute(
+        """
+        SELECT o.* FROM open_finance_transactions o
+        JOIN inbox_items i ON i.id = o.item_id AND i.user_id = o.user_id
+        WHERE o.user_id = ? AND o.role = 'SOURCE' AND o.auto_recorded_at IS NOT NULL AND o.direction = 'OUT'
+          AND o.date >= ? AND o.target_id IS NOT NULL AND o.conflict IS NULL AND i.state = 'APPROVED'
+          AND NOT EXISTS (SELECT 1 FROM notify_detections d WHERE d.user_id = o.user_id AND d.item_id = o.item_id)
+          AND NOT EXISTS (SELECT 1 FROM open_finance_transactions p
+                          WHERE p.user_id = o.user_id AND p.item_id = o.item_id AND p.id <> o.id AND p.role <> 'REMOVED')
+        ORDER BY o.date, o.id
+        """,
+        (current_user_id, first),
+    ).fetchall()]
+    pairs = {}
+    for row in rows:
+        if not inbox.near_row_ok(conn, current_user_id, row):
+            continue
+        found = inbox.near_notification_items(conn, current_user_id, row)
+        if found:
+            pairs[row["id"]] = (row, found)
+    wanted = {}
+    for _row, found in pairs.values():
+        for item_row in found:
+            wanted[item_row["id"]] = wanted.get(item_row["id"], 0) + 1
+    joined = 0
+    for row, found in pairs.values():
+        if len(found) != 1 or wanted[found[0]["id"]] != 1:
+            continue
+        notification_row = found[0]
+        if notification_row["state"] not in inbox.RECORDED_STATES or not notification_row["target_id"]:
+            continue
+        if not (untouched(conn, current_user_id, row) and own_target(conn, current_user_id, row)):
+            continue
+        if has_paid_installment(conn, current_user_id, row["target_table"], row["target_id"]):
+            continue
+        _release_recorded_row(conn, current_user_id, row)
+        near_join(conn, current_user_id, row_to_dict(_by_id(conn, current_user_id, row["id"])), notification_row)
+        joined += 1
+    return joined
+
+
+def _release_recorded_row(conn, current_user_id, row):
+    """O lancamento que esta transacao gravou sozinha sai (intocado e dela: quem
+    chama conferiu) e o item dela fecha; a transacao fica livre para outro item."""
+    conn.execute(
+        "DELETE FROM recurring_settlements WHERE user_id = ? AND target_table = ? AND target_id = ?",
+        (current_user_id, row["target_table"], row["target_id"]),
+    )
+    if row["target_table"] == "transactions":
+        conn.execute("DELETE FROM transactions WHERE id = ? AND user_id = ?", (row["target_id"], current_user_id))
+    else:
+        conn.execute("DELETE FROM cc_expenses WHERE user_id = ? AND client_id = ?", (current_user_id, row["dedup_key"]))
+    item_row = inbox.fetch_item(conn, current_user_id, row["item_id"])
+    if item_row:
+        inbox.save_item(
+            conn, current_user_id, inbox.item_dict(item_row),
+            {"state": inbox.REMOVED, "reason": "near_match", "target_table": None, "target_id": None,
+             "decided_at": utc_timestamp()},
+        )
+    _update_row(
+        conn, current_user_id, row["id"], role="UNMAPPED", item_id=None, target_table=None, target_id=None,
+        auto_recorded_at=None, recorded_snapshot=None,
+    )
+
+
 def near_join(conn, current_user_id, row, notification_row):
     """A transacao da Pluggy e a compra que a notificacao trouxe com outro
     valor: o item da Pluggy sai (REMOVED, near_match), a transacao entra no da
@@ -1481,12 +1579,24 @@ def apply_change(conn, current_user_id, row, tx):
     intocada, na mesma direcao e de uma linha so (um lancamento, ou uma compra
     1/1 em aberto): o lancamento acompanha. Senao nada muda e a Conferencia
     aponta (`conflict = 'changed'`)."""
-    if (
-        tx["direction"] != row["direction"]
-        or not untouched(conn, current_user_id, row)
-        or not own_target(conn, current_user_id, row)
-    ):
+    if tx["direction"] != row["direction"]:
         return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+    if not untouched(conn, current_user_id, row) or not own_target(conn, current_user_id, row):
+        # A compra que uma notificacao gravou e o banco lancou com outro valor
+        # (a gorjeta, sob a mesma id): revisada ou com outra categoria, o valor
+        # do banco ainda vale, como na sucessao e no par aproximado
+        # (follow_bank_amount); so o valor que o dono digitou fica. O que a
+        # propria Pluggy gravou segue a guarda de sempre (044): editado, fica.
+        item_row = inbox.fetch_item(conn, current_user_id, row["item_id"]) if row.get("item_id") else None
+        if not item_row or not item_row["recorded_snapshot"] or not follow_bank_amount(
+            conn, current_user_id, inbox.item_dict(item_row), tx["amount_cents"],
+        ):
+            return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+        _update_row(
+            conn, current_user_id, row["id"], conflict=None, conflict_amount_cents=None,
+            **{field: tx[field] for field in ROW_FIELDS if field != "dedup_key"},
+        )
+        return "corrected"
     amount = money.from_cents(tx["amount_cents"])
     if row["target_table"] == "transactions":
         conn.execute(
