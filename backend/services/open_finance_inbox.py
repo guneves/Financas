@@ -315,6 +315,20 @@ def place(conn, current_user_id, row, account, rules=None):
             )
             inbox.settle_transfer_review(conn, current_user_id, approved["id"])
             return "matched"
+        # A transferencia que um aviso gravou com este lado adivinhado noutra
+        # conta: o lado passa a ser o do banco, e esta transacao a fonte dele.
+        counterparty = {"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]}
+        guessed = inbox.guessed_transfer_awaiting(
+            conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
+            date_text=row["date"], counterparty=counterparty,
+        )
+        if guessed and inbox.move_guessed_side(conn, current_user_id, guessed, row["direction"], account_id):
+            _update_row(
+                conn, current_user_id, row["id"], role="MATCHED", item_id=guessed["id"],
+                target_table="transactions", target_id=guessed["target_id"],
+            )
+            inbox.settle_transfer_review(conn, current_user_id, guessed["id"])
+            return "matched"
         other = inbox.transfer_partner(
             conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
             date_text=row["date"], detection={"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]},
@@ -692,38 +706,10 @@ def follow_bank_side(conn, current_user_id, row, item, account_id):
     """Defeito R: a notificacao de uma ponta so gravou a transferencia com o
     outro lado adivinhado (`guessed`); a Pluggy mostra de qual conta o dinheiro
     saiu (ou para qual entrou). O lado adivinhado, que o dono nao mexeu, passa a
-    ser o do banco. Nunca as duas pontas na mesma conta, nunca a conta global,
-    nunca uma conta arquivada. Devolve True se corrigiu."""
-    field, need = ("account_id", "account") if row["direction"] == "OUT" else ("transfer_account_id", "transfer_account")
-    other_field = "transfer_account_id" if field == "account_id" else "account_id"
-    current = item.get(field)
-    if not account_id or current == account_id or not current:
-        return False
-    if need not in (item.get("guessed") or []) or field in (item.get("edited") or []):
-        return False
-    if item.get("target_table") != "transactions" or item.get(other_field) == account_id:
-        return False
-    if not inbox._brl_active_account(conn, current_user_id, account_id):
-        return False
-    if global_account.is_foreign(conn, current_user_id, current):
-        return False
+    ser o do banco (inbox.move_guessed_side). Devolve True se corrigiu."""
     if not snapshot_unchanged(conn, current_user_id, item):
         return False
-    merged = {**item, field: account_id}
-    changes = {field: account_id, "guessed": [guess for guess in item.get("guessed") or [] if guess != need]}
-    if "description" not in (item.get("edited") or []):
-        changes["description"] = inbox._transfer_description(
-            conn, current_user_id, merged["account_id"], merged["transfer_account_id"], item.get("description"),
-        )
-    conn.execute(
-        f"UPDATE transactions SET {field} = ?, description = ? WHERE id = ? AND user_id = ? AND type = 'TRANSFER'",
-        (account_id, changes.get("description", item.get("description")), item["target_id"], current_user_id),
-    )
-    changes["needs"] = inbox.recompute_needs({**item, **changes})
-    inbox.save_item(conn, current_user_id, item, changes)
-    refresh_snapshots(conn, current_user_id, item["id"], item["target_table"], item["target_id"])
-    item["recorded_snapshot"] = _dump(target_snapshot(conn, current_user_id, item["target_table"], item["target_id"]))
-    return True
+    return inbox.move_guessed_side(conn, current_user_id, item, row["direction"], account_id)
 
 
 def settle_review(conn, current_user_id, item, row, entry_type, account_id=None):

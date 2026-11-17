@@ -1434,3 +1434,12 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   joined (`late_near_pass()`); a notification-recorded row follows the bank's amount when the same Pluggy id
   changes it (`apply_change()`); a repeated transactions cursor is a `PluggyError`, never a short history; a
   malformed date is a `Skip`. The generated worlds pass on seeds 0–499 (and 500–899 before the last narrowing of `apply_change()`).
+
+### BTG Investimentos guess vs the BB side — 2026-11-17
+- The BTG Investimentos notice records a whole transfer with the bank side guessed as BTG conta corrente. When the
+  money really came from (or went to) BB, the BB notice became a second row (a despesa, or a receita: the R$ 50
+  redemption ended BB at +100) and Pluggy only fixed the transfer. Now the real side moves the guess
+  (`guessed_transfer_awaiting()` / `move_guessed_side()`; `follow_bank_side()` delegates to the latter), from a
+  notice or a Pluggy row, both directions, any order. "BCO DO BRASIL" names BB. Tests in
+  `test_notify_pluggy_identity.py::TestGuessedSide` (11 new) and `test_inbox_counterparty.py`.
+- `scripts/review_breakdown.py` (read-only, `test_review_breakdown.py`) measures Revisar on the real data.

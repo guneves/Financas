@@ -75,7 +75,7 @@ ISSUER_OF_APP = {
 # Como o emissor aparece no nome de uma conta ou cartao do dono.
 ISSUER_ALIASES = {
     "itau": ("itau",),
-    "bb": ("banco do brasil", "bb", "ourocard"),
+    "bb": ("banco do brasil", "bco do brasil", "bco brasil", "bb", "ourocard"),
     "btg": ("btg",),
     # "Meal and Voucher" e como o Samsung Wallet chama o cartao de beneficios
     # (captura de 2026-10-21); o unico do dono e o Flash.

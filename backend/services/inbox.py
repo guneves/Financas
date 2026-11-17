@@ -199,7 +199,9 @@ from services.inbox_transfers import (  # noqa: F401  (reexportados: o resto do 
     approved_transfer_awaiting,
     finish_absorb,
     guess_other_side,
+    guessed_transfer_awaiting,
     make_transfer,
+    move_guessed_side,
     remembered_transfer,
     settle_transfer_review,
     transfer_confirmed,
@@ -511,6 +513,19 @@ def _ingest_alone(conn, current_user_id, detection, rules):
             )
             settle_transfer_review(conn, current_user_id, approved["id"])
             return {"key": detection["key"], "status": "matched", "item_id": approved["id"]}
+        # A transferencia ja gravada com este lado adivinhado noutra conta (o
+        # BTG Investimentos avisou antes do BB): o lado passa a ser esta conta.
+        guessed = guessed_transfer_awaiting(
+            conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,
+            date_text=date_of(when), counterparty=detection,
+        )
+        if guessed and move_guessed_side(conn, current_user_id, guessed, direction, target["account_id"]):
+            _insert_detection(
+                conn, current_user_id, detection, SOURCE, item_id=guessed["id"],
+                target_table="transactions", target_id=guessed["target_id"],
+            )
+            settle_transfer_review(conn, current_user_id, guessed["id"])
+            return {"key": detection["key"], "status": "matched", "item_id": guessed["id"]}
         partner = transfer_partner(
             conn, current_user_id, account_id=target["account_id"], direction=direction, cents=cents,
             date_text=date_of(when), detection=detection,

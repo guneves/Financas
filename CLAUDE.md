@@ -519,7 +519,12 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   id keeps the same lançamento, reviewed or not.
   **The guessed side of a recorded transfer follows the bank** (`follow_bank_side()` in
   `reconcile_recorded()`): untouched by the item's snapshot, the side in `guessed` and not `edited`
-  takes the account Pluggy shows (never both sides on one account, never the Conta global).
+  takes the account Pluggy shows (never both sides on one account, never the Conta global). **A real side
+  arriving on another account moves the guess too** (2026-11-17, `guessed_transfer_awaiting()` +
+  `move_guessed_side()` in `inbox_transfers.py`, step 1 of a notification and step 3 of a Pluggy row): the BTG
+  Investimentos notice guesses BTG conta corrente, the BB notice or BB's Pluggy row of the same cents (±1 day)
+  takes that side over, never a second despesa/receita. Only a guessed side no channel observed yet, not
+  edited, the row untouched by the snapshot, counterparties that can be one person.
   **Near match**: the same purchase posted with another amount. A pass after the
   pull's exact pairing and before `record_pending()` (`near_match_pass()`), and step 2b for a late
   notification (`near_item_for_detection()`): purchases only (a notification of `PURCHASE_KINDS`

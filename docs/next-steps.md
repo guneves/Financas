@@ -161,6 +161,14 @@ Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10
   Pluggy row deleted this way is not re-recorded: its item stays decided). A fraud is real money:
   keep the row and contest with the bank.
 - [ ] Editing a row (PATCH) does not clear `needs_review`; only Revisar does.
+- [ ] **Owner: can Revisar go away?** (asked 2026-11-17). Run on the server
+  `sudo docker compose exec -T -w /app/backend app python scripts/review_breakdown.py --email X --days 30`
+  (read-only, counts only): today's queue by reason and how many auto-recorded rows the owner corrected, and what.
+  Decide per bucket from that: a bucket the owner never corrects (e.g. own transfers seen on both sides) can
+  leave review by itself; Pix to a person, Flash, refunds and the Conta global have no source that knows the
+  category. Not decided yet; nothing removed.
+- [ ] A one-sided own transfer whose despesa the owner recategorised before the other side arrived stays a despesa
+  plus a receita on the other account (documented "the edited side stays"); it counts in the month's spending.
 
 ### Open Finance as the only source for connected banks (044, 2026-10-27) — what is left
 - [ ] A `conflict` (the bank changed/dropped a row the owner had edited) has no "resolvido" action:

@@ -241,6 +241,102 @@ def approved_transfer_awaiting(conn, current_user_id, *, account_id, direction, 
     return _pick_closest(found, date_text)
 
 
+def guessed_transfer_awaiting(conn, current_user_id, *, account_id, direction, cents, date_text, counterparty=None):
+    """2026-11-17: uma transferencia gravada com ESTE lado adivinhado (o aviso
+    do BTG Investimentos supoe a BTG conta corrente), e este movimento e a
+    ponta real dele noutra conta (o BB avisou ou a Pluggy trouxe): o lado
+    adivinhado passa a ser esta conta, nunca uma despesa/receita a mais.
+
+    O par: item gravado (APPROVED/MATCHED) de uma transferencia, mesmos
+    centavos, ate TRANSFER_MATCH_DAYS dias, o lado desta direcao em `guessed`,
+    nao editado e ainda sem observacao nenhuma (de canal algum), a outra ponta
+    noutra conta, intocada pelo snapshot, contrapartes que podem ser a mesma
+    pessoa. Devolve o item (dict) ou None; quem chama move o lado
+    (`move_guessed_side()`)."""
+    if not account_id or not _brl_active_account(conn, current_user_id, account_id):
+        return None
+    rows = conn.execute(
+        """
+        SELECT i.*, t.date AS occurred_at_day,
+               t.account_id AS origin, t.transfer_account_id AS destination
+        FROM inbox_items i
+        JOIN transactions t ON t.id = i.target_id AND t.user_id = i.user_id
+        WHERE i.user_id = ? AND i.state IN ('APPROVED', 'MATCHED')
+          AND i.target_table = 'transactions' AND t.type = 'TRANSFER'
+          AND CAST(ROUND(t.amount * 100) AS INTEGER) = ? AND t.date BETWEEN ? AND ?
+        """,
+        (current_user_id, int(cents), _shift(date_text, -TRANSFER_MATCH_DAYS), _shift(date_text, TRANSFER_MATCH_DAYS)),
+    ).fetchall()
+    need = _side_need(direction)
+    field = "account_id" if direction == "OUT" else "transfer_account_id"
+    found = []
+    for row in rows:
+        side, other = (row["origin"], row["destination"]) if direction == "OUT" else (row["destination"], row["origin"])
+        if not side or side == account_id or other == account_id:
+            continue
+        item = item_dict(row)
+        edited = set(item.get("edited") or [])
+        if need not in (item.get("guessed") or []) or need in edited or field in edited:
+            continue
+        if direction in _source_directions(conn, current_user_id, row["id"]):
+            continue
+        if not _brl_account(conn, current_user_id, side):
+            continue
+        sources = _side_sources(conn, current_user_id, row["id"])
+        if counterparty and any(counterparties_conflict(counterparty, source) for source in sources):
+            continue
+        checks = [_source_untouched(conn, current_user_id, item, source) for source in sources]
+        if False in checks or True not in checks:
+            continue
+        found.append({**item, "occurred_at": row["occurred_at_day"]})
+    found.sort(key=lambda item: (_date_gap(item["occurred_at"], date_text), item["occurred_at"], item["id"]))
+    return fetch_item_dict(conn, current_user_id, found[0]["id"]) if found else None
+
+
+def fetch_item_dict(conn, current_user_id, item_id):
+    row = fetch_item(conn, current_user_id, item_id)
+    return item_dict(row) if row else None
+
+
+def move_guessed_side(conn, current_user_id, item, direction, account_id):
+    """O lado adivinhado (`guessed`, nao editado) da transferencia gravada pelo
+    item passa a ser `account_id`: a ponta real chegou (defeito R; o aviso do
+    BB depois do BTG Investimentos). Nunca as duas pontas na mesma conta, nunca
+    a conta global, nunca uma conta arquivada, so com o snapshot intocado.
+    Devolve True se moveu."""
+    field, need = ("account_id", "account") if direction == "OUT" else ("transfer_account_id", "transfer_account")
+    other_field = "transfer_account_id" if field == "account_id" else "account_id"
+    current = item.get(field)
+    edited = item.get("edited") or []
+    if not account_id or current == account_id or not current:
+        return False
+    if need not in (item.get("guessed") or []) or field in edited or need in edited:
+        return False
+    if item.get("target_table") != "transactions" or item.get(other_field) == account_id:
+        return False
+    if not _brl_active_account(conn, current_user_id, account_id) or not _brl_account(conn, current_user_id, current):
+        return False
+    if item.get("recorded_snapshot") and not recorded_snapshot.snapshot_unchanged(conn, current_user_id, item):
+        return False
+    merged = {**item, field: account_id}
+    changes = {field: account_id, "guessed": [guess for guess in item.get("guessed") or [] if guess != need]}
+    if "description" not in edited:
+        changes["description"] = _transfer_description(
+            conn, current_user_id, merged["account_id"], merged["transfer_account_id"], item.get("description"),
+        )
+    conn.execute(
+        f"UPDATE transactions SET {field} = ?, description = ? WHERE id = ? AND user_id = ? AND type = 'TRANSFER'",
+        (account_id, changes.get("description", item.get("description")), item["target_id"], current_user_id),
+    )
+    changes["needs"] = recompute_needs({**item, **changes})
+    save_item(conn, current_user_id, item, changes)
+    recorded_snapshot.refresh_snapshots(conn, current_user_id, item["id"], item["target_table"], item["target_id"])
+    fresh = fetch_item(conn, current_user_id, item["id"])
+    item.update({key: value for key, value in item_dict(fresh).items() if key in ("recorded_snapshot", "guessed", "needs")})
+    item.update({field: account_id, "description": changes.get("description", item.get("description"))})
+    return True
+
+
 def _side_sources(conn, current_user_id, item_id):
     """As observacoes vivas de um item: as notificacoes fonte e as transacoes
     da Pluggy fonte (a sumida nao conta)."""
