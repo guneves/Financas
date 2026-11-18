@@ -94,6 +94,8 @@ EXPECTED_ROUTES = {
     # Open Finance pela Pluggy (routes/open_finance.py).
     ("/api/review", "GET"),
     ("/api/review", "POST"),
+    ("/api/review/auto", "GET"),
+    ("/api/review/auto/<decision_id>/undo", "POST"),
     ("/api/cc-expenses/statement", "GET"),
     ("/api/open-finance", "GET"),
     ("/api/open-finance/settings", "GET,PATCH"),
@@ -170,7 +172,7 @@ def test_every_route_but_health_and_login_requires_a_token(client, app_module):
         url = rule.replace("<path:ticker>", "PETR4")
         for part in ("<item_id>", "<attachment_id>", "<account_id>", "<category_id>", "<budget_id>",
                      "<recurring_id>", "<rule_id>", "<card_id>", "<proceed_id>", "<investment_id>",
-                     "<asset_id>", "<ticker>", "<action_id>", "<goal_id>", "<hint_id>"):
+                     "<asset_id>", "<ticker>", "<action_id>", "<goal_id>", "<hint_id>", "<decision_id>"):
             url = url.replace(part, "x")
         assert "<" not in url, url
         for method in methods.split(","):

@@ -17,9 +17,11 @@ Cada teste termina com `assert_identity()` (I1/I2).
 """
 
 import importlib
+from datetime import date, datetime
 
 import pytest
 
+from finance_world import freeze
 from identity_check import assert_identity
 from open_finance_world import World, bank_tx, card_tx, connected, fake_pluggy, open_finance_module  # noqa: F401
 from test_auto_record import confirm, notifications_on, rows_of
@@ -726,14 +728,24 @@ class TestNothingWaits:
         )
         assert_identity(user["id"])
 
-    def test_a_one_sided_transfer_into_the_brokerage_waits(self, world, user):
+    def test_a_one_sided_transfer_into_the_brokerage_waits(self, world, user, monkeypatch):
+        # So a janela da outra ponta (TRANSFER_MATCH_DAYS); depois vira o aporte
+        # com o banco adivinhado (test_nothing_waits.py, 2026-11-18).
+        monkeypatch.setattr(importlib.import_module("dates"), "now_source", lambda: datetime(2026, 10, 22, 12))
+        freeze(monkeypatch, date(2026, 10, 22))
         world.account("Itaú")
-        world.account("Corretora", type_="BROKERAGE")
+        corretora = world.account("Corretora", type_="BROKERAGE")
         send(world.client, world.auth, detection("TRANSFER_IN", 50000, at=ms(2026, 10, 22, 9, 0), app=BROKERAGE,
                                                  merchant=None))
         assert world.transactions() == []
         [item] = world.pending()
         assert item["entry_type"] == "TRANSFER"
+        assert_identity(user["id"])
+        monkeypatch.setattr(importlib.import_module("dates"), "now_source", lambda: datetime(2026, 10, 24, 12))
+        freeze(monkeypatch, date(2026, 10, 24))
+        [row] = world.transactions()
+        assert (row["type"], row["transfer_account_id"], row["needs_review"]) == ("TRANSFER", corretora, 1)
+        assert world.pending() == []
         assert_identity(user["id"])
 
 

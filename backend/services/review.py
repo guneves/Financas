@@ -83,6 +83,35 @@ def clear(conn, current_user_id, table, target_id, category=None):
             )
 
 
+def set_category(conn, current_user_id, table, target_id, category):
+    """O app (nao o dono) troca a categoria e a linha continua a revisar: a
+    categoria da Pluggy numa linha ainda na padrao (automation-prompt 1.1). Na
+    compra no cartao, todas as parcelas. Quem chama renova os snapshots."""
+    if table == "transactions":
+        conn.execute(
+            "UPDATE transactions SET category = ?, category_id = ? WHERE id = ? AND user_id = ?",
+            (*category, target_id, current_user_id),
+        )
+    elif table == "cc_expenses":
+        conn.execute(
+            """
+            UPDATE cc_expenses SET category = ?, category_id = ?
+            WHERE user_id = ? AND client_id = (SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?)
+            """,
+            (*category, current_user_id, target_id, current_user_id),
+        )
+
+
+def current_category(conn, current_user_id, table, target_id):
+    """(nome, id) do lancamento agora, ou None."""
+    if table not in TABLES:
+        return None
+    row = conn.execute(
+        f"SELECT category, category_id FROM {table} WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+    ).fetchone()
+    return (row["category"], row["category_id"]) if row else None
+
+
 def _transaction_items(conn, current_user_id):
     rows = conn.execute(
         """

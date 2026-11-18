@@ -920,6 +920,13 @@
     <string name="ajustes_bank_notifications_on">Os avisos dos bancos gravam na hora.</string>
     <string name="ajustes_bank_notifications_off">Só o Flash grava pelo aviso; os bancos vêm pela Pluggy.</string>
     <string name="ajustes_bank_notifications_failed">Não foi possível salvar os avisos dos bancos.</string>
+    <string name="ajustes_review_auto">Revisar sai sozinho depois de</string>
+    <string name="ajustes_review_auto_hint">Depois desse prazo, o que ainda está em Revisar sai sozinho com a categoria que tem. Numa conta da Pluggy, espera o banco confirmar primeiro.</string>
+    <string name="ajustes_review_auto_never">Nunca</string>
+    <string name="ajustes_review_auto_days">%1$d dias</string>
+    <string name="ajustes_review_auto_toast">O que ficar %1$d dias em Revisar sai sozinho.</string>
+    <string name="ajustes_review_auto_never_toast">O Revisar espera você.</string>
+    <string name="ajustes_review_auto_failed">Não foi possível salvar o prazo do Revisar.</string>
     <string name="ajustes_open_access">Abrir acesso às notificações</string>
     <string name="ajustes_restricted_title">O Android diz “Configuração restrita”?</string>
     <string name="ajustes_restricted_intro">A partir do Android 13, um app instalado por um arquivo APK aberto no celular não recebe o acesso às notificações até você liberar. Para liberar:</string>

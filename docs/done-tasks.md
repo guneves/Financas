@@ -222,6 +222,7 @@
   provisional buys, rebuild applied on production and validated month by month. See `docs/handoff.md`.
 | The month's spending is one rule on every screen: Corretora rows out of plan and budget, "Pagamento Fatura" in any case, out of expenses and income (#95, audit B2) | 2026-11-13 |
 | Web Início reads `GET /api/home/panels`; `useInicioMovements`, `lib/homeSpending.js` and the parity test removed (#96, audit B3 for Início) | 2026-11-13 |
+| Everything automatic, phase 1 (banking review decides itself): Pluggy's tree fills a row still on the default, Revisar auto-confirms after `review_auto_days` (default 3; web and APK setting), the Corretora's one-sided transfer becomes a guessed aporte/resgate after the window (and no longer a receita on the Corretora), the last PTAX with an `fx_fallback` flag, `changed`/`vanished` conflicts resolve themselves; every decision in `auto_decisions` (058) with "Desfazer" (web Ajustes › Decidido sozinho) | 2026-11-18 |
 
 ## Notes on completed work
 

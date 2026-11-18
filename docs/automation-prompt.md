@@ -23,6 +23,14 @@ person were **tested against the data and rejected** — don't build them.
 
 ## Phase 1 — Banking: review decides itself
 
+> **Status 2026-11-18: built** on `feat/auto-review-phase1` (not merged; see `docs/handoff.md`). What differs
+> from the text below: 1.2 auto-confirms an edited row too (the edit was the owner's decision; leaving it would
+> keep it in Revisar forever); 1.3's Conta global case already recorded the reais side at once (nothing to
+> build); 1.3's PTAX already fell back to the last stored rate, so only the flag (`fx_fallback`) was added;
+> 1.4's `changed` takes the bank's amount but not its date (the conflict stores only the amount). The
+> decisions live in `auto_decisions` (058), shown in web Ajustes › "Decidido sozinho" (not the Conferência,
+> not the APK yet).
+
 1. **Pluggy's category fills a row still on the default.** `open_finance_inbox.settle_review()` (and the untouched
    path of `reconcile_recorded()`): row untouched by the snapshot, category still the born one and that one was the
    default (`suggest_category()` without a rule) → set `category_decision()`'s category for any origin except

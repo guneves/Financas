@@ -259,4 +259,6 @@ data class InboxSettingsDto(
     @SerialName("always_ask") val alwaysAsk: Flag = false,
     @SerialName("auto_record") val autoRecord: Flag = true,
     @SerialName("bank_notifications") val bankNotifications: Flag = true,
+    /** Auto-confirmar o Revisar (2026-11-18): dias; 0 = nunca. Servidor antigo: 3, como a web. */
+    @SerialName("review_auto_days") val reviewAutoDays: Int = 3,
 )

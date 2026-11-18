@@ -755,6 +755,18 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** O prazo do Revisar (review_auto_days): o mesmo da web. */
+    fun setReviewAutoDays(value: Int) {
+        if (inboxSettings.value?.reviewAutoDays == value) return
+        write(R.string.ajustes_review_auto_failed, { graph.inbox.setReviewAutoDays(value) }) { saved ->
+            inboxSettings.value = saved
+            notice(
+                if (saved.reviewAutoDays == 0) app.getString(R.string.ajustes_review_auto_never_toast)
+                else app.getString(R.string.ajustes_review_auto_toast, saved.reviewAutoDays),
+            )
+        }
+    }
+
     private fun readNotify() {
         viewModelScope.launch {
             val (status, rows) = withContext(Dispatchers.IO) {

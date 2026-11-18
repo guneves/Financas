@@ -74,6 +74,7 @@ built by the real migrations — **`backend/finance.db` is never touched.**
 - `conftest.py` blanks `BRAPI_TOKEN`, `PLUGGY_CLIENT_ID/SECRET`, `TESOURO_PRICES_URL/FILE`,
   `HISTORY_CACHE_FILE`, sets `QUOTE_AUTO_REFRESH_SECONDS=0`, `OPEN_FINANCE_SYNC_SECONDS=0`,
   `AUTO_RECORD_DEFAULT=0` (inbox tests; `test_auto_record.py` turns it on per user),
+  `REVIEW_AUTO_DAYS_DEFAULT=0` (review tests see rows waiting; `test_automatic_review.py` sets it per user),
   `MANUAL_ONLY_OFF_PLUGGY=0` (the default too; `test_pluggy_owner_rules.py` turns the brake on per test) and
   `ALLOW_SIGNUP=1`. Open Finance tests use `open_finance.set_client(FakePluggy())`
   (`tests/open_finance_world.py`); `pluggy_client` tests patch `pluggy_client.urlopen`. StatusInvest is patched in
@@ -417,11 +418,17 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
 - **Nothing waits** (owner 2026-11-04): an **own transfer with one side** is
   recorded as the despesa/receita of the side the notification saw (`auto_record.one_side_now()`),
   and the other side, from either channel, turns that same row into the transfer
-  (`inbox.absorb_recorded_side()`). Only a one-sided transfer touching **the Corretora** (an
-  income/expense there would distort Investimentos) or the Conta global still waits. A notice **in
+  (`inbox.absorb_recorded_side()`). A one-sided transfer touching **the Corretora** (an
+  income/expense there would distort Investimentos; the Pluggy `one_side_now()` refuses a BROKERAGE account
+  too, since 2026-11-18) waits `TRANSFER_MATCH_DAYS`, then becomes the bank ↔ Corretora aporte/resgate with the
+  bank side guessed (`transfer_timeouts.brokerage_side_now()`: the account of the Corretora's institution, else
+  the default; the side in `guessed`, and the item keeps its `recorded_snapshot`, so a late real side joins or
+  moves it). A notice joins a Pluggy item that already has a notice **on the other side** of a transfer
+  (`open_finance_item_for_detection()`, per side since 2026-11-18). A notice **in
   another currency** on a reais card/account is recorded at the day's PTAX
   (`open_finance_auto.in_reais_now()`; the detection keeps its currency, so the near match treats it
-  as international); without a PTAX yet it waits. A Samsung-only purchase still waits
+  as international), or the last stored one before it (`fx_fallback()`: > 4 days back, or yesterday's for
+  today, is an `fx_fallback` decision); with none stored at all it waits. A Samsung-only purchase still waits
   `NOTIFY_WINDOW_MS` for the bank's notice. **There is no Aprovar screen; waiting items resolve in Revisar**
   (the APK's Extrato lists them under "Não gravou sozinho": the other account or the amount in reais
   → `POST /api/inbox/<id>/approve` with `remember: false`, "não é entre minhas contas" → despesa/
@@ -445,7 +452,23 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   transfer leaves review when both sides are observed and one is Pluggy's (`inbox.settle_transfer_review()`:
   `finish_absorb()`, a side joining a recorded transfer, Pluggy recording both). These stay: Pluggy's tree or
   the default category, a card refund, the Flash (no Pluggy), the Conta global (its own screen), a row the
-  owner changed.
+  owner changed. **Pluggy's tree fills a row still on the default** (2026-11-18, `fill_default_category()`):
+  untouched by the snapshot, no owner rule matched the notice's text, the category is the default → the tree's
+  category is set (the row stays in review), snapshots refreshed, never on a paid installment, a
+  `pluggy_category` decision.
+- **Review confirms itself** (2026-11-18, `services/review_auto.py`, run by `record_due()`): `review_auto_days`
+  in `user_settings` (`GET/PATCH /api/inbox/settings`, 0–30, default `REVIEW_AUTO_DAYS_DEFAULT` = 3, 0 = off;
+  web Ajustes › Avisos do celular, APK Ajustes › Notificações do celular). A `needs_review = 1` row dated ≥ N
+  days ago leaves review with its current category, an edited one too (the edit was the owner's decision). On
+  a Pluggy-fed account/card it first waits for a Pluggy row to claim it (or N + `BANK_WAIT_MAX_DAYS`), so the
+  tree fills it first. An `auto_confirm` decision; undone, the row stays in Revisar for good.
+- **Automatic decisions are logged and undoable** (058, `services/auto_decisions.py`, `auto_undo.py`):
+  `auto_decisions` (kind, target, `detail` with the before, `undone_at`), one `applog` line each.
+  `GET /api/review/auto`, `POST /api/review/auto/<id>/undo` (404/409); web Ajustes › "Decidido sozinho".
+  Kinds: `pluggy_category` (undo restores the category), `auto_confirm`, `transfer_guess`, `fx_fallback` (undo
+  puts the row back in review), `conflict_changed` (undo restores the amount and the conflict),
+  `conflict_vanished` (undo reinserts the row). An undone decision is never taken again on that row
+  (`was_undone()`; any undone kind keeps auto-confirm off the row).
 - **"Untouched" is the snapshot, never the review** (Phase 4): `notification_untouched()`,
   `recorded_snapshot.untouched()` and the absorb helper compare the snapshot only. "É meu" without a change
   is not a touch (the bank's date, amount, vanish, other side and near match still apply); a new category,
@@ -594,6 +617,12 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   it, the lançamento is corrected/deleted only while it equals the snapshot (no edit, receipt) and
   was created by that Pluggy row (`apply_change()` / `apply_vanish()`; never a transfer, never a
   paid installment, never on an empty pull); otherwise `conflict` and the Conferência lists it.
+  **Conflicts resolve themselves** (2026-11-18, `services/conflict_resolution.py`, last step of the pull after
+  the orphan sweep): `changed` (stamped `conflict_at`, `conflict_direction`, 058) takes the bank's amount
+  `CHANGED_WAIT_DAYS` (7) after it was flagged, same direction only, on a despesa/receita or an open 1/1 card
+  purchase, never with a receipt, a share, "Aconteceu" or an amount the owner typed (≠ the snapshot; no
+  snapshot = typed); the date stays. `vanished` (reais BANK accounts, despesa/receita) leaves only by the
+  orphans' balance proof (`ripe()`, `protected()`, `choose()`). Both are decisions with "Desfazer".
   Which phone notices reach this engine: the policy above.
 - **BB Rende Fácil is never in the app** (046, owner 2026-10-27): the bank's automatic investment
   ("RENDE FACIL"/"REND.FACIL", `inbox.is_auto_invest()`) is `COVERED` in `place()` (no item, no

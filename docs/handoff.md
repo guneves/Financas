@@ -7,7 +7,61 @@
 
 ---
 
-## Session — 2026-11-18 · "Fully automatic notifications + Pluggy?" measured on the real data
+## Session — 2026-11-18 (2) · Everything automatic, phase 1 (banking review decides itself)
+
+**State of the branches:** `fix/brokerage-guessed-side` was pushed and opened as **PR #99** (the previous
+session's fix + `review_breakdown.py` + the automation prompt); **merging it was refused by the permission
+classifier** (a merge to `main` deploys), so the owner merges #99. Phase 1 is on `feat/auto-review-phase1`,
+branched from it, **committed, not pushed**.
+
+**Done (phase 1 of `docs/automation-prompt.md`):**
+- **058 `auto_decisions`**: every automatic decision (kind, target, `detail` with the before, `undone_at`), one
+  `applog` line each; `GET /api/review/auto`, `POST /api/review/auto/<id>/undo` (`services/auto_decisions.py`,
+  `auto_undo.py`). An undone decision is never taken again on that row. Web: Ajustes › "Decidido sozinho".
+- **1.1** Pluggy's tree fills a notice-born row still on the default (`fill_default_category()` in
+  `settle_review()`): row stays in review, snapshots refreshed, never with an owner rule / owner category / paid
+  installment.
+- **1.2** `review_auto_days` (default `REVIEW_AUTO_DAYS_DEFAULT` = 3, 0–30; conftest 0) in
+  `GET/PATCH /api/inbox/settings`, run in `record_due()` (`services/review_auto.py`). A Pluggy-fed row waits for a
+  Pluggy claim or N + `BANK_WAIT_MAX_DAYS`. Setting on web (Avisos do celular) and APK (Notificações do celular;
+  compiled locally, not run on a phone).
+- **1.3** The Corretora's one-sided transfer: **defect found** — Pluggy's `one_side_now()` recorded it as a
+  receita *on the Corretora* at once (only the notice path refused BROKERAGE). Now it waits
+  `TRANSFER_MATCH_DAYS`, then becomes the guessed aporte/resgate (`services/transfer_timeouts.py`), the item keeps
+  its snapshot so a late real side moves the guess. The Conta global Pix already recorded at once (nothing to
+  build). FX: the last stored PTAX was already used; now flagged (`fx_fallback`).
+- **1.4** `services/conflict_resolution.py`, last in the pull: `changed` → bank amount after 7 days (`conflict_at`,
+  `conflict_direction` in 058) unless receipt/share/"Aconteceu"/typed amount; `vanished` → only by the orphans'
+  balance proof.
+- A second defect the fuzz found (seed 4): a notice on one side of a transfer item blocked the other side's
+  notice from joining it (`open_finance_item_for_detection()` refused any item with a notice); now per side.
+- Tests: `test_automatic_review.py`, `test_nothing_waits.py`, `test_conflicts_resolve.py`, `autoDecisions.test.js`;
+  `test_notify_pluggy_identity.py`'s brokerage-wait test now pins the clock (it waits only the window).
+  `npm test` green (250), `vite build` OK, APK `compileDebugKotlin` OK. Backend: the first full 4-chunk run had
+  only the fuzz seed 4 failing (fixed); after the fixes, the fuzz (200 seeds), identity and the new files are
+  green, and chunks 1–2 of a second full run passed, but **chunks 3–4 of that run were killed by the PC running
+  low on memory** — rerun them before merging.
+
+**Not done and why:**
+- Phases 2 (investments: no `HELD` line) and 3 (watch and prove) — not started; multi-session job by design.
+- The APK has no "Decidido sozinho" list; the Conferência has no "Resolvido automaticamente" block (the web list
+  in Ajustes shows every decision, conflicts included).
+- `changed` conflicts take the bank's amount, never its date (only the amount is stored on the conflict).
+- Not deployed, not checked on the real data. **On deploy, 3-day auto-confirm starts at once**: every row in
+  Revisar dated ≥ 3 days ago leaves on the first read (the owner keeps the queue at 0, so little).
+
+**Next:** owner merges #99, then push/PR `feat/auto-review-phase1`; after deploy, read
+`GET /api/review/auto` on the server for a week. Then phase 2 (start with the custody `EQUITY TRANSFER` and the
+`rate` 0 pré titles — verify one against a brokerage note first).
+
+**Lessons:**
+- Tests that move time must freeze both `dates.now_source` **and** the module copies `open_finance_world`
+  froze (`finance_world.freeze()`); the Pluggy pull reads `invoices.local_today` (pinned to 2026-10-27).
+- The fuzz (`test_notify_pluggy_fuzz.py`, 200 seeds) catches arrival-order bugs the hand-written tests miss: run
+  it whenever a "wait"/"record" rule changes. A failing seed reproduces with `Run(world, Scenario(seed)...)`.
+- A Pluggy-recorded item has no `recorded_snapshot`; `follow_bank_side()` needs one to move a guessed side.
+
+## Previous session — 2026-11-18 · "Fully automatic notifications + Pluggy?" measured on the real data
 
 **State of the branch:** still `fix/brokerage-guessed-side` (previous session's fix: the BTG Investimentos guessed
 side follows the real bank side, plus `scripts/review_breakdown.py`), **not pushed/merged**. This session added only

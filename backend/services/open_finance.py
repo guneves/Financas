@@ -38,6 +38,7 @@ from dates import parse_iso_date
 from db import get_db, new_id, row_to_dict, utc_timestamp
 from money import rounded_money
 from services import (
+    conflict_resolution,
     inbox,
     open_finance_auto,
     open_finance_check,
@@ -404,6 +405,7 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
     counts = {}
     removed = 0
     orphans_removed = 0
+    resolved = {}
     auto = None
     today_text = _day_text(today)
     with get_db() as conn:
@@ -492,12 +494,16 @@ def _sync_item_locked(current_user_id, of_item_id, today, history_from, record=T
             # lugar (pagamentos e fundos do banco inclusive) e o app ja tendo lido
             # o banco (last_sync_at acima), para o saldo comparar o que ficou.
             orphans_removed = open_finance_orphans.sweep(conn, current_user_id, of_item_id, today)
+            # Os conflitos que se resolvem sozinhos (automation-prompt 1.4): o
+            # valor do banco passado o prazo, a linha sumida pela prova do saldo.
+            resolved = conflict_resolution.resolve(conn, current_user_id, of_item_id, today)
     if open_finance_investments.recorded_any(investments):
         realized_results.refresh_realized_results(current_user_id)
     logger.info(
         "Open Finance: pull",
         extra={"user_id": current_user_id, "item": of_item_id, "status": pluggy_item.get("status"), **counts,
-               "removed": removed, "removed_orphans": orphans_removed, "auto_recorded": auto},
+               "removed": removed, "removed_orphans": orphans_removed, "auto_recorded": auto,
+               "resolved_conflicts": resolved},
     )
     result = {"status": pluggy_item.get("status"), "counts": counts, "removed": removed,
               "removed_orphans": orphans_removed}

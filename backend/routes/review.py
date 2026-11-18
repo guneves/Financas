@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify
 
 from auth import token_required
 from db import get_db
-from services import auto_record, open_finance_auto, review
+from services import auto_decisions, auto_record, auto_undo, open_finance_auto, review
 from validators import ValidationError, parse_json_body, validation_error
 
 bp = Blueprint("review", __name__)
@@ -49,3 +49,30 @@ def confirm_review(current_user_id):
             return validation_error(str(exc))
         remaining = review.count(conn, current_user_id)
     return jsonify({"reviewed": reviewed, "count": remaining}), 200
+
+
+@bp.route("/api/review/auto", methods=["GET"])
+@token_required
+def automatic_decisions(current_user_id):
+    """{items, counts}: as decisoes que o app tomou sozinho (058), da mais nova
+    para a mais antiga, com o que cada "Desfazer" devolve. `counts`: as nao
+    desfeitas, por regra."""
+    with get_db() as conn:
+        items = auto_decisions.recent(conn, current_user_id)
+        counts = auto_decisions.counts(conn, current_user_id)
+    return jsonify({"items": items, "counts": counts}), 200
+
+
+@bp.route("/api/review/auto/<decision_id>/undo", methods=["POST"])
+@token_required
+def undo_automatic_decision(current_user_id, decision_id):
+    """Desfaz uma decisao automatica; a regra nao decide de novo o mesmo
+    lancamento. 404 se nao existe, 409 se ja foi desfeita."""
+    with get_db() as conn:
+        try:
+            decision = auto_undo.undo(conn, current_user_id, decision_id)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except auto_undo.AlreadyUndone as exc:
+            return jsonify({"error": str(exc)}), 409
+    return jsonify(decision), 200
