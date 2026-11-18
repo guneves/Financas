@@ -161,12 +161,16 @@ Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10
   Pluggy row deleted this way is not re-recorded: its item stays decided). A fraud is real money:
   keep the row and contest with the bank.
 - [ ] Editing a row (PATCH) does not clear `needs_review`; only Revisar does.
-- [ ] **Owner: can Revisar go away?** (asked 2026-11-17). Run on the server
-  `sudo docker compose exec -T -w /app/backend app python scripts/review_breakdown.py --email X --days 30`
-  (read-only, counts only): today's queue by reason and how many auto-recorded rows the owner corrected, and what.
-  Decide per bucket from that: a bucket the owner never corrects (e.g. own transfers seen on both sides) can
-  leave review by itself; Pix to a person, Flash, refunds and the Conta global have no source that knows the
-  category. Not decided yet; nothing removed.
+- [ ] **Revisar asks only what no source can answer** (measured 2026-11-18, handoff has the numbers and the full
+  prompt): (1) Pluggy's category fills an untouched notice-born row still on the default (tree categories stay in
+  review, pre-filled); (2) Revisar hides a notice-born row on a Pluggy-mapped target until the bank spoke
+  (`awaiting_bank()`); (3) opt-in auto-confirm after N days (`review_auto_days`, default off, owner confirms).
+  Rejected by the data: learning rules from corrections, the merchant table at notice birth, auto-repasse by person.
+- [ ] Investments `HELD` on real data (2026-11-18): 23 MUTUAL_FUND operations (funds unsupported), 14 EQUITY
+  TRANSFER (custody), 4 CDB positions without `rateType` (`missing:rateType`, never guess). Decide whether funds get
+  support.
+- [ ] Owner, server `.env`: `BRAPI_MAX_SYMBOLS_PER_REQUEST=1` (brapi's plan takes 1 ticker per request; the log
+  errors hourly and quotes fall back to yfinance).
 - [ ] A one-sided own transfer whose despesa the owner recategorised before the other side arrived stays a despesa
   plus a receita on the other account (documented "the edited side stays"); it counts in the month's spending.
 
