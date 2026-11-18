@@ -50,8 +50,9 @@ branched from it, **committed, not pushed**.
 - Not deployed, not checked on the real data. **On deploy, 3-day auto-confirm starts at once**: every row in
   Revisar dated ≥ 3 days ago leaves on the first read (the owner keeps the queue at 0, so little).
 
-**Next:** owner merges #99, then push/PR `feat/auto-review-phase1`; after deploy, read
-`GET /api/review/auto` on the server for a week. Then phase 2 (start with the custody `EQUITY TRANSFER` and the
+**Next:** the owner deploys **only when all three phases are done** (2026-11-18): don't merge #99 or phase 1
+yet; phase 2 branches from `feat/auto-review-phase1` (progress table at the top of `docs/automation-prompt.md`).
+After the final deploy, read `GET /api/review/auto` on the server for a week. Phase 2 (start with the custody `EQUITY TRANSFER` and the
 `rate` 0 pré titles — verify one against a brokerage note first).
 
 **Lessons:**

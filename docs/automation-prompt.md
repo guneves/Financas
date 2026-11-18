@@ -5,6 +5,51 @@
 > into a fresh session. It is a multi-session job: do the phases in order, one PR per phase, and keep this file's
 > checklist current (move a finished phase to `docs/done-tasks.md`).
 
+## Progress (kept current by each session)
+
+**Deploy only at the end** (owner, 2026-11-18: "irei fazer o deploy apenas quando tudo estiver pronto"). A merge
+to `main` deploys, so nothing of this job is merged until all three phases are done. Each phase is a branch
+stacked on the previous one; at the end the owner merges them in order (#99 → phase 1 → phase 2 → phase 3) and
+deploys once.
+
+| Branch | What | State |
+|---|---|---|
+| `fix/brokerage-guessed-side` | BTG Investimentos guess follows the real bank side, `scripts/review_breakdown.py`, this prompt | pushed, **PR #99 open**, not merged |
+| `feat/auto-review-phase1` | Phase 1, commit `11b8eb8` (branched from #99) | local only, not pushed |
+| phase 2 | branch from `feat/auto-review-phase1` (needs `auto_decisions`, 058) | not started |
+| phase 3 | branch from phase 2 | not started |
+
+**Phase 1 — done** (details in its status note below and in `docs/handoff.md`):
+- 058 `auto_decisions` + `GET /api/review/auto`, `POST /api/review/auto/<id>/undo`; web Ajustes › "Decidido sozinho".
+- 1.1 Pluggy's tree fills a notice-born row still on the default (`fill_default_category()`).
+- 1.2 `review_auto_days` (default 3, 0 = off), web and APK setting (`services/review_auto.py`).
+- 1.3 the Corretora's one-sided transfer waits `TRANSFER_MATCH_DAYS`, then a guessed aporte/resgate
+  (`services/transfer_timeouts.py`); `fx_fallback` flagged.
+- 1.4 `services/conflict_resolution.py`: `changed` after 7 days, `vanished` by the balance proof.
+- Two real defects fixed: Pluggy recorded the Corretora's one side as a receita on the Corretora; a notice on one
+  side of a transfer item blocked the other side's notice (fuzz seed 4).
+- Tests: `npm test` 250 green, `vite build` OK, APK `compileDebugKotlin` OK (not run on a phone). Backend: new
+  files, fuzz (200 seeds) and identity green; full run chunks 1–2 green, **chunks 3–4 still to rerun** (killed by
+  low memory). The 4 failures that killed run printed in chunk 2 (the subprocess script tests:
+  `test_the_identity_script_reads_without_migrating`, `test_it_prints_keys_never_values`,
+  `test_the_script_alone_migrates_and_starts_no_thread`, `test_the_brake_is_off_by_default`) pass when run alone.
+- Left from phase 1 (fold into phase 3): APK "Decidido sozinho" list; Conferência "Resolvido automaticamente";
+  a `changed` conflict takes the bank's amount, not its date.
+- **At the final deploy**: auto-confirm (3 days) starts at once — every Revisar row dated ≥ 3 days ago leaves on
+  the first read.
+
+**Phase 2 — corrections found while preparing it (read before the table below):**
+- `AMORTIZATION` is already a provento type (`proceeds.ALLOWED_PROCEEDS_TYPES`): record the CRA amortization as
+  `AMORTIZATION`, not `INTEREST` + metadata.
+- `open_finance_investment_operations.state` has a CHECK (`RECORDED`, `LINKED`, `HELD`, `DISMISSED`, 044); a new
+  `COVERED` state means rebuilding the table. Prefer `DISMISSED` + `held_reason = 'auto:custody'` (`apply()`
+  never re-decides a `DISMISSED` line) and an `auto_decisions` row whose undo puts it back to `HELD`.
+- Provisional buys are already dropped when the real operation arrives (`_drop_provisional()` in `decide()`):
+  only check on the server that none is left.
+- There is no fund asset class (`ALLOWED_ASSET_CLASSES` = STOCKS, FIXED_INCOME, REIT, OTHER).
+- Renda+ is known to `tesouro_client` by name (`RENDA_MAIS`, `NAMED_BY_CONVERSION`); find why the real position
+  still fails `unmapped:name` before mapping by ISIN.
+
 ---
 
 Read CLAUDE.md, `docs/handoff.md` (2026-11-18), `docs/next-steps.md` and this file. If `fix/brokerage-guessed-side`
