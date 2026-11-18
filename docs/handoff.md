@@ -60,35 +60,8 @@ before asking, let Pluggy's category fill a row still on the default, and an opt
 
 ### Prompt for the next session
 
-> Read CLAUDE.md, `docs/handoff.md` (2026-11-18) and `docs/next-steps.md`. First merge `fix/brokerage-guessed-side`
-> if it isn't merged. Then, on a new branch, make Revisar ask only what no source can answer. Measured on real
-> data (handoff): notice-born expenses are born "Outros" and the owner fixes them before Pluggy confirms; Pluggy's
-> category would have been right in most of those cases. Tests first for each rule (`test_quiet_review.py` is the
-> home; `any_bank_notifications` opens the gate), then the code:
->
-> 1. **Pluggy's category fills a row still on the default.** In `open_finance_inbox.settle_review()` (and the
->    untouched path of `reconcile_recorded()` that calls it): when the row is untouched by the snapshot and its
->    category is still the one it was born with **and** that was the default (`suggest_category()` without a rule),
->    set `category_decision()`'s category whatever the origin except `default`; refresh the snapshots
->    (`refresh_snapshots()`) so it doesn't count as the owner's touch. Leave review only for
->    `CONFIDENT_CATEGORY_SOURCES` (unchanged); a `pluggy`-tree category stays in review, pre-filled. Never on a
->    transfer, refund, the Conta global, or a row with a paid installment. Cases: Groceries → Alimentação on an
->    untouched BTG black notice row; the same row recategorised by the owner keeps theirs; an owner rule on the
->    notice keeps the rule.
-> 2. **Revisar waits for the bank.** A notice-born row on a Pluggy-mapped account/card (`bank_fed_account_ids()` /
->    the card mapping) with no Pluggy observation yet is left out of `review.queue()`/`count()` (and so the badge,
->    header pill, `GET /api/home` `review_count`) until Pluggy claims it or the connection refreshed past it
->    (`awaiting_bank()` / `bank_refreshed_since()`, `BANK_WAIT_MAX_DAYS`). Flash, the Conta global and unmapped
->    targets show at once (no bank will speak). `needs_review` itself stays 1; only the listing waits. Mark the
->    rows `awaiting_bank` in `GET /api/review` if the screen needs it; APK `ReviewSection` reads the same endpoint.
-> 3. **Optional auto-confirm (owner's switch, default off).** `review_auto_days` in `user_settings`
->    (`GET/PATCH /api/inbox/settings`, int 0 = off, else 3–30): a row with `needs_review = 1` whose date is older
->    than N days and untouched by the snapshot gets `needs_review = 0` with its current category, run in
->    `record_due()`. A toggle in Ajustes › Avisos do celular (web) and Notificações do celular (APK). Confirm with
->    the owner before shipping the default.
->
-> Don't: learn import rules from corrections, apply the merchant table at notice birth, or auto-mark repasses by
-> person — the data rejected all three (handoff). Update CLAUDE.md's "Only guesses are reviewed" paragraph, add a
-> line to `scripts/review_breakdown.py` if a new reason bucket appears, run the backend suite in 4 chunks and
-> `npm test`, then the session-end process. After the deploy, re-run `review_breakdown.py --days 30` filtered by
-> row date (see the lesson) to compare.
+The owner then decided (2026-11-18): **everything automatic, banking and investments**. The prompt is
+`docs/automation-prompt.md` (phases: banking review decides itself, no investment line held, watch and prove), built
+on a second read-only pass over the held investment operations (custody transfers, `rate` 0 pré titles, BB funds,
+Renda+). It replaces the smaller three-step prompt this entry first had (auto-confirm is now **on**, default 3 days).
+Not implemented: the owner asked for the prompt only.
