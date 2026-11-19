@@ -11,7 +11,15 @@ automatico? Este script mede nos dados reais:
    valor, data, tipo, divisao, comprovante) ou apagou. O snapshot do item (ou da
    linha da Pluggy que gravou) e o que o app gravou; o app renova o snapshot
    quando ele mesmo muda a linha, e a categoria escolhida em Revisar nao o
-   renova: snapshot diferente = o dono mexeu.
+   renova: snapshot diferente = o dono mexeu;
+3. as decisoes que o app tomou sozinho (auto_decisions, 058: categoria da
+   Pluggy, auto-confirmar, ponta adivinhada, cambio, conflitos, carteira), por
+   regra, as que ficaram e as que o dono desfez.
+
+As janelas (2 e 3) contam pela data **do proprio lancamento** (a compra, o
+Pix, a operacao), nunca por `auto_recorded_at` nem pela data da decisao: a
+reconstrucao de 2026-10-27 regravou um ano de historico de uma vez, e uma
+janela por data de gravacao conta esse ano como se fosse do mes.
 
 No servidor (padrao do DEPLOY.md):
 
@@ -219,19 +227,86 @@ def queue(conn, user_id, today):
     return len(rows), kinds, by_channel, ages, reasons
 
 
+def row_day(conn, user_id, table, target_id):
+    """A data do lancamento (AAAA-MM-DD) ou None se ele nao existe mais."""
+    if table == "transactions":
+        row = conn.execute("SELECT date AS day FROM transactions WHERE id = ? AND user_id = ?",
+                           (target_id, user_id)).fetchone()
+    elif table == "cc_expenses":
+        row = conn.execute("SELECT purchase_date AS day FROM cc_expenses WHERE id = ? AND user_id = ?",
+                           (target_id, user_id)).fetchone()
+    elif table == "open_finance_investment_operations":
+        row = conn.execute("SELECT trade_date AS day FROM open_finance_investment_operations WHERE id = ? "
+                           "AND user_id = ?", (target_id, user_id)).fetchone()
+    elif table == "inbox_items":
+        item = conn.execute("SELECT target_table, target_id FROM inbox_items WHERE id = ? AND user_id = ?",
+                            (target_id, user_id)).fetchone()
+        if not item or not item["target_table"] or item["target_table"] == "inbox_items":
+            return None
+        return row_day(conn, user_id, item["target_table"], item["target_id"])
+    else:
+        return None
+    if not row or not row["day"]:
+        return None
+    return row["day"][:10]
+
+
+def snapshot_day(snapshot):
+    """A data guardada no snapshot (o lancamento apagado): a do lancamento ou
+    a da primeira parcela."""
+    if snapshot.get("date"):
+        return str(snapshot["date"])[:10]
+    rows = snapshot.get("rows") or []
+    index = CARD_COLUMNS.index("purchase_date")
+    if rows and len(rows[0]) > index and rows[0][index]:
+        return str(rows[0][index])[:10]
+    return None
+
+
+def decision_day(conn, user_id, decision):
+    """A data do lancamento que a decisao decidiu: o que foi apagado (o conflito
+    `vanished`) guarda a linha no `detail`; sem nenhuma, a data da decisao."""
+    day = row_day(conn, user_id, decision["target_table"], decision["target_id"])
+    if day:
+        return day
+    detail = load(decision["detail"]) or {}
+    kept = detail.get("row") if isinstance(detail.get("row"), dict) else {}
+    day = kept.get("date") or kept.get("purchase_date") or detail.get("date")
+    return str(day)[:10] if day else (decision["created_at"] or "")[:10]
+
+
+def decisions(conn, user_id, since):
+    """{kind: quantas} das decisoes automaticas cujo lancamento e de `since` em
+    diante: as que ficaram e as que o dono desfez. Um banco sem a 058: vazio."""
+    kept, undone = Counter(), Counter()
+    try:
+        rows = conn.execute(
+            "SELECT kind, target_table, target_id, detail, created_at, undone_at FROM auto_decisions "
+            "WHERE user_id = ?", (user_id,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return kept, undone
+    for row in rows:
+        if decision_day(conn, user_id, row) < since:
+            continue
+        (undone if row["undone_at"] else kept)[row["kind"]] += 1
+    return kept, undone
+
+
 def corrections(conn, user_id, since):
     totals, fields, by_kind = Counter(), Counter(), Counter()
+    # Todos os gravados sozinhos; a janela vem depois, pela data do lancamento.
     items = conn.execute(
         "SELECT * FROM inbox_items WHERE user_id = ? AND state IN ('APPROVED', 'MATCHED') "
-        "AND target_table IS NOT NULL AND auto_recorded_at IS NOT NULL AND substr(auto_recorded_at, 1, 10) >= ?",
-        (user_id, since),
+        "AND target_table IS NOT NULL AND auto_recorded_at IS NOT NULL",
+        (user_id,),
     ).fetchall()
     pluggy_born = conn.execute(
         "SELECT o.item_id, o.target_table, o.target_id, o.recorded_snapshot, i.entry_type FROM "
         "open_finance_transactions o LEFT JOIN inbox_items i ON i.id = o.item_id AND i.user_id = o.user_id "
         "WHERE o.user_id = ? AND o.auto_recorded_at IS NOT NULL AND o.recorded_snapshot IS NOT NULL "
-        "AND o.role <> 'REMOVED' AND substr(o.auto_recorded_at, 1, 10) >= ?",
-        (user_id, since),
+        "AND o.role <> 'REMOVED'",
+        (user_id,),
     ).fetchall()
     observed = {}
     for item in items:
@@ -242,6 +317,8 @@ def corrections(conn, user_id, since):
     for (table, target_id), (text, entry_type) in observed.items():
         recorded = load(text)
         if recorded is None:
+            continue
+        if (row_day(conn, user_id, table, target_id) or snapshot_day(recorded) or "") < since:
             continue
         kind = entry_type or ("CARD" if table == "cc_expenses" else "?")
         current = current_snapshot(conn, user_id, table, target_id)
@@ -290,10 +367,15 @@ def main(argv=None):
         show("por que ficou:", reasons)
         since = (today - timedelta(days=args.days)).isoformat()
         totals, fields, by_kind = corrections(conn, user["id"], since)
-        print(f"\nGravados sozinhos desde {since}: {sum(totals.values())}")
+        print(f"\nGravados sozinhos desde {since} (pela data do lancamento): {sum(totals.values())}")
         show("destino:", totals)
         show("o que o dono mudou:", fields)
         show("por tipo:", Counter({f"{kind} / {state}": n for (kind, state), n in by_kind.items()}))
+        kept, undone = decisions(conn, user["id"], since)
+        print(f"\nDecididos sozinhos (lancamentos desde {since}): {sum(kept.values())}, "
+              f"desfeitos pelo dono: {sum(undone.values())}")
+        show("ficaram, por regra:", kept)
+        show("desfeitos, por regra:", undone)
     finally:
         conn.close()
     return 0

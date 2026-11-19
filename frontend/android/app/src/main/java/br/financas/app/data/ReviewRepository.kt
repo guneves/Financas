@@ -31,6 +31,27 @@ class ReviewRepository(
             is InboxWrite.SessionExpired -> result
         }
 
+    /** Decidido sozinho (058): as decisoes automaticas, com a copia guardada. */
+    fun automatic(): Flow<Load<AutoDecisionsDto>> = reader.read(AUTO_PATH, AutoDecisionsDto.serializer())
+
+    /** POST /api/review/auto/<id>/undo: a decisao desfeita (409: ja desfeita ou nao se desfaz aqui). */
+    suspend fun undoAutomatic(id: String): InboxWrite<AutoDecisionDto> =
+        when (val result = sendWrite(sender, "POST", "$AUTO_PATH/${java.net.URLEncoder.encode(id, "UTF-8")}/undo", "{}")) {
+            is InboxWrite.Done -> decodeDecision(result.value)?.let { InboxWrite.Done(it) } ?: InboxWrite.Offline
+            is InboxWrite.Conflict -> result
+            is InboxWrite.Refused -> result
+            is InboxWrite.Offline -> result
+            is InboxWrite.SessionExpired -> result
+        }
+
+    private fun decodeDecision(body: String): AutoDecisionDto? = try {
+        json.decodeFromString(AutoDecisionDto.serializer(), body)
+    } catch (error: SerializationException) {
+        null
+    } catch (error: IllegalArgumentException) {
+        null
+    }
+
     private fun decode(body: String): ReviewConfirmedDto? = try {
         json.decodeFromString(ReviewConfirmedDto.serializer(), body)
     } catch (error: SerializationException) {
@@ -41,6 +62,7 @@ class ReviewRepository(
 
     companion object {
         const val REVIEW_PATH = "/api/review"
+        const val AUTO_PATH = "/api/review/auto"
         const val CARD_STATEMENT_PATH = "/api/cc-expenses/statement"
 
         fun cardStatementPath(filters: Map<String, String>): String =

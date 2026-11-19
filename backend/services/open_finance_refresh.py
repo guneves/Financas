@@ -19,6 +19,9 @@ conftest.py). Sem as credenciais da Pluggy, a thread
 nem comeca. A primeira rodada vem FIRST_DELAY_SECONDS depois do boot: um pull
 vencido (o servidor ficou fora, um deploy) e recuperado logo, porque o que
 decide e `last_sync_at`, que esta no banco; `_attempts` comeca vazio.
+
+Cada rodada tambem escreve, uma vez por semana por usuario, a linha do log com
+quantas decisoes automaticas cada regra tomou (`auto_decisions.log_weekly()`).
 """
 
 import threading
@@ -27,7 +30,7 @@ import time
 from applog import get_logger
 from config import OPEN_FINANCE_SYNC_SECONDS
 from db import get_db
-from services import open_finance
+from services import auto_decisions, open_finance
 
 logger = get_logger(__name__)
 
@@ -98,7 +101,19 @@ def refresh_all_users(now_seconds=None):
             continue
         if fresh:
             results[current_user_id] = fresh
+    log_weekly_decisions()
     return results
+
+
+def log_weekly_decisions():
+    """A linha semanal das decisoes automaticas de cada usuario (uma falha nao
+    para a rodada)."""
+    for current_user_id in user_ids_with_items():
+        try:
+            with get_db() as conn:
+                auto_decisions.log_weekly(conn, current_user_id)
+        except Exception as exc:  # a rodada nao para por um usuario
+            logger.warning(f"Resumo semanal das decisoes falhou para {current_user_id}: {exc}")
 
 
 def watched_user_ids():

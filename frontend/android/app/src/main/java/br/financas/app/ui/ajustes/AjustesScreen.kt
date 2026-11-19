@@ -49,12 +49,14 @@ import br.financas.app.R
 import br.financas.app.ui.login.DeviceKeyDialog
 import br.financas.app.core.maskEmail
 import br.financas.app.data.AccountDto
+import br.financas.app.data.AutoDecisionDto
 import br.financas.app.data.CategoryDto
 import br.financas.app.data.CreditCardDto
 import br.financas.app.data.OpenFinanceCheckDto
 import br.financas.app.data.OpenFinanceItemDto
 import br.financas.app.data.OpenFinanceSettingsDto
 import br.financas.app.rules.ApkUpdateTexts
+import br.financas.app.rules.AutoDecisions
 import br.financas.app.rules.Card
 import br.financas.app.rules.CardFunctions
 import br.financas.app.rules.GlobalAccount
@@ -122,6 +124,7 @@ fun AjustesScreen(
             AjustesSection.CARTOES -> cartoes(viewModel, onOpenLink)
             AjustesSection.CATEGORIAS -> categorias(viewModel)
             AjustesSection.OPEN_FINANCE -> item(key = "open-finance") { OpenFinanceSection(viewModel) }
+            AjustesSection.AUTOMATICO -> item(key = "automatico") { AutomaticoSection(viewModel) }
             AjustesSection.APARENCIA -> item(key = "aparencia") { AparenciaSection(viewModel) }
             AjustesSection.PERFIL -> item(key = "perfil") { PerfilSection(viewModel, onSignedOut) }
             AjustesSection.NOTIFICACOES -> item(key = "notificacoes") { NotificacoesSection(viewModel) }
@@ -143,6 +146,7 @@ private fun titleOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CARTOES -> R.string.ajustes_cartoes
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias
     AjustesSection.OPEN_FINANCE -> R.string.ajustes_open_finance
+    AjustesSection.AUTOMATICO -> R.string.ajustes_automatico
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia
     AjustesSection.PERFIL -> R.string.ajustes_perfil
     AjustesSection.NOTIFICACOES -> R.string.ajustes_notificacoes
@@ -154,6 +158,7 @@ private fun hintOf(section: AjustesSection): Int = when (section) {
     AjustesSection.CARTOES -> R.string.ajustes_cartoes_hint
     AjustesSection.CATEGORIAS -> R.string.ajustes_categorias_hint
     AjustesSection.OPEN_FINANCE -> R.string.ajustes_open_finance_hint
+    AjustesSection.AUTOMATICO -> R.string.ajustes_automatico_hint
     AjustesSection.APARENCIA -> R.string.ajustes_aparencia_hint
     AjustesSection.PERFIL -> R.string.ajustes_perfil_hint
     AjustesSection.NOTIFICACOES -> R.string.ajustes_notificacoes_hint
@@ -632,6 +637,60 @@ private fun OpenFinanceSection(viewModel: AjustesViewModel) {
                 if (data?.configured == true && settings != null) OpenFinanceSettingsBlock(settings, viewModel)
                 Text(stringResource(R.string.ajustes_open_finance_desktop), fontSize = 13.sp, color = palette.muted)
             }
+        }
+    }
+}
+
+/** Decidido sozinho (058, o mesmo da web em Ajustes): o que o app resolveu sem perguntar, da
+ *  mais nova para a mais antiga, com "Desfazer" so quando o servidor diz que se desfaz aqui. */
+@Composable
+private fun AutomaticoSection(viewModel: AjustesViewModel) {
+    val palette = LocalPalette.current
+    val load = viewModel.decisions
+    val items = load.value?.items.orEmpty()
+    Panel {
+        Column {
+            SectionHeader(stringResource(R.string.ajustes_automatico), stringResource(R.string.ajustes_automatico_description))
+            HorizontalDivider(color = palette["zinc-100"])
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AlertMessage(load.error, AlertTone.DANGER, stringResource(R.string.lanc_dismiss))
+                if (load.offline) Text(load.offlineText, fontSize = 13.sp, color = palette.muted)
+                when {
+                    load.value == null && !load.loaded -> ListSkeleton(rows = 3)
+                    items.isEmpty() -> EmptyState(
+                        stringResource(R.string.ajustes_automatico_empty_title),
+                        stringResource(R.string.ajustes_automatico_empty),
+                    )
+                    else -> items.forEachIndexed { index, decision ->
+                        if (index > 0) HorizontalDivider(color = palette["zinc-100"])
+                        AutoDecisionRow(decision, viewModel)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoDecisionRow(decision: AutoDecisionDto, viewModel: AjustesViewModel) {
+    val palette = LocalPalette.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(AutoDecisions.decisionTitle(decision.kind), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
+            val detail = AutoDecisions.decisionDetail(decision)
+            val day = br.financas.app.core.formatDateBR(decision.createdAt?.take(10))
+            Text(if (detail.isEmpty()) day else "$day · $detail", fontSize = 13.sp, color = palette["zinc-600"])
+        }
+        if (AutoDecisions.canUndo(decision)) {
+            AppButton(
+                stringResource(R.string.ajustes_automatico_undo),
+                { viewModel.undoDecision(decision) },
+                variant = ButtonVariant.SECONDARY,
+                loading = viewModel.undoingId == decision.id,
+                enabled = !viewModel.busy,
+            )
+        } else {
+            Badge(AutoDecisions.noUndoLabel(decision))
         }
     }
 }

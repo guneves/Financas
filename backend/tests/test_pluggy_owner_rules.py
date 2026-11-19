@@ -135,6 +135,35 @@ class TestAnticipatedInstallments:
         assert ("3/4", 2026, 10, "OPEN", 9.29) in lines
         assert ("3/4", 2026, 12, "OPEN", 20.0) in lines
 
+    def test_a_purchase_the_owner_changed_moves_only_the_anticipated_lines(self, world):
+        # Real (2026-11-19): Rota Transportes 6x gravada pelo aviso e recategorizada;
+        # a Pluggy so a ligou (MATCHED), o client_id ficou o do aviso.
+        item_id, _p, made = connected(world, bank=True, card=True)
+        auto_on(world)
+        card_pluggy, card = made["card"][0], made["card"][2]
+        day = "2026-08-27"
+        for number, month, status in ((1, "2026-09", "POSTED"), (2, "2026-10", "POSTED"),
+                                      (3, "2026-11", "PENDING"), (4, "2026-12", "PENDING")):
+            world.fake.add_tx(card_pluggy, billed(
+                card_tx(9.29, "2026-10-20", "Rota Transportes", installment=number, total_installments=4,
+                        purchase_date=day, docs_sign=True, status=status),
+                month, number, 4, day,
+            ))
+        world.sync(item_id)
+        db = importlib.import_module("db")
+        with db.get_db() as conn:
+            conn.execute("UPDATE cc_expenses SET client_id = 'notice-key' WHERE card_id = ?", (card,))
+            conn.execute(
+                "UPDATE cc_expenses SET amount = 9.5 WHERE card_id = ? AND installment_info = '4/4'", (card,),
+            )
+        world.fake.add_tx(card_pluggy, discount(3, 4, "Rota Transportes", "2026-10-21", "2026-10"))
+        world.fake.add_tx(card_pluggy, discount(4, 4, "Rota Transportes", "2026-10-21", "2026-10"))
+        world.sync(item_id)
+        assert self.lines(world, card) == [
+            ("1/4", 2026, 9, "OPEN", 9.29), ("2/4", 2026, 10, "OPEN", 9.29),
+            ("3/4", 2026, 10, "OPEN", 9.29), ("4/4", 2026, 10, "OPEN", 9.5),  # o valor do dono fica
+        ]
+
     def test_the_check_counts_the_installment_the_bank_stopped_listing(self, world):
         item_id, made, card = self.scene(world)
         world.sync(item_id)

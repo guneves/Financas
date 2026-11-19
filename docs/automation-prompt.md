@@ -16,8 +16,8 @@ deploys once.
 |---|---|---|
 | `fix/brokerage-guessed-side` | BTG Investimentos guess follows the real bank side, `scripts/review_breakdown.py`, this prompt | pushed, **PR #99 open**, not merged |
 | `feat/auto-review-phase1` | Phase 1, commit `11b8eb8` (branched from #99) | local only, not pushed |
-| `feat/auto-investments-phase2` | Phase 2 (branched from phase 1) | local only, not pushed; **real-data check pending** |
-| phase 3 | branch from `feat/auto-investments-phase2` | not started |
+| `feat/auto-investments-phase2` | Phase 2, commit `84f6f39` (branched from phase 1) | local only, not pushed; **real-data check pending** |
+| `feat/auto-watch-phase3` | Phase 3 (branched from phase 2) | local only, not pushed |
 
 **Phase 1 — done** (details in its status note below and in `docs/handoff.md`):
 - 058 `auto_decisions` + `GET /api/review/auto`, `POST /api/review/auto/<id>/undo`; web Ajustes › "Decidido sozinho".
@@ -28,13 +28,10 @@ deploys once.
 - 1.4 `services/conflict_resolution.py`: `changed` after 7 days, `vanished` by the balance proof.
 - Two real defects fixed: Pluggy recorded the Corretora's one side as a receita on the Corretora; a notice on one
   side of a transfer item blocked the other side's notice (fuzz seed 4).
-- Tests: `npm test` 250 green, `vite build` OK, APK `compileDebugKotlin` OK (not run on a phone). Backend: new
-  files, fuzz (200 seeds) and identity green; full run chunks 1–2 green, **chunks 3–4 still to rerun** (killed by
-  low memory). The 4 failures that killed run printed in chunk 2 (the subprocess script tests:
-  `test_the_identity_script_reads_without_migrating`, `test_it_prints_keys_never_values`,
-  `test_the_script_alone_migrates_and_starts_no_thread`, `test_the_brake_is_off_by_default`) pass when run alone.
-- Left from phase 1 (fold into phase 3): APK "Decidido sozinho" list; Conferência "Resolvido automaticamente";
-  a `changed` conflict takes the bank's amount, not its date.
+- Tests: `npm test` 250 green, `vite build` OK, APK `compileDebugKotlin` OK (not run on a phone). Backend: all
+  4 chunks green (chunks 3–4 rerun on 2026-11-19).
+- Left from phase 1: the APK list and the Conferência block (done in phase 3); a `changed` conflict takes the
+  bank's amount, not its date (still open: the conflict stores only the amount).
 - **At the final deploy**: auto-confirm (3 days) starts at once — every Revisar row dated ≥ 3 days ago leaves on
   the first read.
 
@@ -57,7 +54,25 @@ stuck "starting"). What each real `HELD` group gets, each decision an `auto_deci
 - MUTUAL_FUND (23): `DISMISSED` `auto:closed_fund` when the fund's position is empty today; with a balance,
   `fund:open` (**no fund class built**: needs the real data to choose the class and how to mark it).
 - Provisional buys: not checked (server unreachable).
-- Not built: the APK list; the Conferência block (phase 3).
+- Not built: the APK list; the Conferência block (both done in phase 3).
+- Committed by a parallel session as `84f6f39`: backend 4 chunks green, `npm test` 251, `vite build` OK.
+
+**Phase 3 — built 2026-11-19** on `feat/auto-watch-phase3` (not merged):
+- `GET /api/review/auto?kinds=<a,b|conference>&days=<1-365>` (400 on an unknown kind or days out of range);
+  `CONFERENCE_KINDS` = the two conflicts + the five portfolio kinds.
+- Web: the Conferência (Ajustes › Open Finance) shows "Resolvido automaticamente" (last 30 days) with Desfazer;
+  `AutoDecisionList.jsx` is shared with Ajustes › "Decidido sozinho".
+- APK: Ajustes › "Decidido sozinho" (`AjustesSection.AUTOMATICO`, `/ajustes#automatico`), `rules/AutoDecisions.kt`
+  ports `lib/autoDecisions.js` with its node cases; no Desfazer when `undoable` is false. Compiled and 603 JVM
+  tests green offline; not run on a phone.
+- A weekly `applog` line per user, "Decisoes automaticas da semana" (`n_<kind>`, `undone_<kind>`, `total`,
+  `undone`), from the Pluggy thread (`auto_decisions.log_weekly()`, `user_settings` `auto_decisions_weekly`).
+- `scripts/review_breakdown.py`: a third block (decisions kept / undone per kind) and both windows by **the row's
+  own date** (corrections too, which used `auto_recorded_at` before).
+- CLAUDE.md's decisions bullet matches; phase 2 had already rewritten "Fixed income from Pluggy only with exact
+  data" and "BTG Investimentos in Investimentos". No wait/record rule changed, so the fuzz and identity suites ran
+  only as part of the full run.
+- Still open: phase 2's real-data check (server offline all day); a `changed` conflict's date.
 
 **Phase 2 — corrections found while preparing it (read before the table below):**
 - `AMORTIZATION` is already a provento type (`proceeds.ALLOWED_PROCEEDS_TYPES`): record the CRA amortization as

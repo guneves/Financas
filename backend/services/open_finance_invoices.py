@@ -24,7 +24,9 @@ adiantada ("Desconto Na Parcela 3 De 6 Rota Transportes") e cobra a parcela na
 fatura do desconto, mas a Pluggy nao lista a cobranca e segue mostrando as
 parcelas seguintes como PENDING nas faturas futuras (BTG: fatura de outubro =
 linhas + 237,16 das 9 parcelas, no centavo). O credito de desconto manda: a
-parcela N vai para a fatura dele, com o status dele, e nunca mais volta.
+parcela N vai para a fatura dele, com o status dele, e nunca mais volta. Vale
+tambem para a compra que o dono digitou ou mudou e a Pluggy so ligou: dela so a
+fatura da parcela adiantada muda; valores e linhas ficam os do dono.
 
 **Pagamento que o app ja tem**: `invoice_payment_link()` so liga o de mesmo
 valor. Um pagamento do app ainda sem transacao, na mesma conta e no mesmo dia (ou
@@ -299,8 +301,13 @@ def _mirror_purchase(conn, current_user_id, group, anchor, early):
     owner = conn.execute(
         "SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?", (anchor["target_id"], current_user_id),
     ).fetchone()
-    if not owner or not str(owner["client_id"] or "").startswith("pluggy:"):
+    if not owner or not owner["client_id"]:
         return
+    # A compra que o dono digitou ou mudou (a Pluggy so a ligou, MATCHED; real:
+    # Rota Transportes 6x de 2026-11-18, recategorizada) guarda os valores e as
+    # linhas dele; so a antecipacao vale para ela: a parcela vai para a fatura
+    # em que o banco a cobrou.
+    from_bank = str(owner["client_id"]).startswith("pluggy:")
     entries = [row_to_dict(row) for row in conn.execute(
         "SELECT * FROM cc_expenses WHERE user_id = ? AND client_id = ?", (current_user_id, owner["client_id"]),
     ).fetchall()]
@@ -313,10 +320,14 @@ def _mirror_purchase(conn, current_user_id, group, anchor, early):
             continue
         if number in early:
             _advance_line(conn, current_user_id, entry["id"], early[number])
+        elif not from_bank:
+            continue
         elif number in by_number:
             _set_line(conn, current_user_id, entry["id"], by_number[number])
         else:
             conn.execute("DELETE FROM cc_expenses WHERE id = ? AND user_id = ?", (entry["id"], current_user_id))
+    if not from_bank:
+        return
     for number, row in by_number.items():
         if number not in known and number not in early:
             _copy_line(conn, current_user_id, entries[0], row, number)
