@@ -65,5 +65,6 @@ class NativeLinksTest {
         assertEquals(NativeLinks.Target(NativeRoutes.AJUSTES), NativeLinks.targetFor("/ajustes"))
         assertEquals(NativeLinks.Target(NativeRoutes.AJUSTES, "categorias"), NativeLinks.targetFor("/ajustes#categorias"))
         assertEquals(NativeLinks.Target(NativeRoutes.AJUSTES, "cartoes"), NativeLinks.targetFor("/ajustes#cartoes"))
+        assertEquals(NativeLinks.Target(NativeRoutes.AJUSTES, "automatico"), NativeLinks.targetFor("/ajustes#automatico"))
     }
 }

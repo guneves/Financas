@@ -464,7 +464,13 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   tree fills it first. An `auto_confirm` decision; undone, the row stays in Revisar for good.
 - **Automatic decisions are logged and undoable** (058, `services/auto_decisions.py`, `auto_undo.py`):
   `auto_decisions` (kind, target, `detail` with the before, `undone_at`), one `applog` line each.
-  `GET /api/review/auto`, `POST /api/review/auto/<id>/undo` (404/409); web Ajustes › "Decidido sozinho".
+  `GET /api/review/auto` (filters `kinds`, comma-separated or `conference` = `CONFERENCE_KINDS`, and `days` 1–365;
+  400 otherwise), `POST /api/review/auto/<id>/undo` (404/409); web Ajustes › "Decidido sozinho" and the
+  Conferência's "Resolvido automaticamente" (conflicts and portfolio, last 30 days; both `AutoDecisionList.jsx`),
+  APK Ajustes › "Decidido sozinho" (`rules/AutoDecisions.kt` = `lib/autoDecisions.js`; no Desfazer when
+  `undoable` is false). Once a week per user the Pluggy thread logs one line with counts per kind and the undone
+  ones (`log_weekly()`, `user_settings` `auto_decisions_weekly`). `scripts/review_breakdown.py` counts them by
+  **the decided row's own date** (a deleted row's from `detail.row`), never by when the app decided.
   Kinds: `pluggy_category` (undo restores the category), `auto_confirm`, `transfer_guess`, `fx_fallback` (undo
   puts the row back in review), `conflict_changed` (undo restores the amount and the conflict),
   `conflict_vanished` (undo reinserts the row); the portfolio's `investment_custody`, `investment_proceed_link`, `investment_closed_fund` (undo: the line waits again) and `investment_custody_in`, `investment_rate_deduced` (`undoable: false`, 409: delete the operation in the Extrato). An undone decision is never taken again on that row

@@ -5,6 +5,21 @@
 
 export const REVIEW_DAY_CHOICES = [0, 3, 7, 14]
 
+// A Conferencia (Ajustes > Open Finance) mostra o que ela antes apontava e o app
+// resolveu sozinho (o conflito com o banco, a linha da carteira) nestes dias.
+export const CONFERENCE_DAYS = 30
+
+// GET /api/review/auto com os filtros do servidor: `kinds` (lista ou 'conference')
+// e `days` (1 a 365). Sem filtro, tudo.
+export function autoDecisionsPath({ kinds, days } = {}) {
+  const params = new URLSearchParams()
+  const list = Array.isArray(kinds) ? kinds.filter(Boolean) : kinds ? [kinds] : []
+  if (list.length) params.set('kinds', list.join(','))
+  if (Number.isInteger(days) && days >= 1 && days <= 365) params.set('days', String(days))
+  const query = params.toString()
+  return query ? `/api/review/auto?${query}` : '/api/review/auto'
+}
+
 export const REVIEW_AUTO_HINT = 'Depois desse prazo, o que ainda está em Revisar sai sozinho com a categoria que tem. Numa conta da Pluggy, espera o banco confirmar primeiro.'
 
 // O prazo do servidor; um servidor antigo que nao manda o campo vale 3.

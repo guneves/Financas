@@ -5,10 +5,12 @@ As regras moram em services/review.py; o Extrato le a lista e confirma um a um
 """
 
 import time
+from datetime import timedelta
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from auth import token_required
+from dates import local_today
 from db import get_db
 from services import auto_decisions, auto_record, auto_undo, open_finance_auto, review
 from validators import ValidationError, parse_json_body, validation_error
@@ -56,10 +58,35 @@ def confirm_review(current_user_id):
 def automatic_decisions(current_user_id):
     """{items, counts}: as decisoes que o app tomou sozinho (058), da mais nova
     para a mais antiga, com o que cada "Desfazer" devolve. `counts`: as nao
-    desfeitas, por regra."""
+    desfeitas, por regra. Filtros: `kinds` (separadas por virgula; `conference`
+    = as da Conferencia, CONFERENCE_KINDS) e `days` (1-365: as decididas nos
+    ultimos N dias)."""
+    kinds = None
+    raw_kinds = (request.args.get("kinds") or "").strip()
+    if raw_kinds:
+        kinds = []
+        for kind in (part.strip() for part in raw_kinds.split(",") if part.strip()):
+            if kind == "conference":
+                kinds.extend(auto_decisions.CONFERENCE_KINDS)
+            elif kind in auto_decisions.KINDS:
+                kinds.append(kind)
+            else:
+                return validation_error(f"Regra desconhecida: {kind}.")
+    since = None
+    raw_days = (request.args.get("days") or "").strip()
+    if raw_days:
+        try:
+            days = int(raw_days)
+        except ValueError:
+            days = 0
+        if not 1 <= days <= 365:
+            return validation_error("Informe 'days' entre 1 e 365.")
+        since = (local_today() - timedelta(days=days)).isoformat()
     with get_db() as conn:
-        items = auto_decisions.recent(conn, current_user_id)
-        counts = auto_decisions.counts(conn, current_user_id)
+        items = auto_decisions.recent(conn, current_user_id, since=since, kinds=kinds)
+        counts = auto_decisions.counts(conn, current_user_id, since=since)
+    if kinds:
+        counts = {kind: total for kind, total in counts.items() if kind in kinds}
     return jsonify({"items": items, "counts": counts}), 200
 
 

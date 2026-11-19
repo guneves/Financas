@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  canUndo, decisionDetail, decisionTitle, noUndoLabel, reviewAutoDays, reviewAutoToast, reviewDayItems, undoToast,
+  CONFERENCE_DAYS, autoDecisionsPath, canUndo, decisionDetail, decisionTitle, noUndoLabel, reviewAutoDays, reviewAutoToast, reviewDayItems, undoToast,
 } from './autoDecisions.js'
 
 test('o prazo do Revisar: o do servidor, 3 quando um servidor antigo nao manda', () => {
@@ -48,4 +48,16 @@ test('a carteira (fase 2): o texto e o que se desfaz aqui', () => {
   assert.equal(noUndoLabel({ id: 'a', undone_at: '2026-11-19' }), 'Desfeito')
   assert.match(undoToast({ kind: 'investment_custody' }), /Conferência/)
   assert.equal(decisionDetail({ kind: 'investment_closed_fund', detail: { name: 'BB RF LP HIGH' } }), 'BB RF LP HIGH')
+})
+
+test('o caminho da lista com os filtros do servidor', () => {
+  assert.equal(autoDecisionsPath(), '/api/review/auto')
+  assert.equal(autoDecisionsPath({}), '/api/review/auto')
+  assert.equal(autoDecisionsPath({ kinds: 'conference', days: CONFERENCE_DAYS }), '/api/review/auto?kinds=conference&days=30')
+  assert.equal(autoDecisionsPath({ kinds: ['conflict_changed', '', 'investment_custody'] }),
+    '/api/review/auto?kinds=conflict_changed%2Cinvestment_custody')
+  // Fora de 1 a 365 o servidor recusa: o filtro fica de fora.
+  assert.equal(autoDecisionsPath({ days: 0 }), '/api/review/auto')
+  assert.equal(autoDecisionsPath({ days: 400 }), '/api/review/auto')
+  assert.equal(autoDecisionsPath({ days: '30' }), '/api/review/auto')
 })

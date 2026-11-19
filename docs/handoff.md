@@ -7,7 +7,48 @@
 
 ---
 
-## Session — 2026-11-19 · Everything automatic, phase 2 (investments decide themselves)
+## Session — 2026-11-19 (2) · Everything automatic, phase 3 (watch and prove)
+
+**State of the branches** (deploy only at the end, owner 2026-11-18; nothing merged, nothing pushed but #99):
+`fix/brokerage-guessed-side` (PR #99) → `feat/auto-review-phase1` → `feat/auto-investments-phase2` (`84f6f39`,
+committed by a parallel session after its 4 chunks passed) → **`feat/auto-watch-phase3`**, all in the worktree
+`../Financas-phase2` (its `frontend/node_modules` is a junction to the main tree's: never commit it).
+
+**Done:**
+- Step 0: phase 2 was committed by the parallel session that built it (backend 4 chunks green, `npm test` 251).
+- Phase 3 (details in `docs/automation-prompt.md` › Progress):
+  - `GET /api/review/auto?kinds=&days=` (`conference` = conflicts + portfolio kinds; 400 on unknown/out of range).
+  - Web: the Conferência shows "Resolvido automaticamente" (last 30 days, Desfazer); `AutoDecisionList.jsx` shared
+    with Ajustes › "Decidido sozinho".
+  - APK: Ajustes › "Decidido sozinho" (`AjustesSection.AUTOMATICO`, `rules/AutoDecisions.kt` + test, `/ajustes#automatico`).
+  - Weekly `applog` line per user from the Pluggy thread (`auto_decisions.log_weekly()`).
+  - `review_breakdown.py`: decisions kept/undone per kind, and both windows by the row's own date.
+  - CLAUDE.md's decisions bullet; `mobile-docs/native/screens/11-ajustes.md`.
+- Tests: `test_watch_and_prove.py` (new), `autoDecisions.test.js` (+1), `AutoDecisionsTest.kt`, `NativeLinksTest`.
+  Backend 4 chunks green; `npm test` 252 green; `vite build` OK; APK `compileDebugKotlin` + 603 JVM tests green
+  offline.
+
+**Not done and why:**
+- **Step 1, phase 2 on the real data: not done.** `ssh guilherme@guilhermeserver` timed out; `tailscale status`
+  shows the server offline, last seen ~6 h before 14:00 (the parallel session heard the owner's internet is
+  down). Every question of the session prompt's step 1 is still open (list in `docs/next-steps.md`).
+- A `changed` conflict still takes only the bank's amount, never its date (needs the bank's date stored on the
+  conflict; not in this session's list).
+- The APK list was not run on a phone; the Conferência block exists on the web only.
+- No wait/record rule changed, so the fuzz and identity suites ran only inside the full run (green).
+
+**Next:** when the server is back, run step 1 of the session prompt (read-only, `/tmp` cleaned after); adjust
+phase 2 if the data says so (`pre_by_deduction()` narrowed by subtype if a CRA is IPCA+/CDI+; a fund class only
+after the owner agrees). Then the owner merges **#99 → phase 1 → phase 2 → phase 3** and deploys once. On deploy,
+auto-confirm (3 days) clears every Revisar row dated ≥ 3 days ago at the first read.
+
+**Lessons:**
+- A bash heredoc collapses `\\n` inside a Python string to a real newline (memory `bash-tool-backslashes`): write
+  edit scripts with Write when they contain backslashes.
+- Two sessions in one worktree: ask over SendMessage before touching it; the peer committed its own phase and
+  handed over the tree.
+
+## Earlier session — 2026-11-19 · Everything automatic, phase 2 (investments decide themselves)
 
 **State of the branches** (deploy only at the end, owner 2026-11-18; nothing merged):
 `fix/brokerage-guessed-side` (PR #99, open) → `feat/auto-review-phase1` (local) → **`feat/auto-investments-phase2`**
