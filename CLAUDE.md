@@ -368,7 +368,9 @@ doesn't cover, comes only from notices (and typing).
   Parcela 3 De 6 Rota Transportes") and charges it in the discount's invoice, but Pluggy leaves that charge off the
   bill's lines and keeps later ones `PENDING` in future invoices. The credit decides: installment N goes to its
   invoice with its status (a missing one is created), never back; the Conferência adds the unlisted ones. Proved on
-  BTG's October bill to the cent (lines + 0,32 carried + 237,16).
+  BTG's October bill to the cent (lines + 0,32 carried + 237,16). **A purchase the owner typed or changed** (Pluggy
+  only linked it, `client_id` not `pluggy:`; 2026-11-19, the Rota 6x recategorised) takes only the anticipation: the
+  anticipated line moves to the discount's invoice; its amounts and lines stay the owner's (no set, delete or copy).
 - **A posted row's invoice is its `billId`** (`card_rows_with_bill()`, `GET /bills`), over `billForecastDate`.
 - **A payment the app has is linked, never doubled** (`_kept_payment()` in `record_bank_payments()`): no target,
   same account, same day (any amount) or same cents within 5 days; it takes the bank's amount. Without it, 11
@@ -464,10 +466,16 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   tree fills it first. An `auto_confirm` decision; undone, the row stays in Revisar for good.
 - **Automatic decisions are logged and undoable** (058, `services/auto_decisions.py`, `auto_undo.py`):
   `auto_decisions` (kind, target, `detail` with the before, `undone_at`), one `applog` line each.
-  `GET /api/review/auto`, `POST /api/review/auto/<id>/undo` (404/409); web Ajustes › "Decidido sozinho".
+  `GET /api/review/auto` (filters `kinds`, comma-separated or `conference` = `CONFERENCE_KINDS`, and `days` 1–365;
+  400 otherwise), `POST /api/review/auto/<id>/undo` (404/409); web Ajustes › "Decidido sozinho" and the
+  Conferência's "Resolvido automaticamente" (conflicts and portfolio, last 30 days; both `AutoDecisionList.jsx`),
+  APK Ajustes › "Decidido sozinho" (`rules/AutoDecisions.kt` = `lib/autoDecisions.js`; no Desfazer when
+  `undoable` is false). Once a week per user the Pluggy thread logs one line with counts per kind and the undone
+  ones (`log_weekly()`, `user_settings` `auto_decisions_weekly`). `scripts/review_breakdown.py` counts them by
+  **the decided row's own date** (a deleted row's from `detail.row`), never by when the app decided.
   Kinds: `pluggy_category` (undo restores the category), `auto_confirm`, `transfer_guess`, `fx_fallback` (undo
   puts the row back in review), `conflict_changed` (undo restores the amount and the conflict),
-  `conflict_vanished` (undo reinserts the row). An undone decision is never taken again on that row
+  `conflict_vanished` (undo reinserts the row); the portfolio's `investment_custody`, `investment_proceed_link`, `investment_closed_fund` (undo: the line waits again) and `investment_custody_in`, `investment_rate_deduced` (`undoable: false`, 409: delete the operation in the Extrato). An undone decision is never taken again on that row
   (`was_undone()`; any undone kind keeps auto-confirm off the row).
 - **"Untouched" is the snapshot, never the review** (Phase 4): `notification_untouched()`,
   `recorded_snapshot.untouched()` and the absorb helper compare the snapshot only. "É meu" without a change
@@ -639,8 +647,15 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   reads `/investments` and each position's transactions (GET). Equity BUY/SELL become movements on
   the trade date with cash through the Corretora (as typed ones), idempotent by
   `open_finance_investment_operations.op_key`; a typed twin (same asset and sign, ±2 days, one trade or several summing to it) is
-  linked; an unknown ticker, a sale without position, a date before the latest corporate action,
-  TRANSFER and equity INTEREST are `HELD` for the owner. Deleting a recorded one is
+  linked; an unknown ticker, a sale without position, a date before the latest corporate action are
+  `HELD` for the owner. **Decided alone** (phase 2 of "everything automatic", owner 2026-11-18, each an
+  `auto_decisions` row): an equity TRANSFER (a custody record) is `DISMISSED` `auto:custody` when the app holds
+  on that day at least Pluggy's quantity (`decide_custody()`; else `custody:short <gap>`); an equity INTEREST
+  links to the computed provento (same ticker, payment ±3 days, ≤ 5 cents of gross or net; else
+  `proceed:unmatched`, never a second provento); a bank fund's (`MUTUAL_FUND`) line is `DISMISSED`
+  `auto:closed_fund` when the position is empty today (its money is already the `BANK_INVESTMENT`
+  aporte/resgate; else `fund:open`). Undo puts the line back `HELD` `undone` and the rule never retakes it.
+  Deleting a recorded one is
   `DISMISSED` for good (a recorded coupon: deleting its provento, `proceed_id`, 056). Positions are never
   written into the portfolio: `portfolio_check()` compares quantities (D-1 position + later operations)
   and the broker cash, where trades of the last 2 business days are "a liquidar" (D+2 settlement).
@@ -651,12 +666,22 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   percent; outside `CDI_PERCENT_RANGE`/`ANNUAL_PERCENT_RANGE` even the unit would be a guess), `subtype`
   → `TITLE_TYPES` (decides IR and category); Tesouro needs the title in the Tesouro price file, the same
   indexer and the `dueDate`. Anything else waits `HELD missing:<field>` / `unmapped:<field>` — **never
-  guess a rate** (SELIC waits). A held line is re-decided every pull, so it fills itself when the
+  guess a rate** (SELIC waits). **Deductions, not guesses** (phase 2): no `rateType` with `rate` 0 and
+  `fixedAnnualRate` > 0 is pré at that rate (`pre_by_deduction()`; a missing `rate` still waits); a Tesouro name
+  without a year (Renda+) is found by type + `dueDate` and the asset takes the commercial name
+  (`tesouro_client.commercial_name()`, "TESOURO RENDA+ APOSENTADORIA EXTRA 2065": the owner's typed asset). A
+  FIXED_INCOME TRANSFER (title from another broker) is a BUY at `netAmount` (original cost), dated the transfer,
+  no cash, `metadata.custody_transfer` (`record_custody_in()`; a typed buy of the same cost up to that day and the
+  same title is linked; two that nothing tells apart wait `custody:ambiguous`), and it is a lot for the later
+  redemptions (in the lot's own asset). AMORTIZATION is an AMORTIZATION
+  provento, no IR. The pré deduction and the custody buy are `auto_decisions` that undo by deleting the operation. A held line is re-decided every pull, so it fills itself when the
   position completes. No cash link: the money is already a `BROKER_STATEMENT` line. A redemption takes
   the buys of the same Pluggy investment, oldest first (PEPS), by Pluggy units (`open_finance_units`);
   a coupon is an INTEREST provento on that title's asset, taxed from the first buy, and the statement
   line that paid it becomes its row (`broker_statement.adopt_proceed_line()`). Typed twins (same cents,
-  ±2 days) are linked. `scripts/position_fields.py --email X` (read-only) lists which keys MeuPluggy
+  ±2 days) are linked, **only of the same title** (`title_fit()`: type and maturity never contradict, 2026-11-19:
+  on the real data cents alone linked a transfer to another LCA/LCI); of the same type and maturity, a buy within
+  `NEAR_LINK_PERCENT` (1%) is linked too (the CRAs typed a day later at the note's value). `scripts/position_fields.py --email X` (read-only) lists which keys MeuPluggy
   fills, never values.
 - **The brake can refuse typing on the Pluggy-fed Corretora** (Phase 3, `manual_entries.require_manual_investment_cash()`,
   only while `MANUAL_ONLY_OFF_PLUGGY`, off by default since 2026-11-05): `POST /api/investments`, `/api/investments/redemptions` and

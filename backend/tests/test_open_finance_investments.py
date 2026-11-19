@@ -6,7 +6,7 @@ O que estes testes protegem:
 - a operacao que o dono ja digitou e ligada, nunca duplicada;
 - antes do ultimo evento corporativo, ou uma venda sem posicao, a operacao
   espera (HELD) e nada e gravado;
-- TRANSFER e INTEREST de renda variavel esperam o dono; a renda fixa sem dados
+- TRANSFER e INTEREST de renda variavel sem o que os explica esperam; a renda fixa sem dados
   exatos espera com o campo que falta (test_open_finance_fixed_income.py);
 - desfazer (apagar a operacao) e para sempre;
 - a conferencia: quantidade da Pluggy (D-1) mais as operacoes depois dela, e o
@@ -157,8 +157,10 @@ class TestOperations:
     @pytest.mark.parametrize("kind, op, reason", [
         # Fase 3: renda fixa espera so pelo que falta (aqui o subtipo nao e um titulo).
         ("FIXED_INCOME", "BUY", "unmapped:subtype"),
-        ("EQUITY", "TRANSFER", "type"),
-        ("EQUITY", "INTEREST", "type"),
+        # Fase 2 (tudo automatico): a custodia sem o ativo no app e o provento sem
+        # o calculado esperam com o motivo (test_investments_decide_themselves.py).
+        ("EQUITY", "TRANSFER", "custody:short 10.0"),
+        ("EQUITY", "INTEREST", "proceed:unmatched"),
     ])
     def test_other_types_wait_for_the_owner(self, world, user, kind, op, reason):
         item_id, pluggy_item, _corretora = broker(world)
