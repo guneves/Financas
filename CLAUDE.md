@@ -368,7 +368,9 @@ doesn't cover, comes only from notices (and typing).
   Parcela 3 De 6 Rota Transportes") and charges it in the discount's invoice, but Pluggy leaves that charge off the
   bill's lines and keeps later ones `PENDING` in future invoices. The credit decides: installment N goes to its
   invoice with its status (a missing one is created), never back; the Conferência adds the unlisted ones. Proved on
-  BTG's October bill to the cent (lines + 0,32 carried + 237,16).
+  BTG's October bill to the cent (lines + 0,32 carried + 237,16). **A purchase the owner typed or changed** (Pluggy
+  only linked it, `client_id` not `pluggy:`; 2026-11-19, the Rota 6x recategorised) takes only the anticipation: the
+  anticipated line moves to the discount's invoice; its amounts and lines stay the owner's (no set, delete or copy).
 - **A posted row's invoice is its `billId`** (`card_rows_with_bill()`, `GET /bills`), over `billForecastDate`.
 - **A payment the app has is linked, never doubled** (`_kept_payment()` in `record_bank_payments()`): no target,
   same account, same day (any amount) or same cents within 5 days; it takes the bank's amount. Without it, 11
