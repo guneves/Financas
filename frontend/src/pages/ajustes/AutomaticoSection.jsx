@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { AlertMessage, Badge, Button, EmptyState, ListSkeleton, Panel, PanelHeader } from '../../components/ui'
-import { canUndo, decisionDetail, decisionTitle, undoToast } from '../../lib/autoDecisions'
+import { canUndo, decisionDetail, decisionTitle, noUndoLabel, undoToast } from '../../lib/autoDecisions'
 import { reviewApi } from '../../lib/dataApi'
 import { formatDateBR } from '../../lib/format'
 import { queryErrorMessage, useQuery } from '../../lib/queries'
@@ -63,7 +63,7 @@ export default function AutomaticoSection() {
                   <Button variant="secondary" size="sm" loading={busyId === decision.id} onClick={() => undo(decision)}>
                     Desfazer
                   </Button>
-                ) : <Badge>Desfeito</Badge>}
+                ) : <Badge>{noUndoLabel(decision)}</Badge>}
               </li>
             ))}
           </ul>

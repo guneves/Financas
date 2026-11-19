@@ -223,6 +223,7 @@
 | The month's spending is one rule on every screen: Corretora rows out of plan and budget, "Pagamento Fatura" in any case, out of expenses and income (#95, audit B2) | 2026-11-13 |
 | Web Início reads `GET /api/home/panels`; `useInicioMovements`, `lib/homeSpending.js` and the parity test removed (#96, audit B3 for Início) | 2026-11-13 |
 | Everything automatic, phase 1 (banking review decides itself): Pluggy's tree fills a row still on the default, Revisar auto-confirms after `review_auto_days` (default 3; web and APK setting), the Corretora's one-sided transfer becomes a guessed aporte/resgate after the window (and no longer a receita on the Corretora), the last PTAX with an `fx_fallback` flag, `changed`/`vanished` conflicts resolve themselves; every decision in `auto_decisions` (058) with "Desfazer" (web Ajustes › Decidido sozinho) | 2026-11-18 |
+| Everything automatic, phase 2 (investments): equity custody TRANSFER leaves by itself when the app holds the quantity, equity INTEREST links to the computed provento, a closed bank fund's lines leave, `rate` 0 + `fixedAnnualRate` is pré, a fixed-income TRANSFER is the buy at original cost (unlocking its redemptions), AMORTIZATION is a provento, Renda+ found by due date; each an `auto_decisions` row (web titles; `undoable` false for what recorded an operation) | 2026-11-19 |
 
 ## Notes on completed work
 

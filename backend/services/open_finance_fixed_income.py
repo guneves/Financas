@@ -37,6 +37,14 @@ errada sem aviso nenhum.
   (`broker_statement.adopt_proceed_line()`), nunca um segundo.
 - **Ligado, nunca duplicado**: a compra, o resgate ou o cupom que o dono ja
   lancou (mesmo valor ao centavo, ate LINK_DAYS dias) e ligado.
+- **Tudo automatico** (fase 2, dono 2026-11-18): sem `rateType`, `rate` 0 e
+  `fixedAnnualRate` > 0 e pre a essa taxa (`pre_by_deduction()`, uma deducao:
+  nenhum indexador tem 0% de participacao); a TRANSFER (titulo de outra
+  corretora) e a compra ao custo de origem `netAmount`, sem caixa
+  (`record_custody_in()`), e destrava os resgates do mesmo investimento; a
+  AMORTIZATION e o provento AMORTIZATION, sem IR; o Tesouro cujo nome nao traz
+  o ano (Renda+) e achado pelo vencimento. As duas primeiras ficam em
+  auto_decisions; desfazem-se apagando a operacao no Extrato.
 """
 
 import json
@@ -47,7 +55,7 @@ import tesouro_client
 from dates import parse_iso_date
 from db import encode_metadata, new_id, parse_metadata_value
 from money import cents_or_zero, rounded_money
-from services import broker_statement
+from services import auto_decisions, broker_statement
 from services.corporate_actions import ensure_outside_corporate_actions
 from services.fixed_income import TAX_FREE_FIXED_INCOME_TYPES, validate_fixed_income_metadata
 from services.investments import (
@@ -90,6 +98,12 @@ TREASURY_KINDS = {
     tesouro_client.PREFIXADO_JUROS: "PRE",
 }
 UNITS_KEY = "open_finance_units"
+CUSTODY_KEY = "custody_transfer"
+# Operacao da Pluggy -> provento no ativo do titulo.
+PROCEED_OPERATIONS = {"INTEREST": INTEREST_TYPE, "AMORTIZATION": "AMORTIZATION"}
+# Decisoes automaticas (services/auto_decisions.py) tomadas aqui.
+RATE_DEDUCED_DECISION = auto_decisions.INVESTMENT_RATE_DEDUCED
+CUSTODY_IN_DECISION = auto_decisions.INVESTMENT_CUSTODY_IN
 OPERATION_KEY = "open_finance_operation"
 UNITS_TOLERANCE = 0.000001
 
@@ -159,9 +173,13 @@ def title_terms(raw, prices=None):
     name = " ".join(str(raw.get("name") or "").split())
     if not name:
         raise Held("missing:name")
+    deduced = None
     if not _present(raw, "rateType"):
-        raise Held("missing:rateType")
-    kind = _rate_kind(raw.get("rateType"))
+        if not pre_by_deduction(raw):
+            raise Held("missing:rateType")
+        # Sem indexador, nenhuma parte do CDI (`rate` 0) e uma taxa fixa: pre.
+        deduced = "PRE"
+    kind = deduced or _rate_kind(raw.get("rateType"))
     if kind is None:
         # SELIC, IGPM ou outro: o app nao le (Selic acompanharia o CDI: chute).
         raise Held("unmapped:rateType")
@@ -181,19 +199,41 @@ def title_terms(raw, prices=None):
         metadata.update({"rate_type": "PRE", "annual_rate": _percent(raw, "fixedAnnualRate", ANNUAL_PERCENT_RANGE)})
     metadata["is_tax_free"] = title_type in TAX_FREE_FIXED_INCOME_TYPES
 
+    ticker = name
     if title_type == "TESOURO":
         if prices is None:
             raise Held("missing:tesouro_prices")
+        due = parse_iso_date(str(raw.get("dueDate") or "")[:10]) if _present(raw, "dueDate") else None
         series = prices.find_title(name)
+        if series is None and due is not None and tesouro_client.title_year_from_name(name) is None:
+            # O nome sem ano (o Renda+ da corretora): o tipo do nome e o
+            # vencimento da Pluggy acham o titulo; o ano do vencimento entra no
+            # nome do ativo para a tela (services/treasury.py) achar o mesmo.
+            series = prices.find_by_maturity(tesouro_client.title_type_from_name(name), due.date())
+            if series is not None:
+                ticker = f"{name} {series.maturity.year}"
         if series is None:
             raise Held("unmapped:name")
         if TREASURY_KINDS.get(series.title_type) != kind:
             raise Held("unmapped:rateType")
-        due = parse_iso_date(str(raw.get("dueDate") or "")[:10]) if _present(raw, "dueDate") else None
         if _present(raw, "dueDate") and (due is None or due.date() != series.maturity):
             raise Held("unmapped:dueDate")
     validate_fixed_income_metadata("FIXED_INCOME", 1, metadata)
-    return {"ticker": name, "metadata": metadata}
+    terms = {"ticker": ticker, "metadata": metadata}
+    if deduced:
+        terms["deduced"] = {"rateType": deduced, "fixedAnnualRate": _number(raw, "fixedAnnualRate")}
+    return terms
+
+
+def pre_by_deduction(raw):
+    """Puro: sem `rateType`, `rate` 0 (nenhuma parte do CDI) e uma
+    `fixedAnnualRate` > 0 so podem ser um pre-fixado a essa taxa. Real (BTG
+    pelo MeuPluggy, 2026-11-18): LCI, CDBs C6/Original e CRAs com `rate` 0 e
+    `fixedAnnualRate` 11,7-16,9. Um `rate` ausente nao e zero: espera."""
+    if not _present(raw, "rate"):
+        return False
+    rate, fixed = _number(raw, "rate"), _number(raw, "fixedAnnualRate")
+    return rate == 0 and fixed is not None and fixed > 0
 
 
 def partial_terms(raw, prices=None):
@@ -326,7 +366,61 @@ def record_buy(conn, current_user_id, op, terms):
         metadata[UNITS_KEY] = op["quantity"]
         if terms["metadata"].get("fixed_income_type") == "TESOURO":
             metadata["treasury_units"] = op["quantity"]
+    if terms.get("deduced"):
+        op["auto_decision"] = {"kind": RATE_DEDUCED_DECISION, "detail": {
+            "name": terms["ticker"], "trade_date": op["trade_date"], "amount": op["amount"], **terms["deduced"],
+        }}
     return "RECORDED", _insert(conn, current_user_id, terms["ticker"], 1, op["amount"] + op["expenses"], metadata)
+
+
+def _typed_custody_buy(conn, current_user_id, cost, until_day):
+    """A compra de renda fixa que o dono ja lancou (na corretora de antes) com o
+    custo da transferencia ao centavo, ate o dia dela, nao ligada a outra."""
+    linked = _linked_ids(conn, current_user_id)
+    wanted = cents_or_zero(cost)
+    for row in _fixed_income_rows(conn, current_user_id, "1900-01-01", until_day):
+        if row["id"] in linked or safe_float(row["quantity"]) <= 0 or row["metadata"].get("is_redemption"):
+            continue
+        if cents_or_zero(investment_gross_amount(row["quantity"], row["unit_price"])) == wanted:
+            return row["id"]
+    return None
+
+
+def record_custody_in(conn, current_user_id, op, terms):
+    """(state, investment_id) de uma TRANSFER de renda fixa: o titulo veio de
+    outra corretora (real: LCA Original e LCIs BRB, 2026-04-01). Vira a compra
+    ao custo de origem (`netAmount`), datada da transferencia, sem caixa e com
+    `metadata.custody_transfer`; e o lote que os resgates seguintes baixam. O
+    que o dono ja lancou com esse custo e ligado. Datada da transferencia, o IR
+    regressivo de um titulo tributavel conta menos dias (cobra a mais, nunca a
+    menos); LCI/LCA sao isentas."""
+    if not op["trade_date"]:
+        raise Held("missing:tradeDate")
+    cost = safe_float(op.get("net_amount"))
+    if cost <= 0:
+        raise Held("missing:netAmount")
+    decision = {"kind": CUSTODY_IN_DECISION, "detail": {
+        "name": terms["ticker"], "trade_date": op["trade_date"], "cost": rounded_money(cost),
+    }}
+    twin = _typed_custody_buy(conn, current_user_id, cost, op["trade_date"])
+    if twin:
+        decision["detail"]["linked"] = True
+        op["auto_decision"] = decision
+        return "LINKED", twin
+    metadata = {
+        **terms["metadata"],
+        "purchase_date": op["trade_date"],
+        "other_costs": 0,
+        "source": "open_finance",
+        CUSTODY_KEY: True,
+        OPERATION_KEY: op["op_key"],
+    }
+    if op["quantity"] > 0:
+        metadata[UNITS_KEY] = op["quantity"]
+        if terms["metadata"].get("fixed_income_type") == "TESOURO":
+            metadata["treasury_units"] = op["quantity"]
+    op["auto_decision"] = decision
+    return "RECORDED", _insert(conn, current_user_id, terms["ticker"], 1, rounded_money(cost), metadata)
 
 
 def title_lots(conn, current_user_id, pluggy_investment_id):
@@ -338,7 +432,7 @@ def title_lots(conn, current_user_id, pluggy_investment_id):
         SELECT o.quantity AS units, it.id, it.asset_id, it.quantity, it.unit_price, it.transaction_date
         FROM open_finance_investment_operations o
         JOIN investment_transactions it ON it.id = o.investment_id AND it.user_id = o.user_id
-        WHERE o.user_id = ? AND o.pluggy_investment_id = ? AND o.op_type = 'BUY'
+        WHERE o.user_id = ? AND o.pluggy_investment_id = ? AND o.op_type IN ('BUY', 'TRANSFER')
           AND o.state IN ('RECORDED', 'LINKED') AND instr(o.op_key, '#') = 0
         ORDER BY it.transaction_date, it.id
         """,
@@ -427,6 +521,8 @@ def record_redemption(conn, current_user_id, op, terms):
     if twin:
         return "LINKED", twin
     parts = redemption_plan(lots, op["quantity"], op["amount"])
+    # Cada parte no ativo do proprio lote (a compra ligada pode ter o nome que o dono deu).
+    lot_assets = {lot["id"]: lot["asset_id"] for lot in lots}
     first = None
     for part in parts:
         metadata = {
@@ -438,12 +534,23 @@ def record_redemption(conn, current_user_id, op, terms):
             OPERATION_KEY: op["op_key"],
             UNITS_KEY: part["units"],
         }
-        movement_id = _insert(conn, current_user_id, terms["ticker"], -1, part["cost"], metadata, quote=part["amount"])
+        ticker = _asset_ticker(conn, current_user_id, lot_assets.get(part["lot_id"])) or terms["ticker"]
+        movement_id = _insert(conn, current_user_id, ticker, -1, part["cost"], metadata, quote=part["amount"])
         first = first or movement_id
     return "RECORDED", first
 
 
-def _typed_interest(conn, current_user_id, asset_id, op):
+def _asset_ticker(conn, current_user_id, asset_id):
+    if not asset_id:
+        return None
+    row = conn.execute(
+        "SELECT ticker FROM assets WHERE id = ? AND user_id = ? AND asset_class = 'FIXED_INCOME'",
+        (asset_id, current_user_id),
+    ).fetchone()
+    return row["ticker"] if row else None
+
+
+def _typed_interest(conn, current_user_id, asset_id, op, proceeds_type=INTEREST_TYPE):
     for row in conn.execute(
         """
         SELECT p.id, p.gross_amount, p.net_amount FROM investment_proceeds p
@@ -454,7 +561,7 @@ def _typed_interest(conn, current_user_id, asset_id, op):
         ORDER BY p.payment_date, p.id
         """,
         (
-            current_user_id, asset_id, INTEREST_TYPE,
+            current_user_id, asset_id, proceeds_type,
             _shifted(op["trade_date"], -LINK_DAYS), _shifted(op["trade_date"], LINK_DAYS),
         ),
     ).fetchall():
@@ -463,8 +570,10 @@ def _typed_interest(conn, current_user_id, asset_id, op):
     return None
 
 
-def record_interest(conn, current_user_id, op):
-    """(state, proceed_id) do cupom: provento INTEREST no ativo da compra."""
+def record_interest(conn, current_user_id, op, proceeds_type=INTEREST_TYPE):
+    """(state, proceed_id) do cupom: provento INTEREST no ativo da compra. A
+    AMORTIZATION (real: CRA BTG, R$ 117,64) e a devolucao de parte do
+    principal: o provento AMORTIZATION (040), sem IR, pelo mesmo caminho."""
     if not op["trade_date"]:
         raise Held("missing:tradeDate")
     if op["amount"] <= 0:
@@ -473,12 +582,13 @@ def record_interest(conn, current_user_id, op):
     if not lots:
         raise Held("missing:buy")
     asset_id = lots[0]["asset_id"]
-    twin = _typed_interest(conn, current_user_id, asset_id, op)
+    twin = _typed_interest(conn, current_user_id, asset_id, op, proceeds_type)
     if twin:
         return "LINKED", twin
     day = op["trade_date"]
     gross = rounded_money(op["amount"])
-    tax = rounded_money(gross * interest_tax_rate(conn, current_user_id, asset_id, day))
+    rate = interest_tax_rate(conn, current_user_id, asset_id, day) if proceeds_type == INTEREST_TYPE else 0.0
+    tax = rounded_money(gross * rate)
     eligible = safe_float(investment_position_at_date(conn, current_user_id, asset_id, day)["quantity"])
     proceed_id = new_id()
     conn.execute(
@@ -489,7 +599,7 @@ def record_interest(conn, current_user_id, op):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open_finance', '', ?)
         """,
         (
-            proceed_id, current_user_id, asset_id, INTEREST_TYPE, day, day,
+            proceed_id, current_user_id, asset_id, proceeds_type, day, day,
             round(gross / eligible, 8) if eligible > 0 else None, round(eligible, 6), gross, tax,
             rounded_money(gross - tax), encode_metadata({OPERATION_KEY: op["op_key"]}),
         ),
@@ -499,14 +609,16 @@ def record_interest(conn, current_user_id, op):
 
 
 def _record(conn, current_user_id, op, prices):
-    if op["op_type"] == "INTEREST":
-        state, proceed_id = record_interest(conn, current_user_id, op)
+    if op["op_type"] in PROCEED_OPERATIONS:
+        state, proceed_id = record_interest(conn, current_user_id, op, PROCEED_OPERATIONS[op["op_type"]])
         return state, None, proceed_id
-    if op["op_type"] not in ("BUY", "SELL"):
+    if op["op_type"] not in ("BUY", "SELL", "TRANSFER"):
         raise Held("unmapped:type")
     raw = raw_position(conn, current_user_id, op["pluggy_investment_id"])
     terms = title_terms(raw, treasury_prices() if prices == "auto" else prices)
-    if op["op_type"] == "BUY":
+    if op["op_type"] == "TRANSFER":
+        state, movement_id = record_custody_in(conn, current_user_id, op, terms)
+    elif op["op_type"] == "BUY":
         state, movement_id = record_buy(conn, current_user_id, op, terms)
     else:
         state, movement_id = record_redemption(conn, current_user_id, op, terms)
@@ -522,6 +634,7 @@ def decide(conn, current_user_id, op, prices="auto"):
     except (Held, ValidationError) as exc:
         conn.execute("ROLLBACK TO SAVEPOINT open_finance_fixed_income")
         conn.execute("RELEASE SAVEPOINT open_finance_fixed_income")
+        op.pop("auto_decision", None)
         if isinstance(exc, Held):
             return "HELD", exc.reason, None, None
         return "HELD", f"refused: {str(exc)[:200]}", None, None

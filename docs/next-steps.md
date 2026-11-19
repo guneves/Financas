@@ -162,11 +162,13 @@ Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10
   keep the row and contest with the bank.
 - [ ] Editing a row (PATCH) does not clear `needs_review`; only Revisar does.
 - [ ] **Everything automatic, banking and investments** (owner, 2026-11-18): follow `docs/automation-prompt.md`.
-  Phase 1 (banking review decides itself) is on `feat/auto-review-phase1`, not merged. Left: phase 2 (no
-  investment `HELD` line: custody transfers, `rate` 0 pré titles, fixed-income transfer-in, amortization, Renda+
-  by ISIN, BB funds), phase 3 (watch and prove: `review_breakdown.py` counts the decisions by the row's date, a
-  weekly log line). Phase 1 leftovers: the APK has no "Decidido sozinho" list (web only); a `changed` conflict
-  takes the bank's amount but never its date (the conflict stores only the amount).
+  Phase 1 is on `feat/auto-review-phase1`, phase 2 on `feat/auto-investments-phase2` (stacked), neither merged
+  (deploy only at the end). Left: **check phase 2 on the server's real data before merging** (read-only: which
+  held lines each rule takes; the `rate` 0 titles against a brokerage note; whether the BB funds hold quotas
+  today); a fund still holding quotas waits `fund:open` (no fund class); an unmatched equity INTEREST waits
+  `proceed:unmatched`; phase 3 (watch and prove: `review_breakdown.py` counts the decisions by the row's date, a
+  weekly log line). Leftovers: the APK has no "Decidido sozinho" list (web only); a `changed` conflict takes the
+  bank's amount but never its date (the conflict stores only the amount).
 - [ ] Owner, server `.env`: `BRAPI_MAX_SYMBOLS_PER_REQUEST=1` (brapi's plan takes 1 ticker per request; the log
   errors hourly and quotes fall back to yfinance).
 - [ ] A one-sided own transfer whose despesa the owner recategorised before the other side arrived stays a despesa

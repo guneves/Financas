@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  canUndo, decisionDetail, decisionTitle, reviewAutoDays, reviewAutoToast, reviewDayItems, undoToast,
+  canUndo, decisionDetail, decisionTitle, noUndoLabel, reviewAutoDays, reviewAutoToast, reviewDayItems, undoToast,
 } from './autoDecisions.js'
 
 test('o prazo do Revisar: o do servidor, 3 quando um servidor antigo nao manda', () => {
@@ -36,4 +36,16 @@ test('desfazer: so a que nao foi desfeita, e o aviso de cada uma', () => {
   assert.equal(canUndo({ id: 'a', undone_at: '2026-11-18' }), false)
   assert.match(undoToast({ kind: 'auto_confirm' }), /Revisar/)
   assert.match(undoToast({ kind: 'conflict_vanished' }), /voltou/)
+})
+
+test('a carteira (fase 2): o texto e o que se desfaz aqui', () => {
+  assert.equal(decisionTitle({ kind: 'investment_custody' }), 'Custódia da corretora: o app já tinha')
+  assert.equal(decisionDetail({ kind: 'investment_proceed_link', detail: { code: 'ITSA4' } }), 'ITSA4')
+  assert.match(decisionDetail({ kind: 'investment_custody_in', detail: { name: 'LCA ORIGINAL', cost: 1000 } }), /LCA ORIGINAL · R\$\s1\.000,00/)
+  assert.equal(decisionDetail({ kind: 'investment_rate_deduced', detail: { name: 'CDB C6', fixedAnnualRate: 13.5 } }), 'CDB C6 · 13,5% a.a.')
+  assert.equal(canUndo({ id: 'a', kind: 'investment_custody_in', undoable: false }), false)
+  assert.equal(noUndoLabel({ id: 'a', undoable: false }), 'Apague no Extrato para desfazer')
+  assert.equal(noUndoLabel({ id: 'a', undone_at: '2026-11-19' }), 'Desfeito')
+  assert.match(undoToast({ kind: 'investment_custody' }), /Conferência/)
+  assert.equal(decisionDetail({ kind: 'investment_closed_fund', detail: { name: 'BB RF LP HIGH' } }), 'BB RF LP HIGH')
 })

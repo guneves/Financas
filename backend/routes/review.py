@@ -73,6 +73,6 @@ def undo_automatic_decision(current_user_id, decision_id):
             decision = auto_undo.undo(conn, current_user_id, decision_id)
         except LookupError as exc:
             return jsonify({"error": str(exc)}), 404
-        except auto_undo.AlreadyUndone as exc:
+        except (auto_undo.AlreadyUndone, auto_undo.NotUndoable) as exc:
             return jsonify({"error": str(exc)}), 409
     return jsonify(decision), 200

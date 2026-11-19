@@ -16,8 +16,8 @@ deploys once.
 |---|---|---|
 | `fix/brokerage-guessed-side` | BTG Investimentos guess follows the real bank side, `scripts/review_breakdown.py`, this prompt | pushed, **PR #99 open**, not merged |
 | `feat/auto-review-phase1` | Phase 1, commit `11b8eb8` (branched from #99) | local only, not pushed |
-| phase 2 | branch from `feat/auto-review-phase1` (needs `auto_decisions`, 058) | not started |
-| phase 3 | branch from phase 2 | not started |
+| `feat/auto-investments-phase2` | Phase 2 (branched from phase 1) | local only, not pushed; **real-data check pending** |
+| phase 3 | branch from `feat/auto-investments-phase2` | not started |
 
 **Phase 1 — done** (details in its status note below and in `docs/handoff.md`):
 - 058 `auto_decisions` + `GET /api/review/auto`, `POST /api/review/auto/<id>/undo`; web Ajustes › "Decidido sozinho".
@@ -37,6 +37,27 @@ deploys once.
   a `changed` conflict takes the bank's amount, not its date.
 - **At the final deploy**: auto-confirm (3 days) starts at once — every Revisar row dated ≥ 3 days ago leaves on
   the first read.
+
+**Phase 2 — built 2026-11-19, not checked on the real data** (the server was unreachable: Tailscale on the PC
+stuck "starting"). What each real `HELD` group gets, each decision an `auto_decisions` row:
+- EQUITY TRANSFER (14): `DISMISSED` `auto:custody` when the app's quantity on the transfer day ≥ Pluggy's
+  (position minus the Pluggy buys/sells after that day; decided after the pull's other lines); else
+  `custody:short <gap>`. Undo → `HELD` `undone`, never retaken.
+- EQUITY INTEREST (2): linked to the computed provento (ticker, payment ±3 days, ≤ 5 cents of gross or net);
+  else `proceed:unmatched`. **Not recorded as a new provento**: StatusInvest would bring the same one later
+  with its data com, and the type (JCP or dividend) is unknown. Undo → `HELD`.
+- `missing:rateType` (6): `rate` 0 + `fixedAnnualRate` > 0 → pré (`pre_by_deduction()`). **Before merging,
+  compare one title with a brokerage note** (or with the owner's typed history on the server).
+- FIXED_INCOME TRANSFER (4) + `missing:buy` (7): the transfer is a BUY at `netAmount`, dated the transfer, no
+  cash, `custody_transfer`; a typed buy of the same cost up to that day is linked instead; redemptions now go to
+  the lot's own asset. A taxable title gets fewer days in the regressive IR (charges more, never less).
+- AMORTIZATION (1): an `AMORTIZATION` provento, no IR.
+- `unmapped:name` Renda+ (1): a name without a year is found by type + `dueDate`; the asset gets the year.
+  If the real name has a year that doesn't match, it still waits: check its `held_reason` after deploy.
+- MUTUAL_FUND (23): `DISMISSED` `auto:closed_fund` when the fund's position is empty today; with a balance,
+  `fund:open` (**no fund class built**: needs the real data to choose the class and how to mark it).
+- Provisional buys: not checked (server unreachable).
+- Not built: the APK list; the Conferência block (phase 3).
 
 **Phase 2 — corrections found while preparing it (read before the table below):**
 - `AMORTIZATION` is already a provento type (`proceeds.ALLOWED_PROCEEDS_TYPES`): record the CRA amortization as

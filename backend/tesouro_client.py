@@ -285,6 +285,15 @@ class TreasuryPrices:
                 return max(matches, key=lambda s: s.days[-1] if s.days else 0)
         return None
 
+    def find_by_maturity(self, title_type, maturity):
+        """O TitleSeries do tipo com este vencimento (date), ou None: o titulo
+        cujo nome nao traz o ano (o Renda+ da corretora, "Tesouro Renda+
+        Aposentadoria Extra (NTNB...)") se acha pelo vencimento da Pluggy."""
+        if title_type is None or maturity is None:
+            return None
+        found = [s for (kind, due), s in self.series.items() if kind == title_type and due == maturity]
+        return found[0] if found else None
+
     def age_seconds(self, now=None):
         return max((now if now is not None else time.time()) - self.fetched_at, 0.0)
 

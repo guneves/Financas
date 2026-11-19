@@ -467,7 +467,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   `GET /api/review/auto`, `POST /api/review/auto/<id>/undo` (404/409); web Ajustes › "Decidido sozinho".
   Kinds: `pluggy_category` (undo restores the category), `auto_confirm`, `transfer_guess`, `fx_fallback` (undo
   puts the row back in review), `conflict_changed` (undo restores the amount and the conflict),
-  `conflict_vanished` (undo reinserts the row). An undone decision is never taken again on that row
+  `conflict_vanished` (undo reinserts the row); the portfolio's `investment_custody`, `investment_proceed_link`, `investment_closed_fund` (undo: the line waits again) and `investment_custody_in`, `investment_rate_deduced` (`undoable: false`, 409: delete the operation in the Extrato). An undone decision is never taken again on that row
   (`was_undone()`; any undone kind keeps auto-confirm off the row).
 - **"Untouched" is the snapshot, never the review** (Phase 4): `notification_untouched()`,
   `recorded_snapshot.untouched()` and the absorb helper compare the snapshot only. "É meu" without a change
@@ -639,8 +639,15 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   reads `/investments` and each position's transactions (GET). Equity BUY/SELL become movements on
   the trade date with cash through the Corretora (as typed ones), idempotent by
   `open_finance_investment_operations.op_key`; a typed twin (same asset and sign, ±2 days, one trade or several summing to it) is
-  linked; an unknown ticker, a sale without position, a date before the latest corporate action,
-  TRANSFER and equity INTEREST are `HELD` for the owner. Deleting a recorded one is
+  linked; an unknown ticker, a sale without position, a date before the latest corporate action are
+  `HELD` for the owner. **Decided alone** (phase 2 of "everything automatic", owner 2026-11-18, each an
+  `auto_decisions` row): an equity TRANSFER (a custody record) is `DISMISSED` `auto:custody` when the app holds
+  on that day at least Pluggy's quantity (`decide_custody()`; else `custody:short <gap>`); an equity INTEREST
+  links to the computed provento (same ticker, payment ±3 days, ≤ 5 cents of gross or net; else
+  `proceed:unmatched`, never a second provento); a bank fund's (`MUTUAL_FUND`) line is `DISMISSED`
+  `auto:closed_fund` when the position is empty today (its money is already the `BANK_INVESTMENT`
+  aporte/resgate; else `fund:open`). Undo puts the line back `HELD` `undone` and the rule never retakes it.
+  Deleting a recorded one is
   `DISMISSED` for good (a recorded coupon: deleting its provento, `proceed_id`, 056). Positions are never
   written into the portfolio: `portfolio_check()` compares quantities (D-1 position + later operations)
   and the broker cash, where trades of the last 2 business days are "a liquidar" (D+2 settlement).
@@ -651,7 +658,13 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   percent; outside `CDI_PERCENT_RANGE`/`ANNUAL_PERCENT_RANGE` even the unit would be a guess), `subtype`
   → `TITLE_TYPES` (decides IR and category); Tesouro needs the title in the Tesouro price file, the same
   indexer and the `dueDate`. Anything else waits `HELD missing:<field>` / `unmapped:<field>` — **never
-  guess a rate** (SELIC waits). A held line is re-decided every pull, so it fills itself when the
+  guess a rate** (SELIC waits). **Deductions, not guesses** (phase 2): no `rateType` with `rate` 0 and
+  `fixedAnnualRate` > 0 is pré at that rate (`pre_by_deduction()`; a missing `rate` still waits); a Tesouro name
+  without a year (Renda+) is found by type + `dueDate` and the asset is named with the maturity year. A
+  FIXED_INCOME TRANSFER (title from another broker) is a BUY at `netAmount` (original cost), dated the transfer,
+  no cash, `metadata.custody_transfer` (`record_custody_in()`; a typed buy of the same cost up to that day is
+  linked), and it is a lot for the later redemptions (in the lot's own asset). AMORTIZATION is an AMORTIZATION
+  provento, no IR. The pré deduction and the custody buy are `auto_decisions` that undo by deleting the operation. A held line is re-decided every pull, so it fills itself when the
   position completes. No cash link: the money is already a `BROKER_STATEMENT` line. A redemption takes
   the buys of the same Pluggy investment, oldest first (PEPS), by Pluggy units (`open_finance_units`);
   a coupon is an INTEREST provento on that title's asset, taxed from the first buy, and the statement

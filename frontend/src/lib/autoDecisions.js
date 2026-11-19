@@ -29,6 +29,11 @@ const TITLES = {
   fx_fallback: 'Câmbio do último dia útil disponível',
   conflict_changed: 'Valor do banco aplicado',
   conflict_vanished: 'Removido: sumiu do banco e o saldo confirma',
+  investment_custody: 'Custódia da corretora: o app já tinha',
+  investment_proceed_link: 'Provento da corretora ligado ao calculado',
+  investment_closed_fund: 'Fundo do banco já encerrado',
+  investment_custody_in: 'Título vindo de outra corretora, pelo custo',
+  investment_rate_deduced: 'Título sem indexador: pré-fixado',
 }
 
 export function decisionTitle(decision) {
@@ -54,6 +59,16 @@ export function decisionDetail(decision) {
       return detail.row?.description || ''
     case 'fx_fallback':
       return detail.rate_date ? `PTAX de ${detail.rate_date.split('-').reverse().join('/')}` : ''
+    case 'investment_custody':
+    case 'investment_proceed_link':
+      return detail.code || ''
+    case 'investment_closed_fund':
+      return detail.name || ''
+    case 'investment_custody_in':
+      return [detail.name, Number.isFinite(detail.cost) ? cents(Math.round(detail.cost * 100)) : ''].filter(Boolean).join(' · ')
+    case 'investment_rate_deduced':
+      return [detail.name, Number.isFinite(detail.fixedAnnualRate) ? `${String(detail.fixedAnnualRate).replace('.', ',')}% a.a.` : '']
+        .filter(Boolean).join(' · ')
     default:
       return ''
   }
@@ -68,11 +83,21 @@ export function undoToast(decision) {
       return 'O valor voltou; a Conferência aponta a diferença.'
     case 'conflict_vanished':
       return 'O lançamento voltou.'
+    case 'investment_custody':
+    case 'investment_proceed_link':
+    case 'investment_closed_fund':
+      return 'Voltou a esperar você na Conferência.'
     default:
       return 'Voltou para o Revisar.'
   }
 }
 
+// O servidor diz o que se desfaz aqui (`undoable`); um antigo nao manda: vale sim.
 export function canUndo(decision) {
-  return Boolean(decision?.id) && !decision?.undone_at
+  return Boolean(decision?.id) && !decision?.undone_at && decision?.undoable !== false
+}
+
+// O que aparece no lugar do "Desfazer".
+export function noUndoLabel(decision) {
+  return decision?.undone_at ? 'Desfeito' : 'Apague no Extrato para desfazer'
 }

@@ -6,18 +6,25 @@
   `fx_fallback`): a linha volta ao Revisar, onde o dono
   corrige o lado, a conta ou o valor;
 - `conflict_changed`: o valor volta e o conflito volta a ser apontado;
-  `conflict_vanished`: a linha apagada volta (services/conflict_resolution.py).
+  `conflict_vanished`: a linha apagada volta (services/conflict_resolution.py);
+- a carteira: `investment_custody` e `investment_proceed_link` voltam a
+  esperar o dono; `investment_custody_in` e `investment_rate_deduced` gravaram
+  uma operacao e se desfazem no Extrato (NotUndoable, 409).
 
 Desfeita, a regra nao decide de novo o mesmo lancamento. O que o app desfaz
 renova os snapshots: desfazer nao conta como toque do dono.
 """
 
-from services import auto_decisions, conflict_resolution, review
+from services import auto_decisions, conflict_resolution, open_finance_investments, review
 from services.recorded_snapshot import refresh_snapshots
 
 
 class AlreadyUndone(Exception):
     pass
+
+
+class NotUndoable(Exception):
+    """A decisao gravou uma operacao: desfaz-se apagando-a no Extrato."""
 
 
 def _item_for(conn, current_user_id, table, target_id):
@@ -35,6 +42,13 @@ def undo(conn, current_user_id, decision_id):
         raise LookupError("Decisao nao encontrada.")
     if decision["undone_at"]:
         raise AlreadyUndone("Esta decisao ja foi desfeita.")
+    if decision["kind"] in auto_decisions.INVESTMENT_KINDS:
+        try:
+            open_finance_investments.undo_decision(conn, current_user_id, decision)
+        except ValueError as exc:
+            raise NotUndoable(str(exc)) from exc
+        auto_decisions.mark_undone(conn, current_user_id, decision_id)
+        return auto_decisions.fetch(conn, current_user_id, decision_id)
     table, target_id, detail = decision["table"], decision["target_id"], decision["detail"]
     if table == "inbox_items":
         # O cambio decidiu no item, antes do lancamento existir: vale o dele.

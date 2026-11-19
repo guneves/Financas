@@ -13,7 +13,16 @@ regra:
 - `fx_fallback`: o valor em outra moeda entrou pela ultima PTAX antes do dia
   (open_finance_auto.in_reais_now);
 - `conflict_changed` / `conflict_vanished`: o conflito da Pluggy que se
-  resolveu sozinho (services/conflict_resolution.py).
+  resolveu sozinho (services/conflict_resolution.py);
+- a carteira (fase 2, alvo `open_finance_investment_operations`):
+  `investment_custody` (a TRANSFER de renda variavel que so registra a
+  custodia), `investment_proceed_link` (o INTEREST de uma acao ligado ao
+  provento calculado), `investment_closed_fund` (a operacao de um fundo do
+  banco ja zerado), `investment_custody_in` (o titulo de renda fixa que
+  veio de outra corretora, gravado ao custo) e `investment_rate_deduced` (o
+  titulo sem indexador gravado como pre). As tres primeiras se desfazem aqui
+  (a linha volta a esperar); as duas ultimas gravaram uma operacao, que se
+  desfaz apagando-a no Extrato (`undoable` falso).
 
 `detail` (JSON) guarda o antes, para o "Desfazer" (services/auto_undo.py).
 Desfeita, a regra nunca volta a decidir o mesmo lancamento (`was_undone()`).
@@ -33,9 +42,19 @@ TRANSFER_GUESS = "transfer_guess"
 FX_FALLBACK = "fx_fallback"
 CONFLICT_CHANGED = "conflict_changed"
 CONFLICT_VANISHED = "conflict_vanished"
+INVESTMENT_CUSTODY = "investment_custody"
+INVESTMENT_PROCEED_LINK = "investment_proceed_link"
+INVESTMENT_CUSTODY_IN = "investment_custody_in"
+INVESTMENT_RATE_DEDUCED = "investment_rate_deduced"
+INVESTMENT_CLOSED_FUND = "investment_closed_fund"
+# A linha da carteira volta a esperar o dono (HELD, com o "Lancar").
+INVESTMENT_UNDO_TO_HELD = (INVESTMENT_CUSTODY, INVESTMENT_PROCEED_LINK, INVESTMENT_CLOSED_FUND)
+INVESTMENT_KINDS = (*INVESTMENT_UNDO_TO_HELD, INVESTMENT_CUSTODY_IN, INVESTMENT_RATE_DEDUCED)
 # O que gravou sozinho com um palpite: "Desfazer" devolve a linha ao Revisar.
 BACK_TO_REVIEW = (AUTO_CONFIRM, TRANSFER_GUESS, FX_FALLBACK)
-KINDS = (PLUGGY_CATEGORY, *BACK_TO_REVIEW, CONFLICT_CHANGED, CONFLICT_VANISHED)
+KINDS = (PLUGGY_CATEGORY, *BACK_TO_REVIEW, CONFLICT_CHANGED, CONFLICT_VANISHED, *INVESTMENT_KINDS)
+# Gravaram uma operacao: o "Desfazer" e apaga-la no Extrato.
+NOT_UNDOABLE = (INVESTMENT_CUSTODY_IN, INVESTMENT_RATE_DEDUCED)
 LIST_LIMIT = 200
 
 
@@ -82,6 +101,7 @@ def _serialize(row):
         "detail": detail,
         "created_at": row["created_at"],
         "undone_at": row["undone_at"],
+        "undoable": row["kind"] not in NOT_UNDOABLE,
     }
 
 
