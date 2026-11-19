@@ -112,6 +112,14 @@ def title_type_from_name(name):
     return None
 
 
+def commercial_name(series):
+    """O nome comercial do titulo ("TESOURO RENDA+ APOSENTADORIA EXTRA 2065"):
+    o tipo e o ano do vencimento, ou o da conversao no Renda+/Educa+. E o nome
+    que o dono da ao titulo, e `find_title()` acha o mesmo por ele."""
+    year = series.maturity.year - NAMED_BY_CONVERSION.get(series.title_type, 0)
+    return f"{series.title_type} {year}"
+
+
 def title_year_from_name(name):
     """O primeiro ano (2000-2099) do nome, ou None."""
     match = re.search(r"(?<!\d)(20\d{2})(?!\d)", str(name or ""))

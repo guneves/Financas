@@ -27,7 +27,7 @@ import importlib
 import pytest
 
 from open_finance_world import World, fake_pluggy, open_finance_module  # noqa: F401
-from test_open_finance_investments import broker, movements, operations
+from test_open_finance_investments import broker, movements, operations, rows_of
 from test_treasury import prices_csv
 
 AUTO = "/api/review/auto"
@@ -299,6 +299,106 @@ class TestCustodyIn:
         assert op_of(user["id"], "TRANSFER")["held_reason"] == "missing:rateType"
 
 
+def typed_title(world, name, amount, day, kind, maturity, **terms):
+    terms = terms or {"rate_type": "PRE", "annual_rate": 0.1497}
+    metadata = {"purchase_date": day, "fixed_income_type": kind, "cash_account_id": None, "is_tax_free": False, **terms}
+    if maturity:
+        metadata["maturity_date"] = maturity
+    return world.call("post", "/api/investments", json={
+        "asset_class": "FIXED_INCOME", "ticker_or_name": name, "quantity": 1, "average_price": amount,
+        "metadata": metadata,
+    })[0]
+
+
+CDI_TERMS = {"rate_type": "POS", "indexer": "CDI", "cdi_percentage": 1.04}
+
+
+class TestTitleIdentity:
+    """Real (2026-11-19, replay over a copy of the server's database): without
+    this, phase 2 linked custody transfers to another title of the same cost
+    (the R$ 1.000 LCI BRB to the LCA Original and the LCI Inter) and recorded the
+    CRAs the owner typed a day later with R$ 4-6 more a second time, coupons too."""
+
+    @pytest.mark.parametrize("metadata, fit", [
+        ({"fixed_income_type": "LCI", "maturity_date": "2027-03-02"}, "same"),
+        ({"fixed_income_type": "LCA", "maturity_date": "2027-03-02"}, None),
+        ({"fixed_income_type": "LCI", "maturity_date": "2030-09-16"}, None),
+        ({"fixed_income_type": "LCI"}, "maybe"),
+        ({}, "maybe"),
+    ])
+    def test_title_fit(self, module, metadata, fit):
+        terms = {"metadata": {"fixed_income_type": "LCI"}, "due_date": "2027-03-02"}
+        assert module.title_fit(metadata, terms) == fit
+
+    def test_terms_carry_the_due_date(self, module):
+        terms = module.title_terms({"type": "FIXED_INCOME", "subtype": "LCI", "name": "LCI BRB",
+                                    **LCA_SHAPE, "dueDate": "2027-03-02T03:00:00.000Z"})
+        assert terms["due_date"] == "2027-03-02"
+
+    def lci_transfer(self, world):
+        item_id, pluggy_item, _corretora = broker(world)
+        position = world.fake.add_position(pluggy_item, None, 1, kind="FIXED_INCOME", subtype="LCI", value=1000.0,
+                                           name="LCI - BRB BANCO DE BRASILIA SA", rateType="CDI", rate=104,
+                                           fixedAnnualRate=0, dueDate="2027-03-02T03:00:00.000Z")
+        world.fake.add_operation(position, "TRANSFER", 1, 1000.0, "2026-04-01", amount=1000.0)
+        world.fake.investment_transactions[position][-1]["netAmount"] = 1000.0
+        return item_id
+
+    def test_the_transfer_links_its_own_title_not_another_of_the_same_cost(self, world, user):
+        typed_title(world, "LCA ORIGINAL 95% CDI", 1000, "2025-05-05", "LCA", "2026-05-05", **CDI_TERMS)
+        typed_title(world, "LCI INTER 90% CDI", 1000, "2025-11-03", "LCI", "2030-09-16", **CDI_TERMS)
+        own = typed_title(world, "LCI BRB 104% CDI", 1000, "2026-03-02", "LCI", "2027-03-02", **CDI_TERMS)
+        world.sync(self.lci_transfer(world))
+        transfer = op_of(user["id"], "TRANSFER")
+        assert (transfer["state"], transfer["investment_id"]) == ("LINKED", own["id"])
+        assert len(fixed_rows(world)) == 3  # nada gravado
+
+    def test_two_that_nothing_tells_apart_wait(self, world, user):
+        typed_title(world, "LCI A", 1000, "2025-11-03", "LCI", None, **CDI_TERMS)
+        typed_title(world, "LCI B", 1000, "2026-03-02", "LCI", None, **CDI_TERMS)
+        world.sync(self.lci_transfer(world))
+        transfer = op_of(user["id"], "TRANSFER")
+        assert (transfer["state"], transfer["held_reason"]) == ("HELD", "custody:ambiguous")
+        assert len(fixed_rows(world)) == 2
+
+    def cra(self, world, amount=1512.79):
+        item_id, pluggy_item, _corretora = broker(world)
+        position = world.fake.add_position(pluggy_item, None, 2, kind="FIXED_INCOME", subtype="CRA", value=700.0,
+                                           name="CRA - BANCO BTG PACTUAL S.A.", rateType=None, rate=0,
+                                           fixedAnnualRate=14.97, dueDate="2029-10-29T03:00:00.000Z")
+        world.fake.add_operation(position, "BUY", 2, amount / 2, "2026-08-19", amount=amount)
+        world.fake.add_operation(position, "INTEREST", 2, 0, "2026-10-28", amount=49.98)
+        world.fake.add_operation(position, "AMORTIZATION", 2, 0, "2026-10-28", amount=117.64)
+        return item_id
+
+    def test_the_typed_cra_a_day_later_and_a_few_reais_more_is_linked(self, world, user):
+        typed = typed_title(world, "CRA MADERO PRE 14,97%", 1516.78, "2026-08-20", "CRA", "2029-10-29")
+        world.sync(self.cra(world))
+        buy = op_of(user["id"], "BUY")
+        assert (buy["state"], buy["investment_id"]) == ("LINKED", typed["id"])
+        assert [row["id"] for row in fixed_rows(world)] == [typed["id"]]
+        # O cupom e a amortizacao vao para o ativo que o dono digitou: um ativo so.
+        proceeds = rows_of("investment_proceeds", "user_id = ?", (user["id"],))
+        assert sorted(row["proceeds_type"] for row in proceeds) == ["AMORTIZATION", "INTEREST"]
+        assert {row["asset_id"] for row in proceeds} == {typed["asset_id"]}
+
+    @pytest.mark.parametrize("maturity, amount", [
+        ("2033-02-15", 1516.78),   # outro vencimento: outro titulo (o Caramuru)
+        ("2029-10-29", 1530.00),   # mais de 1% acima
+        (None, 1516.78),           # sem vencimento, so o centavo liga
+    ])
+    def test_another_title_or_amount_records_its_own(self, world, user, maturity, amount):
+        typed_title(world, "CRA DIGITADO", amount, "2026-08-20", "CRA", maturity)
+        world.sync(self.cra(world))
+        assert op_of(user["id"], "BUY")["state"] == "RECORDED"
+        assert len(fixed_rows(world)) == 2
+
+    def test_the_exact_cents_never_link_another_title(self, world, user):
+        typed_title(world, "CRA OUTRO", 1512.79, "2026-08-19", "CRA", "2033-02-15")
+        world.sync(self.cra(world))
+        assert op_of(user["id"], "BUY")["state"] == "RECORDED"
+
+
 class TestAmortization:
     def test_it_is_an_amortization_proceed_without_tax(self, world, user):
         item_id, pluggy_item, _corretora = broker(world)
@@ -320,7 +420,9 @@ class TestRendaMais:
 
     def test_a_name_without_the_year_is_found_by_the_due_date(self, module, tesouro):
         terms = module.title_terms(self.raw(), tesouro.get_prices())
-        assert terms["ticker"] == "Tesouro Renda+ Aposentadoria Extra (NTNB1) 2084"
+        # O nome comercial: o mesmo ativo do Renda+ que o dono digitou (real:
+        # "TESOURO RENDA+ APOSENTADORIA EXTRA 2065", vencimento 2084).
+        assert terms["ticker"] == "TESOURO RENDA+ APOSENTADORIA EXTRA 2065"
         # O nome do ativo acha o mesmo titulo na tela (services/treasury.py).
         assert tesouro.get_prices().find_title(terms["ticker"]).maturity.isoformat() == "2084-12-15"
 

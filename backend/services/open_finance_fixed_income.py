@@ -36,14 +36,17 @@ errada sem aviso nenhum.
   extrato que ja pagou o cupom passa a ser o lancamento do provento
   (`broker_statement.adopt_proceed_line()`), nunca um segundo.
 - **Ligado, nunca duplicado**: a compra, o resgate ou o cupom que o dono ja
-  lancou (mesmo valor ao centavo, ate LINK_DAYS dias) e ligado.
+  lancou (mesmo valor ao centavo, ate LINK_DAYS dias) e ligado, so se for o
+  mesmo titulo (`title_fit()`: tipo e vencimento nao se contradizem); do mesmo
+  tipo e vencimento, uma compra ate NEAR_LINK_PERCENT diferente tambem.
 - **Tudo automatico** (fase 2, dono 2026-11-18): sem `rateType`, `rate` 0 e
   `fixedAnnualRate` > 0 e pre a essa taxa (`pre_by_deduction()`, uma deducao:
   nenhum indexador tem 0% de participacao); a TRANSFER (titulo de outra
   corretora) e a compra ao custo de origem `netAmount`, sem caixa
   (`record_custody_in()`), e destrava os resgates do mesmo investimento; a
   AMORTIZATION e o provento AMORTIZATION, sem IR; o Tesouro cujo nome nao traz
-  o ano (Renda+) e achado pelo vencimento. As duas primeiras ficam em
+  o ano (Renda+) e achado pelo vencimento, com o nome comercial (o mesmo ativo
+  que o dono digitou). As duas primeiras ficam em
   auto_decisions; desfazem-se apagando a operacao no Extrato.
 """
 
@@ -71,6 +74,8 @@ from services.proceeds import INTEREST_TYPE, interest_tax_rate, investment_posit
 from validators import ValidationError, safe_float
 
 LINK_DAYS = 2
+# A compra digitada do mesmo titulo (tipo e vencimento) com outro valor: ate 1%.
+NEAR_LINK_PERCENT = 1
 PLUGGY_FIXED_INCOME = "FIXED_INCOME"
 # subtype da Pluggy -> fixed_income_type do app. So o que tem um significado so.
 TITLE_TYPES = {
@@ -207,11 +212,11 @@ def title_terms(raw, prices=None):
         series = prices.find_title(name)
         if series is None and due is not None and tesouro_client.title_year_from_name(name) is None:
             # O nome sem ano (o Renda+ da corretora): o tipo do nome e o
-            # vencimento da Pluggy acham o titulo; o ano do vencimento entra no
-            # nome do ativo para a tela (services/treasury.py) achar o mesmo.
+            # vencimento da Pluggy acham o titulo; o ativo leva o nome comercial
+            # (o que o dono digitou, e o que services/treasury.py acha).
             series = prices.find_by_maturity(tesouro_client.title_type_from_name(name), due.date())
             if series is not None:
-                ticker = f"{name} {series.maturity.year}"
+                ticker = tesouro_client.commercial_name(series)
         if series is None:
             raise Held("unmapped:name")
         if TREASURY_KINDS.get(series.title_type) != kind:
@@ -219,10 +224,35 @@ def title_terms(raw, prices=None):
         if _present(raw, "dueDate") and (due is None or due.date() != series.maturity):
             raise Held("unmapped:dueDate")
     validate_fixed_income_metadata("FIXED_INCOME", 1, metadata)
-    terms = {"ticker": ticker, "metadata": metadata}
+    terms = {"ticker": ticker, "metadata": metadata, "due_date": _due_day(raw)}
     if deduced:
         terms["deduced"] = {"rateType": deduced, "fixedAnnualRate": _number(raw, "fixedAnnualRate")}
     return terms
+
+
+def _due_day(raw):
+    """O vencimento da Pluggy (AAAA-MM-DD), ou None."""
+    if not _present(raw, "dueDate"):
+        return None
+    due = parse_iso_date(str(raw.get("dueDate"))[:10])
+    return due.date().isoformat() if due else None
+
+
+def title_fit(metadata, terms):
+    """Puro: a compra digitada (`metadata`) e o titulo da Pluggy (`terms`).
+    "same": mesmo tipo e mesmo vencimento, os dois sabidos; "maybe": nada
+    contradiz (um lado nao sabe o tipo ou o vencimento); None: outro titulo.
+    Real (2026-11-19): a LCI BRB de R$ 1.000 transferida casava, so pelo valor,
+    com a LCA Original e com a LCI Inter do dono."""
+    mine = terms["metadata"].get("fixed_income_type")
+    theirs = metadata.get("fixed_income_type")
+    if mine and theirs and mine != theirs:
+        return None
+    due = terms.get("due_date")
+    maturity = str(metadata.get("maturity_date") or "")[:10] or None
+    if due and maturity and due != maturity:
+        return None
+    return "same" if mine and theirs and due and maturity else "maybe"
 
 
 def pre_by_deduction(raw):
@@ -303,18 +333,36 @@ def _fixed_income_rows(conn, current_user_id, date_from, date_to):
     return [dict(row, metadata=parse_metadata_value(row["metadata"]) or {}) for row in rows]
 
 
-def _typed_buy(conn, current_user_id, op):
-    """A compra de renda fixa ja lancada com o mesmo valor (ate LINK_DAYS dias)."""
+def _typed_buys(conn, current_user_id, terms, date_from, date_to):
+    """(row, fit, centavos) das compras digitadas livres que podem ser este titulo."""
     linked = _linked_ids(conn, current_user_id)
-    wanted = {cents_or_zero(op["amount"]), cents_or_zero(op["amount"] + op["expenses"])}
-    for row in _fixed_income_rows(
-        conn, current_user_id, _shifted(op["trade_date"], -LINK_DAYS), _shifted(op["trade_date"], LINK_DAYS),
-    ):
+    found = []
+    for row in _fixed_income_rows(conn, current_user_id, date_from, date_to):
         if row["id"] in linked or safe_float(row["quantity"]) <= 0 or row["metadata"].get("is_redemption"):
             continue
-        if cents_or_zero(investment_gross_amount(row["quantity"], row["unit_price"])) in wanted:
+        fit = title_fit(row["metadata"], terms)
+        if fit:
+            found.append((row, fit, cents_or_zero(investment_gross_amount(row["quantity"], row["unit_price"]))))
+    return found
+
+
+def _typed_buy(conn, current_user_id, op, terms):
+    """A compra de renda fixa ja lancada (ate LINK_DAYS dias) do mesmo titulo:
+    o mesmo valor ao centavo, ou, do mesmo tipo e vencimento, ate
+    NEAR_LINK_PERCENT de diferenca (real: CRAs Madero e Caramuru digitados com
+    o valor da nota do dia seguinte, R$ 4-6 acima da Pluggy). Um titulo com
+    outro tipo ou vencimento nunca liga."""
+    wanted = {cents_or_zero(op["amount"]), cents_or_zero(op["amount"] + op["expenses"])}
+    rows = _typed_buys(
+        conn, current_user_id, terms, _shifted(op["trade_date"], -LINK_DAYS), _shifted(op["trade_date"], LINK_DAYS),
+    )
+    for row, _fit, cents in rows:
+        if cents in wanted:
             return row["id"]
-    return None
+    reference = cents_or_zero(op["amount"])
+    near = [row for row, fit, cents in rows
+            if fit == "same" and reference > 0 and abs(cents - reference) * 100 <= reference * NEAR_LINK_PERCENT]
+    return near[0]["id"] if len(near) == 1 else None
 
 
 def _insert(conn, current_user_id, ticker, quantity, unit_price, metadata, quote=None):
@@ -352,7 +400,7 @@ def record_buy(conn, current_user_id, op, terms):
         raise Held("missing:tradeDate")
     if op["amount"] <= 0:
         raise Held("missing:amount")
-    twin = _typed_buy(conn, current_user_id, op)
+    twin = _typed_buy(conn, current_user_id, op, terms)
     if twin:
         return "LINKED", twin
     metadata = {
@@ -373,17 +421,21 @@ def record_buy(conn, current_user_id, op, terms):
     return "RECORDED", _insert(conn, current_user_id, terms["ticker"], 1, op["amount"] + op["expenses"], metadata)
 
 
-def _typed_custody_buy(conn, current_user_id, cost, until_day):
+def _typed_custody_buy(conn, current_user_id, cost, until_day, terms):
     """A compra de renda fixa que o dono ja lancou (na corretora de antes) com o
-    custo da transferencia ao centavo, ate o dia dela, nao ligada a outra."""
-    linked = _linked_ids(conn, current_user_id)
+    custo da transferencia ao centavo, ate o dia dela, nao ligada a outra e do
+    mesmo titulo (`title_fit()`): a do mesmo tipo e vencimento primeiro; senao
+    uma unica que nada contradiz. Duas ou mais sem como escolher: espera
+    `custody:ambiguous` (ligar a errada poria os resgates no titulo errado)."""
     wanted = cents_or_zero(cost)
-    for row in _fixed_income_rows(conn, current_user_id, "1900-01-01", until_day):
-        if row["id"] in linked or safe_float(row["quantity"]) <= 0 or row["metadata"].get("is_redemption"):
-            continue
-        if cents_or_zero(investment_gross_amount(row["quantity"], row["unit_price"])) == wanted:
-            return row["id"]
-    return None
+    rows = [(row, fit) for row, fit, cents in _typed_buys(conn, current_user_id, terms, "1900-01-01", until_day)
+            if cents == wanted]
+    same = [row for row, fit in rows if fit == "same"]
+    if same:
+        return same[0]["id"]
+    if len(rows) > 1:
+        raise Held("custody:ambiguous")
+    return rows[0][0]["id"] if rows else None
 
 
 def record_custody_in(conn, current_user_id, op, terms):
@@ -402,7 +454,7 @@ def record_custody_in(conn, current_user_id, op, terms):
     decision = {"kind": CUSTODY_IN_DECISION, "detail": {
         "name": terms["ticker"], "trade_date": op["trade_date"], "cost": rounded_money(cost),
     }}
-    twin = _typed_custody_buy(conn, current_user_id, cost, op["trade_date"])
+    twin = _typed_custody_buy(conn, current_user_id, cost, op["trade_date"], terms)
     if twin:
         decision["detail"]["linked"] = True
         op["auto_decision"] = decision

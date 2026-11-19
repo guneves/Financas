@@ -660,16 +660,20 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   indexer and the `dueDate`. Anything else waits `HELD missing:<field>` / `unmapped:<field>` — **never
   guess a rate** (SELIC waits). **Deductions, not guesses** (phase 2): no `rateType` with `rate` 0 and
   `fixedAnnualRate` > 0 is pré at that rate (`pre_by_deduction()`; a missing `rate` still waits); a Tesouro name
-  without a year (Renda+) is found by type + `dueDate` and the asset is named with the maturity year. A
+  without a year (Renda+) is found by type + `dueDate` and the asset takes the commercial name
+  (`tesouro_client.commercial_name()`, "TESOURO RENDA+ APOSENTADORIA EXTRA 2065": the owner's typed asset). A
   FIXED_INCOME TRANSFER (title from another broker) is a BUY at `netAmount` (original cost), dated the transfer,
-  no cash, `metadata.custody_transfer` (`record_custody_in()`; a typed buy of the same cost up to that day is
-  linked), and it is a lot for the later redemptions (in the lot's own asset). AMORTIZATION is an AMORTIZATION
+  no cash, `metadata.custody_transfer` (`record_custody_in()`; a typed buy of the same cost up to that day and the
+  same title is linked; two that nothing tells apart wait `custody:ambiguous`), and it is a lot for the later
+  redemptions (in the lot's own asset). AMORTIZATION is an AMORTIZATION
   provento, no IR. The pré deduction and the custody buy are `auto_decisions` that undo by deleting the operation. A held line is re-decided every pull, so it fills itself when the
   position completes. No cash link: the money is already a `BROKER_STATEMENT` line. A redemption takes
   the buys of the same Pluggy investment, oldest first (PEPS), by Pluggy units (`open_finance_units`);
   a coupon is an INTEREST provento on that title's asset, taxed from the first buy, and the statement
   line that paid it becomes its row (`broker_statement.adopt_proceed_line()`). Typed twins (same cents,
-  ±2 days) are linked. `scripts/position_fields.py --email X` (read-only) lists which keys MeuPluggy
+  ±2 days) are linked, **only of the same title** (`title_fit()`: type and maturity never contradict, 2026-11-19:
+  on the real data cents alone linked a transfer to another LCA/LCI); of the same type and maturity, a buy within
+  `NEAR_LINK_PERCENT` (1%) is linked too (the CRAs typed a day later at the note's value). `scripts/position_fields.py --email X` (read-only) lists which keys MeuPluggy
   fills, never values.
 - **The brake can refuse typing on the Pluggy-fed Corretora** (Phase 3, `manual_entries.require_manual_investment_cash()`,
   only while `MANUAL_ONLY_OFF_PLUGGY`, off by default since 2026-11-05): `POST /api/investments`, `/api/investments/redemptions` and
