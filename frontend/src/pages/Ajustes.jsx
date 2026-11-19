@@ -6,6 +6,7 @@ import ContasSection from './ajustes/ContasSection'
 import CartoesSection from './ajustes/CartoesSection'
 import CategoriasSection from './ajustes/CategoriasSection'
 import AvisosSection from './ajustes/AvisosSection'
+import AutomaticoSection from './ajustes/AutomaticoSection'
 import IntegracoesSection from './ajustes/IntegracoesSection'
 import OpenFinanceSection from './ajustes/OpenFinanceSection'
 import PerfilSection from './ajustes/PerfilSection'
@@ -18,6 +19,7 @@ const SECTION_LINKS = [
   { id: 'regras-de-importacao', label: 'Regras de importação' },
   { id: 'open-finance', label: 'Open Finance' },
   { id: 'avisos', label: 'Avisos do celular' },
+  { id: 'automatico', label: 'Decidido sozinho' },
   { id: 'integracoes', label: 'Integrações' },
   { id: 'aparencia', label: 'Aparência' },
   { id: 'perfil', label: 'Perfil' },
@@ -79,6 +81,7 @@ export default function Ajustes() {
       <RegrasSection />
       <OpenFinanceSection />
       <AvisosSection />
+      <AutomaticoSection />
       <IntegracoesSection />
       <AparenciaSection />
       <PerfilSection />

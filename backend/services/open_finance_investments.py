@@ -25,7 +25,13 @@ da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
   services/open_finance_fixed_income.py so quando a posicao da Pluggy (`raw`,
   guardada inteira a cada pull, sem `transactions`) da indexador, taxa e tipo
   do titulo exatos; senao esperam (HELD `missing:<campo>` / `unmapped:<campo>`).
-  Fundos, TRANSFER (custodia) e o resto esperam (HELD `type`). O que espera
+  Tudo automatico (fase 2, dono 2026-11-18), cada decisao em auto_decisions:
+  a TRANSFER de renda variavel que so registra a custodia sai sozinha quando
+  o app ja tem a quantidade (`decide_custody()`); o INTEREST de uma acao e
+  ligado ao provento calculado (`decide_equity_proceed()`); a operacao de um
+  fundo do banco ja zerado sai sozinha (`decide_fund()`). O resto espera
+  (HELD `type`, `custody:short`, `proceed:unmatched`, `fund:open`); o
+  "Desfazer" de uma decisao a devolve a HELD `undone`. O que espera
   aparece na conferencia com o que da para preencher (`prefill`) e o `op_key`:
   o "Lancar" do dono o completa (`complete_held()`). Os proventos de
   acoes/FIIs ja sao calculados (026); o dinheiro deles na conta da corretora e
@@ -53,7 +59,7 @@ from asset_classes import QUOTED_ASSET_CLASSES
 from dates import parse_iso_date
 from db import encode_metadata, new_id, parse_metadata_value, utc_timestamp
 from money import rounded_money
-from services import broker_statement, invoices
+from services import auto_decisions, broker_statement, invoices
 from services import open_finance_fixed_income as fixed_income_ops
 from services.broker_cash import broker_settlement
 from services.corporate_actions import ensure_outside_corporate_actions
@@ -86,6 +92,19 @@ PROVISIONAL_KEY = "provisional"
 # O "Lancar" de uma linha HELD manda o op_key no metadata (Fase 3).
 OP_KEY_METADATA = "open_finance_op_key"
 UNKNOWN_HELD_MESSAGE = "Operacao da Pluggy nao encontrada entre as que esperam."
+OPERATIONS_TABLE = "open_finance_investment_operations"
+# A TRANSFER de renda variavel que so registra a custodia (fase 2): fica
+# DISMISSED com este motivo, e o "Desfazer" a devolve a HELD.
+CUSTODY_REASON = "auto:custody"
+UNDONE_REASON = "undone"
+# O INTEREST de uma acao e o provento que o app ja calculou (proceeds_sync):
+# mesmo ativo, pagamento a ate PROCEED_LINK_DAYS dias, valor a ate
+# PROCEED_LINK_CENTS centavos do bruto ou do liquido.
+PROCEED_LINK_DAYS = 3
+PROCEED_LINK_CENTS = 5
+# Fundo do banco (BB RF LP High, RF LP Tesouro Selic) ja zerado: DISMISSED.
+PLUGGY_FUND = "MUTUAL_FUND"
+CLOSED_FUND_REASON = "auto:closed_fund"
 
 
 # ---------------------------------------------------------------------------
@@ -290,12 +309,153 @@ def _drop_provisional(conn, current_user_id, ticker):
             conn.execute("DELETE FROM investment_transactions WHERE id = ? AND user_id = ?", (row["id"], current_user_id))
 
 
+def _position_quantity_at(conn, current_user_id, op):
+    """A quantidade da Pluggy no fim do dia da operacao: a posicao (D-1) menos
+    as compras e vendas gravadas/ligadas entre o dia e a posicao. None sem
+    posicao."""
+    position = conn.execute(
+        "SELECT quantity, position_date FROM open_finance_positions WHERE user_id = ? AND pluggy_investment_id = ?",
+        (current_user_id, op["pluggy_investment_id"]),
+    ).fetchone()
+    if not position or position["quantity"] is None:
+        return None
+    later = 0.0
+    for row in conn.execute(
+        """
+        SELECT op_type, quantity FROM open_finance_investment_operations
+        WHERE user_id = ? AND code = ? AND state IN ('RECORDED', 'LINKED') AND trade_date > ? AND trade_date <= ?
+          AND op_type IN ('BUY', 'SELL')
+        """,
+        (current_user_id, op["code"], op["trade_date"], position["position_date"] or "9999-12-31"),
+    ).fetchall():
+        quantity = safe_float(row["quantity"])
+        later += quantity if row["op_type"] == "BUY" else -quantity
+    return safe_float(position["quantity"]) - later
+
+
+def _app_quantity_at(conn, current_user_id, ticker, day):
+    row = conn.execute(
+        f"""
+        SELECT COALESCE(SUM(it.quantity), 0) AS quantity FROM investment_transactions it
+        JOIN assets a ON a.id = it.asset_id AND a.user_id = it.user_id
+        WHERE it.user_id = ? AND a.ticker = ? AND it.transaction_date <= ?
+          AND a.asset_class IN ({', '.join('?' for _ in QUOTED_ASSET_CLASSES)})
+        """,
+        (current_user_id, ticker, day, *sorted(QUOTED_ASSET_CLASSES)),
+    ).fetchone()
+    return safe_float(row["quantity"])
+
+
+def decide_custody(conn, current_user_id, op):
+    """A TRANSFER de renda variavel (real: 14 em 2026-09-29, quantidade 0, o
+    valor de mercado de cada ativo) registra a custodia do que o dono ja tem.
+    Se o app tem no dia ao menos o que a Pluggy mostra, nada falta: DISMISSED
+    `auto:custody` (decisao `investment_custody`, desfazivel). Senao espera,
+    com a falta no motivo: a conferencia aponta a diferenca."""
+    if not op["code"] or not op["trade_date"]:
+        return "HELD", "incomplete", None
+    expected = _position_quantity_at(conn, current_user_id, op)
+    if expected is None:
+        return "HELD", "custody:no_position", None
+    held = _app_quantity_at(conn, current_user_id, op["code"], op["trade_date"])
+    if held + QUANTITY_TOLERANCE < expected:
+        return "HELD", f"custody:short {round(expected - held, 6)}", None
+    op["auto_decision"] = {"kind": auto_decisions.INVESTMENT_CUSTODY, "detail": {
+        "code": op["code"], "trade_date": op["trade_date"], "app_quantity": held, "pluggy_quantity": expected,
+    }}
+    return "DISMISSED", CUSTODY_REASON, None
+
+
+def _cents(value):
+    return int(round(safe_float(value) * 100))
+
+
+def decide_equity_proceed(conn, current_user_id, op):
+    """O INTEREST de uma acao (real: ITSA4 R$ 8,92, KLBN4 R$ 17,05) e o
+    provento que o app ja calculou (026): LIGADO a ele (decisao
+    `investment_proceed_link`), nunca um segundo. Sem um calculado que case,
+    espera `proceed:unmatched`: gravar um provento daqui duplicaria o que a
+    StatusInvest trouxer depois (com outra data com)."""
+    if not op["code"] or not op["trade_date"] or op["amount"] <= 0:
+        return "HELD", "incomplete", None, None
+    day = parse_iso_date(op["trade_date"]).date()
+    wanted = [_cents(op["amount"])] + ([_cents(op["net_amount"])] if op.get("net_amount") else [])
+    best = None
+    for row in conn.execute(
+        f"""
+        SELECT p.id, p.payment_date, p.gross_amount, p.net_amount FROM investment_proceeds p
+        JOIN assets a ON a.id = p.asset_id AND a.user_id = p.user_id
+        WHERE p.user_id = ? AND a.ticker = ? AND a.asset_class IN ({', '.join('?' for _ in QUOTED_ASSET_CLASSES)})
+          AND substr(p.payment_date, 1, 10) BETWEEN ? AND ?
+          AND NOT EXISTS (
+              SELECT 1 FROM open_finance_investment_operations o WHERE o.user_id = p.user_id AND o.proceed_id = p.id
+          )
+        """,
+        (
+            current_user_id, op["code"], *sorted(QUOTED_ASSET_CLASSES),
+            (day - timedelta(days=PROCEED_LINK_DAYS)).isoformat(), (day + timedelta(days=PROCEED_LINK_DAYS)).isoformat(),
+        ),
+    ).fetchall():
+        theirs = [_cents(value) for value in (row["gross_amount"], row["net_amount"]) if value is not None]
+        if not theirs:
+            continue
+        gap = min(abs(mine - other) for mine in wanted for other in theirs)
+        if gap > PROCEED_LINK_CENTS:
+            continue
+        days = abs((parse_iso_date(str(row["payment_date"])[:10]).date() - day).days)
+        key = (days, gap, row["id"])
+        if best is None or key < best[0]:
+            best = (key, row)
+    if best is None:
+        return "HELD", "proceed:unmatched", None, None
+    row = best[1]
+    op["auto_decision"] = {"kind": auto_decisions.INVESTMENT_PROCEED_LINK, "detail": {
+        "code": op["code"], "trade_date": op["trade_date"], "amount": op["amount"],
+        "payment_date": str(row["payment_date"])[:10], "proceed_net": row["net_amount"],
+    }}
+    return "LINKED", None, None, row["id"]
+
+
+def decide_fund(conn, current_user_id, op):
+    """Um fundo do banco (real: BB RF LP High e RF LP Tesouro Selic, compras,
+    vendas e come-cotas por cotas). O dinheiro ja esta no app: cada aplicacao e
+    resgate na conta do banco e um aporte/resgate (`BANK_INVESTMENT`). Com a
+    posicao da Pluggy zerada hoje (nem cotas nem saldo), o fundo acabou e nada
+    falta na carteira: DISMISSED `auto:closed_fund` (decisao desfazivel).
+    Gravar o historico poria compras e vendas de cotas no resultado realizado
+    (e no DARF), e o IR do fundo e retido na fonte. Com saldo, espera
+    `fund:open`: a carteira ainda nao tem classe de fundo."""
+    position = conn.execute(
+        "SELECT quantity, balance FROM open_finance_positions WHERE user_id = ? AND pluggy_investment_id = ?",
+        (current_user_id, op["pluggy_investment_id"]),
+    ).fetchone()
+    if not position or position["quantity"] is None or position["balance"] is None:
+        return "HELD", "fund:no_position", None
+    if abs(safe_float(position["quantity"])) > QUANTITY_TOLERANCE or abs(safe_float(position["balance"])) >= 0.01:
+        return "HELD", "fund:open", None
+    op["auto_decision"] = {"kind": auto_decisions.INVESTMENT_CLOSED_FUND, "detail": {
+        "name": op["name"], "trade_date": op["trade_date"], "type": op["op_type"], "amount": op["amount"],
+    }}
+    return "DISMISSED", CLOSED_FUND_REASON, None
+
+
+def is_equity_custody(op):
+    return op["pluggy_type"] in EQUITY_TYPES and op["op_type"] == "TRANSFER"
+
+
 def decide(conn, current_user_id, op):
     """(state, held_reason, investment_id[, proceed_id]) de uma operacao nova
-    (ou segurada). Na soma de digitadas, as outras ficam em op["other_links"].
+    (ou segurada). Na soma de digitadas, as outras ficam em op["other_links"];
+    uma decisao automatica (fase 2) fica em op["auto_decision"].
     Renda fixa (compra, resgate, cupom) vai por open_finance_fixed_income."""
     if op["pluggy_type"] == fixed_income_ops.PLUGGY_FIXED_INCOME:
         return fixed_income_ops.decide(conn, current_user_id, op)
+    if is_equity_custody(op):
+        return decide_custody(conn, current_user_id, op)
+    if op["pluggy_type"] in EQUITY_TYPES and op["op_type"] == "INTEREST":
+        return decide_equity_proceed(conn, current_user_id, op)
+    if op["pluggy_type"] == PLUGGY_FUND:
+        return decide_fund(conn, current_user_id, op)
     if op["op_type"] not in RECORDED_TYPES or op["pluggy_type"] not in EQUITY_TYPES:
         return "HELD", "type", None
     if not op["code"] or not op["trade_date"] or op["quantity"] <= 0 or op["unit_price"] <= 0:
@@ -369,7 +529,13 @@ def apply(conn, current_user_id, of_item_id, data, today):
     counts = {"recorded": 0, "linked": 0, "held": 0, "dismissed": 0}
     _save_positions(conn, current_user_id, of_item_id, data.get("positions") or [])
     operations = [normalize_operation(position, raw) for position, raw in data.get("operations") or []]
-    operations.sort(key=lambda op: (op["trade_date"] or "", 0 if op["op_type"] == "BUY" else 1, op["op_key"]))
+    # A compra e a transferencia de entrada (um lote) antes do resgate do mesmo dia.
+    operations.sort(key=lambda op: (op["trade_date"] or "", 0 if op["op_type"] in ("BUY", "TRANSFER") else 1, op["op_key"]))
+    # A custodia de renda variavel compara quantidades: decide depois de todas
+    # as compras e vendas do pull.
+    operations = [op for op in operations if not is_equity_custody(op)] + [
+        op for op in operations if is_equity_custody(op)
+    ]
     for op in operations:
         existing = conn.execute(
             "SELECT * FROM open_finance_investment_operations WHERE user_id = ? AND op_key = ?",
@@ -385,6 +551,9 @@ def apply(conn, current_user_id, of_item_id, data, today):
                 counts["dismissed"] += 1
             continue
         if existing and existing["state"] == "DISMISSED":
+            continue
+        if existing and auto_decisions.was_undone(conn, current_user_id, None, OPERATIONS_TABLE, existing["id"]):
+            # O dono desfez a decisao automatica: espera o "Lancar" dele.
             continue
         decided = decide(conn, current_user_id, op)
         state, reason, investment_id = decided[:3]
@@ -409,6 +578,13 @@ def apply(conn, current_user_id, of_item_id, data, today):
                 f"INSERT INTO open_finance_investment_operations ({', '.join(values)}) VALUES ({', '.join('?' for _ in values)})",
                 tuple(values.values()),
             )
+        decision = op.get("auto_decision")
+        if decision:
+            row_id = existing["id"] if existing else values["id"]
+            auto_decisions.record(conn, current_user_id, decision["kind"], OPERATIONS_TABLE, row_id, {
+                **decision["detail"], "op_key": op["op_key"], "state": state,
+                "investment_id": investment_id, "proceed_id": proceed_id,
+            })
         _link_parts(conn, current_user_id, of_item_id, op, today)
     return counts
 
@@ -592,6 +768,23 @@ def held_prefill(conn, current_user_id, row, prices=None):
             "treasury": False, "ticker_or_name": row["code"] or row["name"], "quantity": signed,
             "average_price": safe_float(row["unit_price"]), "metadata": metadata,
             "cash_account_id": portfolio_cash_account_id(conn, current_user_id)}
+
+
+def undo_decision(conn, current_user_id, decision):
+    """O "Desfazer" de uma decisao da carteira: a custodia e o provento ligado
+    voltam a esperar o dono (HELD `undone`, com o "Lancar"); o que foi gravado
+    (a compra de custodia, a taxa deduzida) se desfaz apagando a operacao no
+    Extrato, que a deixa DISMISSED para sempre (ValueError aqui)."""
+    if decision["kind"] not in auto_decisions.INVESTMENT_UNDO_TO_HELD:
+        raise ValueError("Apague a operacao no Extrato: ela nao volta.")
+    conn.execute(
+        """
+        UPDATE open_finance_investment_operations
+        SET state = 'HELD', held_reason = ?, investment_id = NULL, proceed_id = NULL, updated_at = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (UNDONE_REASON, utc_timestamp(), decision["target_id"], current_user_id),
+    )
 
 
 def held_operation(conn, current_user_id, key):

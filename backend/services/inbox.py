@@ -763,14 +763,24 @@ def open_finance_item_for_detection(conn, current_user_id, detection, target):
     when = date_of(detection["occurred_at"])
     rows = conn.execute(
         f"""
-        SELECT i.* FROM inbox_items i
+        SELECT i.*, EXISTS (SELECT 1 FROM notify_detections d
+                            WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE') AS notified
+        FROM inbox_items i
         WHERE i.user_id = ? AND i.state IN ({', '.join('?' for _ in PAIRABLE_STATES)})
           AND substr(i.occurred_at, 1, 10) BETWEEN ? AND ?
-          AND NOT EXISTS (SELECT 1 FROM notify_detections d
-                          WHERE d.user_id = i.user_id AND d.item_id = i.id AND d.role = 'SOURCE')
         """,
         (current_user_id, *PAIRABLE_STATES, _shift(when, -OPEN_FINANCE_PAIR_DAYS), _shift(when, OPEN_FINANCE_PAIR_DAYS)),
     ).fetchall()
+    # Sem aviso ainda; numa transferencia, sem aviso DESTE lado (2026-11-18: o
+    # aviso do Itau entrou na saida, o da BTG Investimentos e a entrada do mesmo
+    # item, nunca uma segunda transferencia).
+    rows = [
+        row for row in rows
+        if not row["notified"] or (
+            row["entry_type"] == "TRANSFER"
+            and target["direction"] not in _source_directions(conn, current_user_id, row["id"], CLAIM_NOTIFY)
+        )
+    ]
     found = [
         row for row in rows
         if (

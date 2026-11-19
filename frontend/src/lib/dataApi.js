@@ -1,4 +1,5 @@
 import { apiBlob, apiDownload, apiFetch, notifyMutation } from './api'
+import { autoDecisionsPath } from './autoDecisions'
 
 const queryString = (params) => {
   const searchParams = new URLSearchParams()
@@ -364,7 +365,11 @@ export const inboxApi = {
 // categoria. `confirm` recebe [{table, id, category_id?}].
 export const reviewApi = {
   list: () => apiFetch('/api/review'),
-  confirm: (items) => postJson('/api/review', { items })
+  confirm: (items) => postJson('/api/review', { items }),
+  // Tudo automatico (058): as decisoes que o app tomou sozinho, com "Desfazer".
+  // `filters`: {kinds, days} (autoDecisionsPath); a Conferencia pede so as dela.
+  automatic: (filters) => apiFetch(autoDecisionsPath(filters)),
+  undoAutomatic: (id) => postJson(`/api/review/auto/${encodeURIComponent(id)}/undo`)
 }
 
 // Open Finance pela Pluggy (043): conectar (so na web), mapear, Atualizar,

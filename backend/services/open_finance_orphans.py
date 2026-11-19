@@ -56,7 +56,7 @@ def _shift(date_text, days):
     return (day + timedelta(days=days)).strftime("%Y-%m-%d") if day else None
 
 
-def _bank_accounts(conn, current_user_id, of_item_id):
+def bank_accounts(conn, current_user_id, of_item_id):
     """As contas BANK mapeadas desta conexao, em reais, fora a Corretora."""
     found = []
     for account in conn.execute(
@@ -178,7 +178,7 @@ def sweep(conn, current_user_id, of_item_id, today):
     quantas sairam."""
     today_text = today.strftime("%Y-%m-%d") if hasattr(today, "strftime") else str(today)[:10]
     removed = 0
-    for of_account in _bank_accounts(conn, current_user_id, of_item_id):
+    for of_account in bank_accounts(conn, current_user_id, of_item_id):
         orphans = [
             row for row in notified_rows(conn, current_user_id, of_account["account_id"])
             if ripe(conn, current_user_id, row, today_text) and not protected(conn, current_user_id, row)

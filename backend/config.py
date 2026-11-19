@@ -220,6 +220,10 @@ AUTO_RECORD_DEFAULT = str(os.getenv("AUTO_RECORD_DEFAULT", "1")).strip().lower()
 # celular grava na hora, e a Pluggy confere depois. O padrao de quem nunca mexeu
 # no interruptor (Ajustes); desligado, so o Flash fala.
 BANK_NOTIFICATIONS_DEFAULT = str(os.getenv("BANK_NOTIFICATIONS_DEFAULT", "1")).strip().lower() not in {"0", "false", "no"}
+# Auto-confirmar o Revisar (automation-prompt 1.2, dono 2026-11-18): a linha a
+# revisar sai sozinha N dias depois da data. O padrao de quem nunca escolheu
+# (Ajustes); 0 desliga. Os testes antigos do Revisar rodam com 0 (conftest.py).
+REVIEW_AUTO_DAYS_DEFAULT = read_int_env("REVIEW_AUTO_DAYS_DEFAULT", 3, minimum=0, maximum=30)
 # Lancamento digitado em conta e cartao da Pluggy (dono, 2026-11-05): o dono
 # lanca a mao em tudo, e o motor liga o digitado ao que o banco trouxer depois
 # (free_candidates(), o gemeo digitado dos investimentos). "1" volta a recusar

@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import token_required
 from db import get_db
-from services import auto_record, inbox, inbox_decisions, open_finance_auto
+from services import auto_record, inbox, inbox_decisions, open_finance_auto, review_auto
 from validators import ValidationError, parse_json_body, require_id_list, validation_error
 
 bp = Blueprint("inbox", __name__)
@@ -127,16 +127,25 @@ def inbox_settings(current_user_id):
     Ligado, todo item pede confirmar a conta/cartao, inclusive o lembrado, e
     "Aprovar todos" nao leva nenhum.
     `bank_notifications` (Fase 2): os avisos do Itau, BB e BTG gravam na hora
-    (ligado por padrao, BANK_NOTIFICATIONS_DEFAULT); desligado, so o Flash."""
+    (ligado por padrao, BANK_NOTIFICATIONS_DEFAULT); desligado, so o Flash.
+    `review_auto_days` (automation-prompt 1.2): a linha a revisar sai sozinha
+    depois de N dias (padrao 3; 0 desliga; ate 30)."""
     keys = ("always_ask", "auto_record", "bank_notifications")
     if request.method == "PATCH":
         payload = parse_json_body()
         message = "Envie always_ask, auto_record ou bank_notifications como true ou false."
-        if not isinstance(payload, dict) or not any(key in payload for key in keys):
+        if not isinstance(payload, dict) or not any(key in payload for key in (*keys, "review_auto_days")):
             return validation_error(message)
         if any(key in payload and not isinstance(payload[key], bool) for key in keys):
             return validation_error(message)
+        days = payload.get("review_auto_days")
+        if "review_auto_days" in payload and (
+            isinstance(days, bool) or not isinstance(days, int) or not 0 <= days <= review_auto.MAX_DAYS
+        ):
+            return validation_error(f"review_auto_days vai de 0 (desligado) a {review_auto.MAX_DAYS} dias.")
         with get_db() as conn:
+            if "review_auto_days" in payload:
+                review_auto.set_days(conn, current_user_id, days)
             if "always_ask" in payload:
                 inbox.set_always_ask(conn, current_user_id, payload["always_ask"])
             if "bank_notifications" in payload:
@@ -150,6 +159,7 @@ def inbox_settings(current_user_id):
             "always_ask": inbox.always_ask(conn, current_user_id),
             "auto_record": auto_record.enabled(conn, current_user_id),
             "bank_notifications": inbox.bank_notifications(conn, current_user_id),
+            "review_auto_days": review_auto.days(conn, current_user_id),
         }
     return jsonify(body), 200
 

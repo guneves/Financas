@@ -115,6 +115,10 @@ class InboxRepository(
     suspend fun setBankNotifications(value: Boolean): InboxWrite<InboxSettingsDto> =
         write("PATCH", SETTINGS_PATH, mapOf("bank_notifications" to value), InboxSettingsDto.serializer())
 
+    /** O prazo do Revisar (dias, 0 = nunca): depois dele a linha sai sozinha. */
+    suspend fun setReviewAutoDays(value: Int): InboxWrite<InboxSettingsDto> =
+        write("PATCH", SETTINGS_PATH, mapOf("review_auto_days" to value), InboxSettingsDto.serializer())
+
     /** "Gravar sozinho" (045): ligado, o servidor grava na hora o que esperava. */
     suspend fun setAutoRecord(value: Boolean): InboxWrite<InboxSettingsDto> =
         write("PATCH", SETTINGS_PATH, mapOf("auto_record" to value), InboxSettingsDto.serializer())

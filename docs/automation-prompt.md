@@ -5,6 +5,87 @@
 > into a fresh session. It is a multi-session job: do the phases in order, one PR per phase, and keep this file's
 > checklist current (move a finished phase to `docs/done-tasks.md`).
 
+## Progress (kept current by each session)
+
+**Deploy only at the end** (owner, 2026-11-18: "irei fazer o deploy apenas quando tudo estiver pronto"). A merge
+to `main` deploys, so nothing of this job is merged until all three phases are done. Each phase is a branch
+stacked on the previous one; at the end the owner merges them in order (#99 → phase 1 → phase 2 → phase 3) and
+deploys once.
+
+| Branch | What | State |
+|---|---|---|
+| `fix/brokerage-guessed-side` | BTG Investimentos guess follows the real bank side, `scripts/review_breakdown.py`, this prompt | pushed, **PR #99 open**, not merged |
+| `feat/auto-review-phase1` | Phase 1, commit `11b8eb8` (branched from #99) | local only, not pushed |
+| `feat/auto-investments-phase2` | Phase 2, commit `84f6f39` (branched from phase 1) | local only, not pushed; **real-data check pending** |
+| `feat/auto-watch-phase3` | Phase 3 (branched from phase 2) | local only, not pushed |
+
+**Phase 1 — done** (details in its status note below and in `docs/handoff.md`):
+- 058 `auto_decisions` + `GET /api/review/auto`, `POST /api/review/auto/<id>/undo`; web Ajustes › "Decidido sozinho".
+- 1.1 Pluggy's tree fills a notice-born row still on the default (`fill_default_category()`).
+- 1.2 `review_auto_days` (default 3, 0 = off), web and APK setting (`services/review_auto.py`).
+- 1.3 the Corretora's one-sided transfer waits `TRANSFER_MATCH_DAYS`, then a guessed aporte/resgate
+  (`services/transfer_timeouts.py`); `fx_fallback` flagged.
+- 1.4 `services/conflict_resolution.py`: `changed` after 7 days, `vanished` by the balance proof.
+- Two real defects fixed: Pluggy recorded the Corretora's one side as a receita on the Corretora; a notice on one
+  side of a transfer item blocked the other side's notice (fuzz seed 4).
+- Tests: `npm test` 250 green, `vite build` OK, APK `compileDebugKotlin` OK (not run on a phone). Backend: all
+  4 chunks green (chunks 3–4 rerun on 2026-11-19).
+- Left from phase 1: the APK list and the Conferência block (done in phase 3); a `changed` conflict takes the
+  bank's amount, not its date (still open: the conflict stores only the amount).
+- **At the final deploy**: auto-confirm (3 days) starts at once — every Revisar row dated ≥ 3 days ago leaves on
+  the first read.
+
+**Phase 2 — built 2026-11-19, not checked on the real data** (the server was unreachable: Tailscale on the PC
+stuck "starting"). What each real `HELD` group gets, each decision an `auto_decisions` row:
+- EQUITY TRANSFER (14): `DISMISSED` `auto:custody` when the app's quantity on the transfer day ≥ Pluggy's
+  (position minus the Pluggy buys/sells after that day; decided after the pull's other lines); else
+  `custody:short <gap>`. Undo → `HELD` `undone`, never retaken.
+- EQUITY INTEREST (2): linked to the computed provento (ticker, payment ±3 days, ≤ 5 cents of gross or net);
+  else `proceed:unmatched`. **Not recorded as a new provento**: StatusInvest would bring the same one later
+  with its data com, and the type (JCP or dividend) is unknown. Undo → `HELD`.
+- `missing:rateType` (6): `rate` 0 + `fixedAnnualRate` > 0 → pré (`pre_by_deduction()`). **Before merging,
+  compare one title with a brokerage note** (or with the owner's typed history on the server).
+- FIXED_INCOME TRANSFER (4) + `missing:buy` (7): the transfer is a BUY at `netAmount`, dated the transfer, no
+  cash, `custody_transfer`; a typed buy of the same cost up to that day is linked instead; redemptions now go to
+  the lot's own asset. A taxable title gets fewer days in the regressive IR (charges more, never less).
+- AMORTIZATION (1): an `AMORTIZATION` provento, no IR.
+- `unmapped:name` Renda+ (1): a name without a year is found by type + `dueDate`; the asset gets the year.
+  If the real name has a year that doesn't match, it still waits: check its `held_reason` after deploy.
+- MUTUAL_FUND (23): `DISMISSED` `auto:closed_fund` when the fund's position is empty today; with a balance,
+  `fund:open` (**no fund class built**: needs the real data to choose the class and how to mark it).
+- Provisional buys: not checked (server unreachable).
+- Not built: the APK list; the Conferência block (both done in phase 3).
+- Committed by a parallel session as `84f6f39`: backend 4 chunks green, `npm test` 251, `vite build` OK.
+
+**Phase 3 — built 2026-11-19** on `feat/auto-watch-phase3` (not merged):
+- `GET /api/review/auto?kinds=<a,b|conference>&days=<1-365>` (400 on an unknown kind or days out of range);
+  `CONFERENCE_KINDS` = the two conflicts + the five portfolio kinds.
+- Web: the Conferência (Ajustes › Open Finance) shows "Resolvido automaticamente" (last 30 days) with Desfazer;
+  `AutoDecisionList.jsx` is shared with Ajustes › "Decidido sozinho".
+- APK: Ajustes › "Decidido sozinho" (`AjustesSection.AUTOMATICO`, `/ajustes#automatico`), `rules/AutoDecisions.kt`
+  ports `lib/autoDecisions.js` with its node cases; no Desfazer when `undoable` is false. Compiled and 603 JVM
+  tests green offline; not run on a phone.
+- A weekly `applog` line per user, "Decisoes automaticas da semana" (`n_<kind>`, `undone_<kind>`, `total`,
+  `undone`), from the Pluggy thread (`auto_decisions.log_weekly()`, `user_settings` `auto_decisions_weekly`).
+- `scripts/review_breakdown.py`: a third block (decisions kept / undone per kind) and both windows by **the row's
+  own date** (corrections too, which used `auto_recorded_at` before).
+- CLAUDE.md's decisions bullet matches; phase 2 had already rewritten "Fixed income from Pluggy only with exact
+  data" and "BTG Investimentos in Investimentos". No wait/record rule changed, so the fuzz and identity suites ran
+  only as part of the full run.
+- Still open: phase 2's real-data check (server offline all day); a `changed` conflict's date.
+
+**Phase 2 — corrections found while preparing it (read before the table below):**
+- `AMORTIZATION` is already a provento type (`proceeds.ALLOWED_PROCEEDS_TYPES`): record the CRA amortization as
+  `AMORTIZATION`, not `INTEREST` + metadata.
+- `open_finance_investment_operations.state` has a CHECK (`RECORDED`, `LINKED`, `HELD`, `DISMISSED`, 044); a new
+  `COVERED` state means rebuilding the table. Prefer `DISMISSED` + `held_reason = 'auto:custody'` (`apply()`
+  never re-decides a `DISMISSED` line) and an `auto_decisions` row whose undo puts it back to `HELD`.
+- Provisional buys are already dropped when the real operation arrives (`_drop_provisional()` in `decide()`):
+  only check on the server that none is left.
+- There is no fund asset class (`ALLOWED_ASSET_CLASSES` = STOCKS, FIXED_INCOME, REIT, OTHER).
+- Renda+ is known to `tesouro_client` by name (`RENDA_MAIS`, `NAMED_BY_CONVERSION`); find why the real position
+  still fails `unmapped:name` before mapping by ISIN.
+
 ---
 
 Read CLAUDE.md, `docs/handoff.md` (2026-11-18), `docs/next-steps.md` and this file. If `fix/brokerage-guessed-side`
@@ -22,6 +103,14 @@ operations are `HELD`. Learning rules from corrections, the merchant table at no
 person were **tested against the data and rejected** — don't build them.
 
 ## Phase 1 — Banking: review decides itself
+
+> **Status 2026-11-18: built** on `feat/auto-review-phase1` (not merged; see `docs/handoff.md`). What differs
+> from the text below: 1.2 auto-confirms an edited row too (the edit was the owner's decision; leaving it would
+> keep it in Revisar forever); 1.3's Conta global case already recorded the reais side at once (nothing to
+> build); 1.3's PTAX already fell back to the last stored rate, so only the flag (`fx_fallback`) was added;
+> 1.4's `changed` takes the bank's amount but not its date (the conflict stores only the amount). The
+> decisions live in `auto_decisions` (058), shown in web Ajustes › "Decidido sozinho" (not the Conferência,
+> not the APK yet).
 
 1. **Pluggy's category fills a row still on the default.** `open_finance_inbox.settle_review()` (and the untouched
    path of `reconcile_recorded()`): row untouched by the snapshot, category still the born one and that one was the

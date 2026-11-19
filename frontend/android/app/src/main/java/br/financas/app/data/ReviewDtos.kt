@@ -62,3 +62,28 @@ data class CardStatementDto(
     @SerialName("created_at") val createdAt: String? = null,
     val twin: Boolean = false,
 )
+
+/**
+ * Uma decisao automatica (058, GET /api/review/auto, services/auto_decisions.py): o que o app
+ * antes perguntava e decidiu sozinho por uma regra escrita. [detail] guarda o antes (o texto vem
+ * de rules/AutoDecisions.kt); [undoable] falso = gravou uma operacao, desfaz-se apagando-a.
+ */
+@Serializable
+data class AutoDecisionDto(
+    val id: String,
+    val kind: String = "",
+    val table: String? = null,
+    @SerialName("target_id") val targetId: String? = null,
+    val detail: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("undone_at") val undoneAt: String? = null,
+    /** Um servidor antigo nao manda: vale sim (como na web). */
+    val undoable: Boolean = true,
+)
+
+/** GET /api/review/auto: as decisoes, da mais nova para a mais antiga, e quantas por regra. */
+@Serializable
+data class AutoDecisionsDto(
+    val items: List<AutoDecisionDto> = emptyList(),
+    val counts: Map<String, Int> = emptyMap(),
+)

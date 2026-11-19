@@ -37,7 +37,10 @@ import json
 
 from config import AUTO_RECORD_DEFAULT
 from db import utc_timestamp
-from services import global_account, inbox, inbox_decisions, open_finance_auto, open_finance_inbox, review
+from services import (
+    auto_decisions, global_account, inbox, inbox_decisions, open_finance_auto, open_finance_inbox, review, review_auto,
+    transfer_timeouts,
+)
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
@@ -140,11 +143,22 @@ def record_item(conn, current_user_id, row):
         return "skipped"
     if hold_reason(item) == "awaiting_transfer":
         item = one_side_now(conn, current_user_id, item) or item
+    decided = None
+    # Nada espera para sempre (automation-prompt 1.3): passada a janela da
+    # outra ponta, a ponta so da Corretora vira aporte/resgate com o banco
+    # adivinhado.
+    if hold_reason(item) == "awaiting_transfer":
+        moved = transfer_timeouts.brokerage_side_now(conn, current_user_id, item)
+        if moved:
+            item, decided = moved, auto_decisions.TRANSFER_GUESS
     if hold_reason(item) == "foreign_currency":
         item = open_finance_auto.in_reais_now(conn, current_user_id, item) or item
     if hold_reason(item):
         return "held"
-    return approve_alone(conn, current_user_id, item)
+    status = approve_alone(conn, current_user_id, item)
+    if status == "recorded" and decided:
+        open_finance_auto.record_timeout_decision(conn, current_user_id, item["id"], decided)
+    return status
 
 
 def record_notifications(conn, current_user_id):
@@ -204,5 +218,8 @@ def undo_declined(conn, current_user_id, results):
 def record_due(conn, current_user_id, today=None):
     """A passada das leituras: so o que veio de notificacao (o Flash). O que a
     Pluggy trouxe so anda no pull, de 6 em 6 h (dono, 2026-10-30): uma leitura
-    nunca grava movimento de banco."""
-    return record_notifications(conn, current_user_id)
+    nunca grava movimento de banco. Depois, o que passou do prazo do Revisar
+    sai sozinho (review_auto, automation-prompt 1.2)."""
+    counts = record_notifications(conn, current_user_id)
+    review_auto.confirm_due(conn, current_user_id, today)
+    return counts
