@@ -131,6 +131,14 @@ default categories on first use.
   igual a essa." / `Ja existe uma regra para "<p>".`, "O valor minimo nao pode passar do maximo.",
   "Escolha ao menos um lancamento em 'transaction_ids'.", 404 "Regra nao encontrada.".
 
+### Decidido sozinho — built 2026-11-19 (phase 3 of "everything automatic")
+Section `automatico` (`/ajustes#automatico`) after Open Finance, the web's Ajustes › "Decidido sozinho": every
+automatic decision (058) from `GET /api/review/auto`, newest first, title and one line of detail
+(`rules/AutoDecisions.kt` = `lib/autoDecisions.js`, `AutoDecisionsTest`), and "Desfazer" →
+`POST /api/review/auto/<id>/undo` (toast `undoToast()`, the list re-read). No Desfazer when `undoable` is false
+("Apague no Extrato para desfazer") or already undone ("Desfeito"). Refused offline. The Conferência's
+"Resolvido automaticamente" block is web only. Compiled and JVM-tested; not checked on a phone.
+
 ### Notificações do celular — built
 The brake "Avisos dos bancos" (`bank_notifications` of `GET/PATCH /api/inbox/settings`, on by
 default): off, only the Flash's notices are recorded. Every notice the policy accepts becomes a

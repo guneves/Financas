@@ -63,7 +63,7 @@ from open_finance_categories import (
     plain_text,
     pluggy_category_names,
 )
-from services import broker_statement, global_account, inbox, review
+from services import auto_decisions, broker_statement, global_account, inbox, review
 from services.accounts import category_id_for_name, fetch_category
 from services.import_rules import import_rules_for_matching
 from services.open_finance_rows import (  # noqa: F401  (reexportados: o resto do app os le daqui)
@@ -314,6 +314,20 @@ def place(conn, current_user_id, row, account, rules=None):
                 target_table="transactions", target_id=approved["target_id"],
             )
             inbox.settle_transfer_review(conn, current_user_id, approved["id"])
+            return "matched"
+        # A transferencia que um aviso gravou com este lado adivinhado noutra
+        # conta: o lado passa a ser o do banco, e esta transacao a fonte dele.
+        counterparty = {"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]}
+        guessed = inbox.guessed_transfer_awaiting(
+            conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
+            date_text=row["date"], counterparty=counterparty,
+        )
+        if guessed and inbox.move_guessed_side(conn, current_user_id, guessed, row["direction"], account_id):
+            _update_row(
+                conn, current_user_id, row["id"], role="MATCHED", item_id=guessed["id"],
+                target_table="transactions", target_id=guessed["target_id"],
+            )
+            inbox.settle_transfer_review(conn, current_user_id, guessed["id"])
             return "matched"
         other = inbox.transfer_partner(
             conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
@@ -692,38 +706,10 @@ def follow_bank_side(conn, current_user_id, row, item, account_id):
     """Defeito R: a notificacao de uma ponta so gravou a transferencia com o
     outro lado adivinhado (`guessed`); a Pluggy mostra de qual conta o dinheiro
     saiu (ou para qual entrou). O lado adivinhado, que o dono nao mexeu, passa a
-    ser o do banco. Nunca as duas pontas na mesma conta, nunca a conta global,
-    nunca uma conta arquivada. Devolve True se corrigiu."""
-    field, need = ("account_id", "account") if row["direction"] == "OUT" else ("transfer_account_id", "transfer_account")
-    other_field = "transfer_account_id" if field == "account_id" else "account_id"
-    current = item.get(field)
-    if not account_id or current == account_id or not current:
-        return False
-    if need not in (item.get("guessed") or []) or field in (item.get("edited") or []):
-        return False
-    if item.get("target_table") != "transactions" or item.get(other_field) == account_id:
-        return False
-    if not inbox._brl_active_account(conn, current_user_id, account_id):
-        return False
-    if global_account.is_foreign(conn, current_user_id, current):
-        return False
+    ser o do banco (inbox.move_guessed_side). Devolve True se corrigiu."""
     if not snapshot_unchanged(conn, current_user_id, item):
         return False
-    merged = {**item, field: account_id}
-    changes = {field: account_id, "guessed": [guess for guess in item.get("guessed") or [] if guess != need]}
-    if "description" not in (item.get("edited") or []):
-        changes["description"] = inbox._transfer_description(
-            conn, current_user_id, merged["account_id"], merged["transfer_account_id"], item.get("description"),
-        )
-    conn.execute(
-        f"UPDATE transactions SET {field} = ?, description = ? WHERE id = ? AND user_id = ? AND type = 'TRANSFER'",
-        (account_id, changes.get("description", item.get("description")), item["target_id"], current_user_id),
-    )
-    changes["needs"] = inbox.recompute_needs({**item, **changes})
-    inbox.save_item(conn, current_user_id, item, changes)
-    refresh_snapshots(conn, current_user_id, item["id"], item["target_table"], item["target_id"])
-    item["recorded_snapshot"] = _dump(target_snapshot(conn, current_user_id, item["target_table"], item["target_id"]))
-    return True
+    return inbox.move_guessed_side(conn, current_user_id, item, row["direction"], account_id)
 
 
 def settle_review(conn, current_user_id, item, row, entry_type, account_id=None):
@@ -774,12 +760,59 @@ def settle_review(conn, current_user_id, item, row, entry_type, account_id=None)
     name, category_id, origin = category_decision(
         conn, current_user_id, source, kind_type, item.get("amount"), account_id,
     )
+    if origin == "pluggy":
+        fill_default_category(conn, current_user_id, item, table, target_id, kind_type, account_id, (name, category_id))
+        return False
     if origin not in CONFIDENT_CATEGORY_SOURCES:
         return False
     review.clear(conn, current_user_id, table, target_id, (name, category_id))
     refresh_snapshots(conn, current_user_id, item["id"], table, target_id)
     if item.get("recorded_snapshot"):
         item["recorded_snapshot"] = _dump(target_snapshot(conn, current_user_id, table, target_id))
+    return True
+
+
+def born_on_default(conn, current_user_id, item, table, target_id, kind_type, account_id=None):
+    """A linha esta na categoria padrao com que nasceu: nenhuma regra do dono
+    casou com a descricao do aviso, e a categoria de agora e a padrao do tipo.
+    (Quem chama ja sabe que esta intocada pelo snapshot.)"""
+    current = review.current_category(conn, current_user_id, table, target_id)
+    if current is None:
+        return False
+    default = inbox.suggest_category(conn, current_user_id, None, kind_type, item.get("amount"), account_id, rules=[])
+    if tuple(current) != tuple(default):
+        return False
+    transaction_type = "INCOME" if kind_type == "INCOME" else "EXPENSE"
+    rule = statement_import.first_matching_rule(
+        import_rules_for_matching(conn, current_user_id), item.get("description") or "", transaction_type,
+        item.get("amount"), account_id if kind_type != "CARD" else None,
+    )
+    return rule is None
+
+
+def fill_default_category(conn, current_user_id, item, table, target_id, kind_type, account_id, category):
+    """automation-prompt 1.1: a categoria da arvore da Pluggy entra numa linha
+    que o aviso gravou na padrao ("Outros") e ninguem mexeu. A linha continua a
+    revisar (a arvore e palpite largo); a auto-confirmacao a leva depois. Nunca
+    numa compra com parcela paga; desfeita pelo dono, nao volta. Fica no
+    registro das decisoes (auto_decisions). Devolve True se trocou."""
+    if has_paid_installment(conn, current_user_id, table, target_id):
+        return False
+    if auto_decisions.was_undone(conn, current_user_id, auto_decisions.PLUGGY_CATEGORY, table, target_id):
+        return False
+    if not born_on_default(conn, current_user_id, item, table, target_id, kind_type, account_id):
+        return False
+    before = review.current_category(conn, current_user_id, table, target_id)
+    if tuple(before) == tuple(category):
+        return False
+    review.set_category(conn, current_user_id, table, target_id, category)
+    refresh_snapshots(conn, current_user_id, item["id"], table, target_id)
+    if item.get("recorded_snapshot"):
+        item["recorded_snapshot"] = _dump(target_snapshot(conn, current_user_id, table, target_id))
+    auto_decisions.record(
+        conn, current_user_id, auto_decisions.PLUGGY_CATEGORY, table, target_id,
+        {"before": list(before), "after": list(category), "item_id": item["id"]},
+    )
     return True
 
 
@@ -1569,8 +1602,13 @@ def own_target(conn, current_user_id, row):
     return False
 
 
-def _flag(conn, current_user_id, row, conflict, cents=None):
-    _update_row(conn, current_user_id, row["id"], conflict=conflict, conflict_amount_cents=cents)
+def _flag(conn, current_user_id, row, conflict, cents=None, direction=None):
+    # A primeira vez que aponta: o prazo da resolucao sozinha conta dai (058).
+    since = row.get("conflict_at") if row.get("conflict") == conflict else None
+    _update_row(
+        conn, current_user_id, row["id"], conflict=conflict, conflict_amount_cents=cents,
+        conflict_at=since or utc_timestamp(), conflict_direction=direction,
+    )
     return "conflict"
 
 
@@ -1580,7 +1618,7 @@ def apply_change(conn, current_user_id, row, tx):
     1/1 em aberto): o lancamento acompanha. Senao nada muda e a Conferencia
     aponta (`conflict = 'changed'`)."""
     if tx["direction"] != row["direction"]:
-        return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+        return _flag(conn, current_user_id, row, "changed", tx["amount_cents"], tx["direction"])
     if not untouched(conn, current_user_id, row) or not own_target(conn, current_user_id, row):
         # A compra que uma notificacao gravou e o banco lancou com outro valor
         # (a gorjeta, sob a mesma id): revisada ou com outra categoria, o valor
@@ -1591,7 +1629,7 @@ def apply_change(conn, current_user_id, row, tx):
         if not item_row or not item_row["recorded_snapshot"] or not follow_bank_amount(
             conn, current_user_id, inbox.item_dict(item_row), tx["amount_cents"],
         ):
-            return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+            return _flag(conn, current_user_id, row, "changed", tx["amount_cents"], tx["direction"])
         _update_row(
             conn, current_user_id, row["id"], conflict=None, conflict_amount_cents=None,
             **{field: tx[field] for field in ROW_FIELDS if field != "dedup_key"},
@@ -1609,7 +1647,7 @@ def apply_change(conn, current_user_id, row, tx):
             (current_user_id, row["dedup_key"]),
         ).fetchall()
         if len(rows) != 1 or rows[0]["status"] != "OPEN":
-            return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+            return _flag(conn, current_user_id, row, "changed", tx["amount_cents"], tx["direction"])
         conn.execute(
             "UPDATE cc_expenses SET amount = ? WHERE id = ? AND user_id = ?", (amount, rows[0]["id"], current_user_id),
         )
@@ -1641,7 +1679,7 @@ def apply_payment_change(conn, current_user_id, row, tx):
         and str(target["source_id"] or "").endswith(str(row["pluggy_transaction_id"]))
     )
     if not mine:
-        return _flag(conn, current_user_id, row, "changed", tx["amount_cents"])
+        return _flag(conn, current_user_id, row, "changed", tx["amount_cents"], tx["direction"])
     conn.execute(
         "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
         (money.from_cents(tx["amount_cents"]), row["target_id"], current_user_id),

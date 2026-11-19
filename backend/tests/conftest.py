@@ -63,6 +63,9 @@ def _test_environment():
     # Gravar sozinho (045) desligado por padrao: os testes do Aprovar veem o
     # item esperando; os de test_auto_record.py ligam por usuario.
     os.environ["AUTO_RECORD_DEFAULT"] = "0"
+    # Auto-confirmar o Revisar (automation-prompt 1.2) desligado: os testes da
+    # revisao veem a linha esperando; test_automatic_review.py liga por usuario.
+    os.environ["REVIEW_AUTO_DAYS_DEFAULT"] = "0"
     os.environ["MANUAL_ONLY_OFF_PLUGGY"] = "0"
 
 

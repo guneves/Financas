@@ -12,6 +12,8 @@ import br.financas.app.R
 import br.financas.app.core.MoneyInput
 import br.financas.app.core.moneyInputValue
 import br.financas.app.data.AccountDto
+import br.financas.app.data.AutoDecisionDto
+import br.financas.app.data.AutoDecisionsDto
 import br.financas.app.data.AppGraph
 import br.financas.app.data.CategoryDto
 import br.financas.app.data.CreditCardDto
@@ -28,6 +30,7 @@ import br.financas.app.notify.NotifySettings
 import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.Session
 import br.financas.app.rules.ApkUpdateTexts
+import br.financas.app.rules.AutoDecisions
 import br.financas.app.rules.CardForm
 import br.financas.app.rules.CardFunctions
 import br.financas.app.rules.NotifyTexts
@@ -60,6 +63,7 @@ enum class AjustesSection(val anchor: String) {
     CARTOES("cartoes"),
     CATEGORIAS("categorias"),
     OPEN_FINANCE("open-finance"),
+    AUTOMATICO("automatico"),
     APARENCIA("aparencia"),
     PERFIL("perfil"),
     NOTIFICACOES("notificacoes"),
@@ -106,6 +110,11 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
     val me = ScreenLoad<MeDto>()
     val openFinance = ScreenLoad<OpenFinanceDto>()
     val openFinanceSettings = ScreenLoad<OpenFinanceSettingsDto>()
+    /** Decidido sozinho (058): as decisoes automaticas, com "Desfazer". */
+    val decisions = ScreenLoad<AutoDecisionsDto>()
+    /** A decisao que esta desfazendo (o botao dela gira). */
+    var undoingId by mutableStateOf<String?>(null)
+        private set
     /** O "Lançar" de uma operacao da corretora que espera (Fase 3): o formulario de operacao. */
     val launchSheet = LaunchSheetState(application, viewModelScope) { message ->
         notice(message)
@@ -249,6 +258,7 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
             }
             AjustesSection.CATEGORIAS -> readCategories()
             AjustesSection.OPEN_FINANCE -> readOpenFinance()
+            AjustesSection.AUTOMATICO -> readDecisions()
             AjustesSection.PERFIL -> readMe()
             AjustesSection.NOTIFICACOES -> {
                 readNotify()
@@ -282,6 +292,20 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             me.collect(app, repo.me(), R.string.ajustes_profile_failed)
             if (username == null) username = me.value?.user?.username.orEmpty()
+        }
+    }
+
+    private fun readDecisions() {
+        viewModelScope.launch { decisions.collect(app, graph.review.automatic(), R.string.ajustes_automatico_failed) }
+    }
+
+    /** Desfaz uma decisao automatica: a regra nao volta a mexer naquele lancamento. */
+    fun undoDecision(decision: AutoDecisionDto) {
+        if (!AutoDecisions.canUndo(decision)) return
+        undoingId = decision.id
+        write(R.string.ajustes_automatico_undo_failed, { graph.review.undoAutomatic(decision.id) }, onFail = { undoingId = null }) {
+            undoingId = null
+            changed(AutoDecisions.undoToast(decision.kind))
         }
     }
 
@@ -752,6 +776,18 @@ class AjustesViewModel(application: Application) : AndroidViewModel(application)
         write(R.string.ajustes_bank_notifications_failed, { graph.inbox.setBankNotifications(value) }) { saved ->
             inboxSettings.value = saved
             notice(app.getString(if (saved.bankNotifications) R.string.ajustes_bank_notifications_on else R.string.ajustes_bank_notifications_off))
+        }
+    }
+
+    /** O prazo do Revisar (review_auto_days): o mesmo da web. */
+    fun setReviewAutoDays(value: Int) {
+        if (inboxSettings.value?.reviewAutoDays == value) return
+        write(R.string.ajustes_review_auto_failed, { graph.inbox.setReviewAutoDays(value) }) { saved ->
+            inboxSettings.value = saved
+            notice(
+                if (saved.reviewAutoDays == 0) app.getString(R.string.ajustes_review_auto_never_toast)
+                else app.getString(R.string.ajustes_review_auto_toast, saved.reviewAutoDays),
+            )
         }
     }
 

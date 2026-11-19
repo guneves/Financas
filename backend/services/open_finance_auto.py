@@ -42,14 +42,16 @@ sozinho guarda como nasceu (open_finance_inbox.mark_auto_recorded): se o banco
 mudar o valor ou a transacao sumir, so o intocado e corrigido ou apagado.
 """
 
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from applog import get_logger
 from config import AUTO_RECORD_DEFAULT
-from dates import parse_iso_date
+from dates import local_today, parse_iso_date
+from db import utc_timestamp
 from money import from_cents, rounded_money
-from services import fx, global_account, inbox, inbox_decisions, open_finance_inbox, review
+from services import auto_decisions, fx, global_account, inbox, inbox_decisions, open_finance_inbox, review, transfer_timeouts
 from services.inbox_defaults import fill_defaults, free_candidates
 from validators import ValidationError
 
@@ -214,6 +216,11 @@ def one_side_now(conn, current_user_id, item, sources):
         return None
     if global_account.is_foreign(conn, current_user_id, account["account_id"]):
         return None
+    if transfer_timeouts.is_brokerage(conn, current_user_id, account["account_id"]):
+        # Na Corretora, receita/despesa distorceria Investimentos: espera a
+        # outra ponta, e passada a janela vira o aporte/resgate com o banco
+        # adivinhado (transfer_timeouts.brokerage_side_now).
+        return None
     other = item.get("transfer_account_id") if source["direction"] == "OUT" else item.get("account_id")
     if other and not global_account.is_foreign(conn, current_user_id, other):
         # Completa: grava como transferencia mesmo.
@@ -266,6 +273,16 @@ def prefetch_rates(conn, current_user_id, wanted=()):
         conn.commit()
 
 
+def fx_fallback(day, rate_date):
+    """A PTAX usada nao e a do dia pela regra de sempre: mais de 4 dias antes
+    (fim de semana + feriado e o normal), ou de antes de hoje para um movimento
+    de hoje (a do dia sai a tarde)."""
+    moment, used = parse_iso_date(day or ""), parse_iso_date(rate_date or "")
+    if not moment or not used or used >= moment:
+        return False
+    return (moment - used).days > 4 or moment.date() >= local_today()
+
+
 def in_reais_now(conn, current_user_id, item):
     """Um movimento em outra moeda numa conta em reais (a Pluggy nao mandou o
     valor na moeda da conta): o valor em reais pela PTAX do dia, a revisar
@@ -286,6 +303,15 @@ def in_reais_now(conn, current_user_id, item):
         return None
     if not rate:
         return None
+    day = str(item.get("occurred_at") or "")[:10]
+    rate_date = fx.stored_rate_date(conn, current_user_id, currency, day or None)
+    if fx_fallback(day, rate_date):
+        # Sem a PTAX do proprio dia (BCB fora, a de hoje ainda nao saiu): a
+        # ultima antes dele, marcada (automation-prompt 1.3), a revisar.
+        auto_decisions.record(
+            conn, current_user_id, auto_decisions.FX_FALLBACK, "inbox_items", item["id"],
+            {"currency": currency, "day": day, "rate_date": rate_date, "rate": rate, "amount": item["amount"]},
+        )
     edited = [field for field in item.get("edited") or [] if field != "amount"] + ["amount"]
     changes = {
         "amount": float(rounded_money(Decimal(str(item["amount"])) * Decimal(str(rate)))),
@@ -303,6 +329,12 @@ def record_item(conn, current_user_id, row, today):
     sources = inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,))
     if hold_reason(conn, current_user_id, item, sources, today) == "awaiting_transfer":
         item = one_side_now(conn, current_user_id, item, sources) or item
+    guessed_transfer = False
+    if hold_reason(conn, current_user_id, item, sources, today) == "awaiting_transfer":
+        # A ponta so da Corretora, passada a janela (automation-prompt 1.3).
+        moved = transfer_timeouts.brokerage_side_now(conn, current_user_id, item, today)
+        if moved:
+            item, guessed_transfer = moved, True
     if hold_reason(conn, current_user_id, item, sources, today) == "foreign_currency":
         item = in_reais_now(conn, current_user_id, item) or item
     if hold_reason(conn, current_user_id, item, sources, today):
@@ -332,7 +364,35 @@ def record_item(conn, current_user_id, row, today):
     open_finance_inbox.settle_review(
         conn, current_user_id, recorded, sources[0], recorded["entry_type"], recorded.get("account_id"),
     )
+    if guessed_transfer:
+        record_timeout_decision(conn, current_user_id, item["id"], auto_decisions.TRANSFER_GUESS)
     return "recorded"
+
+
+def record_timeout_decision(conn, current_user_id, item_id, kind):
+    """O registro (auto_decisions) do que gravou sozinho depois de esperar a
+    outra ponta (automation-prompt 1.3): a linha fica a revisar."""
+    recorded = inbox.item_dict(inbox.fetch_item(conn, current_user_id, item_id))
+    if not recorded.get("target_id"):
+        return
+    review.mark_for_review(conn, current_user_id, recorded["target_table"], recorded["target_id"])
+    if not recorded.get("recorded_snapshot"):
+        # O item guarda como a linha nasceu, como o gravado por aviso: a ponta
+        # real que chegar depois (de qualquer canal) move o lado adivinhado
+        # (open_finance_inbox.follow_bank_side, inbox.move_guessed_side).
+        snapshot = open_finance_inbox.target_snapshot(
+            conn, current_user_id, recorded["target_table"], recorded["target_id"],
+        )
+        inbox.save_item(
+            conn, current_user_id, recorded,
+            {"auto_recorded_at": utc_timestamp(), "recorded_snapshot": json.dumps(snapshot, sort_keys=True)},
+            bump=False,
+        )
+    auto_decisions.record(
+        conn, current_user_id, kind, recorded["target_table"], recorded["target_id"],
+        {"item_id": item_id, "account_id": recorded.get("account_id"),
+         "transfer_account_id": recorded.get("transfer_account_id"), "guessed": recorded.get("guessed") or []},
+    )
 
 
 def record_pending(conn, current_user_id, today):

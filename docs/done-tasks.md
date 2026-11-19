@@ -222,6 +222,9 @@
   provisional buys, rebuild applied on production and validated month by month. See `docs/handoff.md`.
 | The month's spending is one rule on every screen: Corretora rows out of plan and budget, "Pagamento Fatura" in any case, out of expenses and income (#95, audit B2) | 2026-11-13 |
 | Web Início reads `GET /api/home/panels`; `useInicioMovements`, `lib/homeSpending.js` and the parity test removed (#96, audit B3 for Início) | 2026-11-13 |
+| Everything automatic, phase 1 (banking review decides itself): Pluggy's tree fills a row still on the default, Revisar auto-confirms after `review_auto_days` (default 3; web and APK setting), the Corretora's one-sided transfer becomes a guessed aporte/resgate after the window (and no longer a receita on the Corretora), the last PTAX with an `fx_fallback` flag, `changed`/`vanished` conflicts resolve themselves; every decision in `auto_decisions` (058) with "Desfazer" (web Ajustes › Decidido sozinho) | 2026-11-18 |
+| Everything automatic, phase 2 (investments): equity custody TRANSFER leaves by itself when the app holds the quantity, equity INTEREST links to the computed provento, a closed bank fund's lines leave, `rate` 0 + `fixedAnnualRate` is pré, a fixed-income TRANSFER is the buy at original cost (unlocking its redemptions), AMORTIZATION is a provento, Renda+ found by due date; each an `auto_decisions` row (web titles; `undoable` false for what recorded an operation) | 2026-11-19 |
+| Everything automatic, phase 3 (watch and prove): `GET /api/review/auto?kinds=&days=`, the Conferência's "Resolvido automaticamente" with Desfazer (web), the APK's Ajustes › "Decidido sozinho" (`rules/AutoDecisions.kt`), a weekly `applog` line with counts per kind (`log_weekly()`), `review_breakdown.py` counting decisions and corrections by the row's own date | 2026-11-19 |
 
 ## Notes on completed work
 
@@ -1434,3 +1437,12 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   joined (`late_near_pass()`); a notification-recorded row follows the bank's amount when the same Pluggy id
   changes it (`apply_change()`); a repeated transactions cursor is a `PluggyError`, never a short history; a
   malformed date is a `Skip`. The generated worlds pass on seeds 0–499 (and 500–899 before the last narrowing of `apply_change()`).
+
+### BTG Investimentos guess vs the BB side — 2026-11-17
+- The BTG Investimentos notice records a whole transfer with the bank side guessed as BTG conta corrente. When the
+  money really came from (or went to) BB, the BB notice became a second row (a despesa, or a receita: the R$ 50
+  redemption ended BB at +100) and Pluggy only fixed the transfer. Now the real side moves the guess
+  (`guessed_transfer_awaiting()` / `move_guessed_side()`; `follow_bank_side()` delegates to the latter), from a
+  notice or a Pluggy row, both directions, any order. "BCO DO BRASIL" names BB. Tests in
+  `test_notify_pluggy_identity.py::TestGuessedSide` (11 new) and `test_inbox_counterparty.py`.
+- `scripts/review_breakdown.py` (read-only, `test_review_breakdown.py`) measures Revisar on the real data.

@@ -82,6 +82,16 @@ def _stored_rate(conn, current_user_id, currency, on_date):
     ).fetchone()
 
 
+def stored_rate_date(conn, current_user_id, currency, on_date):
+    """O dia da PTAX guardada que rate_on(fetch=False) usaria para `on_date`
+    (a ultima ate ele), ou None."""
+    currency = normalize_currency(currency)
+    if currency == BASE_CURRENCY:
+        return None
+    row = _stored_rate(conn, current_user_id, currency, min(_as_date(on_date), local_now().date()))
+    return row["rate_date"] if row else None
+
+
 def fetch_and_store(conn, current_user_id, currency, start, end):
     """Busca a PTAX de [start, end] no BCB e guarda. Devolve quantos dias vieram.
 

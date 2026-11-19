@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Landmark, Plus, RefreshCw } from 'lucide-react'
-import { accountsApi, creditCardsApi, investmentProceedsApi, investmentsApi, openFinanceApi } from '../../lib/dataApi'
+import { accountsApi, creditCardsApi, investmentProceedsApi, investmentsApi, openFinanceApi, reviewApi } from '../../lib/dataApi'
+import { CONFERENCE_DAYS } from '../../lib/autoDecisions'
+import AutoDecisionList from './AutoDecisionList'
 import { apiFetch } from '../../lib/api'
 import InvestmentLaunchModal from '../../components/InvestmentLaunchModal'
 import { AlertMessage, Badge, Button, Collapsible, EmptyState, Field, ListSkeleton, Menu, Panel, PanelHeader } from '../../components/ui'
@@ -330,6 +332,37 @@ function PortfolioCheck({ investments, money }) {
   )
 }
 
+// Resolvido automaticamente (Fase 3): o que a Conferencia antes apontava para o
+// dono e o app decidiu sozinho nos ultimos CONFERENCE_DAYS dias — o conflito com
+// o banco (o valor dele depois de 7 dias; a linha sumida que o saldo prova) e a
+// carteira (custodia, provento ligado, fundo encerrado, titulo vindo de outra
+// corretora, taxa deduzida). Cada uma com "Desfazer" quando ele cabe aqui.
+function ResolvedAutomatically() {
+  const query = useQuery({
+    queryKey: ['review', 'automatic', 'conference'],
+    queryFn: () => reviewApi.automatic({ kinds: 'conference', days: CONFERENCE_DAYS }),
+  })
+  const items = query.data?.items || NO_ITEMS
+  if (query.isError) {
+    return <AlertMessage message={queryErrorMessage(query, 'Não foi possível ler o que foi resolvido sozinho.')} />
+  }
+  if (!items.length) return null
+  return (
+    <section className="space-y-2 rounded-2xl border border-zinc-200 p-3" aria-label="Resolvido automaticamente">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-base font-semibold text-zinc-950">Resolvido automaticamente</p>
+        <Badge>{items.length === 1 ? '1 decisão' : `${items.length} decisões`}</Badge>
+      </div>
+      <p className="text-xs text-zinc-500">
+        Nos últimos {CONFERENCE_DAYS} dias, o que a conferência apontaria e o app decidiu. Desfazer devolve como era.
+      </p>
+      <Collapsible label="Ver o que foi resolvido" variant="secondary" size="sm">
+        <AutoDecisionList items={items} compact />
+      </Collapsible>
+    </section>
+  )
+}
+
 // O historico (044): o que a Pluggy tem dos ultimos dias, contado por conta,
 // antes de gravar; aplicar so confirmado. Nada digitado e apagado.
 function HistoryPanel({ enabled, busy, run }) {
@@ -574,6 +607,7 @@ export default function OpenFinanceSection() {
           )
         })}
         <PortfolioCheck investments={data?.investments} money={money} />
+        {data?.configured ? <ResolvedAutomatically /> : null}
         {data?.configured && settings ? (
           <div className="space-y-4 border-t border-zinc-100 pt-4">
             <Field

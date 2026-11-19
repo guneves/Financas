@@ -112,6 +112,14 @@ def title_type_from_name(name):
     return None
 
 
+def commercial_name(series):
+    """O nome comercial do titulo ("TESOURO RENDA+ APOSENTADORIA EXTRA 2065"):
+    o tipo e o ano do vencimento, ou o da conversao no Renda+/Educa+. E o nome
+    que o dono da ao titulo, e `find_title()` acha o mesmo por ele."""
+    year = series.maturity.year - NAMED_BY_CONVERSION.get(series.title_type, 0)
+    return f"{series.title_type} {year}"
+
+
 def title_year_from_name(name):
     """O primeiro ano (2000-2099) do nome, ou None."""
     match = re.search(r"(?<!\d)(20\d{2})(?!\d)", str(name or ""))
@@ -284,6 +292,15 @@ class TreasuryPrices:
                 # Dois vencimentos no mesmo ano (raro): o que ainda tem preco.
                 return max(matches, key=lambda s: s.days[-1] if s.days else 0)
         return None
+
+    def find_by_maturity(self, title_type, maturity):
+        """O TitleSeries do tipo com este vencimento (date), ou None: o titulo
+        cujo nome nao traz o ano (o Renda+ da corretora, "Tesouro Renda+
+        Aposentadoria Extra (NTNB...)") se acha pelo vencimento da Pluggy."""
+        if title_type is None or maturity is None:
+            return None
+        found = [s for (kind, due), s in self.series.items() if kind == title_type and due == maturity]
+        return found[0] if found else None
 
     def age_seconds(self, now=None):
         return max((now if now is not None else time.time()) - self.fetched_at, 0.0)

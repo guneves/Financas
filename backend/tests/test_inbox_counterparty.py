@@ -15,6 +15,7 @@ O que estes testes protegem, na sequencia que a captura do dono mostrou
 - toda deteccao acaba no Aprovar.
 """
 
+import importlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -306,3 +307,11 @@ class TestTheBrokerage:
         [late] = send(client, auth, detection(BTG, "TRANSFER_OUT", 508, ms(2026, 10, 17, 23, 25, 1)))
         assert late["status"] == "merged"
         assert len(pending(client, auth)) == 1
+
+
+def test_bco_do_brasil_names_bb():
+    """O app do BTG pode escrever "BCO DO BRASIL" na contraparte (2026-11-17)."""
+    rules = importlib.import_module("services.inbox_rules")
+    assert rules.issuer_of_institution("BCO DO BRASIL S.A.") == "bb"
+    assert rules.issuer_of_institution("Banco do Brasil") == "bb"
+    assert rules.issuer_of_institution("BTG Pactual") == "btg"

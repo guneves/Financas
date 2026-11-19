@@ -17,9 +17,11 @@ Cada teste termina com `assert_identity()` (I1/I2).
 """
 
 import importlib
+from datetime import date, datetime
 
 import pytest
 
+from finance_world import freeze
 from identity_check import assert_identity
 from open_finance_world import World, bank_tx, card_tx, connected, fake_pluggy, open_finance_module  # noqa: F401
 from test_auto_record import confirm, notifications_on, rows_of
@@ -446,6 +448,114 @@ class TestGuessedSide:
         assert_identity(user["id"])
 
 
+    @pytest.mark.parametrize("pluggy", [False, True])
+    def test_r_a_bb_notice_moves_the_guessed_origin(self, world, user, pluggy):
+        """2026-11-17: o BTG Investimentos avisa primeiro (BB -> Corretora) e o app
+        supos a BTG conta corrente; o aviso do BB chega segundos depois e o lado
+        adivinhado passa a ser o BB, nunca uma despesa a mais."""
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        bb, corretora = made["bb:0003/3-3"][2], made["corretora"]
+        btg = _account_id(world, "BTG conta corrente")
+        _btg_notifies_500_in(world)
+        [recorded] = [row for row in world.transactions() if row["amount"] == 500.0]
+        before = {account: _balance(world, account) for account in (bb, btg)}
+        [result] = send(world.client, world.auth, detection("PIX_OUT", 50000, at=ms(2026, 10, 22, 9, 0, 20), app=BB,
+                                                            merchant=None, counterparty="Fulano Dono"))
+        assert result["status"] == "matched"
+        if pluggy:
+            world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(-500, "2026-10-22", "PIX ENVIADO", category_id=SELF_TRANSFER))
+            world.fake.add_tx(made["btg:0002/2-2X"][0], bank_tx(500, "2026-10-22", "RECEBIMENTO TRANSFERÊNCIA",
+                                                               category_id=SELF_TRANSFER))
+            for bank in ("bb", "btg"):
+                world.sync(made["items"][bank])
+        rows = [row for row in world.transactions() if row["amount"] == 500.0]
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (recorded["id"], "TRANSFER", bb, corretora)
+        ]
+        assert _balance(world, bb) == before[bb] - 500
+        assert _balance(world, btg) == before[btg] + 500
+        assert world.pending() == []
+        assert_identity(user["id"])
+
+    @pytest.mark.parametrize("pluggy", [False, True])
+    def test_r_a_redemption_to_bb_moves_the_guessed_destination(self, world, user, pluggy):
+        """O resgate de R$ 50 da Corretora para o BB: o aviso do BB nunca vira
+        uma receita a mais (o BB +50, nao +100)."""
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        bb, corretora = made["bb:0003/3-3"][2], made["corretora"]
+        btg = _account_id(world, "BTG conta corrente")
+        send(world.client, world.auth, detection("TRANSFER_OUT", 5000, at=ms(2026, 10, 22, 9, 0), app=BROKERAGE,
+                                                 merchant=None))
+        [recorded] = [row for row in world.transactions() if row["amount"] == 50.0]
+        assert (recorded["account_id"], recorded["transfer_account_id"]) == (corretora, btg)
+        before = _balance(world, bb)
+        send(world.client, world.auth, detection("PIX_IN", 5000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        if pluggy:
+            world.fake.add_tx(made["btg:0002/2-2X"][0], bank_tx(-50, "2026-10-22", "TRANSFERÊNCIA ENVIADA",
+                                                               category_id=SELF_TRANSFER))
+            world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(50, "2026-10-22", "PIX RECEBIDO", category_id=SELF_TRANSFER))
+            for bank in ("btg", "bb"):
+                world.sync(made["items"][bank])
+        rows = [row for row in world.transactions() if row["amount"] == 50.0]
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (recorded["id"], "TRANSFER", corretora, bb)
+        ]
+        assert _balance(world, bb) == before + 50
+        assert world.pending() == []
+        assert_identity(user["id"])
+
+    @pytest.mark.parametrize("kind, sign", [("TRANSFER_IN", 1), ("TRANSFER_OUT", -1)])
+    @pytest.mark.parametrize("order", [("bb", "btg"), ("btg", "bb")])
+    def test_r_only_pluggy_moves_the_guess_to_bb(self, world, user, kind, sign, order):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        bb, corretora = made["bb:0003/3-3"][2], made["corretora"]
+        send(world.client, world.auth, detection(kind, 5000, at=ms(2026, 10, 22, 9, 0), app=BROKERAGE, merchant=None))
+        [recorded] = [row for row in world.transactions() if row["amount"] == 50.0]
+        world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(-50 * sign, "2026-10-22", "PIX", category_id=SELF_TRANSFER))
+        world.fake.add_tx(made["btg:0002/2-2X"][0], bank_tx(50 * sign, "2026-10-22", "TRANSFERENCIA",
+                                                           category_id=SELF_TRANSFER))
+        for bank in order:
+            world.sync(made["items"][bank])
+        expected = (bb, corretora) if sign == 1 else (corretora, bb)
+        rows = [row for row in world.transactions() if row["amount"] == 50.0]
+        assert [(row["id"], row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [
+            (recorded["id"], "TRANSFER", *expected)
+        ]
+        assert world.pending() == []
+        assert_identity(user["id"])
+
+    def test_r_an_edited_guess_is_not_moved_by_a_notice(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        bb, itau, corretora = made["bb:0003/3-3"][2], made["itau:0001/1-1"][2], made["corretora"]
+        _btg_notifies_500_in(world)
+        [recorded] = [row for row in world.transactions() if row["amount"] == 500.0]
+        edited = world.client.patch(f"/api/transactions/{recorded['id']}", json={"account_id": itau}, headers=world.auth)
+        assert edited.status_code == 200, edited.get_data(as_text=True)
+        send(world.client, world.auth, detection("PIX_OUT", 50000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        transfers = [row for row in world.transactions() if row["amount"] == 500.0 and row["type"] == "TRANSFER"]
+        assert [(row["account_id"], row["transfer_account_id"]) for row in transfers] == [(itau, corretora)]
+        assert any(row["account_id"] == bb and row["amount"] == 500.0 for row in world.transactions())
+        assert_identity(user["id"])
+
+    def test_r_a_notice_naming_someone_else_does_not_move_the_guess(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        bb, corretora = made["bb:0003/3-3"][2], made["corretora"]
+        btg = _account_id(world, "BTG conta corrente")
+        send(world.client, world.auth, detection("TRANSFER_IN", 50000, at=ms(2026, 10, 22, 9, 0), app=BROKERAGE,
+                                                 merchant=None, counterparty="Fulano Dono"))
+        send(world.client, world.auth, detection("PIX_OUT", 50000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Maria Silva"))
+        transfers = [row for row in world.transactions() if row["amount"] == 500.0 and row["type"] == "TRANSFER"]
+        assert [(row["account_id"], row["transfer_account_id"]) for row in transfers] == [(btg, corretora)]
+        assert_identity(user["id"])
+
 # ---------------------------------------------------------------------------
 # Os canais: uma notificacao nunca esconde um lancamento da Pluggy
 # ---------------------------------------------------------------------------
@@ -618,14 +728,24 @@ class TestNothingWaits:
         )
         assert_identity(user["id"])
 
-    def test_a_one_sided_transfer_into_the_brokerage_waits(self, world, user):
+    def test_a_one_sided_transfer_into_the_brokerage_waits(self, world, user, monkeypatch):
+        # So a janela da outra ponta (TRANSFER_MATCH_DAYS); depois vira o aporte
+        # com o banco adivinhado (test_nothing_waits.py, 2026-11-18).
+        monkeypatch.setattr(importlib.import_module("dates"), "now_source", lambda: datetime(2026, 10, 22, 12))
+        freeze(monkeypatch, date(2026, 10, 22))
         world.account("Itaú")
-        world.account("Corretora", type_="BROKERAGE")
+        corretora = world.account("Corretora", type_="BROKERAGE")
         send(world.client, world.auth, detection("TRANSFER_IN", 50000, at=ms(2026, 10, 22, 9, 0), app=BROKERAGE,
                                                  merchant=None))
         assert world.transactions() == []
         [item] = world.pending()
         assert item["entry_type"] == "TRANSFER"
+        assert_identity(user["id"])
+        monkeypatch.setattr(importlib.import_module("dates"), "now_source", lambda: datetime(2026, 10, 24, 12))
+        freeze(monkeypatch, date(2026, 10, 24))
+        [row] = world.transactions()
+        assert (row["type"], row["transfer_account_id"], row["needs_review"]) == ("TRANSFER", corretora, 1)
+        assert world.pending() == []
         assert_identity(user["id"])
 
 
