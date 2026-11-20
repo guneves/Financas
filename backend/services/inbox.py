@@ -247,13 +247,17 @@ def _window_detections(conn, current_user_id, posted_ms, *, samsung, roles):
         """,
         (current_user_id, posted_ms - NOTIFY_WINDOW_MS, posted_ms + NOTIFY_WINDOW_MS, *roles, SAMSUNG_WALLET),
     ).fetchall()
+    # A repostagem do mesmo aviso (o mesmo app, B7) nao e um par: a original
+    # continua livre para o Samsung da mesma compra.
     paired = {
         value
         for row in conn.execute(
             """
-            SELECT id, paired_with FROM notify_detections
-            WHERE user_id = ? AND paired_with IS NOT NULL
-              AND posted_ms BETWEEN ? AND ?
+            SELECT d.id, d.paired_with FROM notify_detections d
+            LEFT JOIN notify_detections o ON o.id = d.paired_with AND o.user_id = d.user_id
+            WHERE d.user_id = ? AND d.paired_with IS NOT NULL
+              AND d.posted_ms BETWEEN ? AND ?
+              AND (o.app IS NULL OR o.app <> d.app)
             """,
             (current_user_id, posted_ms - 2 * NOTIFY_WINDOW_MS, posted_ms + 2 * NOTIFY_WINDOW_MS),
         ).fetchall()
@@ -400,22 +404,26 @@ def _repeated_posting(conn, current_user_id, detection):
     rows = conn.execute(
         """
         SELECT * FROM notify_detections
-        WHERE user_id = ? AND app = ? AND kind = ? AND amount_cents = ? AND occurred_at = ?
-          AND posted_ms BETWEEN ? AND ? AND paired_with IS NULL
+        WHERE user_id = ? AND app = ? AND kind = ? AND amount_cents = ?
+          AND posted_ms BETWEEN ? AND ?
         ORDER BY posted_ms, id
         """,
         (
             current_user_id, detection["app"], detection["kind"], detection["amount_cents"],
-            detection["occurred_at"], detection["posted_ms"] - REPEAT_WINDOW_MS,
-            detection["posted_ms"] + REPEAT_WINDOW_MS,
+            detection["posted_ms"] - REPEAT_WINDOW_MS, detection["posted_ms"] + REPEAT_WINDOW_MS,
         ),
     ).fetchall()
     for row in rows:
-        if (row["merchant"] or "") == (detection.get("merchant") or "") and (
+        if (row["merchant"] or "") != (detection.get("merchant") or "") or (
             row["counterparty_doc"] or ""
-        ) == (detection.get("counterparty_doc") or ""):
+        ) != (detection.get("counterparty_doc") or ""):
+            continue
+        if row["occurred_at"] == detection["occurred_at"]:
+            # A original pareada (B7, o Samsung chegou antes): a repostagem
+            # entra no mesmo item, nunca num novo.
             return row_to_dict(row)
     return None
+
 
 
 def _ingest_declined(conn, current_user_id, detection, samsung):

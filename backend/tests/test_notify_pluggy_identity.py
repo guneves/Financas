@@ -1562,3 +1562,57 @@ class TestBankInvoice:
         assert (after["description"], after["amount"]) == ("academia", 80.0)
         assert (after["invoice_month"], after["invoice_year"]) == (12, 2026)
         assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B7/B11 (2026-11-20): o mesmo aviso postado de novo nunca e outra compra
+# ---------------------------------------------------------------------------
+
+FLASH = "br.com.flashapp"
+SAMSUNG = "com.samsung.android.spay"
+
+
+class TestReposts:
+    def flash(self, world):
+        flash_account = world.account("Flash", institution="Flash")
+        world.call("post", "/api/credit-cards", json={
+            "name": "Flash", "due_day": 10, "closing_day": 3, "credit_enabled": False,
+            "debit_account_id": flash_account,
+        })
+        return flash_account
+
+    def expenses(self, world):
+        return [row for row in world.transactions() if row["type"] == "EXPENSE"]
+
+    def test_a_repost_is_no_pair_and_samsung_still_joins_the_original(self, world, user):
+        self.flash(world)
+        at = ms(2026, 10, 20, 12, 0)
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at, app=FLASH, merchant="RESTAURANTE", when_ms=at))
+        [again] = send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 24, app=FLASH,
+                                                           merchant="RESTAURANTE", when_ms=at))
+        assert again["status"] == "repeated"
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 5000, app=SAMSUNG, merchant="RESTAURANTE",
+                                                 card_name="Meal and Voucher"))
+        assert len(self.expenses(world)) == 1
+        assert_identity(user["id"])
+
+    def test_a_repost_of_a_notice_that_joined_samsung_is_repeated(self, world, user):
+        self.flash(world)
+        at = ms(2026, 10, 20, 12, 0)
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at, app=SAMSUNG, merchant="RESTAURANTE",
+                                                 card_name="Meal and Voucher"))
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 3000, app=FLASH, merchant="RESTAURANTE",
+                                                 when_ms=at + 3000))
+        [again] = send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 3024, app=FLASH,
+                                                           merchant="RESTAURANTE", when_ms=at + 3000))
+        assert again["status"] == "repeated"
+        assert len(self.expenses(world)) == 1
+        assert_identity(user["id"])
+
+    def test_two_purchases_a_few_seconds_apart_stay_two(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        at = ms(2026, 10, 20, 14, 0, 0)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at, app=ITAU, merchant="PADARIA"))
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at + 5000, app=ITAU, merchant="PADARIA"))
+        assert len(world.transactions(account)) == 2
+        assert_identity(user["id"])
