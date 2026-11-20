@@ -315,6 +315,15 @@ def guess_account(conn, current_user_id, detection):
     return None
 
 
+def refund_card(conn, current_user_id, detection):
+    """O cartao de um estorno avisado (B6): o final, o nome que o Samsung
+    mostrou ou, com a loja citada, o unico cartao daquele emissor. Sem cartao
+    nem loja (a devolucao de um Pix), None: fica receita na conta."""
+    if not (detection.get("card_last4") or detection.get("card_name") or detection.get("merchant")):
+        return None
+    return pick_card(_cards(conn, current_user_id), detection, only_one_counts=False)
+
+
 def resolve_detection(conn, current_user_id, detection):
     """O rascunho de cartao/conta de uma deteccao: o que o dono lembrou, senao
     um palpite marcado, senao o que ele precisa escolher."""
@@ -332,6 +341,14 @@ def resolve_detection(conn, current_user_id, detection):
         "hint_label": detection_hint_label(detection),
         "remembered": False,
     }
+    if detection["kind"] == "REFUND":
+        card_id = refund_card(conn, current_user_id, detection)
+        if card_id:
+            # B6: o estorno de uma compra no cartao e credito no cartao (033),
+            # nunca receita na conta do banco.
+            draft.update({"entry_type": "CARD", "card_id": card_id, "guessed": ["card"]})
+            draft["needs"] = recompute_needs(draft)
+            return draft
     hint = fetch_hint(conn, current_user_id, key)
     if _hint_usable(conn, current_user_id, hint) and hint["entry_type"] != "TRANSFER":
         # O tipo vem da notificacao quando ela diz (um Pix enviado e uma saida,

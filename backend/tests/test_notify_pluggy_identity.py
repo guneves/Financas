@@ -1481,6 +1481,42 @@ class TestMethodGuessed:
 
 
 # ---------------------------------------------------------------------------
+# B6 (2026-11-20): o estorno avisado de um cartao e credito no cartao
+# ---------------------------------------------------------------------------
+
+class TestCardRefundNotice:
+    def test_refund_naming_a_card_is_a_card_credit(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        card = world.card("Itaú Visa 1234")
+        send(world.client, world.auth, detection("REFUND", 5000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 card_last4="1234", merchant="LOJA X"))
+        assert world.transactions(account) == []
+        [row] = world.card_rows(card)
+        assert (row["amount"], row["kind"]) == (50.0, "REFUND")
+        assert_identity(user["id"])
+
+    def test_the_banks_card_credit_joins_the_notified_refund(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        send(world.client, world.auth, detection("REFUND", 5000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 merchant="LOJA X"))
+        [notified] = world.card_rows(card)
+        world.fake.add_tx(card_pluggy, card_tx(-50, "2026-10-20", "ESTORNO LOJA X", docs_sign=True))
+        world.sync(item_id)
+        rows = world.card_rows(card)
+        assert [(row["id"], row["kind"]) for row in rows] == [(notified["id"], "REFUND")]
+        assert_identity(user["id"])
+
+    def test_a_refund_without_a_card_stays_income(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        world.card("Itaú Visa")  # o aviso nao nomeia cartao nem loja: a devolucao de um Pix
+        send(world.client, world.auth, detection("REFUND", 5000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 merchant=None, counterparty="Fulano"))
+        assert [row["type"] for row in world.transactions(account)] == ["INCOME"]
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
 # B5 (2026-11-20): a fatura de uma compra que o banco identifica e a do banco
 # ---------------------------------------------------------------------------
 

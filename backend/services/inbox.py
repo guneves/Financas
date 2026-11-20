@@ -40,6 +40,7 @@ from config import (
 from db import new_id, row_to_dict, utc_timestamp
 from money import from_cents, to_cents
 from services import recurring
+from services.accounts import category_id_for_name
 from services.import_rules import (
     import_rules_for_matching,
 )
@@ -667,6 +668,12 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
         conn, current_user_id, values["description"], values["entry_type"], values["amount"],
         values["account_id"], rules,
     )
+    if values["entry_type"] == "CARD" and direction == "IN":
+        # O estorno no cartao (B6), como o da Pluggy: "Estorno", nunca a
+        # ocorrencia de uma recorrencia de despesa.
+        values["category"] = "Estorno"
+        values["category_id"] = category_id_for_name(conn, current_user_id, "Estorno")
+        values["recurring_off"] = 1
     values["needs"] = recompute_needs(values)
     return insert_item(conn, current_user_id, values)
 
