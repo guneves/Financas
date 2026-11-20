@@ -1711,3 +1711,68 @@ class TestRoundsUpByAppAccount:
         world.sync(item_id)
         assert sorted(row["amount"] for row in world.transactions(itau)) == [18.19, 19.0]
         assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B10 (dono, 2026-11-20): o intocado muda no lugar, nunca e refeito
+# ---------------------------------------------------------------------------
+
+class TestFollowInPlace:
+    """Outra data ou outra conta/cartao adivinhada: a mesma id e o mesmo estado
+    de revisao; so a troca de tipo (conta <-> cartao) refaz o lancamento."""
+
+    def test_a_reviewed_row_takes_the_banks_date_in_place(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 23, 50), app=ITAU,
+                                                 merchant="BAR DO ZE"))
+        [row] = world.transactions(mine)
+        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"]})
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-21", "BAR DO ZE"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["date"], after["needs_review"]) == (row["id"], "2026-10-21", 0)
+        assert_identity(user["id"])
+
+    def test_an_unreviewed_row_stays_in_review_with_its_id(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 23, 50), app=ITAU,
+                                                 merchant="BAR DO ZE"))
+        [row] = world.transactions(mine)
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-21", "BAR DO ZE"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["date"]) == (row["id"], "2026-10-21")
+        assert_identity(user["id"])
+
+    def test_a_guessed_account_moves_to_the_banks_account_in_place(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mapped = made["bank"]
+        guessed = world.account("Itaú antiga", institution="Itaú")  # antes da mapeada na ordem: o palpite
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="BAR DO ZE"))
+        [row] = [entry for entry in world.transactions() if entry["amount"] == 45.9]
+        assert row["account_id"] == guessed
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "BAR DO ZE"))
+        world.sync(item_id)
+        [after] = [entry for entry in world.transactions() if entry["amount"] == 45.9]
+        assert (after["id"], after["account_id"]) == (row["id"], mapped)
+        assert world.transactions(guessed) == []
+        assert_identity(user["id"])
+
+    def test_a_card_purchase_takes_the_banks_date_and_invoice_in_place(self, world, user):
+        invoices = importlib.import_module("services.invoices")
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 8000, at=ms(2026, 11, 2, 23, 50), app=ITAU,
+                                                 merchant="SMART FIT"))
+        [row] = world.card_rows(card)
+        confirm(world.client, world.auth, {"table": "cc_expenses", "id": row["id"]})
+        world.fake.add_tx(card_pluggy, card_tx(80, "2026-11-03", "SMART FIT", docs_sign=True))
+        world.sync(item_id)
+        [after] = world.card_rows(card)
+        assert (after["id"], after["purchase_date"], after["needs_review"]) == (row["id"], "2026-11-03", 0)
+        start = invoices.compute_invoice_start("2026-11-03", 10, 3)  # o cartao de connected(): vence 10, fecha 3
+        assert (after["invoice_month"], after["invoice_year"]) == (start["invoice_month"], start["invoice_year"])
+        assert_identity(user["id"])

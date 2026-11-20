@@ -66,6 +66,7 @@ from open_finance_categories import (
 from services import auto_decisions, broker_statement, global_account, inbox, review
 from services.accounts import category_id_for_name, fetch_category
 from services.import_rules import import_rules_for_matching
+from services.invoices import purchase_invoices, refund_invoice
 from services.open_finance_rows import (  # noqa: F401  (reexportados: o resto do app os le daqui)
     BILL_CATEGORIES,
     BRT,
@@ -958,6 +959,9 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
         if item["entry_type"] == "TRANSFER":
             inbox.settle_transfer_review(conn, current_user_id, item["id"])
         return "matched"
+    if disagrees and _follow_bank_in_place(conn, current_user_id, item, row, entry_type, account_id, card_id):
+        item = inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
+        disagrees = False
     if disagrees:
         _drop_target(conn, current_user_id, item)
         _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"], target_table=None, target_id=None)
@@ -993,8 +997,73 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
             (row["dedup_key"], current_user_id, target_id, current_user_id),
         )
     mark_auto_recorded(conn, current_user_id, item["id"], table, target_id)
+    refresh_snapshots(conn, current_user_id, item["id"], table, target_id)
     settle_review(conn, current_user_id, item, row, entry_type, account_id)
     return "matched"
+
+
+def _follow_bank_in_place(conn, current_user_id, item, row, entry_type, account_id, card_id):
+    """B10 (dono, 2026-11-20): o lancamento intocado que o banco poe em outro
+    dia (a compra das 23h50 que o banco lanca no D+1) ou noutra conta/cartao
+    adivinhada muda NO LUGAR: a mesma id, o mesmo estado de revisao. So a troca
+    de tipo (conta <-> cartao) refaz o lancamento. Devolve True se mudou."""
+    if item["entry_type"] == "TRANSFER" or (entry_type == "CARD") != (item["entry_type"] == "CARD"):
+        return False
+    table, target_id = item["target_table"], item["target_id"]
+    day = row["date"]
+    occurred = row["occurred_at"] or day
+    if table == "transactions":
+        if item["entry_type"] != entry_type:
+            return False
+        current = conn.execute(
+            "SELECT account_id FROM transactions WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+        ).fetchone()
+        if not current:
+            return False
+        moved = current["account_id"] != account_id
+        conn.execute(
+            f"""
+            UPDATE transactions SET date = ?, occurred_at = ?, account_id = ?{', card_id = NULL' if moved else ''}
+            WHERE id = ? AND user_id = ?
+            """,
+            (day, occurred, account_id, target_id, current_user_id),
+        )
+        changes = {"occurred_at": occurred, "account_id": account_id}
+        dropped = "account"
+    elif table == "cc_expenses":
+        first = conn.execute(
+            "SELECT client_id, kind FROM cc_expenses WHERE id = ? AND user_id = ?", (target_id, current_user_id),
+        ).fetchone()
+        card = conn.execute(
+            "SELECT * FROM credit_cards WHERE id = ? AND user_id = ?", (card_id, current_user_id),
+        ).fetchone()
+        if not first or not card or not first["client_id"]:
+            return False
+        lines = conn.execute(
+            "SELECT id, installment_info FROM cc_expenses WHERE user_id = ? AND client_id = ?",
+            (current_user_id, first["client_id"]),
+        ).fetchall()
+        lines = sorted(lines, key=lambda line: int(str(line["installment_info"] or "1/1").split("/")[0] or 1))
+        if first["kind"] == "REFUND":
+            invoices = [refund_invoice(conn, current_user_id, card, day)] * len(lines)
+        else:
+            invoices = purchase_invoices(conn, current_user_id, card, day, len(lines))
+        for line, invoice in zip(lines, invoices):
+            conn.execute(
+                """
+                UPDATE cc_expenses SET card_id = ?, purchase_date = ?, occurred_at = ?, invoice_month = ?,
+                    invoice_year = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (card_id, day, occurred, invoice["invoice_month"], invoice["invoice_year"], line["id"], current_user_id),
+            )
+        changes = {"occurred_at": occurred, "card_id": card_id}
+        dropped = "card"
+    else:
+        return False
+    changes["guessed"] = [guess for guess in item.get("guessed") or [] if guess != dropped]
+    inbox.save_item(conn, current_user_id, item, changes)
+    return True
 
 
 def new_item_for_row(conn, current_user_id, row, account=None, rules=None):
