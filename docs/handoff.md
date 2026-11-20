@@ -7,47 +7,53 @@
 
 ---
 
-## Session — 2026-11-19 (3) · Everything automatic: real-data check, merge and deploy
+## Session — 2026-11-20 · Detection bug hunt (notifications + Pluggy), branch `fix/detection-bughunt`
 
-**Merged and deployed** (owner's authorization of 2026-11-19, once the gates passed): #102 phase 3 → #101 phase 2
-→ #100 phase 1 → #99 `fix/brokerage-guessed-side` → `main` (`00c6fdc`), one deploy, run 44628151379, green with the
-APK job. The worktree `../Financas-phase2` was removed after the merge.
+**Not merged, not deployed, not pushed** — waiting for the owner's OK (the brief's rule).
 
-**Done:**
-- **Phase 2 checked on the real data** (server read-only, `/tmp` cleaned): a copy of the server's database
-  downloaded to the scratchpad and `open_finance_investments.apply()` replayed over it in a rolled-back
-  transaction. Three wrong outcomes fixed (`e93bcbb`, tests in `test_investments_decide_themselves.py` ›
-  `TestTitleIdentity`):
-  - a typed fixed-income twin was linked by cents alone, so a TRANSFER linked another LCA/LCI of the same cost →
-    `title_fit()` (type and maturity never contradict); two equal candidates wait `custody:ambiguous`;
-  - the CRAs Madero/Caramuru were typed a day later at the note's value (R$ 4–6 more) → would be bought twice, with
-    their coupon and amortization → a buy of the same type and maturity within `NEAR_LINK_PERCENT` (1%) links;
-  - Renda+ was recorded as a new asset "… 2084" → `tesouro_client.commercial_name()` ("… EXTRA 2065", the owner's).
-  Answers: pré is right for every `rate` 0 title (owner typed the same rates); TRANSFERs carry the original cost in
-  `netAmount` and were typed at the old broker; Renda+ is "Tesouro Renda+ Aposentadoria Extra (NTNB1)"; both BB
-  funds are `TOTAL_WITHDRAWAL` → **no fund class, no proposal needed**; no provisional buy left.
-- **Anticipated installments on a purchase the owner changed** (owner asked mid-session; the Rota Transportes 6x of
-  2026-11-18 was recategorised, so its `client_id` is not `pluggy:` and `_mirror_purchase()` skipped it entirely —
-  the anticipation would never have moved): now only the anticipated lines move to the discount's invoice; amounts
-  and lines stay the owner's (`eee3dd8`, `test_pluggy_owner_rules.py`).
-- Gates: backend 4 chunks; card / Open Finance / identity / fuzz suites after the last fix; `npm test` 252;
-  `vite build`; APK `compileDebugKotlin` + 603 JVM tests offline. All green.
-- **Production after the deploy**: migrations 058, healthy. First pull (2026-11-20 00:47Z): portfolio HELD 58 → 4,
-  43 decisions (23 `investment_closed_fund`, 14 `investment_custody`, 4 `investment_custody_in`, 2
-  `investment_proceed_link`), exactly the replay. Revisar was already 0, so auto-confirm removed nothing. The weekly
-  line "Decisoes automaticas da semana" was logged. No ERROR/Traceback except the old brapi one.
+**Done** (one commit per bug, each with a regression test that failed first; tests in
+`test_notify_pluggy_identity.py` unless noted):
+- **B1** a bank's notice never links to / joins / is taken by another bank's row: the notice's issuer
+  contradicts an account/card of another bank (`account_bank()`/`card_bank()` in `inbox_store.py`, by
+  institution, name, a card's debit account, the mapped Pluggy account; `OTHER_BANK_NAMES`), in
+  `existing_rows(issuer=)`, `_detection_fits_open_finance()` and `notified_item_fits()`; a notice never links to
+  an invoice payment, investment cash or the Inter line.
+- **B2** a `PURCHASE` notice (no credit/debit) leaves the type open (`method_guessed()`); the bank's debit or
+  card line pairs and `reconcile_recorded()` redoes it the bank's way.
+- **B3** (owner: "meio-termo") `counterparties_conflict(a, b, a_is_owner, b_is_owner)` + `sides_conflict()`:
+  CPFs, then whole names (`same_person_name()`), named vs unnamed only with a known owner side.
+- **B4** (`test_global_account.py`) a notified Pix to Wise + the dollar credit → one transfer in any order
+  (`_notified_pix_to()`, `absorb_dollar_income_for_notice()` called from `auto_record.record_item()`).
+- **B5** an owner-changed card purchase takes the bank's invoice (`_move_line()` in `_mirror_purchase()`); the
+  invoice is not in the snapshot, so it is no touch.
+- **B6** a REFUND notice naming a card (`refund_card()`) is a card credit, category "Estorno".
+- **B7/B11** reposts: a same-app pairing never hides the original from Samsung; a paired original is
+  recognised; without `when_ms`, `REPOST_CLOSE_MS` (2 s).
+- **B8** a card's pending 1/1 total continued by 1/n (`_split_into_installments()`); `_set_line()` copies the
+  installment label.
+- **B9** BB rounding also by the mapped app account/card.
+- **B10** (owner: "update in place") `_follow_bank_in_place()`: date/account/card (and card invoices) change on
+  the same row, review state kept; only account ↔ card redoes. Old `test_auto_record.py` tests that expected
+  the redo now pass unchanged in substance (one renamed).
+- **B12** (`test_open_finance_sync.py`) an account with no rows looks back the owner's window from the last pull.
+- **B13** CLAUDE.md: Samsung-only purchases record at once; every changed rule documented.
+- **Replay on a copy of the server's database** (scratchpad, server `/tmp` cleaned): B1 finds no notified row on
+  another bank; B3 splits 0 of 89 real two-sided transfers (3 learned self keys); B9 unchanged (the Pluggy names
+  are "BANCO DO BRASIL S/A" / "OUROCARD FACIL VISA"; all connections are MeuPluggy); `mirror_cards()` moves
+  nothing today; 12 real BTG reposts, all same `when`.
 
 **Not done and why:**
-- The 4 HELD lines are left for the owner (listed in `docs/next-steps.md`): resolving them needs their decision.
-- The anticipation itself was not seen in production: the owner hasn't anticipated yet (the Rota is still 1/6 in
-  December); proved only by the test.
-- APK "Decidido sozinho" not run on a phone; the owner installs it.
-- `changed` conflict date and `proceed:unmatched`: unchanged, still in next-steps.
+- B14 (APK ignores "compra cancelada") and B15 (`is_auto_invest()` ignores the counterparty): notes in
+  next-steps, as the brief asked.
+- Merge/deploy: needs the owner's OK. B10 changes owner-visible behaviour (rows keep their id).
+- B2/B6/B10 were not seen live yet (no REFUND notice in the data); watch items in next-steps.
 
-**Next:** the week of watching in `docs/next-steps.md` (Everything automatic, items 1–4); then the rest of the plan.
+**Next:** owner's OK → push, PR, merge, deploy; then the watch list in next-steps ("Detection bug hunt").
 
 **Lessons:**
-- **Replay a new rule over a copy of the real database before merging** (memory `server-readonly-measurement`):
-  unit tests built from the docs passed, and the copy showed three wrong operations in minutes.
-- `_mirror_purchase()` returns early for a purchase whose `client_id` isn't `pluggy:`; any new mirror behaviour
-  must decide explicitly whether an owner-changed purchase takes it.
+- The tests' Pluggy first window is real today − 30 days (SQLite/Pluggy windows aren't frozen by `freeze()`):
+  a scenario dated earlier silently pulls nothing. Keep test dates inside it.
+- `created_at` is SQLite's unfrozen clock: never derive a window from it (B12 first try was a calendar bomb).
+- `sides_conflict` / `side_is_owner` live in `inbox_transfers.py` and are **not** re-exported by `inbox`.
+- `sed -i` in Git Bash rewrote a CRLF file as LF; harmless with `autocrlf`, but split scripts must read with
+  universal newlines.
