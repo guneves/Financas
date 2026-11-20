@@ -161,21 +161,23 @@ Code on `main` and deployed (2026-10-27); the last code gaps were closed 2026-10
   Pluggy row deleted this way is not re-recorded: its item stays decided). A fraud is real money:
   keep the row and contest with the bank.
 - [ ] Editing a row (PATCH) does not clear `needs_review`; only Revisar does.
-- [ ] **Everything automatic, banking and investments** (owner, 2026-11-18): follow `docs/automation-prompt.md`.
-  All three phases are built, stacked and **not merged** (deploy only at the end): `feat/auto-review-phase1` →
-  `feat/auto-investments-phase2` → `feat/auto-watch-phase3`, on top of PR #99. Left, in order:
-  1. **Check phase 2 on the server's real data** (read-only; the server was offline on 2026-11-19): which held
-     line each rule takes; the `rate` 0 titles (LCI, C6/Original CDBs, CRAs) against a brokerage note or the
-     owner's typed titles; whether the fixed-income TRANSFERs have `netAmount` = original cost and were typed at
-     the old broker; the real Renda+ name; whether the BB funds hold quotas today; any provisional buy left.
-     If a CRA is IPCA+ or CDI+, narrow `pre_by_deduction()` (e.g. by subtype) instead of guessing.
-  2. The owner merges #99 → phase 1 → phase 2 → phase 3 and deploys once (a merge to `main` deploys).
-  3. After the deploy: read `GET /api/review/auto` and the weekly log line for a week; run
+- [ ] **Everything automatic, banking and investments** — merged and deployed 2026-11-19 (#99 with #100–#102,
+  deploy run 44628151379). What is left:
+  1. A week of watching: `GET /api/review/auto` (web Ajustes › "Decidido sozinho", the Conferência's "Resolvido
+     automaticamente") and the weekly log line "Decisoes automaticas da semana"; then
      `scripts/review_breakdown.py --days 30`.
-  Leftovers: a fund still holding quotas waits `fund:open` (no fund class; propose one to the owner once the real
-  data shows quotas); an unmatched equity INTEREST waits `proceed:unmatched`; a `changed` conflict takes the
-  bank's amount but never its date (the conflict stores only the amount); the APK's "Decidido sozinho" was only
-  compiled and JVM-tested, not run on a phone.
+  2. **Owner, on the phone**: install the new APK (built by the deploy run) and open Ajustes › "Decidido sozinho"
+     (only compiled and JVM-tested).
+  3. **Owner, when anticipating installments** (the Rota Transportes 6x of 2026-11-18 on the BTG black): after the
+     next pull the anticipated lines must sit in the discount's invoice. The credit text must still read
+     "Desconto Na Parcela N De M <loja>" (`ANTICIPATED_TEXT`), else nothing moves.
+  4. Four portfolio lines stay HELD on the real data (safe; confirmed by the first pull after the deploy, 58 → 4,
+     43 decisions): the two LCA Original sells of 2026-05-05 and one
+     LCI BRB sell of 2026-08-20 (`unmapped:lot`: the owner typed those redemptions at cost, so the lot is empty),
+     and the CRA Camil coupon of 2026-11-16 (`missing:buy`: its buy was DISMISSED when the owner deleted it).
+     Resolve them in Ajustes › Open Finance › Lançar, or leave them.
+  Leftovers: an unmatched equity INTEREST waits `proceed:unmatched`; a `changed` conflict takes the bank's amount
+  but never its date (the conflict stores only the amount). No fund class is needed: both BB funds are closed.
 - [ ] Owner, server `.env`: `BRAPI_MAX_SYMBOLS_PER_REQUEST=1` (brapi's plan takes 1 ticker per request; the log
   errors hourly and quotes fall back to yfinance).
 - [ ] A one-sided own transfer whose despesa the owner recategorised before the other side arrived stays a despesa
