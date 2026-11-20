@@ -472,10 +472,9 @@ def _place_cross_currency(conn, current_user_id, row, account_id, cents):
     return "merged"
 
 
-def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, destination, cents):
-    """O credito em dolar ja virou receita sozinho (puxado antes, sem par em
-    TRANSFER_HOLD_DAYS) e ainda esta como nasceu: a mesma linha vira a
-    transferencia — nunca receita em dolar mais despesa em reais."""
+def _recorded_dollar_incomes(conn, current_user_id, destination):
+    """Os creditos em dolar que ja viraram receita sozinhos (gravados pela
+    Pluggy) na conta global e ainda estao como nasceram."""
     candidates = []
     for entry in conn.execute(
         """
@@ -494,12 +493,13 @@ def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, desti
         source.update(target_table="transactions", target_id=source["the_target"])
         if untouched(conn, current_user_id, source):
             candidates.append({**source, "id": source["the_item"], "date": source["item_date"]})
-    best = global_account._best(
-        conn, current_user_id, normalize_currency_of(destination), row["date"], candidates,
-        brl_of=lambda candidate: cents, foreign_of=lambda candidate: money.to_cents(candidate["dollars"]),
-    )
-    if not best:
-        return None
+    return candidates
+
+
+def _dollar_income_becomes_transfer(conn, current_user_id, best, *, account_id, destination, cents, date_text,
+                                    occurred_at, source_id=None, guessed=()):
+    """A receita em dolar `best` vira a transferencia de `account_id` (reais)
+    para a conta global: a mesma linha, o valor em dolar do banco. Devolve o item."""
     item = inbox.item_dict(inbox.fetch_item(conn, current_user_id, best["the_item"]))
     target_id = best["the_target"]
     description = global_account.transfer_description(
@@ -509,21 +509,90 @@ def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, desti
         """
         UPDATE transactions SET type = 'TRANSFER', account_id = ?, transfer_account_id = ?, amount = ?,
             transfer_amount = ?, date = ?, occurred_at = ?, category = ?, category_id = NULL, description = ?,
-            source_id = ?
+            source_id = COALESCE(?, source_id)
         WHERE id = ? AND user_id = ?
         """,
-        (account_id, destination["id"], money.from_cents(cents), best["dollars"], row["date"], row["occurred_at"],
-         inbox.TRANSFER_CATEGORY, description, row["pluggy_transaction_id"], target_id, current_user_id),
+        (account_id, destination["id"], money.from_cents(cents), best["dollars"], date_text, occurred_at,
+         inbox.TRANSFER_CATEGORY, description, source_id, target_id, current_user_id),
     )
-    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
     inbox.save_item(conn, current_user_id, item, {
         "entry_type": "TRANSFER", "direction": "OUT", "account_id": account_id,
         "transfer_account_id": destination["id"], "amount": money.from_cents(cents), "currency": "BRL",
-        "transfer_amount": best["dollars"], "occurred_at": row["occurred_at"],
+        "transfer_amount": best["dollars"], "occurred_at": occurred_at,
         "category": inbox.TRANSFER_CATEGORY, "category_id": None, "description": description,
+        "guessed": list(guessed), "reason": "own_transfer",
     })
-    mark_auto_recorded(conn, current_user_id, item["id"], "transactions", target_id)
+    return inbox.item_dict(inbox.fetch_item(conn, current_user_id, item["id"]))
+
+
+def _absorb_recorded_dollar_income(conn, current_user_id, row, account_id, destination, cents):
+    """O credito em dolar ja virou receita sozinho (puxado antes, sem par em
+    TRANSFER_HOLD_DAYS) e ainda esta como nasceu: a mesma linha vira a
+    transferencia — nunca receita em dolar mais despesa em reais."""
+    candidates = _recorded_dollar_incomes(conn, current_user_id, destination)
+    best = global_account._best(
+        conn, current_user_id, normalize_currency_of(destination), row["date"], candidates,
+        brl_of=lambda candidate: cents, foreign_of=lambda candidate: money.to_cents(candidate["dollars"]),
+    )
+    if not best:
+        return None
+    item = _dollar_income_becomes_transfer(
+        conn, current_user_id, best, account_id=account_id, destination=destination, cents=cents,
+        date_text=row["date"], occurred_at=row["occurred_at"], source_id=row["pluggy_transaction_id"],
+    )
+    _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=item["id"])
+    mark_auto_recorded(conn, current_user_id, item["id"], "transactions", best["the_target"])
     return "merged"
+
+
+def absorb_dollar_income_for_notice(conn, current_user_id, item):
+    """B4 (2026-11-20): o aviso de um Pix para a conta global chega depois que
+    o credito em dolar ja virou receita sozinho: a receita vira a transferencia
+    (a mesma linha), e o aviso passa a ser a ponta em reais dela. Devolve o
+    item da transferencia, ou None (segue o gravar sozinho)."""
+    if item.get("state") != inbox.PENDING or item.get("direction") != "OUT" or not item.get("account_id"):
+        return None
+    if item.get("entry_type") not in ("EXPENSE", "TRANSFER") or global_account.is_foreign(
+        conn, current_user_id, item["account_id"],
+    ):
+        return None
+    if inbox.open_finance_sources(conn, current_user_id, item["id"], roles=(inbox.SOURCE,)):
+        return None
+    detections = [
+        row for row in inbox.item_detections(conn, current_user_id, item["id"]) if row["role"] == inbox.SOURCE
+    ]
+    if not detections or any(row["kind"] not in ("PIX_OUT", "TRANSFER_OUT") for row in detections):
+        return None
+    destination = global_account.named_account(
+        conn, current_user_id, *[text for row in detections for text in (row["counterparty"], row["merchant"])],
+    )
+    if destination is None:
+        return None
+    cents = money.to_cents(item["amount"])
+    day = inbox.date_of(item["occurred_at"])
+    best = global_account._best(
+        conn, current_user_id, normalize_currency_of(destination), day,
+        _recorded_dollar_incomes(conn, current_user_id, destination),
+        brl_of=lambda candidate: cents, foreign_of=lambda candidate: money.to_cents(candidate["dollars"]),
+    )
+    if not best:
+        return None
+    guessed = ["account"] if "account" in (item.get("guessed") or []) else []
+    transfer = _dollar_income_becomes_transfer(
+        conn, current_user_id, best, account_id=item["account_id"], destination=destination, cents=cents,
+        date_text=day, occurred_at=item["occurred_at"], guessed=guessed,
+    )
+    conn.execute(
+        "UPDATE notify_detections SET item_id = ?, target_table = 'transactions', target_id = ? "
+        "WHERE item_id = ? AND user_id = ?",
+        (transfer["id"], best["the_target"], item["id"], current_user_id),
+    )
+    inbox.save_item(conn, current_user_id, item, {
+        "state": inbox.REMOVED, "reason": "own_transfer", "decided_at": utc_timestamp(),
+    })
+    mark_auto_recorded(conn, current_user_id, transfer["id"], "transactions", best["the_target"])
+    refresh_snapshots(conn, current_user_id, transfer["id"], "transactions", best["the_target"])
+    return transfer
 
 
 def _absorb_recorded_real_side(conn, current_user_id, row, target, dollar_cents):
@@ -554,6 +623,10 @@ def _absorb_recorded_real_side(conn, current_user_id, row, target, dollar_cents)
         source.update(target_table="transactions", target_id=source["the_target"])
         if untouched(conn, current_user_id, source):
             candidates.append({**source, "id": source["the_item"], "date": source["item_date"]})
+    seen = {candidate["the_item"] for candidate in candidates}
+    candidates += [
+        candidate for candidate in _notified_pix_to(conn, current_user_id, target) if candidate["the_item"] not in seen
+    ]
     best = global_account._best(
         conn, current_user_id, normalize_currency_of(target), row["date"], candidates,
         brl_of=lambda candidate: money.to_cents(candidate["reais"]), foreign_of=lambda candidate: dollar_cents,
@@ -581,6 +654,41 @@ def _absorb_recorded_real_side(conn, current_user_id, row, target, dollar_cents)
     })
     mark_auto_recorded(conn, current_user_id, item["id"], "transactions", best["the_target"])
     return "merged"
+
+
+def _notified_pix_to(conn, current_user_id, target):
+    """B4 (2026-11-20): o Pix em reais que um AVISO gravou como despesa (o BTG
+    avisa na hora; a linha da Pluggy do BTG pode vir depois do credito em
+    dolar), nomeando a conta global e ainda como nasceu (o snapshot)."""
+    found = []
+    for entry in conn.execute(
+        """
+        SELECT DISTINCT i.id AS the_item, i.target_id AS the_target, t.account_id AS real_account, t.amount AS reais,
+               t.date AS item_date
+        FROM inbox_items i
+        JOIN transactions t ON t.id = i.target_id AND t.user_id = i.user_id
+        JOIN notify_detections d ON d.item_id = i.id AND d.user_id = i.user_id AND d.role = 'SOURCE'
+        WHERE i.user_id = ? AND i.state = 'APPROVED' AND i.target_table = 'transactions'
+          AND i.auto_recorded_at IS NOT NULL AND t.type = 'EXPENSE' AND t.share_mode IS NULL
+          AND d.kind IN ('PIX_OUT', 'TRANSFER_OUT')
+        """,
+        (current_user_id,),
+    ).fetchall():
+        candidate = row_to_dict(entry)
+        if global_account.is_foreign(conn, current_user_id, candidate["real_account"]):
+            continue
+        texts = [
+            text for detection in inbox.item_detections(conn, current_user_id, candidate["the_item"])
+            if detection["role"] == inbox.SOURCE
+            for text in (detection["counterparty"], detection["merchant"])
+        ]
+        named = global_account.named_account(conn, current_user_id, *texts)
+        if not named or named["id"] != target["id"]:
+            continue
+        item = inbox.item_dict(inbox.fetch_item(conn, current_user_id, candidate["the_item"]))
+        if notification_untouched(conn, current_user_id, item):
+            found.append({**candidate, "id": candidate["the_item"], "date": candidate["item_date"]})
+    return found
 
 
 def normalize_currency_of(account):

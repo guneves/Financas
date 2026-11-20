@@ -141,6 +141,10 @@ def record_item(conn, current_user_id, row):
         return "skipped"
     if not _source_detections(conn, current_user_id, item["id"]):
         return "skipped"
+    # B4: o Pix para a conta global cujo credito em dolar ja virou receita: a
+    # receita vira a transferencia, nunca despesa em reais mais receita em dolar.
+    if open_finance_inbox.absorb_dollar_income_for_notice(conn, current_user_id, item):
+        return "linked"
     if hold_reason(item) == "awaiting_transfer":
         item = one_side_now(conn, current_user_id, item) or item
     decided = None

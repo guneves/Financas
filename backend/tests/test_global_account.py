@@ -407,3 +407,61 @@ class TestConvert:
     def test_a_dollar_account_never_goes_back(self, world):
         wise = world.account("Wise", currency="USD")
         assert world.call("patch", f"/api/accounts/{wise}", expected=400, json={"currency": "BRL"})["error"]
+
+
+# ---------------------------------------------------------------------------
+# B4 (2026-11-20): o Pix para a Wise avisado pelo celular
+# ---------------------------------------------------------------------------
+
+@pytest.mark.usefixtures("any_bank_notifications")
+class TestNotifiedPixToWise:
+    """O BTG avisa o Pix para a Wise na hora (despesa em reais); a Pluggy traz
+    o credito em dolar e a linha do BTG em pulls que podem vir em qualquer
+    ordem. No fim, uma transferencia so, com o valor em dolar."""
+
+    def notify(self, world):
+        from test_auto_record import notifications_on
+        from test_inbox import detection, ms, send
+
+        notifications_on(world.client, world.auth)
+        send(world.client, world.auth, detection(
+            "PIX_OUT", 25353, at=ms(2026, 10, 6, 10, 0), app="com.btg.pactual.banking", counterparty=WISE_BRASIL,
+            merchant=None,
+        ))
+
+    def check(self, world, user, ids):
+        from identity_check import assert_identity
+
+        assert transfers(world) == [("2026-10-06", 253.53, 46.10)]
+        rows = world.call("get", "/api/transactions") + world.call("get", f"/api/transactions?account_id={ids['wise']}")
+        assert [row for row in rows if row["type"] != "TRANSFER"] == []
+        assert_identity(user["id"])
+
+    def test_notice_then_dollar_credit_then_the_btg_row(self, world, user):
+        ids = global_world(world)
+        self.notify(world)
+        [row] = [r for r in world.transactions() if r["account_id"] == ids["btg"]]
+        assert row["type"] == "EXPENSE"
+        world.fake.add_tx(ids["wise_pluggy"], usd_tx(46.10, "2026-10-06"))
+        pull(world, ids["item"])
+        world.fake.add_tx(ids["btg_pluggy"], pix_to_wise(253.53, "2026-10-06"))
+        pull(world, ids["item"])
+        self.check(world, user, ids)
+
+    def test_dollar_credit_then_notice_then_the_btg_row(self, world, user):
+        ids = global_world(world)
+        world.fake.add_tx(ids["wise_pluggy"], usd_tx(46.10, "2026-10-06"))
+        pull(world, ids["item"])
+        self.notify(world)
+        world.fake.add_tx(ids["btg_pluggy"], pix_to_wise(253.53, "2026-10-06"))
+        pull(world, ids["item"])
+        self.check(world, user, ids)
+
+    def test_notice_then_the_btg_row_then_dollar_credit(self, world, user):
+        ids = global_world(world)
+        self.notify(world)
+        world.fake.add_tx(ids["btg_pluggy"], pix_to_wise(253.53, "2026-10-06"))
+        pull(world, ids["item"])
+        world.fake.add_tx(ids["wise_pluggy"], usd_tx(46.10, "2026-10-06"))
+        pull(world, ids["item"])
+        self.check(world, user, ids)
