@@ -997,7 +997,6 @@ def reconcile_recorded(conn, current_user_id, row, item, entry_type, account_id,
             (row["dedup_key"], current_user_id, target_id, current_user_id),
         )
     mark_auto_recorded(conn, current_user_id, item["id"], table, target_id)
-    refresh_snapshots(conn, current_user_id, item["id"], table, target_id)
     settle_review(conn, current_user_id, item, row, entry_type, account_id)
     return "matched"
 
@@ -1063,6 +1062,8 @@ def _follow_bank_in_place(conn, current_user_id, item, row, entry_type, account_
         return False
     changes["guessed"] = [guess for guess in item.get("guessed") or [] if guess != dropped]
     inbox.save_item(conn, current_user_id, item, changes)
+    # O app mudou a linha, nao o dono: o snapshot passa a ser o de agora.
+    refresh_snapshots(conn, current_user_id, item["id"], table, target_id)
     return True
 
 
