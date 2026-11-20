@@ -734,11 +734,31 @@ def notification_item_for_open_finance(conn, current_user_id, *, entry_type, dir
     ) or look(RECORDED_STATES, _shift(date_text, -OPEN_FINANCE_LATE_POST_DAYS), _shift(date_text, -OPEN_FINANCE_PAIR_DAYS - 1))
 
 
+def method_guessed(conn, current_user_id, item):
+    """O item e uma compra cujo credito/debito ninguem disse (B2): a fonte e um
+    aviso PURCHASE (sem metodo) e o dono nao escolheu o tipo."""
+    if item.get("entry_type") not in ("CARD", "EXPENSE") or item.get("direction") != "OUT":
+        return False
+    if "entry_type" in set(item.get("edited") or []):
+        return False
+    # Toda deteccao do item conta: o banco que disse "credito" depois do
+    # Samsung (pareado) ja decidiu o metodo.
+    kinds = [row["kind"] for row in item_detections(conn, current_user_id, item["id"]) if row["kind"] in PURCHASE_KINDS]
+    return bool(kinds) and all(kind == "PURCHASE" for kind in kinds)
+
+
 def notified_item_fits(conn, current_user_id, item_row, *, entry_type, direction, account_id=None, card_id=None):
     """`open_finance_fits_item()` para um item que um aviso abriu, e o banco do
     aviso nao contradiz a conta/cartao da Pluggy (B1): o palpite de conta do
     aviso do Itau nunca recebe a compra que o BB trouxe."""
     item = item_dict(item_row)
+    if method_guessed(conn, current_user_id, item):
+        # B2: o aviso nao disse credito nem debito; o cartao (ou a conta) foi
+        # palpite do gravar sozinho, e o banco decide o metodo.
+        item = {
+            **item, "entry_type": None,
+            "guessed": [*(item.get("guessed") or []), "card" if item["entry_type"] == "CARD" else "account"],
+        }
     if not open_finance_fits_item(item, entry_type=entry_type, direction=direction, account_id=account_id,
                                   card_id=card_id):
         return False

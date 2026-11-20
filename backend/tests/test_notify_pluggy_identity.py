@@ -1361,3 +1361,53 @@ class TestIssuerContradicts:
         assert sorted(r["description"] for r in world.transactions(itau)) == ["FARMACIA", "Fatura"]
         assert_identity(user["id"])
 
+
+# ---------------------------------------------------------------------------
+# B2 (2026-11-20): a compra sem credito/debito; o banco decide o metodo
+# ---------------------------------------------------------------------------
+
+class TestMethodGuessed:
+    """O APK manda PURCHASE para "compra aprovada no cartao final X" sem dizer
+    credito ou debito; o gravar sozinho adivinha o cartao do emissor. O banco
+    que lista o debito na conta e a mesma compra: a linha e refeita do jeito do
+    banco, nunca uma segunda despesa."""
+
+    def test_guessed_card_purchase_becomes_the_banks_debit(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        card = world.card("Itaú Visa")
+        send(world.client, world.auth, detection("PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="PADARIA BOM PAO"))
+        assert len(world.card_rows(card)) == 1
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "COMPRA CARTAO DEB PADARIA BOM PAO"))
+        world.sync(item_id)
+        assert world.card_rows(card) == []
+        assert [r["amount"] for r in world.transactions(mine)] == [45.9]
+        assert_identity(user["id"])
+
+    def test_guessed_debit_becomes_the_banks_card_purchase(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        world.card("Itaú Visa")  # dois cartoes do Itau, sem o final: nenhum palpite de cartao
+        itau = world.account("Itaú conta", institution="Itaú")
+        send(world.client, world.auth, detection("PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="PADARIA BOM PAO"))
+        assert [r["amount"] for r in world.transactions(itau)] == [45.9]
+        world.fake.add_tx(card_pluggy, card_tx(45.9, "2026-10-20", "PADARIA BOM PAO", docs_sign=True))
+        world.sync(item_id)
+        assert world.transactions(itau) == []
+        assert [r["amount"] for r in world.card_rows(card)] == [45.9]
+        assert_identity(user["id"])
+
+    def test_a_said_credit_purchase_never_pairs_with_a_debit(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        card = world.card("Itaú Visa")
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="PADARIA BOM PAO"))
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "PIX ENVIADO JOAO"))
+        world.sync(item_id)
+        assert len(world.card_rows(card)) == 1
+        assert len(world.transactions(mine)) == 1
+        assert_identity(user["id"])
+
