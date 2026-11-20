@@ -1479,3 +1479,50 @@ class TestMethodGuessed:
         assert len(world.transactions(mine)) == 1
         assert_identity(user["id"])
 
+
+# ---------------------------------------------------------------------------
+# B5 (2026-11-20): a fatura de uma compra que o banco identifica e a do banco
+# ---------------------------------------------------------------------------
+
+class TestBankInvoice:
+    """O dono recategorizou a compra avisada (ou a digitou): valor e linhas
+    ficam os dele, mas a fatura e a que o banco diz (billForecastDate). A fatura
+    nao e campo do dono, entao segui-la nao e um toque."""
+
+    def recorded(self, world, recategorise):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 8000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 merchant="SMART FIT"))
+        [row] = world.card_rows(card)
+        if recategorise:
+            other = world.call("post", "/api/categories", json={"name": "Academia", "kind": "EXPENSE"})["id"]
+            world.call("post", "/api/review", json={"items": [
+                {"table": "cc_expenses", "id": row["id"], "category_id": other}]})
+        return item_id, card_pluggy, card, row
+
+    @pytest.mark.parametrize("recategorise", [False, True])
+    def test_a_notified_purchase_follows_the_banks_invoice(self, world, user, recategorise):
+        item_id, card_pluggy, card, row = self.recorded(world, recategorise)
+        assert (row["invoice_month"], row["invoice_year"]) == (11, 2026)
+        world.fake.add_tx(card_pluggy, with_bill(card_tx(80, "2026-10-20", "SMART FIT", docs_sign=True), "2026-12"))
+        world.sync(item_id)
+        [after] = world.card_rows(card)
+        assert (after["invoice_month"], after["invoice_year"]) == (12, 2026)
+        if recategorise:
+            assert (after["id"], after["category"]) == (row["id"], "Academia")
+        assert_identity(user["id"])
+
+    def test_a_typed_purchase_keeps_its_amount_and_takes_the_banks_invoice(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        world.call("post", "/api/cc-expenses/purchases", json={
+            "card_id": card, "total_amount": 80, "purchase_date": "2026-10-20", "description": "academia",
+            "category": "Alimentação", "installments": 1, "client_id": "b" * 40,
+        }, expected=(200, 201))
+        world.fake.add_tx(card_pluggy, with_bill(card_tx(80, "2026-10-20", "SMART FIT", docs_sign=True), "2026-12"))
+        world.sync(item_id)
+        [after] = world.card_rows(card)
+        assert (after["description"], after["amount"]) == ("academia", 80.0)
+        assert (after["invoice_month"], after["invoice_year"]) == (12, 2026)
+        assert_identity(user["id"])
