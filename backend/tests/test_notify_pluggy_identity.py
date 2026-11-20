@@ -1609,6 +1609,16 @@ class TestReposts:
         assert len(self.expenses(world)) == 1
         assert_identity(user["id"])
 
+    def test_a_repost_without_when_crossing_a_second_is_repeated(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        at = ms(2026, 10, 20, 14, 0, 0) + 990
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at, app=ITAU, merchant="PADARIA"))
+        [again] = send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at + 24, app=ITAU,
+                                                           merchant="PADARIA"))
+        assert again["status"] == "repeated"
+        assert len(world.transactions(account)) == 1
+        assert_identity(user["id"])
+
     def test_two_purchases_a_few_seconds_apart_stay_two(self, world, user):
         account = world.account("Itaú conta", institution="Itaú")
         at = ms(2026, 10, 20, 14, 0, 0)

@@ -34,6 +34,8 @@ modulo so guarda e junta.
 """
 
 
+from datetime import datetime
+
 from config import (
     BANK_NOTIFICATIONS_DEFAULT,
 )
@@ -225,6 +227,9 @@ CANCELLED = "CANCELLED"
 # Uma notificacao repostada pelo proprio app chega em milissegundos; duas
 # compras iguais no mesmo segundo nao acontecem.
 REPEAT_WINDOW_MS = 60 * 1000
+# Sem Notification.when: a repostagem a ate 2 s da original e o mesmo aviso
+# (duas compras iguais no mesmo app em 2 s nao acontecem).
+REPOST_CLOSE_MS = 2000
 ENTRY_TYPES = ("EXPENSE", "INCOME", "TRANSFER", "CARD")
 MAX_DETECTIONS_PER_REQUEST = 200
 
@@ -418,12 +423,24 @@ def _repeated_posting(conn, current_user_id, detection):
             row["counterparty_doc"] or ""
         ) != (detection.get("counterparty_doc") or ""):
             continue
-        if row["occurred_at"] == detection["occurred_at"]:
+        # A mesma hora do evento; sem Notification.when, a hora e a da postagem
+        # (em segundos) e a repostagem 24 ms depois pode cair no segundo
+        # seguinte (B11): vale a postagem a ate REPOST_CLOSE_MS.
+        if row["occurred_at"] == detection["occurred_at"] or (
+            abs(int(row["posted_ms"]) - int(detection["posted_ms"])) <= REPOST_CLOSE_MS
+            and _seconds_apart(row["occurred_at"], detection["occurred_at"]) <= 1
+        ):
             # A original pareada (B7, o Samsung chegou antes): a repostagem
             # entra no mesmo item, nunca num novo.
             return row_to_dict(row)
     return None
 
+
+def _seconds_apart(a, b):
+    try:
+        return abs((datetime.fromisoformat(str(a)) - datetime.fromisoformat(str(b))).total_seconds())
+    except ValueError:
+        return float("inf")
 
 
 def _ingest_declined(conn, current_user_id, detection, samsung):
