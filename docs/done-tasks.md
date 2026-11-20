@@ -226,6 +226,7 @@
 | Everything automatic, phase 2 (investments): equity custody TRANSFER leaves by itself when the app holds the quantity, equity INTEREST links to the computed provento, a closed bank fund's lines leave, `rate` 0 + `fixedAnnualRate` is pré, a fixed-income TRANSFER is the buy at original cost (unlocking its redemptions), AMORTIZATION is a provento, Renda+ found by due date; each an `auto_decisions` row (web titles; `undoable` false for what recorded an operation) | 2026-11-19 |
 | Everything automatic, phase 3 (watch and prove): `GET /api/review/auto?kinds=&days=`, the Conferência's "Resolvido automaticamente" with Desfazer (web), the APK's Ajustes › "Decidido sozinho" (`rules/AutoDecisions.kt`), a weekly `applog` line with counts per kind (`log_weekly()`), `review_breakdown.py` counting decisions and corrections by the row's own date | 2026-11-19 |
 | Everything automatic merged and deployed once (#99 with #100–#102, run 44628151379), after replaying phase 2 over a copy of the server's database: typed fixed-income twins only of the same title (`title_fit()`), a typed buy of the same type and maturity within 1% linked (the CRAs, their coupons), Renda+ on the owner's commercial-name asset; anticipated installments also move on a purchase the owner changed (only the invoice, never the amounts) | 2026-11-19 |
+| Detection bug hunt B1–B13 (branch `fix/detection-bughunt`, not merged): a bank's notice never another bank's row; a purchase notice without credit/debit lets the bank decide; own transfers by the owner's "meio-termo"; a notified Pix to the global account becomes the transfer in any order; an owner-changed card purchase follows the bank's invoice; a card refund notice on the card; reposts; 1/1 → 1/n succession; BB rounding by the app account; an untouched row follows the bank in place; an empty account's window; CLAUDE.md aligned | 2026-11-20 |
 
 ## Notes on completed work
 
@@ -1447,3 +1448,15 @@ titles, 354 operations since 2021, `scratchpad` harness with the network patched
   notice or a Pluggy row, both directions, any order. "BCO DO BRASIL" names BB. Tests in
   `test_notify_pluggy_identity.py::TestGuessedSide` (11 new) and `test_inbox_counterparty.py`.
 - `scripts/review_breakdown.py` (read-only, `test_review_breakdown.py`) measures Revisar on the real data.
+
+### Detection bug hunt — 2026-11-20
+A sweep of end-to-end scenarios (FakePluggy + `POST /api/inbox/detections`) reproduced 15 defects; B1–B13 are
+fixed with a regression test each (`test_notify_pluggy_identity.py` classes `TestIssuerContradicts`,
+`TestMethodGuessed`, the `b3` tests of `TestOwnTransferAbsorbs`, `TestCardRefundNotice`, `TestBankInvoice`,
+`TestReposts`, `TestPendingTotalPostsInInstallments`, `TestRoundsUpByAppAccount`, `TestFollowInPlace`;
+`test_global_account.py` › `TestNotifiedPixToWise`; `test_open_finance_sync.py` for B12). Owner's rules:
+B3 "meio-termo" (two CPFs or two whole names decide; a named side pairs with an unnamed one only when one side
+is known to be the owner; two unnamed still pair), B10 "update in place" (only a type change redoes). Replayed
+on a copy of the server's database: no notified row on another bank's account (B1), 0 of 89 two-sided transfers
+split by B3, BB rounding unchanged (Pluggy names already say BB), the mirror moves nothing today (B5/B8), 12 BTG
+reposts all with the same `when`. B14 and B15 stay in next-steps as notes.

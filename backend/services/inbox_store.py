@@ -42,6 +42,8 @@ from services.inbox_rules import (
     _mentions,
     _shift,
     bank_of_row,
+    bank_of_text,
+    banks_contradict,
     candidate_kind,
     detection_hint_key,
     detection_hint_label,
@@ -53,6 +55,7 @@ from services.inbox_rules import (
     relevant_guesses,
     self_keys,
 )
+from source_types import INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE
 
 PENDING = "PENDING"
 
@@ -140,6 +143,70 @@ def _cards(conn, current_user_id):
         """,
         (current_user_id,),
     ).fetchall()
+
+
+def _mapped_pluggy_bank(conn, current_user_id, field, target_id):
+    row = conn.execute(
+        f"""
+        SELECT o.name, i.connector_name FROM open_finance_accounts o
+        JOIN open_finance_items i ON i.id = o.of_item_id AND i.user_id = o.user_id
+        WHERE o.user_id = ? AND o.{field} = ? AND o.ignored_at IS NULL
+        ORDER BY o.mapped_at DESC LIMIT 1
+        """,
+        (current_user_id, target_id),
+    ).fetchone()
+    return (bank_of_text(row["name"]) or bank_of_text(row["connector_name"])) if row else None
+
+
+def account_bank(conn, current_user_id, account_id):
+    """O banco de uma conta do dono (B1): a instituicao, o nome, ou a conta da
+    Pluggy mapeada nela. None quando nada diz."""
+    if not account_id:
+        return None
+    row = conn.execute(
+        "SELECT name, institution FROM accounts WHERE id = ? AND user_id = ?", (account_id, current_user_id),
+    ).fetchone()
+    if not row:
+        return None
+    return (
+        bank_of_text(row["institution"]) or bank_of_text(row["name"])
+        or _mapped_pluggy_bank(conn, current_user_id, "account_id", account_id)
+    )
+
+
+def card_bank(conn, current_user_id, card_id):
+    """O banco de um cartao (B1): o nome, a conta do debito (041), ou a conta da
+    Pluggy mapeada nele."""
+    if not card_id:
+        return None
+    row = conn.execute(
+        "SELECT name, debit_account_id FROM credit_cards WHERE id = ? AND user_id = ?", (card_id, current_user_id),
+    ).fetchone()
+    if not row:
+        return None
+    return (
+        bank_of_text(row["name"]) or account_bank(conn, current_user_id, row["debit_account_id"])
+        or _mapped_pluggy_bank(conn, current_user_id, "card_id", card_id)
+    )
+
+
+def item_issuer(conn, current_user_id, item_id):
+    """O banco que avisou este item (o emissor da notificacao fonte), ou None."""
+    for row in item_detections(conn, current_user_id, item_id):
+        if row["role"] == SOURCE:
+            issuer = issuer_of(row_to_dict(row))
+            if issuer:
+                return issuer
+    return None
+
+
+def issuer_contradicts(conn, current_user_id, issuer, *, account_id=None, card_id=None):
+    """O aviso do banco `issuer` nao pode ser um movimento desta conta/cartao:
+    ela e de outro banco (B1)."""
+    if not issuer:
+        return False
+    bank = card_bank(conn, current_user_id, card_id) if card_id else account_bank(conn, current_user_id, account_id)
+    return banks_contradict(issuer, bank)
 
 
 def _debit_cards(conn, current_user_id):
@@ -248,6 +315,15 @@ def guess_account(conn, current_user_id, detection):
     return None
 
 
+def refund_card(conn, current_user_id, detection):
+    """O cartao de um estorno avisado (B6): o final, o nome que o Samsung
+    mostrou ou, com a loja citada, o unico cartao daquele emissor. Sem cartao
+    nem loja (a devolucao de um Pix), None: fica receita na conta."""
+    if not (detection.get("card_last4") or detection.get("card_name") or detection.get("merchant")):
+        return None
+    return pick_card(_cards(conn, current_user_id), detection, only_one_counts=False)
+
+
 def resolve_detection(conn, current_user_id, detection):
     """O rascunho de cartao/conta de uma deteccao: o que o dono lembrou, senao
     um palpite marcado, senao o que ele precisa escolher."""
@@ -265,6 +341,14 @@ def resolve_detection(conn, current_user_id, detection):
         "hint_label": detection_hint_label(detection),
         "remembered": False,
     }
+    if detection["kind"] == "REFUND":
+        card_id = refund_card(conn, current_user_id, detection)
+        if card_id:
+            # B6: o estorno de uma compra no cartao e credito no cartao (033),
+            # nunca receita na conta do banco.
+            draft.update({"entry_type": "CARD", "card_id": card_id, "guessed": ["card"]})
+            draft["needs"] = recompute_needs(draft)
+            return draft
     hint = fetch_hint(conn, current_user_id, key)
     if _hint_usable(conn, current_user_id, hint) and hint["entry_type"] != "TRANSFER":
         # O tipo vem da notificacao quando ela diz (um Pix enviado e uma saida,
@@ -493,14 +577,21 @@ def claimed(conn, current_user_id, channel, table, target_id, exclude_item_id=No
     return check(conn, current_user_id, table, target_id, exclude_item_id)
 
 
+# O que um aviso de banco nunca e (B1): o dinheiro da carteira e a linha do mes do Inter.
+NOT_A_NOTICE_SOURCES = (*INVESTMENT_SOURCE_TYPES, MONTH_SUMMARY_SOURCE_TYPE)
+
+
 def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_text,
-                  account_id=None, card_id=None, days=None, claimed_by=None):
+                  account_id=None, card_id=None, days=None, claimed_by=None, issuer=None):
     """Lancamentos ja gravados que podem ser este movimento.
 
     Mesmo valor e data a `days` dias; na conta/cartao, quando se sabe.
     `claimed_by` ("notify" ou "pluggy"): fica de fora o que outra observacao do
     MESMO canal ja explica (duas compras de mesmo valor no mesmo dia continuam
     duas); a de outro canal nao esconde nada (a notificacao nunca segura a Pluggy).
+    `issuer` (o banco que avisou, B1): fica de fora o lancamento de uma
+    conta/cartao de outro banco. Para um aviso, nunca o pagamento de fatura nem
+    o dinheiro da carteira (um aviso nunca e um deles).
     """
     days = INBOX_MATCH_DAYS if days is None else days
     start, end = _shift(date_text, -days), _shift(date_text, days)
@@ -520,6 +611,8 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
             params.append(card_id)
         for row in conn.execute(sql, params).fetchall():
             count = _installment_count(row["installment_info"])
+            if issuer and not card_id and issuer_contradicts(conn, current_user_id, issuer, card_id=row["card_id"]):
+                continue
             if to_cents(row["amount"]) == cents or abs(to_cents(row["amount"]) * count - cents) <= count:
                 found.append({"table": "cc_expenses", "id": row["id"], "kind": "card_purchase", "date": row["date"]})
     if entry_type in (None, "EXPENSE", "INCOME", "TRANSFER"):
@@ -530,6 +623,10 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
         """
         params = [current_user_id, start, end, cents]
         for row in conn.execute(sql, params).fetchall():
+            if claimed_by == CLAIM_NOTIFY and (
+                candidate_kind(row) not in ("entry", "transfer") or row["source_type"] in NOT_A_NOTICE_SOURCES
+            ):
+                continue
             if row["type"] == "TRANSFER":
                 side = row["transfer_account_id"] if direction == "IN" else row["account_id"]
                 if account_id and side != account_id:
@@ -539,6 +636,9 @@ def existing_rows(conn, current_user_id, *, entry_type, direction, cents, date_t
                     continue
                 if account_id and row["account_id"] != account_id:
                     continue
+                side = row["account_id"]
+            if issuer and not account_id and issuer_contradicts(conn, current_user_id, issuer, account_id=side):
+                continue
             found.append({"table": "transactions", "id": row["id"], "kind": candidate_kind(row), "date": row["date"]})
     if claimed_by:
         found = [

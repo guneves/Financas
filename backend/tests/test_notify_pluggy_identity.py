@@ -708,6 +708,74 @@ class TestOwnTransferAbsorbs:
         assert made  # o mundo tem as duas contas
         assert_identity(user["id"])
 
+    # B3 (dono, 2026-11-20, "meio-termo"): quem nomeia alguem que nao se sabe
+    # ser o dono nunca pareia com uma ponta sem nome; com os dois nomes, o nome
+    # inteiro decide (primeiro e ultimo), nunca so o primeiro nome.
+
+    def test_b3_income_from_someone_is_not_absorbed_by_an_anonymous_pluggy_pix_out(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_IN", 100000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Souza"))
+        world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(-1000, "2026-10-22", "PIX ENVIADO", category_id=PIX))
+        world.sync(made["items"]["bb"])
+        rows = _amount_rows(world, 1000.0)
+        assert sorted((row["type"], row["account_id"]) for row in rows) == sorted([("INCOME", itau), ("EXPENSE", bb)])
+        assert_identity(user["id"])
+
+    def test_b3_income_from_someone_is_not_absorbed_by_an_anonymous_notice(self, world, user):
+        meupluggy(world)
+        send(world.client, world.auth, detection("PIX_IN", 100000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Souza"))
+        send(world.client, world.auth, detection("PIX_OUT", 100000, at=ms(2026, 10, 22, 15, 0), app=BB, merchant=None))
+        assert sorted(row["type"] for row in _amount_rows(world, 1000.0)) == ["EXPENSE", "INCOME"]
+        assert_identity(user["id"])
+
+    def test_b3_same_first_name_is_not_the_same_person(self, world, user):
+        meupluggy(world)
+        send(world.client, world.auth, detection("PIX_IN", 5000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Souza"))
+        send(world.client, world.auth, detection("PIX_OUT", 5000, at=ms(2026, 10, 22, 15, 0), app=BB, merchant=None,
+                                                 counterparty="Maria Oliveira"))
+        assert sorted(row["type"] for row in _amount_rows(world, 50.0)) == ["EXPENSE", "INCOME"]
+        assert_identity(user["id"])
+
+    def test_b3_two_anonymous_sides_still_pair(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None))
+        world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(700, "2026-10-22", "PIX RECEBIDO", category_id=PIX))
+        world.sync(made["items"]["bb"])
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert_identity(user["id"])
+
+    def test_b3_the_known_owner_pairs_with_an_anonymous_side(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        _learn_self(user)
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(700, "2026-10-22", "PIX RECEBIDO", category_id=PIX))
+        world.sync(made["items"]["bb"])
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert_identity(user["id"])
+
+    def test_b3_the_whole_name_in_two_spellings_pairs(self, world, user):
+        made = meupluggy(world)
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="FULANO R DONO"))
+        send(world.client, world.auth, detection("PIX_IN", 70000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Fulano Rodrigues Dono"))
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert_identity(user["id"])
+
 
 class TestNothingWaits:
     def test_an_own_transfer_with_one_side_is_recorded_at_once(self, world, user):
@@ -1266,4 +1334,445 @@ class TestEndToEnd:
         assert next(row for row in world.card_rows(card) if row["id"] == q_row["id"])["amount"] == 104.5  # Q
         assert _balance(world, btg_cc) == 0                                                # R: o palpite saiu
         assert world.pending() == []
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B1 (2026-11-20): o aviso de um banco nunca e o movimento de outro banco
+# ---------------------------------------------------------------------------
+
+class TestIssuerContradicts:
+    """Com gravar sozinho nada e lembrado, entao a conta/cartao do aviso e um
+    palpite pelo emissor; mesmo assim o emissor diz de que banco ele NAO e."""
+
+    def test_notice_never_links_to_a_typed_row_of_another_bank(self, world, user):
+        itau = world.account("Itaú conta")
+        nubank = world.account("Nubank")
+        world.call("post", "/api/transactions", json={
+            "amount": 45.9, "date": "2026-10-19", "type": "EXPENSE", "category": "Alimentação",
+            "account_id": nubank, "description": "mercado",
+        })
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        [row] = world.transactions(itau)
+        assert row["description"] == "FARMACIA"
+        assert [r["description"] for r in world.transactions(nubank)] == ["mercado"]
+        assert_identity(user["id"])
+
+    def test_card_notice_never_links_to_a_purchase_on_another_banks_card(self, world, user):
+        itau_card = world.card("Itaú Visa")
+        bb_card = world.card("BB Ourocard")
+        world.call("post", "/api/cc-expenses/purchases", json={
+            "card_id": bb_card, "total_amount": 45.9, "purchase_date": "2026-10-19", "description": "mercado",
+            "category": "Alimentação", "installments": 1, "client_id": "a" * 40,
+        }, expected=(200, 201))
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        assert [r["description"] for r in world.card_rows(itau_card)] == ["FARMACIA"]
+        assert len(world.card_rows(bb_card)) == 1
+        assert_identity(user["id"])
+
+    def test_late_notice_never_joins_another_banks_pluggy_item(self, world, user):
+        item_id, made = _setup(world, connector_name="Banco do Brasil")
+        bb_pluggy, _of, bb = made["bank"]
+        itau = world.account("Itaú conta")
+        world.fake.add_tx(bb_pluggy, bank_tx(-45.9, "2026-10-21", "MERCADO"))
+        world.sync(item_id)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        assert [r["description"] for r in world.transactions(itau)] == ["FARMACIA"]
+        assert [r["description"].upper() for r in world.transactions(bb)] == ["MERCADO"]
+        assert_identity(user["id"])
+
+    def test_another_banks_pluggy_row_never_takes_the_notified_row(self, world, user):
+        item_id, made = _setup(world, connector_name="Banco do Brasil")
+        bb_pluggy, _of, bb = made["bank"]
+        itau = world.account("Itaú conta")
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        [notified] = world.transactions(itau)
+        world.fake.add_tx(bb_pluggy, bank_tx(-45.9, "2026-10-21", "MERCADO"))
+        world.sync(item_id)
+        assert [(r["id"], r["description"]) for r in world.transactions(itau)] == [(notified["id"], "FARMACIA")]
+        assert [r["description"].upper() for r in world.transactions(bb)] == ["MERCADO"]
+        assert_identity(user["id"])
+
+    def test_same_bank_still_pairs_both_ways(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "FARMACIA"))
+        world.sync(item_id)
+        world.fake.add_tx(account, bank_tx(-12.5, "2026-10-21", "PADARIA"))
+        world.sync(item_id)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1250, at=ms(2026, 10, 21, 9, 0), app=ITAU,
+                                                 merchant="PADARIA"))
+        assert sorted(r["amount"] for r in world.transactions(mine)) == [12.5, 45.9]
+        assert_identity(user["id"])
+
+    def test_a_notice_never_links_to_an_invoice_payment_or_investment_cash(self, world, user):
+        db = importlib.import_module("db")
+        itau = world.account("Itaú conta", institution="Itaú")
+        with db.get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO transactions (id, user_id, amount, date, type, category, account_id, description,
+                                          source_type, source_id)
+                VALUES ('autopay1', ?, 45.9, '2026-10-20', 'EXPENSE', 'Pagamento Fatura', ?, 'Fatura', 'CC_AUTOPAY',
+                        'x:2026-10')
+                """,
+                (user["id"], itau),
+            )
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        assert sorted(r["description"] for r in world.transactions(itau)) == ["FARMACIA", "Fatura"]
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B2 (2026-11-20): a compra sem credito/debito; o banco decide o metodo
+# ---------------------------------------------------------------------------
+
+class TestMethodGuessed:
+    """O APK manda PURCHASE para "compra aprovada no cartao final X" sem dizer
+    credito ou debito; o gravar sozinho adivinha o cartao do emissor. O banco
+    que lista o debito na conta e a mesma compra: a linha e refeita do jeito do
+    banco, nunca uma segunda despesa."""
+
+    def test_guessed_card_purchase_becomes_the_banks_debit(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        card = world.card("Itaú Visa")
+        send(world.client, world.auth, detection("PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="PADARIA BOM PAO"))
+        assert len(world.card_rows(card)) == 1
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "COMPRA CARTAO DEB PADARIA BOM PAO"))
+        world.sync(item_id)
+        assert world.card_rows(card) == []
+        assert [r["amount"] for r in world.transactions(mine)] == [45.9]
+        assert_identity(user["id"])
+
+    def test_guessed_debit_becomes_the_banks_card_purchase(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        world.card("Itaú Visa")  # dois cartoes do Itau, sem o final: nenhum palpite de cartao
+        itau = world.account("Itaú conta", institution="Itaú")
+        send(world.client, world.auth, detection("PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="PADARIA BOM PAO"))
+        assert [r["amount"] for r in world.transactions(itau)] == [45.9]
+        world.fake.add_tx(card_pluggy, card_tx(45.9, "2026-10-20", "PADARIA BOM PAO", docs_sign=True))
+        world.sync(item_id)
+        assert world.transactions(itau) == []
+        assert [r["amount"] for r in world.card_rows(card)] == [45.9]
+        assert_identity(user["id"])
+
+    def test_a_said_credit_purchase_never_pairs_with_a_debit(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        card = world.card("Itaú Visa")
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="PADARIA BOM PAO"))
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "PIX ENVIADO JOAO"))
+        world.sync(item_id)
+        assert len(world.card_rows(card)) == 1
+        assert len(world.transactions(mine)) == 1
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B6 (2026-11-20): o estorno avisado de um cartao e credito no cartao
+# ---------------------------------------------------------------------------
+
+class TestCardRefundNotice:
+    def test_refund_naming_a_card_is_a_card_credit(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        card = world.card("Itaú Visa 1234")
+        send(world.client, world.auth, detection("REFUND", 5000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 card_last4="1234", merchant="LOJA X"))
+        assert world.transactions(account) == []
+        [row] = world.card_rows(card)
+        assert (row["amount"], row["kind"]) == (50.0, "REFUND")
+        assert_identity(user["id"])
+
+    def test_the_banks_card_credit_joins_the_notified_refund(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        send(world.client, world.auth, detection("REFUND", 5000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 merchant="LOJA X"))
+        [notified] = world.card_rows(card)
+        world.fake.add_tx(card_pluggy, card_tx(-50, "2026-10-20", "ESTORNO LOJA X", docs_sign=True))
+        world.sync(item_id)
+        rows = world.card_rows(card)
+        assert [(row["id"], row["kind"]) for row in rows] == [(notified["id"], "REFUND")]
+        assert_identity(user["id"])
+
+    def test_a_refund_without_a_card_stays_income(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        world.card("Itaú Visa")  # o aviso nao nomeia cartao nem loja: a devolucao de um Pix
+        send(world.client, world.auth, detection("REFUND", 5000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 merchant=None, counterparty="Fulano"))
+        assert [row["type"] for row in world.transactions(account)] == ["INCOME"]
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B5 (2026-11-20): a fatura de uma compra que o banco identifica e a do banco
+# ---------------------------------------------------------------------------
+
+class TestBankInvoice:
+    """O dono recategorizou a compra avisada (ou a digitou): valor e linhas
+    ficam os dele, mas a fatura e a que o banco diz (billForecastDate). A fatura
+    nao e campo do dono, entao segui-la nao e um toque."""
+
+    def recorded(self, world, recategorise):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 8000, at=ms(2026, 10, 20, 10, 0), app=ITAU,
+                                                 merchant="SMART FIT"))
+        [row] = world.card_rows(card)
+        if recategorise:
+            other = world.call("post", "/api/categories", json={"name": "Academia", "kind": "EXPENSE"})["id"]
+            world.call("post", "/api/review", json={"items": [
+                {"table": "cc_expenses", "id": row["id"], "category_id": other}]})
+        return item_id, card_pluggy, card, row
+
+    @pytest.mark.parametrize("recategorise", [False, True])
+    def test_a_notified_purchase_follows_the_banks_invoice(self, world, user, recategorise):
+        item_id, card_pluggy, card, row = self.recorded(world, recategorise)
+        assert (row["invoice_month"], row["invoice_year"]) == (11, 2026)
+        world.fake.add_tx(card_pluggy, with_bill(card_tx(80, "2026-10-20", "SMART FIT", docs_sign=True), "2026-12"))
+        world.sync(item_id)
+        [after] = world.card_rows(card)
+        assert (after["invoice_month"], after["invoice_year"]) == (12, 2026)
+        if recategorise:
+            assert (after["id"], after["category"]) == (row["id"], "Academia")
+        assert_identity(user["id"])
+
+    def test_a_typed_purchase_keeps_its_amount_and_takes_the_banks_invoice(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        world.call("post", "/api/cc-expenses/purchases", json={
+            "card_id": card, "total_amount": 80, "purchase_date": "2026-10-20", "description": "academia",
+            "category": "Alimentação", "installments": 1, "client_id": "b" * 40,
+        }, expected=(200, 201))
+        world.fake.add_tx(card_pluggy, with_bill(card_tx(80, "2026-10-20", "SMART FIT", docs_sign=True), "2026-12"))
+        world.sync(item_id)
+        [after] = world.card_rows(card)
+        assert (after["description"], after["amount"]) == ("academia", 80.0)
+        assert (after["invoice_month"], after["invoice_year"]) == (12, 2026)
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B7/B11 (2026-11-20): o mesmo aviso postado de novo nunca e outra compra
+# ---------------------------------------------------------------------------
+
+FLASH = "br.com.flashapp"
+SAMSUNG = "com.samsung.android.spay"
+
+
+class TestReposts:
+    def flash(self, world):
+        flash_account = world.account("Flash", institution="Flash")
+        world.call("post", "/api/credit-cards", json={
+            "name": "Flash", "due_day": 10, "closing_day": 3, "credit_enabled": False,
+            "debit_account_id": flash_account,
+        })
+        return flash_account
+
+    def expenses(self, world):
+        return [row for row in world.transactions() if row["type"] == "EXPENSE"]
+
+    def test_a_repost_is_no_pair_and_samsung_still_joins_the_original(self, world, user):
+        self.flash(world)
+        at = ms(2026, 10, 20, 12, 0)
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at, app=FLASH, merchant="RESTAURANTE", when_ms=at))
+        [again] = send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 24, app=FLASH,
+                                                           merchant="RESTAURANTE", when_ms=at))
+        assert again["status"] == "repeated"
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 5000, app=SAMSUNG, merchant="RESTAURANTE",
+                                                 card_name="Meal and Voucher"))
+        assert len(self.expenses(world)) == 1
+        assert_identity(user["id"])
+
+    def test_a_repost_of_a_notice_that_joined_samsung_is_repeated(self, world, user):
+        self.flash(world)
+        at = ms(2026, 10, 20, 12, 0)
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at, app=SAMSUNG, merchant="RESTAURANTE",
+                                                 card_name="Meal and Voucher"))
+        send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 3000, app=FLASH, merchant="RESTAURANTE",
+                                                 when_ms=at + 3000))
+        [again] = send(world.client, world.auth, detection("PURCHASE", 3200, at=at + 3024, app=FLASH,
+                                                           merchant="RESTAURANTE", when_ms=at + 3000))
+        assert again["status"] == "repeated"
+        assert len(self.expenses(world)) == 1
+        assert_identity(user["id"])
+
+    def test_a_repost_without_when_crossing_a_second_is_repeated(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        at = ms(2026, 10, 20, 14, 0, 0) + 990
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at, app=ITAU, merchant="PADARIA"))
+        [again] = send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at + 24, app=ITAU,
+                                                           merchant="PADARIA"))
+        assert again["status"] == "repeated"
+        assert len(world.transactions(account)) == 1
+        assert_identity(user["id"])
+
+    def test_two_purchases_a_few_seconds_apart_stay_two(self, world, user):
+        account = world.account("Itaú conta", institution="Itaú")
+        at = ms(2026, 10, 20, 14, 0, 0)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at, app=ITAU, merchant="PADARIA"))
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at + 5000, app=ITAU, merchant="PADARIA"))
+        assert len(world.transactions(account)) == 2
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B8 (2026-11-20): a pendente 1/1 pelo total que liquida parcelada (outra id)
+# ---------------------------------------------------------------------------
+
+class TestPendingTotalPostsInInstallments:
+    @pytest.mark.parametrize("recategorise", [False, True])
+    def test_the_purchase_continues_as_installments(self, world, user, recategorise):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        pending = with_bill(card_tx(300, "2026-10-20", "LOJA PARCELADA", docs_sign=True, status="PENDING"), "2026-11")
+        world.fake.add_tx(card_pluggy, pending)
+        world.sync(item_id)
+        [row] = world.card_rows(card)
+        if recategorise:
+            other = world.call("post", "/api/categories", json={"name": "Casa", "kind": "EXPENSE"})["id"]
+            world.call("post", "/api/review", json={"items": [
+                {"table": "cc_expenses", "id": row["id"], "category_id": other}]})
+        world.fake.drop_tx(card_pluggy, pending["id"])
+        for number, month in ((1, "2026-11"), (2, "2026-12"), (3, "2027-01")):
+            world.fake.add_tx(card_pluggy, with_bill(card_tx(
+                100, "2026-10-20", "LOJA PARCELADA", installment=number, total_installments=3, total_amount=300,
+                purchase_date="2026-10-20", docs_sign=True, status="POSTED" if number == 1 else "PENDING",
+            ), month))
+        world.sync(item_id)
+        rows = sorted(world.card_rows(card), key=lambda entry: entry["installment_info"])
+        assert [(entry["amount"], entry["installment_info"]) for entry in rows] == [
+            (100.0, "1/3"), (100.0, "2/3"), (100.0, "3/3")]
+        assert row["id"] in {entry["id"] for entry in rows}
+        if recategorise:
+            assert {entry["category"] for entry in rows} == {"Casa"}
+        assert of_rows(user["id"], "conflict = 'vanished'") == []
+        assert_identity(user["id"])
+
+    def test_another_store_of_the_same_total_is_not_a_successor(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        pending = card_tx(300, "2026-10-20", "LOJA PARCELADA", docs_sign=True, status="PENDING")
+        world.fake.add_tx(card_pluggy, pending)
+        world.sync(item_id)
+        world.fake.drop_tx(card_pluggy, pending["id"])
+        world.fake.add_tx(card_pluggy, card_tx(100, "2026-10-20", "OUTRA COISA", installment=1, total_installments=3,
+                                               total_amount=300, purchase_date="2026-10-20", docs_sign=True))
+        world.sync(item_id)
+        assert [entry for entry in of_rows(user["id"], "superseded_by IS NOT NULL")] == []
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B9 (2026-11-20): o BB arredonda mesmo quando a Pluggy nao diz que e o BB
+# ---------------------------------------------------------------------------
+
+class TestRoundsUpByAppAccount:
+    def connect_plain(self, world, kind, name):
+        fake = world.fake
+        pluggy_item = fake.add_item("MeuPluggy")
+        pluggy_account = fake.add_account(pluggy_item, kind, name=name, number="0003/3-3")
+        body = world.connect(pluggy_item)
+        item = next(entry for entry in body["items"] if entry["id"] == body["item_id"])
+        return body["item_id"], pluggy_account, item["accounts"][0]["id"]
+
+    def test_a_bb_account_named_plainly_still_rounds_up(self, world, user):
+        item_id, pluggy_account, of_id = self.connect_plain(world, "BANK", "Conta Corrente")
+        bb = world.account("BB", institution="Banco do Brasil")
+        world.map(of_id, account_id=bb)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1819, at=ms(2026, 10, 21, 12, 0), app=BB,
+                                                 merchant="LANCHONETE"))
+        world.fake.add_tx(pluggy_account, bank_tx(-19, "2026-10-21", "COMPRA COM CARTAO"))
+        world.sync(item_id)
+        assert [row["amount"] for row in world.transactions(bb)] == [18.19]
+        assert_identity(user["id"])
+
+    def test_another_bank_named_plainly_does_not_round(self, world, user):
+        item_id, pluggy_account, of_id = self.connect_plain(world, "BANK", "Conta Corrente")
+        itau = world.account("Itaú conta", institution="Itaú")
+        world.map(of_id, account_id=itau)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1819, at=ms(2026, 10, 21, 12, 0), app=ITAU,
+                                                 merchant="LANCHONETE"))
+        world.fake.add_tx(pluggy_account, bank_tx(-19, "2026-10-21", "COMPRA COM CARTAO"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(itau)) == [18.19, 19.0]
+        assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B10 (dono, 2026-11-20): o intocado muda no lugar, nunca e refeito
+# ---------------------------------------------------------------------------
+
+class TestFollowInPlace:
+    """Outra data ou outra conta/cartao adivinhada: a mesma id e o mesmo estado
+    de revisao; so a troca de tipo (conta <-> cartao) refaz o lancamento."""
+
+    def test_a_reviewed_row_takes_the_banks_date_in_place(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 23, 50), app=ITAU,
+                                                 merchant="BAR DO ZE"))
+        [row] = world.transactions(mine)
+        confirm(world.client, world.auth, {"table": "transactions", "id": row["id"]})
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-21", "BAR DO ZE"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["date"], after["needs_review"]) == (row["id"], "2026-10-21", 0)
+        assert_identity(user["id"])
+
+    def test_an_unreviewed_row_stays_in_review_with_its_id(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 23, 50), app=ITAU,
+                                                 merchant="BAR DO ZE"))
+        [row] = world.transactions(mine)
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-21", "BAR DO ZE"))
+        world.sync(item_id)
+        [after] = world.transactions(mine)
+        assert (after["id"], after["date"]) == (row["id"], "2026-10-21")
+        assert_identity(user["id"])
+
+    def test_a_guessed_account_moves_to_the_banks_account_in_place(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mapped = made["bank"]
+        guessed = world.account("Itaú antiga", institution="Itaú")  # antes da mapeada na ordem: o palpite
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="BAR DO ZE"))
+        [row] = [entry for entry in world.transactions() if entry["amount"] == 45.9]
+        assert row["account_id"] == guessed
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "BAR DO ZE"))
+        world.sync(item_id)
+        [after] = [entry for entry in world.transactions() if entry["amount"] == 45.9]
+        assert (after["id"], after["account_id"]) == (row["id"], mapped)
+        assert world.transactions(guessed) == []
+        assert_identity(user["id"])
+
+    def test_a_card_purchase_takes_the_banks_date_and_invoice_in_place(self, world, user):
+        invoices = importlib.import_module("services.invoices")
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 8000, at=ms(2026, 11, 2, 23, 50), app=ITAU,
+                                                 merchant="SMART FIT"))
+        [row] = world.card_rows(card)
+        confirm(world.client, world.auth, {"table": "cc_expenses", "id": row["id"]})
+        world.fake.add_tx(card_pluggy, card_tx(80, "2026-11-03", "SMART FIT", docs_sign=True))
+        world.sync(item_id)
+        [after] = world.card_rows(card)
+        assert (after["id"], after["purchase_date"], after["needs_review"]) == (row["id"], "2026-11-03", 0)
+        start = invoices.compute_invoice_start("2026-11-03", 10, 3)  # o cartao de connected(): vence 10, fecha 3
+        assert (after["invoice_month"], after["invoice_year"]) == (start["invoice_month"], start["invoice_year"])
         assert_identity(user["id"])

@@ -117,6 +117,9 @@ class TestIdempotency:
         pluggy_account = made["bank"][0]
         # A conexao ja fez o primeiro pull (o item estava UPDATED).
         assert world.fake.windows(pluggy_account) == ["2026-09-27"]
+        # Com uma linha na conta (sem nenhuma, B12: a janela do dono).
+        world.fake.add_tx(pluggy_account, bank_tx(-45.9, "2026-10-20"))
+        world.sync(item_id)
         monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 3).date())
         world.sync(item_id)
         assert world.fake.windows(pluggy_account)[-1] == "2026-10-20"
@@ -136,6 +139,19 @@ class TestIdempotency:
         world.sync(item_id)
         assert world.fake.windows(pluggy_account)[-1] == "2026-10-20"
         assert any(item["client_key"] == f"pluggy:{late}" and item["amount"] == 110.0 for item in world.pending())
+
+    def test_an_account_whose_first_pull_was_empty_still_looks_back(self, world, invoices_module, monkeypatch):
+        # B12 (2026-11-20): sem linha nenhuma, o piso era so OVERLAP_DAYS (7): o
+        # lancamento listado com 8+ dias de atraso nunca entrava.
+        item_id, _p, made = connected(world)
+        pluggy_account = made["bank"][0]
+        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 3).date())
+        world.sync(item_id)
+        monkeypatch.setattr(invoices_module, "local_today", lambda: datetime(2026, 11, 4).date())
+        late = world.fake.add_tx(pluggy_account, bank_tx(-110.0, "2026-10-25", description="CLAUDE.AI SUBSCRIPTION"))
+        world.sync(item_id)
+        assert world.fake.windows(pluggy_account)[-1] <= "2026-10-25"
+        assert any(item["client_key"] == f"pluggy:{late}" for item in world.pending())
 
     def test_the_late_window_never_reaches_before_the_first_pull(self, world, invoices_module, monkeypatch):
         # O dono trouxe so a partir de 26/10: o que e mais antigo nao entra depois.

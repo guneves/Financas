@@ -34,12 +34,15 @@ modulo so guarda e junta.
 """
 
 
+from datetime import datetime
+
 from config import (
     BANK_NOTIFICATIONS_DEFAULT,
 )
 from db import new_id, row_to_dict, utc_timestamp
 from money import from_cents, to_cents
 from services import recurring
+from services.accounts import category_id_for_name
 from services.import_rules import (
     import_rules_for_matching,
 )
@@ -157,10 +160,12 @@ from services.inbox_store import (  # noqa: F401  (reexportados: o resto do app 
     _pending_items,
     _source_directions,
     _usable_accounts,
+    account_bank,
     always_ask,
     ambiguous_target,
     apply_hint_to_pending,
     candidate_details,
+    card_bank,
     claimed,
     confirm_targets,
     debit_card_for,
@@ -171,7 +176,9 @@ from services.inbox_store import (  # noqa: F401  (reexportados: o resto do app 
     guess_card,
     insert_item,
     is_self_counterparty,
+    issuer_contradicts,
     item_detections,
+    item_issuer,
     learn_self,
     list_hints,
     notification_claimed,
@@ -220,6 +227,9 @@ CANCELLED = "CANCELLED"
 # Uma notificacao repostada pelo proprio app chega em milissegundos; duas
 # compras iguais no mesmo segundo nao acontecem.
 REPEAT_WINDOW_MS = 60 * 1000
+# Sem Notification.when: a repostagem a ate 2 s da original e o mesmo aviso
+# (duas compras iguais no mesmo app em 2 s nao acontecem).
+REPOST_CLOSE_MS = 2000
 ENTRY_TYPES = ("EXPENSE", "INCOME", "TRANSFER", "CARD")
 MAX_DETECTIONS_PER_REQUEST = 200
 
@@ -242,13 +252,17 @@ def _window_detections(conn, current_user_id, posted_ms, *, samsung, roles):
         """,
         (current_user_id, posted_ms - NOTIFY_WINDOW_MS, posted_ms + NOTIFY_WINDOW_MS, *roles, SAMSUNG_WALLET),
     ).fetchall()
+    # A repostagem do mesmo aviso (o mesmo app, B7) nao e um par: a original
+    # continua livre para o Samsung da mesma compra.
     paired = {
         value
         for row in conn.execute(
             """
-            SELECT id, paired_with FROM notify_detections
-            WHERE user_id = ? AND paired_with IS NOT NULL
-              AND posted_ms BETWEEN ? AND ?
+            SELECT d.id, d.paired_with FROM notify_detections d
+            LEFT JOIN notify_detections o ON o.id = d.paired_with AND o.user_id = d.user_id
+            WHERE d.user_id = ? AND d.paired_with IS NOT NULL
+              AND d.posted_ms BETWEEN ? AND ?
+              AND (o.app IS NULL OR o.app <> d.app)
             """,
             (current_user_id, posted_ms - 2 * NOTIFY_WINDOW_MS, posted_ms + 2 * NOTIFY_WINDOW_MS),
         ).fetchall()
@@ -395,22 +409,38 @@ def _repeated_posting(conn, current_user_id, detection):
     rows = conn.execute(
         """
         SELECT * FROM notify_detections
-        WHERE user_id = ? AND app = ? AND kind = ? AND amount_cents = ? AND occurred_at = ?
-          AND posted_ms BETWEEN ? AND ? AND paired_with IS NULL
+        WHERE user_id = ? AND app = ? AND kind = ? AND amount_cents = ?
+          AND posted_ms BETWEEN ? AND ?
         ORDER BY posted_ms, id
         """,
         (
             current_user_id, detection["app"], detection["kind"], detection["amount_cents"],
-            detection["occurred_at"], detection["posted_ms"] - REPEAT_WINDOW_MS,
-            detection["posted_ms"] + REPEAT_WINDOW_MS,
+            detection["posted_ms"] - REPEAT_WINDOW_MS, detection["posted_ms"] + REPEAT_WINDOW_MS,
         ),
     ).fetchall()
     for row in rows:
-        if (row["merchant"] or "") == (detection.get("merchant") or "") and (
+        if (row["merchant"] or "") != (detection.get("merchant") or "") or (
             row["counterparty_doc"] or ""
-        ) == (detection.get("counterparty_doc") or ""):
+        ) != (detection.get("counterparty_doc") or ""):
+            continue
+        # A mesma hora do evento; sem Notification.when, a hora e a da postagem
+        # (em segundos) e a repostagem 24 ms depois pode cair no segundo
+        # seguinte (B11): vale a postagem a ate REPOST_CLOSE_MS.
+        if row["occurred_at"] == detection["occurred_at"] or (
+            abs(int(row["posted_ms"]) - int(detection["posted_ms"])) <= REPOST_CLOSE_MS
+            and _seconds_apart(row["occurred_at"], detection["occurred_at"]) <= 1
+        ):
+            # A original pareada (B7, o Samsung chegou antes): a repostagem
+            # entra no mesmo item, nunca num novo.
             return row_to_dict(row)
     return None
+
+
+def _seconds_apart(a, b):
+    try:
+        return abs((datetime.fromisoformat(str(a)) - datetime.fromisoformat(str(b))).total_seconds())
+    except ValueError:
+        return float("inf")
 
 
 def _ingest_declined(conn, current_user_id, detection, samsung):
@@ -582,6 +612,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
         account_id=known_account,
         card_id=target["card_id"] if target["remembered"] else None,
         claimed_by=CLAIM_NOTIFY,
+        issuer=issuer_of(detection),
     )
     item_id = new_item_for_detection(conn, current_user_id, detection, target, candidates, rules)
     _insert_detection(conn, current_user_id, detection, SOURCE, item_id=item_id)
@@ -662,6 +693,12 @@ def new_item_for_detection(conn, current_user_id, detection, target=None, candid
         conn, current_user_id, values["description"], values["entry_type"], values["amount"],
         values["account_id"], rules,
     )
+    if values["entry_type"] == "CARD" and direction == "IN":
+        # O estorno no cartao (B6), como o da Pluggy: "Estorno", nunca a
+        # ocorrencia de uma recorrencia de despesa.
+        values["category"] = "Estorno"
+        values["category_id"] = category_id_for_name(conn, current_user_id, "Estorno")
+        values["recurring_off"] = 1
     values["needs"] = recompute_needs(values)
     return insert_item(conn, current_user_id, values)
 
@@ -682,7 +719,7 @@ def open_finance_rounds_up(conn, current_user_id, of_account_id):
     """A conta da Pluggy e de um banco que arredonda o valor (ROUNDS_UP_ISSUERS)."""
     row = conn.execute(
         """
-        SELECT a.name, i.connector_name FROM open_finance_accounts a
+        SELECT a.name, a.account_id, a.card_id, i.connector_name FROM open_finance_accounts a
         JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
         WHERE a.id = ? AND a.user_id = ?
         """,
@@ -690,7 +727,12 @@ def open_finance_rounds_up(conn, current_user_id, of_account_id):
     ).fetchone()
     if not row:
         return False
-    issuer = issuer_of_institution(row["connector_name"]) or issuer_of_institution(row["name"])
+    # B9 (2026-11-20): no MeuPluggy o conector nao diz o banco, e a conta pode
+    # se chamar "Conta Corrente": vale tambem o banco da conta/cartao do app.
+    issuer = (
+        issuer_of_institution(row["connector_name"]) or issuer_of_institution(row["name"])
+        or account_bank(conn, current_user_id, row["account_id"]) or card_bank(conn, current_user_id, row["card_id"])
+    )
     return issuer in ROUNDS_UP_ISSUERS
 
 
@@ -717,8 +759,9 @@ def notification_item_for_open_finance(conn, current_user_id, *, entry_type, dir
         ).fetchall()
         found = [
             row for row in rows
-            if _amount_matches(row, cents, rounds_up) and open_finance_fits_item(
-                item_dict(row), entry_type=entry_type, direction=direction, account_id=account_id, card_id=card_id,
+            if _amount_matches(row, cents, rounds_up) and notified_item_fits(
+                conn, current_user_id, row, entry_type=entry_type, direction=direction, account_id=account_id,
+                card_id=card_id,
             )
         ]
         return _pick_closest(found, date_text)
@@ -726,6 +769,49 @@ def notification_item_for_open_finance(conn, current_user_id, *, entry_type, dir
     return look(
         PAIRABLE_STATES, _shift(date_text, -OPEN_FINANCE_PAIR_DAYS), _shift(date_text, OPEN_FINANCE_PAIR_DAYS),
     ) or look(RECORDED_STATES, _shift(date_text, -OPEN_FINANCE_LATE_POST_DAYS), _shift(date_text, -OPEN_FINANCE_PAIR_DAYS - 1))
+
+
+def method_guessed(conn, current_user_id, item):
+    """O item e uma compra cujo credito/debito ninguem disse (B2): a fonte e um
+    aviso PURCHASE (sem metodo) e o dono nao escolheu o tipo."""
+    if item.get("entry_type") not in ("CARD", "EXPENSE") or item.get("direction") != "OUT":
+        return False
+    if "entry_type" in set(item.get("edited") or []):
+        return False
+    # Toda deteccao do item conta: o banco que disse "credito" depois do
+    # Samsung (pareado) ja decidiu o metodo.
+    kinds = [row["kind"] for row in item_detections(conn, current_user_id, item["id"]) if row["kind"] in PURCHASE_KINDS]
+    return bool(kinds) and all(kind == "PURCHASE" for kind in kinds)
+
+
+def notified_item_fits(conn, current_user_id, item_row, *, entry_type, direction, account_id=None, card_id=None):
+    """`open_finance_fits_item()` para um item que um aviso abriu, e o banco do
+    aviso nao contradiz a conta/cartao da Pluggy (B1): o palpite de conta do
+    aviso do Itau nunca recebe a compra que o BB trouxe."""
+    item = item_dict(item_row)
+    if method_guessed(conn, current_user_id, item):
+        # B2: o aviso nao disse credito nem debito; o cartao (ou a conta) foi
+        # palpite do gravar sozinho, e o banco decide o metodo.
+        item = {
+            **item, "entry_type": None,
+            "guessed": [*(item.get("guessed") or []), "card" if item["entry_type"] == "CARD" else "account"],
+        }
+    if not open_finance_fits_item(item, entry_type=entry_type, direction=direction, account_id=account_id,
+                                  card_id=card_id):
+        return False
+    if entry_type == "CARD" and item.get("card_id") == card_id:
+        return True
+    if entry_type != "CARD":
+        if item.get("entry_type") == "TRANSFER":
+            side = item.get("account_id") if direction == "OUT" else item.get("transfer_account_id")
+        else:
+            side = item.get("account_id")
+        if side == account_id:
+            return True
+    return not issuer_contradicts(
+        conn, current_user_id, item_issuer(conn, current_user_id, item["id"]),
+        account_id=None if entry_type == "CARD" else account_id, card_id=card_id if entry_type == "CARD" else None,
+    )
 
 
 def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
@@ -739,11 +825,16 @@ def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
     direction = target["direction"]
     entry_type = target["entry_type"]
     item_type = item.get("entry_type")
+    issuer = issuer_of(detection)
     if item_type == "TRANSFER":
         if detection["kind"] not in MOVEMENT_KINDS:
             return False
         side = item["account_id"] if direction == "OUT" else item["transfer_account_id"]
-        return not (target["remembered"] and target["account_id"] and side and target["account_id"] != side)
+        if target["remembered"] and target["account_id"] and side and target["account_id"] != side:
+            return False
+        if target["remembered"] and target["account_id"] == side:
+            return True  # o dono escolheu esta conta para este aviso
+        return not issuer_contradicts(conn, current_user_id, issuer, account_id=side)
     if item.get("direction") != direction:
         return False
     if item_type == "CARD":
@@ -751,10 +842,18 @@ def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
             return False
         if direction == "IN" and detection["kind"] != "REFUND":
             return False
-        return not (target["remembered"] and target["card_id"] and target["card_id"] != item.get("card_id"))
+        if target["remembered"] and target["card_id"] and target["card_id"] != item.get("card_id"):
+            return False
+        if target["remembered"] and target["card_id"] == item.get("card_id"):
+            return True
+        return not issuer_contradicts(conn, current_user_id, issuer, card_id=item.get("card_id"))
     if entry_type is not None and entry_type != item_type:
         return False
-    return not (target["remembered"] and target["account_id"] and target["account_id"] != item.get("account_id"))
+    if target["remembered"] and target["account_id"] and target["account_id"] != item.get("account_id"):
+        return False
+    if target["remembered"] and target["account_id"] == item.get("account_id"):
+        return True
+    return not issuer_contradicts(conn, current_user_id, issuer, account_id=item.get("account_id"))
 
 
 def open_finance_item_for_detection(conn, current_user_id, detection, target):
@@ -895,8 +994,9 @@ def near_notification_items(conn, current_user_id, row, exclude_item_id=None):
         international = is_international(detection) or bool(row.get("original_currency"))
         if not _near_window(item_row["occurred_at"], row["date"], international, item_row["state"] in RECORDED_STATES):
             continue
-        if not open_finance_fits_item(
-            item_dict(item_row), entry_type=entry_type, direction="OUT", account_id=account_id, card_id=card_id,
+        if not notified_item_fits(
+            conn, current_user_id, item_row, entry_type=entry_type, direction="OUT", account_id=account_id,
+            card_id=card_id,
         ):
             continue
         if not merchant_agrees(detection["merchant"], row.get("merchant_name"), row.get("description")):

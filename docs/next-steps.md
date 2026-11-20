@@ -61,6 +61,21 @@ proxy on :8443"). Nothing is public yet: Funnel is off.
   login; logs may show 127.0.0.1 as the client. 443 (tailnet, no proxy) can be retired once every
   phone is on the :8443 APK.
 
+### Detection bug hunt (2026-11-20) — branch `fix/detection-bughunt`, not merged
+B1–B13 fixed on the branch, one commit each (handoff 2026-11-20). Owner's rules taken: B3 "meio-termo" (own
+transfer needs both ends to be the owner), B10 "update in place".
+- [ ] **Owner's OK to merge and deploy** (the branch is pushed only when asked). Gates passed: backend in 4
+  chunks, the card / Open Finance / identity / fuzz suites, and the replay over a copy of the server's database.
+- [ ] After the deploy, watch on real data: a reviewed purchase posted next day keeps its id and leaves Revisar
+  (B10); a "compra aprovada" without credit/debit from BTG ends as one row of the bank's type (B2: 25 of the
+  owner's BTG notices are `PURCHASE`); an estorno naming a card lands on the card (B6, none in the data yet).
+- [ ] B14 (not fixed, by design of the brief): the APK ignores "compra cancelada" (`NotifyParsers.kindOf()`
+  returns null for "cancelad"), and a card is list-only, so a notified purchase cancelled before it posts stays
+  in the invoice as a ghost. Needs the APK to send a `DECLINED`-like kind for a cancellation, and a server rule
+  for a recorded card purchase (`undo_declined()` handles only the Flash/Samsung decline today).
+- [ ] B15 (not fixed): `inbox.is_auto_invest()` checks only the notice's merchant, never the counterparty, so a
+  Pix notice whose counterparty is "RENDE FACIL" would not be ignored. Never seen on real data.
+
 ### Notifications + Pluggy, one movement one row — built and verified (2026-11-05); owner checks open
 The rules as built are in CLAUDE.md ("Notifications are fast, Pluggy is the record", "Auto-record →
 reconcile → review", "The inbox engine"); the tests are `test_notify_pluggy_identity.py`,
@@ -97,10 +112,10 @@ reconcile → review", "The inbox engine"); the tests are `test_notify_pluggy_id
 - [ ] Watch after the deploy: `near_match` in the pull log now also counts `late_near_pass()` joins (a
   Pluggy-recorded row removed in favour of the notice's row). A pull that fails with "a Pluggy repetiu o
   cursor" is the new refusal of a cut history: it retries by itself.
-- [ ] Known limits, kept on purpose; revisit only if real data shows them: an account with **no** Pluggy
-  history looks back only `OVERLAP_DAYS` (7), so an international purchase posted weeks later isn't seen
-  on a just-connected account; a card with a single sandbox-sign purchase learns the docs' sign (+) and
-  reads it as a refund; card twins (`card_twin_keys()`) read the card rows through a bounded subquery.
+- [ ] Known limits, kept on purpose; revisit only if real data shows them: a card with a single sandbox-sign
+  purchase learns the docs' sign (+) and reads it as a refund; card twins (`card_twin_keys()`) read the card
+  rows through a bounded subquery. (An account with no Pluggy history now looks back the owner's first window,
+  B12 of 2026-11-20.)
 
 ### Open Finance only (2026-10-30) — what is left
 - [ ] After deploying "nothing waits" (2026-11-01): watch the 5-minute fresh pulls in the log; read BB's Conferência

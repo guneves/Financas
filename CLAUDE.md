@@ -255,6 +255,9 @@ docs/               next-steps.md, done-tasks.md, handoff.md
   credit pairs with it by day (±1) and counterparty, never by cents; two on one day go to the pair
   whose rate is closest to the PTAX (`place()` step 2, `_place_cross_currency()`). A Wise credit
   is recorded at once (a US$ receita); untouched, the BRL side later turns it into the transfer. A credit matching a transfer already in the app fills its `transfer_amount`.
+  The BRL side may be a phone notice (B4, 2026-11-20): the credit finds an untouched notified Pix naming the account
+  (`_notified_pix_to()`), and a notice arriving after the credit turns that receita into the transfer
+  (`absorb_dollar_income_for_notice()`, in auto-record); either way one transfer.
 - **The monthly plan starts from income** (025, 038, `services/monthly_plan.py`): `PUT
   /api/monthly-plan` writes `income_amount` (> 0) and `invest_percent`/`spend_percent` (sum ≤ 100).
   Every R$ is computed on read via `percent_of()`; percentages are TEXT read as `Decimal`, never
@@ -369,8 +372,10 @@ doesn't cover, comes only from notices (and typing).
   bill's lines and keeps later ones `PENDING` in future invoices. The credit decides: installment N goes to its
   invoice with its status (a missing one is created), never back; the Conferência adds the unlisted ones. Proved on
   BTG's October bill to the cent (lines + 0,32 carried + 237,16). **A purchase the owner typed or changed** (Pluggy
-  only linked it, `client_id` not `pluggy:`; 2026-11-19, the Rota 6x recategorised) takes only the anticipation: the
-  anticipated line moves to the discount's invoice; its amounts and lines stay the owner's (no set, delete or copy).
+  only linked it, `client_id` not `pluggy:`; 2026-11-19, the Rota 6x recategorised) takes only the bank's invoice and
+  the anticipation: each open line moves to the invoice of the bank's line of its number (`_move_line()`, 2026-11-20:
+  the invoice is not an owner field, so it is no touch), the anticipated one to the discount's invoice; its amounts
+  and lines stay the owner's (no set, delete or copy).
 - **A posted row's invoice is its `billId`** (`card_rows_with_bill()`, `GET /bills`), over `billForecastDate`.
 - **A payment the app has is linked, never doubled** (`_kept_payment()` in `record_bank_payments()`): no target,
   same account, same day (any amount) or same cents within 5 days; it takes the bank's amount. Without it, 11
@@ -430,8 +435,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   another currency** on a reais card/account is recorded at the day's PTAX
   (`open_finance_auto.in_reais_now()`; the detection keeps its currency, so the near match treats it
   as international), or the last stored one before it (`fx_fallback()`: > 4 days back, or yesterday's for
-  today, is an `fx_fallback` decision); with none stored at all it waits. A Samsung-only purchase still waits
-  `NOTIFY_WINDOW_MS` for the bank's notice. **There is no Aprovar screen; waiting items resolve in Revisar**
+  today, is an `fx_fallback` decision); with none stored at all it waits. A Samsung-only purchase is recorded at once
+  too; the bank's notice within `NOTIFY_WINDOW_MS` joins that item, never a second row. **There is no Aprovar screen; waiting items resolve in Revisar**
   (the APK's Extrato lists them under "Não gravou sozinho": the other account or the amount in reais
   → `POST /api/inbox/<id>/approve` with `remember: false`, "não é entre minhas contas" → despesa/
   receita, or Descartar). The inbox API stays for those and for the brake.
@@ -494,7 +499,11 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   target and still untouched (equals the snapshot) → the Pluggy row becomes
   the source (transaction `source_type = 'OPEN_FINANCE'`, card `client_id = 'pluggy:<id>'`, OF
   snapshot), so later bank changes apply as for a Pluggy-recorded row; another date or account/card
-  → the row is deleted and the item re-recorded the bank's way right after the pull; edited (snapshot
+  → **the row follows the bank in place** (owner 2026-11-20, `_follow_bank_in_place()`: same id, same review state;
+  a card purchase's invoices recomputed); only a change of type (account ↔ card) deletes it and re-records the
+  item the bank's way right after the pull. **A purchase notice without credit/debit** (`PURCHASE`,
+  `method_guessed()`, 2026-11-20) leaves the type open: the bank's debit or card line pairs with it and the row is
+  redone the bank's way; edited (snapshot
   differs) or a transfer → only `MATCHED` (a transfer's guessed side still follows the bank,
   `follow_bank_side()`, below). **A card purchase with a paid installment is never redone**
   (`has_paid_installment()`, 2026-11-13): another date or card from the bank only links it (`MATCHED`);
@@ -517,7 +526,21 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   accounts/cards whose *bank field* names the bank). "Sempre perguntar" (036) makes every target a
   confirm.
 - **Own transfer vs someone else is the counterparty** (031): "it's me" is learned into
-  `inbox_hints` (`self:doc:` / `self:name:`); BTG Investimentos transfers are always own. Pairing
+  `inbox_hints` (`self:doc:` / `self:name:`); BTG Investimentos transfers are always own. **Two sides can be
+  one person** (owner 2026-11-20, "meio-termo", `counterparties_conflict()` + `sides_conflict()`): two CPFs decide;
+  two names decide by the whole name (`same_person_name()`: first and last name, a truncated name by its start),
+  never the first name alone; a named side pairs with an unnamed one only when one of them is known to be the owner
+  (learned "sou eu", the brokerage app, Pluggy `SELF_TRANSFER`); two unnamed sides still pair. So a Pix received
+  from a third party is never absorbed by an anonymous Pix out.
+- **A bank's notice is never another bank's movement** (B1, 2026-11-20): the notice's issuer contradicts an
+  account/card whose bank is another (`account_bank()`/`card_bank()`: institution, name, a card's debit account,
+  the mapped Pluggy account; `OTHER_BANK_NAMES` for banks that send no notices), even when the target is only a
+  guess: in the candidates (`existing_rows(issuer=)`), a late notice joining a Pluggy item, and a Pluggy row joining
+  a notified item (`notified_item_fits()`). A notice never links to an invoice payment, investment cash or the Inter
+  line. **A refund notice naming a card** (final, Samsung name, or the store with the issuer's only card,
+  `refund_card()`) is a card credit (033), never income. **A repost** (same app, `_repeated_posting()`) is
+  recognised even after the original paired, never hides the original from Samsung, and without `when_ms` counts
+  within `REPOST_CLOSE_MS` (2 s) of posting. Pairing
   (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
   bank's notification wins over Samsung's.
 - **Open Finance (Pluggy) reconciles the connected banks** (043, 044, 045, `services/open_finance.py` +
@@ -542,7 +565,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   the window Pluggy didn't return, `MATCHED`/`PAIRED` included) before `ingest()`; a new id that
   continues one (`successor_for()`: same account and direction, same cents or BB rounding, same
   installment, ≤ 3 days; one to one; a near amount only for a single-installment purchase, same
-  merchant, unique each way) takes its place with `hand_over()`: role, item, target, snapshot,
+  merchant, unique each way; on a card, a pending 1/1 of the total continued by a 1/n whose first line carries
+  that total, same store, `_split_into_installments()`, 2026-11-20) takes its place with `hand_over()`: role, item, target, snapshot,
   `source_id`, the card purchase's `client_id`, the item's `client_key`; the old row is `REMOVED`
   with `superseded_by` (054) and never comes back. Only what nobody took over goes through
   `vanish_rows()`; a `MATCHED`/`PAIRED` row without successor gets `conflict = 'vanished'` (the
@@ -578,7 +602,8 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   Pluggy itself recorded keeps the mutation guard below. With no pair on the day, a bank row also pairs with a
   notification that already became a lançamento up to `OPEN_FINANCE_LATE_POST_DAYS` (5) before it
   (the bank posts late), never a second row. **Banco do Brasil rounds up** (owner, 2026-10-27:
-  18,19 reaches Pluggy as 19,00): for a `ROUNDS_UP_ISSUERS` connection a whole-reais amount pairs
+  18,19 reaches Pluggy as 19,00): for a `ROUNDS_UP_ISSUERS` connection (connector, Pluggy account name, or the
+  mapped app account/card's bank, 2026-11-20) a whole-reais amount pairs
   with the one it rounds up from (`rounded_up()`), the notification's cents stay, and the invoice
   payment link accepts it too; installments 2..n are `COVERED`, invoice payments never an
   item, a card credit is a `REFUND` item; a row that vanishes or changes amount before approval

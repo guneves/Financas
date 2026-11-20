@@ -245,7 +245,7 @@ class TestPluggyReconciles:
         assert (of_row["role"], of_row["target_id"]) == ("SOURCE", before["id"])
         assert world.pending() == []
 
-    def test_another_date_redoes_the_untouched_row_the_banks_way(self, world):
+    def test_another_date_moves_the_untouched_row_in_place(self, world):
         item_id, _p, made = connected(world, connector_name="Itaú")
         world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
         mine = made["bank"][2]

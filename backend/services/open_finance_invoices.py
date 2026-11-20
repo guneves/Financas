@@ -238,10 +238,23 @@ def _installment_of(entry):
 
 
 def _set_line(conn, current_user_id, entry_id, row):
+    """A linha como o banco a lista: fatura, valor e parcela (B8: a pendente
+    1/1 pelo total que liquidou 1/3 passa a ser a 1/3)."""
+    year, month = (int(part) for part in row["bill_month"].split("-"))
+    info = f"{row['installment_number'] or 1}/{row['total_installments'] or 1}"
+    conn.execute(
+        "UPDATE cc_expenses SET invoice_month = ?, invoice_year = ?, amount = ?, installment_info = ?"
+        " WHERE id = ? AND user_id = ?",
+        (month, year, abs(int(row["raw_amount_cents"])) / 100, info, entry_id, current_user_id),
+    )
+
+
+def _move_line(conn, current_user_id, entry_id, row):
+    """So a fatura do banco; valor e linhas ficam os do dono."""
     year, month = (int(part) for part in row["bill_month"].split("-"))
     conn.execute(
-        "UPDATE cc_expenses SET invoice_month = ?, invoice_year = ?, amount = ? WHERE id = ? AND user_id = ?",
-        (month, year, abs(int(row["raw_amount_cents"])) / 100, entry_id, current_user_id),
+        "UPDATE cc_expenses SET invoice_month = ?, invoice_year = ? WHERE id = ? AND user_id = ?",
+        (month, year, entry_id, current_user_id),
     )
 
 
@@ -305,8 +318,10 @@ def _mirror_purchase(conn, current_user_id, group, anchor, early):
         return
     # A compra que o dono digitou ou mudou (a Pluggy so a ligou, MATCHED; real:
     # Rota Transportes 6x de 2026-11-18, recategorizada) guarda os valores e as
-    # linhas dele; so a antecipacao vale para ela: a parcela vai para a fatura
-    # em que o banco a cobrou.
+    # linhas dele; a fatura e a do banco (B5, 2026-11-20: a categoria nao muda
+    # em que fatura a compra caiu, e a fatura nao e um campo do dono, nem conta
+    # como toque) e a antecipacao vale para ela: a parcela vai para a fatura em
+    # que o banco a cobrou.
     from_bank = str(owner["client_id"]).startswith("pluggy:")
     entries = [row_to_dict(row) for row in conn.execute(
         "SELECT * FROM cc_expenses WHERE user_id = ? AND client_id = ?", (current_user_id, owner["client_id"]),
@@ -321,6 +336,8 @@ def _mirror_purchase(conn, current_user_id, group, anchor, early):
         if number in early:
             _advance_line(conn, current_user_id, entry["id"], early[number])
         elif not from_bank:
+            if number in by_number:
+                _move_line(conn, current_user_id, entry["id"], by_number[number])
             continue
         elif number in by_number:
             _set_line(conn, current_user_id, entry["id"], by_number[number])
