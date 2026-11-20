@@ -7,17 +7,32 @@
 
 ## Progress (kept current by each session)
 
-**Deploy only at the end** (owner, 2026-11-18: "irei fazer o deploy apenas quando tudo estiver pronto"). A merge
-to `main` deploys, so nothing of this job is merged until all three phases are done. Each phase is a branch
-stacked on the previous one; at the end the owner merges them in order (#99 → phase 1 → phase 2 → phase 3) and
-deploys once.
+**Merged and deployed 2026-11-19** (one deploy, run 44628151379, merge `00c6fdc`): the phases were merged into
+each other first (#102 → #101 → #100 into #99's branch), then #99 into `main`. Before merging, phase 2 was replayed
+over a copy of the server's database; it fixed three wrong outcomes (`e93bcbb`, below), and phase 3 gained the
+anticipated-installments fix (`eee3dd8`). This file is history now; what is left is in `docs/next-steps.md`.
 
-| Branch | What | State |
+| PR | What | State |
 |---|---|---|
-| `fix/brokerage-guessed-side` | BTG Investimentos guess follows the real bank side, `scripts/review_breakdown.py`, this prompt | pushed, **PR #99 open**, not merged |
-| `feat/auto-review-phase1` | Phase 1, commit `11b8eb8` (branched from #99) | local only, not pushed |
-| `feat/auto-investments-phase2` | Phase 2, commit `84f6f39` (branched from phase 1) | local only, not pushed; **real-data check pending** |
-| `feat/auto-watch-phase3` | Phase 3 (branched from phase 2) | local only, not pushed |
+| #99 `fix/brokerage-guessed-side` | BTG Investimentos guess follows the real bank side, `scripts/review_breakdown.py`, this prompt; carries the phases | merged into `main`, deployed |
+| #100 `feat/auto-review-phase1` | Phase 1 | merged into #99's branch |
+| #101 `feat/auto-investments-phase2` | Phase 2 + real-data fixes `e93bcbb` | merged into phase 1 |
+| #102 `feat/auto-watch-phase3` | Phase 3 + anticipated installments `eee3dd8` | merged into phase 2 |
+
+**Phase 2 on the real data (2026-11-19)**, `apply()` replayed over a copy of the server's database:
+- 58 HELD lines → 54 decided, 4 still HELD (safe; listed in next-steps). The only new row: the Renda+ buy of
+  2026-11-10 (4,77 units), on the owner's "TESOURO RENDA+ APOSENTADORIA EXTRA 2065". Production's first pull
+  after the deploy (2026-11-20 00:47Z) did the same: 4 HELD left; 43 decisions (23 `investment_closed_fund`,
+  14 `investment_custody`, 4 `investment_custody_in`, 2 `investment_proceed_link`).
+- Pré is right for every `rate` 0 title: the owner typed C6 14,45/14,6, Original 16,9, CRA Madero 14,97, CRA
+  Caramuru 16 and LCI BTG 11,7 as PRÉ at exactly Pluggy's `fixedAnnualRate`. The CRA Camil has `rateType` IPCA.
+- The fixed-income TRANSFERs carry the original cost in `netAmount` (1000/2000), and the owner had typed each
+  title at the old broker: they link. Cents alone linked them to the wrong title; fixed with `title_fit()`.
+- The CRAs Madero/Caramuru were typed a day later at the note's value (R$ 4–6 more): they and Madero's coupon and
+  amortization would have been recorded twice; fixed by linking a same-title buy within 1%.
+- Renda+'s real name: "Tesouro Renda+ Aposentadoria Extra (NTNB1)", due 2084-12-15.
+- Both BB funds are `TOTAL_WITHDRAWAL` (no quotas): `auto:closed_fund`, no fund class needed.
+- No provisional buy is left.
 
 **Phase 1 — done** (details in its status note below and in `docs/handoff.md`):
 - 058 `auto_decisions` + `GET /api/review/auto`, `POST /api/review/auto/<id>/undo`; web Ajustes › "Decidido sozinho".
