@@ -298,7 +298,8 @@ def _date_from(conn, current_user_id, account_row, today):
     que o dono escolheu; depois, LATE_POSTING_DAYS antes do ultimo pull, porque
     o banco pode listar hoje um lancamento de dias atras. Nunca antes do dia mais
     antigo que a Pluggy ja deu desta conta (a primeira busca do dono), salvo os
-    OVERLAP_DAYS de sempre."""
+    OVERLAP_DAYS de sempre; sem linha nenhuma, a janela do dono contada do
+    ultimo pull."""
     synced = parse_iso_date(account_row["synced_until"]) if account_row["synced_until"] else None
     if not synced:
         return _day_text(today - timedelta(days=first_sync_days(conn, current_user_id)))
@@ -315,6 +316,12 @@ def _date_from(conn, current_user_id, account_row, today):
     first_day = parse_iso_date(first)
     if first_day:
         floor = min(floor, first_day)
+    else:
+        # B12 (2026-11-20): sem linha nenhuma (o 1o pull veio vazio), a janela
+        # do dono contada do ultimo pull, nunca so OVERLAP_DAYS: um lancamento
+        # listado com 8+ dias de atraso ainda entra, e o ultimo pull menos a
+        # janela nunca e antes do comeco da primeira.
+        floor = min(floor, synced - timedelta(days=first_sync_days(conn, current_user_id)))
     return _day_text(max(synced - timedelta(days=LATE_POSTING_DAYS), floor))
 
 
