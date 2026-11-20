@@ -1626,3 +1626,50 @@ class TestReposts:
         send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=at + 5000, app=ITAU, merchant="PADARIA"))
         assert len(world.transactions(account)) == 2
         assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B8 (2026-11-20): a pendente 1/1 pelo total que liquida parcelada (outra id)
+# ---------------------------------------------------------------------------
+
+class TestPendingTotalPostsInInstallments:
+    @pytest.mark.parametrize("recategorise", [False, True])
+    def test_the_purchase_continues_as_installments(self, world, user, recategorise):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        pending = with_bill(card_tx(300, "2026-10-20", "LOJA PARCELADA", docs_sign=True, status="PENDING"), "2026-11")
+        world.fake.add_tx(card_pluggy, pending)
+        world.sync(item_id)
+        [row] = world.card_rows(card)
+        if recategorise:
+            other = world.call("post", "/api/categories", json={"name": "Casa", "kind": "EXPENSE"})["id"]
+            world.call("post", "/api/review", json={"items": [
+                {"table": "cc_expenses", "id": row["id"], "category_id": other}]})
+        world.fake.drop_tx(card_pluggy, pending["id"])
+        for number, month in ((1, "2026-11"), (2, "2026-12"), (3, "2027-01")):
+            world.fake.add_tx(card_pluggy, with_bill(card_tx(
+                100, "2026-10-20", "LOJA PARCELADA", installment=number, total_installments=3, total_amount=300,
+                purchase_date="2026-10-20", docs_sign=True, status="POSTED" if number == 1 else "PENDING",
+            ), month))
+        world.sync(item_id)
+        rows = sorted(world.card_rows(card), key=lambda entry: entry["installment_info"])
+        assert [(entry["amount"], entry["installment_info"]) for entry in rows] == [
+            (100.0, "1/3"), (100.0, "2/3"), (100.0, "3/3")]
+        assert row["id"] in {entry["id"] for entry in rows}
+        if recategorise:
+            assert {entry["category"] for entry in rows} == {"Casa"}
+        assert of_rows(user["id"], "conflict = 'vanished'") == []
+        assert_identity(user["id"])
+
+    def test_another_store_of_the_same_total_is_not_a_successor(self, world, user):
+        item_id, made = _setup(world, bank=False, card=True)
+        card_pluggy, _of, card = made["card"]
+        pending = card_tx(300, "2026-10-20", "LOJA PARCELADA", docs_sign=True, status="PENDING")
+        world.fake.add_tx(card_pluggy, pending)
+        world.sync(item_id)
+        world.fake.drop_tx(card_pluggy, pending["id"])
+        world.fake.add_tx(card_pluggy, card_tx(100, "2026-10-20", "OUTRA COISA", installment=1, total_installments=3,
+                                               total_amount=300, purchase_date="2026-10-20", docs_sign=True))
+        world.sync(item_id)
+        assert [entry for entry in of_rows(user["id"], "superseded_by IS NOT NULL")] == []
+        assert_identity(user["id"])

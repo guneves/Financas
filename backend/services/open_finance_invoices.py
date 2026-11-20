@@ -238,10 +238,14 @@ def _installment_of(entry):
 
 
 def _set_line(conn, current_user_id, entry_id, row):
+    """A linha como o banco a lista: fatura, valor e parcela (B8: a pendente
+    1/1 pelo total que liquidou 1/3 passa a ser a 1/3)."""
     year, month = (int(part) for part in row["bill_month"].split("-"))
+    info = f"{row['installment_number'] or 1}/{row['total_installments'] or 1}"
     conn.execute(
-        "UPDATE cc_expenses SET invoice_month = ?, invoice_year = ?, amount = ? WHERE id = ? AND user_id = ?",
-        (month, year, abs(int(row["raw_amount_cents"])) / 100, entry_id, current_user_id),
+        "UPDATE cc_expenses SET invoice_month = ?, invoice_year = ?, amount = ?, installment_info = ?"
+        " WHERE id = ? AND user_id = ?",
+        (month, year, abs(int(row["raw_amount_cents"])) / 100, info, entry_id, current_user_id),
     )
 
 

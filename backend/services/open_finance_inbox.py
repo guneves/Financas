@@ -1334,8 +1334,13 @@ def successor_for(conn, current_user_id, account, tx, missing, pulled=None):
         if row["of_account_id"] == account["id"] and row["direction"] == tx["direction"]
         and not _broker_line(row)
         and _same_amount(row["amount_cents"], tx["amount_cents"], rounds_up)
-        and (row["installment_number"] or 1) == (tx["installment_number"] or 1)
-        and (row["total_installments"] or 1) == (tx["total_installments"] or 1)
+        and (
+            (
+                (row["installment_number"] or 1) == (tx["installment_number"] or 1)
+                and (row["total_installments"] or 1) == (tx["total_installments"] or 1)
+            )
+            or _split_into_installments(account, row, tx)
+        )
         and inbox._date_gap(row["date"], tx["date"]) <= SUCCESSION_DAYS
     ]
     if not found:
@@ -1347,6 +1352,24 @@ def successor_for(conn, current_user_id, account, tx, missing, pulled=None):
     ))[0]
     missing.remove(best)
     return best
+
+
+def _split_into_installments(account, old, tx):
+    """B8 (2026-11-20): a compra pendente que o banco listou 1/1 pelo total e
+    liquidou parcelada com outra id (a 1a parcela traz o total, `amount_cents`):
+    no cartao, mesma loja, a sumida 1/1 e a nova 1/n."""
+    if account["type"] != "CREDIT" or old["direction"] != "OUT":
+        return False
+    if (old["total_installments"] or 1) != 1 or (tx["total_installments"] or 1) <= 1:
+        return False
+    if (tx["installment_number"] or 1) != 1:
+        return False
+    if plain_text(old["description"] or "") == plain_text(tx["description"] or ""):
+        return True
+    return any(
+        inbox.merchant_agrees(name, tx.get("merchant_name"), tx.get("description"))
+        for name in (old.get("merchant_name"), old.get("description")) if name
+    )
 
 
 def _purchase_like(row):
