@@ -378,6 +378,34 @@ def issuer_of_institution(text):
     return found[0] if len(found) == 1 else None
 
 
+# Outros bancos que o nome de uma conta/cartao do dono pode citar: nao emitem
+# aviso aqui, mas dizem que a conta NAO e do Itau, do BB nem da BTG (B1,
+# 2026-11-20: o aviso do Itau ligava a um digitado na conta Nubank).
+OTHER_BANK_NAMES = (
+    "nubank", "nu pagamentos", "inter", "caixa", "santander", "bradesco", "c6", "c6 bank", "mercado pago",
+    "picpay", "wise", "xp", "rico", "neon", "sicoob", "sicredi", "pagbank", "pagseguro", "next", "digio",
+    "safra", "nomad", "avenue", "banrisul", "will bank", "original", "pan", "sofisa", "agibank", "modal",
+)
+
+
+def bank_of_text(text):
+    """O banco que um nome de conta/cartao/instituicao cita: o emissor (itau,
+    bb, btg, flash), "other:<nome>" para outro banco conhecido, ou None."""
+    if not text:
+        return None
+    issuer = issuer_of_institution(text)
+    if issuer:
+        return issuer
+    other = next((name for name in OTHER_BANK_NAMES if _mentions(text, (name,))), None)
+    return f"other:{other.replace(' ', '')}" if other else None
+
+
+def banks_contradict(issuer, bank):
+    """O emissor do aviso e o banco da conta/cartao sao dois bancos diferentes
+    (sem saber um dos dois, nao ha contradicao)."""
+    return bool(issuer and bank and issuer != bank)
+
+
 def _first_name(value):
     words = normalized(value).split()
     return words[0] if words else ""

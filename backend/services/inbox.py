@@ -157,10 +157,12 @@ from services.inbox_store import (  # noqa: F401  (reexportados: o resto do app 
     _pending_items,
     _source_directions,
     _usable_accounts,
+    account_bank,
     always_ask,
     ambiguous_target,
     apply_hint_to_pending,
     candidate_details,
+    card_bank,
     claimed,
     confirm_targets,
     debit_card_for,
@@ -171,7 +173,9 @@ from services.inbox_store import (  # noqa: F401  (reexportados: o resto do app 
     guess_card,
     insert_item,
     is_self_counterparty,
+    issuer_contradicts,
     item_detections,
+    item_issuer,
     learn_self,
     list_hints,
     notification_claimed,
@@ -582,6 +586,7 @@ def _ingest_alone(conn, current_user_id, detection, rules):
         account_id=known_account,
         card_id=target["card_id"] if target["remembered"] else None,
         claimed_by=CLAIM_NOTIFY,
+        issuer=issuer_of(detection),
     )
     item_id = new_item_for_detection(conn, current_user_id, detection, target, candidates, rules)
     _insert_detection(conn, current_user_id, detection, SOURCE, item_id=item_id)
@@ -717,8 +722,9 @@ def notification_item_for_open_finance(conn, current_user_id, *, entry_type, dir
         ).fetchall()
         found = [
             row for row in rows
-            if _amount_matches(row, cents, rounds_up) and open_finance_fits_item(
-                item_dict(row), entry_type=entry_type, direction=direction, account_id=account_id, card_id=card_id,
+            if _amount_matches(row, cents, rounds_up) and notified_item_fits(
+                conn, current_user_id, row, entry_type=entry_type, direction=direction, account_id=account_id,
+                card_id=card_id,
             )
         ]
         return _pick_closest(found, date_text)
@@ -726,6 +732,29 @@ def notification_item_for_open_finance(conn, current_user_id, *, entry_type, dir
     return look(
         PAIRABLE_STATES, _shift(date_text, -OPEN_FINANCE_PAIR_DAYS), _shift(date_text, OPEN_FINANCE_PAIR_DAYS),
     ) or look(RECORDED_STATES, _shift(date_text, -OPEN_FINANCE_LATE_POST_DAYS), _shift(date_text, -OPEN_FINANCE_PAIR_DAYS - 1))
+
+
+def notified_item_fits(conn, current_user_id, item_row, *, entry_type, direction, account_id=None, card_id=None):
+    """`open_finance_fits_item()` para um item que um aviso abriu, e o banco do
+    aviso nao contradiz a conta/cartao da Pluggy (B1): o palpite de conta do
+    aviso do Itau nunca recebe a compra que o BB trouxe."""
+    item = item_dict(item_row)
+    if not open_finance_fits_item(item, entry_type=entry_type, direction=direction, account_id=account_id,
+                                  card_id=card_id):
+        return False
+    if entry_type == "CARD" and item.get("card_id") == card_id:
+        return True
+    if entry_type != "CARD":
+        if item.get("entry_type") == "TRANSFER":
+            side = item.get("account_id") if direction == "OUT" else item.get("transfer_account_id")
+        else:
+            side = item.get("account_id")
+        if side == account_id:
+            return True
+    return not issuer_contradicts(
+        conn, current_user_id, item_issuer(conn, current_user_id, item["id"]),
+        account_id=None if entry_type == "CARD" else account_id, card_id=card_id if entry_type == "CARD" else None,
+    )
 
 
 def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
@@ -739,11 +768,16 @@ def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
     direction = target["direction"]
     entry_type = target["entry_type"]
     item_type = item.get("entry_type")
+    issuer = issuer_of(detection)
     if item_type == "TRANSFER":
         if detection["kind"] not in MOVEMENT_KINDS:
             return False
         side = item["account_id"] if direction == "OUT" else item["transfer_account_id"]
-        return not (target["remembered"] and target["account_id"] and side and target["account_id"] != side)
+        if target["remembered"] and target["account_id"] and side and target["account_id"] != side:
+            return False
+        if target["remembered"] and target["account_id"] == side:
+            return True  # o dono escolheu esta conta para este aviso
+        return not issuer_contradicts(conn, current_user_id, issuer, account_id=side)
     if item.get("direction") != direction:
         return False
     if item_type == "CARD":
@@ -751,10 +785,18 @@ def _detection_fits_open_finance(conn, current_user_id, detection, target, row):
             return False
         if direction == "IN" and detection["kind"] != "REFUND":
             return False
-        return not (target["remembered"] and target["card_id"] and target["card_id"] != item.get("card_id"))
+        if target["remembered"] and target["card_id"] and target["card_id"] != item.get("card_id"):
+            return False
+        if target["remembered"] and target["card_id"] == item.get("card_id"):
+            return True
+        return not issuer_contradicts(conn, current_user_id, issuer, card_id=item.get("card_id"))
     if entry_type is not None and entry_type != item_type:
         return False
-    return not (target["remembered"] and target["account_id"] and target["account_id"] != item.get("account_id"))
+    if target["remembered"] and target["account_id"] and target["account_id"] != item.get("account_id"):
+        return False
+    if target["remembered"] and target["account_id"] == item.get("account_id"):
+        return True
+    return not issuer_contradicts(conn, current_user_id, issuer, account_id=item.get("account_id"))
 
 
 def open_finance_item_for_detection(conn, current_user_id, detection, target):
@@ -895,8 +937,9 @@ def near_notification_items(conn, current_user_id, row, exclude_item_id=None):
         international = is_international(detection) or bool(row.get("original_currency"))
         if not _near_window(item_row["occurred_at"], row["date"], international, item_row["state"] in RECORDED_STATES):
             continue
-        if not open_finance_fits_item(
-            item_dict(item_row), entry_type=entry_type, direction="OUT", account_id=account_id, card_id=card_id,
+        if not notified_item_fits(
+            conn, current_user_id, item_row, entry_type=entry_type, direction="OUT", account_id=account_id,
+            card_id=card_id,
         ):
             continue
         if not merchant_agrees(detection["merchant"], row.get("merchant_name"), row.get("description")):

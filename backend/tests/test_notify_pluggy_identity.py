@@ -1267,3 +1267,97 @@ class TestEndToEnd:
         assert _balance(world, btg_cc) == 0                                                # R: o palpite saiu
         assert world.pending() == []
         assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B1 (2026-11-20): o aviso de um banco nunca e o movimento de outro banco
+# ---------------------------------------------------------------------------
+
+class TestIssuerContradicts:
+    """Com gravar sozinho nada e lembrado, entao a conta/cartao do aviso e um
+    palpite pelo emissor; mesmo assim o emissor diz de que banco ele NAO e."""
+
+    def test_notice_never_links_to_a_typed_row_of_another_bank(self, world, user):
+        itau = world.account("Itaú conta")
+        nubank = world.account("Nubank")
+        world.call("post", "/api/transactions", json={
+            "amount": 45.9, "date": "2026-10-19", "type": "EXPENSE", "category": "Alimentação",
+            "account_id": nubank, "description": "mercado",
+        })
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        [row] = world.transactions(itau)
+        assert row["description"] == "FARMACIA"
+        assert [r["description"] for r in world.transactions(nubank)] == ["mercado"]
+        assert_identity(user["id"])
+
+    def test_card_notice_never_links_to_a_purchase_on_another_banks_card(self, world, user):
+        itau_card = world.card("Itaú Visa")
+        bb_card = world.card("BB Ourocard")
+        world.call("post", "/api/cc-expenses/purchases", json={
+            "card_id": bb_card, "total_amount": 45.9, "purchase_date": "2026-10-19", "description": "mercado",
+            "category": "Alimentação", "installments": 1, "client_id": "a" * 40,
+        }, expected=(200, 201))
+        send(world.client, world.auth, detection("CREDIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        assert [r["description"] for r in world.card_rows(itau_card)] == ["FARMACIA"]
+        assert len(world.card_rows(bb_card)) == 1
+        assert_identity(user["id"])
+
+    def test_late_notice_never_joins_another_banks_pluggy_item(self, world, user):
+        item_id, made = _setup(world, connector_name="Banco do Brasil")
+        bb_pluggy, _of, bb = made["bank"]
+        itau = world.account("Itaú conta")
+        world.fake.add_tx(bb_pluggy, bank_tx(-45.9, "2026-10-21", "MERCADO"))
+        world.sync(item_id)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        assert [r["description"] for r in world.transactions(itau)] == ["FARMACIA"]
+        assert [r["description"].upper() for r in world.transactions(bb)] == ["MERCADO"]
+        assert_identity(user["id"])
+
+    def test_another_banks_pluggy_row_never_takes_the_notified_row(self, world, user):
+        item_id, made = _setup(world, connector_name="Banco do Brasil")
+        bb_pluggy, _of, bb = made["bank"]
+        itau = world.account("Itaú conta")
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        [notified] = world.transactions(itau)
+        world.fake.add_tx(bb_pluggy, bank_tx(-45.9, "2026-10-21", "MERCADO"))
+        world.sync(item_id)
+        assert [(r["id"], r["description"]) for r in world.transactions(itau)] == [(notified["id"], "FARMACIA")]
+        assert [r["description"].upper() for r in world.transactions(bb)] == ["MERCADO"]
+        assert_identity(user["id"])
+
+    def test_same_bank_still_pairs_both_ways(self, world, user):
+        item_id, made = _setup(world)
+        account, _of, mine = made["bank"]
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        world.fake.add_tx(account, bank_tx(-45.9, "2026-10-20", "FARMACIA"))
+        world.sync(item_id)
+        world.fake.add_tx(account, bank_tx(-12.5, "2026-10-21", "PADARIA"))
+        world.sync(item_id)
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1250, at=ms(2026, 10, 21, 9, 0), app=ITAU,
+                                                 merchant="PADARIA"))
+        assert sorted(r["amount"] for r in world.transactions(mine)) == [12.5, 45.9]
+        assert_identity(user["id"])
+
+    def test_a_notice_never_links_to_an_invoice_payment_or_investment_cash(self, world, user):
+        db = importlib.import_module("db")
+        itau = world.account("Itaú conta", institution="Itaú")
+        with db.get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO transactions (id, user_id, amount, date, type, category, account_id, description,
+                                          source_type, source_id)
+                VALUES ('autopay1', ?, 45.9, '2026-10-20', 'EXPENSE', 'Pagamento Fatura', ?, 'Fatura', 'CC_AUTOPAY',
+                        'x:2026-10')
+                """,
+                (user["id"], itau),
+            )
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 4590, at=ms(2026, 10, 20, 14, 0), app=ITAU,
+                                                 merchant="FARMACIA"))
+        assert sorted(r["description"] for r in world.transactions(itau)) == ["FARMACIA", "Fatura"]
+        assert_identity(user["id"])
+
