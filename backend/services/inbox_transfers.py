@@ -20,6 +20,8 @@ from services.inbox_rules import (
     ISSUER_ALIASES,
     ISSUER_OF_APP,
     KIND_SHAPES,
+    SELF_DOC_PREFIX,
+    SELF_NAME_PREFIX,
     _date_gap,
     _is_movement_source,
     _jlist,
@@ -31,6 +33,7 @@ from services.inbox_rules import (
     counterparties_conflict,
     issuer_of_institution,
     item_dict,
+    normalized,
     recompute_needs,
     transfer_hint_key,
 )
@@ -76,6 +79,28 @@ def _brl_account(conn, current_user_id, account_id):
     ).fetchone()
 
 
+def side_is_owner(conn, current_user_id, side):
+    """O outro lado desta ponta e reconhecidamente o dono (B3): o app da
+    corretora, a categoria "mesma titularidade" da Pluggy (04), ou o CPF/nome
+    aprendido como "sou eu" (031)."""
+    if not side:
+        return False
+    if side.get("app") == BROKERAGE_APP or side.get("movement") == "SELF_TRANSFER":
+        return True
+    if side.get("counterparty_doc"):
+        return fetch_hint(conn, current_user_id, SELF_DOC_PREFIX + side["counterparty_doc"]) is not None
+    name = normalized(side.get("counterparty"))
+    return bool(name) and fetch_hint(conn, current_user_id, SELF_NAME_PREFIX + name) is not None
+
+
+def sides_conflict(conn, current_user_id, a, b):
+    """`counterparties_conflict()` com o que o app sabe de quem e o dono."""
+    a, b = a or {}, b or {}
+    return counterparties_conflict(
+        a, b, side_is_owner(conn, current_user_id, a), side_is_owner(conn, current_user_id, b),
+    )
+
+
 def transfer_partner(conn, current_user_id, *, account_id, direction, cents, date_text, detection=None):
     """O item pendente que e a outra ponta de uma transferencia entre contas do
     dono: saida numa conta e entrada noutra (ou o contrario), mesmo valor, ate
@@ -89,8 +114,8 @@ def transfer_partner(conn, current_user_id, *, account_id, direction, cents, dat
     for row in _pending_items(conn, current_user_id, cents=cents, date_text=date_text, days=TRANSFER_MATCH_DAYS):
         if int(row["installments"] or 1) != 1 or to_cents(row["amount"]) != cents:
             continue
-        if detection and any(
-            counterparties_conflict(detection, source)
+        if any(
+            sides_conflict(conn, current_user_id, detection, source)
             for source in _movement_sources(conn, current_user_id, row["id"])
         ):
             continue
@@ -283,7 +308,7 @@ def guessed_transfer_awaiting(conn, current_user_id, *, account_id, direction, c
         if not _brl_account(conn, current_user_id, side):
             continue
         sources = _side_sources(conn, current_user_id, row["id"])
-        if counterparty and any(counterparties_conflict(counterparty, source) for source in sources):
+        if any(sides_conflict(conn, current_user_id, counterparty, source) for source in sources):
             continue
         checks = [_source_untouched(conn, current_user_id, item, source) for source in sources]
         if False in checks or True not in checks:
@@ -406,7 +431,7 @@ def absorb_recorded_side(conn, current_user_id, *, account_id, direction, cents,
             continue
         if len({_source_direction(source) for source in sources}) != 1:
             continue
-        if counterparty and any(counterparties_conflict(counterparty, source) for source in sources):
+        if any(sides_conflict(conn, current_user_id, counterparty, source) for source in sources):
             continue
         item = item_dict(row)
         checks = [_source_untouched(conn, current_user_id, item, source) for source in sources]

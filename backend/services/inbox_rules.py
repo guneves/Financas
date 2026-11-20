@@ -411,14 +411,56 @@ def _first_name(value):
     return words[0] if words else ""
 
 
-def counterparties_conflict(a, b):
-    """Duas pontas que nao podem ser a mesma pessoa: CPFs diferentes, ou
-    primeiros nomes diferentes. Numa transferencia entre contas do dono, a
-    saida diz "para <dono>" e a entrada "de <dono>": o outro lado e o mesmo."""
+NAME_LINKS = {"de", "da", "do", "das", "dos", "e"}
+
+
+def _name_words(value):
+    return [word for word in normalized(value).split() if len(word) > 1 and word not in NAME_LINKS]
+
+
+def same_person_name(a, b):
+    """Dois nomes podem ser a mesma pessoa (B3, dono 2026-11-20): o mesmo
+    primeiro nome e o mesmo ultimo sobrenome ("FULANO R DONO" e "Fulano
+    Rodrigues Dono"); o banco que corta o nome ("FULANO RODRIGUES DO") vale
+    pelo comeco. So o primeiro nome igual ("Maria Souza", "Maria Oliveira") nao basta."""
+    words_a, words_b = _name_words(a), _name_words(b)
+    if not words_a or not words_b:
+        return True
+    if words_a[0] != words_b[0]:
+        return False
+    if len(words_a) == 1 or len(words_b) == 1:
+        return True
+    last_a, last_b = words_a[-1], words_b[-1]
+    return (
+        last_a.startswith(last_b) or last_b.startswith(last_a)
+        or last_a in words_b[1:] or last_b in words_a[1:]
+    )
+
+
+def _identified(side):
+    return bool(side.get("counterparty_doc") or normalized(side.get("counterparty")))
+
+
+def counterparties_conflict(a, b, a_is_owner=False, b_is_owner=False):
+    """Duas pontas que nao podem ser a mesma pessoa (o outro lado de um Pix
+    entre contas do dono e o proprio dono: a saida diz "para <dono>", a entrada
+    "de <dono>"). B3 (dono, 2026-11-20, o meio-termo):
+    - os dois com CPF: o CPF decide;
+    - os dois com nome: o nome inteiro (`same_person_name()`), nunca so o primeiro;
+    - um nomeia alguem e o outro nao diz ninguem: so pareia se uma das pontas
+      e reconhecidamente o dono (`a_is_owner`/`b_is_owner`: o "sou eu"
+      aprendido, a BTG Investimentos, a categoria 04 da Pluggy);
+    - nenhum diz ninguem: podem ser (como antes)."""
+    if a_is_owner and b_is_owner:
+        return False
     if a.get("counterparty_doc") and b.get("counterparty_doc"):
         return a["counterparty_doc"] != b["counterparty_doc"]
-    first_a, first_b = _first_name(a.get("counterparty")), _first_name(b.get("counterparty"))
-    return bool(first_a and first_b and first_a != first_b)
+    name_a, name_b = normalized(a.get("counterparty")), normalized(b.get("counterparty"))
+    if name_a and name_b:
+        return not same_person_name(name_a, name_b)
+    if _identified(a) != _identified(b):
+        return not (a_is_owner or b_is_owner)
+    return False
 
 
 def self_keys(detection):

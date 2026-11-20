@@ -317,7 +317,9 @@ def place(conn, current_user_id, row, account, rules=None):
             return "matched"
         # A transferencia que um aviso gravou com este lado adivinhado noutra
         # conta: o lado passa a ser o do banco, e esta transacao a fonte dele.
-        counterparty = {"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]}
+        counterparty = {
+            "counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"], "movement": row["movement"],
+        }
         guessed = inbox.guessed_transfer_awaiting(
             conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
             date_text=row["date"], counterparty=counterparty,
@@ -331,7 +333,7 @@ def place(conn, current_user_id, row, account, rules=None):
             return "matched"
         other = inbox.transfer_partner(
             conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
-            date_text=row["date"], detection={"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]},
+            date_text=row["date"], detection=counterparty,
         )
         if other and _is_movement_item(conn, current_user_id, other):
             _update_row(conn, current_user_id, row["id"], role="SOURCE", item_id=other["id"])
@@ -344,8 +346,7 @@ def place(conn, current_user_id, row, account, rules=None):
         absorbed = inbox.absorb_recorded_side(
             conn, current_user_id, account_id=account_id, direction=row["direction"], cents=cents,
             date_text=row["date"], occurred_at=row["occurred_at"],
-            counterparty={"counterparty": row["counterparty"], "counterparty_doc": row["counterparty_doc"]},
-            description=row["description"],
+            counterparty=counterparty, description=row["description"],
         )
         if absorbed:
             _update_row(

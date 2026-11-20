@@ -708,6 +708,74 @@ class TestOwnTransferAbsorbs:
         assert made  # o mundo tem as duas contas
         assert_identity(user["id"])
 
+    # B3 (dono, 2026-11-20, "meio-termo"): quem nomeia alguem que nao se sabe
+    # ser o dono nunca pareia com uma ponta sem nome; com os dois nomes, o nome
+    # inteiro decide (primeiro e ultimo), nunca so o primeiro nome.
+
+    def test_b3_income_from_someone_is_not_absorbed_by_an_anonymous_pluggy_pix_out(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_IN", 100000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Souza"))
+        world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(-1000, "2026-10-22", "PIX ENVIADO", category_id=PIX))
+        world.sync(made["items"]["bb"])
+        rows = _amount_rows(world, 1000.0)
+        assert sorted((row["type"], row["account_id"]) for row in rows) == sorted([("INCOME", itau), ("EXPENSE", bb)])
+        assert_identity(user["id"])
+
+    def test_b3_income_from_someone_is_not_absorbed_by_an_anonymous_notice(self, world, user):
+        meupluggy(world)
+        send(world.client, world.auth, detection("PIX_IN", 100000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Souza"))
+        send(world.client, world.auth, detection("PIX_OUT", 100000, at=ms(2026, 10, 22, 15, 0), app=BB, merchant=None))
+        assert sorted(row["type"] for row in _amount_rows(world, 1000.0)) == ["EXPENSE", "INCOME"]
+        assert_identity(user["id"])
+
+    def test_b3_same_first_name_is_not_the_same_person(self, world, user):
+        meupluggy(world)
+        send(world.client, world.auth, detection("PIX_IN", 5000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Maria Souza"))
+        send(world.client, world.auth, detection("PIX_OUT", 5000, at=ms(2026, 10, 22, 15, 0), app=BB, merchant=None,
+                                                 counterparty="Maria Oliveira"))
+        assert sorted(row["type"] for row in _amount_rows(world, 50.0)) == ["EXPENSE", "INCOME"]
+        assert_identity(user["id"])
+
+    def test_b3_two_anonymous_sides_still_pair(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None))
+        world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(700, "2026-10-22", "PIX RECEBIDO", category_id=PIX))
+        world.sync(made["items"]["bb"])
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert_identity(user["id"])
+
+    def test_b3_the_known_owner_pairs_with_an_anonymous_side(self, world, user):
+        made = meupluggy(world)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        _learn_self(user)
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="Fulano Dono"))
+        world.fake.add_tx(made["bb:0003/3-3"][0], bank_tx(700, "2026-10-22", "PIX RECEBIDO", category_id=PIX))
+        world.sync(made["items"]["bb"])
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert_identity(user["id"])
+
+    def test_b3_the_whole_name_in_two_spellings_pairs(self, world, user):
+        made = meupluggy(world)
+        itau, bb = made["itau:0001/1-1"][2], made["bb:0003/3-3"][2]
+        send(world.client, world.auth, detection("PIX_OUT", 70000, at=ms(2026, 10, 22, 9, 0), app=ITAU, merchant=None,
+                                                 counterparty="FULANO R DONO"))
+        send(world.client, world.auth, detection("PIX_IN", 70000, at=ms(2026, 10, 22, 9, 1), app=BB, merchant=None,
+                                                 counterparty="Fulano Rodrigues Dono"))
+        rows = _amount_rows(world, 700.0)
+        assert [(row["type"], row["account_id"], row["transfer_account_id"]) for row in rows] == [("TRANSFER", itau, bb)]
+        assert_identity(user["id"])
+
 
 class TestNothingWaits:
     def test_an_own_transfer_with_one_side_is_recorded_at_once(self, world, user):
