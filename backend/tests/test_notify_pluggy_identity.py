@@ -1673,3 +1673,41 @@ class TestPendingTotalPostsInInstallments:
         world.sync(item_id)
         assert [entry for entry in of_rows(user["id"], "superseded_by IS NOT NULL")] == []
         assert_identity(user["id"])
+
+
+# ---------------------------------------------------------------------------
+# B9 (2026-11-20): o BB arredonda mesmo quando a Pluggy nao diz que e o BB
+# ---------------------------------------------------------------------------
+
+class TestRoundsUpByAppAccount:
+    def connect_plain(self, world, kind, name):
+        fake = world.fake
+        pluggy_item = fake.add_item("MeuPluggy")
+        pluggy_account = fake.add_account(pluggy_item, kind, name=name, number="0003/3-3")
+        body = world.connect(pluggy_item)
+        item = next(entry for entry in body["items"] if entry["id"] == body["item_id"])
+        return body["item_id"], pluggy_account, item["accounts"][0]["id"]
+
+    def test_a_bb_account_named_plainly_still_rounds_up(self, world, user):
+        item_id, pluggy_account, of_id = self.connect_plain(world, "BANK", "Conta Corrente")
+        bb = world.account("BB", institution="Banco do Brasil")
+        world.map(of_id, account_id=bb)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1819, at=ms(2026, 10, 21, 12, 0), app=BB,
+                                                 merchant="LANCHONETE"))
+        world.fake.add_tx(pluggy_account, bank_tx(-19, "2026-10-21", "COMPRA COM CARTAO"))
+        world.sync(item_id)
+        assert [row["amount"] for row in world.transactions(bb)] == [18.19]
+        assert_identity(user["id"])
+
+    def test_another_bank_named_plainly_does_not_round(self, world, user):
+        item_id, pluggy_account, of_id = self.connect_plain(world, "BANK", "Conta Corrente")
+        itau = world.account("Itaú conta", institution="Itaú")
+        world.map(of_id, account_id=itau)
+        world.call("patch", "/api/open-finance/settings", json={"auto_record": True})
+        send(world.client, world.auth, detection("DEBIT_PURCHASE", 1819, at=ms(2026, 10, 21, 12, 0), app=ITAU,
+                                                 merchant="LANCHONETE"))
+        world.fake.add_tx(pluggy_account, bank_tx(-19, "2026-10-21", "COMPRA COM CARTAO"))
+        world.sync(item_id)
+        assert sorted(row["amount"] for row in world.transactions(itau)) == [18.19, 19.0]
+        assert_identity(user["id"])

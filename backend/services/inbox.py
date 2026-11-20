@@ -719,7 +719,7 @@ def open_finance_rounds_up(conn, current_user_id, of_account_id):
     """A conta da Pluggy e de um banco que arredonda o valor (ROUNDS_UP_ISSUERS)."""
     row = conn.execute(
         """
-        SELECT a.name, i.connector_name FROM open_finance_accounts a
+        SELECT a.name, a.account_id, a.card_id, i.connector_name FROM open_finance_accounts a
         JOIN open_finance_items i ON i.id = a.of_item_id AND i.user_id = a.user_id
         WHERE a.id = ? AND a.user_id = ?
         """,
@@ -727,7 +727,12 @@ def open_finance_rounds_up(conn, current_user_id, of_account_id):
     ).fetchone()
     if not row:
         return False
-    issuer = issuer_of_institution(row["connector_name"]) or issuer_of_institution(row["name"])
+    # B9 (2026-11-20): no MeuPluggy o conector nao diz o banco, e a conta pode
+    # se chamar "Conta Corrente": vale tambem o banco da conta/cartao do app.
+    issuer = (
+        issuer_of_institution(row["connector_name"]) or issuer_of_institution(row["name"])
+        or account_bank(conn, current_user_id, row["account_id"]) or card_bank(conn, current_user_id, row["card_id"])
+    )
     return issuer in ROUNDS_UP_ISSUERS
 
 
