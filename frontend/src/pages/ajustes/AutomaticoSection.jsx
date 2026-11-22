@@ -1,4 +1,5 @@
 import { AlertMessage, EmptyState, ListSkeleton, Panel, PanelHeader } from '../../components/ui'
+import { shownDecisions } from '../../lib/autoDecisions'
 import { reviewApi } from '../../lib/dataApi'
 import { queryErrorMessage, useQuery } from '../../lib/queries'
 import AutoDecisionList from './AutoDecisionList'
@@ -6,13 +7,13 @@ import AutoDecisionList from './AutoDecisionList'
 const KEY = ['review', 'automatic']
 
 // Decidido sozinho (dono, 2026-11-18: "tudo automatico"): o que o app antes
-// perguntava e agora decide por uma regra escrita — a categoria da Pluggy, o
-// Revisar que passou do prazo, a ponta so da Corretora, o cambio sem a PTAX do
-// dia, o conflito com o banco, a carteira. Cada uma com "Desfazer"; desfeita, a
+// perguntava e agora decide por uma regra escrita — a categoria da Pluggy, a
+// ponta so da Corretora, o cambio sem a PTAX do dia, o conflito com o banco, a
+// carteira (a confirmacao automatica fica de fora: shownDecisions). Cada uma com "Desfazer"; desfeita, a
 // regra nao decide de novo aquele lancamento.
 export default function AutomaticoSection() {
   const query = useQuery({ queryKey: KEY, queryFn: () => reviewApi.automatic() })
-  const items = query.data?.items || []
+  const items = shownDecisions(query.data?.items)
 
   return (
     <Panel id="automatico" className="scroll-mt-20 lg:scroll-mt-8">

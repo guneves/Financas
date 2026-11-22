@@ -21,7 +21,7 @@ class ReviewRepository(
     fun cardStatement(filters: Map<String, String>): Flow<Load<List<CardStatementDto>>> =
         reader.read(cardStatementPath(filters), ListSerializer(CardStatementDto.serializer()))
 
-    /** POST /api/review {items: [{table, id, category_id?}]} (rules/ReviewRules.reviewPayload). */
+    /** POST /api/review {items: [{table, id, category_id?}]}. */
     suspend fun confirm(items: List<Map<String, Any?>>): InboxWrite<ReviewConfirmedDto> =
         when (val result = sendWrite(sender, "POST", REVIEW_PATH, JsonBody.encode(mapOf("items" to items)))) {
             is InboxWrite.Done -> decode(result.value)?.let { InboxWrite.Done(it) } ?: InboxWrite.Offline

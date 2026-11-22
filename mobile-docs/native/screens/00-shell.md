@@ -11,7 +11,7 @@
 
 ## What it is for
 The frame every screen lives in: the bottom navigation and header on the phone, the counters that
-say "something waits for you" (Revisar, pending outbox, the bell), the privacy eye, the theme, the
+say "something waits for you" (pending outbox, the bell), the privacy eye, the theme, the
 APK update banner and the "+ Novo" button. It also owns login and hands the session to the Java
 side, which is what lets a native screen (and the outbox worker) call the API with the app closed.
 
@@ -20,9 +20,6 @@ Phone (below `lg`, 1024 px). Top to bottom:
 
 1. **Header** (`Layout.jsx`, sticky, `h-16`): left the brand mark (green `bg-brand` square with "F"
    + "Finanças"); right, in this order, each 44 px:
-   - **Review pill** (`ReviewPill`): "<n> para revisar", shown only when `count` of `GET /api/review`
-     > 0. Amber (warning: something to decide), bell-ring icon + the number. Tap → the Extrato in review
-     mode. Re-read on resume, on every data change and every 60 s while resumed (offline: hidden).
    - **Pending pill** (`PendingPill compact`): shown when the outbox has items for the current
      user **or** the server is unreachable. Label `"<n> pendente(s)"`, or (no items, offline) a
      cloud-off icon with the sr-only text "Sem conexão". Amber when any item is `needs_attention`
@@ -79,7 +76,6 @@ Footer "Fechar" + "Sincronizar agora".
 | Sign out | Ajustes › Perfil "Sair" (desktop: user menu) | none: `clearStoredAuth()` → `finance-auth-change` → `Outbox.clearSession()`; caches cleared (`clearServerData`, `clearPersistedQueryCache`) | none | works; the outbox survives logout (per user) |
 | Toggle privacy | Eye | none (`setValuesHidden`, localStorage `@financeMVP:hideValues`) | none | works |
 | Open "+ Novo" | Bottom **+** | opens `NewEntrySheet` (`01-novo.md`); inside `/investimentos` opens `InvestmentLaunchModal` ("Registrar operação") after `GET /api/investments/portfolio?refresh_prices=false` | — | sheet works offline; the investment modal does not |
-| Open Revisar | Review pill | navigation to the Extrato in review mode | — | pill hidden offline |
 | Open bell / follow item | Bell | navigation to the item's screen | — | cached data |
 | Sync now | Pendentes › "Sincronizar agora" | `flush({retryAttention: true})` → in the APK `Outbox.flush` → `OutboxSender.run` | toast "1 lançamento enviado." / "N lançamentos enviados."; warnings: "Entre novamente para enviar os lançamentos pendentes." (login), "O servidor não respondeu. Os lançamentos continuam guardados neste aparelho." (offline), "O servidor recusou um ou mais lançamentos. Veja o motivo em cada um." | tries; reports offline |
 | Fix a pending item | Pendentes › "⋯" › Corrigir | reopens "+ Novo" pre-filled (`01-novo.md`, edit mode) | — | works |
@@ -110,7 +106,6 @@ encontrado.") signs the WebView out (`apiFetch` → `clearStoredAuth()`).
   `Session.load()` for `baseUrl` + `Bearer <token>`**; the username is not stored there.
 - `setSession` also cancels the "Sessão expirada" notification (`LoginNotifier`) and schedules
   `OutboxWorker` and `DetectionWorker`.
-- `GET /api/review` → `{count, …}`: the review pill and the Extrato tab's count.
 - The bell: `useAttentionItems()` (`lib/attention.js`) with Início's keys `['inicio','movimentos']`,
   `['inicio','cartoes']`, `['inicio','recorrencias']`, `['inicio','orcamento', <AAAA-MM>]` plus the
   outbox (pending items adjust account balances via `applyPendingToAccounts()`). Field details in
@@ -189,7 +184,6 @@ encontrado.") signs the WebView out (`apiFetch` → `clearStoredAuth()`).
 - [ ] Logging in on the debug APK lands on Início; killing and reopening the app keeps the session.
 - [ ] After login, a creation made in airplane mode is sent by the worker with the app closed.
 - [ ] Logging out and in as the same user keeps pending items; a different user does not see them.
-- [ ] The review pill appears within a minute of a new notification and opens the Extrato in review mode.
 - [ ] The pending pill turns amber with "Sem conexão" in airplane mode and disappears when synced.
 - [ ] The bell lists the same items as Início's "Precisa de atenção", including dismissed ones.
 - [ ] The eye hides balances on every screen instantly and survives a restart.

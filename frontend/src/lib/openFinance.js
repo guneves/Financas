@@ -228,7 +228,7 @@ export function balanceExplanation(explanation, money = (value) => String(value)
 export function autoRecordHint(settings) {
   if (!settings) return ''
   if (settings.auto_record) {
-    return 'Os movimentos dos bancos conectados viram lançamentos sozinhos, a revisar no Extrato. Entram assim que a Pluggy os traz, pendentes também.'
+    return 'Os movimentos dos bancos conectados viram lançamentos sozinhos, já confirmados. Entram assim que a Pluggy os traz, pendentes também.'
   }
   const blockers = settings.auto_record_blockers || []
   if (blockers.length) return blockers.join(' ')

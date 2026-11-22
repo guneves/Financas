@@ -62,7 +62,6 @@
     <!-- Inicio nativo (ui/home/): as mesmas palavras de pages/Dashboard.jsx, components/Layout.jsx,
          components/PayInvoiceSheet.jsx e components/Attention.jsx. -->
     <string name="home_brand">Finanças</string>
-    <string name="shell_review_pill">%1$d para revisar</string>
     <string name="home_privacy_hide">Ocultar valores</string>
     <string name="home_privacy_show">Mostrar valores</string>
     <string name="home_settings">Ajustes</string>
@@ -91,12 +90,6 @@
     <string name="global_statement">Extrato</string>
     <string name="global_statement_hint">Em %1$s. Um Pix de uma conta em reais é uma transferência: não é despesa nem receita.</string>
     <string name="global_pending_value">valor em %1$s a conferir</string>
-    <string name="global_to_review">A revisar</string>
-    <string name="global_mine">É meu</string>
-    <string name="global_confirm_all">Confirmar todos</string>
-    <string name="global_confirmed">Lançamento confirmado.</string>
-    <string name="global_confirmed_n">%1$d lançamentos confirmados.</string>
-    <string name="global_confirm_failed">Não foi possível confirmar.</string>
     <string name="global_load_failed">Não foi possível carregar a conta global.</string>
     <string name="global_none_title">Nenhuma conta global</string>
     <string name="global_none_message">Cadastre a conta em dólar em Ajustes › Contas, com o tipo Conta global (US$).</string>
@@ -297,23 +290,8 @@
     <string name="extrato_filter_min">Valor mín.</string>
     <string name="extrato_filter_max">Valor máx.</string>
     <string name="extrato_filter_failed">Não foi possível aplicar os filtros.</string>
-    <string name="extrato_filter_review">Revisão</string>
-    <string name="extrato_filter_review_all">Todos</string>
-    <string name="extrato_filter_review_only">Só a revisar</string>
-    <string name="extrato_review_mark">A revisar</string>
     <string name="twin_badge">2× igual</string>
     <!-- Revisar (045, ui/extrato/ReviewSection.kt): o ReviewPanel da web. -->
-    <string name="review_title">Revisar</string>
-    <string name="review_confirm_all">Confirmar todos (%1$d)</string>
-    <string name="review_show_all">Mostrar todos (%1$d)</string>
-    <string name="review_show_less">Mostrar menos</string>
-    <string name="review_card_badge">Cartão</string>
-    <string name="review_category_of">Categoria de %1$s</string>
-    <string name="review_entry">lançamento</string>
-    <string name="review_transfer">Transferência</string>
-    <string name="review_mine">É meu</string>
-    <string name="review_income">É receita</string>
-    <string name="review_repasse">É repasse</string>
     <string name="review_failed">Não foi possível confirmar.</string>
     <string name="review_waiting_title">Não gravou sozinho</string>
     <string name="review_waiting_pick">Escolha…</string>
@@ -928,13 +906,6 @@
     <string name="ajustes_bank_notifications_on">Os avisos dos bancos gravam na hora.</string>
     <string name="ajustes_bank_notifications_off">Só o Flash grava pelo aviso; os bancos vêm pela Pluggy.</string>
     <string name="ajustes_bank_notifications_failed">Não foi possível salvar os avisos dos bancos.</string>
-    <string name="ajustes_review_auto">Revisar sai sozinho depois de</string>
-    <string name="ajustes_review_auto_hint">Depois desse prazo, o que ainda está em Revisar sai sozinho com a categoria que tem. Numa conta da Pluggy, espera o banco confirmar primeiro.</string>
-    <string name="ajustes_review_auto_never">Nunca</string>
-    <string name="ajustes_review_auto_days">%1$d dias</string>
-    <string name="ajustes_review_auto_toast">O que ficar %1$d dias em Revisar sai sozinho.</string>
-    <string name="ajustes_review_auto_never_toast">O Revisar espera você.</string>
-    <string name="ajustes_review_auto_failed">Não foi possível salvar o prazo do Revisar.</string>
     <string name="ajustes_open_access">Abrir acesso às notificações</string>
     <string name="ajustes_restricted_title">O Android diz “Configuração restrita”?</string>
     <string name="ajustes_restricted_intro">A partir do Android 13, um app instalado por um arquivo APK aberto no celular não recebe o acesso às notificações até você liberar. Para liberar:</string>

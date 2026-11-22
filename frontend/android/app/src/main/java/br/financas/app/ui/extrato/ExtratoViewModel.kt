@@ -27,7 +27,6 @@ import br.financas.app.data.InboxWrite
 import br.financas.app.data.InvestmentMovementDto
 import br.financas.app.data.InvestmentProceedDto
 import br.financas.app.data.Load
-import br.financas.app.data.ReviewItemDto
 import br.financas.app.data.StatementTotalsDto
 import br.financas.app.data.TransactionDto
 import br.financas.app.outbox.OutboxStore
@@ -105,8 +104,8 @@ data class WaitingChoice(
  * primeira pagina sem filtro, o saldo e as projecoes de GET /api/home. Investimentos: as
  * operacoes e os proventos (rules/InvestmentStatement.kt). Editar e excluir so com o servidor.
  *
- * Gravar sozinho e revisar (045): no alto de Contas, Revisar (GET /api/review: "É meu" e a
- * categoria, POST /api/review) e o que nao gravou sozinho (GET /api/inbox, a outra conta da
+ * Gravar sozinho (045): a confirmacao e automatica (dono 2026-11-22: sem "É meu" nem "É
+ * repasse"). No alto de Contas, so o que nao gravou sozinho (GET /api/inbox, a outra conta da
  * transferencia ou o valor em reais, e o approve); na linha do tempo, as compras no cartao (GET
  * /api/cc-expenses/statement com os mesmos filtros), fora dos totais (rules/ReviewRules.kt).
  */
@@ -159,18 +158,8 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     /** As compras no cartao com os filtros da tela; null antes da primeira leitura. */
     var cardRows by mutableStateOf<List<CardStatementDto>?>(null)
         private set
-    var reviewItems by mutableStateOf<List<ReviewItemDto>>(emptyList())
-        private set
     /** Quantos movimentos nao gravaram sozinhos (o `waiting` de GET /api/review). */
     var reviewWaiting by mutableStateOf(0)
-        private set
-    /** A categoria escolhida por item (reviewKey -> category_id); o resto vai como sugerido. */
-    var reviewChosen by mutableStateOf<Map<String, String>>(emptyMap())
-        private set
-    var reviewShowAll by mutableStateOf(false)
-        private set
-    /** O botao que esta enviando: a reviewKey de um item, ou BUSY_ALL. */
-    var reviewBusy by mutableStateOf("")
         private set
     var reviewError by mutableStateOf("")
         private set
@@ -457,7 +446,7 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** GET /api/review: a fila e quantos esperam; com algum esperando, os itens deles. */
+    /** GET /api/review: quantos esperam (a confirmacao e automatica); com algum, os itens deles. */
     private fun readReview() {
         viewModelScope.launch {
             graph.review.queue().collect { load ->
@@ -465,18 +454,11 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
                     is Load.Cached -> load.value
                     is Load.Fresh -> load.value
                     is Load.Failed -> {
-                        if (load.error !is ApiException.Network && load.cached == null) {
-                            reviewItems = emptyList()
-                            reviewWaiting = 0
-                        }
+                        if (load.error !is ApiException.Network && load.cached == null) reviewWaiting = 0
                         null
                     }
                 } ?: return@collect
-                reviewItems = queue.items
                 reviewWaiting = queue.waiting
-                // O que nao esta mais na fila deixa de ter escolha guardada.
-                val keys = queue.items.map(ReviewRules::reviewKey).toSet()
-                reviewChosen = reviewChosen.filterKeys { it in keys }
                 if (load is Load.Fresh) {
                     if (queue.waiting > 0) readWaiting() else waitingItems = emptyList()
                 }
@@ -561,15 +543,12 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * A vista pedida por quem abriu (o ?ver= da web); null mantem a ultima. "revisar" (a pilula, o
-     * antigo Aprovar): Contas com o filtro "Só a revisar", o Revisar no alto.
+     * A vista pedida por quem abriu (o ?ver= da web); null mantem a ultima. "revisar" (um link
+     * antigo, o antigo Aprovar): Contas, com o que nao gravou sozinho no alto.
      */
     fun requestView(requested: String?) {
         if (requested == NativeLinks.VIEW_REVIEW) {
             if (view != ExtratoMemory.VIEW_CONTAS) chooseView(ExtratoMemory.VIEW_CONTAS)
-            changeFilters(ExtratoFilters(review = "1"))
-            filtersOpen = true
-            reviewShowAll = false
             return
         }
         if (requested == ExtratoMemory.VIEW_CONTAS || requested == ExtratoMemory.VIEW_INVESTIMENTOS) {
@@ -619,40 +598,8 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         invQuery = query
     }
 
-    // ---- Revisar (045) ----
-
-    fun chooseReviewCategory(item: ReviewItemDto, categoryId: String) {
-        reviewChosen = reviewChosen + (ReviewRules.reviewKey(item) to categoryId)
-    }
-
-    fun toggleReviewShowAll() {
-        reviewShowAll = !reviewShowAll
-    }
-
     fun dismissReviewError() {
         reviewError = ""
-    }
-
-    /** "É meu" ([items] = o item) ou "Confirmar todos" (a fila, com as categorias da tela). */
-    fun confirmReview(items: List<ReviewItemDto>, busyKey: String, repasse: Boolean = false) {
-        if (reviewBusy.isNotEmpty() || items.isEmpty()) return
-        reviewBusy = busyKey
-        reviewError = ""
-        val payload = ReviewRules.reviewPayload(items, reviewChosen, repasse)
-        graph.appScope.launch {
-            val result = graph.review.confirm(payload)
-            reviewBusy = ""
-            val error = writeErrorOf(app, result, R.string.review_failed)
-            if (error == null) {
-                val reviewed = (result as InboxWrite.Done).value.reviewed
-                reviewItems = ReviewRules.withoutConfirmed(reviewItems, items)
-                changed(ReviewRules.confirmedText(reviewed))
-            } else if (cleared) {
-                Toast.makeText(app, error, Toast.LENGTH_LONG).show()
-            } else {
-                reviewError = error
-            }
-        }
     }
 
     // ---- O que nao gravou sozinho (sem a tela Aprovar) ----
@@ -820,7 +767,6 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
         ) {
             // A linha sai na hora; recusado, a leitura de novo a traz de volta.
             rows = rows?.filter { it.id != row.id }
-            reviewItems = reviewItems.filter { it.id != row.id }
             editing = null
             editForm = null
             write(R.string.extrato_delete_failed, null) {
@@ -949,7 +895,6 @@ class ExtratoViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         const val DEBOUNCE_MS = 250L
-        const val BUSY_ALL = "all"
     }
 }
 

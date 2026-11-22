@@ -78,7 +78,6 @@ import br.financas.app.ui.components.AppIcons
 import br.financas.app.ui.components.FitText
 import br.financas.app.ui.components.ListSkeleton
 import br.financas.app.ui.components.PendingPill
-import br.financas.app.ui.components.ReviewPill
 import br.financas.app.ui.components.SettingsButton
 import br.financas.app.ui.components.Panel
 import br.financas.app.ui.components.Badge
@@ -229,7 +228,6 @@ private fun HomeTopBar(viewModel: HomeViewModel) {
                 modifier = Modifier.padding(start = 10.dp),
             )
         }
-        ReviewPill()
         PendingPill()
         BellButton(viewModel.attention.size, viewModel::openBell)
         RoundIconButton(

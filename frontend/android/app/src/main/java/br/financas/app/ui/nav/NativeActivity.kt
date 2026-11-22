@@ -64,7 +64,6 @@ import kotlinx.coroutines.withContext
 import br.financas.app.data.AppGraph
 import br.financas.app.outbox.Outbox
 import br.financas.app.outbox.Session
-import br.financas.app.rules.ReviewRules
 import br.financas.app.ui.ajustes.AjustesScreen
 import br.financas.app.ui.ajustes.AjustesViewModel
 import br.financas.app.ui.areceber.AReceberScreen
@@ -108,7 +107,6 @@ import br.financas.app.ui.recorrentes.RecorrentesViewModel
 import br.financas.app.ui.theme.FinancasTheme
 import br.financas.app.ui.theme.LocalPalette
 import br.financas.app.ui.theme.ShellPrefs
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** As rotas do NavHost da casca. */
@@ -315,9 +313,6 @@ private fun NavHostController.openSection(section: ShellNav.Section) {
 
 private const val PAGE_FADE_MS = 120
 
-/** A cada quanto a pilula de revisar se rele com o app na frente (o refetchInterval da web). */
-private const val REVIEW_REFRESH_MS = 60_000L
-
 /** Sem sessao: o login, e nada por baixo dele. */
 private fun NavHostController.toLogin() {
     navigate(NativeRoutes.LOGIN) {
@@ -378,18 +373,11 @@ private fun AppShell(
         onDispose { ShellEvents.clearListener(listener) }
     }
 
-    // A fila, a rede e o APK novo de novo a cada volta para a frente; a revisao tambem a cada
-    // minuto com o app na frente (o refetchInterval da web): o aviso do banco grava sozinho.
+    // A fila, a rede e o APK novo de novo a cada volta para a frente.
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             shell.refresh()
             shell.checkApk()
-            launch {
-                while (true) {
-                    delay(REVIEW_REFRESH_MS)
-                    shell.refreshReview()
-                }
-            }
         }
     }
 
@@ -486,8 +474,6 @@ private fun AppShell(
         attention = shell.attention,
         offline = shell.offline,
         onOpenPending = shell::openPending,
-        reviewCount = shell.reviewCount,
-        onOpenReview = { openLink(ReviewRules.REVIEW_PATH) },
         onOpenSettings = if (ShellNav.showsSettings(route)) {
             { nav.openSection(ShellNav.Section.AJUSTES) }
         } else {

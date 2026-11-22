@@ -1460,3 +1460,12 @@ is known to be the owner; two unnamed still pair), B10 "update in place" (only a
 on a copy of the server's database: no notified row on another bank's account (B1), 0 of 89 two-sided transfers
 split by B3, BB rounding unchanged (Pluggy names already say BB), the mirror moves nothing today (B5/B8), 12 BTG
 reposts all with the same `when`. B14 and B15 stay in next-steps as notes.
+
+### No Revisar: the confirmation is automatic — 2026-11-22
+Owner: "remove the repasse on income and the option to confirm incomes and expenses; I want it automatic". Web and
+APK lost the Revisar panel ("É meu", "É receita", "É repasse", "Confirmar todos"), the "A revisar" badge and
+"Revisão" filter, the header "para revisar" pill and the Extrato tab count, the Conta global's "É meu"/"Confirmar
+todos", and the "Revisar sai sozinho depois de" setting; "Decidido sozinho" hides `auto_confirm`
+(`shownDecisions()`). The server is unchanged: `needs_review` stays as the engine's "category still a guess" mark
+(Pluggy fills/confirms it, `review_auto.py` clears it after `review_auto_days`); `POST /api/review` (and `repasse`)
+stay for old APKs. Waiting items (what didn't record itself) still show in the Extrato.

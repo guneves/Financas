@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.sp
 import br.financas.app.R
 import br.financas.app.core.formatCurrency
 import br.financas.app.data.InboxWrite
-import br.financas.app.rules.ReviewRules
 import br.financas.app.rules.ShareForm
 import br.financas.app.rules.Sharing
 import br.financas.app.ui.components.AppIcons
@@ -42,7 +41,6 @@ import br.financas.app.ui.components.Field
 import br.financas.app.ui.components.NativeTopBar
 import br.financas.app.ui.components.TopTab
 import br.financas.app.ui.components.FitText
-import br.financas.app.ui.components.LocalShellChrome
 import br.financas.app.ui.components.Panel
 import br.financas.app.ui.components.SelectField
 import br.financas.app.ui.components.SelectOption
@@ -79,15 +77,13 @@ fun LancamentosTopBar(
     onToggleHidden: () -> Unit,
     onTab: (LancamentosTab) -> Unit,
 ) {
-    // A aba Extrato conta o que espera Revisar (045), como a da web; o numero vem da casca.
-    val reviewCount = LocalShellChrome.current?.reviewCount ?: 0
     NativeTopBar(
         title = title,
         hidden = hidden,
         onBack = onBack,
         onToggleHidden = onToggleHidden,
         tabs = listOf(
-            TopTab(ReviewRules.tabLabel(stringResource(R.string.lanc_tab_extrato), reviewCount), current == LancamentosTab.EXTRATO) { onTab(LancamentosTab.EXTRATO) },
+            TopTab(stringResource(R.string.lanc_tab_extrato), current == LancamentosTab.EXTRATO) { onTab(LancamentosTab.EXTRATO) },
             TopTab(stringResource(R.string.lanc_tab_cartoes), current == LancamentosTab.CARTOES) { onTab(LancamentosTab.CARTOES) },
             TopTab(stringResource(R.string.lanc_tab_a_receber), current == LancamentosTab.A_RECEBER) { onTab(LancamentosTab.A_RECEBER) },
         ),

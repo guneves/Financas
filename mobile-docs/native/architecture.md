@@ -21,8 +21,8 @@ endpoints the React app (now browser only) calls.
   bottom bar (Início, Lançamentos, "+", Planejar, Investir; `ShellNav.BAR`, the "+" at the center: the native
   "+ Novo", `NewEntryActivity`, Cartão inside Cartões), the gear to Ajustes at the top (`SettingsButton`), the APK banner and the Pendentes sheet.
   Back with nothing below goes to Início; on Início it moves the task to the back. There is no
-  Aprovar page (045): the review pill (`ReviewPill`, count from `GET /api/review`, re-read every
-  minute while resumed) opens the Extrato in review mode.
+  Aprovar page (045) and no Revisar either (owner 2026-11-22: the confirmation is automatic; the review
+  pill and the Extrato tab count are gone).
 - Switching a tab or a bottom-bar section saves the page that leaves (`popUpTo { saveState }`) and
   restores the one that comes back (`restoreState`): its ViewModel, data and scroll survive, so a
   tab shows at once where it was and re-reads behind. Pages fade in 120 ms (`PAGE_FADE_MS`), and

@@ -361,11 +361,10 @@ export const inboxApi = {
   updateSettings: (payload) => apiFetch('/api/inbox/settings', { method: 'PATCH', body: JSON.stringify(payload) })
 }
 
-// Revisar (045): o que gravou sozinho espera o dono dizer "e meu" e a
-// categoria. `confirm` recebe [{table, id, category_id?}].
+// GET /api/review: a confirmacao e automatica (dono 2026-11-22); a tela so le
+// `waiting` (o que nao gravou sozinho).
 export const reviewApi = {
   list: () => apiFetch('/api/review'),
-  confirm: (items) => postJson('/api/review', { items }),
   // Tudo automatico (058): as decisoes que o app tomou sozinho, com "Desfazer".
   // `filters`: {kinds, days} (autoDecisionsPath); a Conferencia pede so as dela.
   automatic: (filters) => apiFetch(autoDecisionsPath(filters)),

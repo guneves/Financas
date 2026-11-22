@@ -647,7 +647,7 @@ private fun OpenFinanceSection(viewModel: AjustesViewModel) {
 private fun AutomaticoSection(viewModel: AjustesViewModel) {
     val palette = LocalPalette.current
     val load = viewModel.decisions
-    val items = load.value?.items.orEmpty()
+    val items = AutoDecisions.shownDecisions(load.value?.items.orEmpty())
     Panel {
         Column {
             SectionHeader(stringResource(R.string.ajustes_automatico), stringResource(R.string.ajustes_automatico_description))
@@ -1003,29 +1003,6 @@ private fun BankNotificationsBlock(viewModel: AjustesViewModel) {
     }
 }
 
-/** O prazo do Revisar (review_auto_days): depois dele a linha sai sozinha. O mesmo da web. */
-@Composable
-private fun ReviewAutoBlock(viewModel: AjustesViewModel) {
-    val palette = LocalPalette.current
-    val settings = viewModel.inboxSettings.value ?: return
-    val days = settings.reviewAutoDays
-    val choices = (listOf(0, 3, 7, 14) + days).distinct().sorted()
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.ajustes_review_auto), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)
-        SegmentedChoice(
-            choices.map { value ->
-                SelectOption(
-                    value.toString(),
-                    if (value == 0) stringResource(R.string.ajustes_review_auto_never) else stringResource(R.string.ajustes_review_auto_days, value),
-                )
-            },
-            days.toString(),
-            { if (!viewModel.busy) viewModel.setReviewAutoDays(it.toInt()) },
-        )
-        Text(stringResource(R.string.ajustes_review_auto_hint), fontSize = 12.sp, color = palette.muted)
-    }
-}
-
 @Composable
 private fun NotifyBody(status: NotifyTexts.NotifyStatus, viewModel: AjustesViewModel) {
     val palette = LocalPalette.current
@@ -1056,8 +1033,6 @@ private fun NotifyBody(status: NotifyTexts.NotifyStatus, viewModel: AjustesViewM
             }
             HorizontalDivider(color = palette["zinc-100"])
             BankNotificationsBlock(viewModel)
-            HorizontalDivider(color = palette["zinc-100"])
-            ReviewAutoBlock(viewModel)
             HorizontalDivider(color = palette["zinc-100"])
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.ajustes_capture_mode), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = palette.text)

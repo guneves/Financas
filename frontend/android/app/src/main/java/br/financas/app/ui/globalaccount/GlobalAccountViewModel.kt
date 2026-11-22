@@ -25,8 +25,8 @@ import kotlinx.coroutines.launch
 /**
  * Conta global nativa (17-conta-global.md): pages/ContaGlobal.jsx em Compose. GET /api/accounts
  * (a conta em outra moeda, balance e balance_brl) e GET /api/transactions?account_id=<ela> (o
- * extrato dela, em paginas: "Carregar mais" traz as seguintes, so com rede). "E meu" e POST
- * /api/review. "Pix para ca" e POST /api/transfers com os dois valores (047), direto ao servidor:
+ * extrato dela, em paginas: "Carregar mais" traz as seguintes, so com rede); a confirmacao e
+ * automatica (dono 2026-11-22). "Pix para ca" e POST /api/transfers com os dois valores (047), direto ao servidor:
  * a fila do celular nao guarda uma transferencia entre moedas.
  */
 class GlobalAccountViewModel(application: Application) : AndroidViewModel(application) {
@@ -185,28 +185,5 @@ class GlobalAccountViewModel(application: Application) : AndroidViewModel(applic
 
     fun dismissActionError() {
         actionError = ""
-    }
-
-    fun confirm(key: String, rows: List<GlobalAccount.Row>) {
-        if (savingKey.isNotEmpty() || rows.isEmpty()) return
-        savingKey = key
-        actionError = ""
-        graph.appScope.launch {
-            val result = graph.review.confirm(rows.map { mapOf("table" to "transactions", "id" to it.transaction.id) })
-            savingKey = ""
-            val error = planWriteError(app, result, R.string.global_confirm_failed)
-            when {
-                error == null -> {
-                    ShellEvents.emitDataChanged()
-                    val message = if (rows.size > 1) app.getString(R.string.global_confirmed_n, rows.size) else app.getString(R.string.global_confirmed)
-                    if (cleared) Toast.makeText(app, message, Toast.LENGTH_SHORT).show() else {
-                        _notices.tryEmit(message)
-                        refreshAll()
-                    }
-                }
-                cleared -> Toast.makeText(app, error, Toast.LENGTH_LONG).show()
-                else -> actionError = error
-            }
-        }
     }
 }

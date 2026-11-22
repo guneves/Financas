@@ -29,7 +29,7 @@ export const sections = [
     tabs: [
       // O que gravou sozinho e espera o dono confirmar (045); nao ha tela Aprovar
       // (dono, 2026-10-31): o que nao grava sozinho tambem se resolve no Extrato.
-      { to: '/lancamentos/extrato', label: 'Extrato', icon: Wallet, badge: 'review' },
+      { to: '/lancamentos/extrato', label: 'Extrato', icon: Wallet },
       { to: '/lancamentos/cartoes', label: 'Cartões', icon: CreditCard },
       // A parte dos outros nas despesas, ate o dono marcar que pagaram (032).
       { to: '/lancamentos/a-receber', label: 'A receber', icon: Coins },

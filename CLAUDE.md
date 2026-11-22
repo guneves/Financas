@@ -268,10 +268,10 @@ docs/               next-steps.md, done-tasks.md, handoff.md
 - **The Inter line** (`MONTH_SUMMARY`, owner 2026-10-31): the month's net moved into Inter (no Pluggy), one row, source
   id `inter:<AAAA-MM>`. Not spending: it moves the balance and the Evolução, and stays out of Fluxo, Resumo, Orçamento,
   plan, Ritmo and Extrato totals. A rebuild keeps it.
-- **A repasse** (owner 2026-10-31): money from someone else to pay something of theirs. Revisar's "É repasse"
-  (`POST /api/review` with `repasse: true`, `person`) makes an INCOME `share_mode = 'OTHERS'`, settled: in the balance,
-  out of income. Marking a share paid in A receber asks which income paid it (053, owner 2026-11-02, `share_paid_by`,
-  `link_income()`): that income carries the share as the others' (`SPLIT`/`OTHERS`), in its own month. Without one, it cuts
+- **A repasse** (owner 2026-10-31): money from someone else to pay something of theirs. `POST /api/review` with
+  `repasse: true`, `person` makes an INCOME `share_mode = 'OTHERS'`, settled: in the balance, out of income. **No screen
+  offers it any more** (owner 2026-11-22: the "É repasse" button left with Revisar); the API stays for old APKs.
+  Marking a share paid in A receber asks which income paid it (053, owner 2026-11-02, `share_paid_by`, `link_income()`): that income carries the share as the others' (`SPLIT`/`OTHERS`), in its own month. Without one, it cuts
   the income of the month of the mark (`apply_settled_others()`); a repasse **of the same person** (or unnamed) covers it
   first, so nothing cuts twice, and `net` doesn't move. Web `PaidBySheet`, APK `PaidBySheet`; a paid item can change income.
 - **The invoice tile on Início** (2026-10-31): "Fatura de <mês>", a dropdown per invoice, closed by default, and
@@ -304,7 +304,7 @@ doesn't cover, comes only from notices (and typing).
 - **There is no Aprovar screen** (owner 2026-10-31): page and route are gone, `/aprovar` and `/lancamentos/aprovar`
   redirect to the Extrato. Waiting items resolve there: `WaitingItems` (web), `ReviewSection` (APK), shown only
   while one exists. Ajustes has no Aprovar section and no "Gravar sozinho" switch; the settings stay on the API
-  as the brake. The owner's only job: categories and doubts, in Revisar.
+  as the brake. **There is no Revisar screen either** (owner 2026-11-22, below): nothing to confirm.
 - **Who speaks** (`NOTIFICATION_POLICY` + `notification_wanted(detection)`, pure, in `services/inbox_rules.py`:
   the rules that touch no database live there and `services/inbox.py`, the engine, re-exports every name; the
   APK's `NotifyRules.APPS`, manifest `<queries>` and `NotifyParsers.parse()` repeat it, but an old APK is safe
@@ -436,7 +436,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   (`open_finance_auto.in_reais_now()`; the detection keeps its currency, so the near match treats it
   as international), or the last stored one before it (`fx_fallback()`: > 4 days back, or yesterday's for
   today, is an `fx_fallback` decision); with none stored at all it waits. A Samsung-only purchase is recorded at once
-  too; the bank's notice within `NOTIFY_WINDOW_MS` joins that item, never a second row. **There is no Aprovar screen; waiting items resolve in Revisar**
+  too; the bank's notice within `NOTIFY_WINDOW_MS` joins that item, never a second row. **There is no Aprovar screen; waiting items resolve in the Extrato**
   (the APK's Extrato lists them under "Não gravou sozinho": the other account or the amount in reais
   → `POST /api/inbox/<id>/approve` with `remember: false`, "não é entre minhas contas" → despesa/
   receita, or Descartar). The inbox API stays for those and for the brake.
@@ -446,10 +446,13 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   inbox tests see pending items; `test_auto_record.py` turns them on per user.
 - **Review** (`services/review.py`, `GET/POST /api/review`): an auto-recorded row has
   `needs_review = 1` (`transactions` and every installment of a card purchase, by `client_id`);
-  typed and screen-generated rows are 0. Reviewing = "é meu" + optional `category_id` (a transfer
-  keeps its category); a batch is all or nothing (404 on an unknown id). The Extrato shows the
-  `ReviewPanel` (one tap per row, "Confirmar todos"), an "A revisar" badge, `?review=1`; the header
-  pill and the Extrato tab count it (`review_count` in `GET /api/home`).
+  typed and screen-generated rows are 0. **The confirmation is automatic and invisible** (owner 2026-11-22:
+  "remove the option to confirm; I want it automatic"): no screen shows the queue, "É meu", "É receita", "É
+  repasse", "Confirmar todos", an "A revisar" badge or filter, the header pill or the Extrato tab count (web and
+  APK; `?review=1` just opens the Extrato). `needs_review` stays as the engine's "category still a guess" mark:
+  Pluggy fills or confirms the category while it is set (below), and review confirms itself (below). `GET
+  /api/review` is still read for `waiting` (what didn't record itself). `POST /api/review` ("é meu" + optional
+  `category_id`, batch all or nothing, 404 on an unknown id) and `review_count` stay for old APKs.
 - **Only guesses are reviewed** (Phase 4, `open_finance_inbox.settle_review()`): a row leaves
   review by itself, in the same pass that records or confirms it, when Pluggy confirms it
   (`reconcile_recorded()`'s untouched path, which the near match goes through, and
@@ -465,10 +468,11 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   `pluggy_category` decision.
 - **Review confirms itself** (2026-11-18, `services/review_auto.py`, run by `record_due()`): `review_auto_days`
   in `user_settings` (`GET/PATCH /api/inbox/settings`, 0–30, default `REVIEW_AUTO_DAYS_DEFAULT` = 3, 0 = off;
-  web Ajustes › Avisos do celular, APK Ajustes › Notificações do celular). A `needs_review = 1` row dated ≥ N
+  API only since 2026-11-22: no screen sets it). A `needs_review = 1` row dated ≥ N
   days ago leaves review with its current category, an edited one too (the edit was the owner's decision). On
   a Pluggy-fed account/card it first waits for a Pluggy row to claim it (or N + `BANK_WAIT_MAX_DAYS`), so the
-  tree fills it first. An `auto_confirm` decision; undone, the row stays in Revisar for good.
+  tree fills it first. An `auto_confirm` decision; undone, the row keeps `needs_review` for good. "Decidido
+  sozinho" (web and APK) hides `auto_confirm` (`shownDecisions()`): with no Revisar its undo shows nothing.
 - **Automatic decisions are logged and undoable** (058, `services/auto_decisions.py`, `auto_undo.py`):
   `auto_decisions` (kind, target, `detail` with the before, `undone_at`), one `applog` line each.
   `GET /api/review/auto` (filters `kinds`, comma-separated or `conference` = `CONFERENCE_KINDS`, and `days` 1–365;
@@ -492,7 +496,7 @@ as plumbing: an item lives for milliseconds, then `approve_item()` records it.
   `GET /api/transactions` (paged too), `GET /api/review` and `GET /api/cc-expenses/statement`: another expense
   (EXPENSE or card purchase) on the same account/card, same cents, same `normalized()` description, ≤ 60 min
   apart when both have a time, else the same date; queried for the page's dates ±1 day. A neutral `Badge`
-  (web Extrato row and `ReviewPanel`; APK Extrato row and `ReviewSection`, `twin_badge`); no attention card,
+  (web and APK Extrato row, `twin_badge`); no attention card,
   nothing to dismiss, no action.
 - **Pluggy reconciles what a notification recorded** (`reconcile_recorded()` in
   `open_finance_inbox.py`): the item keeps `auto_recorded_at` + `recorded_snapshot`. Same date and

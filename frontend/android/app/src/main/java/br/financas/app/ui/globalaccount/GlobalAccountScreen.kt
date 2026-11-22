@@ -34,8 +34,6 @@ import br.financas.app.ui.components.AppTextField
 import br.financas.app.ui.components.DateField
 import br.financas.app.ui.components.Field
 import br.financas.app.ui.components.SelectField
-import br.financas.app.ui.components.Badge
-import br.financas.app.ui.components.BadgeTone
 import br.financas.app.ui.components.ButtonVariant
 import br.financas.app.ui.components.EmptyState
 import br.financas.app.ui.components.ListSkeleton
@@ -126,7 +124,6 @@ fun GlobalAccountScreen(viewModel: GlobalAccountViewModel, onBack: () -> Unit) {
                 ),
             )
         }
-        val toReview = rows.filter { it.transaction.needsReview }
         item(key = "statement") {
             Panel {
                 Column {
@@ -134,14 +131,6 @@ fun GlobalAccountScreen(viewModel: GlobalAccountViewModel, onBack: () -> Unit) {
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.global_statement), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = palette.text)
                             Text(stringResource(R.string.global_statement_hint, currency), fontSize = 13.sp, color = palette.muted)
-                        }
-                        if (toReview.size > 1) {
-                            AppButton(
-                                stringResource(R.string.global_confirm_all),
-                                { viewModel.confirm("all", toReview) },
-                                variant = ButtonVariant.SECONDARY,
-                                loading = viewModel.savingKey == "all",
-                            )
                         }
                     }
                     AppButton(
@@ -241,7 +230,6 @@ private fun StatementRow(row: GlobalAccount.Row, currency: String, viewModel: Gl
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (transaction.needsReview) Badge(stringResource(R.string.global_to_review), BadgeTone.INFO)
             }
             val rate = GlobalAccount.impliedRate(row)
             val from = stringResource(R.string.global_from)
@@ -267,15 +255,6 @@ private fun StatementRow(row: GlobalAccount.Row, currency: String, viewModel: Gl
                 fontWeight = FontWeight.SemiBold,
                 color = if (row.direction > 0) palette.gain else palette.text,
                 maxLines = 1,
-            )
-        }
-        if (transaction.needsReview) {
-            val key = transaction.id
-            AppButton(
-                stringResource(R.string.global_mine),
-                { viewModel.confirm(key, listOf(row)) },
-                variant = ButtonVariant.SECONDARY,
-                loading = viewModel.savingKey == key,
             )
         }
     }

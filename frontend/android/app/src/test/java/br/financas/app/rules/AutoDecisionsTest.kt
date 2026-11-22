@@ -18,6 +18,14 @@ class AutoDecisionsTest {
     private fun decision(kind: String = "auto_confirm", undoneAt: String? = null, undoable: Boolean = true) =
         AutoDecisionDto(id = "a", kind = kind, undoneAt = undoneAt, undoable = undoable)
 
+    // node: 'a confirmacao automatica nao aparece na lista: nao ha Revisar para onde voltar'
+    @Test
+    fun aConfirmacaoAutomaticaNaoApareceNaLista() {
+        val items = listOf(decision(kind = "auto_confirm"), decision(kind = "pluggy_category").copy(id = "b"))
+        assertEquals(listOf("b"), AutoDecisions.shownDecisions(items).map { it.id })
+        assertEquals(emptyList<AutoDecisionDto>(), AutoDecisions.shownDecisions(emptyList()))
+    }
+
     // node: 'o texto de cada decisao'
     @Test
     fun oTextoDeCadaDecisao() {
@@ -42,7 +50,7 @@ class AutoDecisionsTest {
     fun desfazerSoAQueNaoFoiDesfeita() {
         assertTrue(AutoDecisions.canUndo(decision()))
         assertFalse(AutoDecisions.canUndo(decision(undoneAt = "2026-11-18")))
-        assertTrue(AutoDecisions.undoToast("auto_confirm").contains("Revisar"))
+        assertEquals("Desfeito.", AutoDecisions.undoToast("transfer_guess"))
         assertTrue(AutoDecisions.undoToast("conflict_vanished").contains("voltou"))
     }
 

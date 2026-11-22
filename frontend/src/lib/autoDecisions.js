@@ -1,9 +1,7 @@
 // Tudo automatico (dono, 2026-11-18): o que o app antes perguntava, agora
 // decide sozinho por uma regra escrita, e cada decisao fica visivel com
 // "Desfazer" (GET /api/review/auto, POST /api/review/auto/<id>/undo).
-// Puro: o texto de cada decisao e o prazo do Revisar (review_auto_days).
-
-export const REVIEW_DAY_CHOICES = [0, 3, 7, 14]
+// Puro: o texto de cada decisao.
 
 // A Conferencia (Ajustes > Open Finance) mostra o que ela antes apontava e o app
 // resolveu sozinho (o conflito com o banco, a linha da carteira) nestes dias.
@@ -20,26 +18,18 @@ export function autoDecisionsPath({ kinds, days } = {}) {
   return query ? `/api/review/auto?${query}` : '/api/review/auto'
 }
 
-export const REVIEW_AUTO_HINT = 'Depois desse prazo, o que ainda está em Revisar sai sozinho com a categoria que tem. Numa conta da Pluggy, espera o banco confirmar primeiro.'
+// A confirmacao e automatica e nao aparece na tela (dono 2026-11-22: sem
+// Revisar): a lista "Decidido sozinho" nao mostra `auto_confirm`, cujo
+// "Desfazer" so devolveria a linha a uma fila que ninguem ve.
+export const HIDDEN_KINDS = ['auto_confirm']
 
-// O prazo do servidor; um servidor antigo que nao manda o campo vale 3.
-export function reviewAutoDays(settings) {
-  const value = settings?.review_auto_days
-  return Number.isInteger(value) && value >= 0 ? value : 3
-}
-
-export function reviewDayItems(current) {
-  const values = REVIEW_DAY_CHOICES.includes(current) ? REVIEW_DAY_CHOICES : [...REVIEW_DAY_CHOICES, current].sort((a, b) => a - b)
-  return values.map((value) => ({ value, label: value === 0 ? 'Nunca' : `${value} dias` }))
-}
-
-export function reviewAutoToast(days) {
-  return days === 0 ? 'O Revisar espera você.' : `O que ficar ${days} dias em Revisar sai sozinho.`
+export function shownDecisions(items) {
+  return (items || []).filter((decision) => !HIDDEN_KINDS.includes(decision?.kind))
 }
 
 const TITLES = {
   pluggy_category: 'Categoria da Pluggy',
-  auto_confirm: 'Saiu do Revisar sozinho',
+  auto_confirm: 'Confirmado sozinho',
   transfer_guess: 'Aporte/resgate com o banco adivinhado',
   fx_fallback: 'Câmbio do último dia útil disponível',
   conflict_changed: 'Valor do banco aplicado',
@@ -103,7 +93,7 @@ export function undoToast(decision) {
     case 'investment_closed_fund':
       return 'Voltou a esperar você na Conferência.'
     default:
-      return 'Voltou para o Revisar.'
+      return 'Desfeito.'
   }
 }
 

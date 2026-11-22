@@ -1,6 +1,6 @@
 // Porte: mudou um, muda o outro, com um teste de cada lado.
-// Par: frontend/src/lib/review.js (review.test.js): Revisar (o que gravou sozinho espera "é meu" e a
-// categoria) e as compras no cartao na linha do tempo do Extrato. Aqui: ReviewRulesTest.kt (os
+// Par: frontend/src/lib/review.js (review.test.js): as compras no cartao na linha do tempo do
+// Extrato (a confirmacao e automatica desde 2026-11-22: sem "É meu" nem "É repasse"). Aqui: ReviewRulesTest.kt (os
 // casos de review.test.js, e os do que so o celular tem: o que nao gravou sozinho se resolve aqui,
 // sem a tela Aprovar).
 // Puro: nada de Android nem de Compose, roda nos testes de JVM.
@@ -9,7 +9,6 @@ package br.financas.app.rules
 import br.financas.app.data.AccountDto
 import br.financas.app.data.CardStatementDto
 import br.financas.app.data.InboxItemDto
-import br.financas.app.data.ReviewItemDto
 import br.financas.app.data.TransactionDto
 import java.math.BigDecimal
 
@@ -17,11 +16,8 @@ object ReviewRules {
     const val CARD_KIND = "card"
     const val TABLE_CARD = "cc_expenses"
 
-    /** O link da web para o Extrato so com o que espera a revisao. */
+    /** O link antigo da web para o Revisar (a pilula saiu, dono 2026-11-22): abre o Extrato. */
     const val REVIEW_PATH = "/lancamentos/extrato?review=1"
-
-    /** Quantos de uma vez na tela; o resto vem com "Mostrar todos" (o FIRST do ReviewPanel). */
-    const val FIRST = 5
 
     // ---- As compras no cartao no Extrato ----
 
@@ -81,93 +77,11 @@ object ReviewRules {
     /** O [until] do merge: paginado (ainda ha mais), a data mais antiga carregada; senao, tudo. */
     fun statementUntil(rows: List<TransactionDto>, hasMore: Boolean): String = if (hasMore) oldestDate(rows) else ""
 
-    // ---- Revisar ----
-
-    fun reviewKey(item: ReviewItemDto): String = "${item.table}:${item.id}"
-
-    /** De onde veio: o cartao (e as parcelas), "Origem → Destino" ou a conta. */
-    fun reviewPlace(item: ReviewItemDto): String {
-        if (item.table == TABLE_CARD) {
-            val parts = item.installments?.takeIf { it > 1 }?.let { " · ${it}x" }.orEmpty()
-            return (item.cardName?.takeIf { it.isNotEmpty() } ?: "Cartão") + parts
-        }
-        if (item.type == "TRANSFER") {
-            return "${item.accountName?.takeIf { it.isNotEmpty() } ?: "Conta"} → ${item.transferAccountName?.takeIf { it.isNotEmpty() } ?: "Conta"}"
-        }
-        return item.accountName?.takeIf { it.isNotEmpty() } ?: "Conta"
-    }
-
-    /** Entrada +, saida -, transferencia sem sinal. */
-    fun reviewSign(item: ReviewItemDto): Int = when (item.type) {
-        "TRANSFER" -> 0
-        "INCOME", "REFUND" -> 1
-        else -> -1
-    }
-
-    /** Uma transferencia nao tem categoria a escolher. */
-    fun reviewHasCategory(item: ReviewItemDto): Boolean = item.type != "TRANSFER"
-
-    /** Que categorias a escolha oferece: despesa para saida e compra, receita para entrada e estorno. */
-    fun reviewCategoryType(item: ReviewItemDto): String = if (reviewSign(item) > 0) "INCOME" else "EXPENSE"
-
-    /** A categoria na tela: a escolhida, senao a sugerida; "" sem nenhuma. */
-    fun reviewCategoryValue(item: ReviewItemDto, chosen: Map<String, String>): String =
-        chosen[reviewKey(item)] ?: item.categoryId.orEmpty()
-
-    /**
-     * As opcoes da escolha (as de [reviewCategoryType]) com a sugerida no alto quando ela nao esta
-     * na lista (so o nome, "Sem categoria" sem nome), como o <option> extra do ReviewPanel.
-     */
-    fun reviewCategoryOptions(options: List<CategoryOption>, item: ReviewItemDto, value: String): List<Pair<String, String>> {
-        val shown = EntryOptions.filterCategoryOptions(options, reviewCategoryType(item)).map { it.id to it.label }
-        if (shown.any { it.first == value }) return shown
-        return listOf(value to (item.category?.takeIf { it.isNotEmpty() } ?: "Sem categoria")) + shown
-    }
-
-    /** A primeira linha: a descricao, senao a categoria. */
-    fun reviewTitle(item: ReviewItemDto): String =
-        item.description?.takeIf { it.isNotEmpty() } ?: item.category.orEmpty()
-
-    /** Os itens de POST /api/review: category_id so quando o dono mudou (e nunca na transferencia). */
-    fun reviewPayload(items: List<ReviewItemDto>, chosen: Map<String, String> = emptyMap(), repasse: Boolean = false): List<Map<String, Any?>> =
-        items.map { item ->
-            val entry = linkedMapOf<String, Any?>("table" to item.table, "id" to item.id)
-            val pick = chosen[reviewKey(item)]
-            if (reviewHasCategory(item) && !pick.isNullOrEmpty() && pick != item.categoryId.orEmpty()) entry["category_id"] = pick
-            if (repasse) entry["repasse"] = true
-            entry
-        }
-
-    /** Repasse (dono, 2026-10-31): a receita que e dinheiro de outra pessoa. Fica no saldo, fora da renda. */
-    fun reviewCanBeRepasse(item: ReviewItemDto): Boolean = item.table != TABLE_CARD && item.type == "INCOME"
-
-    /** O que a lista mostra: os primeiros [FIRST], ou todos. */
-    fun visibleItems(items: List<ReviewItemDto>, showAll: Boolean): List<ReviewItemDto> =
-        if (showAll) items else items.take(FIRST)
-
-    /** Depois de confirmar: sai da fila o que foi enviado (a releitura confirma). */
-    fun withoutConfirmed(items: List<ReviewItemDto>, sent: List<ReviewItemDto>): List<ReviewItemDto> {
-        val keys = sent.map(::reviewKey).toHashSet()
-        return items.filter { reviewKey(it) !in keys }
-    }
-
-    fun reviewNoticeText(count: Int): String = when {
-        count <= 0 -> ""
-        count == 1 -> "1 lançamento gravado sozinho espera você confirmar."
-        else -> "$count lançamentos gravados sozinhos esperam você confirmar."
-    }
-
     fun waitingNoticeText(count: Int): String = when {
         count <= 0 -> ""
         count == 1 -> "1 movimento a Pluggy atualizou e não identificou (outra moeda ainda sem a cotação do dia)."
         else -> "$count movimentos a Pluggy atualizou e não identificou (outra moeda ainda sem a cotação do dia)."
     }
-
-    /** O toast de "É meu" / "Confirmar todos". */
-    fun confirmedText(reviewed: Int): String = if (reviewed == 1) "Confirmado." else "$reviewed lançamentos confirmados."
-
-    /** O numero da aba Extrato e da pilula: "Extrato · 3"; sem nada, so o nome. */
-    fun tabLabel(label: String, count: Int): String = if (count > 0) "$label · $count" else label
 
     // ---- O que nao gravou sozinho (sem a tela Aprovar: resolve-se aqui) ----
 

@@ -109,9 +109,6 @@ object ExtratoRules {
     /** O valor em verde: receita e estorno (o sinal +). */
     fun isGain(row: TransactionDto): Boolean = amountSign(row) > 0
 
-    /** "A revisar": gravado sozinho e ainda nao confirmado (o ReviewMark da web). */
-    fun reviewMark(row: TransactionDto): Boolean = row.needsReview && !row.pending
-
     /** A primeira linha da linha: a descricao, senao a categoria. */
     fun title(row: TransactionDto): String = row.description?.takeIf { it.isNotEmpty() } ?: row.category.orEmpty()
 
