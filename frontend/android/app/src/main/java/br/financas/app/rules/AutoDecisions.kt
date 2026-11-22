@@ -1,6 +1,6 @@
 // Porte: mudou um, muda o outro, com um teste de cada lado.
 // Este arquivo e o port de frontend/src/lib/autoDecisions.js (decisionTitle, decisionDetail,
-// undoToast, canUndo, noUndoLabel); AutoDecisionsTest.kt copia os casos de autoDecisions.test.js.
+// undoToast, canUndo, noUndoLabel, shownDecisions); AutoDecisionsTest.kt copia os casos de autoDecisions.test.js.
 package br.financas.app.rules
 
 import br.financas.app.core.formatCurrency
@@ -19,7 +19,7 @@ object AutoDecisions {
 
     private val TITLES = mapOf(
         "pluggy_category" to "Categoria da Pluggy",
-        "auto_confirm" to "Saiu do Revisar sozinho",
+        "auto_confirm" to "Confirmado sozinho",
         "transfer_guess" to "Aporte/resgate com o banco adivinhado",
         "fx_fallback" to "Câmbio do último dia útil disponível",
         "conflict_changed" to "Valor do banco aplicado",
@@ -81,13 +81,22 @@ object AutoDecisions {
         "conflict_changed" -> "O valor voltou; a Conferência aponta a diferença."
         "conflict_vanished" -> "O lançamento voltou."
         "investment_custody", "investment_proceed_link", "investment_closed_fund" -> "Voltou a esperar você na Conferência."
-        else -> "Voltou para o Revisar."
+        else -> "Desfeito."
     }
 
     /** O servidor diz o que se desfaz aqui; ja desfeita, nao. */
     @JvmStatic
     fun canUndo(decision: AutoDecisionDto): Boolean =
         decision.id.isNotEmpty() && decision.undoneAt.isNullOrEmpty() && decision.undoable
+
+    /**
+     * A confirmacao e automatica e nao aparece na tela (dono 2026-11-22: sem Revisar): a lista nao
+     * mostra `auto_confirm`, cujo "Desfazer" so devolveria a linha a uma fila que ninguem ve.
+     */
+    val HIDDEN_KINDS = setOf("auto_confirm")
+
+    @JvmStatic
+    fun shownDecisions(items: List<AutoDecisionDto>): List<AutoDecisionDto> = items.filter { it.kind !in HIDDEN_KINDS }
 
     /** O que aparece no lugar do "Desfazer". */
     @JvmStatic

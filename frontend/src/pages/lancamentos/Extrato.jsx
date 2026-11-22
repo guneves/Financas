@@ -39,11 +39,9 @@ import ExtratoInvestimentos from './ExtratoInvestimentos'
 import { cardAmountSign, isCardRow, mergeStatement, oldestDate, statementKey } from '../../lib/review'
 import WaitingItems from './WaitingItems'
 import { useReviewQueue } from '../../lib/reviewQueue'
-import ReviewPanel from './ReviewPanel'
 import CardPurchaseEditSheet from './CardPurchaseEditSheet'
 
-// review=1: so o que gravou sozinho e espera a revisao (045).
-const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '', review: '' }
+const EMPTY_FILTERS = { q: '', from: '', to: '', type: '', account_id: '', category_id: '', min_amount: '', max_amount: '' }
 
 // Os filtros moram na URL (?q=...&from=...): recarregar a pagina ou voltar
 // para ela mantem a busca. So as chaves de EMPTY_FILTERS sao lidas.
@@ -147,12 +145,6 @@ function dayLabel(date) {
     month: 'short',
     ...(year !== today.getFullYear() ? { year: 'numeric' } : {}),
   })
-}
-
-// Gravado sozinho e ainda nao revisado (045): o painel Revisar confirma.
-function ReviewMark({ transaction }) {
-  if (!transaction.needs_review) return null
-  return <Badge tone="warning">A revisar</Badge>
 }
 
 // Duas despesas iguais de verdade: so um selo neutro, sem acao.
@@ -291,8 +283,8 @@ function ExtratoContas({ viewSwitch }) {
     accountName,
   } = useLancamentos()
 
-  // Gravar sozinho (045): o que espera o dono confirmar, e o que nao gravou
-  // sozinho (WaitingItems).
+  // Gravar sozinho (045): a confirmacao e automatica (dono 2026-11-22: sem
+  // "É meu" nem "É repasse"); so o que nao gravou sozinho espera (WaitingItems).
   const review = useReviewQueue()
 
   const [saving, setSaving] = useState(false)
@@ -644,8 +636,6 @@ function ExtratoContas({ viewSwitch }) {
       <AlertMessage tone="warning" message={dataError} onDismiss={() => setDataError('')} />
       {review.waiting ? <WaitingItems /> : null}
 
-      <ReviewPanel items={review.items} categoryOptionsFor={categoryOptionsFor} onError={setDataError} />
-
       <ProjectionHeader
         balance={balance}
         estimated={balanceEstimated}
@@ -745,12 +735,6 @@ function ExtratoContas({ viewSwitch }) {
                   ))}
                 </select>
               </Field>
-              <Field label="Revisão">
-                <select value={filters.review} onChange={(event) => updateFilter('review', event.target.value)} className="app-select">
-                  <option value="">Todos</option>
-                  <option value="1">Só a revisar</option>
-                </select>
-              </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Valor mín.">
                   <input type="number" inputMode="decimal" min="0" step="0.01" value={filters.min_amount} onChange={(event) => updateFilter('min_amount', event.target.value)} className="app-input" />
@@ -835,7 +819,6 @@ function ExtratoContas({ viewSwitch }) {
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="truncate text-zinc-700" title={transaction.description}>{transaction.description}</span>
                               <span className="shrink-0"><TypeBadge transaction={transaction} /></span>
-                              <span className="shrink-0"><ReviewMark transaction={transaction} /></span>
                               <span className="shrink-0"><TwinMark transaction={transaction} /></span>
                               <AttachmentMark transaction={transaction} />
                             </div>
@@ -901,7 +884,6 @@ function ExtratoContas({ viewSwitch }) {
                           {transaction.type === 'TRANSFER' ? accountLabel(transaction) : transaction.category}
                           {editable ? '' : ` · ${originLabel(transaction)}`}
                         </span>
-                        <ReviewMark transaction={transaction} />
                         <TwinMark transaction={transaction} />
                         <AttachmentMark transaction={transaction} />
                       </p>

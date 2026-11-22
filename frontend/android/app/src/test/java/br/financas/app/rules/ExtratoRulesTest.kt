@@ -216,14 +216,6 @@ class ExtratoRulesTest {
     }
 
     @Test
-    fun theReviewMarkIsForRowsRecordedAlone() {
-        val row = TransactionDto(id = "x", type = "EXPENSE", needsReview = true)
-        assertTrue(ExtratoRules.reviewMark(row))
-        assertFalse(ExtratoRules.reviewMark(row.copy(needsReview = false)))
-        assertFalse(ExtratoRules.reviewMark(row.copy(pending = true)))
-    }
-
-    @Test
     fun receiptsShowTypeAndSizeLikeTheWeb() {
         assertEquals("512 B", ExtratoRules.fileSize(512))
         assertEquals("120 kB", ExtratoRules.fileSize(122_880))

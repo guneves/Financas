@@ -9,16 +9,10 @@
 | Endpoints | `GET /api/transactions` (+ filters), `PATCH /api/transactions/<id>`, `DELETE /api/transactions/<id>`, `GET /api/transactions/export`, `DELETE /api/cc-expenses/payments/<id>`, `DELETE /api/investments/<id>`, `GET /api/accounts?include_archived=1`, `GET /api/categories`, `GET /api/credit-cards`, `GET /api/cc-expenses?status=OPEN`, `GET/POST /api/transactions/<id>/attachments`, `GET /api/transactions/<id>/attachments/<aid>/file`, `DELETE /api/transactions/<id>/attachments/<aid>`, `GET /api/exports/columns`, `GET /api/inbox/count`, `GET /api/investments?order=created_at&ascending=false`, `GET /api/investment-proceeds`, `POST /api/investment-proceeds/sync` |
 | Client rules | `lib/transactions.js` (`consolidatedBalance()`, `isInvestmentOutflow()`, `isInvestmentInflow()`, `INVESTMENT_SOURCE_TYPES`, `cardSignedAmount()`, `activeAccounts()`), `lib/outboxRules.js` (`pendingAsTransactions()`, `applyPendingToAccounts()`), `lib/sharing.js` (`shareSummary()`, `shareFormFrom()`, `shareFormError()`, `sharePayload()`), `lib/investmentStatement.js`, `lib/inboxRules.js` (`pendingNoticeText()`), `lib/monthlyPlan.js` (`parseMoneyInput()`), inline rules in `Extrato.jsx` and `useLancamentos.js` |
 
-## Revisar and card purchases (045, built 2026-10-27)
-- **Revisar** (`ui/extrato/ReviewSection.kt`, rules `rules/ReviewRules.kt`, port of `lib/review.js`):
-  at the top of Contas, from `GET /api/review`. One row per item: description (+ "Cartão" badge for a
-  card purchase), "dd/mm/aaaa · <place>" (`reviewPlace()`), signed amount (`reviewSign()`, not masked
-  by privacy, like the rows), a category picker (suggestion pre-filled; expense categories for
-  out/CARD, income for in/REFUND; the suggestion kept on top when it is not an option; none for a
-  transfer: "Transferência") and a full-width "É meu" (`POST /api/review` with that item). "Confirmar
-  todos (N)" sends all with the categories on screen (`reviewPayload()`: `category_id` only when
-  changed). First 5, "Mostrar todos (N)" / "Mostrar menos". Success: the row leaves, toast
-  "Confirmado." / "N lançamentos confirmados.", the queue, list and shell pill re-read.
+## Waiting items and card purchases (045, built 2026-10-27)
+- **No Revisar** (owner 2026-11-22): the confirmation is automatic, so the Extrato shows no review queue,
+  no "É meu" / "É receita" / "É repasse" / "Confirmar todos", no "A revisar" badge and no "Revisão" filter.
+  `GET /api/review` is still read for `waiting` (below); a `?review=1` link just opens Contas.
 - **Não gravou sozinho**: when `waiting > 0`, the pending inbox items (`GET /api/inbox?view=pending`):
   title, "when · origem → ?", the reason (`needText()`), and what the phone can fix — "De qual conta
   saiu?" / "Para qual conta foi?" (active accounts minus the known side), "Valor em reais (R$)" —

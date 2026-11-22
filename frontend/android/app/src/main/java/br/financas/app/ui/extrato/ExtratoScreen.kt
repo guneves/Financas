@@ -89,7 +89,7 @@ import java.time.LocalDate
 /**
  * O Extrato nativo (04-extrato.md): pages/lancamentos/Extrato.jsx e ExtratoInvestimentos.jsx em
  * Compose. [onTab] troca de aba de Lancamentos (uma compra no cartao abre Cartoes); [onOpenWeb]
- * abre uma tela ainda React. No alto de Contas, Revisar e o que nao gravou sozinho (ReviewSection).
+ * abre uma tela ainda React. No alto de Contas, o que nao gravou sozinho (ReviewSection).
  */
 @Composable
 fun ExtratoScreen(
@@ -192,8 +192,7 @@ private fun LazyListScope.contasView(viewModel: ExtratoViewModel, onTab: (Lancam
         }
     }
     item(key = "alerts") { ContasAlerts(viewModel) }
-    // Gravar sozinho e revisar (045): o unico trabalho do dono, no alto.
-    item(key = "review") { ReviewPanel(viewModel) }
+    // Gravar sozinho (045): a confirmacao e automatica; no alto, so o que nao gravou sozinho.
     item(key = "waiting") { WaitingPanel(viewModel) }
     item(key = "header") {
         val header = viewModel.header
@@ -367,16 +366,6 @@ private fun FilterPanel(viewModel: ExtratoViewModel) {
                     onSelect = { viewModel.changeFilters(filters.copy(categoryId = it)) },
                 )
             }
-            Field(stringResource(R.string.extrato_filter_review)) {
-                SelectField(
-                    value = filters.review,
-                    options = listOf(
-                        SelectOption("", stringResource(R.string.extrato_filter_review_all)),
-                        SelectOption("1", stringResource(R.string.extrato_filter_review_only)),
-                    ),
-                    onSelect = { viewModel.changeFilters(filters.copy(review = it)) },
-                )
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Field(stringResource(R.string.extrato_filter_min), Modifier.weight(1f)) {
                     AppTextField(filters.minAmount, { viewModel.changeFilters(filters.copy(minAmount = it)) }, keyboardType = KeyboardType.Decimal)
@@ -441,7 +430,6 @@ private fun TransactionRow(row: TransactionDto, viewModel: ExtratoViewModel, onO
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (ExtratoRules.reviewMark(row)) Badge(stringResource(R.string.extrato_review_mark), BadgeTone.WARNING)
                     // Neutro: nem ganho, nem perda, nem aviso.
                     if (row.twin) Badge(stringResource(R.string.twin_badge))
                 }

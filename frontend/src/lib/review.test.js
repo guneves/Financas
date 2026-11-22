@@ -5,13 +5,6 @@ import {
   isCardRow,
   mergeStatement,
   oldestDate,
-  reviewCategoryType,
-  reviewHasCategory,
-  reviewNoticeText,
-  reviewCanBeRepasse,
-  reviewPayload,
-  reviewPlace,
-  reviewSign,
   statementKey,
   waitingNoticeText,
 } from './review.js'
@@ -49,51 +42,8 @@ test('a purchase goes out, a refund comes back', () => {
   assert.equal(cardAmountSign({ type: 'REFUND' }), 1)
 })
 
-test('the review line says where it came from', () => {
-  assert.equal(reviewPlace({ table: 'cc_expenses', card_name: 'Itaú Visa', installments: 3 }), 'Itaú Visa · 3x')
-  assert.equal(reviewPlace({ table: 'cc_expenses', card_name: 'Itaú Visa', installments: 1 }), 'Itaú Visa')
-  assert.equal(reviewPlace({ table: 'transactions', type: 'EXPENSE', account_name: 'Itaú' }), 'Itaú')
-  assert.equal(reviewPlace({ table: 'transactions', type: 'TRANSFER', account_name: 'Itaú', transfer_account_name: 'BB' }), 'Itaú → BB')
-})
-
-test('signs and category types follow the movement', () => {
-  assert.equal(reviewSign({ type: 'EXPENSE' }), -1)
-  assert.equal(reviewSign({ type: 'CARD' }), -1)
-  assert.equal(reviewSign({ type: 'INCOME' }), 1)
-  assert.equal(reviewSign({ type: 'REFUND' }), 1)
-  assert.equal(reviewSign({ type: 'TRANSFER' }), 0)
-  assert.equal(reviewCategoryType({ type: 'REFUND' }), 'INCOME')
-  assert.equal(reviewCategoryType({ type: 'CARD' }), 'EXPENSE')
-  assert.equal(reviewHasCategory({ type: 'TRANSFER' }), false)
-})
-
-test('the payload sends a category only when the owner changed it', () => {
-  const items = [
-    { table: 'transactions', id: 'a', type: 'EXPENSE', category_id: 'food' },
-    { table: 'cc_expenses', id: 'b', type: 'CARD', category_id: 'food' },
-    { table: 'transactions', id: 'c', type: 'TRANSFER', category_id: null },
-  ]
-  const chosen = { 'transactions:a': 'food', 'cc_expenses:b': 'fun', 'transactions:c': 'fun' }
-  assert.deepEqual(reviewPayload(items, chosen), [
-    { table: 'transactions', id: 'a' },
-    { table: 'cc_expenses', id: 'b', category_id: 'fun' },
-    { table: 'transactions', id: 'c' },
-  ])
-  assert.deepEqual(reviewPayload(items), items.map(({ table, id }) => ({ table, id })))
-})
-
-test('notices count in Portuguese and vanish at zero', () => {
-  assert.equal(reviewNoticeText(0), '')
-  assert.match(reviewNoticeText(1), /^1 lançamento gravado sozinho espera/)
-  assert.match(reviewNoticeText(3), /^3 lançamentos gravados sozinhos esperam/)
+test('the waiting notice counts in Portuguese and vanishes at zero', () => {
   assert.equal(waitingNoticeText(0), '')
+  assert.match(waitingNoticeText(1), /^1 movimento/)
   assert.match(waitingNoticeText(2), /^2 movimentos/)
-})
-
-test('um repasse vai com a marca, e so uma receita pode ser', () => {
-  const income = { table: 'transactions', id: 'a', type: 'INCOME' }
-  assert.deepEqual(reviewPayload([{ ...income, repasse: true }]), [{ table: 'transactions', id: 'a', repasse: true }])
-  assert.equal(reviewCanBeRepasse(income), true)
-  assert.equal(reviewCanBeRepasse({ table: 'transactions', id: 'b', type: 'EXPENSE' }), false)
-  assert.equal(reviewCanBeRepasse({ table: 'cc_expenses', id: 'c', type: 'REFUND' }), false)
 })

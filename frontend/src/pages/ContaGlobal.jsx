@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, CheckCheck, Globe2, Plus } from 'lucide-react'
-import { accountsApi, reviewApi, transactionsApi, transfersApi } from '../lib/dataApi'
+import { ArrowLeft, Globe2, Plus } from 'lucide-react'
+import { accountsApi, transactionsApi, transfersApi } from '../lib/dataApi'
 import {
   formatCurrency,
   formatDateBR,
@@ -25,7 +25,6 @@ import { isBrlAccount } from '../lib/portfolioAccount'
 import { toast } from '../lib/toast'
 import {
   AlertMessage,
-  Badge,
   Button,
   EmptyState,
   Field,
@@ -46,8 +45,8 @@ const emptyPix = () => ({ account_id: '', amount: '', transfer_amount: '', date:
 
 // Conta global (dono, 2026-10-27; lib/globalAccount.js): a unica tela do app em
 // outra moeda. Saldo e extrato na moeda da conta, e um "≈ R$" pelo cambio de
-// hoje. O que a conta faz sozinha (receita/despesa em dolar) aparece so aqui e
-// se revisa aqui; o Pix de reais para ela e uma transferencia.
+// hoje. O que a conta faz sozinha (receita/despesa em dolar) aparece so aqui,
+// confirmado sozinho; o Pix de reais para ela e uma transferencia.
 export default function ContaGlobal() {
   const [params, setParams] = useSearchParams()
   const [error, setError] = useState('')
@@ -78,22 +77,8 @@ export default function ContaGlobal() {
     [statementQuery.data, account, accountsById],
   )
   const totals = globalTotals(statement)
-  const toReview = statement.filter((row) => row.needs_review)
   const loadError = queryErrorMessage(accountsQuery, 'Não foi possível carregar as contas.')
     || queryErrorMessage(statementQuery, 'Não foi possível carregar o extrato da conta global.')
-
-  const confirm = async (key, rows) => {
-    setSavingKey(key)
-    setError('')
-    try {
-      await reviewApi.confirm(rows.map((row) => ({ table: 'transactions', id: row.id })))
-      toast(rows.length > 1 ? `${rows.length} lançamentos confirmados.` : 'Lançamento confirmado.')
-    } catch (requestError) {
-      setError(requestError.message || 'Não foi possível confirmar.')
-    } finally {
-      setSavingKey('')
-    }
-  }
 
   const savePix = async (event) => {
     event.preventDefault()
@@ -180,14 +165,7 @@ export default function ContaGlobal() {
               title="Extrato"
               description={`Em ${currency}. Um Pix de uma conta em reais é uma transferência: não é despesa nem receita.`}
               actions={(
-                <div className="flex flex-wrap gap-2">
-                  {toReview.length > 1 ? (
-                    <Button type="button" size="sm" variant="secondary" icon={CheckCheck} loading={savingKey === 'all'} onClick={() => confirm('all', toReview)}>
-                      Confirmar todos
-                    </Button>
-                  ) : null}
-                  <Button type="button" size="sm" icon={Plus} onClick={() => setPixOpen(true)}>Pix para cá</Button>
-                </div>
+                <Button type="button" size="sm" icon={Plus} onClick={() => setPixOpen(true)}>Pix para cá</Button>
               )}
             />
             {statementQuery.isPending ? (
@@ -205,7 +183,6 @@ export default function ContaGlobal() {
                       <div className="min-w-0 flex-1">
                         <p className="flex min-w-0 items-center gap-1.5 font-medium text-zinc-900">
                           <span className="truncate">{row.description || (row.counterpart ? `${row.direction > 0 ? 'De' : 'Para'} ${row.counterpart}` : 'Movimento')}</span>
-                          {row.needs_review ? <Badge tone="info">A revisar</Badge> : null}
                         </p>
                         <p className="truncate text-xs text-zinc-500">
                           {formatDateBR(row.date)}
@@ -221,11 +198,6 @@ export default function ContaGlobal() {
                           {signedForeign(row.native, row.direction)}
                         </p>
                       )}
-                      {row.needs_review ? (
-                        <Button type="button" size="sm" variant="secondary" icon={CheckCheck} loading={savingKey === row.id} onClick={() => confirm(row.id, [row])}>
-                          É meu
-                        </Button>
-                      ) : null}
                     </li>
                   )
                 })}

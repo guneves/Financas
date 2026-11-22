@@ -1,13 +1,12 @@
 // Porte: mudou um, muda o outro, com um teste de cada lado.
-// Os nove primeiros sao os casos de frontend/src/lib/review.test.js, na mesma ordem; os outros
-// cobrem o que so o celular tem (a categoria sugerida, o que nao gravou sozinho, o numero da aba).
+// Os primeiros sao os casos de frontend/src/lib/review.test.js, na mesma ordem; os outros cobrem
+// o que so o celular tem (o que nao gravou sozinho).
 package br.financas.app.rules
 
 import br.financas.app.data.AccountDto
 import br.financas.app.data.CardStatementDto
 import br.financas.app.data.InboxItemDto
 import br.financas.app.data.JsonBody
-import br.financas.app.data.ReviewItemDto
 import br.financas.app.data.TransactionDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -84,72 +83,11 @@ class ReviewRulesTest {
         assertEquals(1, ReviewRules.cardAmountSign(ReviewRules.cardStatementRow(card("p", "2026-10-10", type = "REFUND"))))
     }
 
-    private fun review(
-        table: String = "transactions",
-        type: String = "EXPENSE",
-        id: String = "a",
-        categoryId: String? = null,
-        category: String? = null,
-        cardName: String? = null,
-        installments: Int? = null,
-        accountName: String? = null,
-        transferAccountName: String? = null,
-    ) = ReviewItemDto(
-        table = table, id = id, type = type, categoryId = categoryId, category = category, cardName = cardName,
-        installments = installments, accountName = accountName, transferAccountName = transferAccountName,
-    )
-
-    // node: 'the review line says where it came from'
+    // node: 'the waiting notice counts in Portuguese and vanishes at zero'
     @Test
-    fun theReviewLineSaysWhereItCameFrom() {
-        assertEquals("Itaú Visa · 3x", ReviewRules.reviewPlace(review(table = "cc_expenses", cardName = "Itaú Visa", installments = 3)))
-        assertEquals("Itaú Visa", ReviewRules.reviewPlace(review(table = "cc_expenses", cardName = "Itaú Visa", installments = 1)))
-        assertEquals("Itaú", ReviewRules.reviewPlace(review(accountName = "Itaú")))
-        assertEquals("Itaú → BB", ReviewRules.reviewPlace(review(type = "TRANSFER", accountName = "Itaú", transferAccountName = "BB")))
-        // Sem nome: "Cartão" / "Conta".
-        assertEquals("Cartão", ReviewRules.reviewPlace(review(table = "cc_expenses")))
-        assertEquals("Conta → Conta", ReviewRules.reviewPlace(review(type = "TRANSFER")))
-    }
-
-    // node: 'signs and category types follow the movement'
-    @Test
-    fun signsAndCategoryTypesFollowTheMovement() {
-        assertEquals(-1, ReviewRules.reviewSign(review(type = "EXPENSE")))
-        assertEquals(-1, ReviewRules.reviewSign(review(type = "CARD")))
-        assertEquals(1, ReviewRules.reviewSign(review(type = "INCOME")))
-        assertEquals(1, ReviewRules.reviewSign(review(type = "REFUND")))
-        assertEquals(0, ReviewRules.reviewSign(review(type = "TRANSFER")))
-        assertEquals("INCOME", ReviewRules.reviewCategoryType(review(type = "REFUND")))
-        assertEquals("EXPENSE", ReviewRules.reviewCategoryType(review(type = "CARD")))
-        assertFalse(ReviewRules.reviewHasCategory(review(type = "TRANSFER")))
-    }
-
-    // node: 'the payload sends a category only when the owner changed it'
-    @Test
-    fun thePayloadSendsACategoryOnlyWhenTheOwnerChangedIt() {
-        val items = listOf(
-            review(id = "a", type = "EXPENSE", categoryId = "food"),
-            review(table = "cc_expenses", id = "b", type = "CARD", categoryId = "food"),
-            review(id = "c", type = "TRANSFER"),
-        )
-        val chosen = mapOf("transactions:a" to "food", "cc_expenses:b" to "fun", "transactions:c" to "fun")
-        assertEquals(
-            """[{"table":"transactions","id":"a"},{"table":"cc_expenses","id":"b","category_id":"fun"},{"table":"transactions","id":"c"}]""",
-            JsonBody.encode(mapOf("items" to ReviewRules.reviewPayload(items, chosen))).removePrefix("{\"items\":").removeSuffix("}"),
-        )
-        assertEquals(
-            items.map { mapOf("table" to it.table, "id" to it.id) },
-            ReviewRules.reviewPayload(items),
-        )
-    }
-
-    // node: 'notices count in Portuguese and vanish at zero'
-    @Test
-    fun noticesCountInPortugueseAndVanishAtZero() {
-        assertEquals("", ReviewRules.reviewNoticeText(0))
-        assertTrue(ReviewRules.reviewNoticeText(1).startsWith("1 lançamento gravado sozinho espera"))
-        assertTrue(ReviewRules.reviewNoticeText(3).startsWith("3 lançamentos gravados sozinhos esperam"))
+    fun theWaitingNoticeCountsInPortugueseAndVanishesAtZero() {
         assertEquals("", ReviewRules.waitingNoticeText(0))
+        assertTrue(ReviewRules.waitingNoticeText(1).startsWith("1 movimento"))
         assertTrue(ReviewRules.waitingNoticeText(2).startsWith("2 movimentos"))
     }
 
@@ -166,37 +104,6 @@ class ReviewRulesTest {
         assertEquals("card:p", ReviewRules.statementKey(row.copy(clientId = null)))
         assertTrue(row.needsReview)
         assertEquals("BTG black", row.cardName)
-    }
-
-    @Test
-    fun theSuggestedCategoryStaysOnTopWhenItIsNotAnOption() {
-        val options = listOf(
-            CategoryOption("food", "Alimentação", "Alimentação", "EXPENSE", null),
-            CategoryOption("salary", "Salário", "Salário", "INCOME", null),
-            CategoryOption("other", "Outros", "Lazer > Outros", "BOTH", "fun"),
-        )
-        val item = review(categoryId = "food", category = "Alimentação")
-        assertEquals("food", ReviewRules.reviewCategoryValue(item, emptyMap()))
-        assertEquals("other", ReviewRules.reviewCategoryValue(item, mapOf("transactions:a" to "other")))
-        assertEquals(listOf("food" to "Alimentação", "other" to "Lazer > Outros"), ReviewRules.reviewCategoryOptions(options, item, "food"))
-        // Receita: so as de receita (e as dos dois tipos).
-        assertEquals(listOf("salary", "other"), ReviewRules.reviewCategoryOptions(options, review(type = "REFUND", categoryId = "salary"), "salary").map { it.first })
-        // A sugerida so pelo nome (sem id) entra no alto.
-        val nameOnly = review(category = "Padaria")
-        assertEquals("" to "Padaria", ReviewRules.reviewCategoryOptions(options, nameOnly, "").first())
-        assertEquals("" to "Sem categoria", ReviewRules.reviewCategoryOptions(options, review(), "").first())
-    }
-
-    @Test
-    fun theListShowsFiveAndConfirmedOnesLeave() {
-        val items = (1..7).map { review(id = "i$it") }
-        assertEquals(5, ReviewRules.visibleItems(items, showAll = false).size)
-        assertEquals(7, ReviewRules.visibleItems(items, showAll = true).size)
-        assertEquals(listOf("i1", "i3", "i4", "i5", "i6", "i7"), ReviewRules.withoutConfirmed(items, listOf(items[1])).map { it.id })
-        assertEquals("Confirmado.", ReviewRules.confirmedText(1))
-        assertEquals("3 lançamentos confirmados.", ReviewRules.confirmedText(3))
-        assertEquals("Extrato · 3", ReviewRules.tabLabel("Extrato", 3))
-        assertEquals("Extrato", ReviewRules.tabLabel("Extrato", 0))
     }
 
     private fun waiting(

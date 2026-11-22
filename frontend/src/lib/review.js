@@ -1,11 +1,9 @@
-// Gravar sozinho e revisar (045): a notificacao e a Pluggy viram lancamento na
-// hora; o dono so diz "e meu" e a categoria. E o Extrato mostra as compras no
-// cartao na mesma linha do tempo das contas.
+// Gravar sozinho (045): a notificacao e a Pluggy viram lancamento na hora, e a
+// confirmacao e automatica (dono 2026-11-22: sem "É meu" nem "É repasse" na
+// tela). O Extrato mostra as compras no cartao na mesma linha do tempo das contas.
 //
 // Regras puras (testadas em review.test.js): nada aqui importa React, o
 // navegador ou lib/api.js.
-
-export const REVIEW_PATH = '/lancamentos/extrato?review=1'
 
 // Uma compra no cartao (GET /api/cc-expenses/statement) no formato de uma
 // linha do extrato: `kind: 'card'`, a chave nao colide com a de um lancamento.
@@ -47,56 +45,6 @@ export function mergeStatement(transactions, purchases, { until = '' } = {}) {
 // A data mais antiga de uma lista ja ordenada (a ultima), ou '' se vazia.
 export function oldestDate(rows) {
   return rows?.length ? rows[rows.length - 1].date || '' : ''
-}
-
-// O item da fila de revisao (GET /api/review) mostra de onde veio.
-export function reviewPlace(item) {
-  if (item.table === 'cc_expenses') {
-    const parts = Number(item.installments) > 1 ? ` · ${item.installments}x` : ''
-    return `${item.card_name || 'Cartão'}${parts}`
-  }
-  if (item.type === 'TRANSFER') return `${item.account_name || 'Conta'} → ${item.transfer_account_name || 'Conta'}`
-  return item.account_name || 'Conta'
-}
-
-// O sinal do valor na revisao: entrada +, saida −, transferencia sem sinal.
-export function reviewSign(item) {
-  if (item.type === 'TRANSFER') return 0
-  if (item.type === 'INCOME' || item.type === 'REFUND') return 1
-  return -1
-}
-
-// Uma transferencia nao tem categoria a escolher; o resto pode trocar.
-export const reviewHasCategory = (item) => item.type !== 'TRANSFER'
-
-// O pedido de POST /api/review: so manda category_id quando o dono mudou.
-export function reviewPayload(items, chosen = {}) {
-  return items.map((item) => {
-    const entry = { table: item.table, id: item.id }
-    const key = reviewKey(item)
-    if (reviewHasCategory(item) && chosen[key] && chosen[key] !== (item.category_id || '')) {
-      entry.category_id = chosen[key]
-    }
-    if (item.repasse) entry.repasse = true
-    return entry
-  })
-}
-
-// Repasse (dono, 2026-10-31): a receita que e dinheiro de outra pessoa para pagar
-// algo dela. Fica no saldo, fora da renda.
-export const reviewCanBeRepasse = (item) => item.table === 'transactions' && item.type === 'INCOME'
-
-export const reviewKey = (item) => `${item.table}:${item.id}`
-
-// Que categorias a escolha oferece: despesa para saida e compra, receita para
-// entrada e estorno.
-export const reviewCategoryType = (item) => (reviewSign(item) > 0 ? 'INCOME' : 'EXPENSE')
-
-export function reviewNoticeText(count) {
-  if (!count) return ''
-  return count === 1
-    ? '1 lançamento gravado sozinho espera você confirmar.'
-    : `${count} lançamentos gravados sozinhos esperam você confirmar.`
 }
 
 export function waitingNoticeText(count) {
