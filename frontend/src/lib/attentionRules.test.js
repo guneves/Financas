@@ -9,6 +9,7 @@ import {
   bellBadge,
   bellLabel,
   invoiceMonthKey,
+  invoicesAllClosed,
   isPastDue,
   overdueDetail,
   undismissedItems,
@@ -107,4 +108,16 @@ test('o selo do sino: todos os avisos, 9+ acima de nove', () => {
   assert.equal(bellLabel(0), 'Precisa de atenção: nenhum aviso')
   assert.equal(bellLabel(1), 'Precisa de atenção: 1 aviso')
   assert.equal(bellLabel(3), 'Precisa de atenção: 3 avisos')
+})
+
+test('o topo do quadro so diz Fechada quando todas as faturas fecharam', () => {
+  const closed = { card_id: 'bb', payable: true }
+  const open = { card_id: 'btg', payable: false }
+  assert.equal(invoicesAllClosed([closed]), true)
+  assert.equal(invoicesAllClosed([closed, { ...closed, card_id: 'c' }]), true)
+  // BB fechou (dia 26) e o BTG fecha dia 1: o total ainda nao esta todo fechado.
+  assert.equal(invoicesAllClosed([open, closed]), false)
+  assert.equal(invoicesAllClosed([open]), false)
+  assert.equal(invoicesAllClosed([]), false)
+  assert.equal(invoicesAllClosed(undefined), false)
 })

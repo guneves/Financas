@@ -517,6 +517,7 @@ private fun NextInvoiceTile(
     val palette = LocalPalette.current
     val months = HomeLogic.nextInvoiceMonths(home.nextInvoices)
     val payable = home.nextInvoices.any { it.payable }
+    val allClosed = HomeLogic.allInvoicesClosed(home.nextInvoices)
     Panel {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
@@ -534,7 +535,7 @@ private fun NextInvoiceTile(
                     FitText(text = formatCurrency(home.nextInvoicesTotal), maxSize = 24.sp, minSize = 16.sp, color = palette.text)
                 }
                 val closing = home.nextClosingDate
-                if (payable) {
+                if (allClosed) {
                     Badge(stringResource(R.string.home_invoice_closed), BadgeTone.WARNING)
                 } else if (closing != null) {
                     Column(horizontalAlignment = Alignment.End) {
@@ -549,6 +550,7 @@ private fun NextInvoiceTile(
                     items.filter {
                         it.cardId == invoice.cardId && it.invoiceMonth == invoice.invoiceMonth && it.invoiceYear == invoice.invoiceYear
                     },
+                    closedBadge = invoice.payable && !allClosed,
                 )
             }
             if (payable) {
@@ -560,7 +562,7 @@ private fun NextInvoiceTile(
 
 /** Uma fatura do cartao: fechada por padrao; aberta, as compras dela. */
 @Composable
-private fun InvoiceDropdown(invoice: NextInvoiceDto, items: List<NextInvoiceItemDto>) {
+private fun InvoiceDropdown(invoice: NextInvoiceDto, items: List<NextInvoiceItemDto>, closedBadge: Boolean = false) {
     val palette = LocalPalette.current
     var open by remember(invoice.cardId, invoice.invoiceMonth, invoice.invoiceYear) { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, palette.border), color = palette.surface) {
@@ -578,6 +580,9 @@ private fun InvoiceDropdown(invoice: NextInvoiceDto, items: List<NextInvoiceItem
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (closedBadge) {
+                    Box(Modifier.padding(end = 8.dp)) { Badge(stringResource(R.string.home_invoice_closed), BadgeTone.WARNING) }
+                }
                 Text(formatCurrency(invoice.total), color = palette.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Icon(
                     if (open) AppIcons.ChevronDown else AppIcons.ChevronRight,

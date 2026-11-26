@@ -132,6 +132,14 @@ object HomeLogic {
     fun nextInvoiceMonths(invoices: List<NextInvoiceDto>): List<String> =
         invoices.map { AttentionRules.invoiceMonthKey(it.invoiceYear, it.invoiceMonth) }.distinct().sorted()
 
+    /**
+     * O selo "Fechada" no topo do quadro: so quando todas as proximas faturas fecharam. Com um
+     * cartao fechado e outro aberto o topo dizia "Fechada" para o total inteiro; agora mostra
+     * quando o aberto fecha, e a linha do fechado leva o selo (`attentionRules.invoicesAllClosed`).
+     */
+    fun allInvoicesClosed(invoices: List<NextInvoiceDto>): Boolean =
+        invoices.isNotEmpty() && invoices.all { it.payable }
+
     /** As proximas faturas ja fechadas: so elas podem ser pagas, uma por cartao. */
     fun payableInvoices(invoices: List<NextInvoiceDto>): List<PayInvoice> =
         invoices.filter { it.payable }.map { PayInvoice(it.cardId, it.invoiceMonth, it.invoiceYear, it.total) }

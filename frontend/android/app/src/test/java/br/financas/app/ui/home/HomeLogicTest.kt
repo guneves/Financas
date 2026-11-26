@@ -172,4 +172,13 @@ class HomeLogicTest {
         assertEquals("falhou a leitura", HomeLogic.bannerDetail("", "falhou a leitura"))
         assertEquals("", HomeLogic.bannerDetail("", ""))
     }
+
+    @Test
+    fun theTileSaysClosedOnlyWhenEveryInvoiceClosed() {
+        // BB fechou dia 26, o BTG fecha dia 1: o total do quadro ainda nao esta todo fechado.
+        assertFalse(HomeLogic.allInvoicesClosed(listOf(invoice("btg", 12, false, "727.63"), invoice("bb", 12, true, "550"))))
+        assertTrue(HomeLogic.allInvoicesClosed(listOf(invoice("btg", 12, true, "727.63"), invoice("bb", 12, true, "550"))))
+        assertFalse(HomeLogic.allInvoicesClosed(listOf(invoice("btg", 12, false, "727.63"))))
+        assertFalse(HomeLogic.allInvoicesClosed(emptyList()))
+    }
 }

@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import { ccExpensesApi, recurringApi } from '../lib/dataApi'
 import { dismissAttention, useAttentionItems, useDismissedAttention, useHome, useHomePanels, useInicioBudget } from '../lib/attention'
-import { invoiceMonthKey, overdueDetail as overdueDetailOf, undismissedItems } from '../lib/attentionRules'
+import { invoiceMonthKey, invoicesAllClosed, overdueDetail as overdueDetailOf, undismissedItems } from '../lib/attentionRules'
 import { AttentionCards } from '../components/Attention'
 import { useOutbox } from '../lib/outbox'
 import { ACCOUNT_KINDS, PENDING } from '../lib/outboxRules'
@@ -825,6 +825,9 @@ function MonthSummary({ income, expense, invested, redeemed, others }) {
 }
 
 function NextInvoiceTile({ total, closingDate, payable, label, invoices, expenses, paying, onPay }) {
+  // "Fechada" no topo so quando todas fecharam: com um cartao fechado e outro
+  // aberto, o topo mostra quando o aberto fecha e a linha do fechado leva o selo.
+  const allClosed = invoicesAllClosed(invoices)
   return (
     <Panel className="space-y-3 p-5 sm:p-6">
       <Link to="/lancamentos/cartoes" className="flex items-center gap-4">
@@ -836,7 +839,7 @@ function NextInvoiceTile({ total, closingDate, payable, label, invoices, expense
           <p className="mt-0.5 whitespace-nowrap text-2xl font-extrabold tracking-tight tabular text-zinc-950">{formatCurrency(total)}</p>
         </div>
         <div className="shrink-0 text-right text-sm text-zinc-600">
-          {payable ? (
+          {allClosed ? (
             <Badge tone="warning">Fechada</Badge>
           ) : closingDate ? (
             <>fecha<br /><b className="text-zinc-950 tabular">{formatDateBR(closingDate).slice(0, 5)}</b></>
@@ -846,7 +849,12 @@ function NextInvoiceTile({ total, closingDate, payable, label, invoices, expense
       {invoices.length ? (
         <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
           {invoices.map((invoice) => (
-            <InvoiceDropdown key={`${invoice.card_id}-${invoice.invoice_year}-${invoice.invoice_month}`} invoice={invoice} expenses={expenses} />
+            <InvoiceDropdown
+              key={`${invoice.card_id}-${invoice.invoice_year}-${invoice.invoice_month}`}
+              invoice={invoice}
+              expenses={expenses}
+              closedBadge={invoice.payable && !allClosed}
+            />
           ))}
         </ul>
       ) : null}
@@ -860,7 +868,7 @@ function NextInvoiceTile({ total, closingDate, payable, label, invoices, expense
 }
 
 // Uma fatura do cartao: fechada por padrao; aberta, as compras dela.
-function InvoiceDropdown({ invoice, expenses }) {
+function InvoiceDropdown({ invoice, expenses, closedBadge }) {
   const [open, setOpen] = useState(false)
   const items = expenses.filter((item) => (
     item.card_id === invoice.card_id && item.invoice_month === invoice.invoice_month && item.invoice_year === invoice.invoice_year
@@ -877,6 +885,7 @@ function InvoiceDropdown({ invoice, expenses }) {
           <span className="block truncate text-sm font-semibold text-zinc-900">{invoice.card_name || 'Cartão'}</span>
           <span className="block text-xs text-zinc-500">{monthLabel(invoiceMonthKey(invoice))}</span>
         </span>
+        {closedBadge ? <Badge tone="warning">Fechada</Badge> : null}
         <span className="whitespace-nowrap text-sm font-semibold tabular text-zinc-950">{formatCurrency(invoice.total)}</span>
         <ChevronDown className={cx('h-4 w-4 shrink-0 text-zinc-500 transition-transform', open && 'rotate-180')} />
       </button>

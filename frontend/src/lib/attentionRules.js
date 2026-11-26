@@ -18,6 +18,13 @@ export function invoiceMonthKey(invoice) {
   return `${invoice.invoice_year}-${String(invoice.invoice_month).padStart(2, '0')}`
 }
 
+// O selo "Fechada" no topo do quadro da proxima fatura: so quando todas as
+// faturas dele fecharam. Com um cartao fechado e outro aberto, o topo dizia
+// "Fechada" para o total inteiro, inclusive a parte que ainda recebe compras.
+export function invoicesAllClosed(invoices) {
+  return Array.isArray(invoices) && invoices.length > 0 && invoices.every((invoice) => Boolean(invoice?.payable))
+}
+
 // Vencida so depois do dia do vencimento: no proprio dia ainda se paga em dia.
 // A projecao das faturas do Inicio ainda le as compras em aberto e separa as
 // vencidas com isto.
