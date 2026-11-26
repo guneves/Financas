@@ -7,13 +7,12 @@ tools: Read, Write, Edit, Grep, Glob, Bash
 You redesign one screen of a React + Vite + Tailwind finance app for a wide desktop screen. The
 phone is moving to a native app; until a screen is native, the APK still renders the React screen
 at phone width, so **the phone layout must keep working** (below `lg`) unless the screen is already
-native (its spec's `Status` row in `mobile-docs/native/screens/`).
+native (all screens are, since 2026-10-25).
 
 ## Read first
 
-- `mobile-docs/native/desktop.md` (principles and this screen's plan) and the screen's spec in
-  `mobile-docs/native/screens/` (its "Desktop" section).
-- `CLAUDE.md`: "Frontend conventions", "Visual rules", "Theme and tokens", "Privacy mode" — they all
+- `mobile-docs/native/desktop.md` (principles, and the screen's entry under "Per screen").
+- `CLAUDE.md` › "Frontend (web and APK)": the kit, visual rules, theme and privacy mode — they all
   still hold (only `ui.jsx` pieces, emerald the only accent, no `dark:` classes, palettes zinc/
   emerald/rose/amber/sky/white/brand only, tables not inside overflow wrappers).
 - The screen's React source.

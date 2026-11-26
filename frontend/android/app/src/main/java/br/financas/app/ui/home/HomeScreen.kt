@@ -93,7 +93,7 @@ private class NoticeVisuals(override val message: String, val info: Boolean) : S
 }
 
 /**
- * Inicio nativo (mobile-docs/native/screens/03-inicio.md): o pages/Dashboard.jsx em Compose, com
+ * Inicio nativo: o pages/Dashboard.jsx em Compose, com
  * o cabecalho da casca (Aprovar, pendentes, o sino, o olho). [onOpenWeb] abre o link de um painel
  * (um caminho da web, NativeLinks). A barra de baixo e o "+" sao da
  * casca (NativeActivity).

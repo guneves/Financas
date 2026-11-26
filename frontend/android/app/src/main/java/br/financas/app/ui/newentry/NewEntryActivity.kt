@@ -13,7 +13,7 @@ import br.financas.app.ui.nav.ShellEvents
 import br.financas.app.ui.theme.FinancasTheme
 
 /**
- * O "+ Novo" nativo (mobile-docs/native/screens/01-novo.md): uma janela transparente por cima da
+ * O "+ Novo" nativo: uma janela transparente por cima da
  * casca, com o sheet do Compose. Aberta pelo "+" e por Pendentes › Corrigir.
  *
  * Ao gravar (ou guardar na fila) avisa a casca (ShellEvents), que relê a fila e mostra o aviso;

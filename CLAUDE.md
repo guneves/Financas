@@ -11,11 +11,11 @@ docstring, a lesson in the handoff. Only the owner changes this file, or a sessi
 | File | Holds | Read |
 |---|---|---|
 | `docs/handoff.md` | the last session only | at the start, whole (it is short) |
-| `docs/next-steps.md` | the open plan, priority order, ≤ ~150 lines | at the start, whole |
+| `docs/next-steps.md` | what to do next, priority order, ≤ ~60 lines | at the start, whole |
 | `docs/domain-rules.md` | finance rules and owner decisions, by area | the section you touch |
-| `docs/backlog.md` | lower-priority open items, owner checks, known limits | grep the area |
-| `docs/done-tasks.md` | finished work | grep, to know whether something exists |
-| `docs/audit.md`, `DEPLOY.md`, `mobile-docs/` | the audit, the server setup, the APK screens | when the task is there |
+| `docs/backlog.md` | bugs, limits, owner decisions, ideas; one line each | grep the area |
+| `docs/done-tasks.md` | finished work, one line each | grep, to know whether something exists |
+| `DEPLOY.md`, `mobile-docs/native/` | the server setup and runbook; the APK architecture and conventions | when the task is there |
 
 `session-scout` (`.claude/agents/`) can brief a cold start (if `subagent_type` is "not found":
 `general-purpose` with "Read .claude/agents/session-scout.md and follow it").
@@ -23,7 +23,8 @@ docstring, a lesson in the handoff. Only the owner changes this file, or a sessi
 ## Ending a session
 
 1. Finished tasks leave `next-steps.md` for a one-line row in `done-tasks.md`; what was left undone stays in
-   the plan, rewritten. Keep `next-steps.md` under ~150 lines: push the least urgent items to `backlog.md`.
+   the plan, rewritten. Keep `next-steps.md` under ~60 lines: the least urgent go to `backlog.md`, one line each.
+   Never let a doc grow into a log: history is in git.
 2. **Replace** `docs/handoff.md` with this shape, **at most ~25 lines**, one line per bullet, no detail the
    commit or the code already says:
    ```
@@ -64,6 +65,7 @@ APK; the app's JWT still applies, and a proxy 401 never clears it); 443 is tailn
   image: pipe it in (`... exec -T app sh -c 'cat > /tmp/x.py' < local.py`), run with
   `-e PYTHONPATH=/app/backend`, `rm` it after. Anything that writes (a rebuild `--apply`, a fix-up) only
   when the owner says so. The owner's user is the one with real transactions; the others are tests.
+  Window by a row's own date, never `auto_recorded_at` (the 2026-10-27 rebuild re-recorded a year).
 - **Before merging a rule that changes recorded data:** replay it on a copy of the server's database
   (`sqlite3.connect('file:/data/finance.db?mode=ro').backup(...)` to `/tmp`, copy it to the scratchpad,
   `rm` the server copy), run the engine inside one transaction, diff, ROLLBACK.

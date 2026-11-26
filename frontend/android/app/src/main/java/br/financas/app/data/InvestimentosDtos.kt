@@ -4,7 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-// As leituras de Investimentos (12 a 16 de mobile-docs/native/screens/): os nomes do JSON do
+// As leituras de Investimentos: os nomes do JSON do
 // servidor, so os campos que as telas nativas leem. Numeros sao Money (BigDecimal do texto), tambem
 // os percentuais: nada passa por Double.
 

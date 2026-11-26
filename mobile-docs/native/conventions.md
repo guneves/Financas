@@ -32,13 +32,13 @@ CLAUDE.md holds for everything; a rule about a React screen applies to its nativ
   fit-value text); destructive actions always go through the dialog.
 
 ## Build and ship
-- Sessions cannot build an APK (`dl.google.com` is blocked): push and let `android-check.yml`
-  compile the debug APK and run the JVM tests (a push outside `frontend/android/` skips its path filter; dispatch it).
+- On the owner's PC: `cd frontend/android; ./gradlew.bat --offline testDebugUnitTest assembleDebug`
+  (`JAVA_HOME` = Android Studio's `jbr`). Cloud sessions can't (`dl.google.com` is blocked): push and
+  let `android-check.yml` compile and test.
 - A screen ships with its ViewModel and tests, its `NativeRoutes` page in the shell's NavHost
-  (and `NativeLinks` for the web paths that point to it), the spec's `Status` row and the session
-  docs, and green CI. A link to a page the phone does not have (desktop-only) gets no target: the
-  shell says "Esta tela fica no computador". The owner checks the spec's Acceptance list on the
-  phone with the debug APK.
+  (and `NativeLinks` for the web paths that point to it) and green CI. A link to a page the phone
+  does not have (desktop-only) gets no target: the shell says "Esta tela fica no computador". The
+  owner checks it on the phone after the deploy.
 
 ## Never
 - Send a bank notification's text off the phone, or accept `com.android.shell` in a release build.

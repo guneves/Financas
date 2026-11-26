@@ -40,7 +40,7 @@ sealed class LoginResult {
 }
 
 /**
- * O login nativo (mobile-docs/native/screens/00-shell.md): POST /api/auth/login sem token, no
+ * O login nativo: POST /api/auth/login sem token, no
  * endereco do servidor deste APK. O cadastro fica fechado no celular (o servidor so abre com
  * ALLOW_SIGNUP). Sem prazo curto: um login que nao chegou e repetido pelo dono.
  */
