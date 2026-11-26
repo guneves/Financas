@@ -22,11 +22,12 @@ In this order, because each one narrows what matters in the next:
 ```bash
 cat docs/handoff.md                 # only the most recent session — read it in full
 cat docs/next-steps.md              # the active plan — open work only
-# docs/done-tasks.md holds completed work; grep it when checking whether something exists
+# docs/done-tasks.md (finished work) and docs/backlog.md (lower-priority open items): grep, never read whole
+# docs/domain-rules.md: read only the section of the task's area
 git log --oneline -8
 git status --short
 ls database/migrations/             # highest number = current schema version
-cd backend && ../.venv/Scripts/python.exe -m pytest -q 2>&1 | tail -3
+# no full pytest here: in one process it runs out of memory on the owner's PC (CI reports the count)
 ```
 
 The handoff keeps only the latest session. If it refers to an earlier one ("as the previous session
@@ -36,8 +37,8 @@ found…"), look it up with `git log -p docs/handoff.md`.
 
 A single page, in this shape, no preamble:
 
-**1. Where the project stands.** Two or three sentences. The last completed phase, the test count as
-   the suite actually reports it right now (not as the docs claim), the highest migration, and whether
+**1. Where the project stands.** Two or three sentences. The last completed phase, the latest CI result (`gh run list -L 1`),
+   not the count the docs claim, the highest migration, and whether
    the working tree is clean.
 
 **2. What the last session left undone, and why.** Pull this from the handoff's "What was NOT done"

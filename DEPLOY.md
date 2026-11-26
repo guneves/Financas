@@ -182,7 +182,7 @@ APK updates after that: "Updating the phone", below.
 
 The app pulls the owner's bank and card movements from Pluggy and records them by itself; the owner
 confirms and categorizes in Extrato › Revisar. Phone notices record first, and Pluggy confirms them
-(CLAUDE.md › "Notifications are fast, Pluggy is the record"). Code: `backend/pluggy_client.py`, `services/open_finance*.py`,
+(docs/domain-rules.md › "Notifications are fast, Pluggy is the record"). Code: `backend/pluggy_client.py`, `services/open_finance*.py`,
 `routes/open_finance.py`, migration 043.
 
 **Secrets.** `PLUGGY_CLIENT_ID` and `PLUGGY_CLIENT_SECRET` (Pluggy dashboard › Applications) go in

@@ -4,7 +4,7 @@ No mesmo pull das contas (so GET): `GET /investments?itemId=` da as posicoes
 da corretora e `GET /investments/{id}/transactions` as operacoes de cada uma.
 
 - **Operacoes, nunca posicoes**: o custo medio, o resultado realizado e o DARF
-  saem das operacoes (CLAUDE.md › Investments); a posicao da Pluggy so confere.
+  saem das operacoes (docs/domain-rules.md › Investments); a posicao da Pluggy so confere.
 - Grava sozinho a COMPRA e a VENDA de renda variavel (`EQUITY`: acoes, ETFs,
   FIIs), na data do pregao (`tradeDate`), com o preco unitario e os custos
   (`expenses`), o caixa pela Corretora (`metadata.cash_account_id`) — o

@@ -2,7 +2,7 @@
 // Movidos de Transactions.jsx sem mudanca de comportamento.
 
 // Relogio local: as datas padrao passam por aqui, nao por `new Date()` direto
-// (ver CLAUDE.md › Known sharp edges).
+// (o "One clock" do CLAUDE.md; o format.js tem os seus, este fica de proposito).
 export function getNow() {
   return new Date()
 }

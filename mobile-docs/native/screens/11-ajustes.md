@@ -142,7 +142,7 @@ automatic decision (058) from `GET /api/review/auto`, newest first, title and on
 ### Notificações do celular — built
 The brake "Avisos dos bancos" (`bank_notifications` of `GET/PATCH /api/inbox/settings`, on by
 default): off, only the Flash's notices are recorded. Every notice the policy accepts becomes a
-lançamento at once; the owner confirms it in Extrato › Revisar (CLAUDE.md › "Notifications are fast,
+lançamento at once; the owner confirms it in Extrato › Revisar (docs/domain-rules.md › "Notifications are fast,
 Pluggy is the record"). There is no Aprovar screen and no "Gravar sozinho" switch on any client.
 
 ### Integrações — **late / desktop** (diagnostic)
