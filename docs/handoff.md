@@ -11,7 +11,8 @@
   if something came in. Backend `TestPullToRefresh` (5), APK `HomeRepositoryTest` (5), 603 JVM tests green.
   Checked on the emulator against a scratch backend (before the server became the rule).
 - Owner: "testing on the server is the norm" → CLAUDE.md › Testing on the server. Docs cut to what a session
-  needs: CLAUDE.md static, 76 → 9 KB (rules verbatim in `docs/domain-rules.md`); next-steps 75 → 2 KB;
+  needs: CLAUDE.md static, 76 → 9 KB (rules in `docs/domain-rules.md`, condensed 64 → 28 KB: history and
+  repeats cut, every rule kept; long version at 16b7a6a); next-steps 75 → 2 KB;
   backlog (one line per open item) 73 → 9 KB; done-tasks 178 → 15 KB; `docs/audit.md` and the 17 native
   screen specs (~300 KB) deleted (their "Desktop" sections are in `desktop.md`); memory 19 → 6 KB. Full
   texts: `git show a79c731:<path>`.

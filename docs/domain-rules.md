@@ -1,689 +1,142 @@
 # Domain rules
 
-> The finance rules and the owner's decisions (dated), moved out of `CLAUDE.md` on 2026-11-26 so the
-> session guide stays short. **Read the section of the area you touch before changing it**; a rule here
-> changes only with the owner's word (record the date). The code's docstrings repeat the detail.
+> The finance rules and the owner's decisions. **Read the section you touch before changing it**; a rule
+> changes only with the owner's word (add the date). Names in backticks are the code that holds the rule.
+> The long version with its history: `git show 16b7a6a:docs/domain-rules.md`.
 
-## Money, dates, identity
-- **Money** rounds only through `rounded_money()` (`money.py`, ROUND_HALF_UP via `Decimal`); never
-  a bare `round()`. Request amounts go through `parse_money()`: rounded, ≥ R$ 0,01 (unless
-  `allow_zero`), ≤ `MAX_MONEY`.
-- **Dates and months** are 1900–2199 (`MIN_YEAR`/`MAX_YEAR`, `require_date()`/`normalize_month()`)
-  and stored zero-padded ("2026-1-5" → "2026-01-05"); filters compare them as text. Investment
-  metadata dates go through `validate_movement_metadata()`.
-- **`user_id` on every table and every query.** Tests assert it.
-- **Migrations are append-only**: a new numbered file, never edit an applied one. (027/029 are
-  empty placeholders from the Pluggy removal; keep their numbers.)
-- **Destructive endpoints take a confirmation guard** (asset deletes need the matching
-  `asset_class`; deletes that would leave a sale unbacked are refused).
-- Comments and identifiers mix Portuguese and English — match the file. User-facing text is
-  Portuguese; `docs/` is English.
+## Basics
+- Money: `rounded_money()` (ROUND_HALF_UP, `Decimal`); requests via `parse_money()` (≥ 0,01 unless `allow_zero`, ≤ `MAX_MONEY`).
+- Dates 1900–2199 (`require_date()`, `normalize_month()`), zero-padded, compared as text; investment metadata dates via `validate_movement_metadata()`.
+- Migrations 027/029 are empty placeholders: keep the numbers.
+- Destructive guards: an asset delete needs the matching `asset_class`; a delete that leaves a sale unbacked is refused.
+- Signup closes once a user exists (`ALLOW_SIGNUP=1` opens it); a missing/example `JWT_SECRET` is replaced by a random one in `JWT_SECRET_FILE`.
 
 ## Accounts, categories, transfers
-- **Transfers are one row** (`account_id` → `transfer_account_id`); anything summing
-  `transactions` skips `type = 'TRANSFER'`.
-- **Categories: the id decides** (035). Tables keep both `category` (name) and `category_id`
-  (`transactions`, `cc_expenses`, `recurring_transactions`, `import_rules`, `inbox_items`); screens
-  send `category_id`. A bare name resolves root first, then the oldest subcategory
-  (`category_id_for_name()`); an edit sending the row's own name keeps its id. Renaming rewrites
-  all five tables (`rename_category_rows()`).
-- **Accounts, categories and cards are archived, never deleted** (`archived_at`). A card
-  (037) with an `OPEN` item refuses delete (409), one with history is archived, only an empty one is
-  deleted. An archived card takes no purchase, refund, autopay or approval (`require_active_card()`).
-- **One default account, active and never the Corretora** (`ensure_default_account()`).
-- **An edit keeps the row's own account even when archived** (`keep_or_require_account()`); a new
-  choice must be active; `account_id: ""` is refused. A recurrence whose account is archived lands
-  in `/run`'s `blocked`.
-- **Signup is closed once a user exists** (`ALLOW_SIGNUP=1` opens it). A missing/example
-  `JWT_SECRET` is replaced by a random one in `JWT_SECRET_FILE`.
-- **Consolidated balance = sum of reais account balances** (archived included, Corretora and Conta global out), from
-  `consolidated_balance` of `GET /api/home`; never sum `transactions` (it drops `initial_balance`).
+- **A transfer is one row** (`account_id` → `transfer_account_id`); sums over `transactions` skip `TRANSFER`. Never income nor expense.
+- **Categories: the id decides** (035). `transactions`, `cc_expenses`, `recurring_transactions`, `import_rules`, `inbox_items` keep name + `category_id`; screens send the id. A bare name → root first, then the oldest subcategory (`category_id_for_name()`); an edit sending the row's own name keeps its id; a rename rewrites all five (`rename_category_rows()`).
+- **Archive, never delete** (`archived_at`). A card with an `OPEN` item refuses delete (409), with history is archived, empty is deleted; an archived card takes no purchase, refund, autopay or approval (`require_active_card()`).
+- One default account, active, never the Corretora nor foreign (`ensure_default_account()`).
+- An edit keeps the row's own account even if archived (`keep_or_require_account()`); a new choice must be active; `account_id: ""` is refused. A recurrence on an archived account lands in `/run`'s `blocked`.
+- **Consolidated balance** = sum of reais account balances (archived included; Corretora and foreign accounts out), `consolidated_balance` of `GET /api/home`; never sum `transactions` (drops `initial_balance`).
+- A despesa/receita can become a transfer (`PATCH /api/transactions/<id>` with `type: TRANSFER` and both accounts, one the row's own; reais accounts only): loses category and share, leaves review; `absorb_other_side()` drops the other side Pluggy recorded (OPEN_FINANCE, no receipt/share, same cents, ±3 days) or closes its waiting item. Transfer → despesa is refused.
 
-## Idempotency (materialized rows)
-- Rows written on demand carry `source_type` + `source_id` under the unique index
-  `idx_transactions_user_source`, so a repeat is a no-op: recurrences
-  (`'<recurrence>:<AAAA-MM-DD>'`), autopay (`CC_AUTOPAY`, `'<card>:<AAAA-MM>'`), statement import
-  (row hash or `'ofx:<conta>:<FITID>'`, occurrence suffix for duplicates in one file), investment
-  cash, paid proventos. Keep that shape for anything new.
-- **"+ Novo" creations are idempotent by `client_id`** (024): `POST /api/transactions`,
-  `/api/transfers`, `/api/cc-expenses/purchases`. A repeat returns the first result (200) — the
-  lookup runs before validation. The row stays "Manual" and editable.
-- **The outbox holds creations only, and only when the request never reached the app**
-  (`ApiNetworkError`, or the auth proxy refused it: `ApiProxyAuthError`). A proxy 401 never clears
-  the JWT; the page reloads into the Google login at most once per 30 s (`lib/proxySession.js`). A creation times out at 6 s and is queued (offline: queued without trying);
-  reads 45 s; edits and deletes have no timeout and are never queued. Rules in `lib/outboxRules.js`
-  (tested): a pending transfer leaves the balance alone, a pending card purchase touches no account,
-  a balance counting pending items is labelled an estimate.
+## Idempotency and the outbox
+- Rows written on demand carry `source_type` + `source_id` (unique `idx_transactions_user_source`): recurrences `'<rec>:<AAAA-MM-DD>'`, autopay `CC_AUTOPAY` `'<card>:<AAAA-MM>'`, import (row hash or `'ofx:<conta>:<FITID>'`, suffix for duplicates in a file), investment cash, paid proventos. New ones keep the shape.
+- "+ Novo" creations are idempotent by `client_id` (024: `POST /api/transactions`, `/api/transfers`, `/api/cc-expenses/purchases`); a repeat returns the first result (200), looked up before validation.
+- **The outbox holds creations only, and only when the request never reached the app** (`ApiNetworkError`, or the proxy refused it: `ApiProxyAuthError`). A creation times out at 6 s and is queued (offline: without trying); reads 45 s; edits/deletes have no timeout and are never queued. A proxy 401 never clears the JWT; the page reloads into the Google login at most once per 30 s (`lib/proxySession.js`). `lib/outboxRules.js`: a pending transfer leaves balances alone, a pending card purchase touches no account, a balance with pending items is labelled an estimate.
 
 ## Cards and invoices
-- **A card purchase is its `client_id`** (035): all installments share it; old rows have
-  `legacy:<id>`. Receipts, sharing, A receber and installments go through `same_purchase_sql()` /
-  `cc_purchase_expense_ids()`; screens group by `cardPurchaseKey()`.
-- **The invoice-month rule is backend-only** (`compute_invoice_start()`, closing day 29–31 clamped,
-  `test_invoice_month.py`); don't add a client copy.
-- **An invoice is paid only after it closes** (`invoice_closing_date()`, `ensure_invoice_closed()`)
-  and **only by `POST /api/cc-expenses/pay-invoice`**. Reopening is "Desfazer pagamento"
-  (`DELETE /api/cc-expenses/payments/<id>`: reopens what it paid, writes `cc_invoice_manual` so
-  autopay won't debit it again; refused while the payment has a receipt).
-- **A paid invoice is history** (037): paid items are never deleted; a new purchase or refund never
-  lands in a paid invoice (`first_unpaid_invoice()`); `settle_invoice()` stamps `paid_by`.
-- **The next invoice is per card, by due date** (`services/card_invoices.py`, `open_invoices()`):
-  `next` feeds Início and the bell, `nearest` (oldest overdue with total > 0, else first `next`) is
-  what Cartões pays. Overdue = after the due day.
-- **Card functions** (041): `debit_account_id` makes a débito purchase a plain EXPENSE in that
-  account; `credit_enabled = 0` is debit-only (refused on credit paths, no autopay). The debit
-  account is never a Corretora.
-- **Débito automático** (`autopay_account_id`) is materialized on read by `apply_due_autopay()` on
-  the due day, only for invoices due on/after `autopay_start_date`, and **only when the account's
-  balance at the end of the due day** (`account_balance_until()`, rows dated ≤ it, earlier debits of
-  the same pass included) covers the invoice (owner 2026-11-05); without it the invoice stays open
-  for Pagar. **A Pluggy-mapped card is debited too** (owner 2026-11-05, reversing 2026-10-30), only up
-  to `AUTOPAY_CONNECTED_DAYS` (5) after the due day and never with a loose bank invoice payment
-  (`pluggy:` source id) on that account within ±5 days; the bank's payment later links to the
-  autopay row (`invoice_payment_link()` same cents, `_kept_payment()` same day, same cents ≤ 5 days,
-  or an autopay row ≤ 5 days within `AUTOPAY_NEAR_PERCENT`, 5%) and takes the bank's amount; farther amounts on
-  another day stay two payments.
-- **A refund is a credit row** (033, `kind = 'REFUND'`, stored positive, 1/1, never shared); sum card
-  rows through `signed_amount()` / `signed_amount_sql()` / `cardSignedAmount()`. An invoice in
-  credit is refused (409) and rides along with the next payment.
+- **A card purchase is its `client_id`** (035; old rows `legacy:<id>`); receipts, sharing, A receber and installments go through `same_purchase_sql()` / `cc_purchase_expense_ids()`; screens group by `cardPurchaseKey()`.
+- **The invoice month is backend-only** (`compute_invoice_start()`, closing day 29–31 clamped); no client copy. For Pluggy cards the bank decides (below).
+- Paid only after it closes (`ensure_invoice_closed()`), only by `POST /api/cc-expenses/pay-invoice`. "Desfazer pagamento" (`DELETE /api/cc-expenses/payments/<id>`) reopens what it paid and writes `cc_invoice_manual` (no autopay again); refused while the payment has a receipt.
+- **A paid invoice is history** (037): paid items are never deleted; a new purchase/refund never lands in it (`first_unpaid_invoice()`); `settle_invoice()` stamps `paid_by`.
+- Next invoice per card by due date (`open_invoices()`): `next` feeds Início and the bell; `nearest` (oldest overdue with total > 0, else first `next`) is what Cartões pays. Overdue = after the due day.
+- Card functions (041): `debit_account_id` makes a débito purchase a plain EXPENSE there (never a Corretora); `credit_enabled = 0` is debit-only (credit paths refused, no autopay).
+- **Autopay** (`apply_due_autopay()`, on read, on the due day, invoices due ≥ `autopay_start_date`) debits only when the account's balance at the end of the due day covers it (`account_balance_until()`, same-pass debits included; owner 2026-11-05); else the invoice stays for Pagar. Pluggy-mapped cards too, up to `AUTOPAY_CONNECTED_DAYS` (5) after the due day and never with a bank invoice payment (`pluggy:`) on that account within ±5 days; the bank's payment later links to it and takes its amount (below).
+- **A refund is a credit row** (033, `kind = 'REFUND'`, positive, 1/1, never shared); sum card rows with `signed_amount()` / `signed_amount_sql()` / `cardSignedAmount()`. An invoice in credit can't be paid (409); it rides with the next payment.
+- Card purchases appear in the Extrato (`GET /api/cc-expenses/statement`, one row per purchase, merged by `mergeStatement()`), never in day or filter totals.
 
 ## Banking views, plan and budgets
-- **Início is banking only, in reais**: consolidated balance and accounts, never the portfolio.
-  Aporte/resgate/provento are kept apart from despesa/receita (`isInvestmentOutflow()` /
-  `isInvestmentInflow()`). "Resumo do mês" reads `summary` of `GET /api/home`.
-- **Investimento is not a category** (039): a row is aporte/resgate/provento by origin only
-  (`INVESTMENT_SOURCE_TYPES`, or a bank ↔ Corretora transfer). Don't give a category name meaning.
-- **The month's spending is one rule on every screen** (owner 2026-11-13, `services/spending_rules.py`,
-  `test_month_spending_rules.py`): Início (summary and panels), the plan and the budget count the same rows. A
-  despesa/receita typed in a Corretora account counts in none of them. An invoice payment (by `source_type`, or
-  the old ones by a category starting with "Pagamento Fatura", **in any case**) is neither expense nor income
-  anywhere; it only moves the balance. The pending-item estimates repeat the name test (`lib/outboxRules.js`,
-  `rules/OutboxPending.kt`, `isInvoicePayment()`).
-- **Whose expense it is** (032, `services/sharing.py`, `lib/sharing.js`): owner, `SPLIT` or
-  `OTHERS`. Balances never change; budget, plan and Início count only the owner's part
-  (`own_amount_sql()` / `ownAmount()`). A receber lists the others' part until `share_settled_at`.
-- **The app is reais-only on screen**: no currency choice, no foreign symbol; an account balance
-  shows `accountBalanceBrl()` or "sem câmbio hoje". Exceptions: the IR tab's "Aplicações no
-  exterior" when the year has a foreign result, and **the Conta global** (below).
-- **Conta global** (047, owner 2026-10-27; `services/global_account.py`, `lib/globalAccount.js`,
-  `rules/GlobalAccount.kt`): the owner's Wise USD account. The **one** screen in another currency is
-  `/inicio/conta-global`, opened from "Conta global" under the accounts on Início and from Ajustes ›
-  Contas: balance and statement in US$ (`formatForeignCurrency()`), a "≈ R$ …" from today's PTAX
-  (`balance_brl`) or "sem câmbio hoje". The only currency choice is the "Conta global (US$)" type
-  of Ajustes › Nova conta (CHECKING + `currency: USD`). **It is never in "Saldo em contas"** (owner
-  2026-10-28 and 2026-10-30, list and total: `consolidated_balance()` skips non-BRL accounts, so
-  Extrato/Cartões projections too): on Início it is only the "Conta global" entry, and it pays no
-  invoice. A foreign
-  account is never the default nor the Corretora. Its own despesas/receitas stay out of every reais
-  total (Resumo do mês, plan, budget, the Extrato without `account_id`, the review queue/count):
-  they are listed and reviewed on its screen. "+ Novo" doesn't offer it.
-- **A transfer between currencies is one row with two amounts** (047): `amount` leaves
-  `account_id` in its currency, `transfer_amount` lands in `transfer_account_id` (NULL = same
-  currency). `POST /api/transfers` and the PATCH require it across currencies and refuse it
-  otherwise (`transfer_amount_for()`); a balance counts a cross-currency transfer without it as 0
-  (never R$ as US$). A transfer is never income nor expense. A reais account that only received
-  transfers can become USD (`PATCH /api/accounts/<id> {currency}`, `convert_to_foreign()`); its
-  transfers wait for Pluggy to fill `transfer_amount`.
-- **Pluggy and the Conta global**: a USD Pluggy account maps only to a USD account (and BRL to BRL);
-  its rows stay in US$ end to end (`normalize_transaction(account_currency=)`, item, lançamento,
-  snapshot, Conferência). A BRL Pix whose counterparty/description names the global account
-  ("WISE BRASIL CORRETORA DE CAMBIO") is an own transfer that waits for the dollar side; the Wise
-  credit pairs with it by day (±1) and counterparty, never by cents; two on one day go to the pair
-  whose rate is closest to the PTAX (`place()` step 2, `_place_cross_currency()`). A Wise credit
-  is recorded at once (a US$ receita); untouched, the BRL side later turns it into the transfer. A credit matching a transfer already in the app fills its `transfer_amount`.
-  The BRL side may be a phone notice (B4, 2026-11-20): the credit finds an untouched notified Pix naming the account
-  (`_notified_pix_to()`), and a notice arriving after the credit turns that receita into the transfer
-  (`absorb_dollar_income_for_notice()`, in auto-record); either way one transfer.
-- **The monthly plan starts from income** (025, 038, `services/monthly_plan.py`): `PUT
-  /api/monthly-plan` writes `income_amount` (> 0) and `invest_percent`/`spend_percent` (sum ≤ 100).
-  Every R$ is computed on read via `percent_of()`; percentages are TEXT read as `Decimal`, never
-  float. A month without a row inherits the latest earlier plan and its categories. **Saldo do
-  plano** (`plan_balance`) = Gastar R$ − spent; "Disponível por dia" = it ÷ days left, server-side,
-  shown in Orçamento. Invested = `month_investment_flow()` (same rule as `investment_flow_sql()`).
-  Old plans without income are `needs_income`.
-- **The Inter line** (`MONTH_SUMMARY`, owner 2026-10-31): the month's net moved into Inter (no Pluggy), one row, source
-  id `inter:<AAAA-MM>`. Not spending: it moves the balance and the Evolução, and stays out of Fluxo, Resumo, Orçamento,
-  plan, Ritmo and Extrato totals. A rebuild keeps it.
-- **A repasse** (owner 2026-10-31): money from someone else to pay something of theirs. `POST /api/review` with
-  `repasse: true`, `person` makes an INCOME `share_mode = 'OTHERS'`, settled: in the balance, out of income. **No screen
-  offers it any more** (owner 2026-11-22: the "É repasse" button left with Revisar); the API stays for old APKs.
-  Marking a share paid in A receber asks which income paid it (053, owner 2026-11-02, `share_paid_by`, `link_income()`): that income carries the share as the others' (`SPLIT`/`OTHERS`), in its own month. Without one, it cuts
-  the income of the month of the mark (`apply_settled_others()`); a repasse **of the same person** (or unnamed) covers it
-  first, so nothing cuts twice, and `net` doesn't move. Web `PaidBySheet`, APK `PaidBySheet`; a paid item can change income.
-- **The invoice tile on Início** (2026-10-31): "Fatura de <mês>", a dropdown per invoice, closed by default, and
-  Pagar. No "Próximas faturas" panel, no open-items list. The Ritmo counts reais accounts only.
-- **A budget is a % of Gastar** (038, `services/budgets.py`): `planned_percent` only, categories
-  sum ≤ 100% (400; an over-100 month may lower, not raise), "Sem categoria" is the rest. Categories
-  come from the latest month ≤ it with a plan (`category_source_month()`); writes in an inherited
-  month go through `materialize_month()`. Rollover is computed on read. `DELETE` is a real delete.
-  Spent: card purchases in full in the purchase month, refunds subtract, invoice payments never.
-- Orçamento's percentages are `PercentSlider`s bounded by `percentRoom()`/`clampPercent()`
-  (`lib/monthlyPlan.js`). Plan flags and Início's attention cards are dismissed per device
-  (localStorage, keys `planFlagKey()` / the item `key`).
-- **"Precisa de atenção"** is `GET /api/attention` (`services/attention.py`), shown on Início and
-  in the bell; the server sends numbers and keys, the text lives in `components/Attention.jsx`.
-- **A recurrence is a template**: `POST /api/recurring/run` writes real rows; deleting keeps them.
-  Pauses skip only their window (`pause_gaps`, `recurring_occurrence_dates()`/`skip_pause_gaps()`).
-- **Rules touch the past only on confirmation**: `/api/import-rules/apply/preview` never writes;
-  `apply` rewrites only the sent ids, re-checking the rule. Transfers, investment cash, proventos
-  and invoice payments are out of reach.
+- **Início is banking only, in reais**, never the portfolio; aporte/resgate/provento apart from despesa/receita (`isInvestmentOutflow()`/`isInvestmentInflow()`). Invoice tile: "Fatura de <mês>", a dropdown per invoice, Pagar (2026-10-31).
+- **Investimento is not a category** (039): aporte/resgate/provento by origin only (`INVESTMENT_SOURCE_TYPES`, or a bank ↔ Corretora transfer).
+- **The month's spending is one rule everywhere** (owner 2026-11-13, `services/spending_rules.py`): Início, plan and budget count the same rows. A despesa/receita in a Corretora counts nowhere. An invoice payment (by `source_type`, or a category starting "Pagamento Fatura", any case) is never expense nor income; the pending estimates repeat the name test (`isInvoicePayment()`).
+- **Whose expense** (032, `services/sharing.py`): owner, `SPLIT`, `OTHERS`. Balances never change; budget, plan, Início count the owner's part (`own_amount_sql()`/`ownAmount()`); A receber lists the rest until `share_settled_at`. Marking it paid asks which income paid it (053, `link_income()`): that income carries the share as the others'; without one it cuts the income of the month of the mark (`apply_settled_others()`), a repasse of the same person covering it first.
+- **A repasse** (owner 2026-10-31): an INCOME `share_mode = 'OTHERS'`, settled — in the balance, out of income. API only (`POST /api/review` with `repasse`); no screen since 2026-11-22.
+- **The Inter line** (`MONTH_SUMMARY`, `inter:<AAAA-MM>`, owner 2026-10-31): the month's net moved into Inter (no Pluggy). Moves the balance and Evolução; out of Fluxo, Resumo, Orçamento, plan, Ritmo and Extrato totals; a rebuild keeps it.
+- **The plan starts from income** (025, 038, `services/monthly_plan.py`): `income_amount` > 0, `invest_percent` + `spend_percent` ≤ 100, percentages TEXT read as `Decimal`; every R$ on read (`percent_of()`). A month without a row inherits the latest earlier plan and its categories. Saldo do plano = Gastar − spent; "Disponível por dia" = it ÷ days left (server). Invested = `month_investment_flow()`. Old plans without income are `needs_income`.
+- **A budget is a % of Gastar** (038, `services/budgets.py`): categories sum ≤ 100% (an over-100 month may lower, not raise), "Sem categoria" is the rest; categories from the latest month ≤ it with a plan (`category_source_month()`), writes in an inherited month via `materialize_month()`; rollover on read; `DELETE` is real. Spent: card purchases in full in the purchase month, refunds subtract, invoice payments never.
+- Plan flags and Início's attention cards are dismissed per device (`planFlagKey()`, the item `key`). "Precisa de atenção" = `GET /api/attention`: numbers and keys from the server, text in `Attention.jsx`.
+- Orçamento's percentages are `PercentSlider`s bounded by `percentRoom()`/`clampPercent()` (`lib/monthlyPlan.js`).
+- A recurrence is a template: `/run` writes real rows, deleting keeps them; pauses skip only their window (`skip_pause_gaps()`).
+- Import rules touch the past only on confirmation: preview never writes; `apply` rewrites only the sent ids, re-checking the rule; never transfers, investment cash, proventos or invoice payments.
 
-## Notifications are fast, Pluggy is the record (owner 2026-11-04)
-**A phone notice records at once; Pluggy confirms it later and is the record.** The Flash, which Pluggy
-doesn't cover, comes only from notices (and typing).
-- **Everything can be typed** (owner 2026-11-05, reversing 2026-10-31): "+ Novo" (web and APK) offers every reais
-  account and every card, Pluggy-mapped or not; the engine links a typed look-alike to what the bank brings later
-  (`free_candidates()`, the investments' typed twin), never a second row. The old rule survives as a brake,
-  `MANUAL_ONLY_OFF_PLUGGY` (env, **default off**, `services/manual_entries.py`): on, a mapped account or card refuses
-  a typed row, purchase, refund and statement import (400), a transfer needs one side off Pluggy, and the Pluggy-fed
-  Corretora refuses typed operations (below). `pluggy` on `GET /api/accounts` and `/api/credit-cards` stays.
-- **There is no Aprovar screen** (owner 2026-10-31): page and route are gone, `/aprovar` and `/lancamentos/aprovar`
-  redirect to the Extrato. Waiting items resolve there: `WaitingItems` (web), `ReviewSection` (APK), shown only
-  while one exists. Ajustes has no Aprovar section and no "Gravar sozinho" switch; the settings stay on the API
-  as the brake. **There is no Revisar screen either** (owner 2026-11-22, below): nothing to confirm.
-- **Who speaks** (`NOTIFICATION_POLICY` + `notification_wanted(detection)`, pure, in `services/inbox_rules.py`:
-  the rules that touch no database live there and `services/inbox.py`, the engine, re-exports every name; the
-  APK's `NotifyRules.APPS`, manifest `<queries>` and `NotifyParsers.parse()` repeat it, but an old APK is safe
-  because the server decides):
+## Conta global (047, owner 2026-10-27)
+- The owner's Wise USD account; the **one** screen in another currency: `/inicio/conta-global` (from Início and Ajustes › Contas), balance and statement in US$ plus "≈ R$" at today's PTAX or "sem câmbio hoje". The only currency choice: Ajustes › Nova conta › "Conta global (US$)" (CHECKING + `currency: USD`).
+- **Never in "Saldo em contas"**, list or total (owner 2026-10-28/30); pays no invoice; never default nor Corretora; not offered in "+ Novo". Its own despesas/receitas stay out of every reais total and are listed on its screen.
+- **A cross-currency transfer is one row with two amounts**: `amount` leaves in its currency, `transfer_amount` lands in the other (NULL = same currency); required across currencies, refused otherwise (`transfer_amount_for()`); without it a balance counts 0. A reais account that only received transfers can become USD (`convert_to_foreign()`).
+- Pluggy: a USD account maps only to a USD account; its rows stay US$ end to end. A BRL Pix naming the account ("WISE BRASIL CORRETORA DE CAMBIO") is an own transfer: the Wise credit pairs with it by day (±1) and counterparty, never cents; two on a day go to the rate closest to the PTAX (`_place_cross_currency()`). The credit records at once as a US$ receita; the BRL side (Pluggy or a notice: `_notified_pix_to()`, `absorb_dollar_income_for_notice()`) turns it into one transfer. A credit matching an existing transfer fills its `transfer_amount`.
+
+## Sources: phone notices and Pluggy (owner 2026-11-04)
+- **A notice records at once; Pluggy confirms later and is the record.** The Flash (no Pluggy) comes only from notices and typing.
+- **Everything can be typed** (owner 2026-11-05): "+ Novo" offers every reais account and card; a typed look-alike is linked to what the bank brings (`free_candidates()`), never doubled. Brake `MANUAL_ONLY_OFF_PLUGGY` (env, off): on, mapped accounts/cards and the Pluggy-fed Corretora refuse typing (400; a HELD line's "Lançar" passes via `metadata.open_finance_op_key`).
+- **No Aprovar and no Revisar screen.** What didn't record itself is listed in the Extrato (web `WaitingItems`, APK "Não gravou sozinho"): pick the other account or the amount in reais (`approve` with `remember: false`), "não é entre minhas contas", or Descartar.
+- **Who speaks** (`NOTIFICATION_POLICY`, `notification_wanted()` in `inbox_rules.py`; the APK repeats it, the server decides):
 
   | App | Accepted |
   |-----|----------|
   | Flash app; Samsung Wallet with the Flash card (`is_flash_detection()`) | outgoing only, no `CREDIT_PURCHASE`; `DECLINED` |
-  | `com.itau`, `br.com.bb.android`, `com.btg.pactual.banking` | every kind of `KIND_SHAPES`, plus `DECLINED` |
-  | `com.btg.pactual.digital.mobile` (BTG Investimentos) | only `MOVEMENT_KINDS` (Pix/TED in and out) |
-  | Samsung Wallet with any other card; any other app | nothing |
+  | `com.itau`, `br.com.bb.android`, `com.btg.pactual.banking` | every `KIND_SHAPES` kind, `DECLINED` |
+  | `com.btg.pactual.digital.mobile` (BTG Investimentos) | `MOVEMENT_KINDS` only (Pix/TED) |
+  | anything else | nothing (`ignored`, no row) |
 
-  Investment words (`INVESTMENT_TEXT`: aplicação, resgate, CDB, LCI, LCA, tesouro direto, fundo de
-  investimento, ordem de compra/venda, provento, dividendo, JCP; word boundaries over `normalized()`) block a
-  Pix/TED (merchant and counterparty) and everything from the brokerage app, **never** a card purchase's
-  merchant ("FUNDO DE QUINTAL BAR" is a bar). The APK also drops an invoice payment ("fatura" + pago/paga/
-  pagamento/quitada, before `kindOf()`) and sends `international: true` for internacional/exterior/US$/USD/
-  EUR/€/£. Anything else answers `ignored` and leaves no `notify_detections` row.
-- **The brake: "Avisos dos bancos"** (`bank_notifications` in `user_settings`, `GET/PATCH /api/inbox/settings`,
-  booleans only; default `BANK_NOTIFICATIONS_DEFAULT`, env, on). Off, only the Flash passes, and a bank notice
-  is `ignored` with no trace, so switching it back on records nothing old. Web: Ajustes › Avisos do celular;
-  APK: Ajustes › Notificações do celular.
-- A Samsung Flash purchase records at once; a later decline removes the untouched row. Flash receitas are typed
-  by the owner.
-- **Everything updates by itself**: one tick covers accounts, cards, Wise, BTG and the Conferência; a
-  failing item doesn't stop the others; first tick 60 s after boot. `sync_hours`: `off` = owner's choice,
-  a stored `0` means 6 h. GET only and the 6 h floor stay. **Between pulls, every 5 min** (owner 2026-11-01,
-  `sync_fresh_items()`): one `GET /items/{id}` per connection, and a connection whose `lastUpdatedAt` moved past
-  our `pluggy_updated_at` is pulled at once, so a movement enters the moment Pluggy has it. **Pulling Início
-  down on the APK** (owner 2026-11-26) runs the same check now (`POST /api/open-finance/refresh` → `{pulled,
-  failed}`, also with `sync_hours` off; no credentials or connection = `pulled: 0`), then re-reads; the spinner
-  belongs to the pull, not to a read (`HomeViewModel.pullRefresh()`, at most 30 s waiting for the server).
-- **A bank invoice payment is recorded from Pluggy** (`services/open_finance_invoices.py`): with no
-  app row it settles that invoice through the settlement path, idempotent by Pluggy id. Recurrences
-  never write on a Pluggy-mapped card or account; autopay does (Cards above), and the bank's payment joins it.
-- **Categories**: owner's import rule → merchant table → CNAE → Pluggy's category → default
-  (`open_finance_categories.py`); merchant data from 050.
-- **The pull writes what Pluggy brings** (owner 2026-10-30): every 6 h, the 5-minute freshness check, or the
-  "Atualizar" button; what a pull brings is recorded in that pull. A read (`record_due()`) records only
-  notifications.
-- **The app waits for the bank before flagging** (owner 2026-10-30, `awaiting_bank()` /
-  `bank_refreshed_since()` in `open_finance_auto.py`): a pending Pluggy item stays out of `waiting` (`GET
-  /api/review`) until every active connection has `pluggy_updated_at` after the item and the app read it;
-  `BANK_WAIT_MAX_DAYS` (3) stops a dead connection hiding it. `GET /api/inbox` marks `awaiting_bank`. The
-  Conferência does the same for app rows (`awaiting_bank` instead of `app_only`, `newer_than_bank()`).
-- **Income is never a transfer** (`is_income_row()`): an incoming row with Pluggy category `01...` or salary
-  text. A one-sided transfer "não é entre minhas contas" takes the side the bank saw
-  (`settle_one_side()`): only a destination is an INCOME there, whatever the screen sent.
-- **A despesa/receita can become a transfer** (`PATCH /api/transactions/<id>` with `type: TRANSFER`, `account_id`
-  and `transfer_account_id`, one of them the row's own): loses category and share, leaves review.
-  `absorb_other_side()` drops the other side Pluggy recorded (OPEN_FINANCE, no receipt, no share, same cents,
-  ±3 days) or closes its waiting item; a later row links through `recorded_transfer_for_row()`. Web and APK
-  offer reais accounts only. The way back (transfer → despesa) is refused.
-- **The broker's balance is its statement** (owner 2026-10-30, `services/broker_statement.py`): Pluggy's
-  BTG Investimentos balance = every line from zero, minus `CONTA REMUNERADA` (proved to the cent). So a
-  line is a `sweep` (COVERED), the trade's `VISTA BRUTO` (COVERED: the operations' cash, at settlement) or
-  a `BROKER_STATEMENT` row (fee, IR, fixed income, cashback; in `INVESTMENT_SOURCE_TYPES`, never income or
-  expense). A proceed the app has takes the bank's value and day, `sync_locked`; a typed operation of the
-  same amount is linked. Fixed-income ETFs (`FIXED_INCOME_ETFS`, AUPO11 included) settle D+1. The
-  Conferência compares the Corretora on settled cash and skips trade cash (the bank side is COVERED).
-- **A card mirrors the bank** (owner 2026-10-30, `mirror_cards()`): the open invoice comes `PENDING` from
-  Pluggy, so a card always brings pending rows (a bank account too since 2026-11-01, `include_pending` on by
-  default; watch a pending salary beside the posted one, the Itaú/BTG portability). `bill_month` (`billForecastDate`, 051) decides the invoice, over `compute_invoice_start()`;
-  an open purchase has one app line per bank line: an installment the bank doesn't list leaves, a new one
-  enters. `closing_day` is the bank's (`GET /bills`). BB's balance rounds up (`rounded_up`).
-- **Anticipated installments** (owner 2026-10-31, `_anticipations()`): the bank discounts each one ("Desconto Na
-  Parcela 3 De 6 Rota Transportes") and charges it in the discount's invoice, but Pluggy leaves that charge off the
-  bill's lines and keeps later ones `PENDING` in future invoices. The credit decides: installment N goes to its
-  invoice with its status (a missing one is created), never back; the Conferência adds the unlisted ones. Proved on
-  BTG's October bill to the cent (lines + 0,32 carried + 237,16). **A purchase the owner typed or changed** (Pluggy
-  only linked it, `client_id` not `pluggy:`; 2026-11-19, the Rota 6x recategorised) takes only the bank's invoice and
-  the anticipation: each open line moves to the invoice of the bank's line of its number (`_move_line()`, 2026-11-20:
-  the invoice is not an owner field, so it is no touch), the anticipated one to the discount's invoice; its amounts
-  and lines stay the owner's (no set, delete or copy).
-- **A posted row's invoice is its `billId`** (`card_rows_with_bill()`, `GET /bills`), over `billForecastDate`.
-- **A payment the app has is linked, never doubled** (`_kept_payment()` in `record_bank_payments()`): no target,
-  same account, same day (any amount) or same cents within 5 days; it takes the bank's amount. Without it, 11
-  autopay rows with other amounts were recorded twice on 2026-10-31.
-- **A bank's own fund is an aporte/resgate** (`BANK_INVESTMENT`, in `INVESTMENT_SOURCE_TYPES`,
-  `mark_bank_investments()`): Pluggy `0302` on a bank account (RF High, RF LP Selic, Tesouro Reserva) stays in the
-  balance, never expense nor income, no review. It runs after each pull; Rende Fácil stays out (below).
-- **A notified row Pluggy never lists: the bank's balance decides** (Phase 5, owner 2026-11-04,
-  `services/open_finance_orphans.py`): `sweep()` runs last in each pull (after `record_bank_payments()`,
-  `mark_bank_investments()` and the `last_sync_at` stamp), only with auto-record on, only on **mapped BANK
-  accounts in reais** (never the Corretora, never the Conta global). **Cards are list-only** (their balance
-  mixes the used limit, pending holds and BB's rounding). An orphan: EXPENSE/INCOME recorded by a notification
-  item, no live Pluggy claim, date ≤ today − `OPEN_FINANCE_LATE_POST_DAYS`, and `bank_refreshed_since(date + 5
-  days)`. The difference is the Conferência's own (`open_finance_check.balance_difference()`, bank − app in
-  cents, the one formula the overview uses; the app side is the balance **up to today**,
-  `account_balance_until()`, so a future-dated typed row is no difference): removing an expense of X fixes +X, an income −X; the oldest orphan
-  whose fix equals it leaves, or all when their sum does; no subset search, no tolerance. Removal is like
-  `undo_declined()` (item `REMOVED`, reason `orphan`), counted as `removed_orphans` in the pull result and log.
-  Never removed: a receipt, a share, "Aconteceu", an amount the owner typed (≠ the snapshot's), a transfer;
-  review doesn't protect. Difference 0 → the row stays and the Conferência lists it under `balance_confirmed`
-  ("Confirmado pelo saldo", web and APK), including an international purchase "em processamento".
-- **The Conferência's buttons** (`services/open_finance_resolve.py`, web): "Lançar" records a bank-only row
-  (a one-sided transfer takes the side the bank saw), "Aconteceu" keeps an app-only row
-  (`open_finance_confirmed`, 051; listed in `confirmed`, "Desfazer"). A difference that is only `awaiting`
-  reads "Confere". A category 0301 row with a sale text (`TES RESERV VEND`) is real money, a
-  `BROKER_STATEMENT` row. A deposit in US$ isn't listed: Wise reports it in the unused BRL pocket.
-- **A provisional buy** (`fill_position_gaps()`, rebuild only): a position ahead of the operations (today's
-  trade) gets `metadata.provisional`, the position's price, no cash; the real operation replaces it.
-- **Rebuild** (`scripts/rebuild_from_pluggy.py`, `services/open_finance_rebuild.py`): dry-run by
-  default; `--apply` needs the app stopped and runs in a one-off container (DEPLOY.md). Flash's rows
-  are never wiped; investments only as told.
-The sections below describe the engine. Tests of the engine open the gate with the fixture
-`any_bank_notifications` (`notification_wanted` → `lambda detection: True`); the gate itself is tested in
-`test_notification_policy.py`, which never uses it.
+  `INVESTMENT_TEXT` words (aplicação, resgate, CDB, LCI, LCA, tesouro direto, fundo de investimento, ordem de compra/venda, provento, dividendo, JCP) block a Pix/TED and everything from the brokerage app, never a card merchant. The APK drops invoice-payment notices and flags `international` (internacional/exterior/US$/USD/EUR/€/£).
+- **"Avisos dos bancos"** (`bank_notifications`, default on): off, only the Flash passes and bank notices leave no trace.
+- Engine tests open the gate with the fixture `any_bank_notifications`; the gate itself is tested only in `test_notification_policy.py`.
+- **Pulls** (GET only; never `PATCH /items`, it spends the MeuPluggy CPF quota — `pluggy_client.call()` refuses it): every `sync_hours` (6–24, "off" = button only, a stored 0 = 6 h), plus every 5 min `sync_fresh_items()` pulls a connection whose `lastUpdatedAt` moved, plus "Atualizar" and the APK's pull on Início (`POST /api/open-finance/refresh`, 2026-11-26). A pull records what it brings; a read (`record_due()`) records only notices. A failing connection doesn't stop the others. A repeating cursor is a `PluggyError`, never a short list.
+- A Pluggy account goes only where mapped (a card needs credit; the Corretora takes only the broker's investment account) or "não usar". `include_pending` is on by default (052) — watch Itaú's pending salary beside BTG's TedSalary (portability: one salary).
+- **Categories**: owner's import rule → merchant table → CNAE → Pluggy's category → default (`open_finance_categories.py`).
+- **Income is never a transfer** (`is_income_row()`: Pluggy `01…` or salary text). A one-sided "não é entre minhas contas" takes the side the bank saw (`settle_one_side()`).
+- **BB Rende Fácil is never in the app** (046): `COVERED`, notice `ignored`; BB's app balance excludes it.
+- A bank's own fund (Pluggy `0302` on a bank account) is `BANK_INVESTMENT`, an aporte/resgate (`mark_bank_investments()`); other 03 rows stay despesa/receita.
+- Waiting for the bank (`awaiting_bank()`): a pending Pluggy item stays out of `waiting` until every active connection refreshed after it (max `BANK_WAIT_MAX_DAYS`, 3); the Conferência does the same for app rows.
 
-## Auto-record → reconcile → review (045, owner 2026-10-27)
-The paradigm: **notifications record, Pluggy reconciles (and feeds Investimentos), the owner only
-confirms and categorizes.** The inbox engine below (`inbox_items`, pairing, hints) still runs, but
-as plumbing: an item lives for milliseconds, then `approve_item()` records it.
-- **A notification is a lançamento at once** (`services/auto_record.py`, called after
-  `POST /api/inbox/detections` and by `record_due()` on `GET /api/transactions`, `/api/home`,
-  `/api/review`): Flash and every bank. What the item doesn't know is guessed
-  (`services/inbox_defaults.py`: no credit/debit → the guessed card else debit; no card → the
-  issuer's first card else the first credit card; no account → the issuer's account else the
-  default one, never the Corretora) and nothing is remembered (`remember: False`). A look-alike the
-  owner typed is linked (`free_candidates()`), never duplicated, and needs no review.
-- **Nothing waits** (owner 2026-11-04): an **own transfer with one side** is
-  recorded as the despesa/receita of the side the notification saw (`auto_record.one_side_now()`),
-  and the other side, from either channel, turns that same row into the transfer
-  (`inbox.absorb_recorded_side()`). A one-sided transfer touching **the Corretora** (an
-  income/expense there would distort Investimentos; the Pluggy `one_side_now()` refuses a BROKERAGE account
-  too, since 2026-11-18) waits `TRANSFER_MATCH_DAYS`, then becomes the bank ↔ Corretora aporte/resgate with the
-  bank side guessed (`transfer_timeouts.brokerage_side_now()`: the account of the Corretora's institution, else
-  the default; the side in `guessed`, and the item keeps its `recorded_snapshot`, so a late real side joins or
-  moves it). A notice joins a Pluggy item that already has a notice **on the other side** of a transfer
-  (`open_finance_item_for_detection()`, per side since 2026-11-18). A notice **in
-  another currency** on a reais card/account is recorded at the day's PTAX
-  (`open_finance_auto.in_reais_now()`; the detection keeps its currency, so the near match treats it
-  as international), or the last stored one before it (`fx_fallback()`: > 4 days back, or yesterday's for
-  today, is an `fx_fallback` decision); with none stored at all it waits. A Samsung-only purchase is recorded at once
-  too; the bank's notice within `NOTIFY_WINDOW_MS` joins that item, never a second row. **There is no Aprovar screen; waiting items resolve in the Extrato**
-  (the APK's Extrato lists them under "Não gravou sozinho": the other account or the amount in reais
-  → `POST /api/inbox/<id>/approve` with `remember: false`, "não é entre minhas contas" → despesa/
-  receita, or Descartar). The inbox API stays for those and for the brake.
-- **The switches** default to `AUTO_RECORD_DEFAULT` (config, on): `auto_record` in
-  `GET/PATCH /api/inbox/settings` (notifications) and in `/api/open-finance/settings` (Pluggy).
-  Off is the emergency brake, API only: items wait in the Extrato's list. `conftest.py` sets `AUTO_RECORD_DEFAULT=0` so the
-  inbox tests see pending items; `test_auto_record.py` turns them on per user.
-- **Review** (`services/review.py`, `GET/POST /api/review`): an auto-recorded row has
-  `needs_review = 1` (`transactions` and every installment of a card purchase, by `client_id`);
-  typed and screen-generated rows are 0. **The confirmation is automatic and invisible** (owner 2026-11-22:
-  "remove the option to confirm; I want it automatic"): no screen shows the queue, "É meu", "É receita", "É
-  repasse", "Confirmar todos", an "A revisar" badge or filter, the header pill or the Extrato tab count (web and
-  APK; `?review=1` just opens the Extrato). `needs_review` stays as the engine's "category still a guess" mark:
-  Pluggy fills or confirms the category while it is set (below), and review confirms itself (below). `GET
-  /api/review` is still read for `waiting` (what didn't record itself). `POST /api/review` ("é meu" + optional
-  `category_id`, batch all or nothing, 404 on an unknown id) and `review_count` stay for old APKs.
-- **Only guesses are reviewed** (Phase 4, `open_finance_inbox.settle_review()`): a row leaves
-  review by itself, in the same pass that records or confirms it, when Pluggy confirms it
-  (`reconcile_recorded()`'s untouched path, which the near match goes through, and
-  `open_finance_auto.record_item()`) and `category_decision()` of the Pluggy row comes from
-  `CONFIDENT_CATEGORY_SOURCES` (rule, merchant, CNAE): that category is set while untouched, `needs_review = 0`,
-  and the snapshots are refreshed in the same transaction (`review.clear()` + `refresh_snapshots()`). A
-  transfer leaves review when both sides are observed and one is Pluggy's (`inbox.settle_transfer_review()`:
-  `finish_absorb()`, a side joining a recorded transfer, Pluggy recording both). These stay: Pluggy's tree or
-  the default category, a card refund, the Flash (no Pluggy), the Conta global (its own screen), a row the
-  owner changed. **Pluggy's tree fills a row still on the default** (2026-11-18, `fill_default_category()`):
-  untouched by the snapshot, no owner rule matched the notice's text, the category is the default → the tree's
-  category is set (the row stays in review), snapshots refreshed, never on a paid installment, a
-  `pluggy_category` decision.
-- **Review confirms itself** (2026-11-18, `services/review_auto.py`, run by `record_due()`): `review_auto_days`
-  in `user_settings` (`GET/PATCH /api/inbox/settings`, 0–30, default `REVIEW_AUTO_DAYS_DEFAULT` = 3, 0 = off;
-  API only since 2026-11-22: no screen sets it). A `needs_review = 1` row dated ≥ N
-  days ago leaves review with its current category, an edited one too (the edit was the owner's decision). On
-  a Pluggy-fed account/card it first waits for a Pluggy row to claim it (or N + `BANK_WAIT_MAX_DAYS`), so the
-  tree fills it first. An `auto_confirm` decision; undone, the row keeps `needs_review` for good. "Decidido
-  sozinho" (web and APK) hides `auto_confirm` (`shownDecisions()`): with no Revisar its undo shows nothing.
-- **Automatic decisions are logged and undoable** (058, `services/auto_decisions.py`, `auto_undo.py`):
-  `auto_decisions` (kind, target, `detail` with the before, `undone_at`), one `applog` line each.
-  `GET /api/review/auto` (filters `kinds`, comma-separated or `conference` = `CONFERENCE_KINDS`, and `days` 1–365;
-  400 otherwise), `POST /api/review/auto/<id>/undo` (404/409); web Ajustes › "Decidido sozinho" and the
-  Conferência's "Resolvido automaticamente" (conflicts and portfolio, last 30 days; both `AutoDecisionList.jsx`),
-  APK Ajustes › "Decidido sozinho" (`rules/AutoDecisions.kt` = `lib/autoDecisions.js`; no Desfazer when
-  `undoable` is false). Once a week per user the Pluggy thread logs one line with counts per kind and the undone
-  ones (`log_weekly()`, `user_settings` `auto_decisions_weekly`). `scripts/review_breakdown.py` counts them by
-  **the decided row's own date** (a deleted row's from `detail.row`), never by when the app decided.
-  Kinds: `pluggy_category` (undo restores the category), `auto_confirm`, `transfer_guess`, `fx_fallback` (undo
-  puts the row back in review), `conflict_changed` (undo restores the amount and the conflict),
-  `conflict_vanished` (undo reinserts the row); the portfolio's `investment_custody`, `investment_proceed_link`, `investment_closed_fund` (undo: the line waits again) and `investment_custody_in`, `investment_rate_deduced` (`undoable: false`, 409: delete the operation in the Extrato). An undone decision is never taken again on that row
-  (`was_undone()`; any undone kind keeps auto-confirm off the row).
-- **"Untouched" is the snapshot, never the review** (Phase 4): `notification_untouched()`,
-  `recorded_snapshot.untouched()` and the absorb helper compare the snapshot only. "É meu" without a change
-  is not a touch (the bank's date, amount, vanish, other side and near match still apply); a new category,
-  amount, date, account, share or receipt is. Whenever the server changes a recorded row it refreshes the
-  item's and the Pluggy rows' snapshots (`refresh_snapshots()`, also in `apply_change()`). So a Flash decline
-  removes a row the owner only reviewed, and keeps one they recategorised.
-- **Twins: "2× igual"** (Phase 4, `services/twins.py`): `twin` on the rows of
-  `GET /api/transactions` (paged too), `GET /api/review` and `GET /api/cc-expenses/statement`: another expense
-  (EXPENSE or card purchase) on the same account/card, same cents, same `normalized()` description, ≤ 60 min
-  apart when both have a time, else the same date; queried for the page's dates ±1 day. A neutral `Badge`
-  (web and APK Extrato row, `twin_badge`); no attention card,
-  nothing to dismiss, no action.
-- **Pluggy reconciles what a notification recorded** (`reconcile_recorded()` in
-  `open_finance_inbox.py`): the item keeps `auto_recorded_at` + `recorded_snapshot`. Same date and
-  target and still untouched (equals the snapshot) → the Pluggy row becomes
-  the source (transaction `source_type = 'OPEN_FINANCE'`, card `client_id = 'pluggy:<id>'`, OF
-  snapshot), so later bank changes apply as for a Pluggy-recorded row; another date or account/card
-  → **the row follows the bank in place** (owner 2026-11-20, `_follow_bank_in_place()`: same id, same review state;
-  a card purchase's invoices recomputed); only a change of type (account ↔ card) deletes it and re-records the
-  item the bank's way right after the pull. **A purchase notice without credit/debit** (`PURCHASE`,
-  `method_guessed()`, 2026-11-20) leaves the type open: the bank's debit or card line pairs with it and the row is
-  redone the bank's way; edited (snapshot
-  differs) or a transfer → only `MATCHED` (a transfer's guessed side still follows the bank,
-  `follow_bank_side()`, below). **A card purchase with a paid installment is never redone**
-  (`has_paid_installment()`, 2026-11-13): another date or card from the bank only links it (`MATCHED`);
-  a paid invoice is history (037).
-- **Card purchases are in the Extrato** (`GET /api/cc-expenses/statement`,
-  `services/card_statement.py`): one row per purchase (total, installments, `needs_review`), the
-  Extrato's filters (type EXPENSE = purchases, INCOME = refunds, TRANSFER or an account → none),
-  merged client-side by `mergeStatement()` (`lib/review.js`; paged: only down to the oldest loaded
-  day). They never count in the day total or the filter totals (the invoice payment moves the
-  account); a day with only card rows shows no total.
+## Recording and review (045, owner 2026-10-27)
+- **Notifications record, Pluggy reconciles, nothing waits** (owner 2026-11-01/04). `auto_record` (`AUTO_RECORD_DEFAULT`, on) in `/api/inbox/settings` and `/api/open-finance/settings` is the emergency brake (API only). A notice records in `auto_record.py` (after `POST /api/inbox/detections` and in `record_due()`); a Pluggy row in `open_finance_auto.py` right after the pull (source OPEN_FINANCE, card `client_id = 'pluggy:<id>'`). Turning Pluggy's on is refused unless every account is mapped/"não usar" and pulled OK in 48 h (`blockers()`).
+- What an item lacks is guessed (`inbox_defaults.py`): the issuer's card/account, else the first credit card / default account, never the Corretora; nothing remembered.
+- **An own transfer with one side** is recorded as the despesa/receita of the side seen (`one_side_now()`); the other side, from either channel, turns that row into the transfer (`absorb_recorded_side()`: untouched by the snapshot, same cents, opposite direction, another reais account, ±`TRANSFER_MATCH_DAYS`, no share, counterparties that can be one person). An edited side stays; the other becomes its own row. **Touching the Corretora** it waits `TRANSFER_MATCH_DAYS`, then becomes the aporte/resgate with the bank side guessed (`brokerage_side_now()`).
+- A guessed side follows the bank (`follow_bank_side()`), and a real side arriving on another account takes it over (`move_guessed_side()`, 2026-11-17), never a second row.
+- A notice in another currency on a reais target records at the day's PTAX (`in_reais_now()`), else the last stored (`fx_fallback()`, a decision when > 4 days old); with none it waits.
+- **Review is automatic and invisible** (owner 2026-11-22): `needs_review = 1` only marks "category still a guess". It clears when Pluggy confirms the row with a confident category (rule, merchant, CNAE: `settle_review()`), when both sides of a transfer are seen and one is Pluggy's, or after `review_auto_days` (default 3; on a Pluggy-fed target it first waits for a Pluggy row; `review_auto.py`). Pluggy's tree fills a row still on the default category (`fill_default_category()`).
+- **"Untouched" = equal to the snapshot** (`recorded_snapshot`), never the review flag; a new category, amount, date, account, share or receipt is a touch. Every server change refreshes the snapshots (`refresh_snapshots()`).
+- **Automatic decisions are logged and undoable** (058, `auto_decisions`, `GET /api/review/auto`, `POST /api/review/auto/<id>/undo`; Ajustes › "Decidido sozinho", the Conferência's "Resolvido automaticamente"). Kinds: `pluggy_category`, `auto_confirm` (hidden), `transfer_guess`, `fx_fallback`, `conflict_changed`, `conflict_vanished`, `investment_custody`, `investment_proceed_link`, `investment_closed_fund` (undo: the line waits again), `investment_custody_in`, `investment_rate_deduced` (not undoable: delete the operation). An undone decision is never retaken on that row. A weekly log line counts them; `review_breakdown.py` dates them by the row's own date.
+- Twins "2× igual" (`twins.py`): same account/card, cents and normalized description, ≤ 60 min (else same date): a neutral badge, no action.
 
-## The inbox engine
-- Detections arrive as parsed fields at `POST /api/inbox/detections` and become items; with the
-  switches on they are recorded right away (above), and a look-alike of an existing lançamento is
-  an item with a candidate.
-- **Settles a recurrence's occurrence** (034, `suggest_for_item()`: same type, ±7 days, exact amount
-  or within 20% with a shared word/category; INCOME within 20% regardless). Approving writes a
-  `recurring_settlements` row; "Não é esta" sets `recurring_off`.
-- **Never remembers an ambiguous target** (`ambiguous_target()`: no card final and several active
-  accounts/cards whose *bank field* names the bank). "Sempre perguntar" (036) makes every target a
-  confirm.
-- **Own transfer vs someone else is the counterparty** (031): "it's me" is learned into
-  `inbox_hints` (`self:doc:` / `self:name:`); BTG Investimentos transfers are always own. **Two sides can be
-  one person** (owner 2026-11-20, "meio-termo", `counterparties_conflict()` + `sides_conflict()`): two CPFs decide;
-  two names decide by the whole name (`same_person_name()`: first and last name, a truncated name by its start),
-  never the first name alone; a named side pairs with an unnamed one only when one of them is known to be the owner
-  (learned "sou eu", the brokerage app, Pluggy `SELF_TRANSFER`); two unnamed sides still pair. So a Pix received
-  from a third party is never absorbed by an anonymous Pix out.
-- **A bank's notice is never another bank's movement** (B1, 2026-11-20): the notice's issuer contradicts an
-  account/card whose bank is another (`account_bank()`/`card_bank()`: institution, name, a card's debit account,
-  the mapped Pluggy account; `OTHER_BANK_NAMES` for banks that send no notices), even when the target is only a
-  guess: in the candidates (`existing_rows(issuer=)`), a late notice joining a Pluggy item, and a Pluggy row joining
-  a notified item (`notified_item_fits()`). A notice never links to an invoice payment, investment cash or the Inter
-  line. **A refund notice naming a card** (final, Samsung name, or the store with the issuer's only card,
-  `refund_card()`) is a card credit (033), never income. **A repost** (same app, `_repeated_posting()`) is
-  recognised even after the original paired, never hides the original from Samsung, and without `when_ms` counts
-  within `REPOST_CLOSE_MS` (2 s) of posting. Pairing
-  (`same_purchase()`) is one to one, same cents, compatible card, within `NOTIFY_WINDOW_MS`; the
-  bank's notification wins over Samsung's.
-- **Open Finance (Pluggy) reconciles the connected banks** (043, 044, 045, `services/open_finance.py` +
-  `open_finance_inbox.py`): pulled (no webhooks: only the gated :8443 proxy is public) into
-  `open_finance_transactions`, unique `pluggy:<id>` per user, feeding `inbox_items` like
-  notifications. A Pluggy account goes only where the owner mapped it (a card needs credit; the
-  Corretora takes only the broker's investments account, `is_investment_account()`), or is
-  "não usar" (`ignored_at`). A notification and a Pluggy row of one movement are **one item in either order**
-  (same cents, ≤ 1 day, the mapped target; `notification_item_for_open_finance()` /
-  `open_finance_item_for_detection()`), through the item's free **Pluggy slot of that side** (a
-  transfer has one per side; a `REMOVED` or `vanished` row occupies none).
-  **Claims are per channel** (I2, `inbox.pluggy_claimed()` / `notification_claimed()`):
-  `existing_rows(claimed_by="notify"|"pluggy")`, `free_candidates()` (the item's channel:
-  Pluggy if it has a Pluggy `SOURCE`) and `_linked_elsewhere()` hide a lançamento only when another
-  observation of the **same** channel claims it; a typed row is free for both. A transfer's side is
-  a slot per channel too: a late notice of a side Pluggy already brought joins that transfer
-  (`approved_transfer_awaiting(channel=)`). Two identical real
-  purchases stay two (rows = max(notified, posted)). `identity_invariants.violations()` checks it;
-  every test of `test_notify_pluggy_identity.py` ends with `assert_identity()`, and the owner runs
-  `scripts/check_identity.py --email X` (read-only) on the server.
-  **Succession**: the pull computes `missing_rows()` (the account's live rows in
-  the window Pluggy didn't return, `MATCHED`/`PAIRED` included) before `ingest()`; a new id that
-  continues one (`successor_for()`: same account and direction, same cents or BB rounding, same
-  installment, ≤ 3 days; one to one; a near amount only for a single-installment purchase, same
-  merchant, unique each way; on a card, a pending 1/1 of the total continued by a 1/n whose first line carries
-  that total, same store, `_split_into_installments()`, 2026-11-20) takes its place with `hand_over()`: role, item, target, snapshot,
-  `source_id`, the card purchase's `client_id`, the item's `client_key`; the old row is `REMOVED`
-  with `superseded_by` (054) and never comes back. Only what nobody took over goes through
-  `vanish_rows()`; a `MATCHED`/`PAIRED` row without successor gets `conflict = 'vanished'` (the
-  Conferência lists it); an empty pull vanishes nothing recorded. So pending → posted under a new
-  id keeps the same lançamento, reviewed or not.
-  **The guessed side of a recorded transfer follows the bank** (`follow_bank_side()` in
-  `reconcile_recorded()`): untouched by the item's snapshot, the side in `guessed` and not `edited`
-  takes the account Pluggy shows (never both sides on one account, never the Conta global). **A real side
-  arriving on another account moves the guess too** (2026-11-17, `guessed_transfer_awaiting()` +
-  `move_guessed_side()` in `inbox_transfers.py`, step 1 of a notification and step 3 of a Pluggy row): the BTG
-  Investimentos notice guesses BTG conta corrente, the BB notice or BB's Pluggy row of the same cents (±1 day)
-  takes that side over, never a second despesa/receita. Only a guessed side no channel observed yet, not
-  edited, the row untouched by the snapshot, counterparties that can be one person.
-  **Near match**: the same purchase posted with another amount. A pass after the
-  pull's exact pairing and before `record_pending()` (`near_match_pass()`), and step 2b for a late
-  notification (`near_item_for_detection()`): purchases only (a notification of `PURCHASE_KINDS`
-  with a merchant, a Pluggy row without movement, out, 1 installment; never Pix, refund, invoice
-  payment, installments, the Corretora or the Conta global), same target, `merchant_agrees()`,
-  `near_amount()` within `NEAR_MATCH_FOREIGN_PERCENT` (10, international: the detection's
-  `international` flag or currency, or Pluggy's `original_currency`, 055) or
-  `NEAR_MATCH_DOMESTIC_PERCENT` (30), the exact date window, except international up to
-  `LATE_POSTING_DAYS` after the notice (the Claude R$ 110 "em processamento"), and **unique each
-  way**. The Pluggy item is `REMOVED` (`near_match`) and the row joins the notification's;
-  **the bank's amount wins** (`follow_bank_amount()`), reviewed or recategorised too, unless the
-  owner typed the amount (current ≠ the snapshot's): then only `MATCHED` + `conflict = 'changed'`.
-  An untouched row keeps its id and takes the bank's date. **A pair that only became unique later**
-  (`late_near_pass()`, 2026-11-13, after `near_match_pass()` in each pull): two near purchases at one merchant
-  notified before the bank listed either; the first bank row was ambiguous and was recorded alone, and once the
-  second finds its notice, the leftover notice row and bank row are one purchase: the Pluggy-recorded row
-  leaves (only untouched, its own, no paid installment) and the bank row joins the notice's item. **The same
-  id with another amount** (`apply_change()`): a row a notification recorded follows the bank's amount by
-  `follow_bank_amount()` too (reviewed or recategorised; a typed amount stays, `conflict = 'changed'`); a row
-  Pluggy itself recorded keeps the mutation guard below. With no pair on the day, a bank row also pairs with a
-  notification that already became a lançamento up to `OPEN_FINANCE_LATE_POST_DAYS` (5) before it
-  (the bank posts late), never a second row. **Banco do Brasil rounds up** (owner, 2026-10-27:
-  18,19 reaches Pluggy as 19,00): for a `ROUNDS_UP_ISSUERS` connection (connector, Pluggy account name, or the
-  mapped app account/card's bank, 2026-11-20) a whole-reais amount pairs
-  with the one it rounds up from (`rounded_up()`), the notification's cents stay, and the invoice
-  payment link accepts it too; installments 2..n are `COVERED`, invoice payments never an
-  item, a card credit is a `REFUND` item; a row that vanishes or changes amount before approval
-  makes the item `REMOVED` (if no other source). Approval stamps `source_type = 'OPEN_FINANCE'`.
-  The card sign is learned per account (`learn_charge_sign()`): the sandbox contradicts the docs.
-  **GET only** (owner, 2026-10-27): the app never asks the bank for new data (`PATCH /items` spends
-  the free MeuPluggy CPF quota and blocks the account for the month); `pluggy_client.call()` refuses
-  PATCH. Pluggy refreshes banks itself (6–24 h); the app reads what it has. A transactions cursor that
-  repeats is a `PluggyError`, never a short list (a cut history would vanish what it left out). Settings live in
-  `user_settings` (`GET/PATCH /api/open-finance/settings`): `sync_hours` per user (0 = button only,
-  else **6–24**; the thread ticks every 15 min and pulls whoever is due), `include_pending`,
-  `first_sync_days`, `auto_record`.
-- **Gravar sozinho** (044, owner's reversal of 2026-10-27: they checked the real data and trust it;
-  `services/open_finance_auto.py`): with `auto_record` on, a Pluggy movement of a mapped account
-  becomes a lançamento by itself — the same item, approved by `approve_item()` right after the pull
-  (source OPEN_FINANCE + `source_id` = Pluggy id; a card purchase `client_id = 'pluggy:<id>'`).
-  Turning it on is refused (400) unless every BANK/CREDIT account of every active connection is
-  mapped or "não usar" and each connection was pulled OK in the last 48 h (`blockers()`); on, the
-  waiting Pluggy backlog is recorded in one pass. Since 045 it is on unless the owner turned it
-  off, and what an item lacks is guessed (`fill_defaults()`), recorded with `needs_review = 1`.
-  **Nothing waits** (owner 2026-11-01: "every transaction updates the moment it arrives, no matter what
-  it is"): a Pix to/from someone else is a despesa/receita in the pull that brings it,
-  and an own transfer with one side is recorded as the despesa/receita of the side the bank saw
-  (`one_side_now()`). When the other side arrives (another bank's pull or a notification), the same
-  row becomes the transfer (`inbox.absorb_recorded_side()`, shared by `place()` and
-  `_ingest_alone()`: untouched **by the snapshot**, never by `needs_review`; same cents, opposite
-  direction, another reais account, ±`TRANSFER_MATCH_DAYS`, no share, its side observed at most once
-  per channel (a notice and the Pluggy row that confirmed it), all movements, counterparties that can
-  be one person; a notice that joined an item Pluggy recorded has no snapshot of its own and doesn't
-  decide, the Pluggy row's does); an edited side stays and the other side is its own row. The snapshot helpers live in `services/recorded_snapshot.py` (re-exported by
-  `open_finance_inbox`). Both sides in one pull pair before
-  recording, as before. A Pix to the Conta global is a despesa in reais until the dollar credit turns it
-  into the transfer (`_absorb_recorded_real_side()`). A row in another currency on a reais account takes
-  the day's PTAX (`in_reais_now()`); only without a PTAX yet does it wait for the next pull. **Pending bank
-  rows come in by default** (052, `include_pending` unless "0"); one that posts under a new id is
-  succeeded (above). `TRANSFER_HOLD_DAYS` is only the rebuild's. A bank's fund (Pluggy `0302`) is recorded
-  as `BANK_INVESTMENT`, an aporte/resgate; other category 03 rows on a bank account stay despesa/receita for review.
-  A look-alike the owner typed is **linked** (first free candidate), never duplicated; manual rows
-  are never deleted. On the Corretora account only bank ↔ Corretora transfers become rows
-  (aporte/resgate, 039); the rest is `COVERED`. A bank invoice payment links to the app's
-  pay-invoice/autopay row (`invoice_payment_link()`), never records one. Category: owner's import
-  rule, else Pluggy's category through `open_finance_categories.py`, else the default. **Mutation
-  guard**: an auto-recorded row keeps `recorded_snapshot`; if the bank changes the amount or drops
-  it, the lançamento is corrected/deleted only while it equals the snapshot (no edit, receipt) and
-  was created by that Pluggy row (`apply_change()` / `apply_vanish()`; never a transfer, never a
-  paid installment, never on an empty pull); otherwise `conflict` and the Conferência lists it.
-  **Conflicts resolve themselves** (2026-11-18, `services/conflict_resolution.py`, last step of the pull after
-  the orphan sweep): `changed` (stamped `conflict_at`, `conflict_direction`, 058) takes the bank's amount
-  `CHANGED_WAIT_DAYS` (7) after it was flagged, same direction only, on a despesa/receita or an open 1/1 card
-  purchase, never with a receipt, a share, "Aconteceu" or an amount the owner typed (≠ the snapshot; no
-  snapshot = typed); the date stays. `vanished` (reais BANK accounts, despesa/receita) leaves only by the
-  orphans' balance proof (`ripe()`, `protected()`, `choose()`). Both are decisions with "Desfazer".
-  Which phone notices reach this engine: the policy above.
-- **BB Rende Fácil is never in the app** (046, owner 2026-10-27): the bank's automatic investment
-  ("RENDE FACIL"/"REND.FACIL", `inbox.is_auto_invest()`) is `COVERED` in `place()` (no item, no
-  lançamento, not in the Conferência) and its phone notice is `ignored`. So BB's app balance leaves
-  out what sits in Rende Fácil; the owner's targets are the checking balance.
-- **History** (`history_preview()` / `history_apply()`, `POST /api/open-finance/history/preview|apply`):
-  preview reads N days (GET) and counts per account (linked, to_link, to_record, waiting, covered,
-  app_only) without writing; apply needs `confirm: true` and Gravar sozinho, re-pulls from that date
-  and runs the same engine. The **Conferência** (`services/open_finance_check.py`, `check` on each
-  account of `GET /api/open-finance`) only points: bank-only (with a `reason`), app-only, awaiting,
-  `conflicts`, and `explanation` (balance difference = bank-only + awaiting − app-only + before the
-  window).
-- **BTG Investimentos in Investimentos** (044, `services/open_finance_investments.py`): the same pull
-  reads `/investments` and each position's transactions (GET). Equity BUY/SELL become movements on
-  the trade date with cash through the Corretora (as typed ones), idempotent by
-  `open_finance_investment_operations.op_key`; a typed twin (same asset and sign, ±2 days, one trade or several summing to it) is
-  linked; an unknown ticker, a sale without position, a date before the latest corporate action are
-  `HELD` for the owner. **Decided alone** (phase 2 of "everything automatic", owner 2026-11-18, each an
-  `auto_decisions` row): an equity TRANSFER (a custody record) is `DISMISSED` `auto:custody` when the app holds
-  on that day at least Pluggy's quantity (`decide_custody()`; else `custody:short <gap>`); an equity INTEREST
-  links to the computed provento (same ticker, payment ±3 days, ≤ 5 cents of gross or net; else
-  `proceed:unmatched`, never a second provento); a bank fund's (`MUTUAL_FUND`) line is `DISMISSED`
-  `auto:closed_fund` when the position is empty today (its money is already the `BANK_INVESTMENT`
-  aporte/resgate; else `fund:open`). Undo puts the line back `HELD` `undone` and the rule never retakes it.
-  Deleting a recorded one is
-  `DISMISSED` for good (a recorded coupon: deleting its provento, `proceed_id`, 056). Positions are never
-  written into the portfolio: `portfolio_check()` compares quantities (D-1 position + later operations)
-  and the broker cash, where trades of the last 2 business days are "a liquidar" (D+2 settlement).
-- **Fixed income from Pluggy only with exact data** (Phase 3, `services/open_finance_fixed_income.py`):
-  each pull stores the whole position (`open_finance_positions.raw`, 056, minus `transactions`); a
-  FIXED_INCOME BUY/SELL/INTEREST is recorded only when `title_terms()` maps the position exactly: CDI +
-  `rate` = % do CDI, IPCA + `fixedAnnualRate` = IPCA+, PRE + `fixedAnnualRate` = pré (Pluggy's unit is
-  percent; outside `CDI_PERCENT_RANGE`/`ANNUAL_PERCENT_RANGE` even the unit would be a guess), `subtype`
-  → `TITLE_TYPES` (decides IR and category); Tesouro needs the title in the Tesouro price file, the same
-  indexer and the `dueDate`. Anything else waits `HELD missing:<field>` / `unmapped:<field>` — **never
-  guess a rate** (SELIC waits). **Deductions, not guesses** (phase 2): no `rateType` with `rate` 0 and
-  `fixedAnnualRate` > 0 is pré at that rate (`pre_by_deduction()`; a missing `rate` still waits); a Tesouro name
-  without a year (Renda+) is found by type + `dueDate` and the asset takes the commercial name
-  (`tesouro_client.commercial_name()`, "TESOURO RENDA+ APOSENTADORIA EXTRA 2065": the owner's typed asset). A
-  FIXED_INCOME TRANSFER (title from another broker) is a BUY at `netAmount` (original cost), dated the transfer,
-  no cash, `metadata.custody_transfer` (`record_custody_in()`; a typed buy of the same cost up to that day and the
-  same title is linked; two that nothing tells apart wait `custody:ambiguous`), and it is a lot for the later
-  redemptions (in the lot's own asset). AMORTIZATION is an AMORTIZATION
-  provento, no IR. The pré deduction and the custody buy are `auto_decisions` that undo by deleting the operation. A held line is re-decided every pull, so it fills itself when the
-  position completes. No cash link: the money is already a `BROKER_STATEMENT` line. A redemption takes
-  the buys of the same Pluggy investment, oldest first (PEPS), by Pluggy units (`open_finance_units`);
-  a coupon is an INTEREST provento on that title's asset, taxed from the first buy, and the statement
-  line that paid it becomes its row (`broker_statement.adopt_proceed_line()`). Typed twins (same cents,
-  ±2 days) are linked, **only of the same title** (`title_fit()`: type and maturity never contradict, 2026-11-19:
-  on the real data cents alone linked a transfer to another LCA/LCI); of the same type and maturity, a buy within
-  `NEAR_LINK_PERCENT` (1%) is linked too (the CRAs typed a day later at the note's value). `scripts/position_fields.py --email X` (read-only) lists which keys MeuPluggy
-  fills, never values.
-- **The brake can refuse typing on the Pluggy-fed Corretora** (Phase 3, `manual_entries.require_manual_investment_cash()`,
-  only while `MANUAL_ONLY_OFF_PLUGGY`, off by default since 2026-11-05): `POST /api/investments`, `/api/investments/redemptions` and
-  `/api/investment-proceeds` answer 400 "A Pluggy traz as operações da corretora." when the cash account
-  (a provento: the portfolio account from `portfolio_since`, `proceed_cash_account_id()`) is in
-  `bank_fed_account_ids()`; a PATCH moving an operation onto it too. `cash_account_id: null` or another
-  account passes (crypto stays typed). **The exception**: `metadata.open_finance_op_key` naming a `HELD`
-  line of this user (`held_operation()`); it passes and `complete_held()` makes the line `RECORDED` with
-  the new id in the same transaction (another user's, unknown or not-held key: 400). Only the routes are
-  guarded: `proceeds_sync`, `apply_paid_proceeds()` and `open_finance_investments` never.
-  `portfolio_check()`'s `held` carries `op_key` and a `prefill` (`held_prefill()`: kind `operation`,
-  `redemption` or `proceed`; equity cash = the Corretora, fixed income none). Web: "Lançar" in Ajustes ›
-  Open Finance (operation → `InvestmentLaunchModal prefill`, coupon/redemption one tap,
-  `lib/openFinance.js` `heldLaunch()`); APK: "Lançar" opens `LaunchSheet` (operations only,
-  `rules/InvestmentPrefill.kt`). On a fed Corretora the cash field defaults to "Não descontar" with a note
-  (`cashLinkWithAccounts()` in `lib/portfolioAccount.js` / `PortfolioAccount.kt`); the owner may pick the Corretora.
+## The matching engine (`inbox.py`, `open_finance_inbox.py`)
+- **One movement, one row**: a notice and a Pluggy row (same cents, ≤ 1 day, the mapped target) are one item in either order, through the item's free Pluggy slot of that side. Claims are per channel (`pluggy_claimed()`/`notification_claimed()`); a typed row is free to both. Two identical real purchases stay two. `identity_invariants.violations()` checks it; `scripts/check_identity.py` on the server must print nothing.
+- **A bank's notice is never another bank's movement** (2026-11-20, `account_bank()`/`card_bank()`), even when the target is a guess. A notice never links to an invoice payment, investment cash or the Inter line.
+- **Two sides are one person** (owner 2026-11-20): two CPFs decide; names by first + last (`same_person_name()`), never the first name alone; named + unnamed only when one is known to be the owner; two unnamed pair. "It's me" is learned into `inbox_hints`; BTG Investimentos transfers are own.
+- A recurrence occurrence is settled by a notice (034: same type, ±7 days, exact or within 20% with a shared word/category). An ambiguous target is never remembered (`ambiguous_target()`).
+- A refund notice naming a card is a card credit (`refund_card()`). A repost of the same app is recognised (`_repeated_posting()`, `REPOST_CLOSE_MS`). Bank × Samsung pair one to one within `NOTIFY_WINDOW_MS`; the bank wins. A Samsung Flash purchase records at once; a later decline removes the untouched row.
+- **Reconcile a recorded row** (`reconcile_recorded()`): untouched, same date and target → the Pluggy row becomes its source; another date/target → the row follows the bank in place (owner 2026-11-20); account ↔ card → re-recorded the bank's way; a purchase notice without credit/debit lets the bank decide. Edited → `MATCHED` only. A card purchase with a paid installment is never redone.
+- **Succession**: a new Pluggy id continuing a missing one (`successor_for()`: same account/direction, same cents or BB rounding, ≤ 3 days, one to one; a 1/1 continued by 1/n with the total) takes its place (`hand_over()`); the old row is `REMOVED` with `superseded_by`. What nobody took over vanishes (`vanish_rows()`; a matched row gets `conflict = 'vanished'`); an empty pull vanishes nothing.
+- **Near match** (same purchase, another amount; purchases only, never Pix/refund/installments/Corretora/global): same target, `merchant_agrees()`, within 10% international / 30% domestic, unique each way; international up to `LATE_POSTING_DAYS` late. The bank's amount wins unless the owner typed it (then `conflict = 'changed'`). `late_near_pass()` joins a pair that became unique later. A bank row also pairs with a notice up to `OPEN_FINANCE_LATE_POST_DAYS` (5) before it.
+- **BB rounds up** (`ROUNDS_UP_ISSUERS`, `rounded_up()`): 18,19 pairs with 19,00; the notice's cents stay. Installments 2..n are `COVERED`; invoice payments are never items; a card credit is a `REFUND` item. The card sign is learned per account (`learn_charge_sign()`).
+- **Mutation guard**: a bank change or vanish corrects/deletes a row only while it equals the snapshot and was created by that Pluggy row (never a transfer, a paid installment, an empty pull); else a `conflict`. **Conflicts resolve themselves** (`conflict_resolution.py`): `changed` takes the bank's amount after `CHANGED_WAIT_DAYS` (7), same direction, never with a receipt, share, "Aconteceu" or typed amount; `vanished` leaves only by the balance proof below.
+- **Orphans by balance** (`open_finance_orphans.py`, last step of a pull; mapped reais BANK accounts only, cards list-only): a notice-recorded despesa/receita no Pluggy row claims, older than 5 days and after a bank refresh, is removed when its fix equals the Conferência's difference (or all of them do); never a receipt, share, "Aconteceu", typed amount or transfer. Difference 0 → listed as "Confirmado pelo saldo".
+
+## Pluggy cards, payments, Conferência
+- **A card mirrors the bank** (owner 2026-10-30, `mirror_cards()`): pending rows come in; the invoice is the bank's (`billId` for posted rows, else `billForecastDate`, over `compute_invoice_start()`); one app line per bank line; `closing_day` from `GET /bills`.
+- **Anticipated installments** (`_anticipations()`): the discount credit decides — installment N goes to the discount's invoice. A purchase the owner typed or changed only moves its lines' invoices (`_move_line()`), never its amounts.
+- **A bank invoice payment** with no app row settles that invoice (`open_finance_invoices.py`, by Pluggy id); a payment the app has is linked, never doubled (`_kept_payment()`: same account, same day any amount, or same cents ≤ 5 days, or an autopay within `AUTOPAY_NEAR_PERCENT` 5%), taking the bank's amount. Recurrences never write on mapped targets.
+- **Conferência** (`open_finance_check.py`) only points: bank-only, app-only, awaiting, conflicts, explanation (difference = bank-only + awaiting − app-only + before the window). "Lançar" records a bank-only row; "Aconteceu" keeps an app-only one (`open_finance_confirmed`, "Desfazer"). Only `awaiting` → "Confere".
+- History preview/apply (`POST /api/open-finance/history/preview|apply`): preview never writes; apply needs `confirm` and auto-record. Rebuild (`scripts/rebuild_from_pluggy.py`): dry-run by default; `--apply` with the app stopped; Flash rows never wiped.
+
+## Broker and investments from Pluggy
+- **The broker's balance is its statement** (`broker_statement.py`): BTG's balance = every line minus `CONTA REMUNERADA`. Lines are a sweep or the trade's `VISTA BRUTO` (`COVERED`), or a `BROKER_STATEMENT` row (fee, IR, fixed income, cashback; never income/expense). A proceed the app has takes the bank's value and day (`sync_locked`). Fixed-income ETFs settle D+1.
+- **Equity** (`open_finance_investments.py`): BUY/SELL → movements with cash through the Corretora, by `op_key`; a typed twin (same asset/sign, ±2 days, or several summing) is linked; unknown ticker, sale without position or a date before a corporate action → `HELD`. Decided alone: custody TRANSFER dismissed when the app holds enough; INTEREST links to the computed provento (±3 days, ≤ 5 cents); a closed bank fund's line dismissed. Deleting a recorded one dismisses it for good. Positions are never written: `portfolio_check()` compares (D+2 "a liquidar").
+- **Fixed income only with exact data** (`open_finance_fixed_income.py`, `title_terms()`): CDI + `rate` = % do CDI, IPCA + `fixedAnnualRate` = IPCA+, PRE + `fixedAnnualRate` = pré, `subtype` → `TITLE_TYPES`; Tesouro needs the price file, indexer and `dueDate`. Else `HELD missing:/unmapped:` — **never guess a rate**. Deductions allowed: `rate` 0 with `fixedAnnualRate` > 0 is pré; a Renda+ without year by type + `dueDate` (commercial name). A TRANSFER in is a no-cash BUY at `netAmount` (`custody_transfer`). Redemptions take the same investment's buys PEPS by Pluggy units; a coupon is an INTEREST provento; typed twins only of the same title (`title_fit()`), a buy within 1% of the same type and maturity too. Held lines re-decide every pull.
+- HELD lines carry `op_key` and a `prefill` (`held_prefill()`): web "Lançar" in Ajustes › Open Finance, APK `LaunchSheet` (operations only). On a Pluggy-fed Corretora the cash field defaults to "Não descontar" (`cashLinkWithAccounts()`).
+- A provisional buy (`fill_position_gaps()`, rebuild only): a position ahead of the operations gets `metadata.provisional` at the position's price, no cash; the real operation replaces it.
 
 ## Receipts
-- **A receipt is a file on disk referenced by a row** (014; card purchases 016): bytes in
-  `ATTACHMENTS_DIR/<user_id>/<generated name>`, type sniffed from bytes, routes check both ids.
-  Write the file before the row, remove it after the commit; `prune_orphan_attachment_files()` at
-  boot. Backups mirror the folder into `backups/attachments/`.
+- A file on disk referenced by a row (014, 016): `ATTACHMENTS_DIR/<user_id>/<name>`, type sniffed from bytes, both ids checked. File before the row, removal after the commit; orphans pruned at boot; backups mirror the folder.
 
 ## Investments
-- **Cost is the weighted average, never FIFO** (`apply_average_cost()` in `fetch_investments()`);
-  the price stored on a SELL is never a cost. Fixed income stays per title.
-- **One monthly tax rule** (`services/variable_income_tax.py`, `monthly_apuration()`): R$ 20 mil
-  exemption for ações only; ETFs/BDRs 15%, no exemption, stocks' loss pool; FIIs 20% own pool;
-  fixed-income ETFs out of the DARF. Each sale stores its share of the month's tax. The exemption
-  meter reads the IR report's apuração — no second copy. Tributação exclusiva is declared net.
-- **Movements and BRL**: `fetch_investments()` is the BRL stream (realized result, portfolio,
-  evolution, IR read it); `fetch_investment_rows()` is native currency for screens and edits.
-- **A corporate action is applied on write** (017): earlier movements and quotes are rescaled
-  (originals in `metadata.corporate_adjustments`), a bonus is a zero-cash BUY; nothing may be
-  entered before the latest event, and only the latest can be undone.
-- **Cash goes through the portfolio account**: `metadata.cash_account_id` is switch and account —
-  present means exactly one linked lançamento (`INVESTMENT_TRANSACTION`), absent means none
-  (`investment_cash_account_id()`, `resolve_investment_cash_account()`). A POST without the key
-  uses the Corretora (`portfolio_cash_account_id()`); `null` = "Não descontar". Paid proventos land
-  in it (`apply_paid_proceeds()`, `INVESTMENT_PROCEED`) from `metadata.portfolio_since` on. Its
-  balance shows only in Investimentos.
-  When the Corretora is Pluggy-fed, typing an operation, redemption or provento into it is refused
-  (except a `HELD` line's "Lançar"), and HELD lines are recorded as in "Fixed income from Pluggy only
-  with exact data" above.
-- **Trade cash moves on the liquidation date** (owner 2026-10-28, no migration; `services/settlement.py`):
-  the linked lançamento is dated D+2 business days for STOCKS/REIT (B3 calendar: weekends, national
-  holidays, Carnival/Good Friday/Corpus Christi, 24 and 31/12), D+1 abroad, same day otherwise;
-  `metadata.settlement_date` overrides, never before the trade (400); `metadata.settlement_amount`
-  (the note's net value, fees included; Pluggy's `netAmount`) overrides the cash amount. **Conta
-  investimento** (`GET /api/investments/settlement`, `services/broker_cash.py`, Posição): Saldo hoje
-  = Corretora rows dated ≤ today, Em trânsito = later rows + announced proventos (payment > today),
-  Saldo = both; it moves rows still on the trade date (`resync_investment_cash_dates()`).
-  `cash_check()` compares Pluggy's balance with the app up to Pluggy's balance day.
-- An operation's sign is its type: `PATCH /api/investments/<id>` keeps the stored sign.
-- **Proventos of ações/FIIs are computed** (026, `proceeds_sync.py`): StatusInvest value × position
-  on the data com; idempotent by `sync_key`; typed ones are never touched, edited ones are
-  `sync_locked`, deleted ones are dismissed for good. JCP 15% to 2025, 17.5% from 2026;
-  `TAXABLE_INCOME` 22.5%. Renamed tickers need `TICKER_ALIASES`.
-- **Coupons and amortizations are typed proventos** (040, `INTEREST`): regressive IR from the
-  first BUY (`interest_tax_rate()`); `repeat: {every_months, count}` writes all or none.
-- **The category refines the class on read** (`services/asset_categories.py`), never stored; don't
-  rebuild `assets` for a new class.
-- **Tesouro Direto is marked to market** (`services/treasury.py`, `tesouro_client.py`): titles =
-  amount ÷ purchase-day PU (or `metadata.treasury_units`), net of B3 custody, IOF and IR per
-  purchase; Posição groups by title, redemptions are PEPS (`lib/treasury.js`). A read never waits
-  for the price file (falls back to the curve); the file downloads at most once a day.
-- **Returns**: TWR is daily (`services/returns.py`), closes put back in the stored-quantity basis
-  (`restore_quantity_basis()`); Rentabilidade compares from the same 0% over the compared months
-  (`compared_months()`). A bonificação is never a flow.
-- **Chart history is served stale and refreshed behind** (15 min fresh, 7 days stale,
-  `schedule_history_refresh()`), with a disk copy in `HISTORY_CACHE_FILE`; index closes follow the
-  same rule. Quotes refresh hourly in a thread (`services/quote_refresh.py`). The quote button
-  and that thread wait `PRICE_REFRESH_TIMEOUT_SECONDS` (25 s; reads wait 6 s); a provider slower
-  than that still records its quotes when they arrive (`on_late`, response `late: true`).
-- **A save waits only for its own request**: `apiFetch` already invalidates every query; awaiting
-  `invalidateServerData()` joins those refetches, never restarts them. The Extrato changes the row in the
-  cache at once (`dropStatementRow()`, `updateStatementRow()`; the APK in `rows`) and never awaits the reload. The quote refresh after a
-  write runs after the sheet closes (`refreshQuotes()`). Writes don't rebuild
-  `investment_positions`; `replace_realized_results()` writes only on change.
-- **Allocation targets and goals are plans** (020, 021): computed on read from
-  `build_portfolio_snapshot()`, never stored. **A goal's "Atual" is what is invested today** (owner
-  2026-11-13, 057): the portfolio's net value (or one class), never an account balance; the forecast
-  starts from it. The old `NET_WORTH` kind (portfolio + accounts) is gone: an old APK sending it is
-  stored as `PORTFOLIO`.
-- BCB and Tesouro are fetched through `gov_http.get()` (Python 3.14 strict X.509 flag dropped,
-  one retry). A test's fake `urlopen` takes `**kwargs`.
-- Registrar provento picks the type first, then only assets that can pay it
-  (`lib/proceedsRules.js`). `CATTLE` was removed (2026-09-27): the API refuses it.
-- The Extrato has two views (`?ver=contas|investimentos`); an operação can be deleted from either.
+- **Weighted average cost, never FIFO** (`apply_average_cost()`); a SELL's price is never a cost; fixed income per title.
+- **One monthly tax rule** (`monthly_apuration()`): R$ 20 mil exemption for ações only; ETFs/BDRs 15% with the stocks' loss pool; FIIs 20% own pool; fixed-income ETFs out of the DARF. Each sale stores its share; the exemption meter reads the IR report. Tributação exclusiva declared net.
+- `fetch_investments()` is the BRL stream (results, portfolio, evolution, IR); `fetch_investment_rows()` native currency for screens and edits.
+- **Corporate actions apply on write** (017): earlier movements and quotes rescaled (originals in metadata); a bonus is a zero-cash BUY; nothing before the latest event; only the latest can be undone.
+- **Cash through the portfolio account**: `metadata.cash_account_id` present = exactly one linked lançamento, absent = none; a POST without it uses the Corretora; `null` = "Não descontar". Paid proventos land there from `portfolio_since`.
+- **Trade cash on the settlement date** (`settlement.py`): D+2 business days (B3 calendar) for STOCKS/REIT, D+1 abroad, same day otherwise; `settlement_date` (never before the trade) and `settlement_amount` override. Conta investimento: Saldo hoje / Em trânsito (`broker_cash.py`).
+- An operation's sign is its type (PATCH keeps it).
+- **Proventos of ações/FIIs are computed** (026, StatusInvest × position on the data com, by `sync_key`): typed ones untouched, edited `sync_locked`, deleted dismissed. JCP 15% to 2025, 17.5% from 2026; renamed tickers need `TICKER_ALIASES`.
+- Coupons/amortizations are typed proventos (040, `INTEREST`): regressive IR from the first BUY; `repeat` writes all or none.
+- The category refines the class on read (`asset_categories.py`), never stored.
+- **Tesouro marked to market** (`treasury.py`): titles = amount ÷ purchase-day PU, net of custody, IOF and IR; redemptions PEPS; a read never waits for the price file (curve fallback, one download a day).
+- Returns: daily TWR (`returns.py`), from the same 0% over compared months; a bonificação is never a flow. Chart history served stale and refreshed behind (15 min fresh, 7 days stale, disk copy); quotes hourly; refresh waits ≤ 25 s, late quotes still recorded.
+- A save waits only for its own request (`apiFetch` invalidates; the Extrato edits its cache at once).
+- Allocation targets and goals are computed on read; **a goal's "Atual" is what is invested today** (057), never an account balance.
+- BCB/Tesouro via `gov_http.get()`. Registrar provento: type first, then assets that can pay it. `CATTLE` is refused.
 
 ## Navigation
-
-- **The "+" lives in the bottom bar, at its center** (owner 2026-11-05): web `Layout.jsx` (middle of the bar;
-  desktop: the header) and APK `ShellBottomBar` (after Lançamentos, `ShellNav.NEW_ENTRY_AFTER`, on every page with
-  the bar). Never a floating button over the page: it covered the end of the lists. **Ajustes is not a bottom tab**
-  (owner 2026-11-05): the bar is `ShellNav.BAR` (Início, Lançamentos, "+", Planejar, Investir); Ajustes opens from
-  the gear at the top (`SettingsButton` in `NativeTopBar` and Início's header; web: the header's gear).
+- **The "+" is at the center of the bottom bar** (owner 2026-11-05), never floating; the bar is Início, Lançamentos, "+", Planejar, Investir. **Ajustes opens from the gear at the top**, not a tab.
