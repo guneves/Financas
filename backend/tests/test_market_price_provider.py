@@ -130,3 +130,39 @@ def test_provider_label_follows_the_brapi_cache(prices_module, monkeypatch):
     assert prices_module.market_price_provider("PETR4") == "brapi"
     assert prices_module.market_price_provider("petr4") == "brapi"
     assert prices_module.market_price_provider("VALE3") == "yfinance"
+
+
+def test_a_plan_that_refuses_the_batch_size_is_not_asked_again_until_restart(brapi_on, monkeypatch):
+    # O plano recusou o lote (400 QUOTES_PER_REQUEST_EXCEEDED): a resposta so muda
+    # com o .env. Antes a brapi era consultada (e um traceback logado) toda hora.
+    prices_module = brapi_on
+    monkeypatch.setattr(prices_module, "_brapi_plan_refused", False)
+    asked = []
+
+    def _refuse(tickers):
+        asked.append(list(tickers))
+        raise brapi_client.BrapiHTTPError(400, "QUOTES_PER_REQUEST_EXCEEDED: Seu plano permite no máximo 1 ativo(s)")
+
+    monkeypatch.setattr(prices_module.brapi_client, "get_market_prices", _refuse)
+    track_yfinance(prices_module, monkeypatch, {"PETR4.SA": 38.0, "VALE3.SA": 60.0})
+
+    assert prices_module.download_market_prices(["PETR4", "VALE3"]) == {"PETR4": 38.0, "VALE3": 60.0}
+    assert prices_module.download_market_prices(["PETR4", "VALE3"]) == {"PETR4": 38.0, "VALE3": 60.0}
+    assert asked == [["PETR4", "VALE3"]]
+
+
+def test_any_other_brapi_failure_still_tries_again_next_time(brapi_on, monkeypatch):
+    prices_module = brapi_on
+    monkeypatch.setattr(prices_module, "_brapi_plan_refused", False)
+    asked = []
+
+    def _down(tickers):
+        asked.append(list(tickers))
+        raise brapi_client.BrapiUnavailableError("Falha de rede ao consultar a brapi")
+
+    monkeypatch.setattr(prices_module.brapi_client, "get_market_prices", _down)
+    track_yfinance(prices_module, monkeypatch, {"PETR4.SA": 38.0})
+
+    prices_module.download_market_prices(["PETR4"])
+    prices_module.download_market_prices(["PETR4"])
+    assert len(asked) == 2

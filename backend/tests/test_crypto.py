@@ -6,8 +6,9 @@ testes fixam:
 
 - "bitcoin", "BTC-BRL" e "BTC" sao a mesma posicao, chamada "Bitcoin", e so em
   reais;
-- a cotacao vem do Yahoo como BTC-BRL (nunca da brapi), uma por ativo, e a
-  Posicao a usa; fracoes de satoshi nao se perdem;
+- a cotacao vem do Yahoo (nunca da brapi), uma por ativo, e a Posicao a usa;
+  fracoes de satoshi nao se perdem. O Yahoo tirou o BTC-BRL (404, 2026-11):
+  vem BTC-USD vezes o BRL=X do dia, e sem o cambio nao ha preco;
 - IR (services/crypto_tax.py): isento no mes em que o total vendido de cripto
   fica em ate R$ 35 mil; acima, 15% do ganho (progressivo acima de R$ 5
   milhoes), sem compensar prejuizo; Bens e Direitos no grupo 08, codigo 01.
@@ -103,9 +104,10 @@ class TestIdentity:
 
 
 class TestQuote:
-    def test_the_quote_is_btc_brl_on_yahoo_and_never_brapi(self, prices_module, market, monkeypatch):
+    def test_the_quote_is_btc_usd_times_the_dollar_on_yahoo_and_never_brapi(self, prices_module, market, monkeypatch):
         quotes, calls = market
-        quotes["BTC-BRL"] = 612345.67
+        quotes["BTC-USD"] = 100000.0
+        quotes["BRL=X"] = 6.1234567
         monkeypatch.setattr(prices_module.brapi_client, "is_configured", lambda: True)
 
         def _brapi(tickers):
@@ -114,12 +116,74 @@ class TestQuote:
 
         monkeypatch.setattr(prices_module.brapi_client, "get_market_prices", _brapi)
         assert prices_module.download_market_prices(["BTC"]) == {"BTC": 612345.67}
-        assert calls and all(symbols == ["BTC-BRL"] for symbols in calls)
+        assert calls and all(symbols == ["BRL=X", "BTC-USD"] for symbols in calls)
+
+    def test_without_the_dollar_there_is_no_price(self, prices_module, market):
+        # Um BTC-USD lido como reais seria um sexto do valor: melhor ficar sem.
+        quotes, _ = market
+        quotes["BTC-USD"] = 100000.0
+        assert prices_module.download_market_prices(["BTC"]) == {}
+
+    def test_the_dollar_is_fetched_only_with_bitcoin_and_a_foreign_asset_stays_in_its_currency(
+        self, prices_module, market
+    ):
+        quotes, calls = market
+        quotes["AAPL"] = 200.0
+        quotes["PETR4.SA"] = 38.5
+        assert prices_module.download_market_prices(["AAPL", "PETR4"], foreign=["AAPL"]) == {
+            "AAPL": 200.0,
+            "PETR4": 38.5,
+        }
+        assert all("BRL=X" not in symbols for symbols in calls)
+
+    def test_history_converts_each_day_by_the_last_known_dollar(self, prices_module):
+        # Sabado e domingo o Bitcoin negocia e o cambio nao: vale o de sexta.
+        usd = {"2026-11-20": 60000.0, "2026-11-21": 61000.0, "2026-11-22": 62000.0, "2026-11-23": 63000.0}
+        rates = {"2026-11-19": 5.0, "2026-11-20": 5.5, "2026-11-23": 6.0}
+        assert prices_module.convert_series_to_brl(usd, rates) == {
+            "2026-11-20": 330000.0,
+            "2026-11-21": 335500.0,
+            "2026-11-22": 341000.0,
+            "2026-11-23": 378000.0,
+        }
+        # Antes do primeiro cambio vale o primeiro; sem nenhum, nada.
+        assert prices_module.convert_series_to_brl({"2026-11-01": 10.0}, rates) == {"2026-11-01": 50.0}
+        assert prices_module.convert_series_to_brl(usd, {}) == {}
+
+    def test_daily_history_of_bitcoin_comes_in_reais(self, prices_module, monkeypatch):
+        pd = pytest.importorskip("pandas")
+        index = pd.to_datetime(["2026-11-20", "2026-11-21", "2026-11-23"])
+        columns = pd.MultiIndex.from_tuples([
+            ("BTC-USD", "Close"), ("BTC-USD", "Stock Splits"), ("BRL=X", "Close"), ("BRL=X", "Stock Splits"),
+        ])
+        frame = pd.DataFrame(
+            [[60000.0, 0.0, 5.5, 0.0], [61000.0, 0.0, float("nan"), float("nan")], [63000.0, 0.0, 6.0, 0.0]],
+            index=index,
+            columns=columns,
+        )
+        requested = []
+
+        class FakeYf:
+            @staticmethod
+            def download(tickers, **kwargs):
+                requested.append(tickers)
+                return frame
+
+        monkeypatch.setattr(prices_module, "yf", FakeYf)
+        history = prices_module.download_daily_history(["BTC"], "2026-11-01")
+        assert requested == ["BRL=X BTC-USD"]
+        assert history["prices"]["BTC"] == {
+            "2026-11-20": pytest.approx(330000.0),
+            "2026-11-21": pytest.approx(335500.0),
+            "2026-11-23": pytest.approx(378000.0),
+        }
+        assert history["splits"]["BTC"] == []
 
     def test_update_prices_values_the_position_at_the_market(self, client, auth, market):
         quotes, _ = market
         ok(trade(client, auth, 0.02, 300000.0, "2025-01-10"))
-        quotes["BTC-BRL"] = 500000.0
+        quotes["BTC-USD"] = 100000.0
+        quotes["BRL=X"] = 5.0
         ok(client.post("/api/investments/update-prices", headers=auth, json={"force": True}))
         held = btc_position(client, auth)
         assert held["current_price"] == pytest.approx(500000.0)
@@ -131,7 +195,8 @@ class TestQuote:
         quotes, _ = market
         ok(trade(client, auth, 0.01, 300000.0, "2025-01-10"))
         ok(trade(client, auth, 0.01, 400000.0, "2025-02-10"))
-        quotes["BTC-BRL"] = 450000.0
+        quotes["BTC-USD"] = 90000.0
+        quotes["BRL=X"] = 5.0
         ok(client.post("/api/investments/update-prices", headers=auth, json={"force": True}))
         assert btc_position(client, auth)["current_value"] == pytest.approx(9000.0)
 

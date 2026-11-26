@@ -20,9 +20,11 @@ ASSET_CLASS_LABELS = {
 }
 
 
-# Ticker canonico -> nome e simbolo no Yahoo (cotado direto em reais).
+# Ticker canonico -> nome, simbolo no Yahoo e a moeda em que o Yahoo o cota.
+# O Yahoo tirou o BTC-BRL do ar (404 "Quote not found", 2026-11): o Bitcoin vem
+# em dolar (BTC-USD) e services/prices.py converte pelo dolar do dia (BRL=X).
 CRYPTO_ASSETS = {
-    "BTC": {"name": "Bitcoin", "yahoo_symbol": "BTC-BRL"},
+    "BTC": {"name": "Bitcoin", "yahoo_symbol": "BTC-USD", "yahoo_currency": "USD"},
 }
 CRYPTO_ALIASES = {"BITCOIN": "BTC", "BTC-BRL": "BTC", "XBT": "BTC"}
 

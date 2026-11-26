@@ -164,9 +164,13 @@ def record_price_quote(
     return quote_id
 
 
+# O dolar em reais no Yahoo: converte o que o Yahoo so cota em dolar (o Bitcoin).
+USD_BRL_YAHOO = "BRL=X"
+
+
 def yahoo_symbol(ticker_symbol, foreign=False):
-    """PETR4 -> PETR4.SA, BTC -> BTC-BRL. Ticker estrangeiro (ou que ja traz a
-    bolsa, como 7203.T) vai como veio."""
+    """PETR4 -> PETR4.SA, BTC -> BTC-USD (convertido depois, `usd_quoted_symbols`).
+    Ticker estrangeiro (ou que ja traz a bolsa, como 7203.T) vai como veio."""
     yf_symbol = str(ticker_symbol or "").strip().upper()
     if foreign or "." in yf_symbol:
         return yf_symbol
@@ -175,6 +179,36 @@ def yahoo_symbol(ticker_symbol, foreign=False):
     if any(char.isdigit() for char in yf_symbol):
         return f"{yf_symbol}.SA"
     return yf_symbol
+
+
+def usd_quoted_symbols(symbols_by_ticker, foreign=()):
+    """Os simbolos do Yahoo que vem em dolar mas valem em reais (cripto): o
+    fechamento deles e multiplicado pelo BRL=X. Ativo estrangeiro (`foreign`)
+    fica na moeda dele, como sempre."""
+    foreign = set(foreign or ())
+    return {
+        symbol
+        for ticker, symbol in symbols_by_ticker.items()
+        if ticker not in foreign
+        and CRYPTO_ASSETS.get(str(ticker or "").strip().upper(), {}).get("yahoo_currency") == "USD"
+    }
+
+
+def convert_series_to_brl(prices_by_date, rates_by_date):
+    """{data: preco em dolar} -> {data: preco em reais}, cada data pelo dolar do
+    mesmo dia ou do ultimo dia antes dela com cotacao (o Bitcoin negocia no fim
+    de semana, o cambio nao). Antes do primeiro cambio, o primeiro serve; sem
+    nenhum cambio, nada (melhor sem preco que um preco em dolar lido como real)."""
+    if not rates_by_date:
+        return {}
+    rate_days = sorted(rates_by_date)
+    converted = {}
+    index = 0
+    for day in sorted(prices_by_date):
+        while index + 1 < len(rate_days) and rate_days[index + 1] <= day:
+            index += 1
+        converted[day] = prices_by_date[day] * rates_by_date[rate_days[index]]
+    return converted
 
 
 def quote_age_hours(quoted_at):
@@ -379,13 +413,23 @@ def download_close_prices(yf_symbols, *, period, interval):
     return prices
 
 
+# O plano da brapi recusou lotes do tamanho configurado (QUOTES_PER_REQUEST_EXCEEDED).
+# A resposta nao muda ate o .env mudar (e o processo reiniciar): repetir a consulta
+# toda hora so gastava uma ida a rede e enchia o log com um traceback por hora
+# (95 numa semana no servidor, 2026-11-26). Lembrado pelo processo, nao gravado.
+_brapi_plan_refused = False
+
+
 def download_brapi_prices(tickers):
     """Cotacoes na brapi: um credito por lote, cache e dedupe no brapi_client.
 
     Sem BRAPI_TOKEN configurado o provedor simplesmente nao existe e o yfinance
     continua sendo o unico caminho; qualquer falha aqui tambem cai para ele.
+    Depois que o plano recusa o tamanho do lote, a brapi fica de fora ate o
+    reinicio (`_brapi_plan_refused`).
     """
-    if not tickers or not brapi_client.is_configured():
+    global _brapi_plan_refused
+    if not tickers or not brapi_client.is_configured() or _brapi_plan_refused:
         return {}
 
     try:
@@ -393,13 +437,16 @@ def download_brapi_prices(tickers):
     except brapi_client.BrapiError as exc:
         if brapi_client.QUOTES_PER_REQUEST_EXCEEDED in str(exc):
             # Nao e a brapi fora do ar: o plano aceita menos tickers por consulta.
+            _brapi_plan_refused = True
             exc = brapi_client.BrapiError(
                 f"O plano da brapi aceita menos tickers por consulta que os "
                 f"{brapi_client.MAX_SYMBOLS_PER_REQUEST} enviados: defina "
                 "BRAPI_MAX_SYMBOLS_PER_REQUEST=1 no .env (um crédito por ticker). "
                 "Até lá, as cotações vêm do yfinance."
             )
-        logger.exception(f"Erro ao consultar cotacoes na brapi: {exc}")
+            logger.warning(f"Cotacoes na brapi desligadas ate o reinicio: {exc}")
+        else:
+            logger.exception(f"Erro ao consultar cotacoes na brapi: {exc}")
         record_provider_result("brapi", False, exc)
         return {}
     record_provider_result("brapi", True)
@@ -424,7 +471,7 @@ def download_market_prices(tickers, foreign=()):
     # A brapi e o provedor primario quando ha token; o yfinance cobre o resto
     # (ticker fora da B3, token ausente, brapi fora do ar). Ativo em moeda
     # estrangeira (`foreign`) vai direto ao yfinance: a brapi e so B3. Cripto
-    # tambem (BTC-BRL no Yahoo).
+    # tambem (BTC-USD no Yahoo, vezes o BRL=X).
     foreign = set(foreign or ())
     prices = download_brapi_prices([
         ticker for ticker in tickers if ticker not in foreign and ticker not in CRYPTO_ASSETS
@@ -436,15 +483,21 @@ def download_market_prices(tickers, foreign=()):
         return prices
 
     symbols_by_ticker = {ticker: yahoo_symbol(ticker, foreign=ticker in foreign) for ticker in tickers}
-    yf_symbols = sorted(set(symbols_by_ticker.values()))
+    in_usd = usd_quoted_symbols(symbols_by_ticker, foreign)
+    yf_symbols = sorted(set(symbols_by_ticker.values()) | ({USD_BRL_YAHOO} if in_usd else set()))
 
     symbol_prices = download_close_prices(yf_symbols, period="1d", interval="1m")
     missing_symbols = [symbol for symbol in yf_symbols if symbol not in symbol_prices]
     if missing_symbols:
         symbol_prices.update(download_close_prices(missing_symbols, period="5d", interval="1d"))
 
+    usd_brl = symbol_prices.get(USD_BRL_YAHOO)
     for ticker, yf_symbol in symbols_by_ticker.items():
         price = symbol_prices.get(yf_symbol)
+        if price is not None and yf_symbol in in_usd:
+            # Sem o dolar do dia nao ha preco: um BTC-USD lido como reais seria
+            # um sexto do valor.
+            price = price * usd_brl if usd_brl else None
         if price is not None:
             prices[ticker] = rounded_money(price)
     return prices
@@ -456,7 +509,8 @@ def download_monthly_history(tickers, start_date):
         return historical_prices
 
     symbols_by_ticker = {ticker: yahoo_symbol(ticker) for ticker in tickers}
-    yf_symbols = sorted(set(symbols_by_ticker.values()))
+    in_usd = usd_quoted_symbols(symbols_by_ticker)
+    yf_symbols = sorted(set(symbols_by_ticker.values()) | ({USD_BRL_YAHOO} if in_usd else set()))
 
     try:
         data = yf.download(
@@ -473,20 +527,28 @@ def download_monthly_history(tickers, start_date):
         logger.exception(f"Erro ao consultar historico no yfinance: {exc}")
         return historical_prices
 
+    rates = closes_by_key(data, USD_BRL_YAHOO, "%Y-%m") if in_usd else {}
     for ticker, yf_symbol in symbols_by_ticker.items():
-        close_values = extract_close_values(data, yf_symbol)
-        if close_values is None:
-            continue
-
-        for date, price in close_values.items():
-            try:
-                numeric_price = float(price)
-            except (TypeError, ValueError):
-                continue
-            if math.isfinite(numeric_price):
-                historical_prices[ticker][date.strftime("%Y-%m")] = rounded_money(numeric_price)
+        closes = closes_by_key(data, yf_symbol, "%Y-%m")
+        if yf_symbol in in_usd:
+            closes = convert_series_to_brl(closes, rates)
+        for month, price in closes.items():
+            historical_prices[ticker][month] = rounded_money(price)
 
     return historical_prices
+
+
+def closes_by_key(data, yf_symbol, date_format):
+    """{data formatada: fechamento finito} de um simbolo do download."""
+    close_values = extract_close_values(data, yf_symbol)
+    result = {}
+    if close_values is None:
+        return result
+    for date, price in close_values.items():
+        numeric_price = safe_float(price, None)
+        if numeric_price is not None and math.isfinite(numeric_price):
+            result[date.strftime(date_format)] = numeric_price
+    return result
 
 
 def extract_split_events(data, yf_symbol):
@@ -528,7 +590,8 @@ def download_daily_history(tickers, start_date):
         return result
 
     symbols_by_ticker = {ticker: yahoo_symbol(ticker) for ticker in tickers}
-    yf_symbols = sorted(set(symbols_by_ticker.values()))
+    in_usd = usd_quoted_symbols(symbols_by_ticker)
+    yf_symbols = sorted(set(symbols_by_ticker.values()) | ({USD_BRL_YAHOO} if in_usd else set()))
     try:
         data = yf.download(
             tickers=" ".join(yf_symbols),
@@ -545,15 +608,13 @@ def download_daily_history(tickers, start_date):
         logger.exception(f"Erro ao consultar historico diario no yfinance: {exc}")
         return result
 
+    rates = closes_by_key(data, USD_BRL_YAHOO, "%Y-%m-%d") if in_usd else {}
     for ticker, yf_symbol in symbols_by_ticker.items():
         result["splits"][ticker] = extract_split_events(data, yf_symbol)
-        close_values = extract_close_values(data, yf_symbol)
-        if close_values is None:
-            continue
-        for date, price in close_values.items():
-            numeric_price = safe_float(price, None)
-            if numeric_price is not None and math.isfinite(numeric_price) and numeric_price > 0:
-                result["prices"][ticker][date.strftime("%Y-%m-%d")] = numeric_price
+        closes = {day: price for day, price in closes_by_key(data, yf_symbol, "%Y-%m-%d").items() if price > 0}
+        if yf_symbol in in_usd:
+            closes = convert_series_to_brl(closes, rates)
+        result["prices"][ticker].update(closes)
     return result
 
 
