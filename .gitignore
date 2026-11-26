@@ -79,3 +79,10 @@ Desktop.ini
 
 # Cache do pytest
 .pytest_cache/
+
+# ==========================================
+# DOCUMENTACAO E CLAUDE (dono, 2026-11-26)
+# ==========================================
+# Nenhum .md nem arquivo do Claude vai para o GitHub: ficam so neste PC.
+*.md
+.claude/
