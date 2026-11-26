@@ -83,6 +83,7 @@ Desktop.ini
 # ==========================================
 # DOCUMENTACAO E CLAUDE (dono, 2026-11-26)
 # ==========================================
-# Nenhum .md nem arquivo do Claude vai para o GitHub: ficam so neste PC.
+# Nenhum .md nem arquivo do Claude vai para o GitHub (so o README.md da raiz): ficam so neste PC.
 *.md
+!/README.md
 .claude/
