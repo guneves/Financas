@@ -301,6 +301,47 @@ class TestAutoConfirm:
         assert len(decisions(world, "auto_confirm")) == 1
         assert user
 
+    def test_concurrent_reads_confirm_and_record_once(self, client, auth, flash, user, clock, monkeypatch):
+        # Inicio pede /api/home, /api/home/panels e /api/budgets juntos e cada leitura
+        # passa por confirm_due: as tres viam a linha ainda a revisar e cada uma
+        # gravava um auto_confirm (3 por linha no servidor, 2026-11-25). Aqui a
+        # segunda leitura ve a lista velha, como a que leu antes do commit da primeira.
+        world = World(client, auth, None)
+        review_days(world, 3)
+        clock(2026, 10, 21)
+        send(client, auth, detection("PURCHASE", 3200, at=ms(2026, 10, 20, 12, 0), app=FLASH, merchant="RESTAURANTE"))
+        clock(2026, 10, 24)
+        db = importlib.import_module("db")
+        review_auto = importlib.import_module("services.review_auto")
+        with db.get_db() as conn:
+            stale = review_auto._due_transactions(conn, user["id"], "2026-10-21")
+        assert len(stale) == 1
+        assert world.call("get", "/api/review")["count"] == 0
+        monkeypatch.setattr(review_auto, "_due_transactions", lambda *_args: stale)
+        with db.get_db() as conn:
+            assert review_auto.confirm_due(conn, user["id"], date(2026, 10, 24)) == 0
+        assert len(decisions(world, "auto_confirm")) == 1
+
+    def test_concurrent_reads_confirm_a_card_purchase_once(self, client, auth, user, clock, monkeypatch):
+        world = World(client, auth, None)
+        notifications_on(client, auth)
+        world.call("post", "/api/credit-cards", json={"name": "Itaú Visa", "due_day": 10, "closing_day": 3})
+        review_days(world, 3)
+        clock(2026, 10, 21)
+        send(client, auth, detection("CREDIT_PURCHASE", 30000, at=ms(2026, 10, 20, 12, 0), app=ITAU,
+                                     merchant="LOJA 123", installments=3))
+        clock(2026, 10, 23)
+        db = importlib.import_module("db")
+        review_auto = importlib.import_module("services.review_auto")
+        with db.get_db() as conn:
+            stale = review_auto._due_purchases(conn, user["id"], "2026-10-20")
+        assert len(stale) == 1
+        assert world.call("get", "/api/review")["count"] == 0
+        monkeypatch.setattr(review_auto, "_due_purchases", lambda *_args: stale)
+        with db.get_db() as conn:
+            assert review_auto.confirm_due(conn, user["id"], date(2026, 10, 23)) == 0
+        assert len(decisions(world, "auto_confirm")) == 1
+
     def test_undo_puts_it_back_for_good(self, client, auth, flash, user, clock):
         world = World(client, auth, None)
         review_days(world, 3)

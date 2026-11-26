@@ -111,13 +111,38 @@ def confirm_due(conn, current_user_id, today=None):
     return confirmed
 
 
+def _claim(conn, current_user_id, table, target_id):
+    """Tira da revisao so se a linha ainda esta la; diz se foi esta chamada.
+
+    Inicio pede varias leituras juntas e cada uma passa por `confirm_due`: as
+    que leram a lista antes do commit da primeira viam a linha ainda a revisar
+    e gravavam o mesmo auto_confirm de novo (3 por linha no servidor,
+    2026-11-25). O UPDATE condicional e atomico: so um ganha."""
+    if table == "transactions":
+        cursor = conn.execute(
+            "UPDATE transactions SET needs_review = 0 WHERE id = ? AND user_id = ? AND needs_review = 1",
+            (target_id, current_user_id),
+        )
+    else:
+        cursor = conn.execute(
+            """
+            UPDATE cc_expenses SET needs_review = 0
+            WHERE user_id = ? AND needs_review = 1
+              AND client_id = (SELECT client_id FROM cc_expenses WHERE id = ? AND user_id = ?)
+            """,
+            (current_user_id, target_id, current_user_id),
+        )
+    return cursor.rowcount > 0
+
+
 def _confirm(conn, current_user_id, table, target_id, date):
     # Uma decisao desfeita (esta ou o palpite que gravou a linha): o dono quis
     # a linha no Revisar, e ela fica la.
     if auto_decisions.was_undone(conn, current_user_id, None, table, target_id):
         return 0
     category = review.current_category(conn, current_user_id, table, target_id)
-    review.clear(conn, current_user_id, table, target_id)
+    if not _claim(conn, current_user_id, table, target_id):
+        return 0
     auto_decisions.record(
         conn, current_user_id, auto_decisions.AUTO_CONFIRM, table, target_id,
         {"date": date, "category": list(category) if category else None},
