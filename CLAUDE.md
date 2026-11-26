@@ -333,7 +333,10 @@ doesn't cover, comes only from notices (and typing).
   failing item doesn't stop the others; first tick 60 s after boot. `sync_hours`: `off` = owner's choice,
   a stored `0` means 6 h. GET only and the 6 h floor stay. **Between pulls, every 5 min** (owner 2026-11-01,
   `sync_fresh_items()`): one `GET /items/{id}` per connection, and a connection whose `lastUpdatedAt` moved past
-  our `pluggy_updated_at` is pulled at once, so a movement enters the moment Pluggy has it.
+  our `pluggy_updated_at` is pulled at once, so a movement enters the moment Pluggy has it. **Pulling Início
+  down on the APK** (owner 2026-11-26) runs the same check now (`POST /api/open-finance/refresh` → `{pulled,
+  failed}`, also with `sync_hours` off; no credentials or connection = `pulled: 0`), then re-reads; the spinner
+  belongs to the pull, not to a read (`HomeViewModel.pullRefresh()`, at most 30 s waiting for the server).
 - **A bank invoice payment is recorded from Pluggy** (`services/open_finance_invoices.py`): with no
   app row it settles that invoice through the settlement path, idempotent by Pluggy id. Recurrences
   never write on a Pluggy-mapped card or account; autopay does (Cards above), and the bank's payment joins it.

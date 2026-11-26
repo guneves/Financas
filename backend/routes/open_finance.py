@@ -118,6 +118,20 @@ def open_finance_sync(current_user_id, item_id):
     return _run(action)
 
 
+@bp.route("/api/open-finance/refresh", methods=["POST"])
+@token_required
+def open_finance_refresh(current_user_id):
+    """Puxar para atualizar (APK, Inicio; dono 2026-11-26): o que a Pluggy ja
+    trouxe do banco entra agora, sem esperar o passo de 5 min da thread. So o
+    `open_finance.sync_fresh_items()`: um GET do item por conexao e o pull so da
+    que a Pluggy atualizou depois do nosso ultimo (nunca PATCH, nada que gaste o
+    limite). Sem as credenciais ou sem conexao, `pulled: 0`: o gesto nunca falha
+    por isso. `failed` conta as conexoes cujo pull deu erro (o erro fica nelas)."""
+    results = open_finance.sync_fresh_items(current_user_id)
+    failed = sum(1 for result in results.values() if isinstance(result, dict) and result.get("error"))
+    return jsonify({"pulled": len(results) - failed, "failed": failed}), 200
+
+
 @bp.route("/api/open-finance/items/<item_id>", methods=["DELETE"])
 @token_required
 def open_finance_disconnect(current_user_id, item_id):

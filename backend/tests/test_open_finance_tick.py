@@ -246,6 +246,58 @@ class TestTheMomentPluggyHasIt:
         assert [call for call in world.fake.calls if call[0] == "get_item" and call[1] in mine] == []
 
 
+class TestPullToRefresh:
+    """Dono, 2026-11-26: puxar o Inicio do celular traz o que a Pluggy ja tem,
+    sem esperar o passo de 5 min (POST /api/open-finance/refresh)."""
+
+    REFRESH = "/api/open-finance/refresh"
+
+    def test_what_pluggy_just_brought_enters_at_once(self, world, refresh, user):
+        itau_item, made, _wise, _broker = everything(world)
+        refresh.refresh_all_users(NOW)
+        set_last_sync(RECENT)
+        world.fake.add_tx(made["bank"][0], bank_tx(-45.9, "2026-10-27", "COMPRA PADARIA"))
+        world.fake.items[itau_item]["lastUpdatedAt"] = "2026-10-27T17:55:00.000Z"
+        world.fake.calls.clear()
+
+        body = world.call("post", self.REFRESH, json={})
+
+        assert body == {"pulled": 1, "failed": 0}
+        assert {call[1] for call in world.fake.calls if call[0] == "list_accounts"} == {itau_item}
+        assert {call[0] for call in world.fake.calls} <= PLUGGY_READS
+        assert [row["amount"] for row in world.transactions(made["bank"][2])] == [45.9]
+
+    def test_nothing_new_reads_only_the_items(self, world, refresh):
+        everything(world)
+        refresh.refresh_all_users(NOW)
+        set_last_sync(RECENT)
+        world.fake.calls.clear()
+        assert world.call("post", self.REFRESH, json={}) == {"pulled": 0, "failed": 0}
+        assert {call[0] for call in world.fake.calls} == {"get_item"}
+
+    def test_it_works_with_the_automatic_search_off(self, world, refresh, user):
+        """"Desligada" e o dono escolhendo puxar a mao; o gesto e a mao."""
+        itau_item, made, _wise, _broker = everything(world)
+        refresh.refresh_all_users(NOW)
+        world.call("patch", SETTINGS, json={"sync_hours": 0})
+        world.fake.add_tx(made["bank"][0], bank_tx(-12.5, "2026-10-27", "COMPRA PADARIA"))
+        world.fake.items[itau_item]["lastUpdatedAt"] = "2099-01-01T00:00:00.000Z"
+        assert world.call("post", self.REFRESH, json={})["pulled"] == 1
+
+    def test_a_failing_connection_is_counted_not_raised(self, world, refresh, monkeypatch):
+        itau_item, _made, _wise, _broker = everything(world)
+        refresh.refresh_all_users(NOW)
+        world.fake.items[itau_item]["lastUpdatedAt"] = "2099-01-01T00:00:00.000Z"
+        open_finance = importlib.import_module("services.open_finance")
+        monkeypatch.setattr(open_finance, "sync_item", lambda *args, **kwargs: (_ for _ in ()).throw(LookupError("x")))
+        assert world.call("post", self.REFRESH, json={}) == {"pulled": 0, "failed": 1}
+
+    def test_without_connections_it_is_a_quiet_zero(self, client, auth):
+        response = client.post(self.REFRESH, json={}, headers=auth)
+        assert response.status_code == 200
+        assert response.get_json() == {"pulled": 0, "failed": 0}
+
+
 def test_the_client_still_refuses_patch():
     client = pluggy_client.PluggyClient("id", "segredo", "https://exemplo.invalid", 1)
     with pytest.raises(pluggy_client.PluggyError):

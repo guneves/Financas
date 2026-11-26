@@ -3,13 +3,17 @@ package br.financas.app.data
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * O Inicio sobre a API, os mesmos pedidos da web (pages/Dashboard.jsx, lib/attention.js):
  * GET /api/home?months=12, GET /api/home/panels, GET /api/attention, GET /api/budgets?month=, com a copia guardada
  * primeiro (CachedReader); e as duas acoes, so com o servidor (nunca na fila): pagar uma fatura
  * (POST /api/cc-expenses/pay-invoice, uma por pedido) e lancar as recorrencias
- * (POST /api/recurring/run).
+ * (POST /api/recurring/run); e o puxar para atualizar pede ao servidor o que a Pluggy ja trouxe
+ * (POST /api/open-finance/refresh).
  */
 class HomeRepository(
     private val reader: CachedReader,
@@ -45,6 +49,19 @@ class HomeRepository(
             is InboxWrite.SessionExpired -> result
         }
 
+    /**
+     * Puxar para atualizar: o servidor le (GET) a Pluggy e puxa ja a conexao que ela atualizou,
+     * sem esperar o passo de 5 min. Devolve quantas conexoes trouxeram algo (0 sem nada novo).
+     */
+    suspend fun refreshBanks(): InboxWrite<Int> =
+        when (val result = sendWrite(sender, "POST", REFRESH_BANKS_PATH, "{}")) {
+            is InboxWrite.Done -> InboxWrite.Done(pulledOf(result.value))
+            is InboxWrite.Conflict -> result
+            is InboxWrite.Refused -> result
+            is InboxWrite.Offline -> result
+            is InboxWrite.SessionExpired -> result
+        }
+
     private fun decode(body: String): RecurringRunDto? = try {
         json.decodeFromString(RecurringRunDto.serializer(), body)
     } catch (error: SerializationException) {
@@ -61,6 +78,16 @@ class HomeRepository(
         const val ATTENTION_PATH = "/api/attention"
         const val PAY_INVOICE_PATH = "/api/cc-expenses/pay-invoice"
         const val RUN_RECURRING_PATH = "/api/recurring/run"
+        const val REFRESH_BANKS_PATH = "/api/open-finance/refresh"
+
+        /** O `pulled` da resposta de [REFRESH_BANKS_PATH]; 0 num corpo que nao e o esperado. */
+        fun pulledOf(body: String): Int = try {
+            ApiJson.parseToJsonElement(body).jsonObject["pulled"]?.jsonPrimitive?.intOrNull ?: 0
+        } catch (error: SerializationException) {
+            0
+        } catch (error: IllegalArgumentException) {
+            0
+        }
 
         fun budgetPath(month: String): String = "/api/budgets?month=$month"
 

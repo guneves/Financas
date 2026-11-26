@@ -7,35 +7,37 @@
 
 ---
 
-## Session — 2026-11-22 · No Revisar: confirmation is automatic, branch `ccr-de45a0e2-oil9rl`
+## Session — 2026-11-26 · APK pull to refresh on Início, on `main`
 
-Owner's ask: "Remova o repasse na hora da receita e remova a opção de confirmar as receitas e despesas. Quero que
-seja automatico."
+Owner's ask: "Conserte a função de refresh do celular, ela não funciona hoje" (asked which one: the pull on Início).
 
-**Done** (UI only, web and APK; the server is unchanged):
-- Web: `ReviewPanel.jsx` deleted; Extrato without the Revisar panel, the "A revisar" badge and the "Revisão" filter
-  (`?review=1` is ignored); `Layout.jsx` without the "para revisar" pill and the Extrato tab count; Conta global
-  without "É meu"/"Confirmar todos"/badge; Ajustes › Avisos do celular without "Revisar sai sozinho depois de";
-  "Decidido sozinho" hides `auto_confirm` (`shownDecisions()` in `lib/autoDecisions.js`); `lib/review.js` keeps only
-  the card-statement merge and `waitingNoticeText()`. `npm test` 247/247, `vite build` OK.
-- APK: same cuts (`ReviewSection.kt` keeps only `WaitingPanel`; `ReviewPill`, `ShellChrome.reviewCount`,
-  `ShellViewModel.refreshReview()` and the 60 s poll gone; `ReviewAutoBlock` gone; GlobalAccount `confirm()` gone;
-  `AutoDecisions.shownDecisions()`; 29 orphaned strings removed). JVM tests updated (`ReviewRulesTest`,
-  `ExtratoRulesTest`, `AutoDecisionsTest`).
-- Docs: CLAUDE.md (repasse, Review, Review confirms itself, Twins), mobile-docs shell/extrato/architecture.
+**Done:**
+- Reproduced on the emulator (debug APK against a throwaway local backend): the gesture fires and re-reads, so it
+  "did nothing" for two reasons. (1) Each resume starts `readHome()`; a pull cancelled that read and its `finally`
+  turned the spinner off at once, so a pull right after opening the app snapped back while the read went on. (2) The
+  pull only re-read what the server had; nothing new from the bank comes until the thread's 5-minute check.
+- APK: `HomeViewModel.pullRefresh()` owns the spinner (a `pullJob`; `readHome()` no longer touches `refreshing`):
+  re-reads at once, calls `HomeRepository.refreshBanks()` (≤ 30 s, cancellable), re-reads again if it pulled
+  something, waits for the home read. `HomeRepositoryTest` (5). All 603 JVM tests pass; debug build OK.
+- Backend: `POST /api/open-finance/refresh` → `sync_fresh_items()` (GET only; works with `sync_hours` off; no
+  credentials/connections → `{pulled: 0, failed: 0}`). `TestPullToRefresh` in `test_open_finance_tick.py` (5),
+  route map updated.
+- Docs: CLAUDE.md ("Everything updates by itself"), mobile-docs 03-inicio, done-tasks.
+- Another session (same tree) removed ROADMAP.md and docs/automation-prompt.md (done/superseded) in 1c366dd; code
+  comments still say "automation-prompt N.N" as phase labels, and the file is in git history.
 
 **Not done and why:**
-- **The APK was not compiled or tested here**: the container has no Android SDK. Run `gradlew testDebugUnitTest
-  assembleDebug` on the PC before installing; the edits were checked by grep for dangling references only.
-- Backend untouched on purpose: `needs_review` still lets Pluggy fill/confirm the category of a notified row, and
-  `review_auto.py` still clears it after `review_auto_days` (default 3). If the owner had set that to 0 ("Nunca"),
-  rows keep `needs_review` forever — invisible now, harmless, but `PATCH /api/inbox/settings {review_auto_days: 3}`
-  restores the old behaviour. `POST /api/review` (with `repasse`), `review_count`, `InboxRepository.setReviewAutoDays`
-  and `ReviewRepository.confirm` stay for old APKs; remove once no old APK is installed.
-- The undo of `transfer_guess`/`fx_fallback` still "puts the row back in review", which is now invisible (toast
-  "Desfeito."). Left as is.
+- Not on the owner's phone or the real server: no SSH this session (denied), and the emulator can't reach the
+  tailnet server without the owner's password. The pull with a real Pluggy connection is covered only by the
+  backend tests. After deploy, check on the phone: pull Início right after opening → spinner stays until the data lands.
+- The other screens still have no pull to refresh (they re-read on resume); not asked.
+- Only the backend chunk touched was run (`test_open_finance_tick.py`, `test_route_map.py`, `test_architecture.py`),
+  not the whole suite (OOM on this PC in one process; see memory).
 
-**Next:** build/test the APK on the PC, then the previous session's "Next" (B-series merge/deploy watch list).
+**Next:** deploy (push to `main`), install the new APK, owner checks the pull. Then the previous "Next".
 
 **Lessons:**
-- `GET /api/review` is still the web/APK source for `waiting` (WaitingItems / WaitingPanel): don't delete the read.
+- Testing the APK locally: build with `-PfinancasApiBase=http://10.0.2.2:5000`, a temporary
+  `app/src/debug/AndroidManifest.xml` with `usesCleartextTraffic`, and the `https://` check in `Outbox.java`
+  (`Endereço da API inválido.`) relaxed for `10.0.2.2`; revert both. Sign up on a scratch DB with `ALLOW_SIGNUP=1`
+  (`/api/auth/signup` needs `username`). `adb shell input swipe 540 500 540 1600 1200` is a pull.

@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Um toast da tela; [info] = o tom informativo da web (o resto e sucesso). */
 data class HomeNotice(val message: String, val info: Boolean = false)
@@ -123,6 +124,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     val notices: SharedFlow<HomeNotice> = _notices.asSharedFlow()
 
     private var homeJob: Job? = null
+    private var pullJob: Job? = null
     private var cleared = false
 
     /** O Inicio com os pendentes por cima; null ate a primeira resposta. */
@@ -155,34 +157,45 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         readPending()
     }
 
-    /** Puxar para atualizar: o giro fica ate /api/home responder. */
+    /**
+     * Puxar para atualizar: rele tudo na hora e pede ao servidor o que a Pluggy ja trouxe do banco
+     * (POST /api/open-finance/refresh); se entrou algo, rele de novo. O giro e deste pedido, nao de
+     * uma leitura: a leitura do RESUMED que esta releitura cancela nao o apaga antes da hora (o gesto
+     * parecia nao fazer nada, dono 2026-11-26).
+     */
     fun pullRefresh() {
+        if (pullJob?.isActive == true) return
         refreshing = true
-        refreshAll()
+        pullJob = viewModelScope.launch {
+            try {
+                refreshAll()
+                val banks = withTimeoutOrNull(BANK_REFRESH_TIMEOUT_MS) { repo.refreshBanks() }
+                if (banks is InboxWrite.Done && banks.value > 0 && !cleared) refreshAll()
+                homeJob?.join()
+            } finally {
+                refreshing = false
+            }
+        }
     }
 
     private fun readHome() {
         homeJob?.cancel()
         homeJob = viewModelScope.launch {
-            try {
-                repo.home().collect { load ->
-                    when (load) {
-                        is Load.Cached -> if (home == null) {
-                            home = load.value
-                            cachedAt = load.storedAt
-                        }
-                        is Load.Fresh -> {
-                            home = load.value
-                            cachedAt = null
-                            offline = false
-                            sessionExpired = false
-                            loadError = ""
-                        }
-                        is Load.Failed -> homeFailed(load)
+            repo.home().collect { load ->
+                when (load) {
+                    is Load.Cached -> if (home == null) {
+                        home = load.value
+                        cachedAt = load.storedAt
                     }
+                    is Load.Fresh -> {
+                        home = load.value
+                        cachedAt = null
+                        offline = false
+                        sessionExpired = false
+                        loadError = ""
+                    }
+                    is Load.Failed -> homeFailed(load)
                 }
-            } finally {
-                refreshing = false
             }
         }
     }
@@ -378,3 +391,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (cleared) Toast.makeText(app, message, Toast.LENGTH_LONG).show() else actionError = message
     }
 }
+
+/**
+ * Quanto o giro do puxar espera o servidor ler a Pluggy. Passou, a tela fica com o que ja releu; o
+ * pull segue no servidor e aparece na proxima leitura.
+ */
+private const val BANK_REFRESH_TIMEOUT_MS = 30_000L

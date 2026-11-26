@@ -102,6 +102,7 @@ EXPECTED_ROUTES = {
     ("/api/open-finance/connect-token", "POST"),
     ("/api/open-finance/items", "POST"),
     ("/api/open-finance/items/<item_id>/sync", "POST"),
+    ("/api/open-finance/refresh", "POST"),
     ("/api/open-finance/items/<item_id>", "DELETE"),
     ("/api/open-finance/accounts/<account_id>", "PUT"),
     ("/api/open-finance/history/preview", "POST"),

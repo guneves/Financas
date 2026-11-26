@@ -109,7 +109,10 @@ nesta fatura.", 404 "Cartao nao encontrado.", 400 account messages.
 ## Data
 Native (`ui/home/HomeViewModel.kt`, `data/HomeRepository.kt`): three independent reads through
 `CachedReader` (cache first, then the network; one failing hides nothing else; "atualizado às HH:MM"
-while the copy shown is the stored one), re-read on every resume of the screen and by pull to refresh:
+while the copy shown is the stored one), re-read on every resume of the screen and by pull to refresh.
+Pull to refresh (2026-11-26) also sends `POST /api/open-finance/refresh` (what Pluggy already brought
+enters now, GET-only on the server) and re-reads again when it pulled something; the spinner lasts the
+whole pull (up to 30 s for the server), never cut short by the resume read it replaces:
 
 | Read | Request | Fields used |
 |---|---|---|
