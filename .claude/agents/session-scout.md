@@ -31,7 +31,6 @@ cd backend && ../.venv/Scripts/python.exe -m pytest -q 2>&1 | tail -3
 
 The handoff keeps only the latest session. If it refers to an earlier one ("as the previous session
 found…"), look it up with `git log -p docs/handoff.md`.
-`ROADMAP.md` is historical; skip it unless the briefing needs a fact you cannot find elsewhere.
 
 ## What to report
 

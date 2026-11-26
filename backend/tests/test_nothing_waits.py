@@ -1,4 +1,4 @@
-"""Tudo automatico, Fase 1.3 (docs/automation-prompt.md): nada espera o dono.
+"""Tudo automatico, Fase 1.3 (automation-prompt): nada espera o dono.
 
 - A ponta so da Corretora (a Pluggy da BTG Investimentos traz a TED, o banco
   nao): passada TRANSFER_MATCH_DAYS, vira o aporte/resgate com o banco ao lado

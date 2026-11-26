@@ -1,5 +1,5 @@
 """Tudo automatico, fase 2: nenhuma linha da carteira espera o dono sem motivo
-(docs/automation-prompt.md; services/open_finance_investments.py e
+(automation-prompt; services/open_finance_investments.py e
 services/open_finance_fixed_income.py).
 
 O que estes testes protegem, cada regra com a forma real que a Pluggy mandou

@@ -1,4 +1,4 @@
-"""Tudo automatico, Fase 1 (docs/automation-prompt.md, dono 2026-11-18): o
+"""Tudo automatico, Fase 1 (automation-prompt, dono 2026-11-18): o
 Revisar decide sozinho.
 
 1.1 A categoria da Pluggy preenche uma linha ainda na padrao: o aviso nasce em

@@ -1,4 +1,4 @@
-"""Tudo automatico, Fase 3 (docs/automation-prompt.md): vigiar e provar.
+"""Tudo automatico, Fase 3 (automation-prompt): vigiar e provar.
 
 - `GET /api/review/auto` filtra por regra (`kinds`, `conference` = o que a
   Conferencia mostra em "Resolvido automaticamente") e por dias (`days`);

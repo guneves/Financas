@@ -1,4 +1,4 @@
-"""Tudo automatico, Fase 1.4 (docs/automation-prompt.md): os conflitos da
+"""Tudo automatico, Fase 1.4 (automation-prompt): os conflitos da
 Pluggy se resolvem sozinhos (services/conflict_resolution.py).
 
 - `changed`: 7 dias depois de apontado, o valor do banco vale, menos no valor
