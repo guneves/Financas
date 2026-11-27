@@ -103,6 +103,20 @@ class TestIdentity:
 
 
 class TestQuote:
+    def test_an_old_position_named_bitcoin_is_quoted_as_btc_brl(self, prices_module, market, monkeypatch):
+        # Posicao gravada antes do ticker canonico: o ticker no banco e "BITCOIN".
+        quotes, calls = market
+        quotes["BTC-BRL"] = 612345.67
+        monkeypatch.setattr(prices_module.brapi_client, "is_configured", lambda: True)
+
+        def _brapi(tickers):
+            assert "BITCOIN" not in tickers
+            return {}
+
+        monkeypatch.setattr(prices_module.brapi_client, "get_market_prices", _brapi)
+        assert prices_module.download_market_prices(["BITCOIN"]) == {"BITCOIN": 612345.67}
+        assert calls and all(symbols == ["BTC-BRL"] for symbols in calls)
+
     def test_the_quote_is_btc_brl_on_yahoo_and_never_brapi(self, prices_module, market, monkeypatch):
         quotes, calls = market
         quotes["BTC-BRL"] = 612345.67

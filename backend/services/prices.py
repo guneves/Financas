@@ -24,7 +24,7 @@ try:
 except ImportError:
     yf = None
 
-from asset_classes import CRYPTO_ASSETS, is_quoted_asset
+from asset_classes import CRYPTO_ASSETS, crypto_ticker, is_quoted_asset
 import brapi_client
 import history_store
 from integrations import record_provider_result
@@ -170,8 +170,9 @@ def yahoo_symbol(ticker_symbol, foreign=False):
     yf_symbol = str(ticker_symbol or "").strip().upper()
     if foreign or "." in yf_symbol:
         return yf_symbol
-    if yf_symbol in CRYPTO_ASSETS:
-        return CRYPTO_ASSETS[yf_symbol]["yahoo_symbol"]
+    if crypto_ticker(yf_symbol):
+        # "BITCOIN", "XBT" ou "BTC" (posicao gravada antes do ticker canonico).
+        return CRYPTO_ASSETS[crypto_ticker(yf_symbol)]["yahoo_symbol"]
     if any(char.isdigit() for char in yf_symbol):
         return f"{yf_symbol}.SA"
     return yf_symbol
@@ -427,7 +428,7 @@ def download_market_prices(tickers, foreign=()):
     # tambem (BTC-BRL no Yahoo).
     foreign = set(foreign or ())
     prices = download_brapi_prices([
-        ticker for ticker in tickers if ticker not in foreign and ticker not in CRYPTO_ASSETS
+        ticker for ticker in tickers if ticker not in foreign and not crypto_ticker(ticker)
     ])
     tickers = [ticker for ticker in tickers if ticker not in prices]
     if not tickers:
